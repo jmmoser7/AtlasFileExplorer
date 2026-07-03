@@ -33,7 +33,7 @@ impl SidebarTokens {
 }
 
 /// Bordered card with a collapsible header row and optional body.
-pub fn sidebar_section<R>(
+pub fn sidebar_section(
     ui: &mut Ui,
     id: Id,
     title: &str,
@@ -123,7 +123,7 @@ pub fn sidebar_toolbar_row(ui: &mut Ui, add_controls: impl FnOnce(&mut Ui)) {
 }
 
 /// Full-width checkbox with inline label.
-pub fn sidebar_checkbox_row(ui: &mut Ui, value: &mut bool, label: impl Into<RichText>) -> bool {
+pub fn sidebar_checkbox_row(ui: &mut Ui, value: &mut bool, label: impl Into<egui::WidgetText>) -> bool {
     ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
     let changed = ui.checkbox(value, label).changed();
     ui.add_space(SidebarTokens::ROW_GAP);
