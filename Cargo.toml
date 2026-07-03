@@ -1,0 +1,39 @@
+[package]
+name = "native-file-atlas"
+version = "0.1.0"
+edition = "2021"
+description = "File Atlas — native, high-performance visual file organizer"
+
+[dependencies]
+eframe = "0.31"
+crossbeam-channel = "0.5"
+rusqlite = { version = "0.32", features = ["bundled"] }
+notify = "8"
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+dirs = "6"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+pdfium-render = { version = "0.8", features = ["thread_safe"] }
+
+[dependencies.windows]
+version = "0.61"
+features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
+]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+
+[profile.dev]
+opt-level = 1
+
+# Dependencies (egui, image decoding) are far too slow at opt-level 0.
+[profile.dev.package."*"]
+opt-level = 2

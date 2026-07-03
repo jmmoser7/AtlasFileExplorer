@@ -1,0 +1,13 @@
+/target/
+**/.atlas-cache/
+
+# Local IDE / OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+Desktop.ini
+
+# Secrets (never commit)
+.env
+*.env.local
