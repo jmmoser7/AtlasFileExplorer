@@ -3,6 +3,7 @@
 
 mod advanced;
 mod readouts;
+mod sidebar;
 mod tabs;
 mod tools;
 mod widgets;

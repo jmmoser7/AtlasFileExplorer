@@ -31,6 +31,7 @@ pub fn thin_sidebar_slider(
     label: &str,
     unit: &str,
     hover: &str,
+    sub_color: Color32,
 ) -> bool {
     let before = *value;
     ui.scope(|ui| {
@@ -47,16 +48,12 @@ pub fn thin_sidebar_slider(
     .inner
     .on_hover_text(hover);
     ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(label)
-                .small()
-                .color(Color32::from_gray(120)),
-        );
+        ui.label(egui::RichText::new(label).small().color(sub_color));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
                 egui::RichText::new(format!("{} {}", *value, unit))
                     .small()
-                    .color(Color32::from_gray(120)),
+                    .color(sub_color),
             );
         });
     });
@@ -80,7 +77,8 @@ pub fn gear_menu<F>(ui: &mut Ui, _id: &str, build: F)
 where
     F: FnOnce(&mut Ui),
 {
-    ui.menu_button("⚙", build)
+    let icon = egui::RichText::new("⚙").size(8.0);
+    ui.menu_button(icon, build)
         .response
         .on_hover_text("Choose visible panels");
 }

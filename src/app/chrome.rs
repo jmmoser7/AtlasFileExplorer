@@ -32,7 +32,10 @@ impl ToolPanel {
     pub fn default_on(self) -> bool {
         matches!(
             self,
-            ToolPanel::BasicFilters | ToolPanel::DisplaySettings | ToolPanel::Workflow | ToolPanel::Tags
+            ToolPanel::BasicFilters
+                | ToolPanel::DisplaySettings
+                | ToolPanel::Workflow
+                | ToolPanel::Tags
         )
     }
 }
@@ -62,6 +65,8 @@ impl ReadoutPanel {
 #[derive(Clone, Debug)]
 pub struct ChromeConfig {
     pub tools: [bool; 4],
+    /// Within-section expand/collapse (gear menu still controls overall visibility).
+    pub tools_expanded: [bool; 4],
     pub readouts: [bool; 1],
     /// Advanced tools (pre-warm, shared cache path) — floating window, not a rail panel.
     pub advanced_open: bool,
@@ -73,12 +78,17 @@ impl Default for ChromeConfig {
         for p in ToolPanel::ALL {
             tools[p as usize] = p.default_on();
         }
+        let mut tools_expanded = [false; 4];
+        for p in ToolPanel::ALL {
+            tools_expanded[p as usize] = true;
+        }
         let mut readouts = [false; 1];
         for p in ReadoutPanel::ALL {
             readouts[p as usize] = p.default_on();
         }
         Self {
             tools,
+            tools_expanded,
             readouts,
             advanced_open: false,
         }
@@ -92,6 +102,14 @@ impl ChromeConfig {
 
     pub fn set_tool(&mut self, panel: ToolPanel, on: bool) {
         self.tools[panel as usize] = on;
+    }
+
+    pub fn tool_expanded(&self, panel: ToolPanel) -> bool {
+        self.tools_expanded[panel as usize]
+    }
+
+    pub fn set_tool_expanded(&mut self, panel: ToolPanel, expanded: bool) {
+        self.tools_expanded[panel as usize] = expanded;
     }
 
     pub fn readout(&self, panel: ReadoutPanel) -> bool {
