@@ -18,7 +18,20 @@ const CANDIDATES: [&str; 4] = [
 pub fn is_ooxml(ext: &str) -> bool {
     matches!(
         ext,
-        "pptx" | "ppsx" | "potx" | "pptm" | "docx" | "docm" | "dotx" | "xlsx" | "xlsm" | "xltx"
+        "pptx"
+            | "ppsx"
+            | "potx"
+            | "pptm"
+            | "ppsm"
+            | "potm"
+            | "docx"
+            | "docm"
+            | "dotx"
+            | "dotm"
+            | "xlsx"
+            | "xlsm"
+            | "xltx"
+            | "xltm"
     )
 }
 
@@ -62,11 +75,8 @@ mod tests {
         // Minimal zip with a green 32x32 PNG at the thumbnail path.
         let img = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 200, 0, 255]));
         let mut png = Vec::new();
-        img.write_to(
-            &mut std::io::Cursor::new(&mut png),
-            image::ImageFormat::Png,
-        )
-        .unwrap();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
 
         let f = std::fs::File::create(&pptx).unwrap();
         let mut z = zip::ZipWriter::new(f);

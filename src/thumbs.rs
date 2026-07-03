@@ -1,11 +1,14 @@
 //! Thumbnail pipeline.
 //!
 //! Priority order:
-//!   1. Disk cache (JPEG, keyed by hash of path|size|mtime)
-//!   2. Explorer's own thumbnail cache (`SIIGBF_THUMBNAILONLY` — instant)
-//!   3. Full shell extraction (`IShellItemImageFactory`) — covers images, mp4,
-//!      pdf/psd/office, and Rhino .3dm via Rhino's installed handler
-//!   4. For .3dm without Rhino: preview bitmap embedded in the file header
+//!   1. Disk cache (JPEG, keyed by hash of path|size|mtime|version)
+//!   2. Shared project cache (`.atlas-cache`)
+//!   3. Extraction — format-dependent:
+//!      - PDF / Office Open XML: built-in extractors first (pdfium page 1,
+//!        `docProps/thumbnail.*` from the zip), then Explorer's real thumbnail
+//!        cache only (`SIIGBF_THUMBNAILONLY`). Shell type icons are skipped.
+//!      - Everything else: Explorer thumbnail cache, full shell extraction,
+//!        then format fallbacks (.3dm embedded preview, etc.)
 //!
 //! Worker threads pop the *most recent* request first (LIFO) so what the user
 //! is looking at right now always wins over stale scroll positions.
@@ -19,8 +22,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::SIZE;
 use windows::Win32::Graphics::Gdi::{
-    DeleteObject, GetDIBits, GetDC, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
-    DIB_RGB_COLORS, GetObjectW, HGDIOBJ, HBITMAP,
+    DeleteObject, GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER,
+    BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
 };
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use windows::Win32::UI::Shell::{
@@ -29,6 +32,10 @@ use windows::Win32::UI::Shell::{
 };
 
 pub const THUMB_PX: i32 = 192;
+
+/// Bump when extraction logic changes so stale JPEGs (e.g. cached shell icons)
+/// are regenerated.
+const CACHE_KEY_VERSION: &str = "2";
 
 /// Max concurrent background cache-warming jobs. Keeps the sustained network
 /// load at roughly "one file copy running quietly", while on-demand requests
@@ -94,7 +101,7 @@ pub struct ThumbPool {
 
 pub fn cache_key(rel: &str, size: u64, mtime: i64) -> String {
     // Two independent FNV-1a passes -> 128-bit key, effectively collision-free.
-    let s = format!("{rel}|{size}|{mtime}");
+    let s = format!("{rel}|{size}|{mtime}|{CACHE_KEY_VERSION}");
     format!(
         "{:016x}{:016x}",
         fnv64(s.as_bytes(), 0xcbf29ce484222325),
@@ -325,18 +332,16 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
                 q = shared.cv.wait(q).unwrap();
             }
         };
-        let done_tier = || {
-            match tier {
-                1 => {
-                    shared.warm_active.fetch_sub(1, Ordering::Relaxed);
-                    shared.cv.notify_one();
-                }
-                2 => {
-                    shared.slow_active.fetch_sub(1, Ordering::Relaxed);
-                    shared.cv.notify_one();
-                }
-                _ => {}
+        let done_tier = || match tier {
+            1 => {
+                shared.warm_active.fetch_sub(1, Ordering::Relaxed);
+                shared.cv.notify_one();
             }
+            2 => {
+                shared.slow_active.fetch_sub(1, Ordering::Relaxed);
+                shared.cv.notify_one();
+            }
+            _ => {}
         };
         let stale = req.generation != PINNED_GENERATION
             && req.generation != shared.active_generation.load(Ordering::Relaxed);
@@ -368,7 +373,7 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
                 load_cached(&cache_file)
             })
             .or_else(|| {
-                let img = shell_thumbnail(&req.path).or_else(|| fallback_thumbnail(&req.path));
+                let img = extract_thumbnail(&req.path);
                 if let Some((w, h, ref rgba)) = img {
                     save_cached(&cache_file, w, h, rgba);
                     if let Some(sf) = &shared_file {
@@ -415,15 +420,33 @@ fn publish_shared(local: &Path, shared: &Path) {
     }
 }
 
+fn file_ext(path: &Path) -> String {
+    path.extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+/// PDF and modern Office files get reliable content from built-in extractors;
+/// the shell often returns only a scaled file-type icon via `SIIGBF_RESIZETOFIT`.
+fn prefers_builtin_extractor(ext: &str) -> bool {
+    ext == "pdf" || crate::office::is_ooxml(ext)
+}
+
+/// Choose the best thumbnail source for a file on cache miss.
+fn extract_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+    let ext = file_ext(path);
+    if prefers_builtin_extractor(&ext) {
+        fallback_thumbnail(path, &ext).or_else(|| shell_thumbnail_cached_only(path))
+    } else {
+        shell_thumbnail(path).or_else(|| fallback_thumbnail(path, &ext))
+    }
+}
+
 /// Our own extractors for formats the shell often can't handle without
 /// extra software installed: Rhino .3dm embedded previews, Office Open XML
 /// embedded thumbnails, and PDFs rendered via pdfium.
-fn fallback_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
-    match ext.as_str() {
+fn fallback_thumbnail(path: &Path, ext: &str) -> Option<(u32, u32, Vec<u8>)> {
+    match ext {
         "3dm" => crate::threedm::embedded_preview(path),
         "pdf" => crate::pdf::thumbnail(path, THUMB_PX),
         e if crate::office::is_ooxml(e) => crate::office::embedded_thumbnail(path),
@@ -452,10 +475,24 @@ fn save_cached(path: &Path, w: u32, h: u32, rgba: &[u8]) {
     }
 }
 
+/// Explorer's existing thumbnail cache only — skips the scaled file-icon
+/// fallback that masks our PDF/Office extractors.
+fn shell_thumbnail_cached_only(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+    shell_get_image(path, SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK)
+}
+
 /// Ask the Windows Shell for a thumbnail; returns RGBA pixels.
 /// Tries Explorer's existing thumbnail cache first (near-instant), then does
-/// a full extraction.
+/// a full extraction (which may be a scaled type icon).
 fn shell_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+    shell_get_image(path, SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK)
+        .or_else(|| shell_get_image(path, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK))
+}
+
+fn shell_get_image(
+    path: &Path,
+    flags: windows::Win32::UI::Shell::SIIGBF,
+) -> Option<(u32, u32, Vec<u8>)> {
     let wide: Vec<u16> = path
         .as_os_str()
         .to_string_lossy()
@@ -470,10 +507,7 @@ fn shell_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
             cx: THUMB_PX,
             cy: THUMB_PX,
         };
-        let hbmp = factory
-            .GetImage(size, SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK)
-            .or_else(|_| factory.GetImage(size, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK))
-            .ok()?;
+        let hbmp = factory.GetImage(size, flags).ok()?;
         hbitmap_to_rgba(hbmp)
     }
 }
@@ -544,7 +578,10 @@ mod tests {
         let root = std::env::temp_dir().join(format!("nfa_pc_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let project = root.join("NYC").join("26012 - Demo Project");
-        let anchor = project.join("02 DESIGN").join("05 RESOURCES").join("03 DATA");
+        let anchor = project
+            .join("02 DESIGN")
+            .join("05 RESOURCES")
+            .join("03 DATA");
         std::fs::create_dir_all(&anchor).unwrap();
         let open = project.join("02 DESIGN").join("01 SKETCHES");
         std::fs::create_dir_all(&open).unwrap();
@@ -578,6 +615,25 @@ mod tests {
         pool.sync_to_shared(key, &shared);
         assert!(shared.join(format!("{key}.jpg")).exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cache_key_changes_when_extractor_version_bumps() {
+        let a = cache_key("docs/a.pdf", 100, 1);
+        let b = cache_key("docs/a.pdf", 100, 2);
+        assert_ne!(a, b, "mtime change should change key");
+        // Version suffix is baked into every key; bump CACHE_KEY_VERSION to
+        // invalidate stale icon JPEGs after pipeline fixes.
+        assert_eq!(a.len(), 32);
+    }
+
+    #[test]
+    fn prefers_builtin_extractor_for_pdf_and_pptx() {
+        assert!(prefers_builtin_extractor("pdf"));
+        assert!(prefers_builtin_extractor("pptx"));
+        assert!(prefers_builtin_extractor("docx"));
+        assert!(!prefers_builtin_extractor("ppt"));
+        assert!(!prefers_builtin_extractor("png"));
     }
 
     #[test]

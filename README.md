@@ -89,9 +89,10 @@ cargo build --release
 Binary lands at `target/release/native-file-atlas.exe`. Optionally pass a
 folder path as the first argument to open it on launch.
 
-For PDF previews, copy `vendor/pdfium.dll` next to the exe (the app also
-finds it in `vendor/` when run from this directory). Without it, PDFs still
-get thumbnails wherever a shell PDF handler is installed.
+For PDF previews, place `pdfium.dll` in `vendor/` before building — the build
+script copies it next to the exe automatically. You can also copy it manually
+beside `native-file-atlas.exe`. Without pdfium, PDFs only preview when a shell
+PDF handler is installed and Explorer has already cached a real thumbnail.
 
 Run tests with `cargo test`.
 
