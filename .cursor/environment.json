@@ -1,0 +1,3 @@
+{
+  "install": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable && . \"$HOME/.cargo/env\" && rustup component add rustfmt clippy && cargo fetch"
+}
