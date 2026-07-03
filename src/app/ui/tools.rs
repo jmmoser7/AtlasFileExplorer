@@ -2,18 +2,28 @@
 //! Optional sub-panels are toggled from the gear menu (`chrome::ToolPanel`).
 
 use super::super::{AtlasApp, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd};
+use super::sidebar::{
+    sidebar_checkbox_row, sidebar_family_row, sidebar_option_group, sidebar_section,
+    sidebar_slider_block, sidebar_toolbar_row, SidebarTheme,
+};
 use super::widgets::{chip, gear_menu, thin_sidebar_slider};
 use crate::app::chrome::ToolPanel;
 use crate::types::FAMILIES;
-use eframe::egui::{self, Color32};
+use eframe::egui::{self, Color32, Id};
+
+fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
+    let p = app.palette();
+    SidebarTheme {
+        card: p.card,
+        border: p.border,
+        ink: p.ink,
+        sub: p.sub,
+    }
+}
 
 fn tools_gear(app: &mut AtlasApp, ui: &mut egui::Ui) {
     gear_menu(ui, "tools_gear", |ui| {
-        ui.label(
-            egui::RichText::new("Visible tool panels")
-                .small()
-                .strong(),
-        );
+        ui.label(egui::RichText::new("Visible tool panels").small().strong());
         ui.separator();
         for panel in ToolPanel::ALL {
             let mut on = app.active_chrome().tool(panel);
@@ -31,38 +41,49 @@ fn tools_gear(app: &mut AtlasApp, ui: &mut egui::Ui) {
 
 pub fn left_panel(app: &mut AtlasApp, ctx: &egui::Context) {
     let chrome = app.active_chrome().clone();
+    let theme = sidebar_theme(app);
     egui::SidePanel::left("tools_rail")
         .resizable(true)
         .default_width(200.0)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 tools_gear(app, ui);
-                ui.label(
-                    egui::RichText::new("Tools")
-                        .small()
-                        .color(Color32::from_gray(120)),
-                );
+                ui.label(egui::RichText::new("Tools").small().color(theme.sub));
             });
             ui.add_space(4.0);
 
             if chrome.tool(ToolPanel::BasicFilters) {
-                basic_filters(app, ui);
+                basic_filters(app, ui, theme);
             }
             if chrome.tool(ToolPanel::DisplaySettings) {
-                display_settings(app, ui, ctx);
+                display_settings(app, ui, ctx, theme);
             }
             if chrome.tool(ToolPanel::Workflow) {
-                workflow(app, ui);
+                workflow(app, ui, theme);
             }
             if chrome.tool(ToolPanel::Tags) {
-                tags_panel(app, ui);
+                tags_panel(app, ui, theme);
             }
         });
 }
 
-fn basic_filters(app: &mut AtlasApp, ui: &mut egui::Ui) {
-    ui.strong("Basic filters");
-    ui.add_space(2.0);
+fn basic_filters(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    let mut expanded = app.active_chrome().tool_expanded(ToolPanel::BasicFilters);
+    if sidebar_section(
+        ui,
+        Id::new("tools_basic_filters"),
+        "Basic filters",
+        None,
+        &mut expanded,
+        theme,
+        |ui| basic_filters_body(app, ui, theme),
+    ) {
+        app.active_chrome_mut()
+            .set_tool_expanded(ToolPanel::BasicFilters, expanded);
+    }
+}
+
+fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     let search = egui::TextEdit::singleline(&mut app.search)
         .hint_text("Search names…")
         .desired_width(ui.available_width());
@@ -80,20 +101,14 @@ fn basic_filters(app: &mut AtlasApp, ui: &mut egui::Ui) {
         if counts[i] == 0 {
             continue;
         }
-        ui.horizontal(|ui| {
-            let mut on = app.family_on[i];
-            let swatch = egui::RichText::new("■").color(fam.color());
-            if ui.checkbox(&mut on, "").changed() {
-                app.family_on[i] = on;
-                app.filter_dirty = true;
-            }
-            ui.label(swatch);
-            ui.label(format!(
-                "{} ({})",
-                fam.label(),
-                super::group_digits(counts[i] as u64)
-            ));
-        });
+        let label = format!(
+            "{} ({})",
+            fam.label(),
+            super::group_digits(counts[i] as u64)
+        );
+        if sidebar_family_row(ui, &mut app.family_on[i], fam.color(), &label) {
+            app.filter_dirty = true;
+        }
     }
     ui.horizontal(|ui| {
         if ui.small_button("all").clicked() {
@@ -105,10 +120,9 @@ fn basic_filters(app: &mut AtlasApp, ui: &mut egui::Ui) {
             app.filter_dirty = true;
         }
     });
-
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.label("Unchecked:");
+
+    sidebar_option_group(ui, "Unchecked:", theme, |ui| {
         let ghost = ui
             .selectable_label(app.filter_mode == FilterMode::Ghost, "ghost")
             .on_hover_text("Dim unchecked categories, but keep their positions");
@@ -124,14 +138,38 @@ fn basic_filters(app: &mut AtlasApp, ui: &mut egui::Ui) {
             app.filter_dirty = true;
         }
     });
-    ui.separator();
 }
 
-fn display_settings(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context) {
-    ui.strong("Display settings");
-    ui.add_space(2.0);
+fn display_settings(
+    app: &mut AtlasApp,
+    ui: &mut egui::Ui,
+    ctx: &egui::Context,
+    theme: SidebarTheme,
+) {
+    let mut expanded = app
+        .active_chrome()
+        .tool_expanded(ToolPanel::DisplaySettings);
+    if sidebar_section(
+        ui,
+        Id::new("tools_display_settings"),
+        "Display settings",
+        None,
+        &mut expanded,
+        theme,
+        |ui| display_settings_body(app, ui, ctx, theme),
+    ) {
+        app.active_chrome_mut()
+            .set_tool_expanded(ToolPanel::DisplaySettings, expanded);
+    }
+}
 
-    ui.horizontal(|ui| {
+fn display_settings_body(
+    app: &mut AtlasApp,
+    ui: &mut egui::Ui,
+    ctx: &egui::Context,
+    theme: SidebarTheme,
+) {
+    sidebar_toolbar_row(ui, |ui| {
         if ui.button("Fit").on_hover_text("F").clicked() {
             app.pending_view = Some(ViewCmd::Fit);
         }
@@ -168,30 +206,40 @@ fn display_settings(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context) 
     });
 
     let mut layout_changed = false;
-    layout_changed |= thin_sidebar_slider(
-        ui,
-        &mut app.grid_cols,
-        2..=30,
-        "grid columns",
-        "wide",
-        "Maximum controlled dimension of thumbnail grids",
-    );
-    layout_changed |= thin_sidebar_slider(
-        ui,
-        &mut app.portal_threshold,
-        10..=1000,
-        "portal threshold",
-        "items",
-        "Child-count threshold where collapsed folders become group previews",
-    );
-    layout_changed |= thin_sidebar_slider(
-        ui,
-        &mut app.row_spacing,
-        40..=300,
-        "row spacing",
-        "%",
-        "Offset between row datums (distance between depth levels)",
-    );
+    sidebar_slider_block(ui, |ui| {
+        layout_changed |= thin_sidebar_slider(
+            ui,
+            &mut app.grid_cols,
+            2..=30,
+            "grid columns",
+            "wide",
+            "Maximum controlled dimension of thumbnail grids",
+            theme.sub,
+        );
+    });
+    sidebar_slider_block(ui, |ui| {
+        layout_changed |= thin_sidebar_slider(
+            ui,
+            &mut app.portal_threshold,
+            10..=1000,
+            "portal threshold",
+            "items",
+            "Child-count threshold where collapsed folders become group previews",
+            theme.sub,
+        );
+    });
+    sidebar_slider_block(ui, |ui| {
+        layout_changed |= thin_sidebar_slider(
+            ui,
+            &mut app.row_spacing,
+            40..=300,
+            "row spacing",
+            "%",
+            "Offset between row datums (distance between depth levels)",
+            theme.sub,
+        );
+    });
+
     if ui
         .checkbox(
             &mut app.align_groups_to_lowest,
@@ -202,12 +250,9 @@ fn display_settings(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context) 
     {
         layout_changed = true;
     }
-    ui.label(
-        egui::RichText::new("leader lines")
-            .small()
-            .color(Color32::from_gray(120)),
-    );
-    ui.horizontal(|ui| {
+    ui.add_space(4.0);
+
+    sidebar_option_group(ui, "leader lines", theme, |ui| {
         if ui
             .selectable_label(app.leader_style == LeaderStyle::Bezier, "bezier")
             .clicked()
@@ -221,6 +266,7 @@ fn display_settings(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context) 
             app.leader_style = LeaderStyle::Orthogonal;
         }
     });
+
     if layout_changed {
         app.grid_cols = app.grid_cols.clamp(2, 30);
         app.portal_threshold = app.portal_threshold.clamp(10, 10_000);
@@ -236,39 +282,53 @@ fn display_settings(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context) 
         }
         app.relayout();
     }
-    ui.separator();
 }
 
-fn workflow(app: &mut AtlasApp, ui: &mut egui::Ui) {
-    ui.strong("Workflow");
-    if ui.checkbox(&mut app.only_untagged, "Untagged only").changed() {
-        app.filter_dirty = true;
+fn workflow(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    let mut expanded = app.active_chrome().tool_expanded(ToolPanel::Workflow);
+    if sidebar_section(
+        ui,
+        Id::new("tools_workflow"),
+        "Workflow",
+        None,
+        &mut expanded,
+        theme,
+        |ui| workflow_body(app, ui),
+    ) {
+        app.active_chrome_mut()
+            .set_tool_expanded(ToolPanel::Workflow, expanded);
     }
-    if ui
-        .checkbox(&mut app.only_unassigned, "Unassigned only")
-        .changed()
-    {
-        app.filter_dirty = true;
-    }
-    ui.separator();
 }
 
-fn tags_panel(app: &mut AtlasApp, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.strong("Tags");
-        ui.label(
-            egui::RichText::new("(click filters · drag onto files)")
-                .small()
-                .color(Color32::from_gray(120)),
-        );
-    });
-    ui.add_space(2.0);
+fn workflow_body(app: &mut AtlasApp, ui: &mut egui::Ui) {
+    if sidebar_checkbox_row(ui, &mut app.only_untagged, "Untagged only") {
+        app.filter_dirty = true;
+    }
+    if sidebar_checkbox_row(ui, &mut app.only_unassigned, "Unassigned only") {
+        app.filter_dirty = true;
+    }
+}
+
+fn tags_panel(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    let mut expanded = app.active_chrome().tool_expanded(ToolPanel::Tags);
+    if sidebar_section(
+        ui,
+        Id::new("tools_tags"),
+        "Tags",
+        Some("(click filters · drag onto files)"),
+        &mut expanded,
+        theme,
+        |ui| tags_panel_body(app, ui),
+    ) {
+        app.active_chrome_mut()
+            .set_tool_expanded(ToolPanel::Tags, expanded);
+    }
+}
+
+fn tags_panel_body(app: &mut AtlasApp, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical().show(ui, |ui| {
-        let tags: Vec<(String, usize)> = app
-            .all_tags
-            .iter()
-            .map(|(t, c)| (t.clone(), *c))
-            .collect();
+        let tags: Vec<(String, usize)> =
+            app.all_tags.iter().map(|(t, c)| (t.clone(), *c)).collect();
         for (tag, count) in tags {
             let active = app.tag_filter.contains(&tag);
             let resp = chip(

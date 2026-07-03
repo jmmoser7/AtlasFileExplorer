@@ -15,7 +15,7 @@ Everything below the tab bar belongs to the **active tab** (`TabState`):
 
 | Region | Module | Role |
 |--------|--------|------|
-| Left tools rail | `ui/tools.rs` | Filters, display settings, workflow, tags — actions on the canvas |
+| Left tools rail | `ui/tools.rs` | Filters, display settings, workflow, tags — actions on the canvas. See `ui/SIDEBAR.md` for panel layout rules. |
 | Canvas | `mod.rs` (`canvas`) | Infinite map, selection, thumbnails |
 | Bottom readouts | `ui/readouts.rs` | Metrics, scan progress, cache status — read-only |
 | Staging tray | `mod.rs` (`bottom_tray`) | Assignments / export (appears when needed) |
