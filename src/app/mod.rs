@@ -1,11 +1,16 @@
-//! Application shell and canvas.
+//! Application shell: `AtlasApp` state, workspace/tab lifecycle, channel
+//! draining, filtering, organizing actions, and the frame pump.
 //!
-//! UI hierarchy (see `ARCHITECTURE.md`):
-//! - `ui/tabs` — top chrome (tabs only)
-//! - `ui/tools` — left tools rail (per-tab, gear-configurable)
-//! - `ui/readouts` — bottom metrics bar
-//! - `ui/advanced` — floating advanced settings
+//! Module map (see `ARCHITECTURE.md` for layering rules):
+//! - `canvas` — camera math, canvas input, world-space painting
+//! - `overlays` — tray, welcome, context menu, editor/detail windows, toasts
+//! - `theme` — `Palette` + egui visuals
+//! - `platform` — OS file-manager integration (`cfg(windows)` forks)
+//! - `prewarm` — overnight shared-cache pre-warm
+//! - `commands` — input bindings registry (see `COMMANDS.md`)
 //! - `chrome` — panel registry for tools/readouts gear menus
+//! - `ui/*` — chrome: tabs strip, tools rail, readouts bar, advanced window
+//! - `tests` — headless multi-tab stability harness
 
 use crate::export::{self, ExportItem, ExportMsg};
 use crate::index::{Db, DbCmd, LoadedRoot, TagState};

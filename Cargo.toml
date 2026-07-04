@@ -3,6 +3,9 @@ name = "native-file-atlas"
 version = "0.1.0"
 edition = "2021"
 description = "File Atlas — native, high-performance visual file organizer"
+license = "MIT"
+repository = "https://github.com/jmmoser7/AtlasFileExplorer"
+readme = "README.md"
 
 [dependencies]
 eframe = "0.31"

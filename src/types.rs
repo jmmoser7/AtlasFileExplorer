@@ -1,3 +1,11 @@
+//! Core value types shared across the app: `FileEntry` (with its
+//! backslash-normalized `rel` path invariant), file `Family` classification,
+//! extension groups, and date/size formatting helpers.
+//!
+//! `FileEntry::rel` uses `\` separators on every platform so tree building,
+//! the SQLite index, and shared cache keys agree across machines. Construct
+//! entries via `from_abs`/`from_rel` — never build `rel` by hand.
+
 use eframe::egui::Color32;
 use std::path::{Path, PathBuf};
 
