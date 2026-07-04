@@ -114,7 +114,7 @@ pub fn sidebar_date_timeline(
     let total_h = track_h + scale_h;
     let width = ui.available_width().max(48.0);
     let (block, block_resp) = ui.allocate_exact_size(Vec2::new(width, total_h), Sense::hover());
-    block_resp.on_hover_text(
+    let block_resp = block_resp.on_hover_text(
         "Scroll to zoom · drag background to pan · double-click to fit · drag handles to filter",
     );
 
