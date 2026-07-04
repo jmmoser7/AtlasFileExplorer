@@ -2875,7 +2875,7 @@ impl AtlasApp {
                 if !edge_extent.expand(60.0).intersects(view) {
                     continue;
                 }
-                self.route_edge(painter, port, *tgt, routes[i], v, lod, stroke_w);
+                self.route_edge(painter, port, *tgt, routes[i], v, stroke_w);
             }
 
             if let Some(gb) = d.grid_bounds {
@@ -2946,7 +2946,6 @@ impl AtlasApp {
         tgt: Pos2,
         route: Option<(f32, f32)>,
         v: bool,
-        lod: u8,
         stroke_w: f32,
     ) {
         let pal = self.palette();
@@ -2960,10 +2959,6 @@ impl AtlasApp {
         } else {
             Pos2::new(exit, port.y)
         };
-        if lod == 0 {
-            painter.line_segment([self.w2s(start), self.w2s(tgt)], stroke);
-            return;
-        }
         let (m1, m2) = if v {
             (Pos2::new(rail, exit), Pos2::new(rail, tgt.y))
         } else {
