@@ -18,6 +18,7 @@ Everything below the tab bar belongs to the **active tab** (`TabState`):
 | Left tools rail | `ui/tools.rs` | Filters, display settings, workflow, tags — actions on the canvas. See `ui/SIDEBAR.md` for panel layout rules. |
 | Canvas | `mod.rs` (`canvas`) | Infinite map, selection, thumbnails |
 | Bottom readouts | `ui/readouts.rs` | Metrics, scan progress, cache status — read-only |
+| Pre-warm dashboard | `ui/readouts.rs` (`prewarm_dashboard`) | Temporary panel above the readouts while a pre-warm runs: discovery, progress, speed control, cancel |
 | Staging tray | `mod.rs` (`bottom_tray`) | Assignments / export (appears when needed) |
 | Advanced | `ui/advanced.rs` | Floating window (pre-warm, shared cache) — opened from tools gear |
 
@@ -48,3 +49,6 @@ multi-tab filter memory is needed.
 - Stored at `…/03 DATA/.atlas-cache`.
 - Published automatically whenever a thumbnail is read from or written to the
   local cache while a shared tier is active (`thumbs.rs` worker + `sync_to_shared`).
+- Pre-warm creates repositories in both directions: walking *up* from the
+  picked folder (picked inside a project) and while *descending* (picked a
+  folder containing projects) — see `prewarm_walk` in `app/mod.rs`.
