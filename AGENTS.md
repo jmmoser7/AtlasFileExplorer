@@ -12,12 +12,19 @@ Read `src/app/ARCHITECTURE.md` before UI changes. Module boundaries:
 | Left tools rail | `src/app/ui/tools.rs`, `chrome.rs` | Yes |
 | Bottom readouts | `src/app/ui/readouts.rs` | Yes |
 | Advanced window | `src/app/ui/advanced.rs` | Yes |
+| Commands / shortcuts | `src/app/commands.rs` | Yes — read `src/app/COMMANDS.md` |
 | Tree layout / hit-test | `src/tree.rs` | Yes |
 | Thumbnails / cache | `src/thumbs.rs` | Yes (Windows APIs) |
 | Canvas / app state | `src/app/mod.rs` | Integration point — coordinate here |
 | Scanner / index | `src/scanner.rs`, `src/index.rs` | Yes |
 
 Prefer small, focused PRs on one module. Match existing naming and egui patterns.
+
+## Commands & shortcuts
+
+Read `src/app/COMMANDS.md` before adding keyboard or mouse bindings. Every
+user-facing command must be registered in `src/app/commands.rs` (`ENTRIES`) so
+it appears in **Advanced → Commands & shortcuts**.
 
 ## Build & test (Windows — primary target)
 

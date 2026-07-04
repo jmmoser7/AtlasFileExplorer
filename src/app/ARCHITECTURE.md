@@ -19,7 +19,8 @@ Everything below the tab bar belongs to the **active tab** (`TabState`):
 | Canvas | `mod.rs` (`canvas`) | Infinite map, selection, thumbnails |
 | Bottom readouts | `ui/readouts.rs` | Metrics, scan progress, cache status — read-only |
 | Staging tray | `mod.rs` (`bottom_tray`) | Assignments / export (appears when needed) |
-| Advanced | `ui/advanced.rs` | Floating window (pre-warm, shared cache) — opened from tools gear |
+| Advanced | `ui/advanced.rs` | Floating window (pre-warm, shared cache, commands reference) — opened from tools gear |
+| Commands | `commands.rs` | Canonical keyboard/mouse bindings; see `COMMANDS.md` |
 
 Per-tab state today: `root`, `cam`, `chrome` (which sub-panels are visible).
 Filter/search values are still app-global for now; move into `TabState` when
