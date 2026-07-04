@@ -24,6 +24,8 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 mod chrome;
+#[cfg(test)]
+mod tests;
 mod ui;
 
 pub use chrome::ChromeConfig;
@@ -150,9 +152,16 @@ pub struct AtlasApp {
     scan_ui: Option<ScanUi>,
     scan_handle: Option<ScanHandle>,
     rescan_buffer: Vec<FileEntry>,
-    pending_load: Option<Receiver<LoadedRoot>>,
-    picker_rx: Option<Receiver<Option<PathBuf>>>,
-    export_picker_rx: Option<Receiver<Option<PathBuf>>>,
+    /// In-flight index load: the root it was requested for plus the reply
+    /// channel. The root is checked on arrival so a late reply can never be
+    /// ingested into a different tab's workspace.
+    pending_load: Option<(PathBuf, Receiver<LoadedRoot>)>,
+    /// Folder picker: the tab (by stable id) that asked for it. The result
+    /// lands on that tab even if the user switched or closed tabs meanwhile.
+    picker_rx: Option<(u64, Receiver<Option<PathBuf>>)>,
+    /// Export destination picker: bound to the root it was opened for, so a
+    /// tab switch mid-dialog can't export another tab's staging.
+    export_picker_rx: Option<(PathBuf, Receiver<Option<PathBuf>>)>,
 
     // filters
     search: String,
@@ -241,6 +250,9 @@ pub struct AtlasApp {
 /// lives on the app and is swapped on tab switch via the SQLite index-first
 /// load, which paints in milliseconds; the tab remembers where you were.
 struct TabState {
+    /// Stable identity: tab indices shift when tabs close, so anything async
+    /// (like the folder picker) must reference tabs by id, never by index.
+    id: u64,
     root: Option<PathBuf>,
     cam: Option<Camera>,
     chrome: ChromeConfig,
@@ -248,7 +260,9 @@ struct TabState {
 
 impl TabState {
     fn empty() -> TabState {
+        static NEXT_TAB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         TabState {
+            id: NEXT_TAB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             root: None,
             cam: None,
             chrome: ChromeConfig::default(),
@@ -268,14 +282,21 @@ impl TabState {
 
 impl AtlasApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_root: Option<PathBuf>) -> Self {
-        cc.egui_ctx.set_theme(egui::ThemePreference::Dark);
-        cc.egui_ctx.set_visuals(dark_visuals());
+        Self::with_db(&cc.egui_ctx, Db::open(), initial_root)
+    }
+
+    /// Full construction from an egui context and an explicit index DB.
+    /// Used by `new` and by the headless test harness (isolated DB, no
+    /// eframe window).
+    fn with_db(egui_ctx: &egui::Context, db: Db, initial_root: Option<PathBuf>) -> Self {
+        egui_ctx.set_theme(egui::ThemePreference::Dark);
+        egui_ctx.set_visuals(dark_visuals());
         // Dev harness: ATLAS_FAM=none starts with every family unchecked
         // (structure-only screenshot testing).
         let fam_default = !matches!(std::env::var("ATLAS_FAM").as_deref(), Ok("none"));
         let (scan_tx, scan_rx) = unbounded();
         let mut app = AtlasApp {
-            db: Db::open(),
+            db,
             thumbs: ThumbPool::new(),
             root: None,
             generation: 0,
@@ -411,6 +432,9 @@ impl AtlasApp {
         if self.picker_rx.is_some() {
             return;
         }
+        let Some(tab_id) = self.tabs.get(self.active_tab).map(|t| t.id) else {
+            return;
+        };
         let (tx, rx) = unbounded();
         std::thread::spawn(move || {
             let picked = rfd::FileDialog::new()
@@ -418,7 +442,7 @@ impl AtlasApp {
                 .pick_folder();
             let _ = tx.send(picked);
         });
-        self.picker_rx = Some(rx);
+        self.picker_rx = Some((tab_id, rx));
     }
 
     // ---------- overnight pre-warm ----------
@@ -524,12 +548,70 @@ impl AtlasApp {
         self.thumbs.retain_generation(self.generation);
     }
 
-    fn set_root(&mut self, root: PathBuf) {
+    /// Tear down everything belonging to the current root: entries and their
+    /// parallel vectors, the tree, textures, tags/journal, filters that are
+    /// root-specific, and every piece of interaction state that references
+    /// entry ids. This is the single reset used by both `set_root` and
+    /// `clear_root` — any id-carrying field missed here becomes a dangling
+    /// index the moment another tab's entries load, so add new per-root
+    /// state HERE, not in the callers.
+    fn reset_workspace(&mut self) {
         if let Some(h) = &self.scan_handle {
             h.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         self.scan_handle = None;
         self.new_epoch();
+        while self.thumbs.rx.try_recv().is_ok() {}
+
+        // Entries + everything indexed by entry id (parallel vectors).
+        self.entries = Vec::new();
+        self.thumb_state = Vec::new();
+        self.avg_color = Vec::new();
+        self.file_match = Vec::new();
+        self.rel_to_id = HashMap::new();
+        self.textures = HashMap::new();
+        self.tree = None;
+        self.tree_dirty = false;
+
+        // Interaction state that carries entry ids or in-progress gestures.
+        self.selection = HashSet::new();
+        self.last_selected_file = None;
+        self.hovered_file = None;
+        self.hovered_dir = None;
+        self.hovered_dir_grip = None;
+        self.rubber_origin = None;
+        self.drag_chip = None;
+        self.detail = None;
+        self.menu_at = None;
+        self.edit_open = false;
+        self.anim = None;
+        self.pending_view = None;
+        self.pending_cam = None;
+
+        // Root-specific organizing state and filters.
+        self.tag_state = TagState {
+            tags: HashMap::new(),
+            assigns: HashMap::new(),
+        };
+        self.journal = Journal::default();
+        self.all_tags = BTreeMap::new();
+        self.known_dests = BTreeSet::new();
+        self.tag_filter.clear();
+        self.owner_filter.clear();
+        self.all_owners.clear();
+        self.rescan_buffer = Vec::new();
+        self.filter_dirty = true;
+
+        // Async per-root machinery.
+        self.scan_ui = None;
+        self.pending_load = None;
+        self.watch = None;
+        self.shared_cache = None;
+        self.key_prefix = String::new();
+    }
+
+    fn set_root(&mut self, root: PathBuf) {
+        self.reset_workspace();
         self.root = Some(root.clone());
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.root = Some(root.clone());
@@ -541,37 +623,12 @@ impl AtlasApp {
         }
         // Shared per-project cache: keys become project-root-relative so
         // every machine opening any part of this project agrees on them.
-        self.shared_cache = None;
-        self.key_prefix = String::new();
         if let Some(pc) = crate::thumbs::discover_project_cache(&root) {
             let _ = std::fs::create_dir_all(&pc.shared_dir);
             self.key_prefix = pc.key_prefix;
             self.shared_cache = Some(std::sync::Arc::new(pc.shared_dir.clone()));
             self.toast(format!("Shared project cache: {}", pc.shared_dir.display()));
         }
-        while self.thumbs.rx.try_recv().is_ok() {}
-        self.entries = Vec::new();
-        self.thumb_state = Vec::new();
-        self.avg_color = Vec::new();
-        self.file_match = Vec::new();
-        self.rel_to_id = HashMap::new();
-        self.textures = HashMap::new();
-        self.selection = HashSet::new();
-        self.last_selected_file = None;
-        self.tree = None;
-        self.tree_dirty = false;
-        self.detail = None;
-        self.menu_at = None;
-        self.tag_state = TagState {
-            tags: HashMap::new(),
-            assigns: HashMap::new(),
-        };
-        self.journal = Journal::default();
-        self.all_tags = BTreeMap::new();
-        self.known_dests = BTreeSet::new();
-        self.owner_filter.clear();
-        self.all_owners.clear();
-        self.rescan_buffer = Vec::new();
 
         // Progress UI mounts *now*, in the same frame as the click.
         self.scan_ui = Some(ScanUi {
@@ -580,45 +637,15 @@ impl AtlasApp {
         });
 
         // Index-first paint: ask the DB for a snapshot; scan decision follows.
-        self.pending_load = Some(self.db.load_root(root.clone()));
+        self.pending_load = Some((root.clone(), self.db.load_root(root.clone())));
         self.watch = watcher::watch(root);
     }
 
     /// Reset to the welcome screen (empty tab): same cleanup as `set_root`
     /// but with nothing to load or scan.
     fn clear_root(&mut self) {
-        if let Some(h) = &self.scan_handle {
-            h.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-        self.scan_handle = None;
-        self.new_epoch();
+        self.reset_workspace();
         self.root = None;
-        self.shared_cache = None;
-        self.key_prefix = String::new();
-        while self.thumbs.rx.try_recv().is_ok() {}
-        self.entries = Vec::new();
-        self.thumb_state = Vec::new();
-        self.avg_color = Vec::new();
-        self.file_match = Vec::new();
-        self.rel_to_id = HashMap::new();
-        self.textures = HashMap::new();
-        self.selection = HashSet::new();
-        self.last_selected_file = None;
-        self.tree = None;
-        self.tree_dirty = false;
-        self.detail = None;
-        self.menu_at = None;
-        self.tag_state = TagState {
-            tags: HashMap::new(),
-            assigns: HashMap::new(),
-        };
-        self.journal = Journal::default();
-        self.all_tags = BTreeMap::new();
-        self.known_dests = BTreeSet::new();
-        self.rescan_buffer = Vec::new();
-        self.scan_ui = None;
-        self.pending_load = None;
-        self.watch = None;
     }
 
     // ---------- tabs ----------
@@ -648,9 +675,10 @@ impl AtlasApp {
                     }
                 } else {
                     // The index-first load repaints in milliseconds; restore
-                    // this tab's camera once its tree is rebuilt.
-                    self.pending_cam = target_cam;
+                    // this tab's camera once its tree is rebuilt. Set after
+                    // `set_root`, which resets any stale pending camera.
                     self.set_root(r);
+                    self.pending_cam = target_cam;
                 }
             }
             None => self.clear_root(),
@@ -681,8 +709,8 @@ impl AtlasApp {
             self.active_tab = next;
             match root {
                 Some(r) => {
-                    self.pending_cam = cam;
                     self.set_root(r);
+                    self.pending_cam = cam;
                 }
                 None => self.clear_root(),
             }
@@ -691,16 +719,22 @@ impl AtlasApp {
         }
     }
 
+    /// There is always at least one tab and `active_tab` is kept in bounds
+    /// by `switch_tab`/`close_tab`; the clamp makes chrome lookups survive
+    /// even if that invariant is ever broken instead of crashing the app.
     pub(super) fn active_chrome(&self) -> &ChromeConfig {
-        &self.tabs[self.active_tab].chrome
+        debug_assert!(self.active_tab < self.tabs.len());
+        let i = self.active_tab.min(self.tabs.len().saturating_sub(1));
+        &self.tabs[i].chrome
     }
 
     pub(super) fn active_chrome_mut(&mut self) -> &mut ChromeConfig {
-        &mut self.tabs[self.active_tab].chrome
+        debug_assert!(self.active_tab < self.tabs.len());
+        let i = self.active_tab.min(self.tabs.len().saturating_sub(1));
+        &mut self.tabs[i].chrome
     }
 
-    fn ingest_loaded(&mut self, loaded: LoadedRoot) {
-        let root = self.root.clone().unwrap();
+    fn ingest_loaded(&mut self, root: PathBuf, loaded: LoadedRoot) {
         self.tag_state = loaded.tag_state;
         if let Some(json) = &loaded.journal_json {
             self.journal = Journal::from_json(json);
@@ -867,22 +901,39 @@ impl AtlasApp {
     }
 
     fn drain_channels(&mut self, ctx: &egui::Context) {
-        // Folder picker result
-        if let Some(rx) = &self.picker_rx {
+        // Folder picker result — delivered to the tab that asked for it,
+        // which may no longer be active (or may be gone entirely).
+        if let Some((tab_id, rx)) = &self.picker_rx {
             if let Ok(res) = rx.try_recv() {
+                let tab_id = *tab_id;
                 self.picker_rx = None;
                 if let Some(root) = res {
-                    self.set_root(root);
+                    match self.tabs.iter().position(|t| t.id == tab_id) {
+                        Some(i) if i == self.active_tab => self.set_root(root),
+                        Some(i) => {
+                            // The user switched tabs while the dialog was
+                            // open: remember the choice, load on activation.
+                            self.tabs[i].root = Some(root);
+                            self.tabs[i].cam = None;
+                        }
+                        None => {} // tab closed while the dialog was open
+                    }
                 }
             }
         }
 
-        // Export destination picker result
-        if let Some(rx) = &self.export_picker_rx {
+        // Export destination picker result — only valid while the root it
+        // was opened for is still front and center.
+        if let Some((root, rx)) = &self.export_picker_rx {
             if let Ok(res) = rx.try_recv() {
+                let same_root = self.root.as_ref() == Some(root);
                 self.export_picker_rx = None;
                 if let Some(dest) = res {
-                    self.begin_export(dest);
+                    if same_root {
+                        self.begin_export(dest);
+                    } else {
+                        self.toast("Export cancelled — the folder changed while choosing");
+                    }
                 }
             }
         }
@@ -897,11 +948,15 @@ impl AtlasApp {
             }
         }
 
-        // DB load
-        if let Some(rx) = &self.pending_load {
+        // DB load — ignored unless it still matches the current root, so a
+        // late reply can never populate a tab it wasn't requested for.
+        if let Some((root, rx)) = &self.pending_load {
             if let Ok(loaded) = rx.try_recv() {
+                let root = root.clone();
                 self.pending_load = None;
-                self.ingest_loaded(loaded);
+                if self.root.as_ref() == Some(&root) {
+                    self.ingest_loaded(root, loaded);
+                }
             }
         }
 
@@ -1033,7 +1088,9 @@ impl AtlasApp {
                 continue;
             }
             if let Some(avg) = res.avg {
-                self.avg_color[id] = Some(avg);
+                if let Some(slot) = self.avg_color.get_mut(id) {
+                    *slot = Some(avg);
+                }
             }
             if res.warm {
                 // Disk cache is now hot; the UI re-requests pixels on demand.
@@ -1667,6 +1724,9 @@ impl AtlasApp {
         if self.export_picker_rx.is_some() || self.export_ui.is_some() {
             return;
         }
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         let (tx, rx) = unbounded();
         std::thread::spawn(move || {
             let picked = rfd::FileDialog::new()
@@ -1674,17 +1734,20 @@ impl AtlasApp {
                 .pick_folder();
             let _ = tx.send(picked);
         });
-        self.export_picker_rx = Some(rx);
+        self.export_picker_rx = Some((root, rx));
     }
 
     fn begin_export(&mut self, dest: PathBuf) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         let items = self.assigned_items();
         if items.is_empty() {
             self.toast("Nothing assigned to export");
             return;
         }
         let total = items.len();
-        let rx = export::start_export(self.root.clone().unwrap(), dest, items);
+        let rx = export::start_export(root, dest, items);
         self.export_ui = Some(ExportUi {
             rx,
             done: 0,
@@ -1773,6 +1836,14 @@ impl Palette {
 
 impl eframe::App for AtlasApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.update_app(ctx);
+    }
+}
+
+impl AtlasApp {
+    /// One full UI frame. Split from `eframe::App::update` so the headless
+    /// test harness can pump frames without an eframe window.
+    fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
         self.debug_screenshot(ctx);
         self.drain_channels(ctx);
@@ -2467,7 +2538,12 @@ impl AtlasApp {
                         t.files_in_rect(world, &mut hits);
                     }
                     for f in hits {
-                        if !app.entries[f as usize].dead && app.file_match[f as usize] {
+                        let alive = app
+                            .entries
+                            .get(f as usize)
+                            .map(|e| !e.dead)
+                            .unwrap_or(false);
+                        if alive && app.file_match.get(f as usize).copied().unwrap_or(false) {
                             app.selection.insert(f);
                         }
                     }
@@ -3569,7 +3645,9 @@ impl AtlasApp {
     }
 
     fn entry_by_rel(&self, rel: &str) -> Option<&FileEntry> {
-        self.rel_to_id.get(rel).map(|&i| &self.entries[i as usize])
+        self.rel_to_id
+            .get(rel)
+            .and_then(|&i| self.entries.get(i as usize))
     }
 
     #[cfg(windows)]
@@ -3841,9 +3919,12 @@ impl AtlasApp {
         let Some(p) = ctx.pointer_latest_pos() else {
             return;
         };
+        let Some(entry) = self.entries.get(f as usize) else {
+            return;
+        };
         let size = tex.size_vec2();
         let scale = (240.0 / size.x).min(180.0 / size.y).min(2.0);
-        let name = self.entries[f as usize].name.clone();
+        let name = entry.name.clone();
         let tex_id = tex.id();
         egui::Area::new(egui::Id::new("hover_tip"))
             .fixed_pos(p + Vec2::new(18.0, 18.0))
