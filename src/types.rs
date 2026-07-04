@@ -638,7 +638,10 @@ mod tests {
     #[test]
     fn snap_to_step_rounds_to_nearest_hour() {
         let day = day_start(20_000);
-        assert_eq!(snap_to_step(day + 89 * 60, SECS_PER_HOUR), day + SECS_PER_HOUR);
+        assert_eq!(
+            snap_to_step(day + 89 * 60, SECS_PER_HOUR),
+            day + SECS_PER_HOUR
+        );
         assert_eq!(
             snap_to_step(day + 91 * 60, SECS_PER_HOUR),
             day + 2 * SECS_PER_HOUR
