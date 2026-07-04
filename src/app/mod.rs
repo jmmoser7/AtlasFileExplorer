@@ -1,4 +1,4 @@
-﻿//! Application shell and canvas.
+//! Application shell and canvas.
 //!
 //! UI hierarchy (see `ARCHITECTURE.md`):
 //! - `ui/tabs` — top chrome (tabs only)
@@ -13,9 +13,7 @@ use crate::journal::{Action, AssignVal, Journal, JournalEntry};
 use crate::scanner::{self, ScanHandle, ScanMsg};
 use crate::thumbs::{cache_key, ThumbPool, ThumbRequest};
 use crate::tree::{self, FilePlace, Hit, LayoutConfig, Orient, Tree};
-use crate::types::{
-    age_string, date_string, day_index, human_size, ExtGroup, Family, FileEntry, FAMILIES,
-};
+use crate::types::{age_string, date_string, human_size, ExtGroup, Family, FileEntry, FAMILIES};
 use crate::watcher::{self, FsChange, FsWatch};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{
@@ -164,8 +162,8 @@ pub struct AtlasApp {
     owner_filter: BTreeSet<String>,
     all_owners: BTreeMap<String, usize>,
     date_field: DateFilterField,
-    date_span_min: i64,
-    date_span_max: i64,
+    date_span_lo: i64,
+    date_span_hi: i64,
     date_range_lo: i64,
     date_range_hi: i64,
     tag_filter: BTreeSet<String>,
@@ -315,8 +313,8 @@ impl AtlasApp {
             owner_filter: BTreeSet::new(),
             all_owners: BTreeMap::new(),
             date_field: DateFilterField::Modified,
-            date_span_min: 0,
-            date_span_max: 0,
+            date_span_lo: 0,
+            date_span_hi: 0,
             date_range_lo: 0,
             date_range_hi: 0,
             tag_filter: BTreeSet::new(),
@@ -1272,18 +1270,17 @@ impl AtlasApp {
         for e in self.entries.iter().filter(|e| !e.dead) {
             let t = self.file_date_secs(e);
             if t > 0 {
-                let day = day_index(t);
-                min = min.min(day);
-                max = max.max(day);
+                min = min.min(t);
+                max = max.max(t);
             }
         }
         if min == i64::MAX {
             min = 0;
             max = 0;
         }
-        let span_changed = self.date_span_min != min || self.date_span_max != max;
-        self.date_span_min = min;
-        self.date_span_max = max;
+        let span_changed = self.date_span_lo != min || self.date_span_hi != max;
+        self.date_span_lo = min;
+        self.date_span_hi = max;
         if span_changed {
             self.date_range_lo = min;
             self.date_range_hi = max;
@@ -1291,18 +1288,18 @@ impl AtlasApp {
     }
 
     fn date_filter_active(&self) -> bool {
-        if self.date_span_min >= self.date_span_max && self.date_span_max == 0 {
+        if self.date_span_lo >= self.date_span_hi && self.date_span_hi == 0 {
             return false;
         }
-        self.date_range_lo > self.date_span_min || self.date_range_hi < self.date_span_max
+        self.date_range_lo > self.date_span_lo || self.date_range_hi < self.date_span_hi
     }
 
     fn date_matches(&self, e: &FileEntry) -> bool {
         if !self.date_filter_active() {
             return true;
         }
-        let day = day_index(self.file_date_secs(e));
-        day >= self.date_range_lo && day <= self.date_range_hi
+        let t = self.file_date_secs(e);
+        t >= self.date_range_lo && t <= self.date_range_hi
     }
 
     fn owner_matches(&self, e: &FileEntry) -> bool {
