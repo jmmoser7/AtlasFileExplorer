@@ -123,7 +123,11 @@ pub fn sidebar_toolbar_row(ui: &mut Ui, add_controls: impl FnOnce(&mut Ui)) {
 }
 
 /// Full-width checkbox with inline label.
-pub fn sidebar_checkbox_row(ui: &mut Ui, value: &mut bool, label: impl Into<egui::WidgetText>) -> bool {
+pub fn sidebar_checkbox_row(
+    ui: &mut Ui,
+    value: &mut bool,
+    label: impl Into<egui::WidgetText>,
+) -> bool {
     ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
     let changed = ui.checkbox(value, label).changed();
     ui.add_space(SidebarTokens::ROW_GAP);
@@ -169,6 +173,51 @@ pub fn sidebar_option_group(
         add_options(ui);
     });
     ui.add_space(SidebarTokens::ROW_GAP);
+}
+
+/// Groups related controls under a muted region label inside a section body.
+pub fn sidebar_region(
+    ui: &mut Ui,
+    label: &str,
+    theme: SidebarTheme,
+    add_body: impl FnOnce(&mut Ui),
+) {
+    sidebar_subsection_label(ui, label, theme);
+    add_body(ui);
+}
+
+/// Very subtle horizontal rule between sub-regions inside a section card.
+pub fn sidebar_subtle_divider(ui: &mut Ui, theme: SidebarTheme) {
+    ui.add_space(SidebarTokens::ROW_GAP);
+    let width = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 8.0), Sense::hover());
+    let stroke = Stroke::new(
+        1.0,
+        theme
+            .border
+            .gamma_multiply(if ui.visuals().dark_mode { 0.55 } else { 0.85 }),
+    );
+    ui.painter().hline(rect.x_range(), rect.center().y, stroke);
+}
+
+/// Selectable mode pill with a brief inline description and optional hover detail.
+pub fn sidebar_mode_row(
+    ui: &mut Ui,
+    selected: bool,
+    mode_label: &str,
+    brief: &str,
+    hover_detail: &str,
+    theme: SidebarTheme,
+) -> egui::Response {
+    let area = ui.horizontal(|ui| {
+        ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
+        let mode = ui.selectable_label(selected, mode_label);
+        ui.label(RichText::new(brief).small().color(theme.sub));
+        mode
+    });
+    area.response.on_hover_text(hover_detail);
+    ui.add_space(SidebarTokens::ROW_GAP);
+    area.inner
 }
 
 /// Checkbox + colored swatch + label in aligned columns.
