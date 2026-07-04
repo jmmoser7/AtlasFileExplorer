@@ -40,7 +40,7 @@ pub const THUMB_PX: i32 = 192;
 
 /// Bump when extraction logic changes so stale JPEGs (e.g. cached shell icons)
 /// are regenerated.
-const CACHE_KEY_VERSION: &str = "2";
+const CACHE_KEY_VERSION: &str = "3";
 
 /// Max concurrent background cache-warming jobs. Keeps the sustained network
 /// load at roughly "one file copy running quietly", while on-demand requests
@@ -455,9 +455,23 @@ fn prefers_builtin_extractor(ext: &str) -> bool {
 fn extract_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
     let ext = file_ext(path);
     if prefers_builtin_extractor(&ext) {
-        fallback_thumbnail(path, &ext).or_else(|| shell_thumbnail_cached_only(path))
+        fallback_thumbnail(path, &ext)
+            .or_else(|| shell_thumbnail_cached_only(path))
+            .or_else(|| pdf_shell_fallback(&ext, path))
     } else {
         shell_thumbnail(path).or_else(|| fallback_thumbnail(path, &ext))
+    }
+}
+
+/// Last-resort shell extraction for PDFs pdfium could not render. Explorer
+/// sometimes has a real cached/extracted page even when pdfium fails (XFA,
+/// odd encodings, password prompts). A generic type icon is still better
+/// than an eternal loading placeholder.
+fn pdf_shell_fallback(ext: &str, path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+    if ext == "pdf" {
+        shell_thumbnail(path)
+    } else {
+        None
     }
 }
 
@@ -678,6 +692,16 @@ mod tests {
         assert!(prefers_builtin_extractor("docx"));
         assert!(!prefers_builtin_extractor("ppt"));
         assert!(!prefers_builtin_extractor("png"));
+    }
+
+    #[test]
+    fn pdf_shell_fallback_only_applies_to_pdf() {
+        let dir = std::env::temp_dir().join(format!("nfa_pdf_fb_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let pptx = dir.join("deck.pptx");
+        std::fs::write(&pptx, b"not a zip").unwrap();
+        assert!(pdf_shell_fallback("pptx", &pptx).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

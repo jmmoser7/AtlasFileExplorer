@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 mod chrome;
+mod commands;
 #[cfg(test)]
 mod tests;
 mod ui;
@@ -209,6 +210,7 @@ pub struct AtlasApp {
     // selection & interaction
     selection: HashSet<u32>,
     rubber_origin: Option<Pos2>, // screen px
+    turbo_pan: commands::TurboPanState,
     hovered_file: Option<u32>,
     hovered_dir: Option<u32>,
     hovered_dir_grip: Option<DirGrip>,
@@ -363,6 +365,7 @@ impl AtlasApp {
             prewarm_done: 0,
             selection: HashSet::new(),
             rubber_origin: None,
+            turbo_pan: commands::TurboPanState::default(),
             hovered_file: None,
             hovered_dir: None,
             hovered_dir_grip: None,
@@ -2397,14 +2400,20 @@ impl AtlasApp {
             }
         }
 
-        // --- input: pan / rubber band ---
+        // --- input: pan / rubber band / turbo pan ---
         if resp.drag_started() {
             if shift {
                 self.rubber_origin = pointer;
             }
             self.anim = None;
         }
-        if resp.dragged() && self.rubber_origin.is_none() {
+        let turbo_pan_active = self
+            .turbo_pan
+            .step(ui.ctx(), rect, pointer, &mut self.cam.offset);
+        if turbo_pan_active {
+            self.anim = None;
+        }
+        if resp.dragged() && self.rubber_origin.is_none() && !turbo_pan_active {
             self.cam.offset += resp.drag_delta();
         }
 
@@ -2445,10 +2454,6 @@ impl AtlasApp {
                     }
                 }
             }
-        }
-        // Interactive things get a hand cursor so it's obvious they respond.
-        if self.hovered_file.is_some() || self.hovered_dir.is_some() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
 
         // --- draw the tree ---
@@ -2587,7 +2592,11 @@ impl AtlasApp {
         }
         if resp.double_clicked() {
             match self.hovered_file {
-                Some(f) => self.detail = Some(f),
+                Some(f) => {
+                    if let Some(e) = self.entries.get(f as usize) {
+                        Self::open_path(&e.path);
+                    }
+                }
                 None => {
                     if self.hovered_dir.is_none() {
                         if let Some(p) = pointer {
@@ -2597,7 +2606,7 @@ impl AtlasApp {
                 }
             }
         }
-        if resp.secondary_clicked() {
+        if resp.secondary_clicked() && !self.turbo_pan.should_suppress_context_menu() {
             if let (Some(f), Some(p)) = (self.hovered_file, pointer) {
                 if !self.selection.contains(&f) {
                     self.selection.clear();
@@ -2614,6 +2623,7 @@ impl AtlasApp {
                 }
             }
         }
+        self.turbo_pan.acknowledge_context_menu();
 
         // --- chip drop ---
         if self.drag_chip.is_some() {
@@ -2648,7 +2658,9 @@ impl AtlasApp {
         self.zoom_controls(ui, rect);
 
         // Cursor feedback.
-        if self.hovered_file.is_some() || self.hovered_dir.is_some() {
+        if turbo_pan_active {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if self.hovered_file.is_some() || self.hovered_dir.is_some() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         } else if resp.dragged() && self.rubber_origin.is_none() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -2951,7 +2963,7 @@ impl AtlasApp {
                 if !edge_extent.expand(60.0).intersects(view) {
                     continue;
                 }
-                self.route_edge(painter, port, *tgt, routes[i], v, lod, stroke_w);
+                self.route_edge(painter, port, *tgt, routes[i], v, stroke_w);
             }
 
             if let Some(gb) = d.grid_bounds {
@@ -3022,7 +3034,6 @@ impl AtlasApp {
         tgt: Pos2,
         route: Option<(f32, f32)>,
         v: bool,
-        lod: u8,
         stroke_w: f32,
     ) {
         let pal = self.palette();
@@ -3036,10 +3047,6 @@ impl AtlasApp {
         } else {
             Pos2::new(exit, port.y)
         };
-        if lod == 0 {
-            painter.line_segment([self.w2s(start), self.w2s(tgt)], stroke);
-            return;
-        }
         let (m1, m2) = if v {
             (Pos2::new(rail, exit), Pos2::new(rail, tgt.y))
         } else {
