@@ -421,6 +421,10 @@ impl FileEntry {
         owner: String,
     ) -> Option<FileEntry> {
         let rel = path.strip_prefix(root).ok()?.to_string_lossy().into_owned();
+        // `rel` is backslash-separated everywhere (tree building, cache keys,
+        // and the SQLite index all assume it), so normalize on non-Windows.
+        #[cfg(not(windows))]
+        let rel = rel.replace('/', "\\");
         let name = path.file_name()?.to_string_lossy().into_owned();
         Some(Self::build(path, rel, name, size, mtime, ctime, owner))
     }
@@ -433,7 +437,10 @@ impl FileEntry {
         ctime: i64,
         owner: String,
     ) -> FileEntry {
+        #[cfg(windows)]
         let path = root.join(&rel);
+        #[cfg(not(windows))]
+        let path = root.join(rel.replace('\\', "/"));
         let name = rel
             .rsplit(['\\', '/'])
             .next()
@@ -630,10 +637,11 @@ mod tests {
 
     #[test]
     fn snap_to_step_rounds_to_nearest_hour() {
-        let t = day_start(20_000) + 90 * 60;
+        let day = day_start(20_000);
+        assert_eq!(snap_to_step(day + 89 * 60, SECS_PER_HOUR), day + SECS_PER_HOUR);
         assert_eq!(
-            snap_to_step(t, SECS_PER_HOUR),
-            day_start(20_000) + SECS_PER_HOUR
+            snap_to_step(day + 91 * 60, SECS_PER_HOUR),
+            day + 2 * SECS_PER_HOUR
         );
     }
 
