@@ -19,13 +19,15 @@ pub struct TagState {
 pub enum DbCmd {
     SaveSnapshot {
         root: PathBuf,
-        entries: Vec<(String, u64, i64)>, // rel, size, mtime
+        entries: Vec<(String, u64, i64, i64, String)>, // rel, size, mtime, ctime, owner
     },
     UpsertFile {
         root: PathBuf,
         rel: String,
         size: u64,
         mtime: i64,
+        ctime: i64,
+        owner: String,
     },
     RemoveFile {
         root: PathBuf,
@@ -133,6 +135,14 @@ fn db_thread(path: PathBuf, rx: Receiver<DbCmd>) {
             json TEXT NOT NULL
          );",
     );
+    let _ = conn.execute(
+        "ALTER TABLE files ADD COLUMN ctime INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE files ADD COLUMN owner TEXT NOT NULL DEFAULT ''",
+        [],
+    );
 
     while let Ok(cmd) = rx.recv() {
         if let Err(e) = handle(&conn, cmd) {
@@ -158,10 +168,17 @@ fn handle(conn: &Connection, cmd: DbCmd) -> rusqlite::Result<()> {
             let result = (|| -> rusqlite::Result<()> {
                 conn.execute("DELETE FROM files WHERE root_id=?1", [rid])?;
                 let mut stmt = conn.prepare_cached(
-                    "INSERT OR REPLACE INTO files(root_id, rel, size, mtime) VALUES(?1,?2,?3,?4)",
+                    "INSERT OR REPLACE INTO files(root_id, rel, size, mtime, ctime, owner) VALUES(?1,?2,?3,?4,?5,?6)",
                 )?;
-                for (rel, size, mtime) in &entries {
-                    stmt.execute(rusqlite::params![rid, rel, *size as i64, mtime])?;
+                for (rel, size, mtime, ctime, owner) in &entries {
+                    stmt.execute(rusqlite::params![
+                        rid,
+                        rel,
+                        *size as i64,
+                        mtime,
+                        ctime,
+                        owner
+                    ])?;
                 }
                 conn.execute(
                     "UPDATE roots SET last_scan=?2 WHERE id=?1",
@@ -181,12 +198,14 @@ fn handle(conn: &Connection, cmd: DbCmd) -> rusqlite::Result<()> {
             rel,
             size,
             mtime,
+            ctime,
+            owner,
         } => {
             let rid = root_id(conn, &root)?;
             conn.execute(
-                "INSERT INTO files(root_id, rel, size, mtime) VALUES(?1,?2,?3,?4)
-                 ON CONFLICT(root_id, rel) DO UPDATE SET size=?3, mtime=?4",
-                rusqlite::params![rid, rel, size as i64, mtime],
+                "INSERT INTO files(root_id, rel, size, mtime, ctime, owner) VALUES(?1,?2,?3,?4,?5,?6)
+                 ON CONFLICT(root_id, rel) DO UPDATE SET size=?3, mtime=?4, ctime=?5, owner=?6",
+                rusqlite::params![rid, rel, size as i64, mtime, ctime, owner],
             )?;
         }
         DbCmd::RemoveFile { root, rel } => {
@@ -257,27 +276,29 @@ fn handle(conn: &Connection, cmd: DbCmd) -> rusqlite::Result<()> {
                     })
                     .unwrap_or(0);
 
-                let mut stmt =
-                    conn.prepare_cached("SELECT rel, size, mtime FROM files WHERE root_id=?1")?;
+                let mut stmt = conn.prepare_cached(
+                    "SELECT rel, size, mtime, ctime, owner FROM files WHERE root_id=?1",
+                )?;
                 let rows: Vec<FileEntry> = stmt
                     .query_map([rid], |r| {
                         Ok((
                             r.get::<_, String>(0)?,
                             r.get::<_, i64>(1)?,
                             r.get::<_, i64>(2)?,
+                            r.get::<_, i64>(3)?,
+                            r.get::<_, String>(4)?,
                         ))
                     })?
                     .flatten()
-                    .map(|(rel, size, mtime)| {
-                        FileEntry::from_rel(&root, rel, size as u64, mtime)
+                    .map(|(rel, size, mtime, ctime, owner)| {
+                        FileEntry::from_rel(&root, rel, size as u64, mtime, ctime, owner)
                     })
                     .collect();
                 if !rows.is_empty() {
                     loaded.snapshot = Some(rows);
                 }
 
-                let mut stmt =
-                    conn.prepare_cached("SELECT rel, tag FROM tags WHERE root_id=?1")?;
+                let mut stmt = conn.prepare_cached("SELECT rel, tag FROM tags WHERE root_id=?1")?;
                 for row in stmt.query_map([rid], |r| {
                     Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
                 })? {
@@ -329,8 +350,20 @@ mod tests {
         db.send(DbCmd::SaveSnapshot {
             root: root.clone(),
             entries: vec![
-                ("a.jpg".into(), 100, 1_700_000_000),
-                (r"sub\b.mp4".into(), 200, 1_700_000_100),
+                (
+                    "a.jpg".into(),
+                    100,
+                    1_700_000_000,
+                    1_700_000_000,
+                    "jmoser".into(),
+                ),
+                (
+                    r"sub\b.mp4".into(),
+                    200,
+                    1_700_000_100,
+                    1_700_000_050,
+                    "jmoser".into(),
+                ),
             ],
         });
         db.send(DbCmd::SetTags {
@@ -373,6 +406,8 @@ mod tests {
             rel: "c.png".into(),
             size: 5,
             mtime: 1,
+            ctime: 1,
+            owner: String::new(),
         });
         db.send(DbCmd::RemoveFile {
             root: root.clone(),

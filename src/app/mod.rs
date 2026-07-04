@@ -1,4 +1,4 @@
-//! Application shell and canvas.
+﻿//! Application shell and canvas.
 //!
 //! UI hierarchy (see `ARCHITECTURE.md`):
 //! - `ui/tabs` — top chrome (tabs only)
@@ -13,7 +13,9 @@ use crate::journal::{Action, AssignVal, Journal, JournalEntry};
 use crate::scanner::{self, ScanHandle, ScanMsg};
 use crate::thumbs::{cache_key, ThumbPool, ThumbRequest};
 use crate::tree::{self, FilePlace, Hit, LayoutConfig, Orient, Tree};
-use crate::types::{age_string, date_string, human_size, ExtGroup, Family, FileEntry, FAMILIES};
+use crate::types::{
+    age_string, date_string, day_index, human_size, ExtGroup, Family, FileEntry, FAMILIES,
+};
 use crate::watcher::{self, FsChange, FsWatch};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{
@@ -47,10 +49,22 @@ pub(crate) enum ScanMode {
     Refresh,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FilterMode {
     Ghost,
     Hide,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DateFilterField {
+    Created,
+    Modified,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DateSliderMode {
+    SingleDay,
+    Range,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -153,6 +167,16 @@ pub struct AtlasApp {
     family_on: [bool; 10],
     /// Fine-grained extension sub-type toggles keyed by `Family::ext_group_id`.
     ext_group_on: HashMap<String, bool>,
+    owner_filter: BTreeSet<String>,
+    all_owners: BTreeMap<String, usize>,
+    date_field: DateFilterField,
+    date_mode: DateSliderMode,
+    date_span_min: i64,
+    date_span_max: i64,
+    date_single_day: i64,
+    date_range_lo: i64,
+    date_range_hi: i64,
+    date_filter_engaged: bool,
     tag_filter: BTreeSet<String>,
     only_untagged: bool,
     only_unassigned: bool,
@@ -297,6 +321,16 @@ impl AtlasApp {
             search: String::new(),
             family_on: [fam_default; 10],
             ext_group_on: HashMap::new(),
+            owner_filter: BTreeSet::new(),
+            all_owners: BTreeMap::new(),
+            date_field: DateFilterField::Modified,
+            date_mode: DateSliderMode::SingleDay,
+            date_span_min: 0,
+            date_span_max: 0,
+            date_single_day: 0,
+            date_range_lo: 0,
+            date_range_hi: 0,
+            date_filter_engaged: false,
             tag_filter: BTreeSet::new(),
             only_untagged: false,
             only_unassigned: false,
@@ -460,12 +494,12 @@ impl AtlasApp {
                         stack.push(entry.path());
                     } else if ft.is_file() {
                         let Ok(md) = entry.metadata() else { continue };
-                        let Some(fe) = FileEntry::from_abs(
-                            &base,
-                            entry.path(),
-                            md.len(),
-                            scanner::mtime_of(&md),
-                        ) else {
+                        let mtime = scanner::mtime_of(&md);
+                        let ctime = crate::metadata::ctime_of(&md);
+                        let owner = crate::metadata::owner_short(&entry.path());
+                        let Some(fe) =
+                            FileEntry::from_abs(&base, entry.path(), md.len(), mtime, ctime, owner)
+                        else {
                             continue;
                         };
                         if !wants_thumb(fe.family) {
@@ -549,6 +583,9 @@ impl AtlasApp {
         self.journal = Journal::default();
         self.all_tags = BTreeMap::new();
         self.known_dests = BTreeSet::new();
+        self.owner_filter.clear();
+        self.all_owners.clear();
+        self.date_filter_engaged = false;
         self.rescan_buffer = Vec::new();
 
         // Progress UI mounts *now*, in the same frame as the click.
@@ -684,6 +721,7 @@ impl AtlasApp {
             self.journal = Journal::from_json(json);
         }
         self.recount_tags();
+        self.recount_owners();
 
         let mode = if let Some(snapshot) = loaded.snapshot {
             // Instant paint from the index, then silently re-verify.
@@ -831,11 +869,11 @@ impl AtlasApp {
 
     fn save_snapshot(&self) {
         let Some(root) = &self.root else { return };
-        let rows: Vec<(String, u64, i64)> = self
+        let rows: Vec<(String, u64, i64, i64, String)> = self
             .entries
             .iter()
             .filter(|e| !e.dead)
-            .map(|e| (e.rel.clone(), e.size, e.mtime))
+            .map(|e| (e.rel.clone(), e.size, e.mtime, e.ctime, e.owner.clone()))
             .collect();
         self.db.send(DbCmd::SaveSnapshot {
             root: root.clone(),
@@ -924,7 +962,11 @@ impl AtlasApp {
                                     .get(&fe.rel)
                                     .map(|&i| {
                                         let e = &self.entries[i as usize];
-                                        e.dead || e.size != fe.size || e.mtime != fe.mtime
+                                        e.dead
+                                            || e.size != fe.size
+                                            || e.mtime != fe.mtime
+                                            || e.ctime != fe.ctime
+                                            || e.owner != fe.owner
                                     })
                                     .unwrap_or(true)
                             });
@@ -1120,12 +1162,17 @@ impl AtlasApp {
                         rel: fe.rel.clone(),
                         size: fe.size,
                         mtime: fe.mtime,
+                        ctime: fe.ctime,
+                        owner: fe.owner.clone(),
                     });
                     match self.rel_to_id.get(&fe.rel) {
                         Some(&i) => {
                             let slot = &mut self.entries[i as usize];
-                            let content_changed =
-                                slot.size != fe.size || slot.mtime != fe.mtime || slot.dead;
+                            let content_changed = slot.size != fe.size
+                                || slot.mtime != fe.mtime
+                                || slot.ctime != fe.ctime
+                                || slot.owner != fe.owner
+                                || slot.dead;
                             let structural = slot.dead;
                             *slot = fe;
                             if content_changed {
@@ -1219,11 +1266,84 @@ impl AtlasApp {
         false
     }
 
+    fn file_date_secs(&self, e: &FileEntry) -> i64 {
+        match self.date_field {
+            DateFilterField::Created => {
+                if e.ctime > 0 {
+                    e.ctime
+                } else {
+                    e.mtime
+                }
+            }
+            DateFilterField::Modified => e.mtime,
+        }
+    }
+
+    fn update_date_span(&mut self) {
+        let mut min = i64::MAX;
+        let mut max = i64::MIN;
+        for e in self.entries.iter().filter(|e| !e.dead) {
+            let t = self.file_date_secs(e);
+            if t > 0 {
+                let day = day_index(t);
+                min = min.min(day);
+                max = max.max(day);
+            }
+        }
+        if min == i64::MAX {
+            min = 0;
+            max = 0;
+        }
+        let span_changed = self.date_span_min != min || self.date_span_max != max;
+        self.date_span_min = min;
+        self.date_span_max = max;
+        if span_changed {
+            self.date_single_day = max;
+            self.date_range_lo = min;
+            self.date_range_hi = max;
+            self.date_filter_engaged = false;
+        }
+    }
+
+    fn date_filter_active(&self) -> bool {
+        if self.date_span_min >= self.date_span_max && self.date_span_max == 0 {
+            return false;
+        }
+        match self.date_mode {
+            DateSliderMode::SingleDay => self.date_filter_engaged,
+            DateSliderMode::Range => {
+                self.date_range_lo > self.date_span_min || self.date_range_hi < self.date_span_max
+            }
+        }
+    }
+
+    fn date_matches(&self, e: &FileEntry) -> bool {
+        if !self.date_filter_active() {
+            return true;
+        }
+        let day = day_index(self.file_date_secs(e));
+        match self.date_mode {
+            DateSliderMode::SingleDay => day == self.date_single_day,
+            DateSliderMode::Range => day >= self.date_range_lo && day <= self.date_range_hi,
+        }
+    }
+
+    fn owner_matches(&self, e: &FileEntry) -> bool {
+        if self.owner_filter.is_empty() {
+            return true;
+        }
+        !e.owner.is_empty() && self.owner_filter.contains(&e.owner)
+    }
+
     fn recompute_matches(&mut self) {
+        self.recount_owners();
+        self.update_date_span();
         let search = self.search.to_lowercase();
         self.any_filter = !search.is_empty()
             || self.family_on.iter().any(|&b| !b)
             || self.ext_filter_active()
+            || !self.owner_filter.is_empty()
+            || self.date_filter_active()
             || !self.tag_filter.is_empty()
             || self.only_untagged
             || self.only_unassigned;
@@ -1264,6 +1384,12 @@ impl AtlasApp {
                         .map(|t| self.tag_filter.iter().all(|f| t.contains(f)))
                         .unwrap_or(false);
                 }
+                if m {
+                    m = self.owner_matches(e);
+                }
+                if m {
+                    m = self.date_matches(e);
+                }
             }
             self.file_match[i] = m;
             if m {
@@ -1303,6 +1429,17 @@ impl AtlasApp {
             .values()
             .map(|(d, _)| d.clone())
             .collect();
+    }
+
+    fn recount_owners(&mut self) {
+        self.all_owners.clear();
+        for e in self
+            .entries
+            .iter()
+            .filter(|e| !e.dead && !e.owner.is_empty())
+        {
+            *self.all_owners.entry(e.owner.clone()).or_insert(0) += 1;
+        }
     }
 
     fn persist_journal(&self) {

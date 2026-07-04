@@ -402,29 +402,55 @@ pub struct FileEntry {
     pub ext: String,
     pub size: u64,
     pub mtime: i64,
+    /// Platform creation / birth time when available.
+    pub ctime: i64,
+    /// Owner account name (e.g. `jmoser`), empty when unavailable.
+    pub owner: String,
     pub family: Family,
     /// Tombstone set by the filesystem watcher when the file disappears.
     pub dead: bool,
 }
 
 impl FileEntry {
-    pub fn from_abs(root: &Path, path: PathBuf, size: u64, mtime: i64) -> Option<FileEntry> {
+    pub fn from_abs(
+        root: &Path,
+        path: PathBuf,
+        size: u64,
+        mtime: i64,
+        ctime: i64,
+        owner: String,
+    ) -> Option<FileEntry> {
         let rel = path.strip_prefix(root).ok()?.to_string_lossy().into_owned();
         let name = path.file_name()?.to_string_lossy().into_owned();
-        Some(Self::build(path, rel, name, size, mtime))
+        Some(Self::build(path, rel, name, size, mtime, ctime, owner))
     }
 
-    pub fn from_rel(root: &Path, rel: String, size: u64, mtime: i64) -> FileEntry {
+    pub fn from_rel(
+        root: &Path,
+        rel: String,
+        size: u64,
+        mtime: i64,
+        ctime: i64,
+        owner: String,
+    ) -> FileEntry {
         let path = root.join(&rel);
         let name = rel
             .rsplit(['\\', '/'])
             .next()
             .unwrap_or(rel.as_str())
             .to_string();
-        Self::build(path, rel, name, size, mtime)
+        Self::build(path, rel, name, size, mtime, ctime, owner)
     }
 
-    fn build(path: PathBuf, rel: String, name: String, size: u64, mtime: i64) -> FileEntry {
+    fn build(
+        path: PathBuf,
+        rel: String,
+        name: String,
+        size: u64,
+        mtime: i64,
+        ctime: i64,
+        owner: String,
+    ) -> FileEntry {
         let ext = match name.rsplit_once('.') {
             Some((stem, e)) if !stem.is_empty() => e.to_ascii_lowercase(),
             _ => String::new(),
@@ -439,10 +465,23 @@ impl FileEntry {
             ext,
             size,
             mtime,
+            ctime,
+            owner,
             family,
             dead: false,
         }
     }
+}
+
+pub const SECS_PER_DAY: i64 = 86_400;
+
+/// Days since Unix epoch (UTC, day precision).
+pub fn day_index(secs: i64) -> i64 {
+    secs.div_euclid(SECS_PER_DAY)
+}
+
+pub fn day_start(index: i64) -> i64 {
+    index * SECS_PER_DAY
 }
 
 pub fn human_size(bytes: u64) -> String {

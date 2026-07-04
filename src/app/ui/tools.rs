@@ -1,13 +1,15 @@
 //! Left tools rail — canvas actions, filters, display settings.
 //! Optional sub-panels are toggled from the gear menu (`chrome::ToolPanel`).
 
-use super::super::{AtlasApp, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd};
+use super::super::{
+    AtlasApp, DateFilterField, DateSliderMode, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd,
+};
 use super::sidebar::{
     sidebar_checkbox_row, sidebar_family_row, sidebar_mode_row, sidebar_option_group,
     sidebar_region, sidebar_section, sidebar_slider_block, sidebar_subtle_divider,
     sidebar_toolbar_row, SidebarTheme, SidebarTokens,
 };
-use super::widgets::{chip, gear_menu, thin_sidebar_slider};
+use super::widgets::{chip, gear_menu, sidebar_date_timeline, thin_sidebar_slider};
 use crate::app::chrome::ToolPanel;
 use crate::types::{ExtGroup, FAMILIES};
 use eframe::egui::{self, Color32, Id};
@@ -167,6 +169,79 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
                 app.filter_dirty = true;
             }
         });
+    });
+
+    if !app.all_owners.is_empty() {
+        sidebar_subtle_divider(ui, theme);
+        sidebar_region(ui, "Owner", theme, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(72.0)
+                .show(ui, |ui| {
+                    let owners: Vec<(String, usize)> = app
+                        .all_owners
+                        .iter()
+                        .map(|(o, c)| (o.clone(), *c))
+                        .collect();
+                    for (owner, count) in owners {
+                        let active = app.owner_filter.contains(&owner);
+                        let label = format!("{owner} ({})", super::group_digits(count as u64));
+                        let resp = chip(ui, &label, active, Color32::from_rgb(0x5c, 0x6b, 0x8a));
+                        if resp.clicked() {
+                            if active {
+                                app.owner_filter.remove(&owner);
+                            } else {
+                                app.owner_filter.insert(owner);
+                            }
+                            app.filter_dirty = true;
+                        }
+                    }
+                    if !app.owner_filter.is_empty()
+                        && ui.small_button("clear owner filter").clicked()
+                    {
+                        app.owner_filter.clear();
+                        app.filter_dirty = true;
+                    }
+                });
+        });
+    }
+
+    sidebar_subtle_divider(ui, theme);
+
+    sidebar_region(ui, "Dates", theme, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = SidebarTokens::OPTION_GAP;
+            if ui
+                .selectable_label(app.date_field == DateFilterField::Created, "created")
+                .on_hover_text("Filter by file creation date")
+                .clicked()
+            {
+                app.date_field = DateFilterField::Created;
+                app.filter_dirty = true;
+            }
+            if ui
+                .selectable_label(app.date_field == DateFilterField::Modified, "modified")
+                .on_hover_text("Filter by last modified date")
+                .clicked()
+            {
+                app.date_field = DateFilterField::Modified;
+                app.filter_dirty = true;
+            }
+        });
+        ui.add_space(2.0);
+        if sidebar_date_timeline(
+            ui,
+            Id::new("basic_date_timeline"),
+            app.date_span_min,
+            app.date_span_max,
+            &mut app.date_mode,
+            &mut app.date_single_day,
+            &mut app.date_range_lo,
+            &mut app.date_range_hi,
+            &mut app.date_filter_engaged,
+            theme,
+        ) {
+            app.filter_dirty = true;
+        }
     });
 
     sidebar_subtle_divider(ui, theme);
