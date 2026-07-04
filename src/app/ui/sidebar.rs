@@ -243,6 +243,57 @@ pub fn sidebar_family_row(
     .inner
 }
 
+/// Family master row with a layer-style expand toggle for stacked sub-type rows.
+pub fn sidebar_family_master_row(
+    ui: &mut Ui,
+    expanded: &mut bool,
+    has_subtypes: bool,
+    value: &mut bool,
+    swatch_color: Color32,
+    label: &str,
+    theme: SidebarTheme,
+) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
+        if has_subtypes {
+            let glyph = if *expanded { "−" } else { "+" };
+            let toggle = ui.add(
+                egui::Label::new(
+                    RichText::new(glyph)
+                        .size(SidebarTokens::TOGGLE_SIZE)
+                        .color(theme.sub),
+                )
+                .sense(Sense::click()),
+            );
+            if toggle.clicked() {
+                *expanded = !*expanded;
+            }
+        } else {
+            ui.add_space(SidebarTokens::TOGGLE_HIT);
+        }
+        ui.scope(|ui| {
+            ui.set_width(16.0);
+            if ui.checkbox(value, "").changed() {
+                changed = true;
+            }
+        });
+        ui.label(RichText::new("■").color(swatch_color));
+        ui.label(label);
+    });
+    changed
+}
+
+/// Compact checkbox row for nested sub-type lists (no extra trailing gap).
+pub fn sidebar_nested_checkbox_row(
+    ui: &mut Ui,
+    value: &mut bool,
+    label: impl Into<egui::WidgetText>,
+) -> bool {
+    ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
+    ui.checkbox(value, label).changed()
+}
+
 /// Vertical rhythm wrapper around slider widgets.
 pub fn sidebar_slider_block(ui: &mut Ui, add_slider: impl FnOnce(&mut Ui)) {
     ui.add_space(2.0);

@@ -1,18 +1,16 @@
 //! Left tools rail — canvas actions, filters, display settings.
 //! Optional sub-panels are toggled from the gear menu (`chrome::ToolPanel`).
 
-use super::super::{
-    AtlasApp, DateFilterField, DateSliderMode, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd,
-};
+use super::super::{AtlasApp, DateFilterField, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd};
 use super::sidebar::{
-    sidebar_checkbox_row, sidebar_family_row, sidebar_mode_row, sidebar_option_group,
-    sidebar_region, sidebar_section, sidebar_slider_block, sidebar_subtle_divider,
-    sidebar_toolbar_row, SidebarTheme, SidebarTokens,
+    sidebar_checkbox_row, sidebar_family_master_row, sidebar_mode_row, sidebar_nested_checkbox_row,
+    sidebar_option_group, sidebar_region, sidebar_section, sidebar_slider_block,
+    sidebar_subtle_divider, sidebar_toolbar_row, SidebarTheme, SidebarTokens,
 };
 use super::widgets::{chip, gear_menu, sidebar_date_timeline, thin_sidebar_slider};
 use crate::app::chrome::ToolPanel;
 use crate::types::{ExtGroup, FAMILIES};
-use eframe::egui::{self, Color32, Id};
+use eframe::egui::{self, Id};
 
 fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
     let p = app.palette();
@@ -95,7 +93,7 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
     }
     ui.add_space(4.0);
 
-    sidebar_region(ui, "File types", theme, |ui| {
+    sidebar_region(ui, "Filter by file types", theme, |ui| {
         let mut family_counts = [0usize; 10];
         let mut group_counts: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
@@ -113,18 +111,6 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
             if family_counts[i] == 0 {
                 continue;
             }
-            let label = format!(
-                "{} ({})",
-                fam.label(),
-                super::group_digits(family_counts[i] as u64)
-            );
-            if sidebar_family_row(ui, &mut app.family_on[i], fam.color(), &label) {
-                if app.family_on[i] {
-                    app.set_family_ext_groups(fam, true);
-                }
-                app.filter_dirty = true;
-            }
-
             let visible_groups: Vec<(&ExtGroup, usize)> = fam
                 .ext_groups()
                 .iter()
@@ -136,25 +122,44 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
                     (count > 0).then_some((group, count))
                 })
                 .collect();
-            if visible_groups.is_empty() {
-                continue;
-            }
+            let has_subtypes = !visible_groups.is_empty();
+            let expand_id = ui.id().with("fam_expand").with(i);
+            let mut expanded = ui.data(|d| d.get_temp::<bool>(expand_id)).unwrap_or(false);
 
-            ui.indent(format!("fam_ext_{i}"), |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = SidebarTokens::OPTION_GAP;
-                    ui.spacing_mut().item_spacing.y = 2.0;
+            let label = format!(
+                "{} ({})",
+                fam.label(),
+                super::group_digits(family_counts[i] as u64)
+            );
+            if sidebar_family_master_row(
+                ui,
+                &mut expanded,
+                has_subtypes,
+                &mut app.family_on[i],
+                fam.color(),
+                &label,
+                theme,
+            ) {
+                if app.family_on[i] {
+                    app.set_family_ext_groups(fam, true);
+                }
+                app.filter_dirty = true;
+            }
+            ui.data_mut(|d| d.insert_temp(expand_id, expanded));
+
+            if has_subtypes && expanded {
+                ui.indent(expand_id, |ui| {
                     for (group, count) in visible_groups {
                         let mut on = app.ext_group_enabled(fam, group);
                         let sub_label =
                             format!("{} ({})", group.label, super::group_digits(count as u64));
-                        if ui.checkbox(&mut on, sub_label).changed() {
+                        if sidebar_nested_checkbox_row(ui, &mut on, sub_label) {
                             app.set_ext_group(fam, group, on);
                             app.filter_dirty = true;
                         }
                     }
                 });
-            });
+            }
             ui.add_space(2.0);
         }
 
@@ -173,41 +178,38 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
 
     if !app.all_owners.is_empty() {
         sidebar_subtle_divider(ui, theme);
-        sidebar_region(ui, "Owner", theme, |ui| {
-            egui::ScrollArea::vertical()
-                .max_height(72.0)
-                .show(ui, |ui| {
-                    let owners: Vec<(String, usize)> = app
-                        .all_owners
-                        .iter()
-                        .map(|(o, c)| (o.clone(), *c))
-                        .collect();
-                    for (owner, count) in owners {
-                        let active = app.owner_filter.contains(&owner);
-                        let label = format!("{owner} ({})", super::group_digits(count as u64));
-                        let resp = chip(ui, &label, active, Color32::from_rgb(0x5c, 0x6b, 0x8a));
-                        if resp.clicked() {
-                            if active {
-                                app.owner_filter.remove(&owner);
-                            } else {
-                                app.owner_filter.insert(owner);
-                            }
-                            app.filter_dirty = true;
+        sidebar_region(ui, "Filter by owner", theme, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = SidebarTokens::OPTION_GAP;
+                ui.spacing_mut().item_spacing.y = SidebarTokens::ROW_GAP;
+                let owners: Vec<(String, usize)> = app
+                    .all_owners
+                    .iter()
+                    .map(|(o, c)| (o.clone(), *c))
+                    .collect();
+                for (owner, count) in owners {
+                    let mut on = app.owner_filter.contains(&owner);
+                    let label = format!("{owner} ({})", super::group_digits(count as u64));
+                    if ui.checkbox(&mut on, label).changed() {
+                        if on {
+                            app.owner_filter.insert(owner);
+                        } else {
+                            app.owner_filter.remove(&owner);
                         }
-                    }
-                    if !app.owner_filter.is_empty()
-                        && ui.small_button("clear owner filter").clicked()
-                    {
-                        app.owner_filter.clear();
                         app.filter_dirty = true;
                     }
-                });
+                }
+            });
+            if !app.owner_filter.is_empty() && ui.small_button("clear owner filter").clicked() {
+                app.owner_filter.clear();
+                app.filter_dirty = true;
+            }
         });
     }
 
     sidebar_subtle_divider(ui, theme);
 
-    sidebar_region(ui, "Dates", theme, |ui| {
+    sidebar_region(ui, "Filter by dates", theme, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = SidebarTokens::OPTION_GAP;
             if ui
@@ -233,11 +235,8 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
             Id::new("basic_date_timeline"),
             app.date_span_min,
             app.date_span_max,
-            &mut app.date_mode,
-            &mut app.date_single_day,
             &mut app.date_range_lo,
             &mut app.date_range_hi,
-            &mut app.date_filter_engaged,
             theme,
         ) {
             app.filter_dirty = true;
@@ -246,34 +245,36 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
 
     sidebar_subtle_divider(ui, theme);
 
-    if sidebar_mode_row(
-        ui,
-        app.filter_mode == FilterMode::Ghost,
-        "ghost",
-        "Dim unchecked items on the canvas",
-        "Keep every file and folder in place, but fade items that fail the current filters. \
-         Useful when you want spatial context while focusing on a subset.",
-        theme,
-    )
-    .clicked()
-    {
-        app.filter_mode = FilterMode::Ghost;
-        app.filter_dirty = true;
-    }
-    if sidebar_mode_row(
-        ui,
-        app.filter_mode == FilterMode::Hide,
-        "hide",
-        "Remove unchecked items from the layout",
-        "Collapse the tree around items that pass the filters so hidden files no longer \
-         consume space. Folders with no visible children shrink away until filters change.",
-        theme,
-    )
-    .clicked()
-    {
-        app.filter_mode = FilterMode::Hide;
-        app.filter_dirty = true;
-    }
+    sidebar_region(ui, "Display", theme, |ui| {
+        if sidebar_mode_row(
+            ui,
+            app.filter_mode == FilterMode::Ghost,
+            "ghost",
+            "Dim unchecked items on the canvas",
+            "Keep every file and folder in place, but fade items that fail the current filters. \
+             Useful when you want spatial context while focusing on a subset.",
+            theme,
+        )
+        .clicked()
+        {
+            app.filter_mode = FilterMode::Ghost;
+            app.filter_dirty = true;
+        }
+        if sidebar_mode_row(
+            ui,
+            app.filter_mode == FilterMode::Hide,
+            "hide",
+            "Remove unchecked items from the layout",
+            "Collapse the tree around items that pass the filters so hidden files no longer \
+             consume space. Folders with no visible children shrink away until filters change.",
+            theme,
+        )
+        .clicked()
+        {
+            app.filter_mode = FilterMode::Hide;
+            app.filter_dirty = true;
+        }
+    });
 }
 
 fn display_settings(

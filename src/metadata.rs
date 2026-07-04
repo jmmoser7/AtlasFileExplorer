@@ -39,8 +39,8 @@ pub fn owner_short(path: &Path) -> String {
 fn owner_short_impl(path: &Path) -> String {
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PWSTR;
-    use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
-    use windows::Win32::Security::{LookupAccountSidW, OWNER_SECURITY_INFORMATION, PSID, SID_NAME_USE};
+    use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, LookupAccountSidW};
+    use windows::Win32::Security::{OWNER_SECURITY_INFORMATION, SE_FILE_OBJECT};
 
     let wide: Vec<u16> = path
         .as_os_str()
@@ -49,34 +49,34 @@ fn owner_short_impl(path: &Path) -> String {
         .collect();
 
     unsafe {
-        let mut owner_sid = PSID(std::ptr::null_mut());
+        let mut owner_sid = windows::Win32::Security::PSID::default();
         if GetNamedSecurityInfoW(
             windows::core::PCWSTR(wide.as_ptr()),
             SE_FILE_OBJECT,
             OWNER_SECURITY_INFORMATION,
-            Some(&mut owner_sid),
+            Some(&mut owner_sid as *mut _ as *mut _),
             None,
             None,
             None,
-            std::ptr::null_mut(),
+            None,
         )
         .is_err()
         {
             return String::new();
         }
-        if owner_sid.0.is_null() {
+        if owner_sid.is_invalid() {
             return String::new();
         }
 
         let mut name_len = 0u32;
         let mut domain_len = 0u32;
-        let mut use_type = SID_NAME_USE::default();
+        let mut use_type = windows::Win32::Security::SID_NAME_USE::default();
         let _ = LookupAccountSidW(
             None,
             owner_sid,
-            Some(PWSTR::null()),
+            PWSTR::null(),
             &mut name_len,
-            Some(PWSTR::null()),
+            PWSTR::null(),
             &mut domain_len,
             &mut use_type,
         );
@@ -90,9 +90,9 @@ fn owner_short_impl(path: &Path) -> String {
         if LookupAccountSidW(
             None,
             owner_sid,
-            Some(PWSTR(name_buf.as_mut_ptr())),
+            PWSTR(name_buf.as_mut_ptr()),
             &mut name_len,
-            Some(PWSTR(domain_buf.as_mut_ptr())),
+            PWSTR(domain_buf.as_mut_ptr()),
             &mut domain_len,
             &mut use_type,
         )
