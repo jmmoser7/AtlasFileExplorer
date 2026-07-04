@@ -233,8 +233,8 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
         if sidebar_date_timeline(
             ui,
             Id::new("basic_date_timeline"),
-            app.date_span_min,
-            app.date_span_max,
+            app.date_span_lo,
+            app.date_span_hi,
             &mut app.date_range_lo,
             &mut app.date_range_hi,
             theme,

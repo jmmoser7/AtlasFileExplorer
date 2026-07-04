@@ -474,14 +474,91 @@ impl FileEntry {
 }
 
 pub const SECS_PER_DAY: i64 = 86_400;
+pub const SECS_PER_HOUR: i64 = 3_600;
 
 /// Days since Unix epoch (UTC, day precision).
 pub fn day_index(secs: i64) -> i64 {
     secs.div_euclid(SECS_PER_DAY)
 }
 
-pub fn day_start(index: i64) -> i64 {
-    index * SECS_PER_DAY
+pub fn day_start(secs: i64) -> i64 {
+    day_index(secs) * SECS_PER_DAY
+}
+
+pub fn hour_start(secs: i64) -> i64 {
+    secs.div_euclid(SECS_PER_HOUR) * SECS_PER_HOUR
+}
+
+pub fn snap_to_step(secs: i64, step: i64) -> i64 {
+    if step <= 0 {
+        return secs;
+    }
+    ((secs as f64 / step as f64).round() as i64) * step
+}
+
+/// Calendar parts from unix seconds (UTC, days precision).
+pub fn ymd_from_secs(secs: i64) -> (i32, u32, u32) {
+    let s = date_string(secs);
+    let y = s.get(0..4).and_then(|x| x.parse().ok()).unwrap_or(1970);
+    let m = s.get(5..7).and_then(|x| x.parse().ok()).unwrap_or(1);
+    let d = s.get(8..10).and_then(|x| x.parse().ok()).unwrap_or(1);
+    (y, m, d)
+}
+
+const MONTH_SHORT: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+pub fn month_short(m: u32) -> &'static str {
+    MONTH_SHORT
+        .get(m.saturating_sub(1) as usize)
+        .copied()
+        .unwrap_or("???")
+}
+
+/// Human-readable label for a timeline tick at the given step width.
+pub fn timeline_tick_label(secs: i64, step_secs: i64) -> String {
+    let (y, m, d) = ymd_from_secs(secs);
+    if step_secs >= 365 * SECS_PER_DAY {
+        return format!("{y}");
+    }
+    if step_secs >= 28 * SECS_PER_DAY {
+        return format!("{} {y}", month_short(m));
+    }
+    if step_secs >= SECS_PER_DAY {
+        return format!("{} {}", month_short(m), d);
+    }
+    if step_secs >= SECS_PER_HOUR {
+        let h = (secs - day_start(secs)) / SECS_PER_HOUR;
+        return format!("{h:02}:00");
+    }
+    let h = (secs - day_start(secs)) / SECS_PER_HOUR;
+    let min = (secs % SECS_PER_HOUR) / 60;
+    format!("{h:02}:{min:02}")
+}
+
+/// Range readout under the timeline rail.
+pub fn timeline_range_caption(lo: i64, hi: i64, snap_secs: i64) -> String {
+    if snap_secs >= SECS_PER_DAY {
+        if lo == hi {
+            date_string(lo)
+        } else {
+            format!("{} — {}", date_string(lo), date_string(hi))
+        }
+    } else {
+        let fmt = |t: i64| {
+            if snap_secs >= SECS_PER_HOUR {
+                format!(
+                    "{} {}",
+                    date_string(t),
+                    timeline_tick_label(t, SECS_PER_HOUR)
+                )
+            } else {
+                format!("{} {}", date_string(t), timeline_tick_label(t, 900))
+            }
+        };
+        format!("{} — {}", fmt(lo), fmt(hi))
+    }
 }
 
 pub fn human_size(bytes: u64) -> String {
@@ -549,5 +626,26 @@ mod tests {
     fn ext_group_id_is_stable() {
         let group = &Family::Doc.ext_groups()[0];
         assert_eq!(Family::Doc.ext_group_id(group), "3:PDF");
+    }
+
+    #[test]
+    fn snap_to_step_rounds_to_nearest_hour() {
+        let t = day_start(20_000) + 90 * 60;
+        assert_eq!(
+            snap_to_step(t, SECS_PER_HOUR),
+            day_start(20_000) + SECS_PER_HOUR
+        );
+    }
+
+    #[test]
+    fn timeline_tick_label_scales_with_step() {
+        let noon = day_start(20_000) + 12 * SECS_PER_HOUR;
+        assert_eq!(timeline_tick_label(noon, SECS_PER_HOUR), "12:00");
+        assert!(
+            timeline_tick_label(noon, 365 * SECS_PER_DAY)
+                .chars()
+                .count()
+                <= 4
+        );
     }
 }
