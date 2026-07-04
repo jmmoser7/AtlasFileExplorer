@@ -10,7 +10,7 @@ use super::sidebar::{
 use super::widgets::{chip, gear_menu, sidebar_date_timeline, thin_sidebar_slider};
 use crate::app::chrome::ToolPanel;
 use crate::types::{ExtGroup, FAMILIES};
-use eframe::egui::{self, Id};
+use eframe::egui::{self, Color32, Id};
 
 fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
     let p = app.palette();
