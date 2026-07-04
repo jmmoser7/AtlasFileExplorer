@@ -35,10 +35,12 @@ pub fn thin_sidebar_slider(
 ) -> bool {
     let before = *value;
     ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
         let width = ui.available_width();
         ui.spacing_mut().slider_width = width;
-        ui.spacing_mut().slider_rail_height = 2.5;
-        ui.spacing_mut().interact_size.y = 6.0;
+        ui.spacing_mut().slider_rail_height = 2.0;
+        // Handle radius scales with interact height; ~60% smaller than first pass (6 → 2.4).
+        ui.spacing_mut().interact_size.y = 2.4;
         ui.add(
             egui::Slider::new(value, range)
                 .show_value(false)
@@ -47,6 +49,7 @@ pub fn thin_sidebar_slider(
     })
     .inner
     .on_hover_text(hover);
+    ui.add_space(1.0);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).small().color(sub_color));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -57,6 +60,7 @@ pub fn thin_sidebar_slider(
             );
         });
     });
+    ui.add_space(1.0);
     *value != before
 }
 

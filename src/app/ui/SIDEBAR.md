@@ -3,6 +3,9 @@
 Rules for the left tools rail (`ui/tools.rs`). Read `ARCHITECTURE.md` Layer 1
 before adding panels.
 
+**Core principle:** every pixel fights for its life. No gratuitous padding or
+borders. Use the minimum space needed for legibility and hit targets.
+
 ## Two levels of visibility
 
 | Mechanism | Where | Effect |
@@ -10,47 +13,38 @@ before adding panels.
 | Gear menu (`ChromeConfig.tools[]`) | Upper-left ⚙ | Show or hide an entire panel |
 | Section `+` / `−` toggle (`ChromeConfig.tools_expanded[]`) | Panel header | Collapse to title row or expand body |
 
-Gear toggles are registered in `chrome::ToolPanel`. Section collapse is per-tab
-session state (not persisted to disk yet).
-
-## Adding a new panel
-
-1. Add a variant to `ToolPanel` in `chrome.rs` (`ALL`, `label`, `default_on`).
-2. Extend `tools[]` and `tools_expanded[]` array sizes in `ChromeConfig`.
-3. Implement a section function in `tools.rs` using `sidebar_section`.
-4. Call it from `left_panel` behind `chrome.tool(ToolPanel::YourPanel)`.
-5. The gear menu picks up the new panel automatically via `ToolPanel::ALL`.
-
-## Section card anatomy
-
-Each panel is a bordered card via `sidebar_section` in `sidebar.rs`:
+## Panel anatomy
 
 ```
 ┌─────────────────────────────┐
-│ +  Section title   (hint)   │  ← always visible header (18px)
-├─────────────────────────────┤
-│  controls…                  │  ← body when expanded
+│ +  Section title   (hint)   │  ← collapsed capsule (tight vertical padding)
+│ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  │  ← faint group divider (inside expanded body only)
+│  [same-type controls…]      │
 └─────────────────────────────┘
 ```
+
+Capsules use **fill only** — no outer border stroke. Group boundaries inside an
+expanded panel use a **faint horizontal rule** (`sidebar_group_divider`).
 
 ### Tokens (`SidebarTokens`)
 
 | Token | Value | Notes |
 |-------|-------|-------|
-| Corner radius | 6px | Matches canvas tag radius |
-| Border | 1px `theme.border` | Inside stroke on card fill |
+| Corner radius | 6px | Soft capsule corners |
+| Outer border | none | Fill distinguishes capsule from rail |
 | Fill | `theme.card` | Elevated from `panel_fill` |
-| Inner padding | 8×6 px | Horizontal × vertical |
-| Gap between cards | 6px | Replaces `ui.separator()` |
-| Header height | 18px | Toggle + title |
-| Control row height | 20px | Checkboxes, option rows |
-| Toolbar row height | 22px | Primary action buttons |
-| Toggle glyph size | 8px | `+` collapsed, `−` expanded |
-| Row gap | 4px | Between controls inside body |
+| Inner padding | 6×3.5 px | Horizontal × vertical (40% tighter than v1) |
+| Gap between capsules | 4px | |
+| Rail top lift | 6.5px | First capsule sits ~30% higher |
+| Header min height | 14px | Text size unchanged; padding reduced |
+| Control row height | 18px | Checkboxes, options |
+| Toggle glyph | 8px | `+` / `−` |
+| Row gap (body) | 2px | Between rows inside a group |
+| Group divider opacity | 0.22 | `theme.line` |
+| Group divider pad | 3px | Above/below the rule |
+| Action stack gap | 2px | Vertically stacked buttons/checkboxes |
 | Muted text | `theme.sub` | Labels, slider captions |
 | Primary text | `theme.ink` | Section titles |
-
-Build theme from the app palette:
 
 ```rust
 let p = app.palette();
@@ -59,59 +53,104 @@ let theme = SidebarTheme {
     border: p.border,
     ink: p.ink,
     sub: p.sub,
+    line: p.line,
 };
 ```
+
+## Control-type grouping (required)
+
+Inside every expanded panel, **group controls by type**. Separate groups with
+`sidebar_control_group(..., divider_before: true, ...)`.
+
+| Group type | Helper | Contents |
+|------------|--------|------------|
+| Actions | `sidebar_actions_column` | One-shot buttons + mode toggles stacked vertically, left-aligned, hover tooltips |
+| Sliders | `sidebar_sliders_group` | All numeric sliders, tight vertical stack |
+| Checkboxes | `sidebar_checkbox_row` | All boolean toggles together |
+| Options | `sidebar_option_group` | Mutually exclusive `selectable_label` sets |
+| Text input | plain `TextEdit` | Search fields — own group at top of filter panels |
+| Chips | `chip()` in `ScrollArea` | Tag pills |
+
+**Do not** mix sliders and checkboxes in the same group. **Do not** put sliders
+on the same row as buttons.
+
+### Display settings group order (reference)
+
+1. **Actions** — Fit, Flow, Dark (stacked, left-aligned, hover explains each)
+2. *divider*
+3. **Sliders** — grid columns, portal threshold, row spacing
+4. *divider*
+5. **Checkboxes** — align image groups…
+6. *divider*
+7. **Options** — leader lines (bezier / orthogonal)
+
+### Slider aesthetics
+
+- Rail height: 2px
+- Handle: ~60% smaller than v1 (`interact_size.y = 2.4`)
+- Label row sits 1px below the rail; value readout right-aligned
+- 1px gap between consecutive sliders in a group
+
+### Action column aesthetics
+
+- Vertical stack, `Align::Min` (left)
+- 2px between items
+- Every control gets a descriptive `on_hover_text`
+
+## Adding a new panel
+
+1. Add variant to `ToolPanel` in `chrome.rs`.
+2. Implement section in `tools.rs` with `sidebar_section(..., first, ...)`.
+3. Inside the body, use `sidebar_control_group` per control type.
+4. Pass `first: bool` through `left_panel` so the first visible capsule gets
+   `RAIL_TOP_LIFT`.
 
 ## Control-type decision tree
 
 ```
-Is it a one-shot canvas action (Fit, Flow)?
-  → sidebar_toolbar_row + ui.button
+One-shot canvas action or orientation toggle?
+  → sidebar_actions_column (stack vertically, hover tooltip)
 
-Is it a boolean filter/setting with a short label?
-  → sidebar_checkbox_row
+Numeric range?
+  → sidebar_sliders_group + thin_sidebar_slider(..., theme.sub)
 
-Is it a numeric range?
-  → sidebar_slider_block + thin_sidebar_slider(..., theme.sub)
+Boolean filter/setting?
+  → sidebar_checkbox_row (keep all checkboxes in one group)
 
-Is it a mutually exclusive pair/small set of modes?
-  → sidebar_option_group(label, theme, |ui| selectable_label …)
+Mutually exclusive modes?
+  → sidebar_option_group
 
-Is it a subsection label only?
-  → sidebar_subsection_label
-
-Is it a family/type row with a color swatch?
+Color swatch + family label?
   → sidebar_family_row
 
-Is it free-form text input?
-  → full-width TextEdit at top of section body
+Free-form text?
+  → TextEdit in its own control group
 
-Is it a list of draggable pills (tags)?
-  → chip() inside ScrollArea (Tags panel pattern)
+Draggable tag pills?
+  → chip() inside ScrollArea
 ```
 
-## Layout rules
+## Do / Don't
 
 ### Do
 
-- Keep section bodies vertically stacked with consistent 4px rhythm.
-- Put primary actions in a toolbar row at the top of Display-style panels.
-- Use `sidebar_option_group` for muted label + horizontal option pills.
-- Put slider value readouts on the right (handled by `thin_sidebar_slider`).
-- Use `theme.sub` for all secondary copy; never hardcode `gray(120)`.
+- Pass `first` to the first visible `sidebar_section` in the rail.
+- Put faint dividers between every control-type group in expanded bodies.
+- Keep collapsed capsules as slim as possible (padding, not font size).
+- Use hover tooltips on action controls.
 
 ### Don't
 
-- Don't use `ui.separator()` between rail sections — card gaps replace them.
-- Don't mix toolbar buttons and sliders on the same horizontal row.
-- Don't use empty checkbox labels with separate text labels (use
-  `sidebar_family_row` or inline checkbox labels).
-- Don't add custom `Frame` styling in `tools.rs` — extend `sidebar.rs` instead.
+- Don't add outer borders to capsules.
+- Don't use `ui.separator()` between rail capsules.
+- Don't lay out Fit / Flow / Dark on one horizontal row.
+- Don't interleave sliders with checkboxes or buttons.
+- Don't add custom frames in `tools.rs` — extend `sidebar.rs`.
 
-## Example: minimal panel
+## Example
 
 ```rust
-fn my_panel(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+fn my_panel(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme, first: &mut bool) {
     let mut expanded = app.active_chrome().tool_expanded(ToolPanel::MyPanel);
     if sidebar_section(
         ui,
@@ -120,27 +159,21 @@ fn my_panel(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         None,
         &mut expanded,
         theme,
+        *first,
         |ui| {
-            if sidebar_checkbox_row(ui, &mut app.my_flag, "Enable thing") {
-                app.filter_dirty = true;
-            }
+            sidebar_control_group(ui, theme, false, |ui| {
+                if sidebar_checkbox_row(ui, &mut app.my_flag, "Enable thing") {
+                    app.filter_dirty = true;
+                }
+            });
         },
     ) {
         app.active_chrome_mut()
             .set_tool_expanded(ToolPanel::MyPanel, expanded);
     }
+    *first = false;
 }
 ```
-
-## Visual review (Windows)
-
-After changing sidebar layout, verify on Windows:
-
-1. Border contrast between card fill and rail background.
-2. Toggle hit target and glyph legibility at 200px rail width.
-3. Display settings toolbar alignment (Fit / Flow / Dark).
-4. Collapsed vs expanded header density.
-5. Tags panel scroll area inside the card frame.
 
 ## Related files
 
