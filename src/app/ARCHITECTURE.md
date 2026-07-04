@@ -1,7 +1,33 @@
 # File Atlas — UI architecture
 
-The shell is layered so each concern has one home. When adding features, extend
-the matching layer instead of growing `mod.rs`.
+The shell is layered so each concern has one home. When adding features,
+extend the matching module instead of growing `mod.rs`.
+
+## Module map (`src/app/`)
+
+| Module | Role | Notes |
+|--------|------|-------|
+| `mod.rs` | `AtlasApp` state, workspace/tab lifecycle, channel draining, filtering, organizing actions, frame pump | Integration point — everything else is `impl AtlasApp` blocks or free functions in child modules |
+| `canvas.rs` | Camera math, canvas input/hit-testing, all world-space painting (branches, dir nodes, portals, file cards) | LOD thresholds and zoom limits stay as consts in `mod.rs` |
+| `overlays.rs` | Staging tray, welcome screen, context menu, tag/assign editor, detail window, hover tip, drag ghost, toasts, texture eviction | Per-frame egui Areas/Windows; no state of their own |
+| `theme.rs` | `Palette` + dark/light egui visuals | Take colors from `AtlasApp::palette()`; never hardcode |
+| `platform.rs` | OS file-manager integration (open / reveal) | The one place for `cfg(windows)` shell-command forks — always provide a non-Windows fallback |
+| `prewarm.rs` | Overnight shared-cache pre-warm (job, walk, controls) | Root-independent by design (`PINNED_GENERATION`) |
+| `commands.rs` | Canonical input-binding registry | See `COMMANDS.md` before touching bindings |
+| `chrome.rs` | Gear-menu panel registry (`ToolPanel`, `ReadoutPanel`) | Extension point for new rail/readout panels |
+| `tests.rs` | Headless frame-loop harness + multi-tab stress tests | `cargo test app::tests` |
+| `ui/` | Chrome: tab strip, tools rail, readouts bar, advanced window, shared widgets | See layer rules below |
+
+**Conventions that keep this layout healthy:**
+
+- New code goes in the module whose role matches; `mod.rs` only gains state
+  fields, lifecycle logic, and thin wiring.
+- Methods called across `app/` child modules are `pub(in crate::app)`;
+  everything else stays private to its module.
+- Shared UI helpers (`trunc`, `chip`, `group_digits`, sliders, timeline) live
+  in `ui/widgets.rs` — never re-implement them locally.
+- A warning-free `cargo clippy --all-targets` is the baseline; don't add
+  `#[allow(...)]` without a comment explaining why.
 
 ## Layer 0 — Top chrome (`ui/tabs.rs`)
 
@@ -15,11 +41,11 @@ Everything below the tab bar belongs to the **active tab** (`TabState`):
 
 | Region | Module | Role |
 |--------|--------|------|
-| Left tools rail | `ui/tools.rs` | Filters, display settings, workflow, tags — actions on the canvas. See `ui/SIDEBAR.md` for panel layout rules. |
-| Canvas | `mod.rs` (`canvas`) | Infinite map, selection, thumbnails |
-| Bottom readouts | `ui/readouts.rs` | Metrics, scan progress, cache status — read-only |
+| Left tools rail | `ui/tools.rs` | Filters, display settings, workflow, tags — actions on the canvas. Built from `ui/sidebar.rs` primitives; see `ui/SIDEBAR.md` for layout rules. |
+| Canvas | `canvas.rs` | Infinite map, selection, thumbnails |
+| Bottom readouts | `ui/readouts.rs` | Gear-togglable panels (metrics, activity heatmap) — read-only |
 | Pre-warm dashboard | `ui/readouts.rs` (`prewarm_dashboard`) | Temporary panel above the readouts while a pre-warm runs: discovery, progress, speed control, cancel |
-| Staging tray | `mod.rs` (`bottom_tray`) | Assignments / export (appears when needed) |
+| Staging tray | `overlays.rs` (`bottom_tray`) | Assignments / export (appears when needed) |
 | Advanced | `ui/advanced.rs` | Floating window (pre-warm, shared cache, commands reference) — opened from tools gear |
 | Commands | `commands.rs` | Canonical keyboard/mouse bindings; see `COMMANDS.md` |
 
@@ -45,7 +71,9 @@ index-out-of-bounds crash the moment another tab's entries load:
    thumbnails carry a `generation`; the index load carries its `root`; the
    folder picker carries the requesting tab's `id`. A late result for a
    root/tab that is no longer current is dropped (or parked on its owning
-   tab), never ingested into the active workspace.
+   tab), never ingested into the active workspace. Pre-warm results are the
+   deliberate exception: they are `PINNED_GENERATION` and survive root
+   changes (`flush_thumb_results` keeps their accounting).
 3. **Tabs are referenced by stable `TabState::id` across async boundaries**
    — indices shift when tabs close.
 4. **`active_tab` is always `< tabs.len()` and `tabs` is never empty.**
@@ -61,17 +89,30 @@ invariants after every frame. Run with `cargo test app::tests`.
 - `ToolPanel` — register a new left-rail panel in the enum, add a `default_on`
   policy, implement a section in `ui/tools.rs`, wire the gear menu (automatic
   via `ToolPanel::ALL`).
-- `ReadoutPanel` — same pattern in `ui/readouts.rs`.
+- `ReadoutPanel` — same pattern in `ui/readouts.rs` (metrics and the activity
+  heatmap are the existing examples).
 
-## Backend (unchanged boundaries)
+## Backend (flat modules under `src/`)
 
 | Module | Responsibility |
 |--------|----------------|
-| `scanner.rs` | Directory walk |
-| `index.rs` | SQLite persistence |
+| `scanner.rs` | Parallel streaming directory walk |
+| `index.rs` | SQLite persistence on a dedicated thread |
 | `thumbs.rs` | Thumbnail workers + local + shared cache tiers |
 | `tree.rs` | Layout + hit testing |
-| `export.rs` / `journal.rs` | Organizing workflow |
+| `export.rs` / `journal.rs` | Organizing workflow (copy-only export, undo ledger) |
+| `watcher.rs` | Filesystem watcher keeping the index live |
+| `metadata.rs` | Owner / ctime lookups (`cfg(windows)` with fallbacks) |
+| `pdf.rs` / `office.rs` / `threedm.rs` | Format-specific preview extractors |
+| `types.rs` | `FileEntry`, `Family`, date/size helpers |
+
+### Cross-platform rule
+
+The crate targets Windows but **must build and pass tests on Linux** (cloud
+agents and CI run there). Windows API usage is `#[cfg(windows)]`-gated with a
+functional fallback, and the `windows` crate is a target-specific dependency.
+`FileEntry::rel` and cache keys are backslash-normalized on every platform so
+tree building, the index, and shared cache keys behave identically.
 
 ## Shared project cache
 
@@ -81,4 +122,4 @@ invariants after every frame. Run with `cargo test app::tests`.
   local cache while a shared tier is active (`thumbs.rs` worker + `sync_to_shared`).
 - Pre-warm creates repositories in both directions: walking *up* from the
   picked folder (picked inside a project) and while *descending* (picked a
-  folder containing projects) — see `prewarm_walk` in `app/mod.rs`.
+  folder containing projects) — see `prewarm_walk` in `app/prewarm.rs`.

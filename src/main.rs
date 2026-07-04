@@ -1,3 +1,6 @@
+//! Entry point: window options and crate module tree. All logic lives in
+//! `app` (UI shell) and the flat backend modules (scanner, index, thumbs…).
+
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;

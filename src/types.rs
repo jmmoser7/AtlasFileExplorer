@@ -1,3 +1,11 @@
+//! Core value types shared across the app: `FileEntry` (with its
+//! backslash-normalized `rel` path invariant), file `Family` classification,
+//! extension groups, and date/size formatting helpers.
+//!
+//! `FileEntry::rel` uses `\` separators on every platform so tree building,
+//! the SQLite index, and shared cache keys agree across machines. Construct
+//! entries via `from_abs`/`from_rel` — never build `rel` by hand.
+
 use eframe::egui::Color32;
 use std::path::{Path, PathBuf};
 
@@ -490,10 +498,6 @@ pub fn day_index(secs: i64) -> i64 {
 
 pub fn day_start(secs: i64) -> i64 {
     day_index(secs) * SECS_PER_DAY
-}
-
-pub fn hour_start(secs: i64) -> i64 {
-    secs.div_euclid(SECS_PER_HOUR) * SECS_PER_HOUR
 }
 
 pub fn snap_to_step(secs: i64, step: i64) -> i64 {

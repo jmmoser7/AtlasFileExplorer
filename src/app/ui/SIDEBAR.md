@@ -80,8 +80,8 @@ Is it a mutually exclusive pair/small set of modes?
 Is it a subsection label only?
   → sidebar_subsection_label
 
-Is it a family/type row with a color swatch?
-  → sidebar_family_row
+Is it a family/type row with a color swatch (and sub-type expander)?
+  → sidebar_family_master_row
 
 Is it free-form text input?
   → full-width TextEdit at top of section body
@@ -105,7 +105,7 @@ Is it a list of draggable pills (tags)?
 - Don't use `ui.separator()` between rail sections — card gaps replace them.
 - Don't mix toolbar buttons and sliders on the same horizontal row.
 - Don't use empty checkbox labels with separate text labels (use
-  `sidebar_family_row` or inline checkbox labels).
+  `sidebar_family_master_row` or inline checkbox labels).
 - Don't add custom `Frame` styling in `tools.rs` — extend `sidebar.rs` instead.
 
 ## Example: minimal panel

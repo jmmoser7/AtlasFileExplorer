@@ -437,14 +437,13 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
             .as_ref()
             .map(|d| d.join(format!("{}.jpg", req.key)));
         let image = load_cached(&cache_file)
-            .map(|img| {
+            .inspect(|_img| {
                 // Any tier: if we have a local JPEG and the shared tier is
                 // missing it, publish now. Hot on-demand views are the main
                 // way thumbnails first land in the project cache.
                 if let Some(sf) = &shared_file {
                     publish_shared(&cache_file, sf);
                 }
-                img
             })
             .or_else(|| {
                 // Shared project tier: pull the ready-made JPEG onto local

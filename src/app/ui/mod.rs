@@ -9,7 +9,7 @@ mod tabs;
 mod tools;
 mod widgets;
 
-pub use widgets::group_digits;
+pub use widgets::{chip, group_digits, trunc};
 
 use super::AtlasApp;
 use eframe::egui::Context;

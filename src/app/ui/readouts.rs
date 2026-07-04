@@ -1,4 +1,6 @@
-//! Bottom readout bar — metrics and future status panels.
+//! Bottom readout bar — gear-togglable panels (metrics, activity heatmap)
+//! plus the temporary pre-warm dashboard. Register new panels in
+//! `chrome::ReadoutPanel` so they appear in the gear menu automatically.
 
 use super::super::{AtlasApp, DateFilterField, ScanMode};
 use super::activity_heatmap::{draw_activity_heatmap, ActivityHeatmap};
