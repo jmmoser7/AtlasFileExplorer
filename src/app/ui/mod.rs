@@ -27,6 +27,11 @@ impl AtlasApp {
         readouts::status_bar(self, ctx);
     }
 
+    /// Temporary pre-warm progress dashboard (only while a run is active).
+    pub(super) fn draw_prewarm_dashboard(&mut self, ctx: &Context) {
+        readouts::prewarm_dashboard(self, ctx);
+    }
+
     pub(super) fn draw_advanced_window(&mut self, ctx: &Context) {
         advanced::window(self, ctx);
     }

@@ -35,16 +35,20 @@ pub const THUMB_PX: i32 = 192;
 
 /// Bump when extraction logic changes so stale JPEGs (e.g. cached shell icons)
 /// are regenerated.
-const CACHE_KEY_VERSION: &str = "2";
+const CACHE_KEY_VERSION: &str = "3";
 
 /// Max concurrent background cache-warming jobs. Keeps the sustained network
 /// load at roughly "one file copy running quietly", while on-demand requests
 /// can still use every worker.
 const WARM_CONCURRENCY: usize = 4;
 
-/// Max concurrent jobs for explicit overnight pre-warm runs: even gentler
+/// Default concurrent jobs for explicit overnight pre-warm runs: even gentler
 /// than regular warming so it can grind for hours without anyone noticing.
-const SLOW_CONCURRENCY: usize = 2;
+/// User-adjustable at runtime between [`SLOW_CONCURRENCY_MIN`] and
+/// [`SLOW_CONCURRENCY_MAX`] from the pre-warm dashboard.
+pub const SLOW_CONCURRENCY_DEFAULT: usize = 2;
+pub const SLOW_CONCURRENCY_MIN: usize = 1;
+pub const SLOW_CONCURRENCY_MAX: usize = 8;
 
 /// Pre-warm requests use this sentinel so root changes never cancel them.
 pub const PINNED_GENERATION: u64 = u64::MAX;
@@ -59,6 +63,9 @@ pub struct ThumbRequest {
     pub color_only: bool,
     /// Shared per-project cache directory (second tier behind the local one).
     pub shared_dir: Option<std::sync::Arc<PathBuf>>,
+    /// Source file size, echoed back in the result so the pre-warm dashboard
+    /// can report transfer throughput. Zero when the caller doesn't care.
+    pub src_bytes: u64,
 }
 
 pub struct ThumbResult {
@@ -68,6 +75,8 @@ pub struct ThumbResult {
     /// Background cache-warming result: disk cache is written, but no pixels
     /// are shipped back (the UI loads them on demand).
     pub warm: bool,
+    /// Source file size copied from the request (throughput accounting).
+    pub src_bytes: u64,
     pub avg: Option<[u8; 3]>,
     pub image: Option<(u32, u32, Vec<u8>)>, // w, h, RGBA
 }
@@ -88,6 +97,8 @@ struct Shared {
     active_generation: AtomicU64,
     warm_active: AtomicUsize,
     slow_active: AtomicUsize,
+    /// User-adjustable cap on concurrent pre-warm jobs (dashboard speed control).
+    slow_limit: AtomicUsize,
     worker_count: AtomicUsize,
 }
 
@@ -132,6 +143,7 @@ impl ThumbPool {
             active_generation: AtomicU64::new(0),
             warm_active: AtomicUsize::new(0),
             slow_active: AtomicUsize::new(0),
+            slow_limit: AtomicUsize::new(SLOW_CONCURRENCY_DEFAULT),
             worker_count: AtomicUsize::new(0),
         });
         let (tx, rx) = unbounded::<ThumbResult>();
@@ -197,6 +209,30 @@ impl ThumbPool {
         self.shared.cv.notify_one();
     }
 
+    /// Current cap on concurrent pre-warm jobs.
+    pub fn slow_limit(&self) -> usize {
+        self.shared.slow_limit.load(Ordering::Relaxed)
+    }
+
+    /// Adjust the pre-warm concurrency cap (dashboard speed control). Raising
+    /// it wakes idle workers so the new lanes fill immediately; lowering it
+    /// simply lets in-flight jobs finish without starting replacements.
+    pub fn set_slow_limit(&self, limit: usize) {
+        let limit = limit.clamp(SLOW_CONCURRENCY_MIN, SLOW_CONCURRENCY_MAX);
+        self.shared.slow_limit.store(limit, Ordering::Relaxed);
+        self.shared.cv.notify_all();
+    }
+
+    /// Cancel a pre-warm run: drop every queued (not yet started) slow job.
+    /// The few in-flight jobs finish naturally. Returns how many were dropped.
+    pub fn cancel_slow(&self) -> usize {
+        let mut q = self.shared.queue.lock().unwrap();
+        let dropped = q.slow.len();
+        q.slow.clear();
+        q.slow.shrink_to_fit();
+        dropped
+    }
+
     #[cfg(test)]
     pub(crate) fn cache_dir(&self) -> &Path {
         &self.cache_dir
@@ -243,6 +279,31 @@ pub struct ProjectCache {
 /// at its lowest level.
 const CACHE_ANCHOR: [&str; 3] = ["02 DESIGN", "05 RESOURCES", "03 DATA"];
 pub const CACHE_DIR_NAME: &str = ".atlas-cache";
+
+/// Check whether `dir` is itself a project root (directly contains the
+/// template anchor), returning the shared cache path inside it. Complements
+/// `discover_project_cache`, which only walks *up*: the pre-warm walk uses
+/// this while descending so picking a folder *above* several projects (e.g.
+/// a whole office folder) still creates and fills each project's repository.
+pub fn project_anchor_under(dir: &Path) -> Option<PathBuf> {
+    let mut anchor = dir.to_path_buf();
+    for part in CACHE_ANCHOR {
+        anchor.push(part);
+    }
+    if anchor.is_dir() {
+        Some(anchor.join(CACHE_DIR_NAME))
+    } else {
+        None
+    }
+}
+
+/// Create the shared cache repository directory, verifying it actually
+/// exists afterwards (creation fails silently on read-only shares, in which
+/// case pre-warm falls back to the local cache only).
+pub fn create_shared_repo(shared_dir: &Path) -> bool {
+    let _ = std::fs::create_dir_all(shared_dir);
+    shared_dir.is_dir()
+}
 
 pub fn discover_project_cache(open_root: &Path) -> Option<ProjectCache> {
     let mut dir = Some(open_root);
@@ -324,7 +385,8 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
                     break (q.warm.pop_front().unwrap(), 1);
                 }
                 if !q.slow.is_empty()
-                    && shared.slow_active.load(Ordering::Relaxed) < SLOW_CONCURRENCY
+                    && shared.slow_active.load(Ordering::Relaxed)
+                        < shared.slow_limit.load(Ordering::Relaxed)
                 {
                     shared.slow_active.fetch_add(1, Ordering::Relaxed);
                     break (q.slow.pop_front().unwrap(), 2);
@@ -396,6 +458,7 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
             generation: req.generation,
             color_only: req.color_only,
             warm,
+            src_bytes: req.src_bytes,
             avg,
             // Warm jobs exist to fill the disk cache and harvest the average
             // color; shipping pixels back would balloon UI memory.
@@ -436,9 +499,23 @@ fn prefers_builtin_extractor(ext: &str) -> bool {
 fn extract_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
     let ext = file_ext(path);
     if prefers_builtin_extractor(&ext) {
-        fallback_thumbnail(path, &ext).or_else(|| shell_thumbnail_cached_only(path))
+        fallback_thumbnail(path, &ext)
+            .or_else(|| shell_thumbnail_cached_only(path))
+            .or_else(|| pdf_shell_fallback(&ext, path))
     } else {
         shell_thumbnail(path).or_else(|| fallback_thumbnail(path, &ext))
+    }
+}
+
+/// Last-resort shell extraction for PDFs pdfium could not render. Explorer
+/// sometimes has a real cached/extracted page even when pdfium fails (XFA,
+/// odd encodings, password prompts). A generic type icon is still better
+/// than an eternal loading placeholder.
+fn pdf_shell_fallback(ext: &str, path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+    if ext == "pdf" {
+        shell_thumbnail(path)
+    } else {
+        None
     }
 }
 
@@ -603,6 +680,60 @@ mod tests {
     }
 
     #[test]
+    fn project_anchor_under_finds_direct_children_only() {
+        let root = std::env::temp_dir().join(format!("nfa_anchor_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let project = root.join("26013 - Another Project");
+        let anchor = project
+            .join("02 DESIGN")
+            .join("05 RESOURCES")
+            .join("03 DATA");
+        std::fs::create_dir_all(&anchor).unwrap();
+
+        // The project root itself is recognized...
+        let shared = project_anchor_under(&project).expect("project root has anchor");
+        assert_eq!(shared, anchor.join(CACHE_DIR_NAME));
+        // ...but the folder above it is not (the walk descends into it).
+        assert!(project_anchor_under(&root).is_none());
+        // The repository can be created at the discovered location.
+        assert!(create_shared_repo(&shared));
+        assert!(shared.is_dir());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn slow_limit_clamps_and_cancel_clears_queue() {
+        let pool = ThumbPool::new();
+        assert_eq!(pool.slow_limit(), SLOW_CONCURRENCY_DEFAULT);
+        pool.set_slow_limit(0);
+        assert_eq!(pool.slow_limit(), SLOW_CONCURRENCY_MIN);
+        pool.set_slow_limit(999);
+        assert_eq!(pool.slow_limit(), SLOW_CONCURRENCY_MAX);
+        pool.set_slow_limit(4);
+        assert_eq!(pool.slow_limit(), 4);
+
+        // cancel_slow drops queued jobs and reports how many.
+        // (No workers will pick these up instantly: the queue lock is held
+        // while pushing, and pathless jobs finish fast even if raced.)
+        {
+            let mut q = pool.shared.queue.lock().unwrap();
+            for _ in 0..5 {
+                q.slow.push_back(ThumbRequest {
+                    id: u32::MAX,
+                    generation: PINNED_GENERATION,
+                    path: PathBuf::from("nonexistent"),
+                    key: "k".into(),
+                    color_only: false,
+                    shared_dir: None,
+                    src_bytes: 0,
+                });
+            }
+        }
+        let dropped = pool.cancel_slow();
+        assert!(dropped <= 5 && dropped > 0);
+    }
+
+    #[test]
     fn sync_to_shared_copies_local_jpeg() {
         let dir = std::env::temp_dir().join(format!("nfa_sync_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -634,6 +765,16 @@ mod tests {
         assert!(prefers_builtin_extractor("docx"));
         assert!(!prefers_builtin_extractor("ppt"));
         assert!(!prefers_builtin_extractor("png"));
+    }
+
+    #[test]
+    fn pdf_shell_fallback_only_applies_to_pdf() {
+        let dir = std::env::temp_dir().join(format!("nfa_pdf_fb_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let pptx = dir.join("deck.pptx");
+        std::fs::write(&pptx, b"not a zip").unwrap();
+        assert!(pdf_shell_fallback("pptx", &pptx).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
