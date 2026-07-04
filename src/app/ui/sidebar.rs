@@ -29,7 +29,6 @@ impl SidebarTokens {
     pub const ROW_GAP: f32 = 4.0;
     pub const TOOLBAR_GAP: f32 = 4.0;
     pub const OPTION_GAP: f32 = 4.0;
-    pub const RIGHT_COL_WIDTH: f32 = 60.0;
 }
 
 /// Bordered card with a collapsible header row and optional body.
@@ -134,24 +133,6 @@ pub fn sidebar_checkbox_row(
     changed
 }
 
-/// Label left, custom control in a fixed-width right column.
-pub fn sidebar_labeled_row(
-    ui: &mut Ui,
-    label: &str,
-    theme: SidebarTheme,
-    add_control: impl FnOnce(&mut Ui),
-) {
-    ui.horizontal(|ui| {
-        ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
-        ui.label(RichText::new(label).small().color(theme.sub));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.set_width(SidebarTokens::RIGHT_COL_WIDTH);
-            add_control(ui);
-        });
-    });
-    ui.add_space(SidebarTokens::ROW_GAP);
-}
-
 /// Muted subsection label with top spacing.
 pub fn sidebar_subsection_label(ui: &mut Ui, label: &str, theme: SidebarTheme) {
     ui.add_space(SidebarTokens::ROW_GAP);
@@ -218,29 +199,6 @@ pub fn sidebar_mode_row(
     area.response.on_hover_text(hover_detail);
     ui.add_space(SidebarTokens::ROW_GAP);
     area.inner
-}
-
-/// Checkbox + colored swatch + label in aligned columns.
-pub fn sidebar_family_row(
-    ui: &mut Ui,
-    value: &mut bool,
-    swatch_color: Color32,
-    label: &str,
-) -> bool {
-    ui.horizontal(|ui| {
-        ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
-        let mut changed = false;
-        ui.scope(|ui| {
-            ui.set_width(16.0);
-            if ui.checkbox(value, "").changed() {
-                changed = true;
-            }
-        });
-        ui.label(RichText::new("■").color(swatch_color));
-        ui.label(label);
-        changed
-    })
-    .inner
 }
 
 /// Family master row with a layer-style expand toggle for stacked sub-type rows.

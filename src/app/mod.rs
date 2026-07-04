@@ -29,6 +29,8 @@ mod commands;
 mod tests;
 mod ui;
 
+use ui::{chip, group_digits, trunc};
+
 pub use chrome::ChromeConfig;
 
 const TEXTURE_CAP: usize = 1100;
@@ -2397,13 +2399,12 @@ impl AtlasApp {
                     if self.export_picker_rx.is_some() {
                         ui.spinner();
                     }
-                    if !self.selection.is_empty() {
-                        if ui
+                    if !self.selection.is_empty()
+                        && ui
                             .button(format!("Tag / assign {} selectedâ€¦", self.selection.len()))
                             .clicked()
-                        {
-                            self.open_edit_panel();
-                        }
+                    {
+                        self.open_edit_panel();
                     }
                 });
             });
@@ -2603,7 +2604,7 @@ impl AtlasApp {
             let (scroll, zoom_delta) = ui.input(|i| (i.raw_scroll_delta, i.zoom_delta()));
             if let Some(p) = pointer {
                 if scroll.y.abs() > 0.0 && !shift {
-                    self.zoom_at(p, (scroll.y as f32 * 0.0021).exp());
+                    self.zoom_at(p, (scroll.y * 0.0021).exp());
                 } else if shift && (scroll.y.abs() > 0.0 || scroll.x.abs() > 0.0) {
                     self.cam.offset.x -= scroll.y + scroll.x;
                 }
@@ -2741,7 +2742,9 @@ impl AtlasApp {
         }
 
         // --- clicks ---
-        let mut deferred: Vec<Box<dyn FnOnce(&mut AtlasApp)>> = Vec::new();
+        // Mutations deferred until after hit-testing borrows end.
+        type Deferred = Box<dyn FnOnce(&mut AtlasApp)>;
+        let mut deferred: Vec<Deferred> = Vec::new();
 
         if resp.drag_stopped() {
             if let (Some(a), Some(p)) = (self.rubber_origin, pointer) {
@@ -2941,7 +2944,7 @@ impl AtlasApp {
                     DirGrip::Incremental => screen.distance(inc),
                     DirGrip::Full => screen.distance(full),
                 };
-                if best.map_or(true, |(bd, _, _)| dist < bd) {
+                if best.is_none_or(|(bd, _, _)| dist < bd) {
                     best = Some((dist, di as u32, grip));
                 }
             }
@@ -3180,27 +3183,25 @@ impl AtlasApp {
             }
 
             if let Some(gb) = d.grid_bounds {
-                if gb.expand(40.0).intersects(view) {
-                    if lod > 0 {
-                        // Dashed group outline.
-                        let sr = self.w2s_rect(gb);
-                        let dash = 7.0 * z.max(0.15);
-                        let gap = 6.0 * z.max(0.15);
-                        let pts = [
-                            sr.min,
-                            Pos2::new(sr.max.x, sr.min.y),
-                            sr.max,
-                            Pos2::new(sr.min.x, sr.max.y),
-                            sr.min,
-                        ];
-                        for w in pts.windows(2) {
-                            painter.add(egui::Shape::dashed_line(
-                                w,
-                                Stroke::new(1.0, p.border_strong),
-                                dash,
-                                gap,
-                            ));
-                        }
+                if gb.expand(40.0).intersects(view) && lod > 0 {
+                    // Dashed group outline.
+                    let sr = self.w2s_rect(gb);
+                    let dash = 7.0 * z.max(0.15);
+                    let gap = 6.0 * z.max(0.15);
+                    let pts = [
+                        sr.min,
+                        Pos2::new(sr.max.x, sr.min.y),
+                        sr.max,
+                        Pos2::new(sr.min.x, sr.max.y),
+                        sr.min,
+                    ];
+                    for w in pts.windows(2) {
+                        painter.add(egui::Shape::dashed_line(
+                            w,
+                            Stroke::new(1.0, p.border_strong),
+                            dash,
+                            gap,
+                        ));
                     }
                 }
             }
@@ -3506,14 +3507,14 @@ impl AtlasApp {
                         group_digits((d.child_dirs.len() + d.files.len()) as u64),
                         human_size(d.desc_bytes)
                     ),
-                    FontId::proportional((10.5 * z).min(12.0).max(6.0)),
+                    FontId::proportional((10.5 * z).clamp(6.0, 12.0)),
                     p.sub,
                 );
                 painter.text(
                     Pos2::new(sr.max.x - pad - 2.0 * z, sr.max.y - 18.0 * z),
                     Align2::RIGHT_CENTER,
                     "Enter â¤¢",
-                    FontId::proportional((10.5 * z).min(12.0).max(6.0)),
+                    FontId::proportional((10.5 * z).clamp(6.0, 12.0)),
                     p.portal,
                 );
             }
@@ -3551,20 +3552,18 @@ impl AtlasApp {
                     src_bytes: e.size,
                 });
             }
-            ThumbState::Loaded => {
-                if !self.textures.contains_key(&f) {
-                    // Evicted â€” ask again (disk cache makes this cheap).
-                    self.thumb_state[i] = ThumbState::AskedFull;
-                    requests.push(ThumbRequest {
-                        id: f,
-                        generation: self.generation,
-                        path: e.path.clone(),
-                        key,
-                        color_only: false,
-                        shared_dir: self.shared_cache.clone(),
-                        src_bytes: e.size,
-                    });
-                }
+            ThumbState::Loaded if !self.textures.contains_key(&f) => {
+                // Evicted â€” ask again (disk cache makes this cheap).
+                self.thumb_state[i] = ThumbState::AskedFull;
+                requests.push(ThumbRequest {
+                    id: f,
+                    generation: self.generation,
+                    path: e.path.clone(),
+                    key,
+                    color_only: false,
+                    shared_dir: self.shared_cache.clone(),
+                    src_bytes: e.size,
+                });
             }
             _ => {}
         }
@@ -4244,28 +4243,6 @@ fn cover_uv(tex_size: Vec2, cell: Vec2) -> Rect {
     }
 }
 
-fn trunc(s: &str, n: usize) -> String {
-    if s.chars().count() > n {
-        let cut: String = s.chars().take(n.saturating_sub(1)).collect();
-        format!("{cut}â€¦")
-    } else {
-        s.to_string()
-    }
-}
-
-fn chip(ui: &mut egui::Ui, text: &str, active: bool, base: Color32) -> egui::Response {
-    let fill = if active {
-        base
-    } else {
-        Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 90)
-    };
-    let btn = egui::Button::new(egui::RichText::new(text).size(11.0).color(Color32::WHITE))
-        .fill(fill)
-        .corner_radius(CornerRadius::same(10))
-        .sense(Sense::click_and_drag());
-    ui.add(btn)
-}
-
 /// Draws an axis-aligned wire route with rounded corners (PCB trace style).
 fn rounded_route(painter: &egui::Painter, pts: &[Pos2], radius: f32, stroke: Stroke) {
     if pts.len() < 2 {
@@ -4304,18 +4281,6 @@ fn rounded_route(painter: &egui::Painter, pts: &[Pos2], radius: f32, stroke: Str
             painter.line_segment([cursor, cur], stroke);
         }
     }
-}
-
-fn group_digits(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
 }
 
 fn set_subtree_collapsed(t: &mut Tree, di: usize, collapsed: bool) {

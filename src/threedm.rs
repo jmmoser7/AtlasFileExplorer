@@ -24,7 +24,7 @@ pub fn embedded_preview(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
 
     find_png(&head)
         .or_else(|| find_jpeg(&head))
-        .and_then(|bytes| decode(bytes))
+        .and_then(decode)
 }
 
 fn read_up_to(f: &mut std::fs::File, buf: &mut [u8]) -> Option<usize> {

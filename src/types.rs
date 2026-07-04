@@ -492,10 +492,6 @@ pub fn day_start(secs: i64) -> i64 {
     day_index(secs) * SECS_PER_DAY
 }
 
-pub fn hour_start(secs: i64) -> i64 {
-    secs.div_euclid(SECS_PER_HOUR) * SECS_PER_HOUR
-}
-
 pub fn snap_to_step(secs: i64, step: i64) -> i64 {
     if step <= 0 {
         return secs;

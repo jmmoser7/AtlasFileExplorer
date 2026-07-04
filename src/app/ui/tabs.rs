@@ -51,15 +51,11 @@ impl TabChromeColors {
 }
 
 struct TabSlot {
-    index: usize,
-    rect: Rect,
     paint: Rect,
     active: bool,
     hovered: bool,
     closable: bool,
-    is_empty: bool,
     title: String,
-    tooltip: String,
 }
 
 fn tab_visual(active: bool, hovered: bool, bar_h: f32) -> (f32, f32) {
@@ -166,15 +162,11 @@ impl AtlasApp {
                 );
 
                 slots.push(TabSlot {
-                    index: i,
-                    rect,
                     paint,
                     active,
                     hovered,
                     closable,
-                    is_empty,
                     title,
-                    tooltip: tooltip.clone(),
                 });
 
                 if closable {

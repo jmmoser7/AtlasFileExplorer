@@ -323,11 +323,7 @@ fn draw_timeline_scale(
     while (t as f64) <= view_hi + step as f64 {
         let x = time_to_x(t as f64, block, view_lo, view_hi);
         if x >= block.left() - 2.0 && x <= block.right() + 2.0 {
-            let is_major = if step >= SECS_PER_DAY {
-                t % step == 0
-            } else {
-                t % step == 0
-            };
+            let is_major = t % step == 0;
             let h = if is_major { 6.0 } else { 3.0 };
             painter.line_segment(
                 [Pos2::new(x, baseline), Pos2::new(x, baseline + h)],

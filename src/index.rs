@@ -299,27 +299,29 @@ fn handle(conn: &Connection, cmd: DbCmd) -> rusqlite::Result<()> {
                 }
 
                 let mut stmt = conn.prepare_cached("SELECT rel, tag FROM tags WHERE root_id=?1")?;
-                for row in stmt.query_map([rid], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-                })? {
-                    if let Ok((rel, tag)) = row {
-                        loaded.tag_state.tags.entry(rel).or_default().push(tag);
-                    }
+                for (rel, tag) in stmt
+                    .query_map([rid], |r| {
+                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                    })?
+                    .flatten()
+                {
+                    loaded.tag_state.tags.entry(rel).or_default().push(tag);
                 }
 
                 let mut stmt = conn.prepare_cached(
                     "SELECT rel, dest_rel, new_name FROM assigns WHERE root_id=?1",
                 )?;
-                for row in stmt.query_map([rid], |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, Option<String>>(2)?,
-                    ))
-                })? {
-                    if let Ok((rel, dest, nn)) = row {
-                        loaded.tag_state.assigns.insert(rel, (dest, nn));
-                    }
+                for (rel, dest, nn) in stmt
+                    .query_map([rid], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, Option<String>>(2)?,
+                        ))
+                    })?
+                    .flatten()
+                {
+                    loaded.tag_state.assigns.insert(rel, (dest, nn));
                 }
 
                 loaded.journal_json = conn

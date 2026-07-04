@@ -112,8 +112,3 @@ fn owner_short_impl(path: &Path) -> String {
 fn owner_short_impl(_path: &Path) -> String {
     String::new()
 }
-
-/// Last path segment of a `DOMAIN\account` string; identity for plain names.
-pub fn owner_display(account: &str) -> &str {
-    account.rsplit('\\').next().unwrap_or(account)
-}
