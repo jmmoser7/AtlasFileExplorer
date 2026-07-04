@@ -118,8 +118,9 @@ fn init_pdfium() -> Option<Pdfium> {
 fn read_pdf_bytes(path: &Path) -> Option<Vec<u8>> {
     let path = path.to_path_buf();
     let (tx, rx) = mpsc::channel();
+    let worker_path = path.clone();
     thread::spawn(move || {
-        let result = read_pdf_bytes_inner(&path);
+        let result = read_pdf_bytes_inner(&worker_path);
         let _ = tx.send(result);
     });
     match rx.recv_timeout(PDF_READ_TIMEOUT) {
@@ -217,8 +218,10 @@ trailer << /Root 1 0 R >>\n\
         std::fs::write(&path, pdf).unwrap();
 
         let result = super::thumbnail(&path, 192);
-        // Only assert when the pdfium DLL is actually present (vendor/).
-        if std::path::Path::new("vendor/pdfium.dll").exists() {
+        // Only assert when the pdfium DLL is actually loadable (Windows,
+        // with the vendored DLL present). On other platforms the binding
+        // stays None by design and PDF previews are skipped.
+        if cfg!(windows) && std::path::Path::new("vendor/pdfium.dll").exists() {
             let (w, h, rgba) = result.expect("pdfium failed to render minimal pdf");
             assert!(w > 0 && h > 0);
             assert_eq!(rgba.len(), (w * h * 4) as usize);

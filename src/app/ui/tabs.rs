@@ -13,12 +13,13 @@ const TAB_BAR_H: f32 = 34.0;
 const TAB_INACTIVE_H: f32 = 26.0;
 /// Height when an inactive tab is hovered — it "reaches" upward.
 const TAB_HOVER_H: f32 = 31.0;
-const TAB_TOP_RADIUS: f32 = 8.0;
+const TAB_TOP_RADIUS: u8 = 8;
 /// Radius of the concave shoulder curves on an active tab.
 const TAB_SHOULDER_R: f32 = 6.0;
 const TAB_H_PAD: f32 = 10.0;
 const TAB_CLOSE_W: f32 = 16.0;
 
+#[derive(Clone, Copy)]
 struct TabChromeColors {
     bar: Color32,
     inactive: Color32,
@@ -173,7 +174,7 @@ impl AtlasApp {
                     closable,
                     is_empty,
                     title,
-                    tooltip,
+                    tooltip: tooltip.clone(),
                 });
 
                 if closable {

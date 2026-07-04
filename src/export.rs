@@ -77,7 +77,12 @@ fn run_export(
             current: item.rel.clone(),
         });
 
-        let dir = dest_root.join(&item.dest_rel);
+        // `dest_rel` is backslash-separated (like entry rels); expand it to
+        // native components so nested destinations work on every platform.
+        let mut dir = dest_root.clone();
+        for part in item.dest_rel.split(['\\', '/']).filter(|p| !p.is_empty()) {
+            dir.push(part);
+        }
         if !dir.exists() {
             if std::fs::create_dir_all(&dir).is_ok() {
                 // Record every directory level we may have created.
@@ -232,8 +237,9 @@ mod tests {
 
         assert!(errors.is_empty(), "{errors:?}");
         assert_eq!(copied.len(), 2);
-        assert!(dst.join(r"Renders\Final\hero-shot.jpg").exists());
-        assert!(dst.join(r"Models\model.3dm").exists());
+        let hero = dst.join("Renders").join("Final").join("hero-shot.jpg");
+        assert!(hero.exists());
+        assert!(dst.join("Models").join("model.3dm").exists());
         assert!(std::path::Path::new(&manifest_path).exists());
         // Sources untouched.
         assert!(src.join("photo.jpg").exists());
@@ -246,7 +252,7 @@ mod tests {
         // Undo removes copies + empty dirs but never the sources.
         let removed = undo_export(&manifest_path, &copied, &created_dirs);
         assert_eq!(removed, 2);
-        assert!(!dst.join(r"Renders\Final\hero-shot.jpg").exists());
+        assert!(!hero.exists());
         assert!(!dst.join("Models").exists());
         assert!(src.join("photo.jpg").exists());
 

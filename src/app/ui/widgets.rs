@@ -246,7 +246,7 @@ pub fn sidebar_date_timeline(
 
 fn clamp_view(view: &mut TimelineView, span_lo: i64, span_hi: i64) {
     let span_w = (span_hi - span_lo).max(1) as f64;
-    let mut w = (view.view_hi - view.view_lo).clamp(SECS_PER_HOUR as f64, span_w);
+    let w = (view.view_hi - view.view_lo).clamp(SECS_PER_HOUR as f64, span_w);
     if w >= span_w {
         view.view_lo = span_lo as f64;
         view.view_hi = span_hi as f64;

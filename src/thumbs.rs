@@ -19,13 +19,18 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
+#[cfg(windows)]
 use windows::core::PCWSTR;
+#[cfg(windows)]
 use windows::Win32::Foundation::SIZE;
+#[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{
     DeleteObject, GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER,
     BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
 };
+#[cfg(windows)]
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+#[cfg(windows)]
 use windows::Win32::UI::Shell::{
     IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_RESIZETOFIT,
     SIIGBF_THUMBNAILONLY,
@@ -318,6 +323,12 @@ pub fn discover_project_cache(open_root: &Path) -> Option<ProjectCache> {
                 .ok()?
                 .to_string_lossy()
                 .into_owned();
+            // Cache keys are backslash-separated on every platform so all
+            // machines opening the same project agree on them.
+            #[cfg(not(windows))]
+            {
+                key_prefix = key_prefix.replace('/', "\\");
+            }
             if !key_prefix.is_empty() {
                 key_prefix.push('\\');
             }
@@ -333,6 +344,7 @@ pub fn discover_project_cache(open_root: &Path) -> Option<ProjectCache> {
 }
 
 /// True for UNC paths and mapped network drive letters.
+#[cfg(windows)]
 pub fn is_network_path(p: &Path) -> bool {
     let s = p.as_os_str().to_string_lossy();
     if s.starts_with(r"\\") {
@@ -351,6 +363,12 @@ pub fn is_network_path(p: &Path) -> bool {
     false
 }
 
+/// True for UNC paths and mapped network drive letters.
+#[cfg(not(windows))]
+pub fn is_network_path(p: &Path) -> bool {
+    p.as_os_str().to_string_lossy().starts_with(r"\\")
+}
+
 fn avg_of(rgba: &[u8]) -> [u8; 3] {
     let (mut r, mut g, mut b) = (0u64, 0u64, 0u64);
     let n = (rgba.len() / 4).max(1) as u64;
@@ -367,6 +385,7 @@ fn avg_of(rgba: &[u8]) -> [u8; 3] {
 }
 
 fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
+    #[cfg(windows)]
     unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     }
@@ -554,18 +573,42 @@ fn save_cached(path: &Path, w: u32, h: u32, rgba: &[u8]) {
 
 /// Explorer's existing thumbnail cache only — skips the scaled file-icon
 /// fallback that masks our PDF/Office extractors.
+#[cfg(windows)]
 fn shell_thumbnail_cached_only(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
     shell_get_image(path, SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK)
+}
+
+#[cfg(not(windows))]
+fn shell_thumbnail_cached_only(_path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+    None
 }
 
 /// Ask the Windows Shell for a thumbnail; returns RGBA pixels.
 /// Tries Explorer's existing thumbnail cache first (near-instant), then does
 /// a full extraction (which may be a scaled type icon).
+#[cfg(windows)]
 fn shell_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
     shell_get_image(path, SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK)
         .or_else(|| shell_get_image(path, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK))
 }
 
+/// Non-Windows (e.g. Linux CI): decode common raster formats directly so
+/// tests can exercise the pipeline; other formats fall through to the
+/// format-specific extractors.
+#[cfg(not(windows))]
+fn shell_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+    let ext = file_ext(path);
+    if !matches!(ext.as_str(), "png" | "jpg" | "jpeg") {
+        return None;
+    }
+    let img = image::open(path).ok()?;
+    let img = img.thumbnail(THUMB_PX as u32, THUMB_PX as u32);
+    let rgba = img.to_rgba8();
+    let (w, h) = (rgba.width(), rgba.height());
+    Some((w, h, rgba.into_raw()))
+}
+
+#[cfg(windows)]
 fn shell_get_image(
     path: &Path,
     flags: windows::Win32::UI::Shell::SIIGBF,
@@ -589,6 +632,7 @@ fn shell_get_image(
     }
 }
 
+#[cfg(windows)]
 unsafe fn hbitmap_to_rgba(hbmp: HBITMAP) -> Option<(u32, u32, Vec<u8>)> {
     let mut bm = BITMAP::default();
     let got = GetObjectW(
@@ -779,6 +823,7 @@ mod tests {
 
     #[test]
     fn shell_thumbnail_extracts_png_pixels() {
+        #[cfg(windows)]
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         }

@@ -315,9 +315,9 @@ mod tests {
 
     #[test]
     fn grid_aligns_to_sunday() {
-        // 1970-01-01 is Thursday (day_index 0).
-        let thu = 0i64;
-        let h = ActivityHeatmap::from_timestamps([thu * SECS_PER_DAY]);
+        // 1970-01-01 is Thursday (day_index 0). Use one second past midnight:
+        // timestamp 0 itself is rejected by the `secs <= 0` sentinel filter.
+        let h = ActivityHeatmap::from_timestamps([1]);
         assert_eq!(h.start_day, -4); // preceding Sunday
         assert!(h.week_columns() >= 1);
     }

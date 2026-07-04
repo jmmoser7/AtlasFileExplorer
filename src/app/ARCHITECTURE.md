@@ -23,9 +23,38 @@ Everything below the tab bar belongs to the **active tab** (`TabState`):
 | Advanced | `ui/advanced.rs` | Floating window (pre-warm, shared cache, commands reference) — opened from tools gear |
 | Commands | `commands.rs` | Canonical keyboard/mouse bindings; see `COMMANDS.md` |
 
-Per-tab state today: `root`, `cam`, `chrome` (which sub-panels are visible).
-Filter/search values are still app-global for now; move into `TabState` when
-multi-tab filter memory is needed.
+Per-tab state today: `id` (stable identity), `root`, `cam`, `chrome` (which
+sub-panels are visible). Filter/search values are still app-global for now;
+move into `TabState` when multi-tab filter memory is needed.
+
+### Tab lifecycle invariants (multi-tab safety)
+
+The heavyweight workspace (entries, tree, textures, selection…) is a single
+set of fields on `AtlasApp` that is **swapped** on tab switch. That makes
+these rules load-bearing — breaking any of them is an
+index-out-of-bounds crash the moment another tab's entries load:
+
+1. **Every root change goes through `reset_workspace()`** (called by
+   `set_root` / `clear_root`). It clears the entries vec, every parallel
+   vector (`thumb_state`, `avg_color`, `file_match`), and *all* interaction
+   state that carries entry ids: `selection`, `hovered_file`/`hovered_dir`,
+   `last_selected_file`, `detail`, `menu_at`, `drag_chip`, `rubber_origin`,
+   `pending_cam`, `pending_view`. New per-root state must be reset there,
+   not in the callers.
+2. **Async results are tagged and checked on arrival.** Scan batches and
+   thumbnails carry a `generation`; the index load carries its `root`; the
+   folder picker carries the requesting tab's `id`. A late result for a
+   root/tab that is no longer current is dropped (or parked on its owning
+   tab), never ingested into the active workspace.
+3. **Tabs are referenced by stable `TabState::id` across async boundaries**
+   — indices shift when tabs close.
+4. **`active_tab` is always `< tabs.len()` and `tabs` is never empty.**
+   `close_tab`/`switch_tab` maintain this; `active_chrome` clamps
+   defensively.
+
+`src/app/tests.rs` drives the real frame loop headlessly (12-tab stress,
+mid-scan switches, picker routing, pointer torture) and asserts these
+invariants after every frame. Run with `cargo test app::tests`.
 
 ## Extension points (`chrome.rs`)
 

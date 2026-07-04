@@ -17,7 +17,7 @@ dirs = "6"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 pdfium-render = { version = "0.8", features = ["thread_safe"] }
 
-[dependencies.windows]
+[target.'cfg(windows)'.dependencies.windows]
 version = "0.61"
 features = [
     "Win32_Foundation",
