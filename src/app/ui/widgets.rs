@@ -145,7 +145,7 @@ pub fn sidebar_date_timeline(
             let x = day_to_x(*day, rail, span_min, span_max);
             let handle_center = egui::pos2(x, rail.center().y);
             let handle_rect = egui::Rect::from_center_size(handle_center, Vec2::splat(12.0));
-            let resp = ui.ctx().interact(handle_rect, handle_id, Sense::drag());
+            let resp = ui.interact(handle_rect, handle_id, Sense::drag());
             if resp.dragged() {
                 let pointer = ui
                     .input(|inp| inp.pointer.latest_pos())

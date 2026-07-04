@@ -4,7 +4,7 @@
 //! streamed to the UI in batches so cards appear from the first frame;
 //! nothing waits for the scan to finish.
 
-use crate::metadata::{ctime_of, mtime_of, owner_short};
+use crate::metadata::{ctime_of, owner_short};
 use crate::types::FileEntry;
 use crossbeam_channel::Sender;
 use std::path::PathBuf;
