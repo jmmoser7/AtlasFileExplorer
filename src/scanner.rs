@@ -4,6 +4,7 @@
 //! streamed to the UI in batches so cards appear from the first frame;
 //! nothing waits for the scan to finish.
 
+use crate::metadata::{ctime_of, mtime_of, owner_short};
 use crate::types::FileEntry;
 use crossbeam_channel::Sender;
 use std::path::PathBuf;
@@ -39,13 +40,7 @@ pub const SKIP_DIRS: [&str; 5] = [
     crate::thumbs::CACHE_DIR_NAME, // never index our own shared cache
 ];
 
-pub fn mtime_of(md: &std::fs::Metadata) -> i64 {
-    md.modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
+pub use crate::metadata::mtime_of;
 
 pub fn start_scan(root: PathBuf, generation: u64, tx: Sender<(u64, ScanMsg)>) -> ScanHandle {
     let cancel = Arc::new(AtomicBool::new(false));
@@ -120,8 +115,10 @@ pub fn start_scan(root: PathBuf, generation: u64, tx: Sender<(u64, ScanMsg)>) ->
                             let Ok(md) = entry.metadata() else { continue };
                             let size = md.len();
                             let mtime = mtime_of(&md);
+                            let ctime = ctime_of(&md);
+                            let owner = owner_short(&entry.path());
                             if let Some(fe) =
-                                FileEntry::from_abs(&root, entry.path(), size, mtime)
+                                FileEntry::from_abs(&root, entry.path(), size, mtime, ctime, owner)
                             {
                                 files_found.fetch_add(1, Ordering::Relaxed);
                                 batch.push(fe);
@@ -181,7 +178,10 @@ pub fn stat_file(root: &std::path::Path, path: &std::path::Path) -> Option<FileE
     if !md.is_file() {
         return None;
     }
-    FileEntry::from_abs(root, path.to_path_buf(), md.len(), mtime_of(&md))
+    let mtime = mtime_of(&md);
+    let ctime = ctime_of(&md);
+    let owner = owner_short(path);
+    FileEntry::from_abs(root, path.to_path_buf(), md.len(), mtime, ctime, owner)
 }
 
 pub fn now_unix() -> i64 {
@@ -227,7 +227,10 @@ mod tests {
         assert_eq!(done_files, 4);
         let mut rels: Vec<&str> = got.iter().map(|e| e.rel.as_str()).collect();
         rels.sort();
-        assert_eq!(rels, vec!["a\\b\\three.mp4", "a\\two.jpg", "c\\four.3dm", "one.txt"]);
+        assert_eq!(
+            rels,
+            vec!["a\\b\\three.mp4", "a\\two.jpg", "c\\four.3dm", "one.txt"]
+        );
         let mp4 = got.iter().find(|e| e.ext == "mp4").unwrap();
         assert_eq!(mp4.size, 3);
         assert_eq!(mp4.family, crate::types::Family::Video);

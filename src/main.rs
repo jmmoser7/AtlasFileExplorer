@@ -4,6 +4,7 @@ mod app;
 mod export;
 mod index;
 mod journal;
+mod metadata;
 mod office;
 mod pdf;
 mod scanner;

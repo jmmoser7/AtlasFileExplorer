@@ -1,14 +1,17 @@
 //! Left tools rail — canvas actions, filters, display settings.
 //! Optional sub-panels are toggled from the gear menu (`chrome::ToolPanel`).
 
-use super::super::{AtlasApp, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd};
-use super::sidebar::{
-    sidebar_checkbox_row, sidebar_family_row, sidebar_option_group, sidebar_section,
-    sidebar_slider_block, sidebar_toolbar_row, SidebarTheme,
+use super::super::{
+    AtlasApp, DateFilterField, DateSliderMode, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd,
 };
-use super::widgets::{chip, gear_menu, thin_sidebar_slider};
+use super::sidebar::{
+    sidebar_checkbox_row, sidebar_family_row, sidebar_mode_row, sidebar_option_group,
+    sidebar_region, sidebar_section, sidebar_slider_block, sidebar_subtle_divider,
+    sidebar_toolbar_row, SidebarTheme, SidebarTokens,
+};
+use super::widgets::{chip, gear_menu, sidebar_date_timeline, thin_sidebar_slider};
 use crate::app::chrome::ToolPanel;
-use crate::types::FAMILIES;
+use crate::types::{ExtGroup, FAMILIES};
 use eframe::egui::{self, Color32, Id};
 
 fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
@@ -92,52 +95,185 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
     }
     ui.add_space(4.0);
 
-    let mut counts = [0usize; 10];
-    for e in app.entries.iter().filter(|e| !e.dead) {
-        counts[e.family.idx()] += 1;
-    }
-    for fam in FAMILIES {
-        let i = fam.idx();
-        if counts[i] == 0 {
-            continue;
+    sidebar_region(ui, "File types", theme, |ui| {
+        let mut family_counts = [0usize; 10];
+        let mut group_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for e in app.entries.iter().filter(|e| !e.dead) {
+            family_counts[e.family.idx()] += 1;
+            if let Some(label) = e.family.ext_group_label(&e.ext) {
+                *group_counts
+                    .entry(format!("{}:{}", e.family.idx(), label))
+                    .or_insert(0) += 1;
+            }
         }
-        let label = format!(
-            "{} ({})",
-            fam.label(),
-            super::group_digits(counts[i] as u64)
-        );
-        if sidebar_family_row(ui, &mut app.family_on[i], fam.color(), &label) {
-            app.filter_dirty = true;
-        }
-    }
-    ui.horizontal(|ui| {
-        if ui.small_button("all").clicked() {
-            app.family_on = [true; 10];
-            app.filter_dirty = true;
-        }
-        if ui.small_button("none").clicked() {
-            app.family_on = [false; 10];
-            app.filter_dirty = true;
-        }
-    });
-    ui.add_space(4.0);
 
-    sidebar_option_group(ui, "Unchecked:", theme, |ui| {
-        let ghost = ui
-            .selectable_label(app.filter_mode == FilterMode::Ghost, "ghost")
-            .on_hover_text("Dim unchecked categories, but keep their positions");
-        let hide = ui
-            .selectable_label(app.filter_mode == FilterMode::Hide, "hide")
-            .on_hover_text("Remove unchecked categories from the canvas layout");
-        if ghost.clicked() {
-            app.filter_mode = FilterMode::Ghost;
-            app.filter_dirty = true;
+        for fam in FAMILIES {
+            let i = fam.idx();
+            if family_counts[i] == 0 {
+                continue;
+            }
+            let label = format!(
+                "{} ({})",
+                fam.label(),
+                super::group_digits(family_counts[i] as u64)
+            );
+            if sidebar_family_row(ui, &mut app.family_on[i], fam.color(), &label) {
+                if app.family_on[i] {
+                    app.set_family_ext_groups(fam, true);
+                }
+                app.filter_dirty = true;
+            }
+
+            let visible_groups: Vec<(&ExtGroup, usize)> = fam
+                .ext_groups()
+                .iter()
+                .filter_map(|group| {
+                    let count = group_counts
+                        .get(&format!("{}:{}", i, group.label))
+                        .copied()
+                        .unwrap_or(0);
+                    (count > 0).then_some((group, count))
+                })
+                .collect();
+            if visible_groups.is_empty() {
+                continue;
+            }
+
+            ui.indent(format!("fam_ext_{i}"), |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = SidebarTokens::OPTION_GAP;
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    for (group, count) in visible_groups {
+                        let mut on = app.ext_group_enabled(fam, group);
+                        let sub_label =
+                            format!("{} ({})", group.label, super::group_digits(count as u64));
+                        if ui.checkbox(&mut on, sub_label).changed() {
+                            app.set_ext_group(fam, group, on);
+                            app.filter_dirty = true;
+                        }
+                    }
+                });
+            });
+            ui.add_space(2.0);
         }
-        if hide.clicked() {
-            app.filter_mode = FilterMode::Hide;
+
+        ui.horizontal(|ui| {
+            if ui.small_button("all").clicked() {
+                app.family_on = [true; 10];
+                app.set_all_ext_groups(true);
+                app.filter_dirty = true;
+            }
+            if ui.small_button("none").clicked() {
+                app.family_on = [false; 10];
+                app.filter_dirty = true;
+            }
+        });
+    });
+
+    if !app.all_owners.is_empty() {
+        sidebar_subtle_divider(ui, theme);
+        sidebar_region(ui, "Owner", theme, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(72.0)
+                .show(ui, |ui| {
+                    let owners: Vec<(String, usize)> = app
+                        .all_owners
+                        .iter()
+                        .map(|(o, c)| (o.clone(), *c))
+                        .collect();
+                    for (owner, count) in owners {
+                        let active = app.owner_filter.contains(&owner);
+                        let label = format!("{owner} ({})", super::group_digits(count as u64));
+                        let resp = chip(ui, &label, active, Color32::from_rgb(0x5c, 0x6b, 0x8a));
+                        if resp.clicked() {
+                            if active {
+                                app.owner_filter.remove(&owner);
+                            } else {
+                                app.owner_filter.insert(owner);
+                            }
+                            app.filter_dirty = true;
+                        }
+                    }
+                    if !app.owner_filter.is_empty()
+                        && ui.small_button("clear owner filter").clicked()
+                    {
+                        app.owner_filter.clear();
+                        app.filter_dirty = true;
+                    }
+                });
+        });
+    }
+
+    sidebar_subtle_divider(ui, theme);
+
+    sidebar_region(ui, "Dates", theme, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = SidebarTokens::OPTION_GAP;
+            if ui
+                .selectable_label(app.date_field == DateFilterField::Created, "created")
+                .on_hover_text("Filter by file creation date")
+                .clicked()
+            {
+                app.date_field = DateFilterField::Created;
+                app.filter_dirty = true;
+            }
+            if ui
+                .selectable_label(app.date_field == DateFilterField::Modified, "modified")
+                .on_hover_text("Filter by last modified date")
+                .clicked()
+            {
+                app.date_field = DateFilterField::Modified;
+                app.filter_dirty = true;
+            }
+        });
+        ui.add_space(2.0);
+        if sidebar_date_timeline(
+            ui,
+            Id::new("basic_date_timeline"),
+            app.date_span_min,
+            app.date_span_max,
+            &mut app.date_mode,
+            &mut app.date_single_day,
+            &mut app.date_range_lo,
+            &mut app.date_range_hi,
+            &mut app.date_filter_engaged,
+            theme,
+        ) {
             app.filter_dirty = true;
         }
     });
+
+    sidebar_subtle_divider(ui, theme);
+
+    if sidebar_mode_row(
+        ui,
+        app.filter_mode == FilterMode::Ghost,
+        "ghost",
+        "Dim unchecked items on the canvas",
+        "Keep every file and folder in place, but fade items that fail the current filters. \
+         Useful when you want spatial context while focusing on a subset.",
+        theme,
+    )
+    .clicked()
+    {
+        app.filter_mode = FilterMode::Ghost;
+        app.filter_dirty = true;
+    }
+    if sidebar_mode_row(
+        ui,
+        app.filter_mode == FilterMode::Hide,
+        "hide",
+        "Remove unchecked items from the layout",
+        "Collapse the tree around items that pass the filters so hidden files no longer \
+         consume space. Folders with no visible children shrink away until filters change.",
+        theme,
+    )
+    .clicked()
+    {
+        app.filter_mode = FilterMode::Hide;
+        app.filter_dirty = true;
+    }
 }
 
 fn display_settings(

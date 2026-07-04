@@ -28,9 +28,305 @@ pub const FAMILIES: [Family; 10] = [
     Family::Other,
 ];
 
+/// A filterable sub-classification within a [`Family`] (e.g. JPEG under Images).
+#[derive(Clone, Copy, Debug)]
+pub struct ExtGroup {
+    pub label: &'static str,
+    pub exts: &'static [&'static str],
+}
+
 impl Family {
     pub fn idx(self) -> usize {
         FAMILIES.iter().position(|f| *f == self).unwrap()
+    }
+
+    /// Fine-grained extension buckets shown under the family row when applicable.
+    pub fn ext_groups(self) -> &'static [ExtGroup] {
+        match self {
+            Family::Image => &[
+                ExtGroup {
+                    label: "JPEG",
+                    exts: &["jpg", "jpeg"],
+                },
+                ExtGroup {
+                    label: "PNG",
+                    exts: &["png"],
+                },
+                ExtGroup {
+                    label: "TIFF",
+                    exts: &["tif", "tiff"],
+                },
+                ExtGroup {
+                    label: "GIF",
+                    exts: &["gif"],
+                },
+                ExtGroup {
+                    label: "WebP",
+                    exts: &["webp"],
+                },
+                ExtGroup {
+                    label: "SVG",
+                    exts: &["svg"],
+                },
+                ExtGroup {
+                    label: "HEIC / AVIF",
+                    exts: &["heic", "avif"],
+                },
+                ExtGroup {
+                    label: "RAW",
+                    exts: &["dng", "raw", "cr2", "nef", "arw"],
+                },
+                ExtGroup {
+                    label: "Other",
+                    exts: &["bmp", "ico", "tga", "exr", "hdr"],
+                },
+            ],
+            Family::Video => &[
+                ExtGroup {
+                    label: "MP4",
+                    exts: &["mp4", "m4v"],
+                },
+                ExtGroup {
+                    label: "MOV",
+                    exts: &["mov"],
+                },
+                ExtGroup {
+                    label: "MKV",
+                    exts: &["mkv"],
+                },
+                ExtGroup {
+                    label: "WebM",
+                    exts: &["webm"],
+                },
+                ExtGroup {
+                    label: "AVI",
+                    exts: &["avi"],
+                },
+                ExtGroup {
+                    label: "MPEG",
+                    exts: &["mpg", "mpeg", "mts", "m2ts"],
+                },
+                ExtGroup {
+                    label: "WMV / FLV",
+                    exts: &["wmv", "flv"],
+                },
+            ],
+            Family::Audio => &[
+                ExtGroup {
+                    label: "MP3",
+                    exts: &["mp3"],
+                },
+                ExtGroup {
+                    label: "WAV",
+                    exts: &["wav"],
+                },
+                ExtGroup {
+                    label: "FLAC",
+                    exts: &["flac"],
+                },
+                ExtGroup {
+                    label: "AAC / M4A",
+                    exts: &["aac", "m4a"],
+                },
+                ExtGroup {
+                    label: "OGG",
+                    exts: &["ogg"],
+                },
+                ExtGroup {
+                    label: "Other",
+                    exts: &["aiff", "aif", "wma", "mid"],
+                },
+            ],
+            Family::Doc => &[
+                ExtGroup {
+                    label: "PDF",
+                    exts: &["pdf"],
+                },
+                ExtGroup {
+                    label: "Word",
+                    exts: &["doc", "docx", "odt"],
+                },
+                ExtGroup {
+                    label: "Excel",
+                    exts: &["xls", "xlsx", "ods", "numbers"],
+                },
+                ExtGroup {
+                    label: "PowerPoint",
+                    exts: &["ppt", "pptx", "odp", "key"],
+                },
+                ExtGroup {
+                    label: "Text",
+                    exts: &["txt", "md", "rtf"],
+                },
+                ExtGroup {
+                    label: "eBook",
+                    exts: &["epub"],
+                },
+                ExtGroup {
+                    label: "Other",
+                    exts: &["pages", "one"],
+                },
+            ],
+            Family::Design => &[
+                ExtGroup {
+                    label: "Photoshop",
+                    exts: &["psd", "psb"],
+                },
+                ExtGroup {
+                    label: "Illustrator",
+                    exts: &["ai", "eps"],
+                },
+                ExtGroup {
+                    label: "InDesign",
+                    exts: &["indd"],
+                },
+                ExtGroup {
+                    label: "Figma",
+                    exts: &["fig"],
+                },
+                ExtGroup {
+                    label: "Sketch",
+                    exts: &["sketch"],
+                },
+                ExtGroup {
+                    label: "Adobe XD",
+                    exts: &["xd"],
+                },
+                ExtGroup {
+                    label: "Affinity",
+                    exts: &["afdesign", "afphoto"],
+                },
+                ExtGroup {
+                    label: "Corel",
+                    exts: &["cdr"],
+                },
+            ],
+            Family::Cad => &[
+                ExtGroup {
+                    label: "Rhino",
+                    exts: &["3dm", "3dmbak"],
+                },
+                ExtGroup {
+                    label: "AutoCAD",
+                    exts: &["dwg", "dxf"],
+                },
+                ExtGroup {
+                    label: "SketchUp",
+                    exts: &["skp"],
+                },
+                ExtGroup {
+                    label: "Blender",
+                    exts: &["blend"],
+                },
+                ExtGroup {
+                    label: "Mesh / exchange",
+                    exts: &["obj", "stl", "fbx", "gltf", "glb", "3ds"],
+                },
+                ExtGroup {
+                    label: "STEP / IGES",
+                    exts: &["step", "stp", "iges", "igs"],
+                },
+                ExtGroup {
+                    label: "BIM",
+                    exts: &["rvt", "rfa", "ifc"],
+                },
+                ExtGroup {
+                    label: "Other",
+                    exts: &[
+                        "gh", "ghx", "sldprt", "sldasm", "sat", "usd", "usdz", "max", "c4d",
+                    ],
+                },
+            ],
+            Family::Code => &[
+                ExtGroup {
+                    label: "Rust",
+                    exts: &["rs"],
+                },
+                ExtGroup {
+                    label: "JavaScript / TS",
+                    exts: &["js", "ts", "jsx", "tsx"],
+                },
+                ExtGroup {
+                    label: "Python",
+                    exts: &["py"],
+                },
+                ExtGroup {
+                    label: "Web",
+                    exts: &["html", "htm", "css", "scss"],
+                },
+                ExtGroup {
+                    label: "C / C++",
+                    exts: &["c", "cpp", "h", "hpp"],
+                },
+                ExtGroup {
+                    label: "Other",
+                    exts: &[
+                        "cs", "java", "go", "rb", "php", "sh", "ps1", "bat", "cmd", "lua", "swift",
+                        "kt", "vb", "sql",
+                    ],
+                },
+            ],
+            Family::Archive => &[
+                ExtGroup {
+                    label: "ZIP",
+                    exts: &["zip"],
+                },
+                ExtGroup {
+                    label: "RAR / 7z",
+                    exts: &["rar", "7z"],
+                },
+                ExtGroup {
+                    label: "Tarballs",
+                    exts: &["tar", "gz", "bz2", "xz"],
+                },
+                ExtGroup {
+                    label: "Disk images",
+                    exts: &["iso", "dmg"],
+                },
+                ExtGroup {
+                    label: "Other",
+                    exts: &["cab"],
+                },
+            ],
+            Family::Data => &[
+                ExtGroup {
+                    label: "CSV / TSV",
+                    exts: &["csv", "tsv"],
+                },
+                ExtGroup {
+                    label: "JSON / XML",
+                    exts: &["json", "xml"],
+                },
+                ExtGroup {
+                    label: "YAML / TOML",
+                    exts: &["yaml", "yml", "toml"],
+                },
+                ExtGroup {
+                    label: "Config / logs",
+                    exts: &["ini", "log"],
+                },
+                ExtGroup {
+                    label: "Database",
+                    exts: &["db", "sqlite", "parquet"],
+                },
+            ],
+            Family::Other => &[],
+        }
+    }
+
+    /// Returns the sub-group label for `ext` within this family, if any.
+    pub fn ext_group_label(self, ext: &str) -> Option<&'static str> {
+        for group in self.ext_groups() {
+            if group.exts.contains(&ext) {
+                return Some(group.label);
+            }
+        }
+        None
+    }
+
+    /// Stable id for persisting sub-type filter state in the UI.
+    pub fn ext_group_id(self, group: &ExtGroup) -> String {
+        format!("{}:{}", self.idx(), group.label)
     }
 
     pub fn label(self) -> &'static str {
@@ -106,29 +402,55 @@ pub struct FileEntry {
     pub ext: String,
     pub size: u64,
     pub mtime: i64,
+    /// Platform creation / birth time when available.
+    pub ctime: i64,
+    /// Owner account name (e.g. `jmoser`), empty when unavailable.
+    pub owner: String,
     pub family: Family,
     /// Tombstone set by the filesystem watcher when the file disappears.
     pub dead: bool,
 }
 
 impl FileEntry {
-    pub fn from_abs(root: &Path, path: PathBuf, size: u64, mtime: i64) -> Option<FileEntry> {
+    pub fn from_abs(
+        root: &Path,
+        path: PathBuf,
+        size: u64,
+        mtime: i64,
+        ctime: i64,
+        owner: String,
+    ) -> Option<FileEntry> {
         let rel = path.strip_prefix(root).ok()?.to_string_lossy().into_owned();
         let name = path.file_name()?.to_string_lossy().into_owned();
-        Some(Self::build(path, rel, name, size, mtime))
+        Some(Self::build(path, rel, name, size, mtime, ctime, owner))
     }
 
-    pub fn from_rel(root: &Path, rel: String, size: u64, mtime: i64) -> FileEntry {
+    pub fn from_rel(
+        root: &Path,
+        rel: String,
+        size: u64,
+        mtime: i64,
+        ctime: i64,
+        owner: String,
+    ) -> FileEntry {
         let path = root.join(&rel);
         let name = rel
             .rsplit(['\\', '/'])
             .next()
             .unwrap_or(rel.as_str())
             .to_string();
-        Self::build(path, rel, name, size, mtime)
+        Self::build(path, rel, name, size, mtime, ctime, owner)
     }
 
-    fn build(path: PathBuf, rel: String, name: String, size: u64, mtime: i64) -> FileEntry {
+    fn build(
+        path: PathBuf,
+        rel: String,
+        name: String,
+        size: u64,
+        mtime: i64,
+        ctime: i64,
+        owner: String,
+    ) -> FileEntry {
         let ext = match name.rsplit_once('.') {
             Some((stem, e)) if !stem.is_empty() => e.to_ascii_lowercase(),
             _ => String::new(),
@@ -143,10 +465,23 @@ impl FileEntry {
             ext,
             size,
             mtime,
+            ctime,
+            owner,
             family,
             dead: false,
         }
     }
+}
+
+pub const SECS_PER_DAY: i64 = 86_400;
+
+/// Days since Unix epoch (UTC, day precision).
+pub fn day_index(secs: i64) -> i64 {
+    secs.div_euclid(SECS_PER_DAY)
+}
+
+pub fn day_start(index: i64) -> i64 {
+    index * SECS_PER_DAY
 }
 
 pub fn human_size(bytes: u64) -> String {
@@ -195,5 +530,24 @@ pub fn age_string(mtime: i64) -> String {
         format!("{}d ago", dt / 86_400)
     } else {
         date_string(mtime)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ext_group_labels_cover_common_image_formats() {
+        assert_eq!(Family::Image.ext_group_label("jpg"), Some("JPEG"));
+        assert_eq!(Family::Image.ext_group_label("jpeg"), Some("JPEG"));
+        assert_eq!(Family::Image.ext_group_label("png"), Some("PNG"));
+        assert_eq!(Family::Image.ext_group_label("tiff"), Some("TIFF"));
+    }
+
+    #[test]
+    fn ext_group_id_is_stable() {
+        let group = &Family::Doc.ext_groups()[0];
+        assert_eq!(Family::Doc.ext_group_id(group), "3:PDF");
     }
 }

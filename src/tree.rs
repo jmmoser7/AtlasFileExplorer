@@ -721,7 +721,7 @@ mod tests {
     use std::path::Path;
 
     fn entry(rel: &str) -> FileEntry {
-        FileEntry::from_rel(Path::new(r"C:\fake"), rel.to_string(), 10, 0)
+        FileEntry::from_rel(Path::new(r"C:\fake"), rel.to_string(), 10, 0, 0, String::new())
     }
 
     #[test]
