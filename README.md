@@ -12,10 +12,12 @@ Rust + egui, GPU-rendered, fully non-destructive.
 - **Browser-style tabs.** The top bar holds one tab per directory; the + adds
   more. Each tab remembers its folder and camera. Undo/Redo sit in the top
   chrome; everything else belongs to the active tab workspace.
-- **Modular toolbars.** Left **Tools** rail (Basic filters, Display settings,
-  Workflow, Tags) and bottom **Readouts** (metrics) each have a gear menu to
-  show/hide sub-panels. Advanced settings (pre-warm, shared cache) open as a
-  floating window from the tools gear. See `src/app/ARCHITECTURE.md`.
+- **Modular toolbars.** Left **Tools** rail (file-type/owner/date filters,
+  display settings, workflow, tags) and bottom **Readouts** (metrics, plus a
+  GitHub-style activity heatmap of file dates) each have a gear menu to
+  show/hide sub-panels. Advanced settings (pre-warm, shared cache, commands
+  reference) open as a floating window from the tools gear. See
+  `src/app/ARCHITECTURE.md`.
 - **Infinite canvas, branching by folder.** The folder hierarchy is drawn as a
   branching tree on a pan/zoom canvas (scroll = zoom at cursor, drag = pan).
   Files cluster around their parent folder; folders with more than ten files
@@ -65,21 +67,27 @@ Rust + egui, GPU-rendered, fully non-destructive.
 
 ## Controls
 
+The canonical, always-current list lives in the app under **Advanced →
+Commands & shortcuts** (rendered from `src/app/commands.rs::ENTRIES`).
+Highlights:
+
 | Input | Action |
 |---|---|
 | Ctrl+O / drop a folder | Open folder |
-| Scroll | Zoom at cursor |
-| Drag empty canvas | Pan |
+| Scroll (pinch on trackpad) | Zoom at cursor |
+| Shift+scroll | Pan |
+| Drag empty canvas | Pan (precise) |
+| Right-drag on canvas | Turbo pan — speed scales with pull distance |
 | Shift+drag | Rubber-band select |
 | Click folder node | Collapse / expand branch |
-| Click / Ctrl+click | Select file |
+| Click / Ctrl+click / Shift+click | Select file / toggle / range select |
 | Right-click file | Tag / assign / open menu |
-| Double-click file | Detail view |
+| Double-click thumbnail | Open the file in its host application |
 | Double-click empty canvas | Zoom in |
 | F | Fit whole tree · +/− zoom |
 | F2 | Tag & assign panel |
 | Ctrl+A | Select all (filtered) |
-| Ctrl+Z / Ctrl+Shift+Z | Undo / redo |
+| Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z) | Undo / redo |
 | Esc | Close panel / clear selection |
 
 ## Build
@@ -112,19 +120,34 @@ the canvas or triggers rescans.
 
 ## Architecture
 
+Backend (flat modules under `src/`):
+
 - `src/scanner.rs` — parallel streaming directory walker (8 workers)
 - `src/index.rs` — SQLite persistence on a dedicated thread
 - `src/tree.rs` — folder hierarchy + tidy-tree layout (orientation, grid-pack,
   portals, collapse, hit testing)
-- `src/thumbs.rs` — shell thumbnail workers (LIFO priority) + JPEG disk cache;
-  tries Explorer's thumbnail cache before extracting
+- `src/thumbs.rs` — thumbnail workers (LIFO priority) + JPEG disk cache +
+  shared project-cache tier; disk cache first, then format-specific
+  extractors, then the Windows shell handler
 - `src/threedm.rs` — `.3dm` embedded-preview fallback parser
 - `src/office.rs` — Office Open XML embedded-thumbnail extractor
 - `src/pdf.rs` — PDF page-1 renderer via dynamically loaded pdfium
+  (dedicated render thread with timeouts)
 - `src/journal.rs` — reversible action ledger (undo/redo)
 - `src/export.rs` — copy-only export engine + manifest + undo-by-manifest
 - `src/watcher.rs` — filesystem watcher keeping the index live
-- `src/app/mod.rs` — application shell, canvas, tab workspace orchestration
-- `src/app/ARCHITECTURE.md` — UI layer boundaries and extension points
-- `src/app/ui/` — top tabs, tools rail, readouts bar, advanced window
-- `src/app/chrome.rs` — gear-menu panel registry
+- `src/metadata.rs` — file owner / creation-time lookups
+- `src/types.rs` — `FileEntry`, file families, date/size helpers
+
+App shell (`src/app/` — see `src/app/ARCHITECTURE.md` for layering rules):
+
+- `mod.rs` — `AtlasApp` state, tab/workspace lifecycle, frame pump
+- `canvas.rs` — camera, canvas input, world-space painting
+- `overlays.rs` — staging tray, context menu, editor/detail windows, toasts
+- `theme.rs` / `platform.rs` — palette + visuals; OS file-manager integration
+- `prewarm.rs` — overnight shared-cache pre-warm
+- `commands.rs` — input-binding registry (see `src/app/COMMANDS.md`)
+- `chrome.rs` — gear-menu panel registry (tools rail + readouts)
+- `ui/` — tab strip, tools rail (see `ui/SIDEBAR.md`), readouts bar with
+  activity heatmap, advanced window, shared widgets
+- `tests.rs` — headless multi-tab stability harness

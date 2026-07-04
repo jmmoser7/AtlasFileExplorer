@@ -24,7 +24,7 @@ When you add or change any user-facing input binding:
 |---------|----------|
 | Canonical list + reference UI | `commands.rs` |
 | Advanced settings panel | `ui/advanced.rs` → calls `shortcuts_reference_ui` |
-| Canvas mouse (pan, turbo pan, clicks) | `mod.rs` → `canvas` |
+| Canvas mouse (pan, turbo pan, clicks) | `canvas.rs` → `AtlasApp::canvas` |
 | Keyboard shortcuts | `mod.rs` → `hotkeys` |
 
 ## Turbo pan (reference)
