@@ -1,6 +1,7 @@
 //! Floating advanced settings (pre-warm, shared cache). Opened from the tools
 //! gear menu — not a permanent rail panel.
 
+use super::super::commands;
 use super::super::AtlasApp;
 use eframe::egui::{self, Color32};
 
@@ -61,6 +62,10 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
                     .color(Color32::from_gray(130)),
                 );
             }
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(6.0);
+            commands::shortcuts_reference_ui(ui);
         });
     if !open {
         app.active_chrome_mut().advanced_open = false;
