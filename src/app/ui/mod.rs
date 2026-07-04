@@ -1,6 +1,7 @@
 //! Top-level chrome: browser tabs + global undo/redo only.
 //! Everything else lives inside the active tab workspace.
 
+mod activity_heatmap;
 mod advanced;
 mod readouts;
 mod sidebar;
@@ -24,6 +25,11 @@ impl AtlasApp {
 
     pub(super) fn draw_readout_bar(&mut self, ctx: &Context) {
         readouts::status_bar(self, ctx);
+    }
+
+    /// Temporary pre-warm progress dashboard (only while a run is active).
+    pub(super) fn draw_prewarm_dashboard(&mut self, ctx: &Context) {
+        readouts::prewarm_dashboard(self, ctx);
     }
 
     pub(super) fn draw_advanced_window(&mut self, ctx: &Context) {

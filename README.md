@@ -48,9 +48,13 @@ Rust + egui, GPU-rendered, fully non-destructive.
   a lightweight way to map out a folder's shape. (With some boxes checked,
   hide mode still prunes non-matching branches as before.)
 - **Overnight pre-warm.** Tools gear → Advanced settings → "Pre-warm a folder…"
-  walks any directory in the background at lowest priority (2 concurrent jobs),
-  publishing into the shared project cache. Leave the app open overnight;
-  progress shows in the bottom readout bar.
+  walks any directory in the background at lowest priority, publishing into
+  the shared project cache. Every project found under the picked folder gets
+  its `.atlas-cache` repository created on the spot — pick a folder above
+  many projects and they are all warmed. While a run is active a temporary
+  dashboard docks above the readout bar with live discovery counts, thumbnail
+  progress, transfer speed and ETA, a parallel-jobs speed control (1–8), and
+  a Cancel button. Leave the app open overnight.
 - **Non-destructive organizing.** Tag files (drag tag chips onto cards, or
   right-click → Tag & assign), stage them to destination folders, rename on
   export. Sources are never touched. Export copies files to a destination you

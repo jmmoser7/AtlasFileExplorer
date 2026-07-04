@@ -637,14 +637,13 @@ mod tests {
 
     #[test]
     fn snap_to_step_rounds_to_nearest_hour() {
-        let day = day_start(20_000);
+        // 20 minutes past → snaps down; 40 minutes past → snaps up.
+        // (Exact midpoints are avoided: `f64::round` ties away from zero.)
+        let base = day_start(20_000);
+        assert_eq!(snap_to_step(base + 20 * 60, SECS_PER_HOUR), base);
         assert_eq!(
-            snap_to_step(day + 89 * 60, SECS_PER_HOUR),
-            day + SECS_PER_HOUR
-        );
-        assert_eq!(
-            snap_to_step(day + 91 * 60, SECS_PER_HOUR),
-            day + 2 * SECS_PER_HOUR
+            snap_to_step(base + 40 * 60, SECS_PER_HOUR),
+            base + SECS_PER_HOUR
         );
     }
 

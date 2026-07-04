@@ -45,19 +45,24 @@ impl ToolPanel {
 #[repr(u8)]
 pub enum ReadoutPanel {
     Metrics = 0,
+    ActivityHeatmap = 1,
 }
 
 impl ReadoutPanel {
-    pub const ALL: [ReadoutPanel; 1] = [ReadoutPanel::Metrics];
+    pub const ALL: [ReadoutPanel; 2] = [ReadoutPanel::Metrics, ReadoutPanel::ActivityHeatmap];
 
     pub fn label(self) -> &'static str {
         match self {
             ReadoutPanel::Metrics => "Metrics",
+            ReadoutPanel::ActivityHeatmap => "Activity heatmap",
         }
     }
 
     pub fn default_on(self) -> bool {
-        true
+        match self {
+            ReadoutPanel::Metrics => true,
+            ReadoutPanel::ActivityHeatmap => true,
+        }
     }
 }
 
@@ -67,7 +72,7 @@ pub struct ChromeConfig {
     pub tools: [bool; 4],
     /// Within-section expand/collapse (gear menu still controls overall visibility).
     pub tools_expanded: [bool; 4],
-    pub readouts: [bool; 1],
+    pub readouts: [bool; 2],
     /// Advanced tools (pre-warm, shared cache path) — floating window, not a rail panel.
     pub advanced_open: bool,
 }
@@ -82,7 +87,7 @@ impl Default for ChromeConfig {
         for p in ToolPanel::ALL {
             tools_expanded[p as usize] = true;
         }
-        let mut readouts = [false; 1];
+        let mut readouts = [false; 2];
         for p in ReadoutPanel::ALL {
             readouts[p as usize] = p.default_on();
         }
