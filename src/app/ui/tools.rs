@@ -5,9 +5,9 @@ use super::super::{
     AtlasApp, DateFilterField, DateSliderMode, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd,
 };
 use super::sidebar::{
-    sidebar_checkbox_row, sidebar_family_row, sidebar_mode_row, sidebar_option_group,
-    sidebar_region, sidebar_section, sidebar_slider_block, sidebar_subtle_divider,
-    sidebar_toolbar_row, SidebarTheme, SidebarTokens,
+    sidebar_action_block, sidebar_actions_column, sidebar_checkbox_row, sidebar_control_group,
+    sidebar_family_row, sidebar_mode_row, sidebar_option_group, sidebar_region, sidebar_section,
+    sidebar_sliders_group, sidebar_subtle_divider, SidebarTheme, SidebarTokens,
 };
 use super::widgets::{chip, gear_menu, sidebar_date_timeline, thin_sidebar_slider};
 use crate::app::chrome::ToolPanel;
@@ -21,6 +21,7 @@ fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
         border: p.border,
         ink: p.ink,
         sub: p.sub,
+        line: p.line,
     }
 }
 
@@ -45,6 +46,7 @@ fn tools_gear(app: &mut AtlasApp, ui: &mut egui::Ui) {
 pub fn left_panel(app: &mut AtlasApp, ctx: &egui::Context) {
     let chrome = app.active_chrome().clone();
     let theme = sidebar_theme(app);
+    let mut first = true;
     egui::SidePanel::left("tools_rail")
         .resizable(true)
         .default_width(200.0)
@@ -53,24 +55,24 @@ pub fn left_panel(app: &mut AtlasApp, ctx: &egui::Context) {
                 tools_gear(app, ui);
                 ui.label(egui::RichText::new("Tools").small().color(theme.sub));
             });
-            ui.add_space(4.0);
+            ui.add_space(1.0);
 
             if chrome.tool(ToolPanel::BasicFilters) {
-                basic_filters(app, ui, theme);
+                basic_filters(app, ui, theme, &mut first);
             }
             if chrome.tool(ToolPanel::DisplaySettings) {
-                display_settings(app, ui, ctx, theme);
+                display_settings(app, ui, ctx, theme, &mut first);
             }
             if chrome.tool(ToolPanel::Workflow) {
-                workflow(app, ui, theme);
+                workflow(app, ui, theme, &mut first);
             }
             if chrome.tool(ToolPanel::Tags) {
-                tags_panel(app, ui, theme);
+                tags_panel(app, ui, theme, &mut first);
             }
         });
 }
 
-fn basic_filters(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+fn basic_filters(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme, first: &mut bool) {
     let mut expanded = app.active_chrome().tool_expanded(ToolPanel::BasicFilters);
     if sidebar_section(
         ui,
@@ -79,11 +81,13 @@ fn basic_filters(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         None,
         &mut expanded,
         theme,
+        *first,
         |ui| basic_filters_body(app, ui, theme),
     ) {
         app.active_chrome_mut()
             .set_tool_expanded(ToolPanel::BasicFilters, expanded);
     }
+    *first = false;
 }
 
 fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
@@ -281,6 +285,7 @@ fn display_settings(
     ui: &mut egui::Ui,
     ctx: &egui::Context,
     theme: SidebarTheme,
+    first: &mut bool,
 ) {
     let mut expanded = app
         .active_chrome()
@@ -292,11 +297,13 @@ fn display_settings(
         None,
         &mut expanded,
         theme,
+        *first,
         |ui| display_settings_body(app, ui, ctx, theme),
     ) {
         app.active_chrome_mut()
             .set_tool_expanded(ToolPanel::DisplaySettings, expanded);
     }
+    *first = false;
 }
 
 fn display_settings_body(
@@ -305,28 +312,93 @@ fn display_settings_body(
     ctx: &egui::Context,
     theme: SidebarTheme,
 ) {
-    sidebar_toolbar_row(ui, |ui| {
-        if ui.button("Fit").on_hover_text("F").clicked() {
-            app.pending_view = Some(ViewCmd::Fit);
-        }
-        let orient_txt = match app.orient {
-            Orient::V => "Flow →",
-            Orient::H => "Flow ↓",
-        };
-        if ui
-            .button(orient_txt)
-            .on_hover_text("Toggle branch direction")
-            .clicked()
-        {
-            app.orient = match app.orient {
-                Orient::V => Orient::H,
-                Orient::H => Orient::V,
+    let mut layout_changed = false;
+
+    sidebar_control_group(ui, theme, false, |ui| {
+        sidebar_actions_column(ui, |ui| {
+            sidebar_action_block(
+                ui,
+                theme,
+                "Fit the entire canvas in the current view (F)",
+                |ui| {
+                    if ui
+                        .button("Fit")
+                        .on_hover_text("Fit the entire canvas in the current view (F)")
+                        .clicked()
+                    {
+                        app.pending_view = Some(ViewCmd::Fit);
+                    }
+                },
+            );
+            let orient_txt = match app.orient {
+                Orient::V => "Flow →",
+                Orient::H => "Flow ↓",
             };
-            app.relayout();
-            app.pending_view = Some(ViewCmd::Fit);
-        }
+            sidebar_action_block(
+                ui,
+                theme,
+                "Toggle branch flow direction (horizontal ↔ vertical)",
+                |ui| {
+                    if ui
+                        .button(orient_txt)
+                        .on_hover_text("Toggle branch flow direction (horizontal ↔ vertical)")
+                        .clicked()
+                    {
+                        app.orient = match app.orient {
+                            Orient::V => Orient::H,
+                            Orient::H => Orient::V,
+                        };
+                        app.relayout();
+                        app.pending_view = Some(ViewCmd::Fit);
+                    }
+                },
+            );
+        });
+    });
+
+    sidebar_control_group(ui, theme, true, |ui| {
+        sidebar_sliders_group(ui, |ui| {
+            let domains = &mut app.display_slider_domains;
+            layout_changed |= thin_sidebar_slider(
+                ui,
+                Id::new("slider_grid_cols"),
+                &mut app.grid_cols,
+                &mut domains.grid_cols,
+                "grid columns",
+                "wide",
+                "Maximum controlled dimension of thumbnail grids",
+                theme.sub,
+            );
+            layout_changed |= thin_sidebar_slider(
+                ui,
+                Id::new("slider_portal"),
+                &mut app.portal_threshold,
+                &mut domains.portal_threshold,
+                "portal threshold",
+                "items",
+                "Child-count threshold where collapsed folders become group previews",
+                theme.sub,
+            );
+            layout_changed |= thin_sidebar_slider(
+                ui,
+                Id::new("slider_row_spacing"),
+                &mut app.row_spacing,
+                &mut domains.row_spacing,
+                "row spacing",
+                "%",
+                "Offset between row datums. Right-click to raise the max above 300%.",
+                theme.sub,
+            );
+        });
+    });
+
+    sidebar_control_group(ui, theme, true, |ui| {
         let mut dark = app.dark_mode;
-        if ui.checkbox(&mut dark, "Dark").changed() {
+        if ui
+            .checkbox(&mut dark, "Dark")
+            .on_hover_text("Switch between dark and light interface theme")
+            .changed()
+        {
             app.dark_mode = dark;
             ctx.set_theme(if dark {
                 egui::ThemePreference::Dark
@@ -339,74 +411,48 @@ fn display_settings_body(
                 crate::app::light_visuals()
             });
         }
-    });
-
-    let mut layout_changed = false;
-    sidebar_slider_block(ui, |ui| {
-        layout_changed |= thin_sidebar_slider(
-            ui,
-            &mut app.grid_cols,
-            2..=30,
-            "grid columns",
-            "wide",
-            "Maximum controlled dimension of thumbnail grids",
-            theme.sub,
-        );
-    });
-    sidebar_slider_block(ui, |ui| {
-        layout_changed |= thin_sidebar_slider(
-            ui,
-            &mut app.portal_threshold,
-            10..=1000,
-            "portal threshold",
-            "items",
-            "Child-count threshold where collapsed folders become group previews",
-            theme.sub,
-        );
-    });
-    sidebar_slider_block(ui, |ui| {
-        layout_changed |= thin_sidebar_slider(
-            ui,
-            &mut app.row_spacing,
-            40..=300,
-            "row spacing",
-            "%",
-            "Offset between row datums (distance between depth levels)",
-            theme.sub,
-        );
-    });
-
-    if ui
-        .checkbox(
-            &mut app.align_groups_to_lowest,
-            "align image groups to lowest datum",
-        )
-        .on_hover_text("Create a clean horizontal datum from the lowest image group in each branch")
-        .changed()
-    {
-        layout_changed = true;
-    }
-    ui.add_space(4.0);
-
-    sidebar_option_group(ui, "leader lines", theme, |ui| {
         if ui
-            .selectable_label(app.leader_style == LeaderStyle::Bezier, "bezier")
-            .clicked()
+            .checkbox(
+                &mut app.align_groups_to_lowest,
+                "align image groups to lowest datum",
+            )
+            .on_hover_text(
+                "Create a clean horizontal datum from the lowest image group in each branch",
+            )
+            .changed()
         {
-            app.leader_style = LeaderStyle::Bezier;
+            layout_changed = true;
         }
-        if ui
-            .selectable_label(app.leader_style == LeaderStyle::Orthogonal, "orthogonal")
-            .clicked()
-        {
-            app.leader_style = LeaderStyle::Orthogonal;
-        }
+    });
+
+    sidebar_control_group(ui, theme, true, |ui| {
+        sidebar_option_group(ui, "leader lines", theme, |ui| {
+            if ui
+                .selectable_label(app.leader_style == LeaderStyle::Bezier, "bezier")
+                .clicked()
+            {
+                app.leader_style = LeaderStyle::Bezier;
+            }
+            if ui
+                .selectable_label(app.leader_style == LeaderStyle::Orthogonal, "orthogonal")
+                .clicked()
+            {
+                app.leader_style = LeaderStyle::Orthogonal;
+            }
+        });
     });
 
     if layout_changed {
-        app.grid_cols = app.grid_cols.clamp(2, 30);
-        app.portal_threshold = app.portal_threshold.clamp(10, 10_000);
-        app.row_spacing = app.row_spacing.clamp(40, 300);
+        let d = &app.display_slider_domains;
+        app.grid_cols = app
+            .grid_cols
+            .clamp(*d.grid_cols.start(), *d.grid_cols.end());
+        app.portal_threshold = app
+            .portal_threshold
+            .clamp(*d.portal_threshold.start(), *d.portal_threshold.end());
+        app.row_spacing = app
+            .row_spacing
+            .clamp(*d.row_spacing.start(), *d.row_spacing.end());
         let cfg = app.layout_config();
         if let Some(t) = &mut app.tree {
             t.cfg = cfg;
@@ -420,7 +466,7 @@ fn display_settings_body(
     }
 }
 
-fn workflow(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+fn workflow(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme, first: &mut bool) {
     let mut expanded = app.active_chrome().tool_expanded(ToolPanel::Workflow);
     if sidebar_section(
         ui,
@@ -429,11 +475,13 @@ fn workflow(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         None,
         &mut expanded,
         theme,
+        *first,
         |ui| workflow_body(app, ui),
     ) {
         app.active_chrome_mut()
             .set_tool_expanded(ToolPanel::Workflow, expanded);
     }
+    *first = false;
 }
 
 fn workflow_body(app: &mut AtlasApp, ui: &mut egui::Ui) {
@@ -445,7 +493,7 @@ fn workflow_body(app: &mut AtlasApp, ui: &mut egui::Ui) {
     }
 }
 
-fn tags_panel(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+fn tags_panel(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme, first: &mut bool) {
     let mut expanded = app.active_chrome().tool_expanded(ToolPanel::Tags);
     if sidebar_section(
         ui,
@@ -454,11 +502,13 @@ fn tags_panel(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         Some("(click filters · drag onto files)"),
         &mut expanded,
         theme,
+        *first,
         |ui| tags_panel_body(app, ui),
     ) {
         app.active_chrome_mut()
             .set_tool_expanded(ToolPanel::Tags, expanded);
     }
+    *first = false;
 }
 
 fn tags_panel_body(app: &mut AtlasApp, ui: &mut egui::Ui) {

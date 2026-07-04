@@ -1,9 +1,11 @@
 //! Shared egui widgets for toolbars and readouts.
 
-use super::sidebar::SidebarTheme;
+use super::sidebar::{
+    apply_sidebar_slider_style, sidebar_slider_rail_stroke, SidebarSliderStyle, SidebarTheme,
+};
 use crate::app::DateSliderMode;
 use crate::types::{date_string, day_start};
-use eframe::egui::{self, Color32, CornerRadius, Id, Sense, Stroke, Ui, Vec2};
+use eframe::egui::{self, popup, Color32, CornerRadius, Id, PopupCloseBehavior, Sense, Ui, Vec2};
 
 pub fn trunc(s: &str, n: usize) -> String {
     if s.chars().count() > n {
@@ -27,29 +29,19 @@ pub fn chip(ui: &mut Ui, text: &str, active: bool, base: Color32) -> egui::Respo
     ui.add(btn)
 }
 
+/// Sidebar numeric slider — same rail/handle scale as the date timeline.
+/// Label row sits directly above the rail. Right-click to edit min/max domain.
 pub fn thin_sidebar_slider(
     ui: &mut Ui,
+    id: Id,
     value: &mut usize,
-    range: std::ops::RangeInclusive<usize>,
+    range: &mut std::ops::RangeInclusive<usize>,
     label: &str,
     unit: &str,
     hover: &str,
     sub_color: Color32,
 ) -> bool {
     let before = *value;
-    ui.scope(|ui| {
-        let width = ui.available_width();
-        ui.spacing_mut().slider_width = width;
-        ui.spacing_mut().slider_rail_height = 2.5;
-        ui.spacing_mut().interact_size.y = 6.0;
-        ui.add(
-            egui::Slider::new(value, range)
-                .show_value(false)
-                .clamping(egui::SliderClamping::Always),
-        )
-    })
-    .inner
-    .on_hover_text(hover);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).small().color(sub_color));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -60,6 +52,55 @@ pub fn thin_sidebar_slider(
             );
         });
     });
+    ui.add_space(SidebarSliderStyle::LABEL_GAP);
+
+    let slider_resp = ui
+        .scope(|ui| {
+            apply_sidebar_slider_style(ui);
+            ui.add(
+                egui::Slider::new(value, range.clone())
+                    .show_value(false)
+                    .clamping(egui::SliderClamping::Always),
+            )
+        })
+        .inner
+        .on_hover_text(hover);
+
+    if slider_resp.secondary_clicked() {
+        ui.memory_mut(|mem| mem.toggle_popup(id.with("domain")));
+    }
+
+    popup::popup_below_widget(
+        ui,
+        id.with("domain"),
+        &slider_resp,
+        PopupCloseBehavior::CloseOnClickOutside,
+        |ui| {
+            ui.set_min_width(160.0);
+            ui.label(egui::RichText::new("Slider range").small().strong());
+            ui.label(
+                egui::RichText::new("Right-click any display slider to adjust limits.")
+                    .small()
+                    .color(sub_color),
+            );
+            let mut min_v = *range.start();
+            let mut max_v = *range.end();
+            ui.horizontal(|ui| {
+                ui.label("min");
+                ui.add(egui::DragValue::new(&mut min_v).speed(1));
+                ui.label("max");
+                ui.add(egui::DragValue::new(&mut max_v).speed(1));
+            });
+            if ui.button("Apply").clicked() {
+                if min_v <= max_v {
+                    *range = min_v..=max_v;
+                    *value = value.clamp(min_v, max_v);
+                }
+                ui.memory_mut(|mem| mem.close_popup());
+            }
+        },
+    );
+
     *value != before
 }
 
@@ -115,9 +156,11 @@ pub fn sidebar_date_timeline(
 
         let track_w = ui.available_width().max(40.0);
         let (track_rect, _track) = ui.allocate_exact_size(Vec2::new(track_w, 22.0), Sense::hover());
-        let rail =
-            egui::Rect::from_center_size(track_rect.center(), Vec2::new(track_rect.width(), 4.0));
-        let stroke = Stroke::new(1.5, theme.border.gamma_multiply(0.9));
+        let rail = egui::Rect::from_center_size(
+            track_rect.center(),
+            Vec2::new(track_rect.width(), SidebarSliderStyle::RAIL_HEIGHT),
+        );
+        let stroke = sidebar_slider_rail_stroke(theme);
         let painter = ui.painter();
 
         if span > 0 && *mode == DateSliderMode::Range {
@@ -144,7 +187,10 @@ pub fn sidebar_date_timeline(
             let handle_id = id.with("handle").with(i);
             let x = day_to_x(*day, rail, span_min, span_max);
             let handle_center = egui::pos2(x, rail.center().y);
-            let handle_rect = egui::Rect::from_center_size(handle_center, Vec2::splat(12.0));
+            let handle_rect = egui::Rect::from_center_size(
+                handle_center,
+                Vec2::splat(SidebarSliderStyle::HANDLE_RADIUS * 2.0),
+            );
             let resp = ui.interact(handle_rect, handle_id, Sense::drag());
             if resp.dragged() {
                 let pointer = ui
@@ -156,7 +202,7 @@ pub fn sidebar_date_timeline(
             }
             painter.circle_filled(
                 handle_center,
-                4.5,
+                SidebarSliderStyle::HANDLE_RADIUS,
                 if resp.hovered() || resp.dragged() {
                     theme.ink
                 } else {
@@ -194,7 +240,7 @@ pub fn sidebar_date_timeline(
         }
     };
     ui.label(egui::RichText::new(caption).small().color(theme.sub));
-    ui.add_space(4.0);
+    ui.add_space(SidebarSliderStyle::LABEL_GAP);
     changed
 }
 

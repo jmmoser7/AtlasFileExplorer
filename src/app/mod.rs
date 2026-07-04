@@ -79,6 +79,24 @@ pub(crate) enum LeaderStyle {
     Orthogonal,
 }
 
+/// User-adjustable min/max for display-settings sliders (right-click a slider).
+#[derive(Clone, Debug)]
+pub(crate) struct DisplaySliderDomains {
+    pub grid_cols: std::ops::RangeInclusive<usize>,
+    pub portal_threshold: std::ops::RangeInclusive<usize>,
+    pub row_spacing: std::ops::RangeInclusive<usize>,
+}
+
+impl Default for DisplaySliderDomains {
+    fn default() -> Self {
+        Self {
+            grid_cols: 2..=30,
+            portal_threshold: 10..=1000,
+            row_spacing: 40..=300,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum ThumbState {
     NotAsked,
@@ -146,6 +164,7 @@ pub struct AtlasApp {
     portal_threshold: usize,
     align_groups_to_lowest: bool,
     row_spacing: usize,
+    display_slider_domains: DisplaySliderDomains,
     leader_style: LeaderStyle,
     cam: Camera,
     anim: Option<CamAnim>,
@@ -302,6 +321,7 @@ impl AtlasApp {
             portal_threshold: 100,
             align_groups_to_lowest: true,
             row_spacing: 40, // minimum datum spacing by default
+            display_slider_domains: DisplaySliderDomains::default(),
             leader_style: LeaderStyle::Orthogonal,
             cam: Camera {
                 offset: Vec2::ZERO,
@@ -415,6 +435,7 @@ impl AtlasApp {
             portal_threshold: self.portal_threshold,
             align_groups_to_lowest: self.align_groups_to_lowest,
             row_spacing: self.row_spacing,
+            row_spacing_max: *self.display_slider_domains.row_spacing.end(),
         }
         .normalized()
     }
