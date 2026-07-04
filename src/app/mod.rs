@@ -1264,6 +1264,26 @@ impl AtlasApp {
         }
     }
 
+    /// Unix timestamps for the activity heatmap: selected files when any are
+    /// selected, otherwise files currently visible on the canvas.
+    pub(crate) fn activity_timestamps(&self) -> Vec<i64> {
+        if !self.selection.is_empty() {
+            self.selection
+                .iter()
+                .filter_map(|&id| self.entries.get(id as usize))
+                .filter(|e| !e.dead)
+                .map(|e| self.file_date_secs(e))
+                .collect()
+        } else {
+            self.entries
+                .iter()
+                .enumerate()
+                .filter(|(i, e)| !e.dead && self.file_match.get(*i).copied().unwrap_or(false))
+                .map(|(_, e)| self.file_date_secs(e))
+                .collect()
+        }
+    }
+
     fn update_date_span(&mut self) {
         let mut min = i64::MAX;
         let mut max = i64::MIN;

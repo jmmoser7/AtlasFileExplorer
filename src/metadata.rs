@@ -40,7 +40,9 @@ fn owner_short_impl(path: &Path) -> String {
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PWSTR;
     use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
-    use windows::Win32::Security::{LookupAccountSidW, OWNER_SECURITY_INFORMATION, PSID, SID_NAME_USE};
+    use windows::Win32::Security::{
+        LookupAccountSidW, OWNER_SECURITY_INFORMATION, PSID, SID_NAME_USE,
+    };
 
     let wide: Vec<u16> = path
         .as_os_str()
