@@ -31,6 +31,8 @@ pub struct LayoutConfig {
     pub align_groups_to_lowest: bool,
     /// Percent scale for the offset between row datums (depth step).
     pub row_spacing: usize,
+    /// Upper clamp for [`Self::row_spacing`]; adjustable from the display-settings slider domain popup.
+    pub row_spacing_max: usize,
 }
 
 impl Default for LayoutConfig {
@@ -40,17 +42,20 @@ impl Default for LayoutConfig {
             portal_threshold: 100,
             align_groups_to_lowest: false,
             row_spacing: 100,
+            row_spacing_max: 300,
         }
     }
 }
 
 impl LayoutConfig {
     pub fn normalized(self) -> Self {
+        let row_max = self.row_spacing_max.max(40);
         Self {
             grid_cols: self.grid_cols.clamp(2, 30),
             portal_threshold: self.portal_threshold.clamp(10, 10_000),
             align_groups_to_lowest: self.align_groups_to_lowest,
-            row_spacing: self.row_spacing.clamp(40, 300),
+            row_spacing: self.row_spacing.clamp(40, row_max),
+            row_spacing_max: row_max,
         }
     }
 }
@@ -77,7 +82,7 @@ pub struct DirNode {
     pub y: f32,
     pub w: f32,
     pub h: f32,
-    pub bounds: Rect,             // whole subtree, for culling / hit pruning
+    pub bounds: Rect,              // whole subtree, for culling / hit pruning
     pub grid_bounds: Option<Rect>, // dashed box around grid-packed files
     /// Files actually placed in the grid this layout, in cell order. The
     /// hit test must index this — not `files` — because filters can hide
@@ -93,11 +98,15 @@ pub struct DirNode {
 
 impl DirNode {
     pub fn rect(&self) -> Rect {
-        Rect::from_min_size(Pos2::new(self.x, self.y - self.h / 2.0), Vec2::new(self.w, self.h))
+        Rect::from_min_size(
+            Pos2::new(self.x, self.y - self.h / 2.0),
+            Vec2::new(self.w, self.h),
+        )
     }
 
     pub fn is_portal(&self, cfg: LayoutConfig) -> bool {
-        self.collapsed && (self.child_dirs.len() + self.files.len()) > cfg.normalized().portal_threshold
+        self.collapsed
+            && (self.child_dirs.len() + self.files.len()) > cfg.normalized().portal_threshold
     }
 }
 
@@ -196,8 +205,11 @@ impl Tree {
             .collect();
         for (d, c) in dirs.iter_mut().zip(dir_children) {
             d.child_dirs = c;
-            d.files
-                .sort_by(|&a, &b| entries[a as usize].name_lc.cmp(&entries[b as usize].name_lc));
+            d.files.sort_by(|&a, &b| {
+                entries[a as usize]
+                    .name_lc
+                    .cmp(&entries[b as usize].name_lc)
+            });
         }
 
         let total_dirs = dirs.len().saturating_sub(1);
@@ -407,11 +419,7 @@ impl Tree {
             let cb = self.dirs[c as usize].bounds;
             bounds = Some(bounds.map_or(cb, |b| b.union(cb)));
             let child = &self.dirs[c as usize];
-            let cc = if v {
-                child.y
-            } else {
-                child.x + child.w / 2.0
-            };
+            let cc = if v { child.y } else { child.x + child.w / 2.0 };
             min_c = min_c.min(cc);
             max_c = max_c.max(cc);
         }
@@ -743,9 +751,7 @@ mod tests {
             d.collapsed = false;
         }
         t.layout(Orient::V);
-        let rects: Vec<Rect> = (0..entries.len())
-            .map(|i| t.file_pos[i].rect())
-            .collect();
+        let rects: Vec<Rect> = (0..entries.len()).map(|i| t.file_pos[i].rect()).collect();
         for i in 0..rects.len() {
             assert!(t.file_pos[i].place != FilePlace::Hidden);
             for j in i + 1..rects.len() {
@@ -829,16 +835,16 @@ mod tests {
         t.layout(Orient::V);
         let l0 = t.file_pos[0].rect().min.x;
         let l1 = t.file_pos[1].rect().min.x;
-        assert!((l0 - l1).abs() < 0.5, "left edges should align: {l0} vs {l1}");
+        assert!(
+            (l0 - l1).abs() < 0.5,
+            "left edges should align: {l0} vs {l1}"
+        );
     }
 
     #[test]
     fn structure_only_keeps_dirs_hides_files() {
-        let entries: Vec<FileEntry> = vec![
-            entry(r"a\x.jpg"),
-            entry(r"a\b\y.jpg"),
-            entry(r"c\z.png"),
-        ];
+        let entries: Vec<FileEntry> =
+            vec![entry(r"a\x.jpg"), entry(r"a\b\y.jpg"), entry(r"c\z.png")];
         let mut t = Tree::build(&entries, "fake", LayoutConfig::default());
         for d in t.dirs.iter_mut() {
             d.collapsed = false;
@@ -929,8 +935,7 @@ mod tests {
 
     #[test]
     fn default_collapse_depth() {
-        let entries: Vec<FileEntry> =
-            vec![entry(r"a\b\c\deep.jpg"), entry(r"a\top.jpg")];
+        let entries: Vec<FileEntry> = vec![entry(r"a\b\c\deep.jpg"), entry(r"a\top.jpg")];
         let t = Tree::build(&entries, "fake", LayoutConfig::default());
         let ab = t.dirs.iter().find(|d| d.rel == r"a\b").unwrap();
         assert!(ab.collapsed); // depth 2

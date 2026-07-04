@@ -1,6 +1,7 @@
 //! Shared egui widgets for toolbars and readouts.
 
-use eframe::egui::{self, Color32, CornerRadius, Sense, Ui};
+use super::sidebar::{apply_sidebar_slider_style, SidebarSliderStyle};
+use eframe::egui::{self, popup, Color32, CornerRadius, Id, PopupCloseBehavior, Sense, Ui};
 
 pub fn trunc(s: &str, n: usize) -> String {
     if s.chars().count() > n {
@@ -24,32 +25,19 @@ pub fn chip(ui: &mut Ui, text: &str, active: bool, base: Color32) -> egui::Respo
     ui.add(btn)
 }
 
+/// Sidebar numeric slider — unified rail/handle sizing; label row sits directly above the rail.
+/// Right-click opens a popup to edit the slider domain (min/max).
 pub fn thin_sidebar_slider(
     ui: &mut Ui,
+    id: Id,
     value: &mut usize,
-    range: std::ops::RangeInclusive<usize>,
+    range: &mut std::ops::RangeInclusive<usize>,
     label: &str,
     unit: &str,
     hover: &str,
     sub_color: Color32,
 ) -> bool {
     let before = *value;
-    ui.scope(|ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        let width = ui.available_width();
-        ui.spacing_mut().slider_width = width;
-        ui.spacing_mut().slider_rail_height = 2.0;
-        // Handle radius scales with interact height; ~60% smaller than first pass (6 → 2.4).
-        ui.spacing_mut().interact_size.y = 2.4;
-        ui.add(
-            egui::Slider::new(value, range)
-                .show_value(false)
-                .clamping(egui::SliderClamping::Always),
-        )
-    })
-    .inner
-    .on_hover_text(hover);
-    ui.add_space(1.0);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).small().color(sub_color));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -60,7 +48,55 @@ pub fn thin_sidebar_slider(
             );
         });
     });
-    ui.add_space(1.0);
+    ui.add_space(SidebarSliderStyle::LABEL_GAP);
+
+    let slider_resp = ui
+        .scope(|ui| {
+            apply_sidebar_slider_style(ui);
+            ui.add(
+                egui::Slider::new(value, range.clone())
+                    .show_value(false)
+                    .clamping(egui::SliderClamping::Always),
+            )
+        })
+        .inner
+        .on_hover_text(hover);
+
+    if slider_resp.secondary_clicked() {
+        ui.memory_mut(|mem| mem.toggle_popup(id.with("domain")));
+    }
+
+    popup::popup_below_widget(
+        ui,
+        id.with("domain"),
+        &slider_resp,
+        PopupCloseBehavior::CloseOnClickOutside,
+        |ui| {
+            ui.set_min_width(160.0);
+            ui.label(egui::RichText::new("Slider range").small().strong());
+            ui.label(
+                egui::RichText::new("Right-click any display slider to adjust limits.")
+                    .small()
+                    .color(sub_color),
+            );
+            let mut min_v = *range.start();
+            let mut max_v = *range.end();
+            ui.horizontal(|ui| {
+                ui.label("min");
+                ui.add(egui::DragValue::new(&mut min_v).speed(1));
+                ui.label("max");
+                ui.add(egui::DragValue::new(&mut max_v).speed(1));
+            });
+            if ui.button("Apply").clicked() {
+                if min_v <= max_v {
+                    *range = min_v..=max_v;
+                    *value = value.clamp(min_v, max_v);
+                }
+                ui.memory_mut(|mem| mem.close_popup());
+            }
+        },
+    );
+
     *value != before
 }
 

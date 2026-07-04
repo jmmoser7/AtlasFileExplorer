@@ -3,8 +3,8 @@
 
 use super::super::{AtlasApp, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd};
 use super::sidebar::{
-    sidebar_actions_column, sidebar_checkbox_row, sidebar_control_group, sidebar_family_row,
-    sidebar_option_group, sidebar_section, sidebar_sliders_group, SidebarTheme,
+    sidebar_action_block, sidebar_actions_column, sidebar_checkbox_row, sidebar_control_group,
+    sidebar_family_row, sidebar_option_group, sidebar_section, sidebar_sliders_group, SidebarTheme,
 };
 use super::widgets::{chip, gear_menu, thin_sidebar_slider};
 use crate::app::chrome::ToolPanel;
@@ -184,56 +184,54 @@ fn display_settings_body(
 
     sidebar_control_group(ui, theme, false, |ui| {
         sidebar_actions_column(ui, |ui| {
-            if ui
-                .button("Fit")
-                .on_hover_text("Fit the entire canvas in the current view (F)")
-                .clicked()
-            {
-                app.pending_view = Some(ViewCmd::Fit);
-            }
+            sidebar_action_block(
+                ui,
+                theme,
+                "Fit the entire canvas in the current view (F)",
+                |ui| {
+                    if ui
+                        .button("Fit")
+                        .on_hover_text("Fit the entire canvas in the current view (F)")
+                        .clicked()
+                    {
+                        app.pending_view = Some(ViewCmd::Fit);
+                    }
+                },
+            );
             let orient_txt = match app.orient {
                 Orient::V => "Flow →",
                 Orient::H => "Flow ↓",
             };
-            if ui
-                .button(orient_txt)
-                .on_hover_text("Toggle branch flow direction (horizontal ↔ vertical)")
-                .clicked()
-            {
-                app.orient = match app.orient {
-                    Orient::V => Orient::H,
-                    Orient::H => Orient::V,
-                };
-                app.relayout();
-                app.pending_view = Some(ViewCmd::Fit);
-            }
-            let mut dark = app.dark_mode;
-            if ui
-                .checkbox(&mut dark, "Dark")
-                .on_hover_text("Switch between dark and light interface theme")
-                .changed()
-            {
-                app.dark_mode = dark;
-                ctx.set_theme(if dark {
-                    egui::ThemePreference::Dark
-                } else {
-                    egui::ThemePreference::Light
-                });
-                ctx.set_visuals(if dark {
-                    crate::app::dark_visuals()
-                } else {
-                    crate::app::light_visuals()
-                });
-            }
+            sidebar_action_block(
+                ui,
+                theme,
+                "Toggle branch flow direction (horizontal ↔ vertical)",
+                |ui| {
+                    if ui
+                        .button(orient_txt)
+                        .on_hover_text("Toggle branch flow direction (horizontal ↔ vertical)")
+                        .clicked()
+                    {
+                        app.orient = match app.orient {
+                            Orient::V => Orient::H,
+                            Orient::H => Orient::V,
+                        };
+                        app.relayout();
+                        app.pending_view = Some(ViewCmd::Fit);
+                    }
+                },
+            );
         });
     });
 
     sidebar_control_group(ui, theme, true, |ui| {
         sidebar_sliders_group(ui, |ui| {
+            let domains = &mut app.display_slider_domains;
             layout_changed |= thin_sidebar_slider(
                 ui,
+                Id::new("slider_grid_cols"),
                 &mut app.grid_cols,
-                2..=30,
+                &mut domains.grid_cols,
                 "grid columns",
                 "wide",
                 "Maximum controlled dimension of thumbnail grids",
@@ -241,8 +239,9 @@ fn display_settings_body(
             );
             layout_changed |= thin_sidebar_slider(
                 ui,
+                Id::new("slider_portal"),
                 &mut app.portal_threshold,
-                10..=1000,
+                &mut domains.portal_threshold,
                 "portal threshold",
                 "items",
                 "Child-count threshold where collapsed folders become group previews",
@@ -250,17 +249,36 @@ fn display_settings_body(
             );
             layout_changed |= thin_sidebar_slider(
                 ui,
+                Id::new("slider_row_spacing"),
                 &mut app.row_spacing,
-                40..=300,
+                &mut domains.row_spacing,
                 "row spacing",
                 "%",
-                "Offset between row datums (distance between depth levels)",
+                "Offset between row datums (distance between depth levels). Right-click to raise the max above 300%.",
                 theme.sub,
             );
         });
     });
 
     sidebar_control_group(ui, theme, true, |ui| {
+        let mut dark = app.dark_mode;
+        if ui
+            .checkbox(&mut dark, "Dark")
+            .on_hover_text("Switch between dark and light interface theme")
+            .changed()
+        {
+            app.dark_mode = dark;
+            ctx.set_theme(if dark {
+                egui::ThemePreference::Dark
+            } else {
+                egui::ThemePreference::Light
+            });
+            ctx.set_visuals(if dark {
+                crate::app::dark_visuals()
+            } else {
+                crate::app::light_visuals()
+            });
+        }
         if ui
             .checkbox(
                 &mut app.align_groups_to_lowest,
@@ -293,9 +311,16 @@ fn display_settings_body(
     });
 
     if layout_changed {
-        app.grid_cols = app.grid_cols.clamp(2, 30);
-        app.portal_threshold = app.portal_threshold.clamp(10, 10_000);
-        app.row_spacing = app.row_spacing.clamp(40, 300);
+        let d = &app.display_slider_domains;
+        app.grid_cols = app
+            .grid_cols
+            .clamp(*d.grid_cols.start(), *d.grid_cols.end());
+        app.portal_threshold = app
+            .portal_threshold
+            .clamp(*d.portal_threshold.start(), *d.portal_threshold.end());
+        app.row_spacing = app
+            .row_spacing
+            .clamp(*d.row_spacing.start(), *d.row_spacing.end());
         let cfg = app.layout_config();
         if let Some(t) = &mut app.tree {
             t.cfg = cfg;

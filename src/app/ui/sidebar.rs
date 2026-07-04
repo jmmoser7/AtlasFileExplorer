@@ -35,6 +35,27 @@ impl SidebarTokens {
     pub const GROUP_DIVIDER_OPACITY: f32 = 0.22;
     pub const GROUP_DIVIDER_PAD: f32 = 3.0;
     pub const ACTION_STACK_GAP: f32 = 2.0;
+    /// Vertical padding between action blocks (control + description).
+    pub const ACTION_ITEM_PAD: f32 = 8.0;
+}
+
+/// Unified rail + handle sizing for every sidebar slider (single- or dual-handle).
+pub struct SidebarSliderStyle;
+
+impl SidebarSliderStyle {
+    pub const RAIL_HEIGHT: f32 = 2.5;
+    /// Matches the SidePanel resize grab (~5px radius → ~10px interact height).
+    pub const INTERACT_HEIGHT: f32 = 10.0;
+    /// Gap between label row and rail (60% tighter than the prior 1px).
+    pub const LABEL_GAP: f32 = 0.4;
+    pub const BETWEEN: f32 = 3.0;
+}
+
+pub fn apply_sidebar_slider_style(ui: &mut Ui) {
+    ui.spacing_mut().slider_width = ui.available_width();
+    ui.spacing_mut().slider_rail_height = SidebarSliderStyle::RAIL_HEIGHT;
+    ui.spacing_mut().interact_size.y = SidebarSliderStyle::INTERACT_HEIGHT;
+    ui.spacing_mut().item_spacing.y = 0.0;
 }
 
 /// Collapsible capsule — fill only, no outer border (internal dividers separate groups).
@@ -150,9 +171,20 @@ pub fn sidebar_control_group(
 /// Primary canvas actions stacked vertically, left-aligned, with hover tooltips.
 pub fn sidebar_actions_column(ui: &mut Ui, add_actions: impl FnOnce(&mut Ui)) {
     ui.with_layout(Layout::top_down(Align::Min), |ui| {
-        ui.spacing_mut().item_spacing.y = SidebarTokens::ACTION_STACK_GAP;
+        ui.spacing_mut().item_spacing.y = SidebarTokens::ACTION_ITEM_PAD;
         add_actions(ui);
     });
+}
+
+/// One action control plus a visible description line beneath it.
+pub fn sidebar_action_block(
+    ui: &mut Ui,
+    theme: SidebarTheme,
+    description: &str,
+    add_control: impl FnOnce(&mut Ui),
+) {
+    add_control(ui);
+    ui.label(RichText::new(description).small().color(theme.sub));
 }
 
 /// Full-width checkbox with inline label.
@@ -225,7 +257,7 @@ pub fn sidebar_family_row(
 /// Tight vertical stack for all sliders in a panel.
 pub fn sidebar_sliders_group(ui: &mut Ui, add_sliders: impl FnOnce(&mut Ui)) {
     ui.with_layout(Layout::top_down(Align::Min), |ui| {
-        ui.spacing_mut().item_spacing.y = 1.0;
+        ui.spacing_mut().item_spacing.y = SidebarSliderStyle::BETWEEN;
         add_sliders(ui);
     });
 }

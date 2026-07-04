@@ -13,7 +13,7 @@ use crate::journal::{Action, AssignVal, Journal, JournalEntry};
 use crate::scanner::{self, ScanHandle, ScanMsg};
 use crate::thumbs::{cache_key, ThumbPool, ThumbRequest};
 use crate::tree::{self, FilePlace, Hit, LayoutConfig, Orient, Tree};
-use crate::types::{age_string, date_string, human_size, FileEntry, Family};
+use crate::types::{age_string, date_string, human_size, Family, FileEntry};
 use crate::watcher::{self, FsChange, FsWatch};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{
@@ -63,6 +63,24 @@ enum DirGrip {
 pub(crate) enum LeaderStyle {
     Bezier,
     Orthogonal,
+}
+
+/// User-adjustable min/max for display-settings sliders (right-click a slider).
+#[derive(Clone, Debug)]
+pub(crate) struct DisplaySliderDomains {
+    pub grid_cols: std::ops::RangeInclusive<usize>,
+    pub portal_threshold: std::ops::RangeInclusive<usize>,
+    pub row_spacing: std::ops::RangeInclusive<usize>,
+}
+
+impl Default for DisplaySliderDomains {
+    fn default() -> Self {
+        Self {
+            grid_cols: 2..=30,
+            portal_threshold: 10..=1000,
+            row_spacing: 40..=300,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -132,6 +150,7 @@ pub struct AtlasApp {
     portal_threshold: usize,
     align_groups_to_lowest: bool,
     row_spacing: usize,
+    display_slider_domains: DisplaySliderDomains,
     leader_style: LeaderStyle,
     cam: Camera,
     anim: Option<CamAnim>,
@@ -276,6 +295,7 @@ impl AtlasApp {
             portal_threshold: 100,
             align_groups_to_lowest: true,
             row_spacing: 40, // minimum datum spacing by default
+            display_slider_domains: DisplaySliderDomains::default(),
             leader_style: LeaderStyle::Orthogonal,
             cam: Camera {
                 offset: Vec2::ZERO,
@@ -378,6 +398,7 @@ impl AtlasApp {
             portal_threshold: self.portal_threshold,
             align_groups_to_lowest: self.align_groups_to_lowest,
             row_spacing: self.row_spacing,
+            row_spacing_max: *self.display_slider_domains.row_spacing.end(),
         }
         .normalized()
     }
@@ -437,7 +458,9 @@ impl AtlasApp {
             };
             let mut stack = vec![dir];
             while let Some(d) = stack.pop() {
-                let Ok(rd) = std::fs::read_dir(&d) else { continue };
+                let Ok(rd) = std::fs::read_dir(&d) else {
+                    continue;
+                };
                 for entry in rd.flatten() {
                     let Ok(ft) = entry.file_type() else { continue };
                     if ft.is_symlink() {
@@ -446,7 +469,10 @@ impl AtlasApp {
                     if ft.is_dir() {
                         let name = entry.file_name();
                         let name = name.to_string_lossy();
-                        if scanner::SKIP_DIRS.iter().any(|s| name.eq_ignore_ascii_case(s)) {
+                        if scanner::SKIP_DIRS
+                            .iter()
+                            .any(|s| name.eq_ignore_ascii_case(s))
+                        {
                             continue;
                         }
                         stack.push(entry.path());
@@ -519,10 +545,7 @@ impl AtlasApp {
             let _ = std::fs::create_dir_all(&pc.shared_dir);
             self.key_prefix = pc.key_prefix;
             self.shared_cache = Some(std::sync::Arc::new(pc.shared_dir.clone()));
-            self.toast(format!(
-                "Shared project cache: {}",
-                pc.shared_dir.display()
-            ));
+            self.toast(format!("Shared project cache: {}", pc.shared_dir.display()));
         }
         while self.thumbs.rx.try_recv().is_ok() {}
         self.entries = Vec::new();
@@ -737,7 +760,9 @@ impl AtlasApp {
     /// Runs synchronously but only stat+copy per file; the heavy generation
     /// still happens asynchronously via warming / on-demand workers.
     fn sync_shared_cache_from_local(&self) {
-        let Some(shared) = &self.shared_cache else { return };
+        let Some(shared) = &self.shared_cache else {
+            return;
+        };
         for e in &self.entries {
             if e.dead || !wants_thumb(e.family) {
                 continue;
@@ -769,7 +794,12 @@ impl AtlasApp {
         let collapsed: HashMap<String, bool> = self
             .tree
             .as_ref()
-            .map(|t| t.dirs.iter().map(|d| (d.rel.clone(), d.collapsed)).collect())
+            .map(|t| {
+                t.dirs
+                    .iter()
+                    .map(|d| (d.rel.clone(), d.collapsed))
+                    .collect()
+            })
             .unwrap_or_default();
         let mut t = Tree::build(&self.entries, &self.root_name(), self.layout_config());
         if !collapsed.is_empty() {
@@ -958,7 +988,9 @@ impl AtlasApp {
             if uploads >= 24 {
                 break;
             }
-            let Ok(res) = self.thumbs.rx.try_recv() else { break };
+            let Ok(res) = self.thumbs.rx.try_recv() else {
+                break;
+            };
             if res.generation == crate::thumbs::PINNED_GENERATION {
                 // Overnight pre-warm progress: ids are meaningless here, the
                 // job's only output is the (shared) disk cache.
@@ -1011,10 +1043,8 @@ impl AtlasApp {
             }
             match res.image {
                 Some((w, h, rgba)) => {
-                    let img = egui::ColorImage::from_rgba_unmultiplied(
-                        [w as usize, h as usize],
-                        &rgba,
-                    );
+                    let img =
+                        egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
                     let tex = ctx.load_texture(
                         format!("thumb{}", res.id),
                         img,
@@ -1047,7 +1077,11 @@ impl AtlasApp {
             let mut finished: Option<ExportMsg> = None;
             while let Ok(msg) = exp.rx.try_recv() {
                 match msg {
-                    ExportMsg::Progress { done, total, current } => {
+                    ExportMsg::Progress {
+                        done,
+                        total,
+                        current,
+                    } => {
                         exp.done = done;
                         exp.total = total;
                         exp.current = current;
@@ -1093,7 +1127,9 @@ impl AtlasApp {
     }
 
     fn apply_fs_change(&mut self, ev: FsChange) {
-        let Some(root) = self.root.clone() else { return };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         match ev {
             FsChange::Upsert(path) => {
                 if let Some(fe) = scanner::stat_file(&root, &path) {
@@ -1280,11 +1316,7 @@ impl AtlasApp {
         let lo = from.min(to) as usize;
         let hi = from.max(to) as usize;
         for i in lo..=hi {
-            if self
-                .entries
-                .get(i)
-                .map(|e| !e.dead)
-                .unwrap_or(false)
+            if self.entries.get(i).map(|e| !e.dead).unwrap_or(false)
                 && self.file_match.get(i).copied().unwrap_or(false)
             {
                 self.selection.insert(i as u32);
@@ -1294,7 +1326,9 @@ impl AtlasApp {
     }
 
     fn subtree_file_ids(&self, di: u32) -> Vec<u32> {
-        let Some(t) = &self.tree else { return Vec::new() };
+        let Some(t) = &self.tree else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
         fn walk(t: &Tree, di: usize, out: &mut Vec<u32>) {
             let d = &t.dirs[di];
@@ -1375,7 +1409,9 @@ impl AtlasApp {
     }
 
     fn apply_action(&mut self, action: &Action, forward: bool) {
-        let Some(root) = self.root.clone() else { return };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
         match action {
             Action::Tags { changes } => {
                 for (rel, before, after) in changes {
@@ -1454,7 +1490,9 @@ impl AtlasApp {
     // ---------- export ----------
 
     fn assigned_items(&self) -> Vec<ExportItem> {
-        let Some(root) = &self.root else { return Vec::new() };
+        let Some(root) = &self.root else {
+            return Vec::new();
+        };
         self.tag_state
             .assigns
             .iter()
@@ -1676,7 +1714,9 @@ impl AtlasApp {
     /// Dev harness: ATLAS_SHOT=<path>[;delay_frames] saves a screenshot of the
     /// app and exits. Used for automated visual verification only.
     fn debug_screenshot(&mut self, ctx: &egui::Context) {
-        let Ok(spec) = std::env::var("ATLAS_SHOT") else { return };
+        let Ok(spec) = std::env::var("ATLAS_SHOT") else {
+            return;
+        };
         let (path, delay) = match spec.split_once(';') {
             Some((p, d)) => (p.to_string(), d.parse().unwrap_or(240u64)),
             None => (spec, 240),
@@ -1875,8 +1915,10 @@ impl AtlasApp {
                 ui.strong("Staging:");
                 if groups.is_empty() {
                     ui.label(
-                        egui::RichText::new("no assignments yet â€” right-click files or drag chips")
-                            .color(Color32::from_gray(120)),
+                        egui::RichText::new(
+                            "no assignments yet â€” right-click files or drag chips",
+                        )
+                        .color(Color32::from_gray(120)),
                     );
                 }
                 let mut assign_to: Option<String> = None;
@@ -2078,10 +2120,7 @@ impl AtlasApp {
                 let r = self.canvas_rect;
                 self.cam = match self.orient {
                     Orient::V => Camera {
-                        offset: Vec2::new(
-                            r.min.x + 60.0 - root.x * z,
-                            r.center().y - root.y * z,
-                        ),
+                        offset: Vec2::new(r.min.x + 60.0 - root.x * z, r.center().y - root.y * z),
                         z,
                     },
                     Orient::H => Camera {
@@ -2108,8 +2147,7 @@ impl AtlasApp {
 
     fn canvas(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette();
-        let (rect, resp) =
-            ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+        let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         self.canvas_rect = rect;
 
         if let Some(cmd) = self.pending_view.take() {
@@ -2206,7 +2244,15 @@ impl AtlasApp {
         let mut color_budget: i32 = 14;
         if self.tree.is_some() {
             let tree = self.tree.take().unwrap();
-            self.draw_branch(&painter, &tree, 0, world_view, lod, &mut requests, &mut color_budget);
+            self.draw_branch(
+                &painter,
+                &tree,
+                0,
+                world_view,
+                lod,
+                &mut requests,
+                &mut color_budget,
+            );
             self.tree = Some(tree);
         }
         for r in requests {
@@ -2660,7 +2706,11 @@ impl AtlasApp {
                     .map(|&(_, i)| depth_of(&targets[i]))
                     .fold(f32::INFINITY, f32::min);
                 let avail = (min_td - p_d - 16.0 - 14.0).max(0.0);
-                let rail_gap = if n > 1.0 { 8.0f32.min(avail / (n - 1.0)) } else { 8.0 };
+                let rail_gap = if n > 1.0 {
+                    8.0f32.min(avail / (n - 1.0))
+                } else {
+                    8.0
+                };
                 for (r, &(_, i)) in list.iter().enumerate() {
                     let exit = p_b + sign * (n - r as f32) * exit_gap;
                     let rail = (p_d + 16.0 + r as f32 * rail_gap)
@@ -2770,12 +2820,7 @@ impl AtlasApp {
             (Pos2::new(exit, rail), Pos2::new(tgt.x, rail))
         };
         if self.leader_style == LeaderStyle::Orthogonal {
-            let pts = [
-                self.w2s(start),
-                self.w2s(m1),
-                self.w2s(m2),
-                self.w2s(tgt),
-            ];
+            let pts = [self.w2s(start), self.w2s(m1), self.w2s(m2), self.w2s(tgt)];
             rounded_route(painter, &pts, (9.0 * self.cam.z).clamp(2.0, 11.0), stroke);
             return;
         }
@@ -2829,11 +2874,10 @@ impl AtlasApp {
         painter.rect_stroke(
             sr,
             cr,
-            Stroke::new(if hovered { 1.6 } else { 1.1 }, if hovered {
-                p.border_strong
-            } else {
-                p.border
-            }),
+            Stroke::new(
+                if hovered { 1.6 } else { 1.1 },
+                if hovered { p.border_strong } else { p.border },
+            ),
             StrokeKind::Inside,
         );
 
@@ -2862,12 +2906,26 @@ impl AtlasApp {
             painter.circle_stroke(
                 full,
                 grip_r + if full_hover { 2.0 } else { 0.0 },
-                Stroke::new(1.5, if full_hover { p.portal } else { p.border_strong }),
+                Stroke::new(
+                    1.5,
+                    if full_hover {
+                        p.portal
+                    } else {
+                        p.border_strong
+                    },
+                ),
             );
             painter.circle_stroke(
                 full,
                 (grip_r * 0.55).max(2.0),
-                Stroke::new(1.2, if full_hover { p.portal } else { p.border_strong }),
+                Stroke::new(
+                    1.2,
+                    if full_hover {
+                        p.portal
+                    } else {
+                        p.border_strong
+                    },
+                ),
             );
         }
 
@@ -2957,8 +3015,7 @@ impl AtlasApp {
             for i in 0..9usize {
                 let sample = d.portal_samples.get(i).copied();
                 let cell = Rect::from_min_size(
-                    mos.min
-                        + Vec2::new((i % 3) as f32 * (cw + gp), (i / 3) as f32 * (ch + gp)),
+                    mos.min + Vec2::new((i % 3) as f32 * (cw + gp), (i / 3) as f32 * (ch + gp)),
                     Vec2::new(cw, ch),
                 );
                 match sample {
@@ -3166,12 +3223,7 @@ impl AtlasApp {
             if let Some((tex, last)) = self.textures.get_mut(&f) {
                 *last = self.frame_no;
                 let uv = cover_uv(tex.size_vec2(), thumb.size());
-                tp.image(
-                    tex.id(),
-                    thumb,
-                    uv,
-                    Color32::WHITE.gamma_multiply(alpha),
-                );
+                tp.image(tex.id(), thumb, uv, Color32::WHITE.gamma_multiply(alpha));
                 drew = true;
                 if e.family == Family::Video {
                     let c = thumb.max - Vec2::splat(14.0 * z);
@@ -3264,11 +3316,7 @@ impl AtlasApp {
                             CornerRadius::same((6.0 * z).clamp(1.0, 6.0) as u8),
                             Color32::from_rgba_unmultiplied(0x2b, 0x4a, 0x63, 220),
                         );
-                        painter.galley(
-                            Pos2::new(x + 4.0 * z, y + 2.0 * z),
-                            galley,
-                            Color32::WHITE,
-                        );
+                        painter.galley(Pos2::new(x + 4.0 * z, y + 2.0 * z), galley, Color32::WHITE);
                         x += w + 3.0 * z;
                     }
                 }
@@ -3311,7 +3359,9 @@ impl AtlasApp {
     // ---------- windows / overlays ----------
 
     fn action_menu(&mut self, ctx: &egui::Context) {
-        let Some((id, pos)) = self.menu_at else { return };
+        let Some((id, pos)) = self.menu_at else {
+            return;
+        };
         let mut close = false;
         let rels = self.target_rels(Some(id));
         let n = rels.len();
@@ -3571,7 +3621,11 @@ impl AtlasApp {
                     ui.image((tex.id(), size * scale));
                 }
                 ui.add_space(4.0);
-                ui.label(format!("{} Â· {}", human_size(e.size), date_string(e.mtime)));
+                ui.label(format!(
+                    "{} Â· {}",
+                    human_size(e.size),
+                    date_string(e.mtime)
+                ));
                 ui.label(
                     egui::RichText::new(e.path.to_string_lossy())
                         .small()
@@ -3617,8 +3671,12 @@ impl AtlasApp {
         if self.cam.z > 0.75 {
             return;
         }
-        let Some((tex, _)) = self.textures.get(&f) else { return };
-        let Some(p) = ctx.pointer_latest_pos() else { return };
+        let Some((tex, _)) = self.textures.get(&f) else {
+            return;
+        };
+        let Some(p) = ctx.pointer_latest_pos() else {
+            return;
+        };
         let size = tex.size_vec2();
         let scale = (240.0 / size.x).min(180.0 / size.y).min(2.0);
         let name = self.entries[f as usize].name.clone();
