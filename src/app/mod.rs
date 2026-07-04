@@ -61,12 +61,6 @@ pub(crate) enum DateFilterField {
     Modified,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DateSliderMode {
-    SingleDay,
-    Range,
-}
-
 #[derive(Clone, Copy, PartialEq)]
 enum DirGrip {
     Incremental,
@@ -170,13 +164,10 @@ pub struct AtlasApp {
     owner_filter: BTreeSet<String>,
     all_owners: BTreeMap<String, usize>,
     date_field: DateFilterField,
-    date_mode: DateSliderMode,
     date_span_min: i64,
     date_span_max: i64,
-    date_single_day: i64,
     date_range_lo: i64,
     date_range_hi: i64,
-    date_filter_engaged: bool,
     tag_filter: BTreeSet<String>,
     only_untagged: bool,
     only_unassigned: bool,
@@ -324,13 +315,10 @@ impl AtlasApp {
             owner_filter: BTreeSet::new(),
             all_owners: BTreeMap::new(),
             date_field: DateFilterField::Modified,
-            date_mode: DateSliderMode::SingleDay,
             date_span_min: 0,
             date_span_max: 0,
-            date_single_day: 0,
             date_range_lo: 0,
             date_range_hi: 0,
-            date_filter_engaged: false,
             tag_filter: BTreeSet::new(),
             only_untagged: false,
             only_unassigned: false,
@@ -585,7 +573,6 @@ impl AtlasApp {
         self.known_dests = BTreeSet::new();
         self.owner_filter.clear();
         self.all_owners.clear();
-        self.date_filter_engaged = false;
         self.rescan_buffer = Vec::new();
 
         // Progress UI mounts *now*, in the same frame as the click.
@@ -1298,10 +1285,8 @@ impl AtlasApp {
         self.date_span_min = min;
         self.date_span_max = max;
         if span_changed {
-            self.date_single_day = max;
             self.date_range_lo = min;
             self.date_range_hi = max;
-            self.date_filter_engaged = false;
         }
     }
 
@@ -1309,12 +1294,7 @@ impl AtlasApp {
         if self.date_span_min >= self.date_span_max && self.date_span_max == 0 {
             return false;
         }
-        match self.date_mode {
-            DateSliderMode::SingleDay => self.date_filter_engaged,
-            DateSliderMode::Range => {
-                self.date_range_lo > self.date_span_min || self.date_range_hi < self.date_span_max
-            }
-        }
+        self.date_range_lo > self.date_span_min || self.date_range_hi < self.date_span_max
     }
 
     fn date_matches(&self, e: &FileEntry) -> bool {
@@ -1322,10 +1302,7 @@ impl AtlasApp {
             return true;
         }
         let day = day_index(self.file_date_secs(e));
-        match self.date_mode {
-            DateSliderMode::SingleDay => day == self.date_single_day,
-            DateSliderMode::Range => day >= self.date_range_lo && day <= self.date_range_hi,
-        }
+        day >= self.date_range_lo && day <= self.date_range_hi
     }
 
     fn owner_matches(&self, e: &FileEntry) -> bool {

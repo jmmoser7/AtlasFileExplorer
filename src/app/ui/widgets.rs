@@ -1,7 +1,6 @@
 //! Shared egui widgets for toolbars and readouts.
 
 use super::sidebar::SidebarTheme;
-use crate::app::DateSliderMode;
 use crate::types::{date_string, day_start};
 use eframe::egui::{self, Color32, CornerRadius, Id, Sense, Stroke, Ui, Vec2};
 
@@ -63,17 +62,14 @@ pub fn thin_sidebar_slider(
     *value != before
 }
 
-/// Folder-span date timeline with optional single-day or range handles.
+/// Folder-span date timeline with dual handles (day range).
 pub fn sidebar_date_timeline(
     ui: &mut Ui,
     id: Id,
     span_min: i64,
     span_max: i64,
-    mode: &mut DateSliderMode,
-    single_day: &mut i64,
     range_lo: &mut i64,
     range_hi: &mut i64,
-    filter_engaged: &mut bool,
     theme: SidebarTheme,
 ) -> bool {
     if span_max < span_min {
@@ -84,35 +80,6 @@ pub fn sidebar_date_timeline(
 
     ui.horizontal(|ui| {
         ui.set_min_height(22.0);
-        let toggle_label = if *mode == DateSliderMode::Range {
-            "−"
-        } else {
-            "+"
-        };
-        if ui
-            .small_button(toggle_label)
-            .on_hover_text(if *mode == DateSliderMode::Range {
-                "Switch to a single-day picker"
-            } else {
-                "Add a second handle to filter a date range"
-            })
-            .clicked()
-        {
-            changed = true;
-            match *mode {
-                DateSliderMode::SingleDay => {
-                    *mode = DateSliderMode::Range;
-                    *range_lo = (*single_day).clamp(span_min, span_max);
-                    *range_hi = span_max;
-                }
-                DateSliderMode::Range => {
-                    *mode = DateSliderMode::SingleDay;
-                    *single_day = (*range_lo).clamp(span_min, span_max);
-                    *filter_engaged = true;
-                }
-            }
-        }
-
         let track_w = ui.available_width().max(40.0);
         let (track_rect, _track) = ui.allocate_exact_size(Vec2::new(track_w, 22.0), Sense::hover());
         let rail =
@@ -120,7 +87,7 @@ pub fn sidebar_date_timeline(
         let stroke = Stroke::new(1.5, theme.border.gamma_multiply(0.9));
         let painter = ui.painter();
 
-        if span > 0 && *mode == DateSliderMode::Range {
+        if span > 0 {
             let x0 = day_to_x(*range_lo, rail, span_min, span_max);
             let x1 = day_to_x(*range_hi, rail, span_min, span_max);
             painter.rect_filled(
@@ -135,11 +102,7 @@ pub fn sidebar_date_timeline(
 
         painter.hline(rail.x_range(), rail.center().y, stroke);
 
-        let mut handles: Vec<i64> = match *mode {
-            DateSliderMode::SingleDay => vec![*single_day],
-            DateSliderMode::Range => vec![*range_lo, *range_hi],
-        };
-
+        let mut handles = [*range_lo, *range_hi];
         for (i, day) in handles.iter_mut().enumerate() {
             let handle_id = id.with("handle").with(i);
             let x = day_to_x(*day, rail, span_min, span_max);
@@ -152,7 +115,6 @@ pub fn sidebar_date_timeline(
                     .unwrap_or(handle_center);
                 *day = x_to_day(pointer.x, rail, span_min, span_max);
                 changed = true;
-                *filter_engaged = true;
             }
             painter.circle_filled(
                 handle_center,
@@ -165,33 +127,21 @@ pub fn sidebar_date_timeline(
             );
         }
 
-        match *mode {
-            DateSliderMode::SingleDay => {
-                *single_day = handles[0].clamp(span_min, span_max);
-            }
-            DateSliderMode::Range => {
-                *range_lo = handles[0].clamp(span_min, span_max);
-                *range_hi = handles[1].clamp(span_min, span_max);
-                if *range_lo > *range_hi {
-                    std::mem::swap(range_lo, range_hi);
-                }
-            }
+        *range_lo = handles[0].clamp(span_min, span_max);
+        *range_hi = handles[1].clamp(span_min, span_max);
+        if *range_lo > *range_hi {
+            std::mem::swap(range_lo, range_hi);
         }
     });
 
-    let caption = match *mode {
-        DateSliderMode::SingleDay => date_string(day_start(*single_day)),
-        DateSliderMode::Range => {
-            if *range_lo == *range_hi {
-                date_string(day_start(*range_lo))
-            } else {
-                format!(
-                    "{} — {}",
-                    date_string(day_start(*range_lo)),
-                    date_string(day_start(*range_hi))
-                )
-            }
-        }
+    let caption = if *range_lo == *range_hi {
+        date_string(day_start(*range_lo))
+    } else {
+        format!(
+            "{} — {}",
+            date_string(day_start(*range_lo)),
+            date_string(day_start(*range_hi))
+        )
     };
     ui.label(egui::RichText::new(caption).small().color(theme.sub));
     ui.add_space(4.0);

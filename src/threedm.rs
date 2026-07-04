@@ -112,7 +112,10 @@ mod tests {
         let mut png_bytes = Vec::new();
         let img = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 200, 50, 255]));
         image::DynamicImage::ImageRgba8(img)
-            .write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+            .write_to(
+                &mut std::io::Cursor::new(&mut png_bytes),
+                image::ImageFormat::Png,
+            )
             .unwrap();
 
         let mut f = std::fs::File::create(&path).unwrap();
