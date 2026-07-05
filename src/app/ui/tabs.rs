@@ -1,4 +1,4 @@
-//! Browser-style tab strip — the only UI above the tab workspace.
+﻿//! Browser-style tab strip — the only UI above the tab workspace.
 
 use super::super::AtlasApp;
 use super::widgets::trunc;
@@ -6,20 +6,17 @@ use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Layout, Margin, Pos2, Rect,
     Sense, Stroke, StrokeKind, Ui, Vec2,
 };
-
-/// Height of the recessed tab-bar row beneath the title.
-const TAB_BAR_H: f32 = 34.0;
-/// Resting height for background tabs.
-const TAB_INACTIVE_H: f32 = 26.0;
-/// Height when an inactive tab is hovered — it "reaches" upward.
-const TAB_HOVER_H: f32 = 31.0;
-const TAB_TOP_RADIUS: u8 = 8;
+/// Height of the tab-bar row (70% of the original 34px strip).
+const TAB_BAR_H: f32 = 24.0;
+const TAB_TOP_RADIUS: f32 = 6.0;
 /// Radius of the concave shoulder curves on an active tab.
-const TAB_SHOULDER_R: f32 = 6.0;
+const TAB_SHOULDER_R: f32 = 4.0;
 const TAB_H_PAD: f32 = 10.0;
 const TAB_CLOSE_W: f32 = 16.0;
+/// Width of an empty tab before a folder is chosen (no label text).
+const TAB_EMPTY_W: f32 = 88.0;
+const TAB_WIDTH_SCALE: f32 = 2.0;
 
-#[derive(Clone, Copy)]
 struct TabChromeColors {
     bar: Color32,
     inactive: Color32,
@@ -58,18 +55,20 @@ struct TabSlot {
     hovered: bool,
     closable: bool,
     is_empty: bool,
-    title: String,
+    title: Option<String>,
     tooltip: String,
 }
 
-fn tab_visual(active: bool, hovered: bool, bar_h: f32) -> (f32, f32) {
+fn tab_paint_rect(rect: Rect, active: bool, bar_h: f32) -> Rect {
+    let mut h = bar_h;
     if active {
-        (bar_h, 0.0)
-    } else if hovered {
-        (TAB_HOVER_H, 1.0)
-    } else {
-        (TAB_INACTIVE_H, 3.0)
+        // Overlap the canvas by 1px so the active tab reads as connected.
+        h += 1.0;
     }
+    Rect::from_min_size(
+        Pos2::new(rect.min.x, rect.max.y - h),
+        Vec2::new(rect.width(), h),
+    )
 }
 
 fn paint_chrome_tab(
@@ -134,10 +133,10 @@ impl AtlasApp {
                 let active = i == self.active_tab;
                 let closable = self.tabs.len() > 1 || self.tabs[i].root.is_some();
                 let is_empty = self.tabs[i].root.is_none();
-                let title = if is_empty && active {
-                    "Select a folder…".to_string()
+                let title = if is_empty {
+                    None
                 } else {
-                    trunc(&self.tabs[i].title(), 18)
+                    Some(trunc(&self.tabs[i].title(), 36))
                 };
                 let tooltip = if let Some(root) = &self.tabs[i].root {
                     root.to_string_lossy().into_owned()
@@ -146,24 +145,24 @@ impl AtlasApp {
                 };
 
                 let font = FontId::proportional(12.5);
-                let text_w = ui
-                    .painter()
-                    .layout_no_wrap(title.clone(), font.clone(), Color32::WHITE)
-                    .size()
-                    .x;
-                let w = text_w + TAB_H_PAD * 2.0 + if closable { TAB_CLOSE_W } else { 0.0 };
-                let (rect, resp) =
-                    ui.allocate_exact_size(Vec2::new(w.max(56.0), TAB_BAR_H), Sense::click());
+                let text_w = title
+                    .as_ref()
+                    .map(|t| {
+                        ui.painter()
+                            .layout_no_wrap(t.clone(), font.clone(), Color32::WHITE)
+                            .size()
+                            .x
+                    })
+                    .unwrap_or(0.0);
+                let base_w = if is_empty {
+                    TAB_EMPTY_W + if closable { TAB_CLOSE_W } else { 0.0 }
+                } else {
+                    text_w + TAB_H_PAD * 2.0 + if closable { TAB_CLOSE_W } else { 0.0 }
+                };
+                let w = base_w * TAB_WIDTH_SCALE;
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, TAB_BAR_H), Sense::click());
                 let hovered = resp.hovered() && !active;
-                let (mut h, bottom_inset) = tab_visual(active, hovered, TAB_BAR_H);
-                if active {
-                    // Overlap the canvas by 1px so the active tab reads as connected.
-                    h += 1.0;
-                }
-                let paint = Rect::from_min_size(
-                    Pos2::new(rect.min.x, rect.max.y - bottom_inset - h),
-                    Vec2::new(rect.width(), h),
-                );
+                let paint = tab_paint_rect(rect, active, TAB_BAR_H);
 
                 slots.push(TabSlot {
                     index: i,
@@ -174,12 +173,12 @@ impl AtlasApp {
                     closable,
                     is_empty,
                     title,
-                    tooltip: tooltip.clone(),
+                    tooltip,
                 });
 
                 if closable {
                     let cx = egui::Rect::from_center_size(
-                        rect.right_center() - Vec2::new(12.0, bottom_inset + h * 0.5),
+                        Pos2::new(rect.right_center().x - 12.0, paint.center().y),
                         Vec2::splat(14.0),
                     );
                     let over_x = ui
@@ -206,24 +205,28 @@ impl AtlasApp {
                 resp.on_hover_text(tooltip);
             }
 
-            ui.add_space(4.0);
+            ui.add_space(1.0);
             let (prect, presp) = ui.allocate_exact_size(Vec2::new(28.0, TAB_BAR_H), Sense::click());
-            let presp = presp.on_hover_cursor(CursorIcon::PointingHand);
-            let plus_center = Pos2::new(prect.center().x, prect.max.y - TAB_INACTIVE_H * 0.5 - 3.0);
+            let presp = presp.on_hover_cursor(CursorIcon::PointingHand);            let plus_center = prect.center();
             let plus_hover = presp.hovered();
             if plus_hover {
                 ui.painter()
-                    .circle_filled(plus_center, 11.0, colors.inactive_hover);
+                    .circle_filled(plus_center, 9.0, colors.inactive_hover);
             }
             ui.painter().text(
                 plus_center,
                 Align2::CENTER_CENTER,
                 "+",
-                FontId::proportional(15.0),
+                FontId::proportional(13.0),
                 if plus_hover { palette.ink } else { palette.sub },
             );
             if presp.on_hover_text("New tab").clicked() {
                 action = Some(TabAction::New);
+            }
+
+            if self.picker_rx.is_some() {
+                ui.add_space(6.0);
+                ui.spinner();
             }
         });
 
@@ -244,6 +247,29 @@ impl AtlasApp {
         }
 
         for slot in &slots {
+            let Some(title) = &slot.title else {
+                if slot.closable && (slot.hovered || slot.active) {
+                    let text_y = slot.paint.center().y;
+                    let cx = egui::Rect::from_center_size(
+                        Pos2::new(slot.paint.right() - TAB_H_PAD, text_y),
+                        Vec2::splat(14.0),
+                    );
+                    let over_x = ui
+                        .ctx()
+                        .pointer_latest_pos()
+                        .map(|p| cx.contains(p))
+                        .unwrap_or(false);
+                    painter.text(
+                        cx.center(),
+                        Align2::CENTER_CENTER,
+                        "×",
+                        FontId::proportional(13.0),
+                        if over_x { palette.ink } else { palette.sub },
+                    );
+                }
+                continue;
+            };
+
             let font = FontId::proportional(12.5);
             let text_y = slot.paint.center().y;
             let text_color = if slot.active {
@@ -256,7 +282,7 @@ impl AtlasApp {
             painter.text(
                 Pos2::new(slot.paint.left() + TAB_H_PAD, text_y),
                 Align2::LEFT_CENTER,
-                slot.title.clone(),
+                title.clone(),
                 font.clone(),
                 text_color,
             );
@@ -292,45 +318,20 @@ impl AtlasApp {
 }
 
 pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
-    let palette = app.palette();
-    let colors = TabChromeColors::from_palette(palette.bg, palette.border, palette.border_strong);
+    let colors = TabChromeColors::from_palette(
+        app.palette().bg,
+        app.palette().border,
+        app.palette().border_strong,
+    );
 
     egui::TopBottomPanel::top("topbar")
         .frame(egui::Frame::new().fill(colors.bar).inner_margin(Margin {
-            left: 10,
-            right: 10,
-            top: 6,
+            left: 8,
+            right: 8,
+            top: 2,
             bottom: 0,
         }))
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading(
-                    egui::RichText::new("File Atlas")
-                        .size(16.0)
-                        .color(palette.ink),
-                );
-                if app.picker_rx.is_some() {
-                    ui.add_space(8.0);
-                    ui.spinner();
-                }
-
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    // Journal: kept in code but hidden from chrome until its
-                    // permanent home is decided (likely a tools-rail panel).
-                    ui.add_enabled_ui(app.journal.can_redo(), |ui| {
-                        if ui.button("Redo").clicked() {
-                            app.redo();
-                        }
-                    });
-                    ui.add_enabled_ui(app.journal.can_undo(), |ui| {
-                        if ui.button("Undo").clicked() {
-                            app.undo();
-                        }
-                    });
-                });
-            });
-
-            ui.add_space(4.0);
             app.tab_strip(ui);
         });
 }
