@@ -34,7 +34,10 @@ pub struct SlateDoc {
 
 impl SlateDoc {
     /// Latest supported on-disk format version.
-    pub const CURRENT: u32 = 1;
+    /// v1 = tags + items + view; v2 adds the board scene. v1 files load fine
+    /// (scene defaults empty); bumping on save keeps pre-board builds from
+    /// silently dropping an authored board.
+    pub const CURRENT: u32 = 2;
 
     /// Creates an empty workbook with the given display name.
     pub fn new(name: impl Into<String>) -> Self {
@@ -292,6 +295,8 @@ impl SlateDoc {
                 found: doc.format_version,
             });
         }
+        // Older documents upgrade in place: the next save writes CURRENT.
+        doc.format_version = Self::CURRENT;
         doc.view.active_view = doc.view.active_view.normalized();
         Ok(doc)
     }

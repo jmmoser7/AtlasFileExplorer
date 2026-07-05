@@ -13,7 +13,8 @@ commands are registered in one place so users can look them up in
    in `atlas_shell::commands`.
 3. **Do not** duplicate shortcut lists elsewhere — the Advanced window reads
    `ENTRIES` via `atlas_shell::commands::shortcuts_reference_ui`.
-4. **Keep categories stable:** Navigation, Files, Selection, Workbook.
+4. **Keep categories stable:** Navigation, Files, Selection, Workbook, Board,
+   Presentation.
 
 ## Module map
 
@@ -22,7 +23,19 @@ commands are registered in one place so users can look them up in
 | Canonical list + reference UI | `commands.rs` |
 | Advanced settings panel | `ui/advanced.rs` |
 | Canvas mouse (pan, turbo pan, clicks, tag menu) | `canvas.rs` |
+| Board gestures (tools, move/resize, Alt-drag duplicate, marquee) | `board.rs` |
+| Presentation navigation | `present.rs` |
 | Keyboard shortcuts | `app/mod.rs` → `hotkeys` |
+
+## Board gesture conventions (reference)
+
+- Single-key tool switches (`V F R O L T`) are **Board-view only** and are
+  suppressed while typing or presenting. Grid/Venn keep `F` = fit view; the
+  Board uses `Home` for fit because `F` is the Frame tool there.
+- **Alt + drag** duplicates the grabbed selection (Figma convention);
+  `Ctrl + D` duplicates in place with a 24px offset.
+- One gesture = one undo step: live drags journal their net effect on
+  release; inspector slider scrubs coalesce (1.5 s window per node).
 
 ## Tagging gestures (reference)
 

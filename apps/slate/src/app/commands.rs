@@ -91,6 +91,86 @@ pub const ENTRIES: &[CommandEntry] = &[
         name: "Save workbook as…",
         binding: "Ctrl + Shift + S",
     },
+    CommandEntry {
+        category: "Board",
+        name: "Select tool",
+        binding: "V (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Frame tool (slides)",
+        binding: "F, then drag (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Rectangle / Ellipse / Line tool",
+        binding: "R / O / L, then drag (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Text tool",
+        binding: "T, then click (Board view); double-click text to edit",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Duplicate",
+        binding: "Alt + drag selection, or Ctrl + D",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Delete objects",
+        binding: "Delete or Backspace",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Nudge objects",
+        binding: "Arrow keys (Shift = ×10)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Marquee select",
+        binding: "Left-drag on empty board",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Pan board",
+        binding: "Middle-drag, or Space + left-drag",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Fit board content",
+        binding: "Home (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Object menu (z-order, tags, delete)",
+        binding: "Right-click object",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Undo / Redo board edit",
+        binding: "Ctrl + Z / Ctrl + Y (or Ctrl + Shift + Z)",
+    },
+    CommandEntry {
+        category: "Presentation",
+        name: "Present frames as slides",
+        binding: "F5, or ▶ Present in the board toolbar",
+    },
+    CommandEntry {
+        category: "Presentation",
+        name: "Navigate slides",
+        binding: "← → / Space / PageUp / PageDown / Home / End; click sides",
+    },
+    CommandEntry {
+        category: "Presentation",
+        name: "Exit presentation",
+        binding: "Escape",
+    },
+    CommandEntry {
+        category: "Presentation",
+        name: "Export HTML artifact",
+        binding: "Ctrl + E, or Workbook → Export artifact…",
+    },
 ];
 
 /// Reference table for Advanced settings.

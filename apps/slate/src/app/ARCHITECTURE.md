@@ -14,8 +14,11 @@ this module only adapts `SlateTab` state to `TabSpec`s and applies actions.
 
 | Region | Module | Role |
 |--------|--------|------|
-| Left tools rail | `ui/tools.rs` | **Tags** (hierarchical group editor), **Display** (Grid/Venn, cell size, theme), **Workbook** (open/save, add files, Atlas link), **AI** (Cursor launcher + AI workspace; body shared with Atlas via `crates/atlas-ai`) |
+| Left tools rail | `ui/tools.rs` | **Tags** (hierarchical group editor), **Display** (Board/Grid/Venn, cell size, theme), **Selection** (dynamic inspector, `ui/inspector.rs`), **Workbook** (open/save, add files, artifact export, Atlas link), **AI** (Cursor launcher + AI workspace; body shared with Atlas via `crates/atlas-ai`) |
 | Canvas | `canvas.rs` | Grid + Venn presentations, selection, right-click tag assignment |
+| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, draw tools, gestures |
+| Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
+| Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
 | Bottom readouts | `ui/readouts.rs` | Item/tag counts, link health, zoom |
 | Advanced | `ui/advanced.rs` | Floating window (workbook info, commands reference) |
 | Commands | `commands.rs` | Canonical bindings; see `COMMANDS.md` |
@@ -42,6 +45,40 @@ this module only adapts `SlateTab` state to `TabSpec`s and applies actions.
 - New presentations should follow the same pattern: pure geometry in a crate,
   a `*_layout` builder producing `Placed` items, painting + hit-testing on the
   shared camera.
+- **Board** (`board.rs`) — the *authored* view: unlike Grid/Venn (generated
+  arrangements of the pool), the Board is a persistent scene the user
+  composes. See below.
+
+## The Board (authored canvas + presentation generator)
+
+The board's scene model lives in `slate-doc::scene` and is serialized inside
+the workbook. Two invariants carry the whole design:
+
+1. **CSS-expressible styling only.** Every node property (stroke/dash,
+   rounded or chamfered corners, crop, opacity, the CSS-filter adjustment
+   set, font choices) maps 1:1 onto HTML+CSS. The egui board painter
+   (`board.rs`) and the HTML writer (`crates/slate-artifact`) are two
+   interpreters of one model, so the exported artifact shows exactly what
+   the board shows. `imagefx.rs` implements the same filter math on pixels
+   for the live preview. Do not add board styling that CSS cannot express.
+2. **Every mutation is an invertible `SceneCmd`.** Gestures mutate the scene
+   live but journal their net effect on release (`SceneJournal`); inspector
+   scrubs coalesce into single undo steps. This command layer is the same
+   surface a future MCP agent will drive.
+
+Other board rules:
+
+- **Frames are slides.** Membership is geometric (a node belongs to the frame
+  containing its center); moving a frame moves its members. `FrameNode.order`
+  is the deck sequence. Frames can carry tag assignments; images dropped into
+  a tagged frame inherit those tags (drops elsewhere stay uncategorized).
+- **Presentation mode** (`present.rs`) plays frames fullscreen with the same
+  navigation keys as the exported HTML runtime.
+- **Export is serialization** (`slate-artifact::export_html`): frames become
+  `<section>` slides, assets are copied beside `index.html` or base64-inlined
+  (Workbook panel toggle).
+- The **Selection panel** (`ui/inspector.rs`) reshapes per node kind; sections
+  must funnel edits through `SlateApp::patch_nodes` so they stay undoable.
 
 ## Linked Atlas sessions (`session.rs`)
 

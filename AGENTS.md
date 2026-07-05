@@ -8,8 +8,10 @@ shared crates:
   scanning, tree canvas, destination assignment / export workflow.
 - **Slate** (`apps/slate`, binary `slate`) — tag-driven workbooks (`.slate`
   files) that link files (never copies) and present their thumbnails as a
-  tag-grouped grid or literal Venn diagrams. Tagging lives *only* in Slate;
-  Atlas offers Slate tags in its right-click menu during a linked session.
+  tag-grouped grid, literal Venn diagrams, or an authored **Board** (frames,
+  shapes, text, placed images) that presents as slides and exports an HTML
+  artifact. Tagging lives *only* in Slate; Atlas offers Slate tags in its
+  right-click menu during a linked session.
 
 ## Workspace layout
 
@@ -19,7 +21,8 @@ shared crates:
 | `crates/atlas-shell` | **Shared window chrome**: theme/Palette, tab strip, sidebar primitives, widgets, panel registry, command reference | Yes — but see the chrome rule below |
 | `crates/atlas-session` | In-process bridge for linked Slate⇄Atlas sessions | Yes |
 | `crates/atlas-ai` | AI / Cursor integration: shared AI-workspace config, Cursor launcher, live-link context beacon, the sidebar AI panel body | Yes |
-| `crates/slate-doc` | `.slate` document model + faceted tag system | Yes |
+| `crates/slate-doc` | `.slate` document model: faceted tag system + the board scene graph (`scene.rs`: nodes, CSS-constrained styles, invertible `SceneCmd` journal) | Yes |
+| `crates/slate-artifact` | HTML artifact writer: scene → slides, styles → CSS, embedded JS slide runtime. Export is serialization, not conversion | Yes |
 | `crates/circle-pack` | Pure geometry: circle packing + Venn layout | Yes |
 | `apps/file-atlas` | Atlas app: canvas + app state (`src/app/mod.rs` is the integration point) | Coordinate on `mod.rs` |
 | `apps/slate` | Slate app: canvas, tagging sidebar, session host | Coordinate on `app/mod.rs` |
@@ -81,6 +84,24 @@ identical in both apps — extend it there, never per-app. The crate owns:
 - the **live link**: each app writes `<workspace>/.atlas-ai/<app>-context.json`
   (open root/workbook, selection, in-view files) — the contract future MCP
   servers read to give Cursor full view of Atlas/Slate state.
+
+## The Board (Slate's presentation generator)
+
+Two structural rules keep the board honest — hold both when extending it:
+
+1. **The scene model is constrained to CSS.** `slate-doc::scene` only holds
+   styling that HTML+CSS can express; `apps/slate/src/app/board.rs` (egui
+   painter) and `crates/slate-artifact` (HTML writer) are two interpreters of
+   that one model, and `imagefx.rs` mirrors the CSS filter math on pixels.
+   A new board style property must land in all three, or not at all.
+2. **All board mutations are invertible `SceneCmd`s** committed through the
+   tab's `SceneJournal` (undo/redo now; the MCP agent surface later). UI code
+   must not mutate `doc.scene` outside a journaled path
+   (`patch_nodes` / `add_nodes` / `delete_board_nodes` / `commit_scene`).
+
+Frames are slides (geometric membership, `order` = deck sequence, optional
+tag assignments inherited by dropped images). Presentation mode
+(`present.rs`) and the exported HTML runtime share navigation semantics.
 
 ## Cursor Cloud specific instructions
 
