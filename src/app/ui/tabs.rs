@@ -7,7 +7,7 @@ use eframe::egui::{
     StrokeKind, Ui, Vec2,
 };
 
-/// Height of the recessed tab-bar row beneath the title.
+/// Height of the recessed tab-bar row.
 const TAB_BAR_H: f32 = 34.0;
 /// Resting height for background tabs.
 const TAB_INACTIVE_H: f32 = 26.0;
@@ -18,6 +18,8 @@ const TAB_TOP_RADIUS: f32 = 8.0;
 const TAB_SHOULDER_R: f32 = 6.0;
 const TAB_H_PAD: f32 = 10.0;
 const TAB_CLOSE_W: f32 = 16.0;
+/// Width of an empty tab before a folder is chosen (no label text).
+const TAB_EMPTY_W: f32 = 44.0;
 
 struct TabChromeColors {
     bar: Color32,
@@ -57,7 +59,7 @@ struct TabSlot {
     hovered: bool,
     closable: bool,
     is_empty: bool,
-    title: String,
+    title: Option<String>,
     tooltip: String,
 }
 
@@ -133,10 +135,10 @@ impl AtlasApp {
                 let active = i == self.active_tab;
                 let closable = self.tabs.len() > 1 || self.tabs[i].root.is_some();
                 let is_empty = self.tabs[i].root.is_none();
-                let title = if is_empty && active {
-                    "Select a folder…".to_string()
+                let title = if is_empty {
+                    None
                 } else {
-                    trunc(&self.tabs[i].title(), 18)
+                    Some(trunc(&self.tabs[i].title(), 18))
                 };
                 let tooltip = if let Some(root) = &self.tabs[i].root {
                     root.to_string_lossy().into_owned()
@@ -145,14 +147,21 @@ impl AtlasApp {
                 };
 
                 let font = FontId::proportional(12.5);
-                let text_w = ui
-                    .painter()
-                    .layout_no_wrap(title.clone(), font.clone(), Color32::WHITE)
-                    .size()
-                    .x;
-                let w = text_w + TAB_H_PAD * 2.0 + if closable { TAB_CLOSE_W } else { 0.0 };
-                let (rect, resp) =
-                    ui.allocate_exact_size(Vec2::new(w.max(56.0), TAB_BAR_H), Sense::click());
+                let text_w = title
+                    .as_ref()
+                    .map(|t| {
+                        ui.painter()
+                            .layout_no_wrap(t.clone(), font.clone(), Color32::WHITE)
+                            .size()
+                            .x
+                    })
+                    .unwrap_or(0.0);
+                let w = if is_empty {
+                    TAB_EMPTY_W + if closable { TAB_CLOSE_W } else { 0.0 }
+                } else {
+                    text_w + TAB_H_PAD * 2.0 + if closable { TAB_CLOSE_W } else { 0.0 }
+                };
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, TAB_BAR_H), Sense::click());
                 let hovered = resp.hovered() && !active;
                 let (mut h, bottom_inset) = tab_visual(active, hovered, TAB_BAR_H);
                 if active {
@@ -223,6 +232,11 @@ impl AtlasApp {
             if presp.on_hover_text("New tab").clicked() {
                 action = Some(TabAction::New);
             }
+
+            if self.picker_rx.is_some() {
+                ui.add_space(6.0);
+                ui.spinner();
+            }
         });
 
         let painter = ui.painter().clone();
@@ -242,6 +256,29 @@ impl AtlasApp {
         }
 
         for slot in &slots {
+            let Some(title) = &slot.title else {
+                if slot.closable && (slot.hovered || slot.active) {
+                    let text_y = slot.paint.center().y;
+                    let cx = egui::Rect::from_center_size(
+                        Pos2::new(slot.paint.right() - TAB_H_PAD, text_y),
+                        Vec2::splat(14.0),
+                    );
+                    let over_x = ui
+                        .ctx()
+                        .pointer_latest_pos()
+                        .map(|p| cx.contains(p))
+                        .unwrap_or(false);
+                    painter.text(
+                        cx.center(),
+                        Align2::CENTER_CENTER,
+                        "×",
+                        FontId::proportional(13.0),
+                        if over_x { palette.ink } else { palette.sub },
+                    );
+                }
+                continue;
+            };
+
             let font = FontId::proportional(12.5);
             let text_y = slot.paint.center().y;
             let text_color = if slot.active {
@@ -254,7 +291,7 @@ impl AtlasApp {
             painter.text(
                 Pos2::new(slot.paint.left() + TAB_H_PAD, text_y),
                 Align2::LEFT_CENTER,
-                slot.title.clone(),
+                title.clone(),
                 font.clone(),
                 text_color,
             );
@@ -290,45 +327,20 @@ impl AtlasApp {
 }
 
 pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
-    let palette = app.palette();
-    let colors = TabChromeColors::from_palette(palette.bg, palette.border, palette.border_strong);
+    let colors = TabChromeColors::from_palette(
+        app.palette().bg,
+        app.palette().border,
+        app.palette().border_strong,
+    );
 
     egui::TopBottomPanel::top("topbar")
         .frame(egui::Frame::new().fill(colors.bar).inner_margin(Margin {
-            left: 10,
-            right: 10,
-            top: 6,
+            left: 8,
+            right: 8,
+            top: 2,
             bottom: 0,
         }))
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading(
-                    egui::RichText::new("File Atlas")
-                        .size(16.0)
-                        .color(palette.ink),
-                );
-                if app.picker_rx.is_some() {
-                    ui.add_space(8.0);
-                    ui.spinner();
-                }
-
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    // Journal: kept in code but hidden from chrome until its
-                    // permanent home is decided (likely a tools-rail panel).
-                    ui.add_enabled_ui(app.journal.can_redo(), |ui| {
-                        if ui.button("Redo").clicked() {
-                            app.redo();
-                        }
-                    });
-                    ui.add_enabled_ui(app.journal.can_undo(), |ui| {
-                        if ui.button("Undo").clicked() {
-                            app.undo();
-                        }
-                    });
-                });
-            });
-
-            ui.add_space(4.0);
             app.tab_strip(ui);
         });
 }
