@@ -2283,13 +2283,12 @@ impl AtlasApp {
                     if self.export_picker_rx.is_some() {
                         ui.spinner();
                     }
-                    if !self.selection.is_empty() {
-                        if ui
+                    if !self.selection.is_empty()
+                        && ui
                             .button(format!("Assign {} selected…", self.selection.len()))
                             .clicked()
-                        {
-                            self.open_edit_panel();
-                        }
+                    {
+                        self.open_edit_panel();
                     }
                 });
             });

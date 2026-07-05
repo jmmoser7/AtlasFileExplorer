@@ -339,15 +339,12 @@ impl SlateApp {
                 self.fit_view(layout.bounds);
             }
         });
+        // Turbo pan mutates a copy (borrow rules), then we write it back.
         let mut cam_offset_tmp = self.tab().cam.offset;
-        let turbo_active = {
-            // Turbo pan mutates a copy (borrow rules), then we write it back.
-            let ctx = ui.ctx().clone();
-            let active = self
-                .turbo_pan
-                .step(&ctx, rect, pointer, &mut cam_offset_tmp);
-            active
-        };
+        let ctx = ui.ctx().clone();
+        let turbo_active = self
+            .turbo_pan
+            .step(&ctx, rect, pointer, &mut cam_offset_tmp);
         if turbo_active {
             let z = self.tab().cam.z;
             let old = self.tab().cam.offset;
@@ -683,7 +680,8 @@ impl SlateApp {
             return;
         };
         let targets = self.action_targets(item_id);
-        let groups: Vec<(slate_doc::GroupId, String, Vec<(TagId, String, [u8; 3])>)> = self
+        type MenuGroup = (slate_doc::GroupId, String, Vec<(TagId, String, [u8; 3])>);
+        let groups: Vec<MenuGroup> = self
             .doc()
             .groups
             .iter()

@@ -17,10 +17,13 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Instant;
 
+pub mod association;
 pub mod canvas;
 pub mod chrome;
 pub mod commands;
 pub mod session;
+#[cfg(test)]
+mod tests;
 mod ui;
 
 pub use chrome::ChromeConfig;
@@ -152,8 +155,15 @@ pub struct SlateApp {
 
 impl SlateApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_doc: Option<PathBuf>) -> Self {
-        cc.egui_ctx.set_theme(egui::ThemePreference::Dark);
-        cc.egui_ctx.set_visuals(dark_visuals());
+        association::ensure_file_association();
+        Self::with_ctx(&cc.egui_ctx, initial_doc)
+    }
+
+    /// Full construction from a bare egui context. Used by `new` and by the
+    /// headless test harness (no eframe window, no registry writes).
+    fn with_ctx(egui_ctx: &egui::Context, initial_doc: Option<PathBuf>) -> Self {
+        egui_ctx.set_theme(egui::ThemePreference::Dark);
+        egui_ctx.set_visuals(dark_visuals());
         let mut app = SlateApp {
             thumbs: ThumbPool::new(),
             tabs: vec![SlateTab::empty()],

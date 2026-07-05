@@ -8,6 +8,8 @@ the matching layer instead of growing `mod.rs`.
 - **Scope:** Browser-style tabs, global Undo/Redo only.
 - **Rule:** Nothing that acts on the canvas lives here. Tabs sit above all tab
   workspaces.
+- **Painting lives in `atlas-shell`** (`atlas_shell::tabs`) so Slate renders
+  identical chrome; this module only adapts `AtlasApp` state to `TabSpec`s.
 
 ## Layer 1 — Tab workspace
 
@@ -63,15 +65,22 @@ invariants after every frame. Run with `cargo test app::tests`.
   via `ToolPanel::ALL`).
 - `ReadoutPanel` — same pattern in `ui/readouts.rs`.
 
-## Backend (unchanged boundaries)
+## Backend (unchanged boundaries — now in `crates/atlas-core`)
 
 | Module | Responsibility |
 |--------|----------------|
 | `scanner.rs` | Directory walk |
 | `index.rs` | SQLite persistence |
-| `thumbs.rs` | Thumbnail workers + local + shared cache tiers |
+| `thumbs.rs` | Thumbnail workers + local + shared cache tiers (also read by Slate) |
 | `tree.rs` | Layout + hit testing |
 | `export.rs` / `journal.rs` | Organizing workflow |
+
+## Linked Slate sessions
+
+When Slate hosts Atlas as a second viewport, `AtlasApp.session` holds the
+`atlas_session::SharedSession` bridge: the right-click menu grows a
+"Slate tags" section, and click-hold-drag on thumbnails carries files toward
+the Slate window. Standalone runs have `session: None` and none of this UI.
 
 ## Shared project cache
 
