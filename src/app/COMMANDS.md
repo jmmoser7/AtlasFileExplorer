@@ -15,7 +15,7 @@ When you add or change any user-facing input binding:
 3. **Do not** duplicate shortcut lists in tooltips, README, or other UI copy —
    the Advanced window reads from `ENTRIES` automatically via
    `commands::shortcuts_reference_ui`.
-4. **Keep categories stable:** Navigation, Files, Selection, Workflow (add a new
+4. **Keep categories stable:** Navigation, Files, Filters, Selection, Workflow (add a new
    category only when a whole new area of commands appears).
 
 ## Module map
@@ -25,6 +25,7 @@ When you add or change any user-facing input binding:
 | Canonical list + reference UI | `commands.rs` |
 | Advanced settings panel | `ui/advanced.rs` → calls `shortcuts_reference_ui` |
 | Canvas mouse (pan, turbo pan, clicks) | `mod.rs` → `canvas` |
+| Date filter timeline | `ui/widgets.rs` → `sidebar_date_timeline` |
 | Keyboard shortcuts | `mod.rs` → `hotkeys` |
 
 ## Turbo pan (reference)
