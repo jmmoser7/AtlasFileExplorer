@@ -81,7 +81,7 @@ impl SlateTab {
             path: None,
             doc: SlateDoc::new("Untitled"),
             dirty: false,
-            chrome: ChromeConfig::default(),
+            chrome: chrome::default_chrome(),
             cam: Camera::default(),
             venn_focus: HashSet::new(),
         }
@@ -150,6 +150,10 @@ pub struct SlateApp {
     /// Linked File Atlas session (in-process second viewport).
     pub atlas: Option<session::AtlasSession>,
 
+    /// AI / Cursor integration: workspace link, launcher, context beacon
+    /// (shared plumbing and panel body from `atlas-ai`).
+    pub ai: atlas_ai::AiPanel,
+
     frame_no: u64,
 }
 
@@ -182,6 +186,7 @@ impl SlateApp {
             new_tag_edit: None,
             tag_color_cursor: 0,
             atlas: None,
+            ai: atlas_ai::AiPanel::new(),
             frame_no: 0,
         };
         app.thumbs.retain_generation(THUMB_GENERATION);
@@ -532,6 +537,8 @@ impl SlateApp {
         self.drain_pickers();
         self.drain_thumbs(ctx);
         self.session_frame(ctx);
+        self.ai.poll();
+        self.ai_context_frame();
 
         // Dropped files land in the active workbook, uncategorized.
         let dropped: Vec<PathBuf> = ctx.input(|i| {
@@ -557,6 +564,41 @@ impl SlateApp {
         });
 
         self.draw_toasts(ctx);
+        if self.ai.picker_pending() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+    }
+
+    /// Maintain the AI live-link beacon: which workbook is open, what's
+    /// selected, which files it links to. Self-throttled inside `AiPanel`.
+    fn ai_context_frame(&mut self) {
+        let tab = &self.tabs[self.active_tab.min(self.tabs.len() - 1)];
+        let selection = &self.selection;
+        self.ai.update_context(|| {
+            let doc = &tab.doc;
+            let selection_paths = doc
+                .items
+                .iter()
+                .filter(|it| selection.contains(&it.id))
+                .map(|it| it.path.clone())
+                .collect();
+            let truncated = doc.items.len() > atlas_ai::context::MAX_FILES;
+            let files = doc
+                .items
+                .iter()
+                .take(atlas_ai::context::MAX_FILES)
+                .map(|it| it.path.clone())
+                .collect();
+            atlas_ai::AiAppContext {
+                app: "slate",
+                title: doc.name.clone(),
+                root: tab.path.clone(),
+                selection: selection_paths,
+                files,
+                files_truncated: truncated,
+                generated_at: 0,
+            }
+        });
     }
 
     fn draw_toasts(&mut self, ctx: &egui::Context) {

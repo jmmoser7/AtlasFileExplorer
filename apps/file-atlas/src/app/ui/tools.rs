@@ -62,7 +62,28 @@ pub fn left_panel(app: &mut AtlasApp, ctx: &egui::Context) {
             if chrome.tool(ToolPanel::Workflow) {
                 workflow(app, ui, theme);
             }
+            if chrome.tool(ToolPanel::Ai) {
+                ai_panel(app, ui, theme);
+            }
         });
+}
+
+/// AI / Cursor panel — the body is shared with Slate (`atlas_ai::ui`), so the
+/// assistant toolbar looks and behaves identically in both apps.
+fn ai_panel(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    let mut expanded = app.active_chrome().tool_expanded(ToolPanel::Ai);
+    if sidebar_section(
+        ui,
+        Id::new("tools_ai"),
+        "AI",
+        Some("Cursor"),
+        &mut expanded,
+        theme,
+        |ui| atlas_ai::ui::ai_body(&mut app.ai, ui, theme),
+    ) {
+        app.active_chrome_mut()
+            .set_tool_expanded(ToolPanel::Ai, expanded);
+    }
 }
 
 fn basic_filters(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {

@@ -395,6 +395,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-ai"
+version = "0.1.0"
+dependencies = [
+ "atlas-core",
+ "atlas-shell",
+ "crossbeam-channel",
+ "eframe",
+ "rfd",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "atlas-core"
 version = "0.1.0"
 dependencies = [
@@ -2126,6 +2139,7 @@ dependencies = [
 name = "native-file-atlas"
 version = "0.1.0"
 dependencies = [
+ "atlas-ai",
  "atlas-core",
  "atlas-session",
  "atlas-shell",
@@ -3193,6 +3207,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 name = "slate"
 version = "0.1.0"
 dependencies = [
+ "atlas-ai",
  "atlas-core",
  "atlas-session",
  "atlas-shell",

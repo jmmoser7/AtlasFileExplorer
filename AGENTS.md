@@ -18,6 +18,7 @@ shared crates:
 | `crates/atlas-core` | UI-free backend: types, scanner, SQLite index, thumbnail pool + cache tiers, tree layout, journal, export, watcher | Yes |
 | `crates/atlas-shell` | **Shared window chrome**: theme/Palette, tab strip, sidebar primitives, widgets, panel registry, command reference | Yes — but see the chrome rule below |
 | `crates/atlas-session` | In-process bridge for linked Slate⇄Atlas sessions | Yes |
+| `crates/atlas-ai` | AI / Cursor integration: shared AI-workspace config, Cursor launcher, live-link context beacon, the sidebar AI panel body | Yes |
 | `crates/slate-doc` | `.slate` document model + faceted tag system | Yes |
 | `crates/circle-pack` | Pure geometry: circle packing + Venn layout | Yes |
 | `apps/file-atlas` | Atlas app: canvas + app state (`src/app/mod.rs` is the integration point) | Coordinate on `mod.rs` |
@@ -67,6 +68,19 @@ Slate process** (`egui` multi-viewport). The apps communicate through
 `crates/atlas-session` (`SharedSession`): Slate publishes tag groups, Atlas
 queues tag assignments and cross-window drag payloads. Both binaries still
 run standalone; the bridge is `None` outside sessions.
+
+## AI integration (Cursor)
+
+Both apps expose an optional, collapsible **AI** panel in the left tools rail.
+Its body is rendered by `crates/atlas-ai` (`ui::ai_body`) so the panel stays
+identical in both apps — extend it there, never per-app. The crate owns:
+
+- the shared **AI workspace** folder (persisted in `ai-config.json` next to
+  the index DB; the user must establish it before the first Cursor launch, and
+  it becomes Cursor's working directory when launched from either app);
+- the **live link**: each app writes `<workspace>/.atlas-ai/<app>-context.json`
+  (open root/workbook, selection, in-view files) — the contract future MCP
+  servers read to give Cursor full view of Atlas/Slate state.
 
 ## Cursor Cloud specific instructions
 

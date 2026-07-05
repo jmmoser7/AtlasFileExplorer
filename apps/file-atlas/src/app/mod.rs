@@ -403,6 +403,10 @@ pub struct AtlasApp {
     /// drag start; published to the bridge every frame until release).
     session_drag: Option<Vec<atlas_session::SessionFile>>,
 
+    /// AI / Cursor integration: workspace link, launcher, context beacon
+    /// (shared plumbing and panel body from `atlas-ai`).
+    ai: atlas_ai::AiPanel,
+
     // organizing state
     assign_state: AssignState,
     journal: Journal,
@@ -449,7 +453,7 @@ impl TabState {
             id: NEXT_TAB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             root: None,
             cam: None,
-            chrome: ChromeConfig::default(),
+            chrome: chrome::default_chrome(),
         }
     }
 
@@ -572,6 +576,7 @@ impl AtlasApp {
             detail: None,
             session: None,
             session_drag: None,
+            ai: atlas_ai::AiPanel::new(),
             assign_state: AssignState {
                 assigns: HashMap::new(),
             },
@@ -1950,6 +1955,8 @@ impl AtlasApp {
         self.frame_no += 1;
         self.debug_screenshot(ctx);
         self.drain_channels(ctx);
+        self.ai.poll();
+        self.ai_context_frame();
 
         // Dropped folder = open it.
         let dropped: Vec<PathBuf> = ctx.input(|i| {
@@ -2024,6 +2031,7 @@ impl AtlasApp {
             || !self.toasts.is_empty()
             || self.drag_chip.is_some()
             || self.anim.is_some()
+            || self.ai.picker_pending()
             || self.tree_dirty;
         if busy {
             ctx.request_repaint_after(Duration::from_millis(33));
@@ -3755,6 +3763,53 @@ impl AtlasApp {
 
     /// Bridge-ready descriptors (absolute path + thumbnail cache key) for a
     /// set of entry ids.
+    /// Maintain the AI live-link beacon: what root is open, what's selected,
+    /// which files pass the current filters. Self-throttled inside `AiPanel`
+    /// (at most one content-hash + write per second, nothing when no AI
+    /// workspace is established).
+    fn ai_context_frame(&mut self) {
+        let root = &self.root;
+        let entries = &self.entries;
+        let file_match = &self.file_match;
+        let selection = &self.selection;
+        self.ai.update_context(|| {
+            let title = root
+                .as_deref()
+                .and_then(|r| r.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "File Atlas".into());
+            let mut sel_ids: Vec<u32> = selection.iter().copied().collect();
+            sel_ids.sort_unstable();
+            let sel_paths = sel_ids
+                .iter()
+                .filter_map(|&i| entries.get(i as usize))
+                .filter(|e| !e.dead)
+                .map(|e| e.path.clone())
+                .collect();
+            let mut files = Vec::new();
+            let mut truncated = false;
+            for (i, e) in entries.iter().enumerate() {
+                if e.dead || !file_match.get(i).copied().unwrap_or(true) {
+                    continue;
+                }
+                if files.len() >= atlas_ai::context::MAX_FILES {
+                    truncated = true;
+                    break;
+                }
+                files.push(e.path.clone());
+            }
+            atlas_ai::AiAppContext {
+                app: "file-atlas",
+                title,
+                root: root.clone(),
+                selection: sel_paths,
+                files,
+                files_truncated: truncated,
+                generated_at: 0,
+            }
+        });
+    }
+
     fn session_files_for_ids(&self, ids: &[u32]) -> Vec<atlas_session::SessionFile> {
         ids.iter()
             .filter_map(|&i| self.entries.get(i as usize))

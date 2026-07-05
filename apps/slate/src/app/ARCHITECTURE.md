@@ -14,7 +14,7 @@ this module only adapts `SlateTab` state to `TabSpec`s and applies actions.
 
 | Region | Module | Role |
 |--------|--------|------|
-| Left tools rail | `ui/tools.rs` | **Tags** (hierarchical group editor), **Display** (Grid/Venn, cell size, theme), **Workbook** (open/save, add files, Atlas link) |
+| Left tools rail | `ui/tools.rs` | **Tags** (hierarchical group editor), **Display** (Grid/Venn, cell size, theme), **Workbook** (open/save, add files, Atlas link), **AI** (Cursor launcher + AI workspace; body shared with Atlas via `crates/atlas-ai`) |
 | Canvas | `canvas.rs` | Grid + Venn presentations, selection, right-click tag assignment |
 | Bottom readouts | `ui/readouts.rs` | Item/tag counts, link health, zoom |
 | Advanced | `ui/advanced.rs` | Floating window (workbook info, commands reference) |

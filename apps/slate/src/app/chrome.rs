@@ -12,16 +12,24 @@ pub enum ToolPanel {
     Display = 1,
     /// Workbook file operations and the File Atlas link.
     Workbook = 2,
+    /// AI / Cursor integration (shared panel body from `atlas-ai`).
+    Ai = 3,
 }
 
 impl ToolPanel {
-    pub const ALL: [ToolPanel; 3] = [ToolPanel::Tags, ToolPanel::Display, ToolPanel::Workbook];
+    pub const ALL: [ToolPanel; 4] = [
+        ToolPanel::Tags,
+        ToolPanel::Display,
+        ToolPanel::Workbook,
+        ToolPanel::Ai,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             ToolPanel::Tags => "Tags",
             ToolPanel::Display => "Display",
             ToolPanel::Workbook => "Workbook",
+            ToolPanel::Ai => "AI",
         }
     }
 }
@@ -59,4 +67,12 @@ impl From<ReadoutPanel> for usize {
 }
 
 /// Per-tab UI chrome configuration.
-pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<3, 2>;
+pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<4, 2>;
+
+/// App default: everything visible, the AI panel starts collapsed (it's the
+/// optional assistant toolbar, not part of the core tagging workflow).
+pub fn default_chrome() -> ChromeConfig {
+    let mut c = ChromeConfig::default();
+    c.set_tool_expanded(ToolPanel::Ai, false);
+    c
+}

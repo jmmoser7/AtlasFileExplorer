@@ -26,3 +26,6 @@ Hard rules:
 5. Tagging is a Slate-only concept: File Atlas must not grow its own tag
    model. Atlas surfaces Slate workbook tags exclusively through
    `crates/atlas-session` during linked sessions.
+6. The AI panel body is shared: both apps render it via
+   `atlas_ai::ui::ai_body`. AI/Cursor behavior (workspace config, launcher,
+   context beacon) lives in `crates/atlas-ai`, never per-app.

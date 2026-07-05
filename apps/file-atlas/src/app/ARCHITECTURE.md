@@ -17,7 +17,7 @@ Everything below the tab bar belongs to the **active tab** (`TabState`):
 
 | Region | Module | Role |
 |--------|--------|------|
-| Left tools rail | `ui/tools.rs` | Filters, display settings, workflow — actions on the canvas. Free-text tagging lives in Slate; Atlas keeps destination assignment only. See `ui/SIDEBAR.md` for panel layout rules. |
+| Left tools rail | `ui/tools.rs` | Filters, display settings, workflow, AI (Cursor launcher + AI workspace; body shared with Slate via `crates/atlas-ai`) — actions on the canvas. Free-text tagging lives in Slate; Atlas keeps destination assignment only. See `ui/SIDEBAR.md` for panel layout rules. |
 | Canvas | `mod.rs` (`canvas`) | Infinite map, selection, thumbnails |
 | Bottom readouts | `ui/readouts.rs` | Metrics, scan progress, cache status — read-only |
 | Pre-warm dashboard | `ui/readouts.rs` (`prewarm_dashboard`) | Temporary panel above the readouts while a pre-warm runs: discovery, progress, speed control, cancel |
