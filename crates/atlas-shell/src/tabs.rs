@@ -323,7 +323,9 @@ pub fn top_bar(ctx: &egui::Context, palette: &Palette, model: TopBarModel<'_>) -
     let colors = TabChromeColors::from_palette(palette);
     let mut out = TopBarResponse::none();
 
-    egui::TopBottomPanel::top("topbar")
+    // Salt the panel id with the app title: in linked sessions two apps share
+    // one egui Context (two viewports), and panel state must not collide.
+    egui::TopBottomPanel::top(egui::Id::new(("topbar", model.app_title)))
         .frame(egui::Frame::new().fill(colors.bar).inner_margin(Margin {
             left: 10,
             right: 10,

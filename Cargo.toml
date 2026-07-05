@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/atlas-core",
     "crates/atlas-shell",
+    "crates/atlas-session",
     "crates/slate-doc",
     "crates/circle-pack",
     "apps/file-atlas",
@@ -31,6 +32,7 @@ pdfium-render = { version = "0.8", features = ["thread_safe"] }
 # Workspace crates.
 atlas-core = { path = "crates/atlas-core" }
 atlas-shell = { path = "crates/atlas-shell" }
+atlas-session = { path = "crates/atlas-session" }
 slate-doc = { path = "crates/slate-doc" }
 circle-pack = { path = "crates/circle-pack" }
 native-file-atlas = { path = "apps/file-atlas" }

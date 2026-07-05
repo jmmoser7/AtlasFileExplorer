@@ -7,6 +7,7 @@ description = "Slate — tag-driven workbook dashboard for the Atlas ecosystem"
 [dependencies]
 atlas-core = { workspace = true }
 atlas-shell = { workspace = true }
+atlas-session = { workspace = true }
 slate-doc = { workspace = true }
 circle-pack = { workspace = true }
 native-file-atlas = { workspace = true }

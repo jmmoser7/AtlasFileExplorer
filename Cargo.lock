@@ -412,6 +412,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-session"
+version = "0.1.0"
+
+[[package]]
 name = "atlas-shell"
 version = "0.1.0"
 dependencies = [
@@ -2123,6 +2127,7 @@ name = "native-file-atlas"
 version = "0.1.0"
 dependencies = [
  "atlas-core",
+ "atlas-session",
  "atlas-shell",
  "crossbeam-channel",
  "eframe",
@@ -3180,6 +3185,7 @@ name = "slate"
 version = "0.1.0"
 dependencies = [
  "atlas-core",
+ "atlas-session",
  "atlas-shell",
  "circle-pack",
  "crossbeam-channel",

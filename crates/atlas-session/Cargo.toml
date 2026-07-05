@@ -1,0 +1,7 @@
+[package]
+name = "atlas-session"
+version.workspace = true
+edition.workspace = true
+description = "In-process session bridge between Slate and File Atlas (linked tagging sessions)"
+
+[dependencies]

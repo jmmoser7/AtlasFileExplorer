@@ -396,6 +396,13 @@ pub struct AtlasApp {
     menu_at: Option<(u32, Pos2)>,
     detail: Option<u32>,
 
+    // Linked Slate session (Atlas embedded as a second viewport of the Slate
+    // process). None when running standalone — all session UI is hidden.
+    session: Option<atlas_session::SharedSession>,
+    /// Thumbnails being dragged toward the Slate window (payload built at
+    /// drag start; published to the bridge every frame until release).
+    session_drag: Option<Vec<atlas_session::SessionFile>>,
+
     // organizing state
     assign_state: AssignState,
     journal: Journal,
@@ -460,6 +467,24 @@ impl TabState {
 impl AtlasApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_root: Option<PathBuf>) -> Self {
         Self::with_db(&cc.egui_ctx, Db::open(), initial_root)
+    }
+
+    /// Construct Atlas for a linked Slate session: same app, plus a bridge
+    /// for right-click tagging and cross-window drag. Used when Slate hosts
+    /// Atlas as a second viewport in its own process.
+    pub fn embedded(
+        egui_ctx: &egui::Context,
+        initial_root: Option<PathBuf>,
+        session: atlas_session::SharedSession,
+    ) -> Self {
+        let mut app = Self::with_db(egui_ctx, Db::open(), initial_root);
+        app.session = Some(session);
+        app
+    }
+
+    /// Run one frame from a host-driven viewport (linked Slate session).
+    pub fn run_frame(&mut self, ctx: &egui::Context) {
+        self.update_app(ctx);
     }
 
     /// Full construction from an egui context and an explicit index DB.
@@ -545,6 +570,8 @@ impl AtlasApp {
             drag_chip: None,
             menu_at: None,
             detail: None,
+            session: None,
+            session_drag: None,
             assign_state: AssignState {
                 assigns: HashMap::new(),
             },
@@ -2472,20 +2499,39 @@ impl AtlasApp {
             }
         }
 
-        // --- input: pan / rubber band / turbo pan ---
+        // --- input: pan / rubber band / turbo pan / drag-to-Slate ---
         if resp.drag_started() {
             if shift {
                 self.rubber_origin = pointer;
+            } else if self.session.is_some() {
+                // Linked session: click-hold-drag on a thumbnail carries the
+                // file(s) toward the Slate window instead of panning.
+                if let Some(f) = self.hovered_file {
+                    let ids: Vec<u32> = if self.selection.contains(&f) {
+                        self.selection.iter().copied().collect()
+                    } else {
+                        vec![f]
+                    };
+                    let files = self.session_files_for_ids(&ids);
+                    if !files.is_empty() {
+                        self.session_drag = Some(files);
+                    }
+                }
             }
             self.anim = None;
         }
+        self.session_drag_frame(ui, pointer);
         let turbo_pan_active = self
             .turbo_pan
             .step(ui.ctx(), rect, pointer, &mut self.cam.offset);
         if turbo_pan_active {
             self.anim = None;
         }
-        if resp.dragged() && self.rubber_origin.is_none() && !turbo_pan_active {
+        if resp.dragged()
+            && self.rubber_origin.is_none()
+            && !turbo_pan_active
+            && self.session_drag.is_none()
+        {
             self.cam.offset += resp.drag_delta();
         }
 
@@ -3665,6 +3711,7 @@ impl AtlasApp {
                         self.set_assign(&rels, None, format!("Clear assignment on {n} file(s)"));
                         close = true;
                     }
+                    self.session_menu_section(ui, &rels);
                     ui.separator();
                     if n == 1 {
                         if ui.button("Open").clicked() {
@@ -3703,6 +3750,123 @@ impl AtlasApp {
         self.rel_to_id
             .get(rel)
             .and_then(|&i| self.entries.get(i as usize))
+    }
+
+    // ----- linked Slate session ------------------------------------------------
+
+    /// Bridge-ready descriptors (absolute path + thumbnail cache key) for a
+    /// set of entry ids.
+    fn session_files_for_ids(&self, ids: &[u32]) -> Vec<atlas_session::SessionFile> {
+        ids.iter()
+            .filter_map(|&i| self.entries.get(i as usize))
+            .filter(|e| !e.dead)
+            .map(|e| atlas_session::SessionFile {
+                path: e.path.clone(),
+                file_name: e.name.clone(),
+                size: e.size,
+                mtime: e.mtime,
+                cache_key: self.entry_key(e),
+            })
+            .collect()
+    }
+
+    /// Publish the live drag payload to the bridge; ends the drag on release.
+    /// Slate resolves whether the release point landed inside its window.
+    fn session_drag_frame(&mut self, ui: &egui::Ui, pointer: Option<Pos2>) {
+        let (Some(files), Some(session)) = (&self.session_drag, &self.session) else {
+            return;
+        };
+        let released = ui.input(|i| i.pointer.any_released());
+        let inner = ui.ctx().input(|i| i.viewport().inner_rect);
+        let screen_pos = pointer
+            .zip(inner)
+            .map(|(p, r)| (r.min.x + p.x, r.min.y + p.y));
+        if let Ok(mut s) = session.lock() {
+            s.drag = Some(atlas_session::DragPayload {
+                files: files.clone(),
+                screen_pos,
+                released,
+            });
+            let atlas_rect = inner.map(|r| (r.min.x, r.min.y, r.max.x, r.max.y));
+            s.atlas_window = atlas_rect;
+        }
+        // Ghost badge under the cursor while dragging.
+        if let Some(p) = pointer {
+            if !released {
+                let painter = ui.ctx().layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("atlas_session_drag"),
+                ));
+                let palette = self.palette();
+                painter.circle_filled(
+                    p + Vec2::new(14.0, 14.0),
+                    12.0,
+                    palette.accent.gamma_multiply(0.9),
+                );
+                painter.text(
+                    p + Vec2::new(14.0, 14.0),
+                    Align2::CENTER_CENTER,
+                    format!("{}", files.len()),
+                    FontId::proportional(11.0),
+                    palette.bg,
+                );
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            }
+        }
+        if released {
+            self.session_drag = None;
+        }
+    }
+
+    /// The Slate tag section of the right-click menu (linked sessions only).
+    /// Clicking a tag queues the assignment for every targeted file; the menu
+    /// stays open so several tags can be applied in one right-click instance.
+    fn session_menu_section(&mut self, ui: &mut egui::Ui, rels: &[String]) {
+        let Some(session) = &self.session else { return };
+        let (groups, workbook) = match session.lock() {
+            Ok(s) => (s.tag_groups.clone(), s.workbook_name.clone()),
+            Err(_) => return,
+        };
+        ui.separator();
+        ui.label(
+            egui::RichText::new(format!("Slate tags — {workbook}"))
+                .small()
+                .color(Color32::from_gray(130)),
+        );
+        if groups.is_empty() {
+            ui.label(
+                egui::RichText::new("No tags yet — create groups in Slate's Tags panel")
+                    .small()
+                    .color(Color32::from_gray(110)),
+            );
+            return;
+        }
+        let ids: Vec<u32> = rels
+            .iter()
+            .filter_map(|r| self.rel_to_id.get(r).copied())
+            .collect();
+        for group in &groups {
+            ui.label(egui::RichText::new(&group.name).small().strong());
+            for tag in &group.tags {
+                let accent = Color32::from_rgb(tag.color[0], tag.color[1], tag.color[2]);
+                let label = egui::RichText::new(format!("● {}", tag.name)).color(accent);
+                if ui.selectable_label(false, label).clicked() {
+                    let files = self.session_files_for_ids(&ids);
+                    let n = files.len();
+                    if let Some(session) = &self.session {
+                        if let Ok(mut s) = session.lock() {
+                            for file in files {
+                                s.inbox.push(atlas_session::TagAssignment {
+                                    file,
+                                    tag_ids: vec![tag.tag_id],
+                                });
+                            }
+                        }
+                    }
+                    self.toast(format!("Tagged {n} file(s) \"{}\" in Slate", tag.name));
+                }
+            }
+        }
     }
 
     #[cfg(windows)]
