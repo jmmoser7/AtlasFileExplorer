@@ -7,19 +7,16 @@ use eframe::egui::{
     StrokeKind, Ui, Vec2,
 };
 
-/// Height of the recessed tab-bar row.
-const TAB_BAR_H: f32 = 34.0;
-/// Resting height for background tabs.
-const TAB_INACTIVE_H: f32 = 26.0;
-/// Height when an inactive tab is hovered — it "reaches" upward.
-const TAB_HOVER_H: f32 = 31.0;
-const TAB_TOP_RADIUS: f32 = 8.0;
+/// Height of the tab-bar row (70% of the original 34px strip).
+const TAB_BAR_H: f32 = 24.0;
+const TAB_TOP_RADIUS: f32 = 6.0;
 /// Radius of the concave shoulder curves on an active tab.
-const TAB_SHOULDER_R: f32 = 6.0;
+const TAB_SHOULDER_R: f32 = 4.0;
 const TAB_H_PAD: f32 = 10.0;
 const TAB_CLOSE_W: f32 = 16.0;
 /// Width of an empty tab before a folder is chosen (no label text).
-const TAB_EMPTY_W: f32 = 44.0;
+const TAB_EMPTY_W: f32 = 88.0;
+const TAB_WIDTH_SCALE: f32 = 2.0;
 
 struct TabChromeColors {
     bar: Color32,
@@ -63,14 +60,16 @@ struct TabSlot {
     tooltip: String,
 }
 
-fn tab_visual(active: bool, hovered: bool, bar_h: f32) -> (f32, f32) {
+fn tab_paint_rect(rect: Rect, active: bool, bar_h: f32) -> Rect {
+    let mut h = bar_h;
     if active {
-        (bar_h, 0.0)
-    } else if hovered {
-        (TAB_HOVER_H, 1.0)
-    } else {
-        (TAB_INACTIVE_H, 3.0)
+        // Overlap the canvas by 1px so the active tab reads as connected.
+        h += 1.0;
     }
+    Rect::from_min_size(
+        Pos2::new(rect.min.x, rect.max.y - h),
+        Vec2::new(rect.width(), h),
+    )
 }
 
 fn paint_chrome_tab(
@@ -138,7 +137,7 @@ impl AtlasApp {
                 let title = if is_empty {
                     None
                 } else {
-                    Some(trunc(&self.tabs[i].title(), 18))
+                    Some(trunc(&self.tabs[i].title(), 36))
                 };
                 let tooltip = if let Some(root) = &self.tabs[i].root {
                     root.to_string_lossy().into_owned()
@@ -156,22 +155,15 @@ impl AtlasApp {
                             .x
                     })
                     .unwrap_or(0.0);
-                let w = if is_empty {
+                let base_w = if is_empty {
                     TAB_EMPTY_W + if closable { TAB_CLOSE_W } else { 0.0 }
                 } else {
                     text_w + TAB_H_PAD * 2.0 + if closable { TAB_CLOSE_W } else { 0.0 }
                 };
+                let w = base_w * TAB_WIDTH_SCALE;
                 let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, TAB_BAR_H), Sense::click());
                 let hovered = resp.hovered() && !active;
-                let (mut h, bottom_inset) = tab_visual(active, hovered, TAB_BAR_H);
-                if active {
-                    // Overlap the canvas by 1px so the active tab reads as connected.
-                    h += 1.0;
-                }
-                let paint = Rect::from_min_size(
-                    Pos2::new(rect.min.x, rect.max.y - bottom_inset - h),
-                    Vec2::new(rect.width(), h),
-                );
+                let paint = tab_paint_rect(rect, active, TAB_BAR_H);
 
                 slots.push(TabSlot {
                     index: i,
@@ -187,7 +179,7 @@ impl AtlasApp {
 
                 if closable {
                     let cx = egui::Rect::from_center_size(
-                        rect.right_center() - Vec2::new(12.0, bottom_inset + h * 0.5),
+                        Pos2::new(rect.right_center().x - 12.0, paint.center().y),
                         Vec2::splat(14.0),
                     );
                     let over_x = ui
@@ -215,18 +207,18 @@ impl AtlasApp {
             }
 
             ui.add_space(4.0);
-            let (prect, presp) = ui.allocate_exact_size(Vec2::new(28.0, TAB_BAR_H), Sense::click());
-            let plus_center = Pos2::new(prect.center().x, prect.max.y - TAB_INACTIVE_H * 0.5 - 3.0);
+            let (prect, presp) = ui.allocate_exact_size(Vec2::new(40.0, TAB_BAR_H), Sense::click());
+            let plus_center = prect.center();
             let plus_hover = presp.hovered();
             if plus_hover {
                 ui.painter()
-                    .circle_filled(plus_center, 11.0, colors.inactive_hover);
+                    .circle_filled(plus_center, 9.0, colors.inactive_hover);
             }
             ui.painter().text(
                 plus_center,
                 Align2::CENTER_CENTER,
                 "+",
-                FontId::proportional(15.0),
+                FontId::proportional(13.0),
                 if plus_hover { palette.ink } else { palette.sub },
             );
             if presp.on_hover_text("New tab").clicked() {
