@@ -8,6 +8,8 @@ pub enum ViewKind {
     Grid,
     Branch,
     Venn,
+    /// Open-world authored canvas: frames, shapes, text, placed images.
+    Board,
     /// Catch-all for forward-compatible deserialization; treated as [`ViewKind::Grid`].
     #[serde(other)]
     Unknown,

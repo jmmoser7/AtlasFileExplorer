@@ -8,6 +8,7 @@ mod error;
 mod ids;
 mod item;
 mod link;
+pub mod scene;
 mod tags;
 mod view;
 
@@ -16,5 +17,6 @@ pub use error::SlateLoadError;
 pub use ids::{GroupId, ItemId, TagId};
 pub use item::SlateItem;
 pub use link::{link_status, LinkStatus};
+pub use scene::{Node, NodeId, NodeKind, Scene, SceneCmd, SceneJournal, WorldRect};
 pub use tags::{Tag, TagGroup};
 pub use view::{ViewKind, ViewState};

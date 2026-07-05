@@ -8,6 +8,7 @@ use crate::error::SlateLoadError;
 use crate::ids::{GroupId, ItemId, TagId};
 use crate::item::SlateItem;
 use crate::link::{link_status, LinkStatus};
+use crate::scene::Scene;
 use crate::tags::{Tag, TagGroup};
 use crate::view::ViewState;
 
@@ -22,6 +23,10 @@ pub struct SlateDoc {
     pub groups: Vec<TagGroup>,
     pub items: Vec<SlateItem>,
     pub view: ViewState,
+    /// The authored board (frames, shapes, text, placed images). Serialized
+    /// with the workbook; absent in pre-board documents (defaults empty).
+    #[serde(default)]
+    pub scene: Scene,
     next_group_id: u64,
     next_tag_id: u64,
     next_item_id: u64,
@@ -39,6 +44,7 @@ impl SlateDoc {
             groups: Vec::new(),
             items: Vec::new(),
             view: ViewState::default(),
+            scene: Scene::default(),
             next_group_id: 1,
             next_tag_id: 1,
             next_item_id: 1,
