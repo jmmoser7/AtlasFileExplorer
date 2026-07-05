@@ -62,6 +62,31 @@ pub const ENTRIES: &[CommandEntry] = &[
         binding: "Right-click file or folder (without dragging)",
     },
     CommandEntry {
+        category: "Filters",
+        name: "Date timeline fit",
+        binding: "Double-click date timeline",
+    },
+    CommandEntry {
+        category: "Filters",
+        name: "Date timeline pan",
+        binding: "Drag date timeline background",
+    },
+    CommandEntry {
+        category: "Filters",
+        name: "Date range scrub",
+        binding: "Drag between the two date handles (keeps the window width)",
+    },
+    CommandEntry {
+        category: "Filters",
+        name: "Date timeline zoom",
+        binding: "Ctrl + scroll wheel over date timeline (zooms around cursor)",
+    },
+    CommandEntry {
+        category: "Filters",
+        name: "Filter by date range",
+        binding: "Drag either date handle on the timeline",
+    },
+    CommandEntry {
         category: "Selection",
         name: "Rubber-band select",
         binding: "Shift + left-drag on canvas",
