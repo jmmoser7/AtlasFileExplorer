@@ -1,0 +1,8 @@
+[package]
+name = "slate-artifact"
+version.workspace = true
+edition.workspace = true
+description = "HTML artifact writer for Slate boards: frames become slides, styles become CSS, export is serialization"
+
+[dependencies]
+slate-doc = { workspace = true }

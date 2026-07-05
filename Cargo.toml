@@ -6,6 +6,7 @@ members = [
     "crates/atlas-session",
     "crates/atlas-ai",
     "crates/slate-doc",
+    "crates/slate-artifact",
     "crates/circle-pack",
     "apps/file-atlas",
     "apps/slate",
@@ -36,6 +37,7 @@ atlas-shell = { path = "crates/atlas-shell" }
 atlas-session = { path = "crates/atlas-session" }
 atlas-ai = { path = "crates/atlas-ai" }
 slate-doc = { path = "crates/slate-doc" }
+slate-artifact = { path = "crates/slate-artifact" }
 circle-pack = { path = "crates/circle-pack" }
 native-file-atlas = { path = "apps/file-atlas" }
 

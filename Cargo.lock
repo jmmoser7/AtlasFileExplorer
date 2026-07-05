@@ -3223,6 +3223,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "slate-artifact"
+version = "0.1.0"
+dependencies = [
+ "slate-doc",
+]
+
+[[package]]
 name = "slate-doc"
 version = "0.1.0"
 dependencies = [

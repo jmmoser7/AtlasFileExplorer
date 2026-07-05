@@ -18,9 +18,12 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 pub mod association;
+pub mod board;
 pub mod canvas;
 pub mod chrome;
 pub mod commands;
+pub mod imagefx;
+pub mod present;
 pub mod session;
 #[cfg(test)]
 mod tests;
