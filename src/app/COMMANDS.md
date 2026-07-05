@@ -29,7 +29,7 @@ When you add or change any user-facing input binding:
 
 ## Turbo pan (reference)
 
-- **Binding:** right-drag on canvas.
+- **Binding:** Ctrl + right-drag on canvas.
 - **Behavior:** anchor at press; canvas pans continuously in the pull direction;
   speed = distance from anchor in screen space; speed → 0 when the pointer returns
   to the anchor; axis locks to horizontal or vertical on first meaningful movement.
