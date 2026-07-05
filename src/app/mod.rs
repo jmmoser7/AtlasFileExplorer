@@ -3329,11 +3329,13 @@ impl AtlasApp {
         let sr = self.w2s_rect(d.rect());
         let hovered = self.hovered_dir == Some(di as u32);
 
+        let portal_card = d.is_portal(t.cfg) && !self.structure_only;
+
         if lod == 0 {
             painter.rect_filled(
                 sr,
                 CornerRadius::ZERO,
-                if d.is_portal(t.cfg) {
+                if portal_card {
                     p.portal.gamma_multiply(0.85)
                 } else {
                     p.accent.gamma_multiply(0.75)
@@ -3342,7 +3344,7 @@ impl AtlasApp {
             return;
         }
 
-        if d.is_portal(t.cfg) {
+        if portal_card {
             self.draw_portal(painter, t, di, sr, lod, requests);
             return;
         }
