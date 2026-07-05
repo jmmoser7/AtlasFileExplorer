@@ -255,7 +255,7 @@ impl Tree {
             let mut rest: Vec<u32> = Vec::new();
             for &f in &d.files {
                 let e = &entries[f as usize];
-                if crate::app::wants_thumb(e.family) {
+                if crate::types::wants_thumb(e.family) {
                     media.push(f);
                 } else {
                     rest.push(f);

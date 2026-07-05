@@ -1,7 +1,7 @@
 //! Shared egui widgets for toolbars and readouts.
 
-use super::sidebar::SidebarTheme;
-use crate::types::{
+use crate::sidebar::SidebarTheme;
+use atlas_core::types::{
     snap_to_step, timeline_range_caption, timeline_tick_label, SECS_PER_DAY, SECS_PER_HOUR,
 };
 use eframe::egui::{

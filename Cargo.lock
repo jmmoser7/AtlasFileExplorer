@@ -395,6 +395,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-core"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "dirs",
+ "eframe",
+ "image",
+ "notify",
+ "pdfium-render",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "windows 0.61.3",
+ "zip",
+]
+
+[[package]]
+name = "atlas-shell"
+version = "0.1.0"
+dependencies = [
+ "atlas-core",
+ "eframe",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -673,6 +698,10 @@ dependencies = [
  "wasm-bindgen",
  "windows-link 0.2.1",
 ]
+
+[[package]]
+name = "circle-pack"
+version = "0.1.0"
 
 [[package]]
 name = "clipboard-win"
@@ -2093,18 +2122,12 @@ dependencies = [
 name = "native-file-atlas"
 version = "0.1.0"
 dependencies = [
+ "atlas-core",
+ "atlas-shell",
  "crossbeam-channel",
- "dirs",
  "eframe",
  "image",
- "notify",
- "pdfium-render",
  "rfd",
- "rusqlite",
- "serde",
- "serde_json",
- "windows 0.61.3",
- "zip",
 ]
 
 [[package]]
@@ -3151,6 +3174,30 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "slate"
+version = "0.1.0"
+dependencies = [
+ "atlas-core",
+ "atlas-shell",
+ "circle-pack",
+ "crossbeam-channel",
+ "eframe",
+ "image",
+ "native-file-atlas",
+ "rfd",
+ "serde_json",
+ "slate-doc",
+]
+
+[[package]]
+name = "slate-doc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "slotmap"

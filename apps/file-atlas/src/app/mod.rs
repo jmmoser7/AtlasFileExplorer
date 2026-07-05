@@ -7,14 +7,17 @@
 //! - `ui/advanced` — floating advanced settings
 //! - `chrome` — panel registry for tools/readouts gear menus
 
-use crate::export::{self, ExportItem, ExportMsg};
-use crate::index::{Db, DbCmd, LoadedRoot, TagState};
-use crate::journal::{Action, AssignVal, Journal, JournalEntry};
-use crate::scanner::{self, ScanHandle, ScanMsg};
-use crate::thumbs::{cache_key, ThumbPool, ThumbRequest};
-use crate::tree::{self, FilePlace, Hit, LayoutConfig, Orient, Tree};
-use crate::types::{age_string, date_string, human_size, ExtGroup, Family, FileEntry, FAMILIES};
-use crate::watcher::{self, FsChange, FsWatch};
+use atlas_core::export::{self, ExportItem, ExportMsg};
+use atlas_core::index::{Db, DbCmd, LoadedRoot, TagState};
+use atlas_core::journal::{Action, AssignVal, Journal, JournalEntry};
+use atlas_core::scanner::{self, ScanHandle, ScanMsg};
+use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
+use atlas_core::tree::{self, FilePlace, Hit, LayoutConfig, Orient, Tree};
+use atlas_core::types::{
+    age_string, date_string, human_size, ExtGroup, Family, FileEntry, FAMILIES,
+};
+use atlas_core::watcher::{self, FsChange, FsWatch};
+use atlas_shell::theme::{dark_visuals, Palette};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2,
@@ -37,12 +40,7 @@ const ZOOM_MAX: f32 = 3.5;
 const LOD_FULL: f32 = 0.2;
 const LOD_MID: f32 = 0.06;
 
-pub fn wants_thumb(f: Family) -> bool {
-    matches!(
-        f,
-        Family::Image | Family::Video | Family::Design | Family::Cad | Family::Doc | Family::Audio
-    )
-}
+pub use atlas_core::types::wants_thumb;
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum ScanMode {
@@ -195,8 +193,8 @@ fn prewarm_walk(
     // Per-subtree cache context: (key base, shared repository).
     type Ctx = (std::sync::Arc<PathBuf>, Option<std::sync::Arc<PathBuf>>);
     // Picked folder inside (or at) a project root: walk up.
-    let root_ctx: Ctx = match crate::thumbs::discover_project_cache(&dir) {
-        Some(pc) if crate::thumbs::create_shared_repo(&pc.shared_dir) => {
+    let root_ctx: Ctx = match atlas_core::thumbs::discover_project_cache(&dir) {
+        Some(pc) if atlas_core::thumbs::create_shared_repo(&pc.shared_dir) => {
             repos.fetch_add(1, Relaxed);
             (
                 std::sync::Arc::new(pc.project_root),
@@ -238,8 +236,8 @@ fn prewarm_walk(
             }
         }
         if ctx.1.is_none() {
-            if let Some(shared) = crate::thumbs::project_anchor_under(&d) {
-                if crate::thumbs::create_shared_repo(&shared) {
+            if let Some(shared) = atlas_core::thumbs::project_anchor_under(&d) {
+                if atlas_core::thumbs::create_shared_repo(&shared) {
                     repos.fetch_add(1, Relaxed);
                     ctx = (
                         std::sync::Arc::new(d.clone()),
@@ -254,8 +252,8 @@ fn prewarm_walk(
             }
             let Ok(md) = entry.metadata() else { continue };
             let mtime = scanner::mtime_of(&md);
-            let ctime = crate::metadata::ctime_of(&md);
-            let owner = crate::metadata::owner_short(&entry.path());
+            let ctime = atlas_core::metadata::ctime_of(&md);
+            let owner = atlas_core::metadata::owner_short(&entry.path());
             let Some(fe) = FileEntry::from_abs(&ctx.0, entry.path(), md.len(), mtime, ctime, owner)
             else {
                 continue;
@@ -266,7 +264,7 @@ fn prewarm_walk(
             let key = cache_key(&fe.rel, fe.size, fe.mtime);
             queue(ThumbRequest {
                 id: u32::MAX,
-                generation: crate::thumbs::PINNED_GENERATION,
+                generation: atlas_core::thumbs::PINNED_GENERATION,
                 path: fe.path,
                 key,
                 color_only: false,
@@ -675,7 +673,7 @@ impl AtlasApp {
         let walk_done = job.walk_done.clone();
         let cancel = job.cancel.clone();
         self.prewarm = Some(job);
-        if crate::thumbs::is_network_path(&dir) {
+        if atlas_core::thumbs::is_network_path(&dir) {
             self.thumbs.ensure_workers(24);
         }
         self.toast(format!("Pre-warming {} in the background", dir.display()));
@@ -715,7 +713,7 @@ impl AtlasApp {
     /// pre-warm progress accounting (pinned results are generation-less).
     fn flush_thumb_results(&mut self) {
         while let Ok(res) = self.thumbs.rx.try_recv() {
-            if res.generation == crate::thumbs::PINNED_GENERATION {
+            if res.generation == atlas_core::thumbs::PINNED_GENERATION {
                 if let Some(job) = &mut self.prewarm {
                     job.record_done(res.src_bytes);
                 }
@@ -801,14 +799,14 @@ impl AtlasApp {
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.root = Some(root.clone());
         }
-        if crate::thumbs::is_network_path(&root) {
+        if atlas_core::thumbs::is_network_path(&root) {
             // Network shares are latency-bound: many parallel SMB requests
             // multiply throughput without extra CPU cost.
             self.thumbs.ensure_workers(24);
         }
         // Shared per-project cache: keys become project-root-relative so
         // every machine opening any part of this project agrees on them.
-        if let Some(pc) = crate::thumbs::discover_project_cache(&root) {
+        if let Some(pc) = atlas_core::thumbs::discover_project_cache(&root) {
             let _ = std::fs::create_dir_all(&pc.shared_dir);
             self.key_prefix = pc.key_prefix;
             self.shared_cache = Some(std::sync::Arc::new(pc.shared_dir.clone()));
@@ -1262,7 +1260,7 @@ impl AtlasApp {
             let Ok(res) = self.thumbs.rx.try_recv() else {
                 break;
             };
-            if res.generation == crate::thumbs::PINNED_GENERATION {
+            if res.generation == atlas_core::thumbs::PINNED_GENERATION {
                 // Overnight pre-warm progress: ids are meaningless here, the
                 // job's only output is the (shared) disk cache. Results
                 // arriving after a cancel (in-flight stragglers) are ignored;
@@ -2000,83 +1998,6 @@ impl AtlasApp {
             total,
             current: String::new(),
         });
-    }
-}
-
-pub(crate) fn dark_visuals() -> egui::Visuals {
-    let mut v = egui::Visuals::dark();
-    v.panel_fill = Color32::from_rgb(0x14, 0x16, 0x1a);
-    v.window_fill = Color32::from_rgb(0x1a, 0x1d, 0x23);
-    v.extreme_bg_color = Color32::from_rgb(0x0e, 0x10, 0x13);
-    v.selection.bg_fill = Color32::from_rgb(0x2b, 0x5c, 0x8a);
-    v
-}
-
-pub(crate) fn light_visuals() -> egui::Visuals {
-    let mut v = egui::Visuals::light();
-    v.panel_fill = Color32::from_rgb(0xf8, 0xf9, 0xfb);
-    v.window_fill = Color32::WHITE;
-    v.extreme_bg_color = Color32::from_rgb(0xee, 0xf0, 0xf2);
-    v.selection.bg_fill = Color32::from_rgb(0xd7, 0xe8, 0xff);
-    v.selection.stroke.color = Color32::from_rgb(0x1f, 0x6f, 0xb2);
-    v
-}
-
-#[derive(Clone, Copy)]
-struct Palette {
-    bg: Color32,
-    grid_dot: Color32,
-    card: Color32,
-    card_hover: Color32,
-    border: Color32,
-    border_strong: Color32,
-    ink: Color32,
-    sub: Color32,
-    line: Color32,
-    accent: Color32,
-    portal: Color32,
-    thumb_bg: Color32,
-    select: Color32,
-    staged: Color32,
-}
-
-impl Palette {
-    fn light() -> Self {
-        Self {
-            bg: Color32::from_rgb(0xf6, 0xf7, 0xf8),
-            grid_dot: Color32::from_rgb(0xdf, 0xe3, 0xe7),
-            card: Color32::WHITE,
-            card_hover: Color32::from_rgb(0xfb, 0xfc, 0xfd),
-            border: Color32::from_rgb(0xdf, 0xe3, 0xe8),
-            border_strong: Color32::from_rgb(0xc7, 0xcd, 0xd4),
-            ink: Color32::from_rgb(0x1b, 0x1e, 0x22),
-            sub: Color32::from_rgb(0x87, 0x8e, 0x96),
-            line: Color32::from_rgb(0xcb, 0xd1, 0xd8),
-            accent: Color32::from_rgb(0x0f, 0x76, 0x6e),
-            portal: Color32::from_rgb(0x8b, 0x5c, 0xf6),
-            thumb_bg: Color32::from_rgb(0xee, 0xf0, 0xf2),
-            select: Color32::from_rgb(0x1f, 0x6f, 0xb2),
-            staged: Color32::from_rgb(0xc4, 0x84, 0x1d),
-        }
-    }
-
-    fn dark() -> Self {
-        Self {
-            bg: Color32::from_rgb(0x0e, 0x10, 0x13),
-            grid_dot: Color32::from_rgb(0x23, 0x27, 0x2d),
-            card: Color32::from_rgb(0x1c, 0x20, 0x26),
-            card_hover: Color32::from_rgb(0x24, 0x29, 0x31),
-            border: Color32::from_rgb(0x33, 0x39, 0x41),
-            border_strong: Color32::from_rgb(0x4a, 0x52, 0x5c),
-            ink: Color32::from_rgb(0xdd, 0xe2, 0xe8),
-            sub: Color32::from_rgb(0x87, 0x8e, 0x96),
-            line: Color32::from_rgb(0x3a, 0x41, 0x4a),
-            accent: Color32::from_rgb(0x2d, 0xd4, 0xbf),
-            portal: Color32::from_rgb(0xa7, 0x8b, 0xfa),
-            thumb_bg: Color32::from_rgb(0x15, 0x18, 0x1c),
-            select: Color32::from_rgb(0x6f, 0xb7, 0xff),
-            staged: Color32::from_rgb(0xe0, 0xa8, 0x3c),
-        }
     }
 }
 
@@ -4431,12 +4352,12 @@ mod prewarm_tests {
             .join("02 DESIGN")
             .join("05 RESOURCES")
             .join("03 DATA")
-            .join(crate::thumbs::CACHE_DIR_NAME);
+            .join(atlas_core::thumbs::CACHE_DIR_NAME);
         let cache2 = p2
             .join("02 DESIGN")
             .join("05 RESOURCES")
             .join("03 DATA")
-            .join(crate::thumbs::CACHE_DIR_NAME);
+            .join(atlas_core::thumbs::CACHE_DIR_NAME);
         assert!(cache1.is_dir(), "repository created for project 1");
         assert!(cache2.is_dir(), "repository created for project 2");
 
@@ -4481,7 +4402,7 @@ mod prewarm_tests {
             .join("02 DESIGN")
             .join("05 RESOURCES")
             .join("03 DATA")
-            .join(crate::thumbs::CACHE_DIR_NAME);
+            .join(atlas_core::thumbs::CACHE_DIR_NAME);
         assert!(cache.is_dir());
         assert_eq!(reqs[0].shared_dir.as_deref(), Some(&cache));
         // Key is project-root-relative even though a subfolder was picked;

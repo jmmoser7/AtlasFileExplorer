@@ -1,0 +1,17 @@
+[package]
+name = "slate"
+version.workspace = true
+edition.workspace = true
+description = "Slate — tag-driven workbook dashboard for the Atlas ecosystem"
+
+[dependencies]
+atlas-core = { workspace = true }
+atlas-shell = { workspace = true }
+slate-doc = { workspace = true }
+circle-pack = { workspace = true }
+native-file-atlas = { workspace = true }
+eframe = { workspace = true }
+crossbeam-channel = { workspace = true }
+rfd = { workspace = true }
+image = { workspace = true }
+serde_json = { workspace = true }

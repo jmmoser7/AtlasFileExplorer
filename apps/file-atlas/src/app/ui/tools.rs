@@ -2,14 +2,14 @@
 //! Optional sub-panels are toggled from the gear menu (`chrome::ToolPanel`).
 
 use super::super::{AtlasApp, DateFilterField, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd};
-use super::sidebar::{
+use crate::app::chrome::ToolPanel;
+use atlas_core::types::{ExtGroup, FAMILIES};
+use atlas_shell::sidebar::{
     sidebar_checkbox_row, sidebar_family_master_row, sidebar_mode_row, sidebar_nested_checkbox_row,
     sidebar_option_group, sidebar_region, sidebar_section, sidebar_slider_block,
     sidebar_subtle_divider, sidebar_toolbar_row, SidebarTheme, SidebarTokens,
 };
-use super::widgets::{chip, gear_menu, sidebar_date_timeline, thin_sidebar_slider};
-use crate::app::chrome::ToolPanel;
-use crate::types::{ExtGroup, FAMILIES};
+use atlas_shell::widgets::{chip, gear_menu, sidebar_date_timeline, thin_sidebar_slider};
 use eframe::egui::{self, Color32, Id};
 
 fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
@@ -347,9 +347,9 @@ fn display_settings_body(
                 egui::ThemePreference::Light
             });
             ctx.set_visuals(if dark {
-                crate::app::dark_visuals()
+                atlas_shell::theme::dark_visuals()
             } else {
-                crate::app::light_visuals()
+                atlas_shell::theme::light_visuals()
             });
         }
     });

@@ -2,9 +2,9 @@
 
 use super::super::{AtlasApp, DateFilterField, ScanMode};
 use super::activity_heatmap::{draw_activity_heatmap, ActivityHeatmap};
-use super::widgets::{gear_menu, group_digits};
 use crate::app::chrome::ReadoutPanel;
-use crate::types::human_size;
+use atlas_core::types::human_size;
+use atlas_shell::widgets::{gear_menu, group_digits};
 use eframe::egui::{self, Color32};
 
 fn readouts_gear(app: &mut AtlasApp, ui: &mut egui::Ui) {
@@ -276,7 +276,7 @@ pub fn prewarm_dashboard(app: &mut AtlasApp, ctx: &egui::Context) {
                 // Speed control: how many thumbnails build in parallel.
                 if ui
                     .add_enabled(
-                        limit < crate::thumbs::SLOW_CONCURRENCY_MAX,
+                        limit < atlas_core::thumbs::SLOW_CONCURRENCY_MAX,
                         egui::Button::new("+").small(),
                     )
                     .on_hover_text("Faster (more parallel jobs, more network load)")
@@ -287,7 +287,7 @@ pub fn prewarm_dashboard(app: &mut AtlasApp, ctx: &egui::Context) {
                 ui.label(egui::RichText::new(format!("{limit}")).strong());
                 if ui
                     .add_enabled(
-                        limit > crate::thumbs::SLOW_CONCURRENCY_MIN,
+                        limit > atlas_core::thumbs::SLOW_CONCURRENCY_MIN,
                         egui::Button::new("−").small(),
                     )
                     .on_hover_text("Gentler (fewer parallel jobs)")

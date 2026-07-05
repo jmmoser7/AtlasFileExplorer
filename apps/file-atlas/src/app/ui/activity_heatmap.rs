@@ -1,6 +1,6 @@
 //! GitHub-style contribution heatmap for file activity by day.
 
-use crate::types::{date_string, day_index, month_short, ymd_from_secs, SECS_PER_DAY};
+use atlas_core::types::{date_string, day_index, month_short, ymd_from_secs, SECS_PER_DAY};
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, Sense, Ui, Vec2};
 
 /// Sunday-aligned week grid: 7 rows (Sun–Sat) × N week columns.

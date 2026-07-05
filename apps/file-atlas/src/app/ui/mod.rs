@@ -4,12 +4,10 @@
 mod activity_heatmap;
 mod advanced;
 mod readouts;
-mod sidebar;
 mod tabs;
 mod tools;
-mod widgets;
 
-pub use widgets::group_digits;
+pub use atlas_shell::widgets::group_digits;
 
 use super::AtlasApp;
 use eframe::egui::Context;

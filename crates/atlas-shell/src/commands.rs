@@ -1,8 +1,9 @@
-//! Keyboard, mouse, and navigation commands.
+//! Shared command-reference plumbing and canvas navigation helpers.
 //!
-//! **Rule:** every user-facing shortcut or input command must be registered in
-//! [`ENTRIES`] and will appear automatically in Advanced → Commands & shortcuts.
-//! See `COMMANDS.md` before adding or changing bindings.
+//! **Rule:** every user-facing shortcut or input command in an Atlas app must
+//! be registered in that app's `ENTRIES` table (a `&[CommandEntry]`) and will
+//! appear automatically in Advanced → Commands & shortcuts via
+//! [`shortcuts_reference_ui`]. See each app's `COMMANDS.md`.
 
 use eframe::egui::{self, Pos2, Rect, Ui, Vec2};
 
@@ -12,96 +13,6 @@ pub struct CommandEntry {
     pub name: &'static str,
     pub binding: &'static str,
 }
-
-/// Canonical list of documented commands. Keep sorted by category, then name.
-pub const ENTRIES: &[CommandEntry] = &[
-    CommandEntry {
-        category: "Navigation",
-        name: "Pan (precise)",
-        binding: "Left-drag on canvas background",
-    },
-    CommandEntry {
-        category: "Navigation",
-        name: "Turbo pan",
-        binding: "Right-drag on canvas — pull away from the click point; speed scales with \
-                  distance; returns to zero at the origin; locked to horizontal or vertical",
-    },
-    CommandEntry {
-        category: "Navigation",
-        name: "Zoom",
-        binding: "Scroll wheel (pinch on trackpad)",
-    },
-    CommandEntry {
-        category: "Navigation",
-        name: "Pan (scroll)",
-        binding: "Shift + scroll wheel",
-    },
-    CommandEntry {
-        category: "Navigation",
-        name: "Zoom to point",
-        binding: "Double-click empty canvas",
-    },
-    CommandEntry {
-        category: "Navigation",
-        name: "Fit view",
-        binding: "F",
-    },
-    CommandEntry {
-        category: "Navigation",
-        name: "Zoom in / out",
-        binding: "+ / −",
-    },
-    CommandEntry {
-        category: "Files",
-        name: "Open host document",
-        binding: "Double-click thumbnail",
-    },
-    CommandEntry {
-        category: "Files",
-        name: "File context menu",
-        binding: "Right-click file or folder (without dragging)",
-    },
-    CommandEntry {
-        category: "Selection",
-        name: "Rubber-band select",
-        binding: "Shift + left-drag on canvas",
-    },
-    CommandEntry {
-        category: "Selection",
-        name: "Toggle in selection",
-        binding: "Ctrl + click file",
-    },
-    CommandEntry {
-        category: "Selection",
-        name: "Range select",
-        binding: "Shift + click file",
-    },
-    CommandEntry {
-        category: "Selection",
-        name: "Select all visible",
-        binding: "Ctrl + A",
-    },
-    CommandEntry {
-        category: "Selection",
-        name: "Clear selection / dismiss",
-        binding: "Escape",
-    },
-    CommandEntry {
-        category: "Workflow",
-        name: "Open folder",
-        binding: "Ctrl + O",
-    },
-    CommandEntry {
-        category: "Workflow",
-        name: "Tag / assign selection",
-        binding: "F2",
-    },
-    CommandEntry {
-        category: "Workflow",
-        name: "Undo / redo",
-        binding: "Ctrl + Z / Ctrl + Y (Ctrl + Shift + Z)",
-    },
-];
 
 /// Speed multiplier for turbo pan: screen-space pull distance → px/frame.
 pub const TURBO_PAN_GAIN: f32 = 0.12;
@@ -216,14 +127,15 @@ impl TurboPanState {
     }
 }
 
-/// Reference table for Advanced settings.
-pub fn shortcuts_reference_ui(ui: &mut Ui) {
+/// Reference table for Advanced settings. `source_hint` names the file where
+/// the app's `ENTRIES` table lives so contributors keep it complete.
+pub fn shortcuts_reference_ui(ui: &mut Ui, entries: &[CommandEntry], source_hint: &str) {
     ui.label(egui::RichText::new("Commands & shortcuts").small().strong());
     ui.label(
-        egui::RichText::new(
-            "All bindings below are defined in src/app/commands.rs — add new \
-             commands there so this list stays complete.",
-        )
+        egui::RichText::new(format!(
+            "All bindings below are defined in {source_hint} — add new \
+             commands there so this list stays complete."
+        ))
         .small()
         .color(egui::Color32::from_gray(120)),
     );
@@ -234,7 +146,7 @@ pub fn shortcuts_reference_ui(ui: &mut Ui) {
         .max_height(220.0)
         .id_salt("commands_reference")
         .show(ui, |ui| {
-            for entry in ENTRIES {
+            for entry in entries {
                 if entry.category != last_category {
                     if !last_category.is_empty() {
                         ui.add_space(6.0);

@@ -15,6 +15,14 @@ pub enum Family {
     Other,
 }
 
+/// Families whose files should get a thumbnail request (vs. a plain card).
+pub fn wants_thumb(f: Family) -> bool {
+    matches!(
+        f,
+        Family::Image | Family::Video | Family::Design | Family::Cad | Family::Doc | Family::Audio
+    )
+}
+
 pub const FAMILIES: [Family; 10] = [
     Family::Image,
     Family::Video,
