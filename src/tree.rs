@@ -138,8 +138,8 @@ pub struct Tree {
     /// True while the last layout ran in hide-unmatched mode; lets bounds
     /// recomputation skip subtrees that were never placed.
     hide_active: bool,
-    /// True while the last layout ran in structure-only mode (no file types
-    /// selected); portal cards collapse to folder pills.
+    /// True while the last layout ran in structure-only mode (all family
+    /// filters off): folders only, no files or portal previews.
     structure_only: bool,
 }
 
@@ -855,6 +855,28 @@ mod tests {
     }
 
     #[test]
+    fn structure_only_uses_pill_not_portal_card() {
+        let mut entries: Vec<FileEntry> = Vec::new();
+        for i in 0..150 {
+            entries.push(entry(&format!(r"p\portal_{i:03}.png")));
+        }
+        let mut t = Tree::build(&entries, "fake", LayoutConfig::default());
+        let p = t.dirs.iter().position(|d| d.rel == "p").unwrap();
+        t.dirs[p].collapsed = true;
+        let all_match = vec![true; entries.len()];
+        t.refresh_matches(&all_match);
+        t.layout_filtered(Orient::H, true, &all_match, false);
+        assert_eq!(t.dirs[p].w, PORTAL_W);
+        assert_eq!(t.dirs[p].h, PORTAL_H);
+        t.layout_filtered(Orient::H, true, &all_match, true);
+        assert_eq!(
+            t.dirs[p].w, DIR_W,
+            "structure-only should collapse portal cards to folder pills"
+        );
+        assert_eq!(t.dirs[p].h, DIR_H);
+    }
+
+    #[test]
     fn structure_only_keeps_dirs_hides_files() {
         let entries: Vec<FileEntry> =
             vec![entry(r"a\x.jpg"), entry(r"a\b\y.jpg"), entry(r"c\z.png")];
@@ -879,30 +901,6 @@ mod tests {
             "sibling folders should be laid out side by side: {} vs {}",
             t.dirs[a].x,
             t.dirs[c].x
-        );
-    }
-
-    #[test]
-    fn structure_only_collapses_portal_cards_to_folder_pills() {
-        let mut entries: Vec<FileEntry> = Vec::new();
-        for i in 0..150 {
-            entries.push(entry(&format!(r"p\portal_{i:03}.png")));
-        }
-        let mut t = Tree::build(&entries, "fake", LayoutConfig::default());
-        let p = t.dirs.iter().position(|d| d.rel == "p").unwrap();
-        t.dirs[p].collapsed = true;
-        assert!(t.dirs[p].is_portal(t.cfg));
-
-        t.layout_filtered(Orient::H, false, &[], true);
-        assert!(
-            !t.shows_portal(p),
-            "structure-only mode should not render portal cards"
-        );
-        assert!(
-            (t.dirs[p].w - DIR_W).abs() < 0.01 && (t.dirs[p].h - DIR_H).abs() < 0.01,
-            "portal-sized folder should shrink to a folder pill: {}x{}",
-            t.dirs[p].w,
-            t.dirs[p].h
         );
     }
 
