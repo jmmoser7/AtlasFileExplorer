@@ -9,20 +9,26 @@
 mod assets;
 mod render;
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use slate_doc::SlateDoc;
+use slate_doc::{ItemId, SlateDoc};
 
-pub use assets::AssetMap;
+pub use assets::{read_snippet, AssetMap};
 pub use render::render_html;
 
 /// Options controlling how the HTML artifact is written to disk.
 #[derive(Debug, Clone, Default)]
 pub struct ExportOptions {
     /// Inline image assets as base64 data URIs instead of copying to assets/.
+    /// Videos, documents, and other card-backed originals are always copied.
     pub inline_assets: bool,
+    /// Pre-rendered poster thumbnails per item (PDF pages, doc previews,
+    /// video posters), supplied by the app from its shared thumbnail cache.
+    /// Best effort: items without an entry fall back to a labeled card.
+    pub thumbs: BTreeMap<ItemId, PathBuf>,
 }
 
 /// Summary returned after a successful export.
@@ -42,7 +48,7 @@ pub fn export_html(
 ) -> io::Result<ExportReport> {
     fs::create_dir_all(out_dir)?;
 
-    let asset_report = assets::build_assets(doc, out_dir, opts.inline_assets)?;
+    let asset_report = assets::build_assets(doc, out_dir, opts)?;
     let html = render_html(doc, &asset_report.map);
 
     let html_path = out_dir.join("index.html");
@@ -129,6 +135,7 @@ mod tests {
                 corner,
                 stroke,
                 adjust,
+                video: Default::default(),
             }),
         );
         let id = node.id;
@@ -384,6 +391,7 @@ mod tests {
             &out,
             &ExportOptions {
                 inline_assets: true,
+                ..Default::default()
             },
         )
         .expect("export");
@@ -420,6 +428,150 @@ mod tests {
         assert!(html.contains("filter:brightness(1.200)"));
         assert!(html.contains("class=\"ovl\""));
         assert!(html.contains("rgba(255,0,0,1.000)"));
+    }
+
+    fn add_media(scene: &mut Scene, rect: WorldRect, item: ItemId) -> NodeId {
+        let node = scene.build_node(rect, NodeKind::Image(ImageNode::new(item)));
+        let id = node.id;
+        let index = scene.nodes.len();
+        scene.apply(&SceneCmd::Add { index, node });
+        id
+    }
+
+    #[test]
+    fn video_trim_and_attrs() {
+        use slate_doc::scene::VideoOpts;
+
+        let mut doc = SlateDoc::new("Video");
+        let path = PathBuf::from("/tmp/slate-artifact-clip.mp4");
+        let item = doc.add_item(path.clone(), "clip.mp4", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        let id = add_media(&mut doc.scene, WorldRect::new(0.0, 0.0, 400.0, 225.0), item);
+        if let Some(node) = doc.scene.node_mut(id) {
+            if let NodeKind::Image(img) = &mut node.kind {
+                img.video = VideoOpts {
+                    start: 2.5,
+                    end: Some(9.0),
+                    autoplay: true,
+                    looped: true,
+                    muted: true,
+                    controls: false,
+                };
+            }
+        }
+
+        let mut assets = AssetMap::default();
+        assets.insert(path, "assets/clip.mp4".into());
+        let html = render_html(&doc, &assets);
+        assert!(html.contains("<video playsinline autoplay loop muted"));
+        assert!(!html.contains(" controls"));
+        assert!(html.contains("data-tstart=\"2.500\""));
+        assert!(html.contains("data-tend=\"9.000\""));
+        assert!(html.contains("assets/clip.mp4#t=2.500,9.000"));
+        // Trim-enforcement runtime is present.
+        assert!(html.contains("video[data-tstart]"));
+    }
+
+    #[test]
+    fn untrimmed_video_has_no_fragment() {
+        let mut doc = SlateDoc::new("Video2");
+        let path = PathBuf::from("/tmp/slate-artifact-clip2.webm");
+        let item = doc.add_item(path.clone(), "clip2.webm", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        add_media(&mut doc.scene, WorldRect::new(0.0, 0.0, 400.0, 225.0), item);
+
+        let mut assets = AssetMap::default();
+        assets.insert(path, "assets/clip2.webm".into());
+        let html = render_html(&doc, &assets);
+        assert!(html.contains("assets/clip2.webm\""));
+        assert!(!html.contains("clip2.webm#t="));
+        assert!(!html.contains("data-tstart="));
+    }
+
+    #[test]
+    fn text_file_becomes_snippet_card() {
+        let dir = unique_temp_dir("slate-artifact-text");
+        let txt = dir.join("notes.md");
+        fs::write(&txt, "# Heading\n<b>not html</b>\nline three").expect("write");
+
+        let mut doc = SlateDoc::new("Text");
+        let item = doc.add_item(txt, "notes.md", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        add_media(&mut doc.scene, WorldRect::new(0.0, 0.0, 300.0, 200.0), item);
+
+        let out = dir.join("out");
+        export_html(&doc, &out, &ExportOptions::default()).expect("export");
+        let html = fs::read_to_string(out.join("index.html")).expect("read");
+        assert!(html.contains("class=\"textcard\""));
+        assert!(html.contains("&lt;b&gt;not html&lt;/b&gt;"));
+        assert!(html.contains("notes.md"));
+        // Original copied and linked.
+        assert!(html.contains("href=\"assets/notes-"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn pdf_gets_thumb_card_with_link() {
+        let dir = unique_temp_dir("slate-artifact-pdf");
+        let pdf = dir.join("report.pdf");
+        fs::write(&pdf, b"%PDF-1.4 fake").expect("write pdf");
+        let thumb = dir.join("report-thumb.jpg");
+        fs::write(&thumb, b"\xff\xd8 fake jpg").expect("write thumb");
+
+        let mut doc = SlateDoc::new("Pdf");
+        let item = doc.add_item(pdf, "report.pdf", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        add_media(&mut doc.scene, WorldRect::new(0.0, 0.0, 200.0, 260.0), item);
+
+        let mut opts = ExportOptions::default();
+        opts.thumbs.insert(item, thumb);
+        let out = dir.join("out");
+        export_html(&doc, &out, &opts).expect("export");
+        let html = fs::read_to_string(out.join("index.html")).expect("read");
+        assert!(html.contains("class=\"thumbcard\""));
+        assert!(html.contains("href=\"assets/report-"));
+        assert!(html.contains("assets/report-thumb-"));
+        assert!(html.contains("<span class=\"badge\">PDF</span>"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn doc_without_thumb_gets_badge_card() {
+        let dir = unique_temp_dir("slate-artifact-doc");
+        let docx = dir.join("essay.docx");
+        fs::write(&docx, b"PK fake docx").expect("write");
+
+        let mut doc = SlateDoc::new("Doc");
+        let item = doc.add_item(docx, "essay.docx", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        add_media(&mut doc.scene, WorldRect::new(0.0, 0.0, 200.0, 260.0), item);
+
+        let out = dir.join("out");
+        export_html(&doc, &out, &ExportOptions::default()).expect("export");
+        let html = fs::read_to_string(out.join("index.html")).expect("read");
+        assert!(html.contains("class=\"filecard\""));
+        assert!(html.contains("<span class=\"badge\">DOCX</span>"));
+        assert!(html.contains("essay.docx"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn non_web_safe_video_becomes_card() {
+        let dir = unique_temp_dir("slate-artifact-mov");
+        let mov = dir.join("raw.mov");
+        fs::write(&mov, b"fake mov").expect("write");
+
+        let mut doc = SlateDoc::new("Mov");
+        let item = doc.add_item(mov, "raw.mov", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        add_media(&mut doc.scene, WorldRect::new(0.0, 0.0, 320.0, 180.0), item);
+
+        let out = dir.join("out");
+        export_html(&doc, &out, &ExportOptions::default()).expect("export");
+        let html = fs::read_to_string(out.join("index.html")).expect("read");
+        assert!(!html.contains("<video"));
+        assert!(html.contains("<span class=\"badge\">MOV</span>"));
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

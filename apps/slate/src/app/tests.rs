@@ -338,6 +338,137 @@ fn export_artifact_writes_html() {
     h.frame();
 }
 
+// ----- media kinds & workbook-in-workbook guards ---------------------------------
+
+#[test]
+fn slate_files_never_become_items() {
+    let mut h = Harness::new("wb_guard");
+    // A real workbook file on disk plus a plain image.
+    let wb_path = h.base.join("other.slate");
+    SlateDoc::new("Other").save_to(&wb_path).unwrap();
+    let img_path = h.base.join("pic.png");
+    std::fs::write(&img_path, b"png-ish").unwrap();
+
+    let ids = h.app.add_paths(&[wb_path.clone(), img_path]);
+    // Only the image became an item; the workbook was queued to open.
+    assert_eq!(ids.len(), 1);
+    assert_eq!(h.app.doc().items.len(), 1);
+    assert_eq!(h.app.pending_workbooks, vec![wb_path.clone()]);
+
+    // The frame pump opens it as a tab.
+    h.frame();
+    assert!(h.app.pending_workbooks.is_empty());
+    assert_eq!(h.app.tabs.len(), 2);
+    assert_eq!(h.app.tab().doc.name, "Other");
+    assert_eq!(h.app.tab().path.as_deref(), Some(wb_path.as_path()));
+}
+
+#[test]
+fn opening_same_workbook_twice_focuses_existing_tab() {
+    let mut h = Harness::new("wb_dedupe");
+    let path = h.base.join("one.slate");
+    SlateDoc::new("One").save_to(&path).unwrap();
+
+    h.app.open_doc_at(path.clone());
+    assert_eq!(h.app.tabs.len(), 1); // blank tab was reused
+    h.app.new_tab();
+    assert_eq!(h.app.active_tab, 1);
+
+    // Re-opening switches back to the existing tab instead of loading twice.
+    h.app.open_doc_at(path);
+    assert_eq!(h.app.tabs.len(), 2);
+    assert_eq!(h.app.active_tab, 0);
+    h.frame();
+}
+
+#[test]
+fn workbook_cannot_load_into_itself() {
+    let mut h = Harness::new("wb_self");
+    h.seed();
+    let path = h.base.join("self.slate");
+    let tab_id = h.app.tab().id;
+    h.app.save_doc_to(tab_id, path.clone());
+    let items_before = h.app.doc().items.len();
+
+    // "Add" the workbook's own file to itself (drop / add-files flow).
+    let ids = h.app.add_paths(&[path]);
+    h.frame();
+    // No self-item, no second tab — dedupe lands on the same tab.
+    assert!(ids.is_empty());
+    assert_eq!(h.app.doc().items.len(), items_before);
+    assert_eq!(h.app.tabs.len(), 1);
+}
+
+#[test]
+fn video_trim_settings_survive_save_and_reload() {
+    use slate_doc::scene::VideoOpts;
+
+    let mut h = Harness::new("video_trim");
+    let clip = h.base.join("clip.mp4");
+    std::fs::write(&clip, b"not really mp4").unwrap();
+    let ids = h.app.add_paths(&[clip]);
+    h.app
+        .place_items_on_board(&ids, eframe::egui::Pos2::new(100.0, 100.0));
+    let node_id = h.app.doc().scene.nodes[0].id;
+    h.app.patch_nodes(&[node_id], |n| {
+        if let NodeKind::Image(i) = &mut n.kind {
+            i.video = VideoOpts {
+                start: 3.0,
+                end: Some(11.0),
+                controls: true,
+                ..VideoOpts::default()
+            };
+        }
+    });
+
+    let path = h.base.join("video.slate");
+    let tab_id = h.app.tab().id;
+    h.app.save_doc_to(tab_id, path.clone());
+
+    let mut h2 = Harness::new("video_trim2");
+    h2.app.open_doc_at(path);
+    let NodeKind::Image(img) = &h2.app.doc().scene.nodes[0].kind else {
+        panic!("expected image node");
+    };
+    assert_eq!(img.video.start, 3.0);
+    assert_eq!(img.video.end, Some(11.0));
+    assert!(img.video.controls);
+    h2.frame();
+}
+
+#[test]
+fn export_renders_kind_specific_cards() {
+    let mut h = Harness::new("kind_cards");
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.seed_frame(None);
+    let notes = h.base.join("notes.md");
+    std::fs::write(&notes, "# Title\nbody text").unwrap();
+    let clip = h.base.join("clip.mp4");
+    std::fs::write(&clip, b"fake").unwrap();
+    let report = h.base.join("report.pdf");
+    std::fs::write(&report, b"%PDF fake").unwrap();
+
+    let ids = h.app.add_paths(&[notes, clip, report]);
+    assert_eq!(ids.len(), 3);
+    h.app
+        .place_items_on_board(&ids, eframe::egui::Pos2::new(100.0, 100.0));
+    for _ in 0..3 {
+        h.frame(); // board paints snippet cards / badges without panicking
+    }
+
+    let out = h.base.join("export");
+    h.app.do_export(out.clone());
+    let html = std::fs::read_to_string(out.join("Untitled-slides").join("index.html")).unwrap();
+    assert!(html.contains("class=\"textcard\""), "text snippet card");
+    assert!(html.contains("# Title"), "snippet content");
+    assert!(html.contains("<video"), "web-safe video element");
+    assert!(
+        html.contains("<span class=\"badge\">PDF</span>"),
+        "pdf card badge"
+    );
+    h.frame();
+}
+
 #[test]
 fn remove_group_strips_assignments_via_menu_path() {
     let mut h = Harness::new("rmgroup");

@@ -80,6 +80,35 @@ Other board rules:
 - The **Selection panel** (`ui/inspector.rs`) reshapes per node kind; sections
   must funnel edits through `SlateApp::patch_nodes` so they stay undoable.
 
+### Media kinds (what a placed file becomes)
+
+`slate-doc::media::media_kind` is the single extension taxonomy both
+renderers consult — the board and the artifact must never disagree about
+what a file *is*:
+
+| Kind | Board | Artifact |
+|------|-------|----------|
+| Image | thumbnail texture (crop/filters) | `<img>` (crop/filters as CSS) |
+| Video (web-safe: mp4/webm/ogv/m4v) | poster thumbnail + ▶ badge | `<video>` with `VideoOpts` attrs; trim → `#t=start,end` fragment + runtime guard |
+| Video (mov/avi/mkv…) | poster + ▶ + ext badge | thumbnail card linking to the copied original |
+| Text (txt/md/csv/code…) | snippet card (`snippets` cache) | `.textcard` — same excerpt (`slate_artifact::read_snippet`), linked original |
+| PDF / Doc | shell thumbnail + ext badge | thumbnail-backed card (poster from `ExportOptions::thumbs`, supplied by `export_thumb_map` from the shared cache) + link |
+| Workbook (`.slate`) | **never an item** | n/a |
+
+Video playback happens in the artifact, not on the board (egui has no
+decoder); the ▶ badge is the honest marker of that divergence. Spatial video
+cropping reuses the image `Crop`; time cropping is `VideoOpts { start, end }`
+edited in the inspector's Video section.
+
+### Workbook-in-workbook guards
+
+Adding a `.slate` file to a workbook — file dialog, OS drop, Atlas drag, or
+double-click — never creates an item. All add paths divert workbooks into
+`pending_workbooks`, drained once per frame (after drop placement) into
+`open_doc_at`, which dedupes by canonical path: re-opening an open workbook
+(including the active one, i.e. "load into itself") just focuses its tab.
+No item can reference a workbook, so board/export recursion cannot occur.
+
 ## Linked Atlas sessions (`session.rs`)
 
 "Open File Atlas" hosts Atlas as a second **viewport of the Slate process**

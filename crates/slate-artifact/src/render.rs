@@ -1,3 +1,4 @@
+use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
     Corner, Dash, Node, NodeId, NodeKind, Rgba, Scene, ShapeKind, TextAlign, WorldRect,
 };
@@ -10,12 +11,37 @@ var deck=document.getElementById('deck');
 var slides=deck?[].slice.call(deck.querySelectorAll('.slide')):[];
 var counter=document.querySelector('.counter');
 var idx=0;
+function syncVideos(){
+for(var j=0;j<slides.length;j++){
+var vids=slides[j].querySelectorAll('video');
+for(var k=0;k<vids.length;k++){
+var v=vids[k];
+if(j===idx){if(v.hasAttribute('autoplay')){var p=v.play();if(p&&p.catch)p.catch(function(){});}}
+else{v.pause();}
+}
+}
+}
 function show(i){
 if(!slides.length)return;
 idx=Math.max(0,Math.min(i,slides.length-1));
 for(var j=0;j<slides.length;j++){slides[j].classList.toggle('active',j===idx);}
 if(counter)counter.textContent=(idx+1)+' / '+slides.length;
+syncVideos();
 }
+// Enforce trim windows (#t= fragments only seek the start; the out-point
+// and loop-back-to-in-point need script).
+[].slice.call(document.querySelectorAll('video[data-tstart]')).forEach(function(v){
+var t0=parseFloat(v.getAttribute('data-tstart'))||0;
+var t1=v.hasAttribute('data-tend')?parseFloat(v.getAttribute('data-tend')):NaN;
+v.addEventListener('loadedmetadata',function(){if(v.currentTime<t0)v.currentTime=t0;});
+v.addEventListener('timeupdate',function(){
+if(v.currentTime<t0-0.25)v.currentTime=t0;
+if(!isNaN(t1)&&v.currentTime>=t1){
+if(v.loop){v.currentTime=t0;}else{v.pause();v.currentTime=t0;}
+}
+});
+v.addEventListener('ended',function(){if(v.loop){v.currentTime=t0;var p=v.play();if(p&&p.catch)p.catch(function(){});}});
+});
 function scaleSlides(){
 for(var i=0;i<slides.length;i++){
 var s=slides[i];
@@ -102,6 +128,14 @@ html,body{margin:0;height:100%;background:#111;overflow:hidden}
 .node{position:absolute;overflow:hidden}
 .ovl{position:absolute;inset:0;pointer-events:none;border-radius:inherit}
 .missing,.filecard{display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:#2a2a2a;color:#ccc;font:14px system-ui,sans-serif;text-align:center;padding:8px;word-break:break-word}
+.filecard{flex-direction:column;gap:6px;text-decoration:none}
+.badge{display:inline-block;background:#555;color:#eee;font:bold 11px system-ui,sans-serif;padding:2px 6px;border-radius:3px;letter-spacing:0.06em}
+.thumbcard{display:block;position:relative;width:100%;height:100%;text-decoration:none}
+.thumbcard img{width:100%;height:100%;object-fit:cover;display:block}
+.thumbcard .badge{position:absolute;left:6px;bottom:6px}
+.textcard{display:block;width:100%;height:100%;background:#fdfdfb;color:#222;text-decoration:none;overflow:hidden}
+.textcard pre{margin:0;padding:10px 12px 4px;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+.textcard .fname{display:block;padding:2px 12px 8px;color:#888;font:11px system-ui,sans-serif}
 .empty{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#888;font:18px system-ui,sans-serif}
 .counter{position:fixed;bottom:16px;right:16px;color:#888;font:14px monospace;z-index:100}
 .counter.hidden{display:none}
@@ -243,24 +277,20 @@ fn render_image(
     } else {
         let path = path_opt.unwrap();
         let url = assets.get(path).unwrap();
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(str::to_ascii_lowercase);
 
-        match ext.as_deref() {
-            Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("webp") | Some("bmp")
-            | Some("svg") => {
-                render_img_tag(html, url, img);
+        match media_kind(path) {
+            MediaKind::Image => render_img_tag(html, url, img),
+            MediaKind::Video if web_safe_video(path) => {
+                render_video_tag(html, url, img, path, assets.thumb(path));
             }
-            Some("mp4") | Some("webm") | Some("ogg") => {
-                render_video_tag(html, url, img, ext.as_deref().unwrap());
+            MediaKind::Text => {
+                render_text_card(html, url, file_name, assets.snippet(path), path);
             }
-            _ => {
-                html.push_str("<div class=\"filecard\">");
-                html.push_str(&escape_html(file_name));
-                html.push_str("</div>");
-            }
+            // PDFs, docs, non-web-safe video, workbooks (legacy docs may
+            // still carry one as an item), anything else: poster thumbnail
+            // when available, labeled card otherwise — always linking to the
+            // copied original.
+            _ => render_file_card(html, url, file_name, path, assets.thumb(path)),
         }
     }
 
@@ -287,9 +317,42 @@ fn render_img_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNod
     html.push_str("\" draggable=\"false\">");
 }
 
-fn render_video_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNode, ext: &str) {
-    let mime = mime_for_path(std::path::Path::new(&format!("file.{ext}")));
-    html.push_str("<video controls loop muted playsinline style=\"");
+fn render_video_tag(
+    html: &mut String,
+    url: &str,
+    img: &slate_doc::scene::ImageNode,
+    path: &std::path::Path,
+    poster: Option<&str>,
+) {
+    let mime = mime_for_path(path);
+    let v = img.video.clamped();
+
+    html.push_str("<video playsinline");
+    if v.autoplay {
+        html.push_str(" autoplay");
+    }
+    if v.looped {
+        html.push_str(" loop");
+    }
+    if v.muted {
+        html.push_str(" muted");
+    }
+    if v.controls {
+        html.push_str(" controls");
+    }
+    if v.is_trimmed() {
+        use std::fmt::Write;
+        let _ = write!(html, " data-tstart=\"{:.3}\"", v.start);
+        if let Some(end) = v.end {
+            let _ = write!(html, " data-tend=\"{:.3}\"", end);
+        }
+    }
+    if let Some(poster) = poster {
+        html.push_str(" poster=\"");
+        html.push_str(&escape_attr(poster));
+        html.push('"');
+    }
+    html.push_str(" style=\"");
     html.push_str(&crop_style(&img.crop));
     let filter = img.adjust.css_filter();
     if !filter.is_empty() {
@@ -299,9 +362,79 @@ fn render_video_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageN
     }
     html.push_str("\"><source src=\"");
     html.push_str(&escape_attr(url));
+    if v.is_trimmed() {
+        use std::fmt::Write;
+        let _ = write!(html, "#t={:.3}", v.start);
+        if let Some(end) = v.end {
+            let _ = write!(html, ",{end:.3}");
+        }
+    }
     html.push_str("\" type=\"");
     html.push_str(mime);
     html.push_str("\"></video>");
+}
+
+/// Excerpt card for text files: monospace snippet + filename, linked to the
+/// copied original.
+fn render_text_card(
+    html: &mut String,
+    url: &str,
+    file_name: &str,
+    snippet: Option<&str>,
+    path: &std::path::Path,
+) {
+    match snippet {
+        Some(snippet) => {
+            html.push_str("<a class=\"textcard\" href=\"");
+            html.push_str(&escape_attr(url));
+            html.push_str("\" target=\"_blank\"><pre>");
+            html.push_str(&escape_html(snippet));
+            html.push_str("</pre><span class=\"fname\">");
+            html.push_str(&escape_html(file_name));
+            html.push_str("</span></a>");
+        }
+        None => render_file_card(html, url, file_name, path, None),
+    }
+}
+
+/// Poster-thumbnail card (when the app supplied one) or a labeled card with
+/// an extension badge; either way a link to the copied original.
+fn render_file_card(
+    html: &mut String,
+    url: &str,
+    file_name: &str,
+    path: &std::path::Path,
+    thumb: Option<&str>,
+) {
+    let badge = ext_badge(path);
+    match thumb {
+        Some(thumb) => {
+            html.push_str("<a class=\"thumbcard\" href=\"");
+            html.push_str(&escape_attr(url));
+            html.push_str("\" target=\"_blank\"><img src=\"");
+            html.push_str(&escape_attr(thumb));
+            html.push_str("\" alt=\"\" draggable=\"false\">");
+            if !badge.is_empty() {
+                html.push_str("<span class=\"badge\">");
+                html.push_str(&escape_html(&badge));
+                html.push_str("</span>");
+            }
+            html.push_str("</a>");
+        }
+        None => {
+            html.push_str("<a class=\"filecard\" href=\"");
+            html.push_str(&escape_attr(url));
+            html.push_str("\" target=\"_blank\">");
+            if !badge.is_empty() {
+                html.push_str("<span class=\"badge\">");
+                html.push_str(&escape_html(&badge));
+                html.push_str("</span>");
+            }
+            html.push_str("<span>");
+            html.push_str(&escape_html(file_name));
+            html.push_str("</span></a>");
+        }
+    }
 }
 
 fn render_shape(

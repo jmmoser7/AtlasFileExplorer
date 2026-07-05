@@ -357,16 +357,7 @@ impl SlateApp {
                     IMAGE_W,
                     IMAGE_H,
                 );
-                nodes.push(scene.build_node(
-                    rect,
-                    NodeKind::Image(ImageNode {
-                        item: *item,
-                        crop: Crop::full(),
-                        corner: Corner::Square,
-                        stroke: slate_doc::scene::Stroke::none(),
-                        adjust: ImageAdjust::default(),
-                    }),
-                ));
+                nodes.push(scene.build_node(rect, NodeKind::Image(ImageNode::new(*item))));
             }
         }
         let ids = self.add_nodes(nodes);
@@ -405,16 +396,7 @@ impl SlateApp {
                     cell_w,
                     cell_h,
                 );
-                nodes.push(scene.build_node(
-                    r,
-                    NodeKind::Image(ImageNode {
-                        item: *item,
-                        crop: Crop::full(),
-                        corner: Corner::Square,
-                        stroke: slate_doc::scene::Stroke::none(),
-                        adjust: ImageAdjust::default(),
-                    }),
-                ));
+                nodes.push(scene.build_node(r, NodeKind::Image(ImageNode::new(*item))));
             }
         }
         let ids = self.add_nodes(nodes);
@@ -615,9 +597,105 @@ fn stroke_outline(
     }
 }
 
+/// Corner "▶" marker on video posters (the artifact plays the video; the
+/// board shows its poster frame).
+fn paint_play_badge(painter: &egui::Painter, srect: Rect, z: f32) {
+    let r = (14.0 * z).clamp(8.0, 22.0);
+    let c = srect.center();
+    painter.circle_filled(c, r, Color32::from_black_alpha(140));
+    let s = r * 0.55;
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            c + Vec2::new(-s * 0.6, -s),
+            c + Vec2::new(s, 0.0),
+            c + Vec2::new(-s * 0.6, s),
+        ],
+        Color32::from_white_alpha(230),
+        EStroke::NONE,
+    ));
+}
+
+/// Extension badge in the bottom-left corner (PDF / DOCX / MOV …).
+fn paint_ext_badge(painter: &egui::Painter, srect: Rect, badge: &str, z: f32) {
+    if badge.is_empty() {
+        return;
+    }
+    let font = FontId::proportional((10.0 * z).clamp(8.0, 13.0));
+    let pad = Vec2::new(5.0, 2.0);
+    let galley = painter.layout_no_wrap(badge.to_string(), font, Color32::from_white_alpha(235));
+    let pos = srect.left_bottom() + Vec2::new(4.0, -4.0 - galley.size().y - pad.y * 2.0);
+    let bg = Rect::from_min_size(pos, galley.size() + pad * 2.0);
+    if bg.width() > srect.width() || bg.height() > srect.height() {
+        return;
+    }
+    painter.rect_filled(bg, 3.0, Color32::from_black_alpha(150));
+    painter.galley(pos + pad, galley, Color32::WHITE);
+}
+
 // ---------- painting ----------
 
 impl SlateApp {
+    /// Cached excerpt for text-file snippet cards (same clamping as the
+    /// artifact's `read_snippet`, so board and export show identical text).
+    fn snippet_for(&mut self, item: ItemId, path: &std::path::Path) -> Option<String> {
+        self.snippets
+            .entry(item)
+            .or_insert_with(|| slate_artifact::read_snippet(path))
+            .clone()
+    }
+
+    /// Paper-like card with the file's opening lines — the board twin of the
+    /// artifact's `.textcard`.
+    fn paint_text_snippet_card(
+        &mut self,
+        painter: &egui::Painter,
+        outline: &[Pos2],
+        srect: Rect,
+        item: ItemId,
+        path: &std::path::Path,
+        z: f32,
+    ) {
+        painter.add(egui::Shape::convex_polygon(
+            outline.to_vec(),
+            Color32::from_rgb(253, 253, 251),
+            EStroke::NONE,
+        ));
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        match self.snippet_for(item, path) {
+            Some(snippet) => {
+                let pad = (8.0 * z).clamp(3.0, 12.0);
+                let inner = srect.shrink(pad);
+                let clip = painter.with_clip_rect(inner);
+                let galley = clip.layout(
+                    snippet,
+                    FontId::monospace((9.0 * z).clamp(4.0, 12.0)),
+                    Color32::from_rgb(34, 34, 34),
+                    inner.width().max(8.0),
+                );
+                clip.galley(inner.min, galley, Color32::WHITE);
+                clip.text(
+                    Pos2::new(inner.min.x, inner.max.y),
+                    Align2::LEFT_BOTTOM,
+                    atlas_shell::widgets::trunc(&name, 24),
+                    FontId::proportional((8.5 * z).clamp(4.0, 11.0)),
+                    Color32::from_gray(136),
+                );
+            }
+            None => {
+                painter.text(
+                    srect.center(),
+                    Align2::CENTER_CENTER,
+                    atlas_shell::widgets::trunc(&name, 18),
+                    FontId::proportional((11.0 * z).clamp(8.0, 14.0)),
+                    Color32::from_gray(120),
+                );
+            }
+        }
+    }
+
     /// Paint one node through a transform. `chrome` adds board-only adornment
     /// (frame titles/badges) that presentation mode and exports leave out.
     pub fn paint_board_node(
@@ -677,40 +755,59 @@ impl SlateApp {
             }
             NodeKind::Image(img) => {
                 let outline = corner_outline(srect, img.corner, z);
-                match self.board_texture(ui.ctx(), img.item, &img.adjust) {
-                    Some(tex) => {
-                        // Node opacity = vertex tint on the textured mesh
-                        // (matches CSS `opacity` compositing closely enough).
-                        let tint = Color32::WHITE.gamma_multiply(alpha);
-                        textured_polygon(painter, &tex, &outline, srect, img.crop, tint);
-                        if let Some(ov) = img.adjust.overlay {
+                let (path, name) = self
+                    .doc()
+                    .item(img.item)
+                    .map(|it| (it.path.clone(), it.file_name.clone()))
+                    .unwrap_or_else(|| (std::path::PathBuf::new(), "missing".into()));
+                let kind = slate_doc::media_kind(&path);
+
+                if kind == slate_doc::MediaKind::Text {
+                    // Snippet card — same excerpt the artifact exports.
+                    self.paint_text_snippet_card(painter, &outline, srect, img.item, &path, z);
+                } else {
+                    match self.board_texture(ui.ctx(), img.item, &img.adjust) {
+                        Some(tex) => {
+                            // Node opacity = vertex tint on the textured mesh
+                            // (matches CSS `opacity` compositing closely enough).
+                            let tint = Color32::WHITE.gamma_multiply(alpha);
+                            textured_polygon(painter, &tex, &outline, srect, img.crop, tint);
+                            if let Some(ov) = img.adjust.overlay {
+                                painter.add(egui::Shape::convex_polygon(
+                                    outline.clone(),
+                                    fade(rgba32(ov)),
+                                    EStroke::NONE,
+                                ));
+                            }
+                        }
+                        None => {
+                            let palette = self.palette();
                             painter.add(egui::Shape::convex_polygon(
                                 outline.clone(),
-                                fade(rgba32(ov)),
+                                palette.thumb_bg,
                                 EStroke::NONE,
                             ));
+                            painter.text(
+                                srect.center(),
+                                Align2::CENTER_CENTER,
+                                atlas_shell::widgets::trunc(&name, 18),
+                                FontId::proportional((11.0 * z).clamp(8.0, 14.0)),
+                                palette.sub,
+                            );
                         }
                     }
-                    None => {
-                        let palette = self.palette();
-                        painter.add(egui::Shape::convex_polygon(
-                            outline.clone(),
-                            palette.thumb_bg,
-                            EStroke::NONE,
-                        ));
-                        let name = self
-                            .doc()
-                            .item(img.item)
-                            .map(|it| it.file_name.clone())
-                            .unwrap_or_else(|| "missing".into());
-                        painter.text(
-                            srect.center(),
-                            Align2::CENTER_CENTER,
-                            atlas_shell::widgets::trunc(&name, 18),
-                            FontId::proportional((11.0 * z).clamp(8.0, 14.0)),
-                            palette.sub,
-                        );
-                    }
+                }
+
+                if kind == slate_doc::MediaKind::Video {
+                    // The board shows the poster frame; the artifact plays
+                    // the video. The ▶ glyph is the honest marker of that.
+                    paint_play_badge(painter, srect, z);
+                }
+                if !matches!(
+                    kind,
+                    slate_doc::MediaKind::Image | slate_doc::MediaKind::Text
+                ) {
+                    paint_ext_badge(painter, srect, &slate_doc::media::ext_badge(&path), z);
                 }
                 stroke_outline(painter, &outline, &img.stroke, z);
             }
@@ -1345,8 +1442,8 @@ impl SlateApp {
                 self.text_edit = Some((id, t.text.clone()));
             }
             NodeKind::Image(img) => {
-                if let Some(item) = self.doc().item(img.item) {
-                    Self::open_path(&item.path.clone());
+                if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {
+                    self.open_item_path(&path);
                 }
             }
             _ => {}

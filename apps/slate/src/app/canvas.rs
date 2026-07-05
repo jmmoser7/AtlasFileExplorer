@@ -401,8 +401,8 @@ impl SlateApp {
         }
         if resp.double_clicked() {
             if let Some(id) = hovered_item {
-                if let Some(item) = self.doc().item(id) {
-                    Self::open_path(&item.path.clone());
+                if let Some(path) = self.doc().item(id).map(|it| it.path.clone()) {
+                    self.open_item_path(&path);
                 }
             }
         }

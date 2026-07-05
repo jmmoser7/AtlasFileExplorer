@@ -79,6 +79,11 @@ impl SlateApp {
 
     /// Apply one bridge assignment to the active workbook.
     fn apply_assignment(&mut self, a: TagAssignment) {
+        if slate_doc::media_kind(&a.file.path) == slate_doc::MediaKind::Workbook {
+            // Workbooks never become items; open as a tab instead.
+            self.pending_workbooks.push(a.file.path);
+            return;
+        }
         let id = self.doc_mut().add_item(
             a.file.path,
             a.file.file_name,
@@ -159,6 +164,12 @@ impl SlateApp {
                 let n = files.len();
                 let mut ids = Vec::new();
                 for f in files {
+                    // Workbooks dragged over from Atlas open as tabs — they
+                    // never become items (no workbook-in-workbook).
+                    if slate_doc::media_kind(&f.path) == slate_doc::MediaKind::Workbook {
+                        self.pending_workbooks.push(f.path);
+                        continue;
+                    }
                     // Dropped without tags: lands in the Uncategorized tray
                     // (unless it hits a tagged frame on the board, below).
                     ids.push(self.doc_mut().add_item(

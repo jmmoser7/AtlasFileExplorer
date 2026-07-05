@@ -53,6 +53,7 @@ fn smoke_full_feature_export() {
                 overlay: Some(Rgba([255, 0, 0, 60])),
                 ..Default::default()
             },
+            video: Default::default(),
         }),
     );
     let text = doc.scene.build_node(

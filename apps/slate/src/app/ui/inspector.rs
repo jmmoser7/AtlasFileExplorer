@@ -126,7 +126,7 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                 corner_section(app, ui, theme, &ids, &primary);
             }
         }
-        NodeKind::Image(_) => {
+        NodeKind::Image(img) => {
             sidebar_subtle_divider(ui, theme);
             stroke_section(app, ui, theme, &ids, &primary);
             sidebar_subtle_divider(ui, theme);
@@ -135,6 +135,14 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             crop_section(app, ui, theme, &ids, &primary);
             sidebar_subtle_divider(ui, theme);
             adjust_section(app, ui, theme, &ids, &primary);
+            let is_video = app
+                .doc()
+                .item(img.item)
+                .is_some_and(|it| slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Video);
+            if is_video {
+                sidebar_subtle_divider(ui, theme);
+                video_section(app, ui, theme, &ids, &primary);
+            }
         }
         NodeKind::Text(_) => {
             sidebar_subtle_divider(ui, theme);
@@ -529,6 +537,110 @@ fn adjust_section(
                 }
             });
         }
+    });
+}
+
+// ---------- video ----------
+
+/// Playback + time-trim controls. Spatial cropping is the shared Crop
+/// section above; everything here maps to `<video>` attributes and a
+/// media-fragment trim window in the artifact. The board itself shows the
+/// poster frame (with a ▶ badge) — playback happens in the exported HTML.
+fn video_section(
+    app: &mut SlateApp,
+    ui: &mut egui::Ui,
+    theme: SidebarTheme,
+    ids: &[NodeId],
+    primary: &Node,
+) {
+    let NodeKind::Image(img) = &primary.kind else {
+        return;
+    };
+    let v = img.video;
+    sidebar_region(ui, "Video", theme, |ui| {
+        let mut nv = v;
+        let mut changed = false;
+
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Trim start").small().color(theme.sub));
+            let mut start = nv.start;
+            if ui
+                .add(
+                    egui::DragValue::new(&mut start)
+                        .range(0.0..=86_400.0)
+                        .speed(0.1)
+                        .suffix(" s"),
+                )
+                .changed()
+            {
+                nv.start = start;
+                changed = true;
+            }
+        });
+        ui.horizontal(|ui| {
+            let mut has_end = nv.end.is_some();
+            if ui
+                .checkbox(&mut has_end, RichText::new("Trim end").small())
+                .on_hover_text("Unchecked = play to the end of the file")
+                .changed()
+            {
+                nv.end = if has_end { Some(nv.start + 5.0) } else { None };
+                changed = true;
+            }
+            if let Some(end) = nv.end {
+                let mut e = end;
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut e)
+                            .range(0.0..=86_400.0)
+                            .speed(0.1)
+                            .suffix(" s"),
+                    )
+                    .changed()
+                {
+                    nv.end = Some(e);
+                    changed = true;
+                }
+            }
+        });
+
+        ui.horizontal_wrapped(|ui| {
+            for (label, value, hint) in [
+                ("Autoplay", &mut nv.autoplay, "Start when the slide shows"),
+                ("Loop", &mut nv.looped, "Repeat the trimmed window"),
+                ("Muted", &mut nv.muted, "Required for browser autoplay"),
+                ("Controls", &mut nv.controls, "Show the player bar"),
+            ] {
+                if ui
+                    .checkbox(value, RichText::new(label).small())
+                    .on_hover_text(hint)
+                    .changed()
+                {
+                    changed = true;
+                }
+            }
+        });
+        if nv.autoplay && !nv.muted {
+            ui.label(
+                RichText::new("Browsers block unmuted autoplay — keep Muted on.")
+                    .small()
+                    .color(theme.sub),
+            );
+        }
+
+        if changed {
+            let nv = nv.clamped();
+            app.patch_nodes(ids, move |n| {
+                if let NodeKind::Image(i) = &mut n.kind {
+                    i.video = nv;
+                }
+            });
+        }
+        ui.label(
+            RichText::new("Playback happens in the exported artifact; the board shows the poster.")
+                .small()
+                .color(theme.sub),
+        );
     });
 }
 

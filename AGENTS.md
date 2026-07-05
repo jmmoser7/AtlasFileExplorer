@@ -103,6 +103,16 @@ Frames are slides (geometric membership, `order` = deck sequence, optional
 tag assignments inherited by dropped images). Presentation mode
 (`present.rs`) and the exported HTML runtime share navigation semantics.
 
+Media kinds (`slate-doc::media`) decide what a placed file becomes, in both
+renderers: images → `<img>`, web-safe video → `<video>` (time-trim via
+`VideoOpts` → `#t=` media fragment + runtime guard; board shows the poster
+with a ▶ badge), text → snippet card (same excerpt both sides), PDF/docs →
+thumbnail-backed card linking to the copied original. **`.slate` files never
+become items** — every add/drop path diverts them to open as tabs
+(`pending_workbooks`), and `open_doc_at` dedupes by canonical path, which is
+what makes workbook-in-workbook (and workbook-in-itself) recursion
+impossible.
+
 ## Cursor Cloud specific instructions
 
 Cloud agents run on **Linux VMs**. These crates target **Windows** (Win32

@@ -184,6 +184,8 @@ pub struct SlateApp {
     pub presenting: Option<present::Present>,
     /// Retained source pixels for board images (needed to apply filters).
     pub thumb_pixels: HashMap<String, egui::ColorImage>,
+    /// Cached text-file excerpts for board snippet cards (`None` = unreadable).
+    pub snippets: HashMap<ItemId, Option<String>>,
     /// Adjusted-texture cache keyed by (cache_key, adjust hash).
     pub fx_textures: HashMap<(String, u64), TextureHandle>,
     /// Export artifact with base64-inlined assets (single portable file).
@@ -192,6 +194,11 @@ pub struct SlateApp {
     pub last_board_edit: Option<(NodeId, Instant)>,
     /// Alt modifier state this frame (Alt-drag duplicates).
     pub alt_down: bool,
+
+    /// `.slate` files encountered in add/drop flows this frame. Workbooks
+    /// never become items — they open as tabs at a safe point in the frame
+    /// (after drop placement runs against the tab that received the drop).
+    pub pending_workbooks: Vec<PathBuf>,
 
     frame_no: u64,
 }
@@ -234,10 +241,12 @@ impl SlateApp {
             board_menu: None,
             presenting: None,
             thumb_pixels: HashMap::new(),
+            snippets: HashMap::new(),
             fx_textures: HashMap::new(),
             export_inline: false,
             last_board_edit: None,
             alt_down: false,
+            pending_workbooks: Vec::new(),
             frame_no: 0,
         };
         app.thumbs.retain_generation(THUMB_GENERATION);
@@ -400,6 +409,21 @@ impl SlateApp {
     }
 
     fn open_doc_at(&mut self, path: PathBuf) {
+        // Same workbook already open (compare canonical paths): focus that
+        // tab instead of opening a second copy that would race it on save.
+        // This is also the "load a workbook into itself" guard — re-opening
+        // the active workbook is a no-op with a toast.
+        let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.into());
+        let target = canon(&path);
+        if let Some(i) = self
+            .tabs
+            .iter()
+            .position(|t| t.path.as_deref().map(&canon) == Some(target.clone()))
+        {
+            self.switch_tab(i);
+            self.toast("Workbook is already open — switched to its tab");
+            return;
+        }
         match SlateDoc::load_from(&path) {
             Ok(doc) => {
                 // Reuse the current tab when blank, else open a new one.
@@ -439,10 +463,20 @@ impl SlateApp {
     }
 
     /// Add files to the active workbook (uncategorized). Returns new ids.
+    ///
+    /// `.slate` files are diverted: a workbook can't be an item of a workbook
+    /// (that road leads to a board embedding itself), so they're queued to
+    /// open as tabs instead — see [`Self::drain_pending_workbooks`].
     pub fn add_paths(&mut self, paths: &[PathBuf]) -> Vec<ItemId> {
         let mut added = Vec::new();
+        let mut workbooks = 0usize;
         for p in paths {
             if !p.is_file() {
+                continue;
+            }
+            if slate_doc::media_kind(p) == slate_doc::MediaKind::Workbook {
+                self.pending_workbooks.push(p.clone());
+                workbooks += 1;
                 continue;
             }
             let (size, mtime) = std::fs::metadata(p)
@@ -466,7 +500,29 @@ impl SlateApp {
         if !added.is_empty() {
             self.toast(format!("Added {} file(s)", added.len()));
         }
+        if workbooks > 0 {
+            self.toast("Workbooks open as tabs (they can't be placed as items)");
+        }
         added
+    }
+
+    /// Open queued `.slate` files as tabs (deduped inside `open_doc_at`).
+    /// Runs after drop placement so item placement targets the tab the drop
+    /// landed on, not a tab a workbook drop just switched to.
+    fn drain_pending_workbooks(&mut self) {
+        for path in std::mem::take(&mut self.pending_workbooks) {
+            self.open_doc_at(path);
+        }
+    }
+
+    /// Open an item's file: workbooks open in Slate as a tab, everything
+    /// else goes to the OS handler.
+    pub(crate) fn open_item_path(&mut self, path: &std::path::Path) {
+        if slate_doc::media_kind(path) == slate_doc::MediaKind::Workbook {
+            self.open_doc_at(path.to_path_buf());
+        } else {
+            Self::open_path(path);
+        }
     }
 
     // ----- tagging -----------------------------------------------------------
@@ -552,6 +608,33 @@ impl SlateApp {
 
     // ----- artifact export ------------------------------------------------------
 
+    /// Poster thumbnails for placed non-image items (PDF pages, doc previews,
+    /// video posters) from the shared thumbnail cache. Best effort — only
+    /// thumbnails that were already generated (item was viewed) exist; items
+    /// without one export as labeled cards.
+    fn export_thumb_map(&self) -> std::collections::BTreeMap<ItemId, PathBuf> {
+        let cache_dir = atlas_core::index::data_dir().join("thumbs");
+        let mut map = std::collections::BTreeMap::new();
+        for node in &self.doc().scene.nodes {
+            let slate_doc::scene::NodeKind::Image(img) = &node.kind else {
+                continue;
+            };
+            let Some(item) = self.doc().item(img.item) else {
+                continue;
+            };
+            if slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Image
+                || item.cache_key.is_empty()
+            {
+                continue;
+            }
+            let thumb = cache_dir.join(format!("{}.jpg", item.cache_key));
+            if thumb.exists() {
+                map.insert(img.item, thumb);
+            }
+        }
+        map
+    }
+
     /// Write the HTML artifact into `<dir>/<workbook>-slides/`.
     fn do_export(&mut self, dir: PathBuf) {
         let safe: String = self
@@ -569,6 +652,7 @@ impl SlateApp {
         let out = dir.join(format!("{}-slides", safe.trim_matches('-')));
         let opts = slate_artifact::ExportOptions {
             inline_assets: self.export_inline,
+            thumbs: self.export_thumb_map(),
         };
         match slate_artifact::export_html(self.doc(), &out, &opts) {
             Ok(rep) => {
@@ -760,6 +844,8 @@ impl SlateApp {
                 self.place_items_on_board(&items, at);
             }
         }
+        // Dropped/added .slate files open as tabs, after placement above.
+        self.drain_pending_workbooks();
 
         self.hotkeys(ctx);
 

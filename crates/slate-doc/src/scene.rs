@@ -318,6 +318,55 @@ pub struct FrameNode {
 }
 
 /// A placed image: a link into the workbook item pool plus placement styling.
+/// Video playback settings. Everything here maps onto native HTML `<video>`
+/// semantics: the trim window becomes a media-fragment URL (`#t=start,end`)
+/// plus a small runtime guard, the flags become element attributes. Spatial
+/// cropping reuses [`Crop`] on the owning [`ImageNode`]. Ignored (default)
+/// for non-video items.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VideoOpts {
+    /// Trim in-point, seconds.
+    pub start: f32,
+    /// Trim out-point, seconds. `None` = play to the end.
+    pub end: Option<f32>,
+    pub autoplay: bool,
+    pub looped: bool,
+    pub muted: bool,
+    pub controls: bool,
+}
+
+impl Default for VideoOpts {
+    fn default() -> Self {
+        Self {
+            start: 0.0,
+            end: None,
+            autoplay: true,
+            looped: true,
+            muted: true,
+            controls: false,
+        }
+    }
+}
+
+impl VideoOpts {
+    /// Whether the trim window is non-trivial (needs the `#t=` fragment).
+    pub fn is_trimmed(&self) -> bool {
+        self.start > 0.0 || self.end.is_some()
+    }
+
+    /// Clamped copy: non-negative start, end strictly after start (or None).
+    pub fn clamped(&self) -> VideoOpts {
+        let start = self.start.max(0.0);
+        let end = self.end.filter(|e| *e > start + 0.01);
+        VideoOpts {
+            start,
+            end,
+            ..*self
+        }
+    }
+}
+
 /// Never pixels — the pool item owns the file link.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageNode {
@@ -330,6 +379,24 @@ pub struct ImageNode {
     pub stroke: Stroke,
     #[serde(default)]
     pub adjust: ImageAdjust,
+    /// Playback settings when the linked item is a video; default otherwise.
+    #[serde(default)]
+    pub video: VideoOpts,
+}
+
+impl ImageNode {
+    /// A freshly-placed item: full crop, square corners, no stroke, identity
+    /// adjust, default playback.
+    pub fn new(item: ItemId) -> ImageNode {
+        ImageNode {
+            item,
+            crop: Crop::full(),
+            corner: Corner::Square,
+            stroke: Stroke::none(),
+            adjust: ImageAdjust::default(),
+            video: VideoOpts::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -692,13 +759,7 @@ mod tests {
         let frame_id = frame.id;
         let img = scene.build_node(
             WorldRect::new(100.0, 100.0, 200.0, 150.0),
-            NodeKind::Image(ImageNode {
-                item: ItemId(1),
-                crop: Crop::full(),
-                corner: Corner::Square,
-                stroke: Stroke::none(),
-                adjust: ImageAdjust::default(),
-            }),
+            NodeKind::Image(ImageNode::new(ItemId(1))),
         );
         let img_id = img.id;
         scene.apply(&SceneCmd::Add {
@@ -856,6 +917,49 @@ mod tests {
         let json = serde_json::to_string(&scene).unwrap();
         let back: Scene = serde_json::from_str(&json).unwrap();
         assert_eq!(scene, back);
+    }
+
+    #[test]
+    fn video_opts_clamp_and_trim() {
+        let v = VideoOpts::default();
+        assert!(!v.is_trimmed());
+
+        let v = VideoOpts {
+            start: -3.0,
+            end: Some(-1.0),
+            ..VideoOpts::default()
+        }
+        .clamped();
+        assert_eq!(v.start, 0.0);
+        assert_eq!(v.end, None);
+        assert!(!v.is_trimmed());
+
+        let v = VideoOpts {
+            start: 2.0,
+            end: Some(8.5),
+            ..VideoOpts::default()
+        }
+        .clamped();
+        assert!(v.is_trimmed());
+        assert_eq!(v.end, Some(8.5));
+
+        // End at/before start collapses to "play to end".
+        let v = VideoOpts {
+            start: 5.0,
+            end: Some(5.0),
+            ..VideoOpts::default()
+        }
+        .clamped();
+        assert_eq!(v.end, None);
+    }
+
+    #[test]
+    fn image_node_without_video_field_deserializes() {
+        // Pre-video documents omit the field entirely; must default cleanly.
+        let json = r#"{"item":7,"crop":{"x":0.0,"y":0.0,"w":1.0,"h":1.0}}"#;
+        let img: ImageNode = serde_json::from_str(json).unwrap();
+        assert_eq!(img.video, VideoOpts::default());
+        assert!(img.video.muted && img.video.autoplay);
     }
 
     #[test]
