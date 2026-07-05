@@ -2987,7 +2987,7 @@ impl AtlasApp {
         if di >= t.dirs.len() {
             return;
         }
-        let was_portal = t.dirs[di].is_portal(t.cfg);
+        let was_portal = t.shows_portal(di);
         let before = Pos2::new(t.dirs[di].x, t.dirs[di].y);
         let threshold = t.cfg.normalized().portal_threshold;
         match grip {
@@ -3333,7 +3333,7 @@ impl AtlasApp {
             painter.rect_filled(
                 sr,
                 CornerRadius::ZERO,
-                if d.is_portal(t.cfg) {
+                if t.shows_portal(di) {
                     p.portal.gamma_multiply(0.85)
                 } else {
                     p.accent.gamma_multiply(0.75)
@@ -3342,7 +3342,7 @@ impl AtlasApp {
             return;
         }
 
-        if d.is_portal(t.cfg) {
+        if t.shows_portal(di) {
             self.draw_portal(painter, t, di, sr, lod, requests);
             return;
         }
