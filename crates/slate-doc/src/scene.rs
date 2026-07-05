@@ -618,6 +618,35 @@ impl SceneJournal {
         true
     }
 
+    /// Records a command group that has *already been applied* to the scene
+    /// (live gestures — drag-move, inspector slider scrubs — mutate the scene
+    /// continuously and journal the net effect once, on release).
+    pub fn record(&mut self, cmds: Vec<SceneCmd>) {
+        if cmds.is_empty() {
+            return;
+        }
+        self.done.push(cmds);
+        self.undone.clear();
+    }
+
+    /// Coalesces continuous edits: when the newest journal entry is a single
+    /// patch of the same node, replace its `after` state instead of stacking
+    /// a new entry (slider scrubs become one undo step). Returns `false`
+    /// when the top entry doesn't match (caller should `record` instead).
+    pub fn amend_last_patch(&mut self, after: &Node) -> bool {
+        if let Some(group) = self.done.last_mut() {
+            if group.len() == 1 {
+                if let SceneCmd::Patch { after: a, .. } = &mut group[0] {
+                    if a.id == after.id {
+                        **a = after.clone();
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     pub fn undo(&mut self, scene: &mut Scene) -> bool {
         let Some(group) = self.done.pop() else {
             return false;

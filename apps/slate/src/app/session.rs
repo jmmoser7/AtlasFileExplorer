@@ -12,6 +12,15 @@ use atlas_session::{new_session, SessionTag, SessionTagGroup, SharedSession, Tag
 use eframe::egui;
 use slate_doc::TagId;
 
+/// Screen-space origin of the Slate window (for drag targeting).
+fn sess_window_origin(shared: &SharedSession) -> (f32, f32) {
+    shared
+        .lock()
+        .ok()
+        .and_then(|s| s.slate_window.map(|(x0, y0, _, _)| (x0, y0)))
+        .unwrap_or((0.0, 0.0))
+}
+
 pub struct AtlasSession {
     pub shared: SharedSession,
     pub atlas: Box<native_file_atlas::AtlasApp>,
@@ -126,7 +135,7 @@ impl SlateApp {
                         .screen_pos
                         .map(|(x, y)| s.point_in_slate(x, y))
                         .unwrap_or(false);
-                    drag_done = Some((drag.files.clone(), inside));
+                    drag_done = Some((drag.files.clone(), inside, drag.screen_pos));
                     s.drag = None;
                 }
             }
@@ -145,15 +154,31 @@ impl SlateApp {
             ctx.request_repaint();
         }
 
-        if let Some((files, inside)) = drag_done {
+        if let Some((files, inside, screen_pos)) = drag_done {
             if inside {
                 let n = files.len();
+                let mut ids = Vec::new();
                 for f in files {
-                    let id =
-                        self.doc_mut()
-                            .add_item(f.path, f.file_name, f.size, f.mtime, f.cache_key);
-                    // Dropped without tags: lands in the Uncategorized tray.
-                    let _ = id;
+                    // Dropped without tags: lands in the Uncategorized tray
+                    // (unless it hits a tagged frame on the board, below).
+                    ids.push(self.doc_mut().add_item(
+                        f.path,
+                        f.file_name,
+                        f.size,
+                        f.mtime,
+                        f.cache_key,
+                    ));
+                }
+                // On the board, also place the drop where it landed.
+                if self.doc().view.active_view == slate_doc::ViewKind::Board {
+                    let origin = sess_window_origin(&shared);
+                    let world = screen_pos
+                        .map(|(x, y)| {
+                            let local = egui::Pos2::new(x - origin.0, y - origin.1);
+                            self.board_xf().s2w(local)
+                        })
+                        .unwrap_or_else(|| self.tabs[self.active_tab].cam.offset.to_pos2());
+                    self.place_items_on_board(&ids, world);
                 }
                 self.toast(format!("{n} file(s) dropped from File Atlas"));
             }

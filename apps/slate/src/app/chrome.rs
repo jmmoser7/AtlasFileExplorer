@@ -14,12 +14,16 @@ pub enum ToolPanel {
     Workbook = 2,
     /// AI / Cursor integration (shared panel body from `atlas-ai`).
     Ai = 3,
+    /// Dynamic inspector: properties of the current board selection
+    /// (shape stroke/fill, image crop/adjust, text style, frame settings).
+    Selection = 4,
 }
 
 impl ToolPanel {
-    pub const ALL: [ToolPanel; 4] = [
+    pub const ALL: [ToolPanel; 5] = [
         ToolPanel::Tags,
         ToolPanel::Display,
+        ToolPanel::Selection,
         ToolPanel::Workbook,
         ToolPanel::Ai,
     ];
@@ -30,6 +34,7 @@ impl ToolPanel {
             ToolPanel::Display => "Display",
             ToolPanel::Workbook => "Workbook",
             ToolPanel::Ai => "AI",
+            ToolPanel::Selection => "Selection",
         }
     }
 }
@@ -67,7 +72,7 @@ impl From<ReadoutPanel> for usize {
 }
 
 /// Per-tab UI chrome configuration.
-pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<4, 2>;
+pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<5, 2>;
 
 /// App default: everything visible, the AI panel starts collapsed (it's the
 /// optional assistant toolbar, not part of the core tagging workflow).

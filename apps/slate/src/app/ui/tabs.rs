@@ -39,13 +39,20 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
         TopBarModel {
             app_title: "Slate",
             busy: app.picker_rx.is_some(),
-            // Undo journal lands with the Slate history feature; hidden for now.
-            can_undo: false,
-            can_redo: false,
+            // Board scene history (Ctrl+Z / Ctrl+Y).
+            can_undo: app.tab().journal.can_undo(),
+            can_redo: app.tab().journal.can_redo(),
             tabs: &specs,
             active_tab: app.active_tab,
         },
     );
+
+    if resp.undo_clicked {
+        app.board_undo();
+    }
+    if resp.redo_clicked {
+        app.board_redo();
+    }
 
     match resp.tab_action {
         Some(TabAction::Switch(i)) => app.switch_tab(i),

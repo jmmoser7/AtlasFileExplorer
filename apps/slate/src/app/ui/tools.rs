@@ -48,6 +48,9 @@ pub fn left_panel(app: &mut SlateApp, ctx: &egui::Context) {
             if chrome.tool(ToolPanel::Display) {
                 display_panel(app, ui, theme);
             }
+            if chrome.tool(ToolPanel::Selection) {
+                super::inspector::selection_panel(app, ui, theme);
+            }
             if chrome.tool(ToolPanel::Workbook) {
                 workbook_panel(app, ui, theme);
             }
@@ -294,6 +297,19 @@ fn display_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         let current = app.doc().view.active_view;
         if sidebar_mode_row(
             ui,
+            current == ViewKind::Board,
+            "Board",
+            "open-world canvas",
+            "An authored canvas: slide frames, shapes, text, and freely placed \
+             images. Presents as slides and exports an HTML artifact.",
+            theme,
+        )
+        .clicked()
+        {
+            app.doc_mut().view.active_view = ViewKind::Board;
+        }
+        if sidebar_mode_row(
+            ui,
             current == ViewKind::Grid,
             "Grid",
             "grouped by tags",
@@ -388,6 +404,25 @@ fn workbook_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         {
             app.add_files_dialog();
         }
+    });
+
+    sidebar_subtle_divider(ui, theme);
+    sidebar_region(ui, "Artifact", theme, |ui| {
+        if ui
+            .button("Export artifact…")
+            .on_hover_text(
+                "Write the board as an HTML slide deck (Ctrl+E). Frames become \
+                 slides; what you see on the board is what the file shows.",
+            )
+            .clicked()
+        {
+            app.export_artifact_dialog();
+        }
+        ui.checkbox(&mut app.export_inline, "Single file (inline assets)")
+            .on_hover_text(
+                "Embed images as base64 inside index.html — one portable file, \
+                 larger size — instead of an assets/ folder.",
+            );
     });
 
     sidebar_subtle_divider(ui, theme);

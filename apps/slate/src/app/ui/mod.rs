@@ -2,6 +2,7 @@
 //! `atlas-shell` chrome (which owns all painting).
 
 mod advanced;
+mod inspector;
 mod readouts;
 mod tabs;
 mod tools;

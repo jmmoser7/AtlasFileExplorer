@@ -10,6 +10,7 @@ atlas-shell = { workspace = true }
 atlas-session = { workspace = true }
 atlas-ai = { workspace = true }
 slate-doc = { workspace = true }
+slate-artifact = { workspace = true }
 circle-pack = { workspace = true }
 native-file-atlas = { workspace = true }
 eframe = { workspace = true }

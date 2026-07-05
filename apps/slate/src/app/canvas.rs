@@ -280,7 +280,7 @@ impl SlateApp {
         self.tab_mut().cam.offset = world_before.to_vec2() - (pointer - center) / cam_z;
     }
 
-    fn open_path(path: &std::path::Path) {
+    pub(crate) fn open_path(path: &std::path::Path) {
         #[cfg(windows)]
         {
             let _ = std::process::Command::new("cmd")
@@ -302,6 +302,14 @@ impl SlateApp {
         let palette = self.palette();
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, palette.bg);
+
+        // The Board is the authored open-world canvas; it owns its own
+        // input/paint loop (see `board.rs`).
+        if self.doc().view.active_view == ViewKind::Board {
+            self.paint_dot_grid(&painter, rect, &palette);
+            self.board_canvas(ui, rect);
+            return;
+        }
 
         if self.doc().items.is_empty() && self.doc().groups.is_empty() {
             self.welcome(ui, rect);
@@ -752,6 +760,12 @@ impl SlateApp {
                         ui.add_space(2.0);
                     }
                     ui.separator();
+                    if ui.button("Place on board").clicked() {
+                        let center = self.tab().cam.offset.to_pos2();
+                        self.place_items_on_board(&targets, center);
+                        self.doc_mut().view.active_view = ViewKind::Board;
+                        close = true;
+                    }
                     if ui.button("Remove from workbook").clicked() {
                         for t in &targets {
                             self.doc_mut().remove_item(*t);

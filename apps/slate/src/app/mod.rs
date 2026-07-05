@@ -12,7 +12,8 @@ use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
 use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
 use crossbeam_channel::{unbounded, Receiver};
 use eframe::egui::{self, Rect, TextureHandle, Vec2};
-use slate_doc::{GroupId, ItemId, SlateDoc, TagId, SLATE_EXTENSION};
+use slate_doc::scene::SceneJournal;
+use slate_doc::{GroupId, ItemId, NodeId, SlateDoc, TagId, ViewKind, SLATE_EXTENSION};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -74,6 +75,8 @@ pub struct SlateTab {
     pub cam: Camera,
     /// Tags currently focused for the Venn presentation (empty = all).
     pub venn_focus: HashSet<TagId>,
+    /// Board undo/redo history (session-local, not saved with the doc).
+    pub journal: SceneJournal,
 }
 
 impl SlateTab {
@@ -87,6 +90,7 @@ impl SlateTab {
             chrome: chrome::default_chrome(),
             cam: Camera::default(),
             venn_focus: HashSet::new(),
+            journal: SceneJournal::default(),
         }
     }
 
@@ -113,8 +117,19 @@ impl SlateTab {
 /// Async results from native file dialogs (spawned threads, like Atlas).
 pub enum PickerMsg {
     OpenDoc(Option<PathBuf>),
-    SaveDocAs { tab_id: u64, path: Option<PathBuf> },
+    SaveDocAs {
+        tab_id: u64,
+        path: Option<PathBuf>,
+    },
     AddFiles(Option<Vec<PathBuf>>),
+    /// Files picked from a frame's "Add images…" — placed inside the frame
+    /// and inheriting its tags.
+    AddToFrame {
+        frame: NodeId,
+        paths: Option<Vec<PathBuf>>,
+    },
+    /// Folder picked for "Export artifact…".
+    ExportArtifact(Option<PathBuf>),
 }
 
 pub enum ThumbState {
@@ -157,6 +172,27 @@ pub struct SlateApp {
     /// (shared plumbing and panel body from `atlas-ai`).
     pub ai: atlas_ai::AiPanel,
 
+    // ----- board (authored canvas) state -----
+    /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
+    pub board_sel: HashSet<NodeId>,
+    pub board_tool: board::BoardTool,
+    pub board_drag: Option<board::BoardDrag>,
+    /// Inline text editing: (node, live buffer).
+    pub text_edit: Option<(NodeId, String)>,
+    /// Board right-click menu: (node, screen position).
+    pub board_menu: Option<(NodeId, egui::Pos2)>,
+    pub presenting: Option<present::Present>,
+    /// Retained source pixels for board images (needed to apply filters).
+    pub thumb_pixels: HashMap<String, egui::ColorImage>,
+    /// Adjusted-texture cache keyed by (cache_key, adjust hash).
+    pub fx_textures: HashMap<(String, u64), TextureHandle>,
+    /// Export artifact with base64-inlined assets (single portable file).
+    pub export_inline: bool,
+    /// Coalescing anchor for continuous board edits (node, last edit time).
+    pub last_board_edit: Option<(NodeId, Instant)>,
+    /// Alt modifier state this frame (Alt-drag duplicates).
+    pub alt_down: bool,
+
     frame_no: u64,
 }
 
@@ -171,6 +207,7 @@ impl SlateApp {
     fn with_ctx(egui_ctx: &egui::Context, initial_doc: Option<PathBuf>) -> Self {
         egui_ctx.set_theme(egui::ThemePreference::Dark);
         egui_ctx.set_visuals(dark_visuals());
+        Self::install_fonts(egui_ctx);
         let mut app = SlateApp {
             thumbs: ThumbPool::new(),
             tabs: vec![SlateTab::empty()],
@@ -190,6 +227,17 @@ impl SlateApp {
             tag_color_cursor: 0,
             atlas: None,
             ai: atlas_ai::AiPanel::new(),
+            board_sel: HashSet::new(),
+            board_tool: board::BoardTool::default(),
+            board_drag: None,
+            text_edit: None,
+            board_menu: None,
+            presenting: None,
+            thumb_pixels: HashMap::new(),
+            fx_textures: HashMap::new(),
+            export_inline: false,
+            last_board_edit: None,
+            alt_down: false,
             frame_no: 0,
         };
         app.thumbs.retain_generation(THUMB_GENERATION);
@@ -198,6 +246,24 @@ impl SlateApp {
             app.open_doc_at(path);
         }
         app
+    }
+
+    /// Register the bundled serif face so text nodes get a real serif preview
+    /// (`FontChoice::Serif` → the "slate-serif" family; the HTML artifact maps
+    /// it to a serif CSS stack).
+    fn install_fonts(ctx: &egui::Context) {
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "slate-serif".into(),
+            std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+                "../../assets/fonts/DejaVuSerif.ttf"
+            ))),
+        );
+        fonts.families.insert(
+            egui::FontFamily::Name("slate-serif".into()),
+            vec!["slate-serif".into()],
+        );
+        ctx.set_fonts(fonts);
     }
 
     pub fn palette(&self) -> Palette {
@@ -467,6 +533,9 @@ impl SlateApp {
                 Some((w, h, rgba)) => {
                     let img =
                         egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+                    // Retain source pixels so board image adjustments (CSS
+                    // filter math) can re-render without re-decoding.
+                    self.thumb_pixels.insert(key.clone(), img.clone());
                     let tex = ctx.load_texture(
                         format!("slate-thumb-{key}"),
                         img,
@@ -478,6 +547,43 @@ impl SlateApp {
             };
             self.textures.insert(key, state);
             ctx.request_repaint();
+        }
+    }
+
+    // ----- artifact export ------------------------------------------------------
+
+    /// Write the HTML artifact into `<dir>/<workbook>-slides/`.
+    fn do_export(&mut self, dir: PathBuf) {
+        let safe: String = self
+            .doc()
+            .name
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let out = dir.join(format!("{}-slides", safe.trim_matches('-')));
+        let opts = slate_artifact::ExportOptions {
+            inline_assets: self.export_inline,
+        };
+        match slate_artifact::export_html(self.doc(), &out, &opts) {
+            Ok(rep) => {
+                let missing = if rep.missing_assets > 0 {
+                    format!(" · {} missing file(s)", rep.missing_assets)
+                } else {
+                    String::new()
+                };
+                self.toast(format!(
+                    "Artifact exported — {} slide(s), {} asset(s){missing}",
+                    rep.slides, rep.assets_copied
+                ));
+                Self::open_path(&out);
+            }
+            Err(e) => self.toast(format!("Export failed: {e}")),
         }
     }
 
@@ -497,6 +603,14 @@ impl SlateApp {
                     PickerMsg::AddFiles(Some(paths)) => {
                         self.add_paths(&paths);
                     }
+                    PickerMsg::AddToFrame {
+                        frame,
+                        paths: Some(paths),
+                    } => {
+                        let items = self.add_paths(&paths);
+                        self.place_items_in_frame(frame, &items);
+                    }
+                    PickerMsg::ExportArtifact(Some(dir)) => self.do_export(dir),
                     _ => {}
                 }
             }
@@ -506,7 +620,13 @@ impl SlateApp {
     }
 
     fn hotkeys(&mut self, ctx: &egui::Context) {
+        // Presentation mode owns the keyboard (handled in present_frame).
+        if self.presenting.is_some() {
+            return;
+        }
         let wants_kb = ctx.wants_keyboard_input();
+        let board = self.doc().view.active_view == ViewKind::Board;
+        let editing = self.text_edit.is_some();
         ctx.input(|i| {
             if i.modifiers.ctrl && !wants_kb {
                 if i.key_pressed(egui::Key::O) {
@@ -522,14 +642,90 @@ impl SlateApp {
                 if i.key_pressed(egui::Key::T) {
                     self.new_tab();
                 }
+                if i.key_pressed(egui::Key::E) {
+                    self.export_artifact_dialog();
+                }
+                if i.key_pressed(egui::Key::Z) {
+                    if i.modifiers.shift {
+                        self.board_redo();
+                    } else {
+                        self.board_undo();
+                    }
+                }
+                if i.key_pressed(egui::Key::Y) {
+                    self.board_redo();
+                }
                 if i.key_pressed(egui::Key::A) {
-                    let all: Vec<ItemId> = self.doc().items.iter().map(|it| it.id).collect();
-                    self.selection = all.into_iter().collect();
+                    if board {
+                        self.board_sel = self.doc().scene.nodes.iter().map(|n| n.id).collect();
+                    } else {
+                        let all: Vec<ItemId> = self.doc().items.iter().map(|it| it.id).collect();
+                        self.selection = all.into_iter().collect();
+                    }
+                }
+                if i.key_pressed(egui::Key::D) && board && !self.board_sel.is_empty() {
+                    let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
+                    self.duplicate_board_nodes(&ids, 24.0, 24.0);
+                }
+            }
+            if i.key_pressed(egui::Key::F5) {
+                self.start_present(None);
+            }
+            if board && !wants_kb && !editing && !i.modifiers.ctrl {
+                // Tool keys (match the board toolbar hints).
+                if i.key_pressed(egui::Key::V) {
+                    self.board_tool = board::BoardTool::Select;
+                }
+                if i.key_pressed(egui::Key::F) {
+                    self.board_tool = board::BoardTool::Frame;
+                }
+                if i.key_pressed(egui::Key::R) {
+                    self.board_tool = board::BoardTool::RectShape;
+                }
+                if i.key_pressed(egui::Key::O) {
+                    self.board_tool = board::BoardTool::Ellipse;
+                }
+                if i.key_pressed(egui::Key::L) {
+                    self.board_tool = board::BoardTool::Line;
+                }
+                if i.key_pressed(egui::Key::T) {
+                    self.board_tool = board::BoardTool::Text;
+                }
+                if i.key_pressed(egui::Key::Home) {
+                    self.fit_board();
+                }
+                if (i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+                    && !self.board_sel.is_empty()
+                {
+                    let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
+                    self.delete_board_nodes(&ids);
+                }
+                // Arrow nudge (Shift = 10 world units).
+                let step = if i.modifiers.shift { 10.0 } else { 1.0 };
+                let (mut dx, mut dy) = (0.0f32, 0.0f32);
+                if i.key_pressed(egui::Key::ArrowLeft) {
+                    dx -= step;
+                }
+                if i.key_pressed(egui::Key::ArrowRight) {
+                    dx += step;
+                }
+                if i.key_pressed(egui::Key::ArrowUp) {
+                    dy -= step;
+                }
+                if i.key_pressed(egui::Key::ArrowDown) {
+                    dy += step;
+                }
+                if (dx != 0.0 || dy != 0.0) && !self.board_sel.is_empty() {
+                    let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
+                    self.patch_nodes(&ids, |n| n.rect = n.rect.translated(dx, dy));
                 }
             }
             if i.key_pressed(egui::Key::Escape) {
                 self.selection.clear();
                 self.new_tag_edit = None;
+                self.board_sel.clear();
+                self.board_menu = None;
+                self.board_tool = board::BoardTool::Select;
             }
         });
     }
@@ -537,13 +733,16 @@ impl SlateApp {
     /// One full UI frame (split out for testability, mirroring Atlas).
     pub fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
+        self.alt_down = ctx.input(|i| i.modifiers.alt);
         self.drain_pickers();
         self.drain_thumbs(ctx);
         self.session_frame(ctx);
         self.ai.poll();
         self.ai_context_frame();
 
-        // Dropped files land in the active workbook, uncategorized.
+        // Dropped files land in the active workbook, uncategorized. On the
+        // board they're also placed at the drop point; landing on a tagged
+        // frame assigns its tags.
         let dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw
                 .dropped_files
@@ -552,7 +751,14 @@ impl SlateApp {
                 .collect()
         });
         if !dropped.is_empty() {
-            self.add_paths(&dropped);
+            let items = self.add_paths(&dropped);
+            if self.doc().view.active_view == ViewKind::Board && !items.is_empty() {
+                let at = ctx
+                    .input(|i| i.pointer.hover_pos())
+                    .map(|p| self.board_xf().s2w(p))
+                    .unwrap_or_else(|| self.tab().cam.offset.to_pos2());
+                self.place_items_on_board(&items, at);
+            }
         }
 
         self.hotkeys(ctx);
@@ -567,6 +773,8 @@ impl SlateApp {
         });
 
         self.draw_toasts(ctx);
+        // Presentation overlay paints above everything, last.
+        self.present_frame(ctx);
         if self.ai.picker_pending() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }

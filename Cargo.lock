@@ -3218,6 +3218,7 @@ dependencies = [
  "native-file-atlas",
  "rfd",
  "serde_json",
+ "slate-artifact",
  "slate-doc",
  "winresource",
 ]
