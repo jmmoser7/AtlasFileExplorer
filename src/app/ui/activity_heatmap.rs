@@ -157,25 +157,27 @@ pub fn draw_activity_heatmap(
     let grid_w = weeks as f32 * (CELL + GAP) - GAP;
     let grid_h = 7.0 * (CELL + GAP) - GAP;
     let legend_h = CELL + 6.0;
-    let total_w = DAY_LABEL_W + grid_w;
-    let total_h = MONTH_LABEL_H + grid_h + legend_h;
+    let content_w = DAY_LABEL_W + grid_w;
+    let content_h = MONTH_LABEL_H + grid_h + legend_h;
 
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(format!(
-                "{source_label} · {} files · {date_field_label}",
-                heatmap.total_files
-            ))
-            .small()
-            .color(Color32::from_gray(130)),
-        );
-    });
+    ui.label(
+        RichText::new(format!(
+            "{source_label} · {} files · {date_field_label}",
+            heatmap.total_files
+        ))
+        .small()
+        .color(Color32::from_gray(130)),
+    );
+    ui.add_space(2.0);
 
     egui::ScrollArea::horizontal()
         .id_salt("activity_heatmap_scroll")
         .show(ui, |ui| {
-            let (rect, resp) =
-                ui.allocate_exact_size(Vec2::new(total_w.max(ui.available_width()), total_h), Sense::hover());
+            let viewport_w = ui.available_width().max(48.0);
+            let (rect, resp) = ui.allocate_exact_size(
+                Vec2::new(content_w.max(viewport_w), content_h),
+                Sense::hover(),
+            );
             let painter = ui.painter_at(rect);
             let origin = rect.min + Vec2::new(DAY_LABEL_W, MONTH_LABEL_H);
 

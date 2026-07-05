@@ -10,7 +10,7 @@ Read `src/app/ARCHITECTURE.md` before UI changes. Module boundaries:
 |------|---------|--------------------------|
 | Tab chrome | `src/app/ui/tabs.rs` | Yes |
 | Left tools rail | `src/app/ui/tools.rs`, `chrome.rs` | Yes |
-| Bottom readouts | `src/app/ui/readouts.rs` | Yes |
+| Bottom readouts | `src/app/ui/readouts.rs`, `readout_dashboard.rs` | Yes — see `src/app/ui/READOUTS.md` for sub-dashboard capsule rules |
 | Advanced window | `src/app/ui/advanced.rs` | Yes |
 | Commands / shortcuts | `src/app/commands.rs` | Yes — read `src/app/COMMANDS.md` |
 | Tree layout / hit-test | `src/tree.rs` | Yes |
@@ -19,6 +19,11 @@ Read `src/app/ARCHITECTURE.md` before UI changes. Module boundaries:
 | Scanner / index | `src/scanner.rs`, `src/index.rs` | Yes |
 
 Prefer small, focused PRs on one module. Match existing naming and egui patterns.
+
+**Bottom sub-dashboards:** New readout panels that occupy the strip above the
+metrics ticker must use `readout_dashboard_capsule` (`readout_dashboard.rs`) —
+bordered 6px capsule, header `+`/`−` toggle, left/right edge resize. Do not
+embed custom frames in panel body modules. See `src/app/ui/READOUTS.md`.
 
 ## Commands & shortcuts
 

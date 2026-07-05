@@ -2,10 +2,23 @@
 
 use super::super::{AtlasApp, DateFilterField, ScanMode};
 use super::activity_heatmap::{draw_activity_heatmap, ActivityHeatmap};
+use super::readout_dashboard::{
+    readout_dashboard_capsule, ReadoutDashboardTheme, ReadoutDashboardTokens,
+};
 use super::widgets::{gear_menu, group_digits};
 use crate::app::chrome::ReadoutPanel;
 use crate::types::human_size;
-use eframe::egui::{self, Color32};
+use eframe::egui::{self, Color32, Id};
+
+fn readout_theme(app: &AtlasApp) -> ReadoutDashboardTheme {
+    let p = app.palette();
+    ReadoutDashboardTheme {
+        card: p.card,
+        border: p.border,
+        ink: p.ink,
+        sub: p.sub,
+    }
+}
 
 fn readouts_gear(app: &mut AtlasApp, ui: &mut egui::Ui) {
     gear_menu(ui, "readouts_gear", |ui| {
@@ -139,6 +152,42 @@ fn metrics_row(app: &mut AtlasApp, ui: &mut egui::Ui) {
                 .color(Color32::from_gray(110)),
         );
     }
+}
+
+fn sub_dashboard_strip(app: &mut AtlasApp, ui: &mut egui::Ui) {
+    let theme = readout_theme(app);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = ReadoutDashboardTokens::STRIP_GAP;
+
+        if app.active_chrome().readout(ReadoutPanel::ActivityHeatmap)
+            && app.root.is_some()
+            && app.scan_ui.is_none()
+        {
+            let panel = ReadoutPanel::ActivityHeatmap;
+            let mut expanded = app.active_chrome().readout_expanded(panel);
+            let mut width_frac = app.active_chrome().readout_width_frac(panel);
+            let heatmap = ActivityHeatmap::from_timestamps(app.activity_timestamps());
+            let date_label = date_field_label(app.date_field);
+            let source_label = activity_source_label(app);
+            let dark = app.dark_mode;
+
+            readout_dashboard_capsule(
+                ui,
+                Id::new("readout_activity_heatmap"),
+                panel.dashboard_title(),
+                &mut expanded,
+                &mut width_frac,
+                theme,
+                |ui| {
+                    draw_activity_heatmap(ui, &heatmap, date_label, source_label, dark);
+                },
+            );
+            app.active_chrome_mut()
+                .set_readout_expanded(panel, expanded);
+            app.active_chrome_mut()
+                .set_readout_width_frac(panel, width_frac);
+        }
+    });
 }
 
 /// Temporary dashboard shown only while an explicit pre-warm run is active
@@ -332,48 +381,46 @@ fn fmt_secs(s: u64) -> String {
     }
 }
 
+fn any_sub_dashboard(app: &AtlasApp) -> bool {
+    app.active_chrome().readout(ReadoutPanel::ActivityHeatmap)
+        && app.root.is_some()
+        && app.scan_ui.is_none()
+}
+
 pub fn status_bar(app: &mut AtlasApp, ctx: &egui::Context) {
     let show_metrics = app.active_chrome().readout(ReadoutPanel::Metrics);
-    let show_heatmap = app.active_chrome().readout(ReadoutPanel::ActivityHeatmap);
-    if !show_metrics && !show_heatmap && app.root.is_none() {
+    let show_sub = any_sub_dashboard(app);
+    if !show_metrics && !show_sub && app.root.is_none() {
         return;
     }
 
     egui::TopBottomPanel::bottom("readouts").show(ctx, |ui| {
+        // Sub-dashboard strip sits above the metrics ticker.
+        if show_sub {
+            ui.add_space(4.0);
+            sub_dashboard_strip(app, ui);
+            ui.add_space(2.0);
+        }
+
+        // Metrics ticker — absolute bottom of the readout panel.
         ui.add_space(3.0);
-        ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
-            ui.horizontal(|ui| {
-                readouts_gear(app, ui);
-                ui.separator();
+        ui.horizontal(|ui| {
+            readouts_gear(app, ui);
+            ui.separator();
 
-                if show_metrics {
-                    metrics_row(app, ui);
-                }
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(root) = &app.root {
-                        ui.label(
-                            egui::RichText::new(root.to_string_lossy())
-                                .small()
-                                .color(Color32::from_gray(120)),
-                        );
-                    }
-                });
-            });
-
-            if show_heatmap && app.root.is_some() && app.scan_ui.is_none() {
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(2.0);
-                let heatmap = ActivityHeatmap::from_timestamps(app.activity_timestamps());
-                draw_activity_heatmap(
-                    ui,
-                    &heatmap,
-                    date_field_label(app.date_field),
-                    activity_source_label(app),
-                    app.dark_mode,
-                );
+            if show_metrics {
+                metrics_row(app, ui);
             }
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some(root) = &app.root {
+                    ui.label(
+                        egui::RichText::new(root.to_string_lossy())
+                            .small()
+                            .color(Color32::from_gray(120)),
+                    );
+                }
+            });
         });
         ui.add_space(3.0);
     });

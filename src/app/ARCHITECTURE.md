@@ -17,7 +17,7 @@ Everything below the tab bar belongs to the **active tab** (`TabState`):
 |--------|--------|------|
 | Left tools rail | `ui/tools.rs` | Filters, display settings, workflow, tags — actions on the canvas. See `ui/SIDEBAR.md` for panel layout rules. |
 | Canvas | `mod.rs` (`canvas`) | Infinite map, selection, thumbnails |
-| Bottom readouts | `ui/readouts.rs` | Metrics, scan progress, cache status — read-only |
+| Bottom readouts | `ui/readouts.rs` | Metrics ticker (bottom) + sub-dashboard strip above. See `ui/READOUTS.md` |
 | Pre-warm dashboard | `ui/readouts.rs` (`prewarm_dashboard`) | Temporary panel above the readouts while a pre-warm runs: discovery, progress, speed control, cancel |
 | Staging tray | `mod.rs` (`bottom_tray`) | Assignments / export (appears when needed) |
 | Advanced | `ui/advanced.rs` | Floating window (pre-warm, shared cache, commands reference) — opened from tools gear |
@@ -32,7 +32,8 @@ multi-tab filter memory is needed.
 - `ToolPanel` — register a new left-rail panel in the enum, add a `default_on`
   policy, implement a section in `ui/tools.rs`, wire the gear menu (automatic
   via `ToolPanel::ALL`).
-- `ReadoutPanel` — same pattern in `ui/readouts.rs`.
+- `ReadoutPanel` — same pattern in `ui/readouts.rs`; sub-dashboard capsules use
+  `readout_dashboard.rs` (see `ui/READOUTS.md`).
 
 ## Backend (unchanged boundaries)
 

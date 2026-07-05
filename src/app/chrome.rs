@@ -64,6 +64,32 @@ impl ReadoutPanel {
             ReadoutPanel::ActivityHeatmap => true,
         }
     }
+
+    pub fn default_expanded(self) -> bool {
+        match self {
+            ReadoutPanel::Metrics => true,
+            ReadoutPanel::ActivityHeatmap => true,
+        }
+    }
+
+    pub fn default_width_frac(self) -> f32 {
+        match self {
+            ReadoutPanel::Metrics => 1.0,
+            ReadoutPanel::ActivityHeatmap => 0.62,
+        }
+    }
+
+    /// Short title for the capsule header (sub-dashboards only).
+    pub fn dashboard_title(self) -> &'static str {
+        match self {
+            ReadoutPanel::Metrics => "Metrics",
+            ReadoutPanel::ActivityHeatmap => "Activity",
+        }
+    }
+
+    pub fn is_sub_dashboard(self) -> bool {
+        !matches!(self, ReadoutPanel::Metrics)
+    }
 }
 
 /// Per-tab UI chrome configuration (nested inside the active tab's workspace).
@@ -73,6 +99,10 @@ pub struct ChromeConfig {
     /// Within-section expand/collapse (gear menu still controls overall visibility).
     pub tools_expanded: [bool; 4],
     pub readouts: [bool; 2],
+    /// Sub-dashboard body expand/collapse (metrics ticker ignores this).
+    pub readouts_expanded: [bool; 2],
+    /// Sub-dashboard width as a fraction of the bottom bar (metrics ignores this).
+    pub readout_width_frac: [f32; 2],
     /// Advanced tools (pre-warm, shared cache path) — floating window, not a rail panel.
     pub advanced_open: bool,
 }
@@ -91,10 +121,20 @@ impl Default for ChromeConfig {
         for p in ReadoutPanel::ALL {
             readouts[p as usize] = p.default_on();
         }
+        let mut readouts_expanded = [false; 2];
+        for p in ReadoutPanel::ALL {
+            readouts_expanded[p as usize] = p.default_expanded();
+        }
+        let mut readout_width_frac = [0.0f32; 2];
+        for p in ReadoutPanel::ALL {
+            readout_width_frac[p as usize] = p.default_width_frac();
+        }
         Self {
             tools,
             tools_expanded,
             readouts,
+            readouts_expanded,
+            readout_width_frac,
             advanced_open: false,
         }
     }
@@ -123,5 +163,21 @@ impl ChromeConfig {
 
     pub fn set_readout(&mut self, panel: ReadoutPanel, on: bool) {
         self.readouts[panel as usize] = on;
+    }
+
+    pub fn readout_expanded(&self, panel: ReadoutPanel) -> bool {
+        self.readouts_expanded[panel as usize]
+    }
+
+    pub fn set_readout_expanded(&mut self, panel: ReadoutPanel, expanded: bool) {
+        self.readouts_expanded[panel as usize] = expanded;
+    }
+
+    pub fn readout_width_frac(&self, panel: ReadoutPanel) -> f32 {
+        self.readout_width_frac[panel as usize]
+    }
+
+    pub fn set_readout_width_frac(&mut self, panel: ReadoutPanel, frac: f32) {
+        self.readout_width_frac[panel as usize] = frac;
     }
 }

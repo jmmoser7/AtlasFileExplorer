@@ -3,6 +3,7 @@
 
 mod activity_heatmap;
 mod advanced;
+mod readout_dashboard;
 mod readouts;
 mod sidebar;
 mod tabs;
