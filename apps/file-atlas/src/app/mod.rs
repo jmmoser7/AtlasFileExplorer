@@ -2866,7 +2866,7 @@ impl AtlasApp {
         if di >= t.dirs.len() {
             return;
         }
-        let was_portal = t.dirs[di].is_portal(t.cfg);
+        let was_portal = t.shows_portal(di);
         let before = Pos2::new(t.dirs[di].x, t.dirs[di].y);
         let threshold = t.cfg.normalized().portal_threshold;
         match grip {
@@ -3208,13 +3208,11 @@ impl AtlasApp {
         let sr = self.w2s_rect(d.rect());
         let hovered = self.hovered_dir == Some(di as u32);
 
-        let portal_card = d.is_portal(t.cfg) && !self.structure_only;
-
         if lod == 0 {
             painter.rect_filled(
                 sr,
                 CornerRadius::ZERO,
-                if portal_card {
+                if t.shows_portal(di) {
                     p.portal.gamma_multiply(0.85)
                 } else {
                     p.accent.gamma_multiply(0.75)
@@ -3223,7 +3221,7 @@ impl AtlasApp {
             return;
         }
 
-        if portal_card {
+        if t.shows_portal(di) {
             self.draw_portal(painter, t, di, sr, lod, requests);
             return;
         }

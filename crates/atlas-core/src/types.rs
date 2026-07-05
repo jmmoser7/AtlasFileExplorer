@@ -490,6 +490,7 @@ impl FileEntry {
 
 pub const SECS_PER_DAY: i64 = 86_400;
 pub const SECS_PER_HOUR: i64 = 3_600;
+pub const SECS_PER_MINUTE: i64 = 60;
 
 /// Days since Unix epoch (UTC, day precision).
 pub fn day_index(secs: i64) -> i64 {
@@ -548,7 +549,7 @@ pub fn timeline_tick_label(secs: i64, step_secs: i64) -> String {
         return format!("{h:02}:00");
     }
     let h = (secs - day_start(secs)) / SECS_PER_HOUR;
-    let min = (secs % SECS_PER_HOUR) / 60;
+    let min = (secs % SECS_PER_HOUR) / SECS_PER_MINUTE;
     format!("{h:02}:{min:02}")
 }
 
@@ -659,11 +660,10 @@ mod tests {
     fn timeline_tick_label_scales_with_step() {
         let noon = day_start(20_000) + 12 * SECS_PER_HOUR;
         assert_eq!(timeline_tick_label(noon, SECS_PER_HOUR), "12:00");
-        assert!(
-            timeline_tick_label(noon, 365 * SECS_PER_DAY)
-                .chars()
-                .count()
-                <= 4
+        assert_eq!(
+            timeline_tick_label(noon + 15 * SECS_PER_MINUTE, 15 * SECS_PER_MINUTE),
+            "12:15"
         );
+        assert_eq!(timeline_tick_label(noon, 365 * SECS_PER_DAY), "1970");
     }
 }

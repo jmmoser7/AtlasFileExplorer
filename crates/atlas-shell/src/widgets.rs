@@ -2,7 +2,8 @@
 
 use crate::sidebar::SidebarTheme;
 use atlas_core::types::{
-    snap_to_step, timeline_range_caption, timeline_tick_label, SECS_PER_DAY, SECS_PER_HOUR,
+    day_start, hour_start, snap_to_step, timeline_range_caption, timeline_tick_label, SECS_PER_DAY,
+    SECS_PER_HOUR, SECS_PER_MINUTE,
 };
 use eframe::egui::{
     self, Color32, CornerRadius, FontId, Id, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2,
@@ -66,6 +67,11 @@ pub fn thin_sidebar_slider(
     *value != before
 }
 
+/// Minimum visible span when fully zoomed in (30 minutes).
+const TIMELINE_MIN_VIEW_SECS: f64 = 30.0 * SECS_PER_MINUTE as f64;
+/// Inset from each handle center where the range grip begins (px).
+const TIMELINE_HANDLE_GRIP_INSET: f32 = 8.0;
+
 #[derive(Clone, Copy)]
 struct TimelineView {
     view_lo: f64,
@@ -115,26 +121,30 @@ pub fn sidebar_date_timeline(
     let width = ui.available_width().max(48.0);
     let (block, block_resp) = ui.allocate_exact_size(Vec2::new(width, total_h), Sense::hover());
     let block_resp = block_resp.on_hover_text(
-        "Scroll to zoom · drag background to pan · double-click to fit · drag handles to filter",
+        "Ctrl + scroll to zoom around cursor · drag background to pan · double-click to fit · \
+         drag handles to filter · drag between handles to scrub the range",
     );
 
-    let visible = (view.view_hi - view.view_lo).max(SECS_PER_HOUR as f64 / 4.0);
+    let visible = (view.view_hi - view.view_lo).max(TIMELINE_MIN_VIEW_SECS);
     let snap_secs = snap_unit(visible);
     let tick_step = tick_step_secs(visible, block.width());
 
-    // --- zoom (scroll wheel) ---
+    // --- zoom (Ctrl + scroll wheel) ---
     if block_resp.hovered() {
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.raw_scroll_delta.y);
-        if scroll.abs() > 0.0 {
+        let (scroll, ctrl) = ui.input(|i| {
+            (
+                i.smooth_scroll_delta.y + i.raw_scroll_delta.y,
+                i.modifiers.ctrl,
+            )
+        });
+        if ctrl && scroll.abs() > 0.0 {
             let pointer = ui
                 .input(|i| i.pointer.hover_pos())
                 .unwrap_or(block.center());
             let anchor_t = time_at_x(pointer.x, block, view.view_lo, view.view_hi);
             let factor = 1.15_f64.powf(-scroll as f64 * 0.05);
             let mut new_w = visible * factor;
-            let min_w = SECS_PER_HOUR as f64;
-            let max_w = span_secs;
-            new_w = new_w.clamp(min_w, max_w);
+            new_w = new_w.clamp(TIMELINE_MIN_VIEW_SECS, span_secs);
             let rel = if visible > 0.0 {
                 (anchor_t - view.view_lo) / visible
             } else {
@@ -196,12 +206,14 @@ pub fn sidebar_date_timeline(
 
     // --- handles ---
     let mut handles = [*range_lo, *range_hi];
+    let mut handle_active = [false; 2];
     for (i, handle) in handles.iter_mut().enumerate() {
         let handle_id = id.with("handle").with(i);
         let x = time_to_x(*handle as f64, block, view.view_lo, view.view_hi);
         let center = Pos2::new(x, rail_mid);
         let handle_rect = Rect::from_center_size(center, Vec2::splat(12.0));
         let resp = ui.interact(handle_rect, handle_id, Sense::drag());
+        handle_active[i] = resp.hovered() || resp.dragged();
         if resp.dragged() {
             let pointer = ui.input(|inp| inp.pointer.latest_pos()).unwrap_or(center);
             let t = time_at_x(pointer.x, block, view.view_lo, view.view_hi);
@@ -211,12 +223,52 @@ pub fn sidebar_date_timeline(
         painter.circle_filled(
             center,
             4.5,
-            if resp.hovered() || resp.dragged() {
+            if handle_active[i] {
                 theme.ink
             } else {
                 theme.sub
             },
         );
+    }
+
+    // --- range grip (scrub both handles, preserving separation) ---
+    let lo = handles[0].min(handles[1]);
+    let hi = handles[0].max(handles[1]);
+    let gx0 = time_to_x(lo as f64, block, view.view_lo, view.view_hi);
+    let gx1 = time_to_x(hi as f64, block, view.view_lo, view.view_hi);
+    let window = hi - lo;
+    if window > 0 && gx1 - gx0 > TIMELINE_HANDLE_GRIP_INSET * 2.0 + 4.0 {
+        let grip_rect = Rect::from_min_max(
+            Pos2::new(gx0 + TIMELINE_HANDLE_GRIP_INSET, rail.top()),
+            Pos2::new(gx1 - TIMELINE_HANDLE_GRIP_INSET, rail.bottom()),
+        );
+        let grip = ui.interact(grip_rect, id.with("range_grip"), Sense::drag());
+        if grip.dragged() {
+            let delta = ui.input(|i| i.pointer.delta().x);
+            if delta.abs() > 0.0 {
+                let dt = (delta as f64 / block.width() as f64) * visible;
+                let mut new_lo = lo + dt.round() as i64;
+                let mut new_hi = new_lo + window;
+                if new_lo < span_lo {
+                    new_lo = span_lo;
+                    new_hi = (span_lo + window).min(span_hi);
+                }
+                if new_hi > span_hi {
+                    new_hi = span_hi;
+                    new_lo = (span_hi - window).max(span_lo);
+                }
+                handles[0] = new_lo;
+                handles[1] = new_hi;
+                changed = true;
+            }
+        }
+        if grip.hovered() || grip.dragged() {
+            ui.ctx().set_cursor_icon(if grip.dragged() {
+                egui::CursorIcon::Grabbing
+            } else {
+                egui::CursorIcon::Grab
+            });
+        }
     }
 
     *range_lo = handles[0].clamp(span_lo, span_hi);
@@ -246,7 +298,7 @@ pub fn sidebar_date_timeline(
 
 fn clamp_view(view: &mut TimelineView, span_lo: i64, span_hi: i64) {
     let span_w = (span_hi - span_lo).max(1) as f64;
-    let w = (view.view_hi - view.view_lo).clamp(SECS_PER_HOUR as f64, span_w);
+    let w = (view.view_hi - view.view_lo).clamp(TIMELINE_MIN_VIEW_SECS, span_w);
     if w >= span_w {
         view.view_lo = span_lo as f64;
         view.view_hi = span_hi as f64;
@@ -265,8 +317,12 @@ fn clamp_view(view: &mut TimelineView, span_lo: i64, span_hi: i64) {
 }
 
 fn snap_unit(visible_secs: f64) -> i64 {
-    if visible_secs <= 2.0 * SECS_PER_HOUR as f64 {
-        900
+    if visible_secs <= 0.75 * SECS_PER_HOUR as f64 {
+        SECS_PER_MINUTE
+    } else if visible_secs <= 2.0 * SECS_PER_HOUR as f64 {
+        5 * SECS_PER_MINUTE
+    } else if visible_secs <= 6.0 * SECS_PER_HOUR as f64 {
+        15 * SECS_PER_MINUTE
     } else if visible_secs <= 36.0 * SECS_PER_HOUR as f64 {
         SECS_PER_HOUR
     } else if visible_secs <= 21.0 * SECS_PER_DAY as f64 {
@@ -282,8 +338,10 @@ fn snap_unit(visible_secs: f64) -> i64 {
 
 fn tick_step_secs(visible_secs: f64, rail_width: f32) -> i64 {
     let target = (visible_secs * (56.0 / rail_width.max(1.0) as f64)).max(1.0);
-    const STEPS: [i64; 10] = [
-        900,
+    const STEPS: [i64; 12] = [
+        SECS_PER_MINUTE,
+        5 * SECS_PER_MINUTE,
+        15 * SECS_PER_MINUTE,
         SECS_PER_HOUR,
         6 * SECS_PER_HOUR,
         12 * SECS_PER_HOUR,
@@ -301,6 +359,31 @@ fn tick_step_secs(visible_secs: f64, rail_width: f32) -> i64 {
         .unwrap_or(5 * 365 * SECS_PER_DAY)
 }
 
+fn align_tick_start(view_lo: f64, step: i64) -> i64 {
+    let t = view_lo.floor() as i64;
+    if step >= SECS_PER_DAY {
+        let day = day_start(t);
+        return day - (day.rem_euclid(step));
+    }
+    if step >= SECS_PER_HOUR && step % SECS_PER_HOUR == 0 {
+        let hour = hour_start(t);
+        return hour - (hour - day_start(t)).rem_euclid(step);
+    }
+    t.div_euclid(step) * step
+}
+
+fn label_min_spacing(step: i64) -> f32 {
+    if step >= 365 * SECS_PER_DAY {
+        34.0
+    } else if step >= 28 * SECS_PER_DAY {
+        40.0
+    } else if step >= SECS_PER_DAY {
+        32.0
+    } else {
+        26.0
+    }
+}
+
 fn draw_timeline_scale(
     painter: &egui::Painter,
     block: Rect,
@@ -314,26 +397,20 @@ fn draw_timeline_scale(
     let baseline = scale_top + 4.0;
     let label_y = scale_top + 10.0;
     let tick_color = theme.sub.gamma_multiply(0.85);
-    let minor = Stroke::new(1.0, tick_color.gamma_multiply(0.45));
     let major = Stroke::new(1.0, tick_color);
 
-    let first = (view_lo.floor() as i64 / step) * step;
+    let min_label_gap = label_min_spacing(step);
+    let first = align_tick_start(view_lo, step);
     let mut t = first;
     let mut last_label_x = f32::MIN;
     while (t as f64) <= view_hi + step as f64 {
         let x = time_to_x(t as f64, block, view_lo, view_hi);
         if x >= block.left() - 2.0 && x <= block.right() + 2.0 {
-            let is_major = if step >= SECS_PER_DAY {
-                t % step == 0
-            } else {
-                t % step == 0
-            };
-            let h = if is_major { 6.0 } else { 3.0 };
             painter.line_segment(
-                [Pos2::new(x, baseline), Pos2::new(x, baseline + h)],
-                if is_major { major } else { minor },
+                [Pos2::new(x, baseline), Pos2::new(x, baseline + 6.0)],
+                major,
             );
-            if is_major && x - last_label_x > 28.0 {
+            if x - last_label_x > min_label_gap {
                 let label = timeline_tick_label(t, step);
                 painter.text(
                     Pos2::new(x, label_y),

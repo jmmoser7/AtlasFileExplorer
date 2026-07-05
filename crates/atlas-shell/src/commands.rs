@@ -16,7 +16,7 @@ pub struct CommandEntry {
 
 /// Speed multiplier for turbo pan: screen-space pull distance → px/frame.
 pub const TURBO_PAN_GAIN: f32 = 0.12;
-/// Minimum pull before turbo pan engages (distinguishes from a right-click).
+/// Minimum pull before turbo pan engages (distinguishes from a right-click tap).
 pub const TURBO_PAN_ENGAGE_PX: f32 = 4.0;
 /// Minimum movement before the pan axis locks to horizontal or vertical.
 pub const TURBO_PAN_AXIS_LOCK_PX: f32 = 6.0;
@@ -27,7 +27,7 @@ enum PanAxis {
     Vertical,
 }
 
-/// Right-drag turbo pan state (per canvas interaction).
+/// Ctrl + right-drag turbo pan state (per canvas interaction).
 #[derive(Default)]
 pub struct TurboPanState {
     anchor: Option<Pos2>,
@@ -47,8 +47,8 @@ impl TurboPanState {
         self.suppress_menu = false;
     }
 
-    /// Apply turbo pan while the secondary button is held. Returns `true` when
-    /// panning is active this frame (left-drag pan should be skipped).
+    /// Apply turbo pan while Ctrl and the secondary button are held. Returns `true`
+    /// when panning is active this frame (left-drag pan should be skipped).
     pub fn step(
         &mut self,
         ctx: &egui::Context,
@@ -56,10 +56,11 @@ impl TurboPanState {
         pointer: Option<Pos2>,
         cam_offset: &mut Vec2,
     ) -> bool {
-        let (secondary_down, secondary_released) = ctx.input(|i| {
+        let (secondary_down, secondary_released, ctrl) = ctx.input(|i| {
             (
                 i.pointer.button_down(egui::PointerButton::Secondary),
                 i.pointer.button_released(egui::PointerButton::Secondary),
+                i.modifiers.ctrl,
             )
         });
 
@@ -72,6 +73,11 @@ impl TurboPanState {
             return was_engaged;
         }
 
+        if self.anchor.is_some() && !ctrl {
+            self.reset();
+            return false;
+        }
+
         let Some(p) = pointer else {
             return self.engaged;
         };
@@ -79,7 +85,7 @@ impl TurboPanState {
             return self.engaged;
         }
 
-        if secondary_down && self.anchor.is_none() {
+        if secondary_down && ctrl && self.anchor.is_none() {
             self.anchor = Some(p);
             self.axis = None;
             self.engaged = false;
@@ -89,7 +95,7 @@ impl TurboPanState {
             return false;
         };
 
-        if !secondary_down {
+        if !secondary_down || !ctrl {
             return false;
         }
 

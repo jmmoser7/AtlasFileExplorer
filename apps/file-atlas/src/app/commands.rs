@@ -18,7 +18,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Navigation",
         name: "Turbo pan",
-        binding: "Right-drag on canvas — pull away from the click point; speed scales with \
+        binding: "Ctrl + right-drag on canvas — pull away from the click point; speed scales with \
                   distance; returns to zero at the origin; locked to horizontal or vertical",
     },
     CommandEntry {
@@ -55,6 +55,31 @@ pub const ENTRIES: &[CommandEntry] = &[
         category: "Files",
         name: "File context menu",
         binding: "Right-click file or folder (without dragging)",
+    },
+    CommandEntry {
+        category: "Filters",
+        name: "Date timeline fit",
+        binding: "Double-click date timeline",
+    },
+    CommandEntry {
+        category: "Filters",
+        name: "Date timeline pan",
+        binding: "Drag date timeline background",
+    },
+    CommandEntry {
+        category: "Filters",
+        name: "Date range scrub",
+        binding: "Drag between the two date handles (keeps the window width)",
+    },
+    CommandEntry {
+        category: "Filters",
+        name: "Date timeline zoom",
+        binding: "Ctrl + scroll wheel over date timeline (zooms around cursor)",
+    },
+    CommandEntry {
+        category: "Filters",
+        name: "Filter by date range",
+        binding: "Drag either date handle on the timeline",
     },
     CommandEntry {
         category: "Selection",
