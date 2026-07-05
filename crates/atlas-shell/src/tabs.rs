@@ -1,9 +1,11 @@
-//! Browser-style top chrome — title row + tab strip.
+//! Browser-style tab strip — the only UI above the tab workspace.
 //!
 //! Data-driven so every app in the ecosystem paints identical tabs: the app
-//! supplies [`TabSpec`]s and reacts to the returned [`TabAction`] /
-//! [`TopBarResponse`]. All geometry and colors live here; apps must not
-//! paint their own tab chrome.
+//! supplies [`TabSpec`]s and reacts to the returned [`TabAction`]. All
+//! geometry and colors live here; apps must not paint their own tab chrome.
+//!
+//! The bar is tabs-only: no title row, no buttons. Undo/redo lives on
+//! Ctrl+Z / Ctrl+Y in each app's hotkeys.
 
 use crate::theme::Palette;
 use crate::widgets::trunc;
@@ -12,19 +14,18 @@ use eframe::egui::{
     Sense, Stroke, StrokeKind, Ui, Vec2,
 };
 
-/// Height of the recessed tab-bar row beneath the title.
-const TAB_BAR_H: f32 = 34.0;
-/// Resting height for background tabs.
-const TAB_INACTIVE_H: f32 = 26.0;
-/// Height when an inactive tab is hovered — it "reaches" upward.
-const TAB_HOVER_H: f32 = 31.0;
-const TAB_TOP_RADIUS: u8 = 8;
+/// Height of the tab-bar row (70% of the original 34px strip).
+const TAB_BAR_H: f32 = 24.0;
+const TAB_TOP_RADIUS: u8 = 6;
 /// Radius of the concave shoulder curves on an active tab.
-const TAB_SHOULDER_R: f32 = 6.0;
+const TAB_SHOULDER_R: f32 = 4.0;
 const TAB_H_PAD: f32 = 10.0;
 const TAB_CLOSE_W: f32 = 16.0;
+/// Width of an empty tab before content is chosen (no label text).
+const TAB_EMPTY_W: f32 = 88.0;
+const TAB_WIDTH_SCALE: f32 = 2.0;
 /// Truncation width for tab titles.
-const TAB_TITLE_CHARS: usize = 18;
+const TAB_TITLE_CHARS: usize = 36;
 
 #[derive(Clone, Copy)]
 pub struct TabChromeColors {
@@ -62,8 +63,9 @@ pub struct TabSpec {
     pub title: String,
     pub tooltip: String,
     pub closable: bool,
-    /// Empty tabs invite content selection: clicking the active empty tab
-    /// yields [`TabAction::ActivateEmpty`] instead of a switch.
+    /// Empty tabs render without a label and invite content selection:
+    /// clicking the active empty tab yields [`TabAction::ActivateEmpty`]
+    /// instead of a switch.
     pub is_empty: bool,
 }
 
@@ -81,17 +83,20 @@ struct TabSlot {
     active: bool,
     hovered: bool,
     closable: bool,
-    title: String,
+    /// `None` for empty tabs (blank label until content is chosen).
+    title: Option<String>,
 }
 
-fn tab_visual(active: bool, hovered: bool, bar_h: f32) -> (f32, f32) {
+fn tab_paint_rect(rect: Rect, active: bool, bar_h: f32) -> Rect {
+    let mut h = bar_h;
     if active {
-        (bar_h, 0.0)
-    } else if hovered {
-        (TAB_HOVER_H, 1.0)
-    } else {
-        (TAB_INACTIVE_H, 3.0)
+        // Overlap the canvas by 1px so the active tab reads as connected.
+        h += 1.0;
     }
+    Rect::from_min_size(
+        Pos2::new(rect.min.x, rect.max.y - h),
+        Vec2::new(rect.width(), h),
+    )
 }
 
 fn paint_chrome_tab(
@@ -136,12 +141,33 @@ fn paint_chrome_tab(
     }
 }
 
+/// Paint the hoverable close "×" for one tab slot.
+fn paint_close_x(ui: &Ui, painter: &egui::Painter, slot: &TabSlot, palette: &Palette) {
+    let cx = egui::Rect::from_center_size(
+        Pos2::new(slot.paint.right() - TAB_H_PAD, slot.paint.center().y),
+        Vec2::splat(14.0),
+    );
+    let over_x = ui
+        .ctx()
+        .pointer_latest_pos()
+        .map(|p| cx.contains(p))
+        .unwrap_or(false);
+    painter.text(
+        cx.center(),
+        Align2::CENTER_CENTER,
+        "×",
+        FontId::proportional(13.0),
+        if over_x { palette.ink } else { palette.sub },
+    );
+}
+
 /// Renders the tab strip row; returns the user's action, if any.
 pub fn tab_strip(
     ui: &mut Ui,
     palette: &Palette,
     tabs: &[TabSpec],
     active_tab: usize,
+    busy: bool,
 ) -> Option<TabAction> {
     let colors = TabChromeColors::from_palette(palette);
     let mut action: Option<TabAction> = None;
@@ -151,27 +177,31 @@ pub fn tab_strip(
     ui.with_layout(Layout::left_to_right(Align::BOTTOM), |ui| {
         for (i, spec) in tabs.iter().enumerate() {
             let active = i == active_tab;
-            let title = trunc(&spec.title, TAB_TITLE_CHARS);
+            let title = if spec.is_empty {
+                None
+            } else {
+                Some(trunc(&spec.title, TAB_TITLE_CHARS))
+            };
 
             let font = FontId::proportional(12.5);
-            let text_w = ui
-                .painter()
-                .layout_no_wrap(title.clone(), font.clone(), Color32::WHITE)
-                .size()
-                .x;
-            let w = text_w + TAB_H_PAD * 2.0 + if spec.closable { TAB_CLOSE_W } else { 0.0 };
-            let (rect, resp) =
-                ui.allocate_exact_size(Vec2::new(w.max(56.0), TAB_BAR_H), Sense::click());
+            let text_w = title
+                .as_ref()
+                .map(|t| {
+                    ui.painter()
+                        .layout_no_wrap(t.clone(), font.clone(), Color32::WHITE)
+                        .size()
+                        .x
+                })
+                .unwrap_or(0.0);
+            let base_w = if spec.is_empty {
+                TAB_EMPTY_W + if spec.closable { TAB_CLOSE_W } else { 0.0 }
+            } else {
+                text_w + TAB_H_PAD * 2.0 + if spec.closable { TAB_CLOSE_W } else { 0.0 }
+            };
+            let w = base_w * TAB_WIDTH_SCALE;
+            let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, TAB_BAR_H), Sense::click());
             let hovered = resp.hovered() && !active;
-            let (mut h, bottom_inset) = tab_visual(active, hovered, TAB_BAR_H);
-            if active {
-                // Overlap the canvas by 1px so the active tab reads as connected.
-                h += 1.0;
-            }
-            let paint = Rect::from_min_size(
-                Pos2::new(rect.min.x, rect.max.y - bottom_inset - h),
-                Vec2::new(rect.width(), h),
-            );
+            let paint = tab_paint_rect(rect, active, TAB_BAR_H);
 
             slots.push(TabSlot {
                 paint,
@@ -183,7 +213,7 @@ pub fn tab_strip(
 
             if spec.closable {
                 let cx = egui::Rect::from_center_size(
-                    rect.right_center() - Vec2::new(12.0, bottom_inset + h * 0.5),
+                    Pos2::new(rect.right_center().x - 12.0, paint.center().y),
                     Vec2::splat(14.0),
                 );
                 let over_x = ui
@@ -210,24 +240,29 @@ pub fn tab_strip(
             resp.on_hover_text(spec.tooltip.clone());
         }
 
-        ui.add_space(4.0);
+        ui.add_space(1.0);
         let (prect, presp) = ui.allocate_exact_size(Vec2::new(28.0, TAB_BAR_H), Sense::click());
         let presp = presp.on_hover_cursor(CursorIcon::PointingHand);
-        let plus_center = Pos2::new(prect.center().x, prect.max.y - TAB_INACTIVE_H * 0.5 - 3.0);
+        let plus_center = prect.center();
         let plus_hover = presp.hovered();
         if plus_hover {
             ui.painter()
-                .circle_filled(plus_center, 11.0, colors.inactive_hover);
+                .circle_filled(plus_center, 9.0, colors.inactive_hover);
         }
         ui.painter().text(
             plus_center,
             Align2::CENTER_CENTER,
             "+",
-            FontId::proportional(15.0),
+            FontId::proportional(13.0),
             if plus_hover { palette.ink } else { palette.sub },
         );
         if presp.on_hover_text("New tab").clicked() {
             action = Some(TabAction::New);
+        }
+
+        if busy {
+            ui.add_space(6.0);
+            ui.spinner();
         }
     });
 
@@ -248,8 +283,14 @@ pub fn tab_strip(
     }
 
     for slot in &slots {
-        let font = FontId::proportional(12.5);
-        let text_y = slot.paint.center().y;
+        let Some(title) = &slot.title else {
+            // Empty tab: blank label, just the close affordance.
+            if slot.closable && (slot.hovered || slot.active) {
+                paint_close_x(ui, &painter, slot, palette);
+            }
+            continue;
+        };
+
         let text_color = if slot.active {
             palette.ink
         } else if slot.hovered {
@@ -258,30 +299,15 @@ pub fn tab_strip(
             palette.sub
         };
         painter.text(
-            Pos2::new(slot.paint.left() + TAB_H_PAD, text_y),
+            Pos2::new(slot.paint.left() + TAB_H_PAD, slot.paint.center().y),
             Align2::LEFT_CENTER,
-            slot.title.clone(),
-            font.clone(),
+            title.clone(),
+            FontId::proportional(12.5),
             text_color,
         );
 
         if slot.closable && (slot.hovered || slot.active) {
-            let cx = egui::Rect::from_center_size(
-                Pos2::new(slot.paint.right() - TAB_H_PAD, text_y),
-                Vec2::splat(14.0),
-            );
-            let over_x = ui
-                .ctx()
-                .pointer_latest_pos()
-                .map(|p| cx.contains(p))
-                .unwrap_or(false);
-            painter.text(
-                cx.center(),
-                Align2::CENTER_CENTER,
-                "×",
-                FontId::proportional(13.0),
-                if over_x { palette.ink } else { palette.sub },
-            );
+            paint_close_x(ui, &painter, slot, palette);
         }
     }
 
@@ -290,79 +316,36 @@ pub fn tab_strip(
 
 /// State the app feeds into [`top_bar`] each frame.
 pub struct TopBarModel<'a> {
-    /// App name shown in the title row ("File Atlas", "Slate", …).
+    /// Salts the panel id — in linked sessions two apps share one egui
+    /// Context (two viewports), and panel state must not collide. Not
+    /// rendered: the bar is tabs-only.
     pub app_title: &'a str,
-    /// Show a spinner next to the title (e.g. a picker dialog is open).
+    /// Show a spinner after the tabs (e.g. a picker dialog is open).
     pub busy: bool,
-    pub can_undo: bool,
-    pub can_redo: bool,
     pub tabs: &'a [TabSpec],
     pub active_tab: usize,
 }
 
-/// What the user did in the top bar this frame.
-#[derive(Default)]
-pub struct TopBarResponse {
-    pub undo_clicked: bool,
-    pub redo_clicked: bool,
-    pub tab_action: Option<TabAction>,
-}
-
-impl TopBarResponse {
-    fn none() -> Self {
-        Self {
-            undo_clicked: false,
-            redo_clicked: false,
-            tab_action: None,
-        }
-    }
-}
-
-/// Title row + undo/redo + tab strip. Identical chrome for every Atlas app.
-pub fn top_bar(ctx: &egui::Context, palette: &Palette, model: TopBarModel<'_>) -> TopBarResponse {
+/// Tabs-only top bar. Identical chrome for every Atlas app; returns the
+/// user's tab action, if any.
+pub fn top_bar(
+    ctx: &egui::Context,
+    palette: &Palette,
+    model: TopBarModel<'_>,
+) -> Option<TabAction> {
     let colors = TabChromeColors::from_palette(palette);
-    let mut out = TopBarResponse::none();
+    let mut action = None;
 
-    // Salt the panel id with the app title: in linked sessions two apps share
-    // one egui Context (two viewports), and panel state must not collide.
     egui::TopBottomPanel::top(egui::Id::new(("topbar", model.app_title)))
         .frame(egui::Frame::new().fill(colors.bar).inner_margin(Margin {
-            left: 10,
-            right: 10,
-            top: 6,
+            left: 8,
+            right: 8,
+            top: 2,
             bottom: 0,
         }))
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading(
-                    egui::RichText::new(model.app_title)
-                        .size(16.0)
-                        .color(palette.ink),
-                );
-                if model.busy {
-                    ui.add_space(8.0);
-                    ui.spinner();
-                }
-
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    // Journal: kept in code but hidden from chrome until its
-                    // permanent home is decided (likely a tools-rail panel).
-                    ui.add_enabled_ui(model.can_redo, |ui| {
-                        if ui.button("Redo").clicked() {
-                            out.redo_clicked = true;
-                        }
-                    });
-                    ui.add_enabled_ui(model.can_undo, |ui| {
-                        if ui.button("Undo").clicked() {
-                            out.undo_clicked = true;
-                        }
-                    });
-                });
-            });
-
-            ui.add_space(4.0);
-            out.tab_action = tab_strip(ui, palette, model.tabs, model.active_tab);
+            action = tab_strip(ui, palette, model.tabs, model.active_tab, model.busy);
         });
 
-    out
+    action
 }

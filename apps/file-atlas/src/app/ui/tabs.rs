@@ -35,26 +35,19 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
         })
         .collect();
 
-    let resp = tabs::top_bar(
+    // Journal undo/redo is keyboard-only: Ctrl+Z / Ctrl+Y in `hotkeys`.
+    let action = tabs::top_bar(
         ctx,
         &palette,
         TopBarModel {
             app_title: "File Atlas",
             busy: app.picker_rx.is_some(),
-            can_undo: app.journal.can_undo(),
-            can_redo: app.journal.can_redo(),
             tabs: &specs,
             active_tab: app.active_tab,
         },
     );
 
-    if resp.undo_clicked {
-        app.undo();
-    }
-    if resp.redo_clicked {
-        app.redo();
-    }
-    match resp.tab_action {
+    match action {
         Some(TabAction::Switch(i)) => app.switch_tab(i),
         Some(TabAction::Close(i)) => app.close_tab(i),
         Some(TabAction::New) => app.new_tab(),
