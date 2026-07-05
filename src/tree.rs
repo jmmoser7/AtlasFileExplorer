@@ -144,6 +144,12 @@ pub struct Tree {
 }
 
 impl Tree {
+    /// Large collapsed folders render as portal preview cards unless the map
+    /// is in structure-only mode (all file-type filters off).
+    pub fn shows_portal(&self, di: usize) -> bool {
+        !self.structure_only && self.dirs[di].is_portal(self.cfg)
+    }
+
     pub fn root_bounds(&self) -> Rect {
         self.dirs
             .first()
@@ -352,7 +358,7 @@ impl Tree {
         structure_only: bool,
     ) {
         let depth = self.dirs[di].depth as f32;
-        let (w, h) = if self.dirs[di].is_portal(self.cfg) && !structure_only {
+        let (w, h) = if self.shows_portal(di) {
             (PORTAL_W, PORTAL_H)
         } else {
             (DIR_W, DIR_H)
@@ -516,7 +522,7 @@ impl Tree {
         let mut datum = f32::NEG_INFINITY;
         for &i in &visible {
             let d = &self.dirs[i];
-            if d.is_portal(self.cfg) && !self.structure_only {
+            if self.shows_portal(i) {
                 let top = if v { d.x } else { d.y - d.h / 2.0 };
                 portal_tops.push((i, top));
                 datum = datum.max(top);
