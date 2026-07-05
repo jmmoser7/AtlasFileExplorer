@@ -3,8 +3,8 @@
 use super::super::AtlasApp;
 use super::widgets::trunc;
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, FontId, Layout, Margin, Pos2, Rect, Sense, Stroke,
-    StrokeKind, Ui, Vec2,
+    self, Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Layout, Margin, Pos2, Rect,
+    Sense, Stroke, StrokeKind, Ui, Vec2,
 };
 
 /// Height of the recessed tab-bar row beneath the title.
@@ -208,6 +208,7 @@ impl AtlasApp {
 
             ui.add_space(4.0);
             let (prect, presp) = ui.allocate_exact_size(Vec2::new(28.0, TAB_BAR_H), Sense::click());
+            let presp = presp.on_hover_cursor(CursorIcon::PointingHand);
             let plus_center = Pos2::new(prect.center().x, prect.max.y - TAB_INACTIVE_H * 0.5 - 3.0);
             let plus_hover = presp.hovered();
             if plus_hover {

@@ -2,7 +2,8 @@
 //! aligned control rows. See `SIDEBAR.md` for usage rules.
 
 use eframe::egui::{
-    self, Align, Color32, CornerRadius, Frame, Id, Layout, Margin, RichText, Sense, Stroke, Ui,
+    self, Align, Color32, CornerRadius, CursorIcon, Frame, Id, Layout, Margin, RichText, Sense,
+    Stroke, Ui,
 };
 
 /// Theme colors for sidebar sections (sourced from `AtlasApp::palette()`).
@@ -65,6 +66,20 @@ pub fn sidebar_section(
     changed
 }
 
+/// Small `+` / `−` expand control — pointing hand, not text (I-beam) cursor.
+fn sidebar_expand_toggle(ui: &mut Ui, expanded: bool, theme: SidebarTheme) -> egui::Response {
+    let glyph = if expanded { "−" } else { "+" };
+    ui.add(
+        egui::Label::new(
+            RichText::new(glyph)
+                .size(SidebarTokens::TOGGLE_SIZE)
+                .color(theme.sub),
+        )
+        .sense(Sense::click()),
+    )
+    .on_hover_cursor(CursorIcon::PointingHand)
+}
+
 fn section_header(
     ui: &mut Ui,
     id: Id,
@@ -76,16 +91,7 @@ fn section_header(
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.set_min_height(SidebarTokens::HEADER_HEIGHT);
-        let toggle_label = if *expanded { "−" } else { "+" };
-        let toggle_color = theme.sub;
-        let toggle = ui.add(
-            egui::Label::new(
-                RichText::new(toggle_label)
-                    .size(SidebarTokens::TOGGLE_SIZE)
-                    .color(toggle_color),
-            )
-            .sense(Sense::click()),
-        );
+        let toggle = sidebar_expand_toggle(ui, *expanded, theme);
         if toggle.clicked() {
             *expanded = !*expanded;
             ui.ctx()
@@ -93,9 +99,12 @@ fn section_header(
             changed = true;
         }
 
-        let title_resp = ui.add(
-            egui::Label::new(RichText::new(title).strong().color(theme.ink)).sense(Sense::click()),
-        );
+        let title_resp = ui
+            .add(
+                egui::Label::new(RichText::new(title).strong().color(theme.ink))
+                    .sense(Sense::click()),
+            )
+            .on_hover_cursor(CursorIcon::PointingHand);
         if title_resp.clicked() {
             *expanded = !*expanded;
             ui.ctx()
@@ -257,15 +266,7 @@ pub fn sidebar_family_master_row(
     ui.horizontal(|ui| {
         ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
         if has_subtypes {
-            let glyph = if *expanded { "−" } else { "+" };
-            let toggle = ui.add(
-                egui::Label::new(
-                    RichText::new(glyph)
-                        .size(SidebarTokens::TOGGLE_SIZE)
-                        .color(theme.sub),
-                )
-                .sense(Sense::click()),
-            );
+            let toggle = sidebar_expand_toggle(ui, *expanded, theme);
             if toggle.clicked() {
                 *expanded = !*expanded;
             }

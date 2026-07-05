@@ -359,6 +359,8 @@ pub struct AtlasApp {
     tag_filter: BTreeSet<String>,
     only_untagged: bool,
     only_unassigned: bool,
+    /// When true, among files with the same name and size, show only the newest (by mtime).
+    dedupe_twins: bool,
     filter_dirty: bool,
     file_match: Vec<bool>,
     any_filter: bool,
@@ -523,6 +525,7 @@ impl AtlasApp {
             tag_filter: BTreeSet::new(),
             only_untagged: false,
             only_unassigned: false,
+            dedupe_twins: false,
             filter_dirty: false,
             file_match: Vec::new(),
             any_filter: false,
@@ -1597,8 +1600,6 @@ impl AtlasApp {
         self.structure_only = self.family_on.iter().all(|&b| !b);
 
         self.file_match.resize(self.entries.len(), true);
-        let mut shown = 0usize;
-        let mut shown_bytes = 0u64;
         let mut total_bytes = 0u64;
         let mut alive = 0usize;
 
@@ -1637,7 +1638,38 @@ impl AtlasApp {
                 }
             }
             self.file_match[i] = m;
-            if m {
+        }
+
+        if self.dedupe_twins {
+            let mut newest: HashMap<(String, u64), (usize, i64)> = HashMap::new();
+            for (i, e) in self.entries.iter().enumerate() {
+                if !self.file_match[i] {
+                    continue;
+                }
+                let key = (e.name_lc.clone(), e.size);
+                match newest.get(&key) {
+                    None => {
+                        newest.insert(key, (i, e.mtime));
+                    }
+                    Some(&(prev_i, prev_mtime)) if e.mtime > prev_mtime => {
+                        newest.insert(key, (i, e.mtime));
+                        let _ = prev_i;
+                    }
+                    _ => {}
+                }
+            }
+            let keep: HashSet<usize> = newest.values().map(|(i, _)| *i).collect();
+            for (i, matched) in self.file_match.iter_mut().enumerate() {
+                if *matched && !keep.contains(&i) {
+                    *matched = false;
+                }
+            }
+        }
+
+        let mut shown = 0usize;
+        let mut shown_bytes = 0u64;
+        for (i, e) in self.entries.iter().enumerate() {
+            if self.file_match[i] {
                 shown += 1;
                 shown_bytes += e.size;
             }

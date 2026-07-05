@@ -245,6 +245,18 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
 
     sidebar_subtle_divider(ui, theme);
 
+    sidebar_region(ui, "Duplicates", theme, |ui| {
+        if sidebar_checkbox_row(
+            ui,
+            &mut app.dedupe_twins,
+            "Hide duplicate files (same name & size, keep newest)",
+        ) {
+            app.filter_dirty = true;
+        }
+    });
+
+    sidebar_subtle_divider(ui, theme);
+
     sidebar_region(ui, "Display", theme, |ui| {
         if sidebar_mode_row(
             ui,
@@ -311,8 +323,8 @@ fn display_settings_body(
             app.pending_view = Some(ViewCmd::Fit);
         }
         let orient_txt = match app.orient {
-            Orient::V => "Flow →",
-            Orient::H => "Flow ↓",
+            Orient::V => "Flow direction →",
+            Orient::H => "Flow direction ↓",
         };
         if ui
             .button(orient_txt)
