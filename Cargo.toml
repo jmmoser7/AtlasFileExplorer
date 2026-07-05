@@ -1,10 +1,24 @@
-[package]
-name = "native-file-atlas"
+[workspace]
+resolver = "2"
+members = [
+    "crates/atlas-core",
+    "crates/atlas-shell",
+    "crates/atlas-session",
+    "crates/atlas-ai",
+    "crates/slate-doc",
+    "crates/slate-artifact",
+    "crates/circle-pack",
+    "apps/file-atlas",
+    "apps/slate",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-description = "File Atlas — native, high-performance visual file organizer"
 
-[dependencies]
+[workspace.dependencies]
+# Shared third-party deps — always reference these from member crates so the
+# whole ecosystem stays on a single version of egui and friends.
 eframe = "0.31"
 crossbeam-channel = "0.5"
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -17,17 +31,15 @@ dirs = "6"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 pdfium-render = { version = "0.8", features = ["thread_safe"] }
 
-[target.'cfg(windows)'.dependencies.windows]
-version = "0.61"
-features = [
-    "Win32_Foundation",
-    "Win32_System_Com",
-    "Win32_UI_Shell",
-    "Win32_Graphics_Gdi",
-    "Win32_Storage_FileSystem",
-    "Win32_Security",
-    "Win32_Security_Authorization",
-]
+# Workspace crates.
+atlas-core = { path = "crates/atlas-core" }
+atlas-shell = { path = "crates/atlas-shell" }
+atlas-session = { path = "crates/atlas-session" }
+atlas-ai = { path = "crates/atlas-ai" }
+slate-doc = { path = "crates/slate-doc" }
+slate-artifact = { path = "crates/slate-artifact" }
+circle-pack = { path = "crates/circle-pack" }
+native-file-atlas = { path = "apps/file-atlas" }
 
 [profile.release]
 opt-level = 3

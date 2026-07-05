@@ -1,0 +1,9 @@
+[package]
+name = "atlas-shell"
+version.workspace = true
+edition.workspace = true
+description = "Shared UI chrome for the Atlas ecosystem: theme, tab strip, sidebar primitives, widgets, panel registry, command reference"
+
+[dependencies]
+atlas-core = { workspace = true }
+eframe = { workspace = true }

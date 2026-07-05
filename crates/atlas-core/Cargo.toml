@@ -1,0 +1,29 @@
+[package]
+name = "atlas-core"
+version.workspace = true
+edition.workspace = true
+description = "Shared backend for the Atlas ecosystem: file taxonomy, scanner, index, thumbnails, tree layout"
+
+[dependencies]
+eframe = { workspace = true }
+crossbeam-channel = { workspace = true }
+rusqlite = { workspace = true }
+notify = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+image = { workspace = true }
+dirs = { workspace = true }
+zip = { workspace = true }
+pdfium-render = { workspace = true }
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.61"
+features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+]

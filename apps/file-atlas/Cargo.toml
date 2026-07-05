@@ -1,0 +1,15 @@
+[package]
+name = "native-file-atlas"
+version.workspace = true
+edition.workspace = true
+description = "File Atlas — native, high-performance visual file organizer"
+
+[dependencies]
+atlas-core = { workspace = true }
+atlas-shell = { workspace = true }
+atlas-session = { workspace = true }
+atlas-ai = { workspace = true }
+eframe = { workspace = true }
+crossbeam-channel = { workspace = true }
+rfd = { workspace = true }
+image = { workspace = true }

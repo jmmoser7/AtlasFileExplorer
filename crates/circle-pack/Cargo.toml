@@ -1,0 +1,10 @@
+[package]
+name = "circle-pack"
+version = "0.1.0"
+edition = "2021"
+description = "Pure 2D circle packing and Venn-diagram layout for File Atlas Slate"
+license = "MIT"
+
+[lib]
+name = "circle_pack"
+path = "src/lib.rs"

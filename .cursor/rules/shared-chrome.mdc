@@ -1,0 +1,31 @@
+---
+description: Shared chrome parity between File Atlas and Slate
+alwaysApply: true
+---
+
+# Shared chrome — no divergence between Atlas ecosystem apps
+
+File Atlas (`apps/file-atlas`) and Slate (`apps/slate`) must remain visually
+and behaviorally identical at the chrome level (title bar, tabs, left tools
+rail, bottom readouts, advanced window, theme).
+
+Hard rules:
+
+1. All chrome painting, colors, spacing, and layout primitives live in
+   `crates/atlas-shell` (`theme.rs`, `tabs.rs`, `sidebar.rs`, `widgets.rs`,
+   `chrome.rs`, `commands.rs`). Apps pass data in and handle returned actions.
+2. Never hardcode chrome colors or repaint tab/sidebar shapes inside an app
+   crate. If a new chrome capability is needed, extend `atlas-shell` so both
+   apps inherit it.
+3. `egui`/`eframe` and other shared dependency versions are pinned once in the
+   workspace `Cargo.toml` under `[workspace.dependencies]`; member crates must
+   reference them with `{ workspace = true }`.
+4. Every user-facing keyboard/mouse binding must be registered in the app's
+   `commands.rs` `ENTRIES` table (see each app's `COMMANDS.md`) so the
+   Advanced window reference stays complete.
+5. Tagging is a Slate-only concept: File Atlas must not grow its own tag
+   model. Atlas surfaces Slate workbook tags exclusively through
+   `crates/atlas-session` during linked sessions.
+6. The AI panel body is shared: both apps render it via
+   `atlas_ai::ui::ai_body`. AI/Cursor behavior (workspace config, launcher,
+   context beacon) lives in `crates/atlas-ai`, never per-app.
