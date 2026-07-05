@@ -10,15 +10,13 @@ pub enum ToolPanel {
     BasicFilters = 0,
     DisplaySettings = 1,
     Workflow = 2,
-    Tags = 3,
 }
 
 impl ToolPanel {
-    pub const ALL: [ToolPanel; 4] = [
+    pub const ALL: [ToolPanel; 3] = [
         ToolPanel::BasicFilters,
         ToolPanel::DisplaySettings,
         ToolPanel::Workflow,
-        ToolPanel::Tags,
     ];
 
     pub fn label(self) -> &'static str {
@@ -26,7 +24,6 @@ impl ToolPanel {
             ToolPanel::BasicFilters => "Basic filters",
             ToolPanel::DisplaySettings => "Display settings",
             ToolPanel::Workflow => "Workflow",
-            ToolPanel::Tags => "Tags",
         }
     }
 }
@@ -63,4 +60,4 @@ impl From<ReadoutPanel> for usize {
 }
 
 /// Per-tab UI chrome configuration (nested inside the active tab's workspace).
-pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<4, 2>;
+pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<3, 2>;

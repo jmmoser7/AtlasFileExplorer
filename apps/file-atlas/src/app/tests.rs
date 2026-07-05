@@ -376,8 +376,7 @@ fn late_index_reply_for_another_root_is_ignored() {
             String::new(),
         )]),
         last_scan: 0,
-        tag_state: TagState {
-            tags: HashMap::new(),
+        assign_state: AssignState {
             assigns: HashMap::new(),
         },
         journal_json: None,

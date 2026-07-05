@@ -1,7 +1,7 @@
 //! Left tools rail — canvas actions, filters, display settings.
 //! Optional sub-panels are toggled from the gear menu (`chrome::ToolPanel`).
 
-use super::super::{AtlasApp, DateFilterField, DragChip, FilterMode, LeaderStyle, Orient, ViewCmd};
+use super::super::{AtlasApp, DateFilterField, FilterMode, LeaderStyle, Orient, ViewCmd};
 use crate::app::chrome::ToolPanel;
 use atlas_core::types::{ExtGroup, FAMILIES};
 use atlas_shell::sidebar::{
@@ -9,8 +9,8 @@ use atlas_shell::sidebar::{
     sidebar_option_group, sidebar_region, sidebar_section, sidebar_slider_block,
     sidebar_subtle_divider, sidebar_toolbar_row, SidebarTheme, SidebarTokens,
 };
-use atlas_shell::widgets::{chip, gear_menu, sidebar_date_timeline, thin_sidebar_slider};
-use eframe::egui::{self, Color32, Id};
+use atlas_shell::widgets::{gear_menu, sidebar_date_timeline, thin_sidebar_slider};
+use eframe::egui::{self, Id};
 
 fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
     let p = app.palette();
@@ -61,9 +61,6 @@ pub fn left_panel(app: &mut AtlasApp, ctx: &egui::Context) {
             }
             if chrome.tool(ToolPanel::Workflow) {
                 workflow(app, ui, theme);
-            }
-            if chrome.tool(ToolPanel::Tags) {
-                tags_panel(app, ui, theme);
             }
         });
 }
@@ -450,57 +447,7 @@ fn workflow(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
 }
 
 fn workflow_body(app: &mut AtlasApp, ui: &mut egui::Ui) {
-    if sidebar_checkbox_row(ui, &mut app.only_untagged, "Untagged only") {
-        app.filter_dirty = true;
-    }
     if sidebar_checkbox_row(ui, &mut app.only_unassigned, "Unassigned only") {
         app.filter_dirty = true;
     }
-}
-
-fn tags_panel(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let mut expanded = app.active_chrome().tool_expanded(ToolPanel::Tags);
-    if sidebar_section(
-        ui,
-        Id::new("tools_tags"),
-        "Tags",
-        Some("(click filters · drag onto files)"),
-        &mut expanded,
-        theme,
-        |ui| tags_panel_body(app, ui),
-    ) {
-        app.active_chrome_mut()
-            .set_tool_expanded(ToolPanel::Tags, expanded);
-    }
-}
-
-fn tags_panel_body(app: &mut AtlasApp, ui: &mut egui::Ui) {
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        let tags: Vec<(String, usize)> =
-            app.all_tags.iter().map(|(t, c)| (t.clone(), *c)).collect();
-        for (tag, count) in tags {
-            let active = app.tag_filter.contains(&tag);
-            let resp = chip(
-                ui,
-                &format!("{tag} ({count})"),
-                active,
-                Color32::from_rgb(0x37, 0x5a, 0x7a),
-            );
-            if resp.drag_started() {
-                app.drag_chip = Some(DragChip::Tag(tag.clone()));
-            }
-            if resp.clicked() {
-                if active {
-                    app.tag_filter.remove(&tag);
-                } else {
-                    app.tag_filter.insert(tag.clone());
-                }
-                app.filter_dirty = true;
-            }
-        }
-        if !app.tag_filter.is_empty() && ui.small_button("clear tag filter").clicked() {
-            app.tag_filter.clear();
-            app.filter_dirty = true;
-        }
-    });
 }

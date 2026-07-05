@@ -2,7 +2,7 @@
 //!
 //! The binary in `main.rs` is a thin wrapper; exposing the app as a library
 //! lets other ecosystem apps (Slate) host File Atlas as a second viewport in
-//! the same process for linked tagging sessions.
+//! the same process for linked Slate workbook sessions.
 
 pub mod app;
 

@@ -1,5 +1,5 @@
 //! Persistent SQLite index: file snapshots per root (instant revisit),
-//! tags, destination assignments, and the action journal.
+//! destination assignments, and the action journal.
 //!
 //! All writes happen on a dedicated DB thread so the UI never blocks on I/O.
 
@@ -9,9 +9,7 @@ use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-pub struct TagState {
-    /// rel path -> tags
-    pub tags: HashMap<String, Vec<String>>,
+pub struct AssignState {
     /// rel path -> (dest folder relative to export root, optional new name)
     pub assigns: HashMap<String, (String, Option<String>)>,
 }
@@ -33,11 +31,6 @@ pub enum DbCmd {
         root: PathBuf,
         rel: String,
     },
-    SetTags {
-        root: PathBuf,
-        rel: String,
-        tags: Vec<String>,
-    },
     SetAssign {
         root: PathBuf,
         rel: String,
@@ -56,7 +49,7 @@ pub enum DbCmd {
 pub struct LoadedRoot {
     pub snapshot: Option<Vec<FileEntry>>,
     pub last_scan: i64,
-    pub tag_state: TagState,
+    pub assign_state: AssignState,
     pub journal_json: Option<String>,
 }
 
@@ -117,6 +110,7 @@ fn db_thread(path: PathBuf, rx: Receiver<DbCmd>) {
             mtime INTEGER NOT NULL,
             PRIMARY KEY(root_id, rel)
          ) WITHOUT ROWID;
+         -- Legacy tags table (free-text tagging removed; kept so old DBs open cleanly).
          CREATE TABLE IF NOT EXISTS tags(
             root_id INTEGER NOT NULL,
             rel TEXT NOT NULL,
@@ -215,18 +209,6 @@ fn handle(conn: &Connection, cmd: DbCmd) -> rusqlite::Result<()> {
                 rusqlite::params![rid, rel],
             )?;
         }
-        DbCmd::SetTags { root, rel, tags } => {
-            let rid = root_id(conn, &root)?;
-            conn.execute(
-                "DELETE FROM tags WHERE root_id=?1 AND rel=?2",
-                rusqlite::params![rid, rel],
-            )?;
-            let mut stmt =
-                conn.prepare_cached("INSERT INTO tags(root_id, rel, tag) VALUES(?1,?2,?3)")?;
-            for t in tags {
-                stmt.execute(rusqlite::params![rid, rel, t])?;
-            }
-        }
         DbCmd::SetAssign { root, rel, assign } => {
             let rid = root_id(conn, &root)?;
             match assign {
@@ -262,8 +244,7 @@ fn handle(conn: &Connection, cmd: DbCmd) -> rusqlite::Result<()> {
             let mut loaded = LoadedRoot {
                 snapshot: None,
                 last_scan: 0,
-                tag_state: TagState {
-                    tags: HashMap::new(),
+                assign_state: AssignState {
                     assigns: HashMap::new(),
                 },
                 journal_json: None,
@@ -298,28 +279,20 @@ fn handle(conn: &Connection, cmd: DbCmd) -> rusqlite::Result<()> {
                     loaded.snapshot = Some(rows);
                 }
 
-                let mut stmt = conn.prepare_cached("SELECT rel, tag FROM tags WHERE root_id=?1")?;
-                for row in stmt.query_map([rid], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-                })? {
-                    if let Ok((rel, tag)) = row {
-                        loaded.tag_state.tags.entry(rel).or_default().push(tag);
-                    }
-                }
-
                 let mut stmt = conn.prepare_cached(
                     "SELECT rel, dest_rel, new_name FROM assigns WHERE root_id=?1",
                 )?;
-                for row in stmt.query_map([rid], |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, Option<String>>(2)?,
-                    ))
-                })? {
-                    if let Ok((rel, dest, nn)) = row {
-                        loaded.tag_state.assigns.insert(rel, (dest, nn));
-                    }
+                for (rel, dest, nn) in stmt
+                    .query_map([rid], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, Option<String>>(2)?,
+                        ))
+                    })?
+                    .flatten()
+                {
+                    loaded.assign_state.assigns.insert(rel, (dest, nn));
                 }
 
                 loaded.journal_json = conn
@@ -340,7 +313,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn snapshot_tags_assigns_journal_round_trip() {
+    fn snapshot_assigns_journal_round_trip() {
         let base = std::env::temp_dir().join(format!("nfa_db_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
@@ -366,11 +339,6 @@ mod tests {
                 ),
             ],
         });
-        db.send(DbCmd::SetTags {
-            root: root.clone(),
-            rel: "a.jpg".into(),
-            tags: vec!["hero".into(), "red".into()],
-        });
         db.send(DbCmd::SetAssign {
             root: root.clone(),
             rel: r"sub\b.mp4".into(),
@@ -391,11 +359,7 @@ mod tests {
         assert_eq!(b.size, 200);
         assert_eq!(b.name, "b.mp4");
         assert_eq!(
-            loaded.tag_state.tags.get("a.jpg").unwrap(),
-            &vec!["hero".to_string(), "red".to_string()]
-        );
-        assert_eq!(
-            loaded.tag_state.assigns.get(r"sub\b.mp4").unwrap(),
+            loaded.assign_state.assigns.get(r"sub\b.mp4").unwrap(),
             &("Videos".to_string(), Some("clip.mp4".to_string()))
         );
         assert!(loaded.journal_json.is_some());

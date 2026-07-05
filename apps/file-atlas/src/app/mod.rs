@@ -8,7 +8,7 @@
 //! - `chrome` — panel registry for tools/readouts gear menus
 
 use atlas_core::export::{self, ExportItem, ExportMsg};
-use atlas_core::index::{Db, DbCmd, LoadedRoot, TagState};
+use atlas_core::index::{AssignState, Db, DbCmd, LoadedRoot};
 use atlas_core::journal::{Action, AssignVal, Journal, JournalEntry};
 use atlas_core::scanner::{self, ScanHandle, ScanMsg};
 use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
@@ -84,7 +84,6 @@ enum ThumbState {
 
 #[derive(Clone)]
 pub(crate) enum DragChip {
-    Tag(String),
     Dest(String),
 }
 
@@ -354,8 +353,6 @@ pub struct AtlasApp {
     date_span_hi: i64,
     date_range_lo: i64,
     date_range_hi: i64,
-    tag_filter: BTreeSet<String>,
-    only_untagged: bool,
     only_unassigned: bool,
     /// When true, among files with the same name and size, show only the newest (by mtime).
     dedupe_twins: bool,
@@ -400,15 +397,13 @@ pub struct AtlasApp {
     detail: Option<u32>,
 
     // organizing state
-    tag_state: TagState,
+    assign_state: AssignState,
     journal: Journal,
-    all_tags: BTreeMap<String, usize>,
     known_dests: BTreeSet<String>,
     show_journal: bool,
 
     // edit panel
     edit_open: bool,
-    edit_tag_input: String,
     edit_dest_input: String,
     edit_rename_input: String,
 
@@ -520,8 +515,6 @@ impl AtlasApp {
             date_span_hi: 0,
             date_range_lo: 0,
             date_range_hi: 0,
-            tag_filter: BTreeSet::new(),
-            only_untagged: false,
             only_unassigned: false,
             dedupe_twins: false,
             filter_dirty: false,
@@ -552,16 +545,13 @@ impl AtlasApp {
             drag_chip: None,
             menu_at: None,
             detail: None,
-            tag_state: TagState {
-                tags: HashMap::new(),
+            assign_state: AssignState {
                 assigns: HashMap::new(),
             },
             journal: Journal::default(),
-            all_tags: BTreeMap::new(),
             known_dests: BTreeSet::new(),
             show_journal: false,
             edit_open: false,
-            edit_tag_input: String::new(),
             edit_dest_input: String::new(),
             edit_rename_input: String::new(),
             export_ui: None,
@@ -732,7 +722,7 @@ impl AtlasApp {
     }
 
     /// Tear down everything belonging to the current root: entries and their
-    /// parallel vectors, the tree, textures, tags/journal, filters that are
+    /// parallel vectors, the tree, textures, assigns/journal, filters that are
     /// root-specific, and every piece of interaction state that references
     /// entry ids. This is the single reset used by both `set_root` and
     /// `clear_root` — any id-carrying field missed here becomes a dangling
@@ -772,14 +762,11 @@ impl AtlasApp {
         self.pending_cam = None;
 
         // Root-specific organizing state and filters.
-        self.tag_state = TagState {
-            tags: HashMap::new(),
+        self.assign_state = AssignState {
             assigns: HashMap::new(),
         };
         self.journal = Journal::default();
-        self.all_tags = BTreeMap::new();
         self.known_dests = BTreeSet::new();
-        self.tag_filter.clear();
         self.owner_filter.clear();
         self.all_owners.clear();
         self.rescan_buffer = Vec::new();
@@ -918,11 +905,11 @@ impl AtlasApp {
     }
 
     fn ingest_loaded(&mut self, root: PathBuf, loaded: LoadedRoot) {
-        self.tag_state = loaded.tag_state;
+        self.assign_state = loaded.assign_state;
         if let Some(json) = &loaded.journal_json {
             self.journal = Journal::from_json(json);
         }
-        self.recount_tags();
+        self.recount_assigns();
         self.recount_owners();
 
         let mode = if let Some(snapshot) = loaded.snapshot {
@@ -1590,8 +1577,6 @@ impl AtlasApp {
             || self.ext_filter_active()
             || !self.owner_filter.is_empty()
             || self.date_filter_active()
-            || !self.tag_filter.is_empty()
-            || self.only_untagged
             || self.only_unassigned;
         // All family boxes unchecked = lightweight structure map: every
         // folder visible, zero thumbnails.
@@ -1616,17 +1601,8 @@ impl AtlasApp {
                 m = e.name_lc.contains(&search);
             }
             if m {
-                let tags = self.tag_state.tags.get(&e.rel);
-                if self.only_untagged && tags.map(|t| !t.is_empty()).unwrap_or(false) {
+                if self.only_unassigned && self.assign_state.assigns.contains_key(&e.rel) {
                     m = false;
-                }
-                if m && self.only_unassigned && self.tag_state.assigns.contains_key(&e.rel) {
-                    m = false;
-                }
-                if m && !self.tag_filter.is_empty() {
-                    m = tags
-                        .map(|t| self.tag_filter.iter().all(|f| t.contains(f)))
-                        .unwrap_or(false);
                 }
                 if m {
                     m = self.owner_matches(e);
@@ -1691,15 +1667,9 @@ impl AtlasApp {
 
     // ---------- organizing actions ----------
 
-    fn recount_tags(&mut self) {
-        self.all_tags.clear();
-        for tags in self.tag_state.tags.values() {
-            for t in tags {
-                *self.all_tags.entry(t.clone()).or_insert(0) += 1;
-            }
-        }
+    fn recount_assigns(&mut self) {
         self.known_dests = self
-            .tag_state
+            .assign_state
             .assigns
             .values()
             .map(|(d, _)| d.clone())
@@ -1798,54 +1768,10 @@ impl AtlasApp {
         out
     }
 
-    fn add_tag(&mut self, rels: &[String], tag: &str) {
-        let tag = tag.trim();
-        if tag.is_empty() || rels.is_empty() {
-            return;
-        }
-        let mut changes = Vec::new();
-        for rel in rels {
-            let before = self.tag_state.tags.get(rel).cloned().unwrap_or_default();
-            if before.iter().any(|t| t == tag) {
-                continue;
-            }
-            let mut after = before.clone();
-            after.push(tag.to_string());
-            after.sort();
-            changes.push((rel.clone(), before, after));
-        }
-        if changes.is_empty() {
-            return;
-        }
-        let n = changes.len();
-        let action = Action::Tags { changes };
-        self.apply_action(&action, true);
-        self.push_journal(format!("Tag \"{tag}\" on {n} file(s)"), action);
-    }
-
-    fn remove_tag(&mut self, rels: &[String], tag: &str) {
-        let mut changes = Vec::new();
-        for rel in rels {
-            let before = self.tag_state.tags.get(rel).cloned().unwrap_or_default();
-            if !before.iter().any(|t| t == tag) {
-                continue;
-            }
-            let after: Vec<String> = before.iter().filter(|t| *t != tag).cloned().collect();
-            changes.push((rel.clone(), before, after));
-        }
-        if changes.is_empty() {
-            return;
-        }
-        let n = changes.len();
-        let action = Action::Tags { changes };
-        self.apply_action(&action, true);
-        self.push_journal(format!("Untag \"{tag}\" on {n} file(s)"), action);
-    }
-
     fn set_assign(&mut self, rels: &[String], assign: AssignVal, label: String) {
         let mut changes = Vec::new();
         for rel in rels {
-            let before = self.tag_state.assigns.get(rel).cloned();
+            let before = self.assign_state.assigns.get(rel).cloned();
             if before == assign {
                 continue;
             }
@@ -1864,31 +1790,15 @@ impl AtlasApp {
             return;
         };
         match action {
-            Action::Tags { changes } => {
-                for (rel, before, after) in changes {
-                    let val = if forward { after } else { before };
-                    if val.is_empty() {
-                        self.tag_state.tags.remove(rel);
-                    } else {
-                        self.tag_state.tags.insert(rel.clone(), val.clone());
-                    }
-                    self.db.send(DbCmd::SetTags {
-                        root: root.clone(),
-                        rel: rel.clone(),
-                        tags: val.clone(),
-                    });
-                }
-                self.recount_tags();
-            }
             Action::Assign { changes } => {
                 for (rel, before, after) in changes {
                     let val = if forward { after } else { before };
                     match val {
                         Some(v) => {
-                            self.tag_state.assigns.insert(rel.clone(), v.clone());
+                            self.assign_state.assigns.insert(rel.clone(), v.clone());
                         }
                         None => {
-                            self.tag_state.assigns.remove(rel);
+                            self.assign_state.assigns.remove(rel);
                         }
                     }
                     self.db.send(DbCmd::SetAssign {
@@ -1897,7 +1807,7 @@ impl AtlasApp {
                         assign: val.clone(),
                     });
                 }
-                self.recount_tags();
+                self.recount_assigns();
             }
             Action::Export {
                 manifest_path,
@@ -1944,7 +1854,7 @@ impl AtlasApp {
         let Some(root) = &self.root else {
             return Vec::new();
         };
-        self.tag_state
+        self.assign_state
             .assigns
             .iter()
             .filter_map(|(rel, (dest, new_name))| {
@@ -1958,7 +1868,6 @@ impl AtlasApp {
                     rel: rel.clone(),
                     dest_rel: dest.clone(),
                     new_name: new_name.clone(),
-                    tags: self.tag_state.tags.get(rel).cloned().unwrap_or_default(),
                 })
             })
             .collect()
@@ -2136,7 +2045,7 @@ impl AtlasApp {
         }
         ctx.request_repaint();
 
-        // ATLAS_DEMO=1: scripted tag/assign session for screenshots.
+        // ATLAS_DEMO=1: scripted assign session for screenshots.
         if std::env::var("ATLAS_DEMO").is_ok()
             && self.frame_no > 120
             && !self.demo_ran
@@ -2152,8 +2061,6 @@ impl AtlasApp {
                 .map(|e| e.rel.clone())
                 .collect();
             if imgs.len() >= 12 {
-                self.add_tag(&imgs[0..8], "hero");
-                self.add_tag(&imgs[4..12], "wip");
                 self.set_assign(
                     &imgs[0..6],
                     Some((r"Selects\Final".into(), None)),
@@ -2247,11 +2154,10 @@ impl AtlasApp {
 
     fn open_edit_panel(&mut self) {
         self.edit_open = true;
-        self.edit_tag_input.clear();
         let rels = self.selection_rels();
         let dests: BTreeSet<String> = rels
             .iter()
-            .filter_map(|r| self.tag_state.assigns.get(r).map(|(d, _)| d.clone()))
+            .filter_map(|r| self.assign_state.assigns.get(r).map(|(d, _)| d.clone()))
             .collect();
         self.edit_dest_input = if dests.len() == 1 {
             dests.into_iter().next().unwrap()
@@ -2259,7 +2165,7 @@ impl AtlasApp {
             String::new()
         };
         self.edit_rename_input = if rels.len() == 1 {
-            self.tag_state
+            self.assign_state
                 .assigns
                 .get(&rels[0])
                 .and_then(|(_, n)| n.clone())
@@ -2270,7 +2176,7 @@ impl AtlasApp {
     }
 
     fn bottom_tray(&mut self, ctx: &egui::Context) {
-        let assigns = &self.tag_state.assigns;
+        let assigns = &self.assign_state.assigns;
         let has_content =
             !assigns.is_empty() || self.export_ui.is_some() || !self.selection.is_empty();
         if !has_content {
@@ -2352,7 +2258,7 @@ impl AtlasApp {
                     }
                     if !self.selection.is_empty() {
                         if ui
-                            .button(format!("Tag / assign {} selectedâ€¦", self.selection.len()))
+                            .button(format!("Assign {} selected…", self.selection.len()))
                             .clicked()
                         {
                             self.open_edit_panel();
@@ -2800,7 +2706,6 @@ impl AtlasApp {
                     deferred.push(Box::new(move |app| {
                         let rels = app.target_rels(Some(f));
                         match chipv {
-                            DragChip::Tag(t) => app.add_tag(&rels, &t),
                             DragChip::Dest(d) => {
                                 let n = rels.len();
                                 app.set_assign(
@@ -3696,36 +3601,8 @@ impl AtlasApp {
                 );
             }
 
-            // Tag chips (top-left) and staged underline.
-            if let Some(tags) = self.tag_state.tags.get(&e.rel) {
-                let chip_px = 9.0 * z;
-                if chip_px >= 5.0 && !tags.is_empty() {
-                    let mut x = sr.min.x + 4.0 * z;
-                    let y = sr.min.y + 4.0 * z;
-                    for tg in tags.iter().take(3) {
-                        let text: String = tg.chars().take(10).collect();
-                        let galley = painter.layout_no_wrap(
-                            text,
-                            FontId::proportional(chip_px),
-                            Color32::WHITE,
-                        );
-                        let w = galley.size().x + 8.0 * z;
-                        let chip_rect =
-                            Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, 13.0 * z));
-                        if chip_rect.max.x > sr.max.x - 8.0 {
-                            break;
-                        }
-                        painter.rect_filled(
-                            chip_rect,
-                            CornerRadius::same((6.0 * z).clamp(1.0, 6.0) as u8),
-                            Color32::from_rgba_unmultiplied(0x2b, 0x4a, 0x63, 220),
-                        );
-                        painter.galley(Pos2::new(x + 4.0 * z, y + 2.0 * z), galley, Color32::WHITE);
-                        x += w + 3.0 * z;
-                    }
-                }
-            }
-            if self.tag_state.assigns.contains_key(&e.rel) {
+            // Staged underline.
+            if self.assign_state.assigns.contains_key(&e.rel) {
                 painter.rect_filled(
                     Rect::from_min_size(
                         Pos2::new(sr.min.x, sr.max.y - 2.0),
@@ -3747,7 +3624,7 @@ impl AtlasApp {
                 CornerRadius::same((6.0 * z).clamp(1.0, 6.0) as u8),
                 c.gamma_multiply(alpha),
             );
-            if self.tag_state.assigns.contains_key(&e.rel) {
+            if self.assign_state.assigns.contains_key(&e.rel) {
                 painter.rect_filled(
                     Rect::from_min_size(
                         Pos2::new(sr.min.x, sr.max.y - 2.0),
@@ -3780,7 +3657,7 @@ impl AtlasApp {
                             .small()
                             .color(Color32::from_gray(130)),
                     );
-                    if ui.button("Tag / assignâ€¦").clicked() {
+                    if ui.button("Assign…").clicked() {
                         self.open_edit_panel();
                         close = true;
                     }
@@ -3866,81 +3743,11 @@ impl AtlasApp {
             return;
         }
         let mut open = true;
-        egui::Window::new(format!("Tag & assign â€” {} file(s)", rels.len()))
+        egui::Window::new(format!("Assign — {} file(s)", rels.len()))
             .open(&mut open)
             .collapsible(false)
             .default_width(360.0)
             .show(ctx, |ui| {
-                let mut common: Option<BTreeSet<String>> = None;
-                for rel in &rels {
-                    let set: BTreeSet<String> = self
-                        .tag_state
-                        .tags
-                        .get(rel)
-                        .map(|v| v.iter().cloned().collect())
-                        .unwrap_or_default();
-                    common = Some(match common {
-                        None => set,
-                        Some(c) => c.intersection(&set).cloned().collect(),
-                    });
-                }
-                let common = common.unwrap_or_default();
-
-                ui.strong("Tags");
-                ui.horizontal_wrapped(|ui| {
-                    let mut remove: Option<String> = None;
-                    for t in &common {
-                        if chip(
-                            ui,
-                            &format!("{t} Ã—"),
-                            true,
-                            Color32::from_rgb(0x37, 0x5a, 0x7a),
-                        )
-                        .clicked()
-                        {
-                            remove = Some(t.clone());
-                        }
-                    }
-                    if let Some(t) = remove {
-                        self.remove_tag(&rels, &t);
-                    }
-                });
-                ui.horizontal(|ui| {
-                    let resp = ui.add(
-                        egui::TextEdit::singleline(&mut self.edit_tag_input)
-                            .hint_text("add tagâ€¦")
-                            .desired_width(180.0),
-                    );
-                    let submit = (resp.lost_focus()
-                        && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                        || ui.button("Add").clicked();
-                    if submit && !self.edit_tag_input.trim().is_empty() {
-                        let t = self.edit_tag_input.trim().to_string();
-                        self.add_tag(&rels, &t);
-                        self.edit_tag_input.clear();
-                        resp.request_focus();
-                    }
-                });
-                let input_lc = self.edit_tag_input.to_lowercase();
-                if !input_lc.is_empty() {
-                    let sugg: Vec<String> = self
-                        .all_tags
-                        .keys()
-                        .filter(|t| t.to_lowercase().starts_with(&input_lc))
-                        .take(6)
-                        .cloned()
-                        .collect();
-                    ui.horizontal_wrapped(|ui| {
-                        for s in sugg {
-                            if ui.small_button(&s).clicked() {
-                                self.add_tag(&rels, &s);
-                                self.edit_tag_input.clear();
-                            }
-                        }
-                    });
-                }
-
-                ui.separator();
                 ui.strong("Destination folder (relative to export root)");
                 ui.horizontal(|ui| {
                     ui.add(
@@ -3990,7 +3797,7 @@ impl AtlasApp {
                         );
                         if ui.button("Set").clicked() {
                             let rel = &rels[0];
-                            let cur = self.tag_state.assigns.get(rel).cloned();
+                            let cur = self.assign_state.assigns.get(rel).cloned();
                             let dest = cur.map(|(d, _)| d).unwrap_or_default();
                             let nn = self.edit_rename_input.trim();
                             let nn = if nn.is_empty() {
@@ -4051,14 +3858,7 @@ impl AtlasApp {
                         .small()
                         .color(Color32::from_gray(140)),
                 );
-                if let Some(tags) = self.tag_state.tags.get(&e.rel) {
-                    ui.horizontal_wrapped(|ui| {
-                        for t in tags {
-                            chip(ui, t, true, Color32::from_rgb(0x37, 0x5a, 0x7a));
-                        }
-                    });
-                }
-                if let Some((dest, nn)) = self.tag_state.assigns.get(&e.rel) {
+                if let Some((dest, nn)) = self.assign_state.assigns.get(&e.rel) {
                     ui.label(
                         egui::RichText::new(format!(
                             "staged â†’ {dest}{}",
@@ -4123,8 +3923,7 @@ impl AtlasApp {
             return;
         }
         let label = match chipv {
-            DragChip::Tag(t) => format!("tag: {t}"),
-            DragChip::Dest(d) => format!("â†’ {d}"),
+            DragChip::Dest(d) => format!("→ {d}"),
         };
         if let Some(p) = ctx.pointer_latest_pos() {
             egui::Area::new(egui::Id::new("drag_overlay"))

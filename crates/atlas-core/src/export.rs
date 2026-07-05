@@ -1,6 +1,6 @@
 //! Copy-only export engine. Sources are never touched. A JSON manifest is
-//! written into the destination recording every source->dest mapping, the
-//! tags, and any renames — the organization scheme as a documented artifact.
+//! written into the destination recording every source->dest mapping and any
+//! renames — the organization scheme as a documented artifact.
 //! Undo-by-manifest deletes exactly the copies we created, nothing else.
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -14,14 +14,12 @@ pub struct ExportItem {
     pub rel: String,
     pub dest_rel: String,
     pub new_name: Option<String>,
-    pub tags: Vec<String>,
 }
 
 #[derive(Serialize)]
 struct ManifestItem {
     source: String,
     dest: String,
-    tags: Vec<String>,
     renamed_from: Option<String>,
 }
 
@@ -113,7 +111,6 @@ fn run_export(
                 manifest_items.push(ManifestItem {
                     source: item.source.to_string_lossy().into_owned(),
                     dest: dest.to_string_lossy().into_owned(),
-                    tags: item.tags.clone(),
                     renamed_from: item.new_name.as_ref().map(|_| {
                         item.source
                             .file_name()
@@ -207,14 +204,12 @@ mod tests {
                 rel: "photo.jpg".into(),
                 dest_rel: r"Renders\Final".into(),
                 new_name: Some("hero-shot.jpg".into()),
-                tags: vec!["hero".into()],
             },
             ExportItem {
                 source: src.join("model.3dm"),
                 rel: "model.3dm".into(),
                 dest_rel: "Models".into(),
                 new_name: None,
-                tags: vec![],
             },
         ];
 
@@ -247,7 +242,10 @@ mod tests {
         let manifest: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
         assert_eq!(manifest["items"].as_array().unwrap().len(), 2);
-        assert_eq!(manifest["items"][0]["tags"][0], "hero");
+        assert_eq!(
+            manifest["items"][0]["dest"],
+            hero.to_string_lossy().as_ref()
+        );
 
         // Undo removes copies + empty dirs but never the sources.
         let removed = undo_export(&manifest_path, &copied, &created_dirs);

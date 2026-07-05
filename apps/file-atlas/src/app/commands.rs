@@ -88,7 +88,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Workflow",
-        name: "Tag / assign selection",
+        name: "Assign selection",
         binding: "F2",
     },
     CommandEntry {
