@@ -308,6 +308,9 @@ impl SlateApp {
         if self.doc().view.active_view == ViewKind::Board {
             self.paint_dot_grid(&painter, rect, &palette);
             self.board_canvas(ui, rect);
+            // The board owns its own camera; the mini menu only offers the
+            // full-screen toggle here (zoom lives in the board toolbar keys).
+            self.mini_menu(ui.ctx(), rect, None);
             return;
         }
 
@@ -420,7 +423,38 @@ impl SlateApp {
         self.paint_sections(&painter, &layout, &palette);
         self.paint_items(ui, &painter, &layout, hovered_item, &palette);
 
+        self.mini_menu(ui.ctx(), rect, Some(layout.bounds));
         self.action_menu(ui.ctx(), &palette);
+    }
+
+    /// Lower-left canvas mini menu (shared chrome): ⛶ full-screen toggle +
+    /// zoom controls when the shared camera is in charge (`fit_bounds` set).
+    fn mini_menu(&mut self, ctx: &egui::Context, rect: Rect, fit_bounds: Option<Rect>) {
+        use atlas_shell::widgets::{canvas_mini_menu, MiniMenuAction, MiniMenuModel};
+        let action = canvas_mini_menu(
+            ctx,
+            "slate",
+            rect,
+            MiniMenuModel {
+                zoom_pct: fit_bounds.map(|_| self.tab().cam.z * 100.0),
+                fullscreen: self.tab().chrome.canvas_fullscreen,
+            },
+        );
+        match action {
+            Some(MiniMenuAction::ZoomOut) => self.zoom_at(rect.center(), 1.0 / 1.2),
+            Some(MiniMenuAction::ZoomReset) => {
+                let f = 1.0 / self.tab().cam.z;
+                self.zoom_at(rect.center(), f);
+            }
+            Some(MiniMenuAction::ZoomIn) => self.zoom_at(rect.center(), 1.2),
+            Some(MiniMenuAction::Fit) => {
+                if let Some(bounds) = fit_bounds {
+                    self.fit_view(bounds);
+                }
+            }
+            Some(MiniMenuAction::ToggleFullscreen) => self.toggle_canvas_fullscreen(),
+            None => {}
+        }
     }
 
     fn welcome(&mut self, ui: &mut egui::Ui, rect: Rect) {
@@ -543,9 +577,7 @@ impl SlateApp {
     ) {
         let z = self.tab().cam.z;
         let visible = self.canvas_rect.expand(80.0);
-
-        // Collect thumb requests first (avoids borrowing fights).
-        let mut need_thumbs: Vec<ItemId> = Vec::new();
+        let ppp = ui.ctx().pixels_per_point();
 
         for pl in &layout.placed {
             let srect = self.world_rect_to_screen(pl.rect);
@@ -555,20 +587,15 @@ impl SlateApp {
             let Some(item) = self.doc().item(pl.id) else {
                 continue;
             };
-            let key = item.cache_key.clone();
             let name = item.file_name.clone();
             let missing = link_status(item) == LinkStatus::Missing;
             let selected = self.selection.contains(&pl.id);
             let is_hovered = hovered == Some(pl.id);
 
-            let tex = match self.textures.get(&key) {
-                Some(ThumbState::Ready(t)) => Some(t.clone()),
-                Some(_) => None,
-                None => {
-                    need_thumbs.push(pl.id);
-                    None
-                }
-            };
+            // Best resident texture for the on-screen size: full-res preview
+            // when loaded, thumbnail meanwhile (lazy upgrade, never blocks).
+            let desired_px = srect.width().max(srect.height()) * ppp;
+            let tex = self.item_texture(pl.id, desired_px);
 
             match pl.circle_r {
                 Some(r_world) => {
@@ -668,9 +695,6 @@ impl SlateApp {
             }
         }
 
-        for id in need_thumbs {
-            self.request_thumb(id);
-        }
         if self
             .textures
             .values()

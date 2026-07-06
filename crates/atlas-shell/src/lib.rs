@@ -5,6 +5,7 @@
 //! apart visually:
 //!
 //! - [`theme`] — the one [`theme::Palette`] + egui visuals both apps use.
+//! - [`menubar`] — Windows-style File/View menu bar (topmost chrome row).
 //! - [`tabs`] — browser-style top bar and tab strip (identical painting).
 //! - [`sidebar`] — left tools-rail layout primitives (sections, rows).
 //! - [`widgets`] — shared controls (chips, sliders, timeline, gear menu).
@@ -17,6 +18,7 @@
 
 pub mod chrome;
 pub mod commands;
+pub mod menubar;
 pub mod sidebar;
 pub mod tabs;
 pub mod theme;

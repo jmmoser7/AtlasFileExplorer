@@ -12,6 +12,7 @@ pub mod journal;
 pub mod metadata;
 pub mod office;
 pub mod pdf;
+pub mod preview;
 pub mod scanner;
 pub mod threedm;
 pub mod thumbs;
