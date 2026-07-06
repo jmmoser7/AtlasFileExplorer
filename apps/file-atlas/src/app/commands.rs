@@ -74,7 +74,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Filters",
         name: "Date timeline zoom",
-        binding: "Ctrl + scroll wheel over date timeline (zooms around cursor)",
+        binding: "Scroll wheel over date timeline (zooms around cursor, down to minute marks)",
     },
     CommandEntry {
         category: "Filters",
