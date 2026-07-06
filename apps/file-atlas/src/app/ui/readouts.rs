@@ -98,6 +98,20 @@ fn metrics_row(app: &mut AtlasApp, ui: &mut egui::Ui) {
                     .color(palette.sub),
             );
         }
+        if let Some((done, total)) = app.warm_audit_progress() {
+            ui.label(
+                egui::RichText::new(format!(
+                    "· checking thumbnail cache {} / {}",
+                    group_digits(done as u64),
+                    group_digits(total as u64)
+                ))
+                .color(palette.sub),
+            )
+            .on_hover_text(
+                "Auditing which thumbnails are already cached (background \
+                 thread) — only the missing ones will be generated.",
+            );
+        }
         if app.warm_pending > 0 {
             ui.label(
                 egui::RichText::new(format!("· warming cache ({} left)", app.warm_pending))
