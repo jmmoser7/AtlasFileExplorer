@@ -146,7 +146,8 @@ impl SlateDoc {
         None
     }
 
-    /// Adds a linked file entry, or returns the existing id when the absolute path matches.
+    /// Adds a linked file entry, or returns the existing id when the absolute
+    /// path and PDF page match.
     pub fn add_item(
         &mut self,
         path: PathBuf,
@@ -155,7 +156,25 @@ impl SlateDoc {
         mtime: i64,
         cache_key: impl Into<String>,
     ) -> ItemId {
-        if let Some(item) = self.items.iter().find(|item| item.path == path) {
+        self.add_item_page(path, file_name, size, mtime, cache_key, 0)
+    }
+
+    /// Like [`add_item`](Self::add_item) but allows multiple entries for the
+    /// same PDF path at different pages (exploded pages).
+    pub fn add_item_page(
+        &mut self,
+        path: PathBuf,
+        file_name: impl Into<String>,
+        size: u64,
+        mtime: i64,
+        cache_key: impl Into<String>,
+        pdf_page: u16,
+    ) -> ItemId {
+        if let Some(item) = self
+            .items
+            .iter()
+            .find(|item| item.path == path && item.pdf_page == pdf_page)
+        {
             return item.id;
         }
         let id = ItemId(self.next_item_id);
@@ -167,9 +186,23 @@ impl SlateDoc {
             size,
             mtime,
             cache_key: cache_key.into(),
+            pdf_page,
             assignments: BTreeMap::new(),
         });
         id
+    }
+
+    /// Sets the poster page for a PDF item. Returns `false` when the item is
+    /// missing or the page index is unchanged.
+    pub fn set_pdf_page(&mut self, id: ItemId, page: u16) -> bool {
+        let Some(item) = self.item_mut(id) else {
+            return false;
+        };
+        if item.pdf_page == page {
+            return false;
+        }
+        item.pdf_page = page;
+        true
     }
 
     /// Removes an item by id. Returns `false` if the id was not found.
@@ -434,6 +467,19 @@ mod tests {
     }
 
     #[test]
+    fn add_item_page_allows_same_pdf_path_at_different_pages() {
+        let mut doc = SlateDoc::new("test");
+        let path = PathBuf::from("/docs/report.pdf");
+        let p0 = doc.add_item_page(path.clone(), "report.pdf", 100, 1, "k0", 0);
+        let p1 = doc.add_item_page(path.clone(), "report.pdf — page 2", 100, 1, "k1", 1);
+        let p0_again = doc.add_item_page(path, "dup", 100, 1, "k0", 0);
+        assert_eq!(p0, p0_again);
+        assert_ne!(p0, p1);
+        assert_eq!(doc.items.len(), 2);
+        assert_eq!(doc.item(p1).unwrap().pdf_page, 1);
+    }
+
+    #[test]
     fn save_load_round_trip() {
         let dir = unique_temp_dir("slate-doc-roundtrip");
         let path = dir.join(format!("workbook.{SLATE_EXTENSION}"));
@@ -574,6 +620,7 @@ mod tests {
             size: 2,
             mtime: 0,
             cache_key: String::new(),
+            pdf_page: 0,
             assignments: BTreeMap::new(),
         };
         let item_missing = SlateItem {
@@ -583,6 +630,7 @@ mod tests {
             size: 0,
             mtime: 0,
             cache_key: String::new(),
+            pdf_page: 0,
             assignments: BTreeMap::new(),
         };
 

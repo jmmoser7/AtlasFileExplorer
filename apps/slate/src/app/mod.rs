@@ -24,6 +24,7 @@ pub mod canvas;
 pub mod chrome;
 pub mod commands;
 pub mod imagefx;
+pub mod pdf;
 pub mod present;
 pub mod session;
 #[cfg(test)]
@@ -200,6 +201,9 @@ pub struct SlateApp {
     /// (after drop placement runs against the tab that received the drop).
     pub pending_workbooks: Vec<PathBuf>,
 
+    /// Cached PDF page counts keyed by absolute path string.
+    pdf_page_counts: std::collections::HashMap<String, u16>,
+
     frame_no: u64,
 }
 
@@ -247,6 +251,7 @@ impl SlateApp {
             last_board_edit: None,
             alt_down: false,
             pending_workbooks: Vec::new(),
+            pdf_page_counts: HashMap::new(),
             frame_no: 0,
         };
         app.thumbs.retain_generation(THUMB_GENERATION);
@@ -555,11 +560,18 @@ impl SlateApp {
 
     /// Ensure a texture request is in flight for the item's thumbnail.
     pub fn request_thumb(&mut self, item_id: ItemId) {
-        let Some((key, path, size)) = self
-            .doc()
-            .item(item_id)
-            .map(|it| (it.cache_key.clone(), it.path.clone(), it.size))
-        else {
+        let Some((key, path, size, pdf_page)) = self.doc().item(item_id).map(|it| {
+            (
+                pdf::item_thumb_key(it),
+                it.path.clone(),
+                it.size,
+                if it.pdf_page == 0 {
+                    None
+                } else {
+                    Some(it.pdf_page)
+                },
+            )
+        }) else {
             return;
         };
         if key.is_empty() || self.textures.contains_key(&key) {
@@ -576,6 +588,7 @@ impl SlateApp {
             color_only: false,
             shared_dir: None,
             src_bytes: size,
+            pdf_page,
         });
         self.textures.insert(key, ThumbState::Pending);
     }
@@ -627,7 +640,8 @@ impl SlateApp {
             {
                 continue;
             }
-            let thumb = cache_dir.join(format!("{}.jpg", item.cache_key));
+            let thumb_key = pdf::item_thumb_key(item);
+            let thumb = cache_dir.join(format!("{}.jpg", thumb_key));
             if thumb.exists() {
                 map.insert(img.item, thumb);
             }

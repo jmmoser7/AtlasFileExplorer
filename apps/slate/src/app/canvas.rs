@@ -420,6 +420,13 @@ impl SlateApp {
         self.paint_sections(&painter, &layout, &palette);
         self.paint_items(ui, &painter, &layout, hovered_item, &palette);
 
+        if let Some(id) = hovered_item {
+            if let Some(pl) = layout.placed.iter().find(|p| p.id == id) {
+                let srect = self.world_rect_to_screen(pl.rect);
+                self.paint_pdf_page_picker(ui, id, srect, &palette);
+            }
+        }
+
         self.action_menu(ui.ctx(), &palette);
     }
 
@@ -555,7 +562,7 @@ impl SlateApp {
             let Some(item) = self.doc().item(pl.id) else {
                 continue;
             };
-            let key = item.cache_key.clone();
+            let key = super::pdf::item_thumb_key(item);
             let name = item.file_name.clone();
             let missing = link_status(item) == LinkStatus::Missing;
             let selected = self.selection.contains(&pl.id);
@@ -760,6 +767,24 @@ impl SlateApp {
                         ui.add_space(2.0);
                     }
                     ui.separator();
+                    let pdf_targets: Vec<ItemId> = targets
+                        .iter()
+                        .copied()
+                        .filter(|id| {
+                            self.doc()
+                                .item(*id)
+                                .map(|it| {
+                                    slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Pdf
+                                })
+                                .unwrap_or(false)
+                        })
+                        .collect();
+                    if pdf_targets.len() == 1
+                        && ui.button("Explode PDF into pages…").clicked()
+                    {
+                        self.explode_pdf(pdf_targets[0]);
+                        close = true;
+                    }
                     if ui.button("Place on board").clicked() {
                         let center = self.tab().cam.offset.to_pos2();
                         self.place_items_on_board(&targets, center);

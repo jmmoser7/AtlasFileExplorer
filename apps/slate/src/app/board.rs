@@ -446,7 +446,7 @@ impl SlateApp {
         item: ItemId,
         adjust: &ImageAdjust,
     ) -> Option<egui::TextureHandle> {
-        let key = self.doc().item(item)?.cache_key.clone();
+        let key = super::pdf::item_thumb_key(self.doc().item(item)?);
         if key.is_empty() {
             return None;
         }

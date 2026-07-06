@@ -71,6 +71,8 @@ pub struct ThumbRequest {
     /// Source file size, echoed back in the result so the pre-warm dashboard
     /// can report transfer throughput. Zero when the caller doesn't care.
     pub src_bytes: u64,
+    /// PDF page index (0-based). `None` renders page 1 (legacy default).
+    pub pdf_page: Option<u16>,
 }
 
 pub struct ThumbResult {
@@ -116,8 +118,18 @@ pub struct ThumbPool {
 }
 
 pub fn cache_key(rel: &str, size: u64, mtime: i64) -> String {
+    cache_key_page(rel, size, mtime, None)
+}
+
+/// Thumbnail cache key, optionally scoped to a PDF page (0-based).
+/// Page `None` or `Some(0)` uses the legacy single-page key.
+pub fn cache_key_page(rel: &str, size: u64, mtime: i64, page: Option<u16>) -> String {
     // Two independent FNV-1a passes -> 128-bit key, effectively collision-free.
-    let s = format!("{rel}|{size}|{mtime}|{CACHE_KEY_VERSION}");
+    let page_suffix = match page {
+        None | Some(0) => String::new(),
+        Some(p) => format!("|p{p}"),
+    };
+    let s = format!("{rel}|{size}|{mtime}{page_suffix}|{CACHE_KEY_VERSION}");
     format!(
         "{:016x}{:016x}",
         fnv64(s.as_bytes(), 0xcbf29ce484222325),
@@ -454,7 +466,7 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
                 load_cached(&cache_file)
             })
             .or_else(|| {
-                let img = extract_thumbnail(&req.path);
+                let img = extract_thumbnail(&req.path, req.pdf_page);
                 if let Some((w, h, ref rgba)) = img {
                     save_cached(&cache_file, w, h, rgba);
                     if let Some(sf) = &shared_file {
@@ -515,14 +527,14 @@ fn prefers_builtin_extractor(ext: &str) -> bool {
 }
 
 /// Choose the best thumbnail source for a file on cache miss.
-fn extract_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+fn extract_thumbnail(path: &Path, pdf_page: Option<u16>) -> Option<(u32, u32, Vec<u8>)> {
     let ext = file_ext(path);
     if prefers_builtin_extractor(&ext) {
-        fallback_thumbnail(path, &ext)
+        fallback_thumbnail(path, &ext, pdf_page)
             .or_else(|| shell_thumbnail_cached_only(path))
             .or_else(|| pdf_shell_fallback(&ext, path))
     } else {
-        shell_thumbnail(path).or_else(|| fallback_thumbnail(path, &ext))
+        shell_thumbnail(path).or_else(|| fallback_thumbnail(path, &ext, pdf_page))
     }
 }
 
@@ -541,10 +553,14 @@ fn pdf_shell_fallback(ext: &str, path: &Path) -> Option<(u32, u32, Vec<u8>)> {
 /// Our own extractors for formats the shell often can't handle without
 /// extra software installed: Rhino .3dm embedded previews, Office Open XML
 /// embedded thumbnails, and PDFs rendered via pdfium.
-fn fallback_thumbnail(path: &Path, ext: &str) -> Option<(u32, u32, Vec<u8>)> {
+fn fallback_thumbnail(
+    path: &Path,
+    ext: &str,
+    pdf_page: Option<u16>,
+) -> Option<(u32, u32, Vec<u8>)> {
     match ext {
         "3dm" => crate::threedm::embedded_preview(path),
-        "pdf" => crate::pdf::thumbnail(path, THUMB_PX),
+        "pdf" => crate::pdf::thumbnail_page(path, pdf_page.unwrap_or(0), THUMB_PX),
         e if crate::office::is_ooxml(e) => crate::office::embedded_thumbnail(path),
         _ => None,
     }
@@ -770,6 +786,7 @@ mod tests {
                     color_only: false,
                     shared_dir: None,
                     src_bytes: 0,
+                    pdf_page: None,
                 });
             }
         }
@@ -800,6 +817,15 @@ mod tests {
         // Version suffix is baked into every key; bump CACHE_KEY_VERSION to
         // invalidate stale icon JPEGs after pipeline fixes.
         assert_eq!(a.len(), 32);
+    }
+
+    #[test]
+    fn cache_key_page_differs_for_nonzero_pages() {
+        let base = cache_key("docs/a.pdf", 100, 1);
+        let page2 = cache_key_page("docs/a.pdf", 100, 1, Some(2));
+        assert_ne!(base, page2);
+        assert_eq!(cache_key_page("docs/a.pdf", 100, 1, Some(0)), base);
+        assert_eq!(cache_key_page("docs/a.pdf", 100, 1, None), base);
     }
 
     #[test]
