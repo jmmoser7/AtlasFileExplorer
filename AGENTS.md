@@ -24,6 +24,7 @@ shared crates:
 | `crates/slate-doc` | `.slate` document model: faceted tag system + the board scene graph (`scene.rs`: nodes, CSS-constrained styles, invertible `SceneCmd` journal) | Yes |
 | `crates/slate-artifact` | HTML artifact writer: scene → slides, styles → CSS, embedded JS slide runtime. Export is serialization, not conversion | Yes |
 | `crates/circle-pack` | Pure geometry: circle packing + Venn layout | Yes |
+| `crates/rhino-mesh` | Pure-Rust reader for cached render meshes in Rhino `.3dm` files (Slate's 3D board viewports) | Yes |
 | `apps/file-atlas` | Atlas app: canvas + app state (`src/app/mod.rs` is the integration point) | Coordinate on `mod.rs` |
 | `apps/slate` | Slate app: canvas, tagging sidebar, session host | Coordinate on `app/mod.rs` |
 

@@ -131,6 +131,11 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             }
         }
         NodeKind::Image(img) => {
+            let kind = app
+                .doc()
+                .item(img.item)
+                .map(|it| slate_doc::media_kind(&it.path))
+                .unwrap_or(slate_doc::MediaKind::Other);
             sidebar_collapsible_region(
                 ui,
                 tool_group,
@@ -147,25 +152,39 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                 theme,
                 |ui| corner_controls(app, ui, theme, &ids, &primary),
             );
-            sidebar_collapsible_region(ui, tool_group, Id::new("crop"), "Crop", theme, |ui| {
-                crop_controls(app, ui, theme, &ids, &primary)
-            });
-            sidebar_collapsible_region(ui, tool_group, Id::new("adjust"), "Adjust", theme, |ui| {
-                adjust_controls(app, ui, theme, &ids, &primary)
-            });
-            let is_video = app
-                .doc()
-                .item(img.item)
-                .is_some_and(|it| slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Video);
-            if is_video {
+            if kind == slate_doc::MediaKind::Model {
+                // 3D viewports: the camera pose is the framing — crop and
+                // pixel adjustments don't apply (in either renderer).
                 sidebar_collapsible_region(
                     ui,
                     tool_group,
-                    Id::new("video"),
-                    "Video",
+                    Id::new("model3d"),
+                    "3D viewport",
                     theme,
-                    |ui| video_controls(app, ui, theme, &ids, &primary),
+                    |ui| model_controls(app, ui, theme, &primary),
                 );
+            } else {
+                sidebar_collapsible_region(ui, tool_group, Id::new("crop"), "Crop", theme, |ui| {
+                    crop_controls(app, ui, theme, &ids, &primary)
+                });
+                sidebar_collapsible_region(
+                    ui,
+                    tool_group,
+                    Id::new("adjust"),
+                    "Adjust",
+                    theme,
+                    |ui| adjust_controls(app, ui, theme, &ids, &primary),
+                );
+                if kind == slate_doc::MediaKind::Video {
+                    sidebar_collapsible_region(
+                        ui,
+                        tool_group,
+                        Id::new("video"),
+                        "Video",
+                        theme,
+                        |ui| video_controls(app, ui, theme, &ids, &primary),
+                    );
+                }
             }
         }
         NodeKind::Text(_) => {
@@ -587,6 +606,79 @@ fn adjust_controls(
             }
         });
     }
+}
+
+// ---------- 3D model ----------
+
+/// Viewport controls for a placed 3D model. The saved camera pose is
+/// document state (journaled on lock); the board shows a live render while
+/// unlocked and the frozen-camera poster while locked — the artifact
+/// exports that same poster.
+fn model_controls(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme, primary: &Node) {
+    let id = primary.id;
+    let live = app.model3d.live.contains_key(&id);
+    let status = if live {
+        "Live — drag to orbit, Shift+drag to pan, scroll to zoom. \
+         Auto-locks after 30 s idle."
+    } else {
+        "Locked — showing the saved camera angle as a still. \
+         Unlock to orbit the model."
+    };
+    ui.label(RichText::new(status).small().color(theme.sub));
+    ui.horizontal(|ui| {
+        if live {
+            if ui
+                .button(RichText::new("🔒 Lock viewport").small())
+                .on_hover_text("Freeze this camera angle as the node's image")
+                .clicked()
+            {
+                app.lock_model(id);
+            }
+        } else if ui
+            .button(RichText::new("🔓 Unlock viewport").small())
+            .on_hover_text("Load the model and orbit it in place")
+            .clicked()
+        {
+            app.unlock_model(id);
+        }
+        if ui
+            .button(RichText::new("Reset view").small())
+            .on_hover_text("Back to the auto-fit three-quarter view")
+            .clicked()
+        {
+            app.reset_model_camera(id);
+        }
+    });
+    if let NodeKind::Image(img) = &primary.kind {
+        let cam = img.model;
+        let deg = |r: f32| r.to_degrees();
+        ui.label(
+            RichText::new(if cam.distance > 0.0 {
+                format!(
+                    "Saved pose · yaw {:.0}° · pitch {:.0}° · distance {:.1}",
+                    deg(cam.yaw),
+                    deg(cam.pitch),
+                    cam.distance
+                )
+            } else {
+                format!(
+                    "Saved pose · yaw {:.0}° · pitch {:.0}° · auto-fit",
+                    deg(cam.yaw),
+                    deg(cam.pitch)
+                )
+            })
+            .small()
+            .color(theme.sub),
+        );
+    }
+    ui.label(
+        RichText::new(
+            "Duplicate this node (Ctrl+D) and orbit each copy to keep \
+             several perspectives of one model across slides.",
+        )
+        .small()
+        .color(theme.sub),
+    );
 }
 
 // ---------- video ----------

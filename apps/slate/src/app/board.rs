@@ -205,6 +205,9 @@ pub enum BoardDrag {
     Draw { start_world: Pos2, tool: BoardTool },
     /// Rubber-band selection.
     Marquee { start_screen: Pos2 },
+    /// Orbit/pan inside an unlocked 3D model viewport (Shift = pan). The
+    /// camera pose is journaled once, when the viewport locks.
+    ModelOrbit { id: NodeId, last_screen: Pos2 },
 }
 
 /// World→screen transform. The board uses the tab camera; presentation mode
@@ -973,6 +976,103 @@ impl SlateApp {
         }
     }
 
+    /// A placed 3D model (`MediaKind::Model`): live offscreen render while
+    /// the viewport is unlocked, cached frozen-camera poster while locked,
+    /// item thumbnail (the preview Rhino embeds in the file) while the
+    /// poster is still being generated. Crop and filter adjustments don't
+    /// apply to model nodes — the camera pose *is* the framing.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_model_viewport(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        outline: &[Pos2],
+        srect: Rect,
+        node_id: NodeId,
+        name: &str,
+        alpha: f32,
+    ) {
+        let tint = Color32::WHITE.gamma_multiply(alpha);
+        let live = self.model3d.live.contains_key(&node_id);
+
+        let tex = if live {
+            self.model_live_texture(ui.ctx(), node_id, srect.width(), srect.height())
+        } else {
+            let poster = self
+                .model_node_info(node_id)
+                .and_then(|info| self.model_poster_texture(ui.ctx(), &info));
+            if poster.is_none() {
+                self.request_model_poster(node_id);
+            }
+            poster
+        };
+
+        // While the render isn't ready, fall back to the item thumbnail
+        // (atlas-core extracts the preview image embedded in .3dm files).
+        let tex = tex.or_else(|| {
+            let desired_px = srect.width().max(srect.height()) * ui.ctx().pixels_per_point();
+            self.board_texture(
+                ui.ctx(),
+                self.image_item(node_id)?,
+                &ImageAdjust::default(),
+                desired_px,
+            )
+        });
+
+        match tex {
+            Some(tex) => {
+                textured_polygon(painter, &tex, outline, srect, Crop::full(), tint);
+            }
+            None => {
+                let palette = self.palette();
+                painter.add(egui::Shape::convex_polygon(
+                    outline.to_vec(),
+                    palette.thumb_bg,
+                    EStroke::NONE,
+                ));
+                // Distinguish "still working" from "this file has no meshes".
+                let msg = self
+                    .model_node_info(node_id)
+                    .and_then(|info| {
+                        self.model_failure(&info.cache_key)
+                            .map(|_| "No render meshes — save from a shaded viewport".to_string())
+                    })
+                    .unwrap_or_else(|| {
+                        format!(
+                            "{} — preparing 3D view…",
+                            atlas_shell::widgets::trunc(name, 18)
+                        )
+                    });
+                painter.text(
+                    srect.center(),
+                    Align2::CENTER_CENTER,
+                    msg,
+                    FontId::proportional(11.0),
+                    palette.sub,
+                );
+            }
+        }
+
+        if live {
+            // Accent ring: this viewport is live (consuming GPU + memory).
+            let palette = self.palette();
+            painter.rect_stroke(
+                srect.shrink(0.5),
+                0.0,
+                EStroke::new(1.5, palette.accent),
+                egui::StrokeKind::Inside,
+            );
+        }
+    }
+
+    /// The pool item behind an image node, if any.
+    fn image_item(&self, id: NodeId) -> Option<ItemId> {
+        match self.doc().scene.node(id).map(|n| &n.kind) {
+            Some(NodeKind::Image(img)) => Some(img.item),
+            _ => None,
+        }
+    }
+
     /// Paint one node through a transform. `chrome` adds board-only adornment
     /// (frame titles/badges) that presentation mode and exports leave out.
     pub fn paint_board_node(
@@ -1061,6 +1161,10 @@ impl SlateApp {
                 if kind == slate_doc::MediaKind::Text {
                     // Snippet card — same excerpt the artifact exports.
                     self.paint_text_snippet_card(painter, &outline, srect, img.item, &path, z);
+                } else if kind == slate_doc::MediaKind::Model {
+                    // 3D viewport: live render while unlocked, frozen-camera
+                    // poster while locked (see model3d.rs for the lifecycle).
+                    self.paint_model_viewport(ui, painter, &outline, srect, node.id, &name, alpha);
                 } else {
                     let desired_px =
                         srect.width().max(srect.height()) * ui.ctx().pixels_per_point();
@@ -1231,7 +1335,12 @@ impl SlateApp {
         if resp.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.raw_scroll_delta.y);
             if scroll.abs() > 0.0 {
-                if ui.input(|i| i.modifiers.shift) {
+                // Scroll over an unlocked 3D viewport zooms the model, not
+                // the board (Rhino wheel semantics while live).
+                let live_model = wp.and_then(|w| self.live_model_at(w.x, w.y));
+                if let Some(id) = live_model {
+                    self.model_scroll(id, scroll);
+                } else if ui.input(|i| i.modifiers.shift) {
                     let zc = self.tab().cam.z;
                     self.tab_mut().cam.offset.x -= scroll / zc;
                 } else if let Some(p) = pointer {
@@ -1434,6 +1543,9 @@ impl SlateApp {
             );
         }
 
+        // 3D viewport padlocks (hover to reveal; always shown while live).
+        self.model_lock_buttons(ui, &xf);
+
         // PDF page picker on hover (multi-page documents only).
         if self.board_menu.is_none() && !editing_text && self.board_drag.is_none() && !panning {
             if let (Some(p), Some(w)) = (pointer, wp) {
@@ -1471,6 +1583,81 @@ impl SlateApp {
         {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(120));
+        }
+    }
+
+    /// Padlock toggle on each 3D model node: revealed on hover, pinned
+    /// while the viewport is live. Locking freezes the current camera as
+    /// the node's poster; unlocking makes the viewport interactive
+    /// (auto-locks again after 30 s idle — see `model3d::AUTO_LOCK`).
+    fn model_lock_buttons(&mut self, ui: &mut egui::Ui, xf: &BoardXf) {
+        let pointer = ui.ctx().pointer_latest_pos();
+        let palette = self.palette();
+        for info in self.model_nodes() {
+            let srect = xf.rect_w2s(info.rect);
+            if !srect.intersects(self.canvas_rect) {
+                continue;
+            }
+            let live = self.model3d.live.contains_key(&info.node);
+            let hovered = pointer.is_some_and(|p| srect.contains(p));
+            if !live && !hovered {
+                continue;
+            }
+            let side = 24.0f32;
+            if srect.width() < side * 2.0 || srect.height() < side * 2.0 {
+                continue; // too small on screen for an in-node button
+            }
+            let btn = Rect::from_min_size(
+                srect.right_top() + Vec2::new(-side - 6.0, 6.0),
+                Vec2::splat(side),
+            );
+            let resp = ui.interact(
+                btn,
+                egui::Id::new(("slate_model_lock", info.node.0)),
+                egui::Sense::click(),
+            );
+            let painter = ui.painter_at(self.canvas_rect);
+            let bg = if resp.hovered() {
+                Color32::from_black_alpha(200)
+            } else {
+                Color32::from_black_alpha(140)
+            };
+            painter.circle_filled(btn.center(), side * 0.5, bg);
+            painter.text(
+                btn.center(),
+                Align2::CENTER_CENTER,
+                if live { "🔓" } else { "🔒" },
+                FontId::proportional(13.0),
+                Color32::from_white_alpha(235),
+            );
+            if live {
+                // Countdown hint once the idle auto-lock gets close.
+                if let Some(vp) = self.model3d.live.get(&info.node) {
+                    let left = super::model3d::AUTO_LOCK.saturating_sub(vp.last_interact.elapsed());
+                    if left <= std::time::Duration::from_secs(10) {
+                        painter.text(
+                            btn.center_bottom() + Vec2::new(0.0, 4.0),
+                            Align2::CENTER_TOP,
+                            format!("{}s", left.as_secs().max(1)),
+                            FontId::proportional(10.0),
+                            palette.accent,
+                        );
+                    }
+                }
+            }
+            let hover_hint = if live {
+                "Lock the viewport — freezes this camera angle as the slide image \
+                 (auto-locks after 30 s idle)"
+            } else {
+                "Unlock the 3D viewport — drag to orbit, Shift+drag to pan, scroll to zoom"
+            };
+            if resp.on_hover_text(hover_hint).clicked() {
+                if live {
+                    self.lock_model(info.node);
+                } else {
+                    self.unlock_model(info.node);
+                }
+            }
         }
     }
 
@@ -1564,6 +1751,17 @@ impl SlateApp {
                                 board_handles::BoardHitTarget::Body => {}
                             }
                         }
+                    }
+                }
+                // Dragging inside an unlocked 3D viewport orbits its camera
+                // instead of moving the node (Alt still duplicates, so the
+                // node itself can be grabbed by locking or Alt-dragging).
+                if !self.alt_down {
+                    if let Some(id) = self.live_model_at(world.x, world.y) {
+                        return Some(BoardDrag::ModelOrbit {
+                            id,
+                            last_screen: screen,
+                        });
                     }
                 }
                 match self.doc().scene.node_at(world.x, world.y) {
@@ -1682,6 +1880,26 @@ impl SlateApp {
                 for (id, r) in pairs {
                     if let Some(n) = scene.node_mut(id) {
                         n.rect = r;
+                    }
+                }
+            }
+            Some(BoardDrag::ModelOrbit { id, last_screen }) => {
+                let id = *id;
+                let last = *last_screen;
+                let xf = self.board_xf();
+                let screen = xf.w2s(world);
+                let delta = screen - last;
+                if delta != Vec2::ZERO {
+                    let viewport_h = self
+                        .doc()
+                        .scene
+                        .node(id)
+                        .map(|n| n.rect.h * xf.z)
+                        .unwrap_or(1.0);
+                    let pan_mode = self.shift_down;
+                    self.model_drag(id, delta.x, delta.y, pan_mode, viewport_h);
+                    if let Some(BoardDrag::ModelOrbit { last_screen, .. }) = &mut self.board_drag {
+                        *last_screen = screen;
                     }
                 }
             }
@@ -1816,6 +2034,8 @@ impl SlateApp {
                     self.finish_draw(start_world, world, tool, mods);
                 }
             }
+            // Camera poses journal on lock, not per orbit gesture.
+            Some(BoardDrag::ModelOrbit { .. }) => {}
             Some(BoardDrag::Marquee { start_screen }) => {
                 if let Some(p) = pointer {
                     let xf = self.board_xf();

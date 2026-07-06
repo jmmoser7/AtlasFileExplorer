@@ -29,6 +29,11 @@ pub struct ExportOptions {
     /// video posters), supplied by the app from its shared thumbnail cache.
     /// Best effort: items without an entry fall back to a labeled card.
     pub thumbs: BTreeMap<ItemId, PathBuf>,
+    /// Frozen-camera renders per *node* for placed 3D models. Keyed by node
+    /// (not item) because the same model can be placed several times with
+    /// different saved camera poses. Nodes without an entry fall back to
+    /// the item thumbnail, then to a labeled card.
+    pub model_posters: BTreeMap<slate_doc::NodeId, PathBuf>,
 }
 
 /// Summary returned after a successful export.
@@ -136,6 +141,7 @@ mod tests {
                 stroke,
                 adjust,
                 video: Default::default(),
+                model: Default::default(),
             }),
         );
         let id = node.id;

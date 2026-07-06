@@ -25,6 +25,7 @@ the canvas mini menu) suppresses the tools rail and readout bar.
 | Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, draw tools, gestures |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
 | Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
+| 3D viewports | `model3d.rs` | Rhino `.3dm` viewport lifecycle: off-thread mesh parse (`crates/rhino-mesh`), offscreen glow render, lock/unlock + poster cache |
 | Previews | `preview.rs` | Lazy full-resolution texture tier above the thumbnails (see below) |
 | Settings | `settings.rs` | Persisted UI settings (`slate-settings.json` next to the index DB) |
 | Bottom readouts | `ui/readouts.rs` | Item/tag counts, link health, zoom |
@@ -127,6 +128,7 @@ what a file *is*:
 | Image | thumbnail texture (crop/filters) | `<img>` (crop/filters as CSS) |
 | Video (web-safe: mp4/webm/ogv/m4v) | poster thumbnail + ▶ badge | `<video>` with `VideoOpts` attrs; trim → `#t=start,end` fragment + runtime guard |
 | Video (mov/avi/mkv…) | poster + ▶ + ext badge | thumbnail card linking to the copied original |
+| 3D model (`.3dm`) | interactive viewport (unlocked) or frozen-camera poster (locked) | poster card from `ExportOptions::model_posters` (per node — the saved perspective) + link |
 | Text (txt/md/csv/code…) | snippet card (`snippets` cache) | `.textcard` — same excerpt (`slate_artifact::read_snippet`), linked original |
 | PDF / Doc | shell thumbnail + ext badge | thumbnail-backed card (poster from `ExportOptions::thumbs`, supplied by `export_thumb_map` from the shared cache) + link |
 | Workbook (`.slate`) | **never an item** | n/a |
@@ -135,6 +137,21 @@ Video playback happens in the artifact, not on the board (egui has no
 decoder); the ▶ badge is the honest marker of that divergence. Spatial video
 cropping reuses the image `Crop`; time cropping is `VideoOpts { start, end }`
 edited in the inspector's Video section.
+
+### 3D model viewports (`model3d.rs`)
+
+Placed `.3dm` files are **viewport nodes**: the node's `ModelCamera`
+(document state on `ImageNode`, like `VideoOpts`) selects the view. Locked
+nodes paint a disk-cached poster rendered from that pose — no mesh in
+memory. Unlocking (padlock on hover) parses the file's cached render meshes
+off-thread (`crates/rhino-mesh`), uploads to the GPU, and renders offscreen
+(glow MSAA framebuffer → egui texture) with Rhino-style controls. Live
+viewports are capped (`MAX_LIVE`) and auto-lock after 30 s idle; locking
+re-renders the poster at presentation quality and journals the camera as
+one undo step. Duplicating a model node duplicates the *pose*, so one model
+can sit on several slides from different saved perspectives while only ever
+loading once (and not at all while locked). Crop/filter adjustments don't
+apply to model nodes; camera framing replaces them in both renderers.
 
 ### Workbook-in-workbook guards
 

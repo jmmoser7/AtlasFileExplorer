@@ -24,6 +24,7 @@ commands are registered in one place so users can look them up in
 | Advanced settings panel | `ui/advanced.rs` |
 | Canvas mouse (pan, turbo pan, clicks, tag menu) | `canvas.rs` |
 | Board gestures (tools, move/resize, Alt-drag duplicate, marquee) | `board.rs` |
+| 3D viewport gestures (orbit / pan / zoom, padlock) | `board.rs` routes into `model3d.rs` |
 | Presentation navigation | `present.rs` |
 | Keyboard shortcuts | `app/mod.rs` → `hotkeys` |
 
@@ -36,6 +37,11 @@ commands are registered in one place so users can look them up in
   `Ctrl + D` duplicates in place with a 24px offset.
 - One gesture = one undo step: live drags journal their net effect on
   release; inspector slider scrubs coalesce (1.5 s window per node).
+- **3D viewports** (placed `.3dm` models) invert the drag convention while
+  *unlocked*: drag = orbit, Shift+drag = pan, scroll = zoom — Rhino
+  semantics inside the node. The padlock (hover, top-right) toggles the
+  live state; camera poses journal as one undo step when the viewport
+  locks (click, 30 s idle, tab switch, present, or export).
 
 ## Tagging gestures (reference)
 

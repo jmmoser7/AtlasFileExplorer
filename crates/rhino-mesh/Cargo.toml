@@ -1,0 +1,12 @@
+[package]
+name = "rhino-mesh"
+version.workspace = true
+edition.workspace = true
+description = "Pure-Rust reader that extracts cached render meshes from Rhino .3dm files"
+
+[lib]
+name = "rhino_mesh"
+path = "src/lib.rs"
+
+[dependencies]
+flate2 = { workspace = true }

@@ -2979,6 +2979,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rhino-mesh"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+]
+
+[[package]]
 name = "rusqlite"
 version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3217,6 +3224,7 @@ dependencies = [
  "image",
  "native-file-atlas",
  "rfd",
+ "rhino-mesh",
  "serde",
  "serde_json",
  "slate-artifact",
