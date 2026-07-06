@@ -54,6 +54,7 @@ fn smoke_full_feature_export() {
                 ..Default::default()
             },
             video: Default::default(),
+            model: Default::default(),
         }),
     );
     let text = doc.scene.build_node(
@@ -91,4 +92,65 @@ fn smoke_full_feature_export() {
     assert_eq!(rep.slides, 1);
     let html = std::fs::read_to_string(out.join("index.html")).unwrap();
     println!("=== HTML ===\n{html}");
+}
+
+/// 3D model nodes export their frozen-camera poster (per node — the same
+/// model placed twice can show two perspectives); nodes without a rendered
+/// poster fall back to a labeled card. Both link to the copied original.
+#[test]
+fn model_nodes_export_per_node_posters() {
+    let mut doc = SlateDoc::new("Model Deck");
+    let dir = std::env::temp_dir().join("slate-smoke-3dm");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let model_path = dir.join("tower.3dm");
+    std::fs::write(&model_path, b"3D Geometry File Format fake").unwrap();
+    let poster_path = dir.join("poster-a.png");
+    std::fs::write(&poster_path, b"\x89PNG fake poster").unwrap();
+    let item = doc.add_item(model_path, "tower.3dm", 28, 1, "modelkey");
+
+    // Two placements of the same model = two saved perspectives.
+    let mut node_ids = Vec::new();
+    for (x, yaw) in [(0.0f32, 0.2f32), (300.0, 1.4)] {
+        let mut img = ImageNode::new(item);
+        img.model.yaw = yaw;
+        let node = doc
+            .scene
+            .build_node(WorldRect::new(x, 0.0, 240.0, 180.0), NodeKind::Image(img));
+        node_ids.push(node.id);
+        let i = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index: i, node });
+    }
+
+    // Only the first node has a rendered poster.
+    let mut opts = slate_artifact::ExportOptions::default();
+    opts.model_posters.insert(node_ids[0], poster_path);
+
+    let out = dir.join("out");
+    slate_artifact::export_html(&doc, &out, &opts).unwrap();
+    let html = std::fs::read_to_string(out.join("index.html")).unwrap();
+
+    // Node A: poster-backed card with the 3DM badge.
+    assert!(
+        html.contains("poster-a"),
+        "poster asset referenced:\n{html}"
+    );
+    assert!(html.contains("3DM"), "extension badge present");
+    // Node B: no poster → labeled file card, still linking to the model.
+    assert!(
+        html.contains("class=\"filecard\""),
+        "fallback card:\n{html}"
+    );
+    assert!(html.contains("tower-"), "original copied and linked");
+    // Poster copied into the assets dir.
+    let assets: Vec<_> = std::fs::read_dir(out.join("assets"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        assets.iter().any(|n| n.starts_with("poster-a")),
+        "{assets:?}"
+    );
+    assert!(assets.iter().any(|n| n.starts_with("tower-")), "{assets:?}");
 }

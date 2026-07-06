@@ -286,6 +286,19 @@ fn render_image(
             MediaKind::Text => {
                 render_text_card(html, url, file_name, assets.snippet(path), path);
             }
+            // 3D models: the frozen-camera poster rendered on the board for
+            // exactly this node (its saved perspective), falling back to
+            // the generic item thumbnail, always linking to the copied
+            // original so viewers can open it in Rhino.
+            MediaKind::Model => {
+                let poster = assets.model_poster(node.id).or_else(|| assets.thumb(path));
+                match poster {
+                    Some(poster_url) => {
+                        render_poster_card(html, url, path, poster_url);
+                    }
+                    None => render_file_card(html, url, file_name, path, None),
+                }
+            }
             // PDFs, docs, non-web-safe video, workbooks (legacy docs may
             // still carry one as an item), anything else: poster thumbnail
             // when available, labeled card otherwise — always linking to the
@@ -395,6 +408,24 @@ fn render_text_card(
         }
         None => render_file_card(html, url, file_name, path, None),
     }
+}
+
+/// Full-bleed poster card for 3D model nodes: the frozen-camera render
+/// fills the node rect (it was rendered at this node's aspect), with the
+/// extension badge marking it as a model file behind the image.
+fn render_poster_card(html: &mut String, url: &str, path: &std::path::Path, poster: &str) {
+    let badge = ext_badge(path);
+    html.push_str("<a class=\"thumbcard\" href=\"");
+    html.push_str(&escape_attr(url));
+    html.push_str("\" target=\"_blank\"><img src=\"");
+    html.push_str(&escape_attr(poster));
+    html.push_str("\" alt=\"\" draggable=\"false\">");
+    if !badge.is_empty() {
+        html.push_str("<span class=\"badge\">");
+        html.push_str(&escape_html(&badge));
+        html.push_str("</span>");
+    }
+    html.push_str("</a>");
 }
 
 /// Poster-thumbnail card (when the app supplied one) or a labeled card with

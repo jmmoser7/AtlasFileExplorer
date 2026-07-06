@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use slate_doc::media::{media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{NodeKind, Scene};
-use slate_doc::{ItemId, SlateDoc};
+use slate_doc::{ItemId, NodeId, SlateDoc};
 
 use crate::ExportOptions;
 
@@ -23,6 +23,9 @@ pub struct AssetMap {
     urls: BTreeMap<String, String>,
     thumbs: BTreeMap<String, String>,
     snippets: BTreeMap<String, String>,
+    /// Frozen-camera poster URLs for 3D model nodes, keyed by node id (one
+    /// placed model = one saved perspective = one poster).
+    model_posters: BTreeMap<u64, String>,
 }
 
 impl AssetMap {
@@ -48,6 +51,14 @@ impl AssetMap {
 
     pub fn insert_snippet(&mut self, path: PathBuf, text: String) {
         self.snippets.insert(path_to_key(&path), text);
+    }
+
+    pub fn model_poster(&self, node: NodeId) -> Option<&str> {
+        self.model_posters.get(&node.0).map(String::as_str)
+    }
+
+    pub fn insert_model_poster(&mut self, node: NodeId, url: String) {
+        self.model_posters.insert(node.0, url);
     }
 }
 
@@ -134,6 +145,32 @@ pub fn build_assets(
                 map.snippets.insert(key, snippet);
             }
         }
+    }
+
+    // Frozen-camera posters for 3D model nodes (per node, not per item —
+    // duplicated viewports carry distinct saved perspectives).
+    for node in &doc.scene.nodes {
+        let NodeKind::Image(img) = &node.kind else {
+            continue;
+        };
+        let Some(item) = doc.item(img.item) else {
+            continue;
+        };
+        if media_kind(&item.path) != MediaKind::Model {
+            continue;
+        }
+        let Some(poster) = opts.model_posters.get(&node.id) else {
+            continue;
+        };
+        if !poster.exists() {
+            continue;
+        }
+        let url = if opts.inline_assets {
+            data_uri(poster)?
+        } else {
+            copy_file(poster, &mut assets_dir_ready, &mut copied)?
+        };
+        map.model_posters.insert(node.id.0, url);
     }
 
     Ok(AssetBuildReport {
