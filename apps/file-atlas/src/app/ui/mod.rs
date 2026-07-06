@@ -1,7 +1,7 @@
 //! Top-level chrome: browser tabs + global undo/redo only.
 //! Everything else lives inside the active tab workspace.
 
-mod activity_heatmap;
+pub(crate) mod activity_heatmap;
 mod advanced;
 mod menubar;
 mod readouts;

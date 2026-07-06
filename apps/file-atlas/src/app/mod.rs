@@ -256,8 +256,8 @@ fn prewarm_walk(
                 }
             }
         }
-        let portal_like = opts.deprioritize_portals
-            && subdirs.len() + files.len() > opts.portal_threshold;
+        let portal_like =
+            opts.deprioritize_portals && subdirs.len() + files.len() > opts.portal_threshold;
         for entry in files {
             if cancel.load(Relaxed) {
                 break;
@@ -384,6 +384,13 @@ pub struct AtlasApp {
     shown_bytes: u64,
     total_bytes: u64,
     alive_count: usize,
+    /// Bumped by `recompute_matches` so dependents (activity heatmap) can
+    /// invalidate cheaply instead of re-deriving from all entries per frame.
+    matches_rev: u64,
+    /// Bottom-bar activity heatmap, cached against a fingerprint of its
+    /// inputs (match revision, selection, date field). Rebuilding it every
+    /// frame allocated O(entries) and degraded long sessions on big roots.
+    heatmap_cache: Option<(u64, ui::activity_heatmap::ActivityHeatmap)>,
 
     // thumbnails
     thumb_state: Vec<ThumbState>,
@@ -575,6 +582,8 @@ impl AtlasApp {
             shown_bytes: 0,
             total_bytes: 0,
             alive_count: 0,
+            matches_rev: 0,
+            heatmap_cache: None,
             thumb_state: Vec::new(),
             avg_color: Vec::new(),
             textures: HashMap::new(),
@@ -854,6 +863,7 @@ impl AtlasApp {
         self.all_owners.clear();
         self.rescan_buffer = Vec::new();
         self.filter_dirty = true;
+        self.heatmap_cache = None;
 
         // Async per-root machinery.
         self.scan_ui = None;
@@ -1035,6 +1045,12 @@ impl AtlasApp {
                 continue;
             }
             let key = self.entry_key(e);
+            // Already generated: re-warming it would only burn worker time
+            // (every rescan used to re-queue the whole folder). The average
+            // color for far zoom still trickles in via color-only requests.
+            if self.thumbs.has_local(&key) {
+                continue;
+            }
             let e = &self.entries[i];
             self.thumbs.request_warm(ThumbRequest {
                 id: i as u32,
@@ -1360,6 +1376,23 @@ impl AtlasApp {
             if id >= self.thumb_state.len() {
                 continue;
             }
+            if res.dropped {
+                // Shed from an over-full hot queue without running: reset the
+                // card so the paint pass re-requests it while it's visible.
+                let state = &mut self.thumb_state[id];
+                match *state {
+                    ThumbState::AskedFull => {
+                        *state = if self.avg_color[id].is_some() {
+                            ThumbState::HasColor
+                        } else {
+                            ThumbState::NotAsked
+                        };
+                    }
+                    ThumbState::AskedColor => *state = ThumbState::NotAsked,
+                    _ => {}
+                }
+                continue;
+            }
             if let Some(avg) = res.avg {
                 if let Some(slot) = self.avg_color.get_mut(id) {
                     *slot = Some(avg);
@@ -1371,8 +1404,10 @@ impl AtlasApp {
                 continue;
             }
             if res.color_only {
+                // Color-only results carry no pixels (the worker strips them);
+                // success is "we harvested an average color".
                 if self.thumb_state[id] == ThumbState::AskedColor {
-                    self.thumb_state[id] = if res.image.is_some() {
+                    self.thumb_state[id] = if res.avg.is_some() {
                         ThumbState::HasColor
                     } else {
                         ThumbState::Failed
@@ -1516,6 +1551,9 @@ impl AtlasApp {
                     let rel = relp.to_string_lossy().into_owned();
                     if let Some(&i) = self.rel_to_id.get(&rel) {
                         self.entries[i as usize].dead = true;
+                        // Dead cards never paint again: free the GPU texture
+                        // now instead of waiting for LRU pressure.
+                        self.textures.remove(&i);
                         self.tree_dirty = true;
                         self.filter_dirty = true;
                     }
@@ -1614,6 +1652,35 @@ impl AtlasApp {
         }
     }
 
+    /// Cached activity heatmap for the bottom bar. Rebuilt only when the
+    /// match set, selection, or date field changes — never per frame.
+    pub(crate) fn activity_heatmap(&mut self) -> &ui::activity_heatmap::ActivityHeatmap {
+        // Order-independent selection digest: cheap relative to a rebuild and
+        // stable across HashSet iteration order.
+        let sel_digest = self
+            .selection
+            .iter()
+            .fold(0u64, |acc, &id| {
+                acc ^ (id as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            })
+            .wrapping_add(self.selection.len() as u64);
+        let fingerprint = self
+            .matches_rev
+            .wrapping_mul(0x100_0193)
+            .wrapping_add(sel_digest)
+            .wrapping_add(match self.date_field {
+                DateFilterField::Created => 0,
+                DateFilterField::Modified => 1 << 62,
+            });
+        let stale = !matches!(&self.heatmap_cache, Some((fp, _)) if *fp == fingerprint);
+        if stale {
+            let heatmap =
+                ui::activity_heatmap::ActivityHeatmap::from_timestamps(self.activity_timestamps());
+            self.heatmap_cache = Some((fingerprint, heatmap));
+        }
+        &self.heatmap_cache.as_ref().unwrap().1
+    }
+
     fn update_date_span(&mut self) {
         let mut min = i64::MAX;
         let mut max = i64::MIN;
@@ -1660,6 +1727,7 @@ impl AtlasApp {
     }
 
     fn recompute_matches(&mut self) {
+        self.matches_rev = self.matches_rev.wrapping_add(1);
         self.recount_owners();
         self.update_date_span();
         let search = self.search.to_lowercase();
@@ -2583,7 +2651,11 @@ impl AtlasApp {
         }
 
         // --- input: pan / rubber band / turbo pan / drag-to-Slate ---
-        if resp.drag_started() {
+        // Only the primary button starts a rubber band or a drag-to-Slate
+        // carry; the secondary button always pans, even when the press lands
+        // on a thumbnail (right-drag = pan anywhere, left-drag on a
+        // thumbnail = carry to Slate during a linked session).
+        if resp.drag_started_by(egui::PointerButton::Primary) {
             if shift {
                 self.rubber_origin = pointer;
             } else if self.session.is_some() {
@@ -2601,6 +2673,8 @@ impl AtlasApp {
                     }
                 }
             }
+        }
+        if resp.drag_started() {
             self.anim = None;
         }
         self.session_drag_frame(ui, pointer);

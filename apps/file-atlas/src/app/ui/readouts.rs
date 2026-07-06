@@ -1,7 +1,7 @@
 //! Bottom readout bar — metrics and future status panels.
 
 use super::super::{AtlasApp, DateFilterField, ScanMode};
-use super::activity_heatmap::{draw_activity_heatmap, ActivityHeatmap};
+use super::activity_heatmap::draw_activity_heatmap;
 use crate::app::chrome::ReadoutPanel;
 use atlas_core::types::human_size;
 use atlas_shell::widgets::{gear_menu, group_digits};
@@ -355,15 +355,12 @@ pub fn status_bar(app: &mut AtlasApp, ctx: &egui::Context) {
                 ui.add_space(4.0);
                 ui.separator();
                 ui.add_space(2.0);
-                let heatmap = ActivityHeatmap::from_timestamps(app.activity_timestamps());
-                draw_activity_heatmap(
-                    ui,
-                    &heatmap,
-                    date_field_label(app.date_field),
-                    activity_source_label(app),
-                    app.dark_mode,
-                    palette.sub,
-                );
+                let field_label = date_field_label(app.date_field);
+                let source_label = activity_source_label(app);
+                let dark = app.dark_mode;
+                // Cached in app state; rebuilding per frame was O(entries).
+                let heatmap = app.activity_heatmap();
+                draw_activity_heatmap(ui, heatmap, field_label, source_label, dark, palette.sub);
             }
         });
         ui.add_space(3.0);

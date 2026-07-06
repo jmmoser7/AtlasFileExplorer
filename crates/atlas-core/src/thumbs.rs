@@ -58,6 +58,13 @@ pub const SLOW_CONCURRENCY_MAX: usize = 8;
 /// Pre-warm requests use this sentinel so root changes never cancel them.
 pub const PINNED_GENERATION: u64 = u64::MAX;
 
+/// Cap on the on-demand (hot) queue. Long pan/zoom sessions used to leave
+/// thousands of stale requests behind the LIFO head, keeping workers busy and
+/// memory growing for hours. Beyond this cap the *oldest* requests are dropped
+/// and reported back as [`ThumbResult::dropped`] so the UI can reset those
+/// cards and simply re-request them if they are still on screen.
+pub const HOT_QUEUE_CAP: usize = 512;
+
 #[derive(Clone)]
 pub struct ThumbRequest {
     pub id: u32,
@@ -82,6 +89,10 @@ pub struct ThumbResult {
     /// Background cache-warming result: disk cache is written, but no pixels
     /// are shipped back (the UI loads them on demand).
     pub warm: bool,
+    /// The request was shed from an over-full hot queue without running.
+    /// The UI must reset the card's "requested" state (and re-request it if
+    /// still visible) instead of treating this as a failed extraction.
+    pub dropped: bool,
     /// Source file size copied from the request (throughput accounting).
     pub src_bytes: u64,
     pub avg: Option<[u8; 3]>,
@@ -202,13 +213,35 @@ impl ThumbPool {
         if req.generation != self.shared.active_generation.load(Ordering::Relaxed) {
             return;
         }
-        let mut q = self.shared.queue.lock().unwrap();
         // LIFO pop means whatever the user is looking at right now is served
-        // first; older requests still complete eventually and warm the disk
-        // cache, so we never drop them (dropping would strand cards in the
-        // "requested" state forever).
-        q.hot.push(req);
-        self.shared.cv.notify_one();
+        // first. Older requests behind the cap are shed and reported back as
+        // `dropped` results so cards never get stranded in the "requested"
+        // state: the UI resets them and re-requests on visibility.
+        let shed: Vec<ThumbRequest> = {
+            let mut q = self.shared.queue.lock().unwrap();
+            q.hot.push(req);
+            let shed = shed_excess(&mut q.hot, HOT_QUEUE_CAP);
+            self.shared.cv.notify_one();
+            shed
+        };
+        for r in shed {
+            let _ = self.tx.send(ThumbResult {
+                id: r.id,
+                generation: r.generation,
+                color_only: r.color_only,
+                warm: false,
+                dropped: true,
+                src_bytes: r.src_bytes,
+                avg: None,
+                image: None,
+            });
+        }
+    }
+
+    /// Whether a finished thumbnail for `key` already exists in the local
+    /// disk cache. Used to skip redundant background warm jobs.
+    pub fn has_local(&self, key: &str) -> bool {
+        self.cache_dir.join(format!("{key}.jpg")).exists()
     }
 
     /// Queue a background cache-warming job. Runs only when hot requests are
@@ -508,13 +541,26 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
             generation: req.generation,
             color_only: req.color_only,
             warm,
+            dropped: false,
             src_bytes: req.src_bytes,
             avg,
-            // Warm jobs exist to fill the disk cache and harvest the average
-            // color; shipping pixels back would balloon UI memory.
-            image: if warm { None } else { image },
+            // Warm and color-only jobs exist to fill the disk cache and
+            // harvest the average color; shipping pixels back would balloon
+            // UI memory (the result channel holds them until drained).
+            image: if warm || req.color_only { None } else { image },
         });
     }
+}
+
+/// Trim `hot` down to `cap` entries by removing the *oldest* requests
+/// (front of the LIFO vec), returning them so the caller can report each as
+/// a dropped result.
+fn shed_excess(hot: &mut Vec<ThumbRequest>, cap: usize) -> Vec<ThumbRequest> {
+    if hot.len() <= cap {
+        return Vec::new();
+    }
+    let excess = hot.len() - cap;
+    hot.drain(..excess).collect()
 }
 
 /// Best-effort atomic publish of a local cache file into the shared tier.
@@ -825,6 +871,36 @@ mod tests {
         }
         let dropped = pool.cancel_slow();
         assert_eq!(dropped, 5);
+    }
+
+    #[test]
+    fn shed_excess_drops_oldest_and_keeps_newest() {
+        let stub = |id: u32| ThumbRequest {
+            id,
+            generation: 0,
+            path: PathBuf::from("nonexistent"),
+            key: format!("k{id}"),
+            color_only: false,
+            shared_dir: None,
+            src_bytes: 0,
+            pdf_page: None,
+        };
+        let mut hot: Vec<ThumbRequest> = (0..10).map(stub).collect();
+
+        // Under the cap: nothing shed.
+        assert!(shed_excess(&mut hot, 10).is_empty());
+        assert_eq!(hot.len(), 10);
+
+        // Over the cap: the *oldest* (front) entries are shed; the LIFO tail
+        // that serves the current viewport survives untouched.
+        let shed = shed_excess(&mut hot, 6);
+        assert_eq!(shed.len(), 4);
+        assert_eq!(
+            shed.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+        assert_eq!(hot.len(), 6);
+        assert_eq!(hot.last().unwrap().id, 9);
     }
 
     #[test]

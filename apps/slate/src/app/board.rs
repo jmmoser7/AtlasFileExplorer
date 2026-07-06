@@ -1509,8 +1509,7 @@ impl SlateApp {
                     painter.line_segment([a, b], EStroke::new(1.5, accent));
                 }
                 BoardTool::Ellipse => {
-                    let preview =
-                        self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
+                    let preview = self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
                     painter.add(egui::epaint::EllipseShape {
                         center: preview.center(),
                         radius: preview.size() * 0.5,
@@ -1519,8 +1518,7 @@ impl SlateApp {
                     });
                 }
                 _ => {
-                    let preview =
-                        self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
+                    let preview = self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
                     painter.rect_stroke(
                         preview,
                         0.0,
