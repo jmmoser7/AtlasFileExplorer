@@ -3217,6 +3217,7 @@ dependencies = [
  "image",
  "native-file-atlas",
  "rfd",
+ "serde",
  "serde_json",
  "slate-artifact",
  "slate-doc",
