@@ -440,25 +440,33 @@ impl SlateApp {
 
     /// Texture for an image node, applying non-destructive adjustments via
     /// the fx cache. Falls back to the plain thumb while pixels are pending.
+    ///
+    /// `desired_px` is the node's on-screen size (physical px, longest edge):
+    /// unadjusted images lazily sharpen to a full-resolution preview via
+    /// `item_texture`. Filtered images intentionally stay on the thumbnail
+    /// tier — the CPU filter math (`imagefx`) re-runs on every adjustment
+    /// change, and doing that over multi-megapixel previews would stall the
+    /// very zooming this system exists to keep smooth.
     fn board_texture(
         &mut self,
         ctx: &egui::Context,
         item: ItemId,
         adjust: &ImageAdjust,
+        desired_px: f32,
     ) -> Option<egui::TextureHandle> {
         let key = self.doc().item(item)?.cache_key.clone();
         if key.is_empty() {
             return None;
         }
+        if adjust.is_identity() {
+            return self.item_texture(item, desired_px);
+        }
         if !self.textures.contains_key(&key) {
             self.request_thumb(item);
         }
-        let base = match self.textures.get(&key) {
-            Some(ThumbState::Ready(t)) => t.clone(),
+        match self.textures.get(&key) {
+            Some(ThumbState::Ready(_)) => {}
             _ => return None,
-        };
-        if adjust.is_identity() {
-            return Some(base);
         }
         let fx_key = (key.clone(), adjust.cache_hash());
         if let Some(t) = self.fx_textures.get(&fx_key) {
@@ -766,7 +774,9 @@ impl SlateApp {
                     // Snippet card — same excerpt the artifact exports.
                     self.paint_text_snippet_card(painter, &outline, srect, img.item, &path, z);
                 } else {
-                    match self.board_texture(ui.ctx(), img.item, &img.adjust) {
+                    let desired_px =
+                        srect.width().max(srect.height()) * ui.ctx().pixels_per_point();
+                    match self.board_texture(ui.ctx(), img.item, &img.adjust, desired_px) {
                         Some(tex) => {
                             // Node opacity = vertex tint on the textured mesh
                             // (matches CSS `opacity` compositing closely enough).
