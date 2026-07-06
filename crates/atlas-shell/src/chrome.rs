@@ -17,6 +17,10 @@ pub struct ChromeConfig<const T: usize, const R: usize> {
     pub readouts: [bool; R],
     /// Advanced tools — floating window, not a rail panel.
     pub advanced_open: bool,
+    /// Full-screen canvas: suppress the tools rail and bottom readout bar so
+    /// the canvas takes the whole space below the menu bar and tab strip.
+    /// Toggled from the canvas mini menu (⛶), the View menu, or F11.
+    pub canvas_fullscreen: bool,
 }
 
 impl<const T: usize, const R: usize> Default for ChromeConfig<T, R> {
@@ -26,6 +30,7 @@ impl<const T: usize, const R: usize> Default for ChromeConfig<T, R> {
             tools_expanded: [true; T],
             readouts: [true; R],
             advanced_open: false,
+            canvas_fullscreen: false,
         }
     }
 }
@@ -38,6 +43,7 @@ impl<const T: usize, const R: usize> ChromeConfig<T, R> {
             tools_expanded: [true; T],
             readouts,
             advanced_open: false,
+            canvas_fullscreen: false,
         }
     }
 

@@ -306,6 +306,13 @@ impl SlateApp {
         Palette::for_mode(self.dark_mode)
     }
 
+    /// Full-screen canvas: hide the tools rail and readout bar (View menu,
+    /// the canvas mini menu ⛶, or F11).
+    pub fn toggle_canvas_fullscreen(&mut self) {
+        let on = !self.tab().chrome.canvas_fullscreen;
+        self.tab_mut().chrome.canvas_fullscreen = on;
+    }
+
     pub fn apply_theme(&self, ctx: &egui::Context) {
         ctx.set_visuals(if self.dark_mode {
             dark_visuals()
@@ -782,6 +789,9 @@ impl SlateApp {
             if i.key_pressed(egui::Key::F5) {
                 self.start_present(None);
             }
+            if i.key_pressed(egui::Key::F11) {
+                self.toggle_canvas_fullscreen();
+            }
             if board && !wants_kb && !editing && !i.modifiers.ctrl {
                 // Tool keys (match the board toolbar hints).
                 if i.key_pressed(egui::Key::V) {
@@ -878,9 +888,18 @@ impl SlateApp {
 
         self.hotkeys(ctx);
 
+        // Chrome, outermost first: the menu bar spans the full width, then
+        // the bottom readout bar, then the tools rail — registered *before*
+        // the tab strip so the rail runs from the readout bar all the way up
+        // to the menu bar, with the tabs nested in the remaining width.
+        // Full-screen canvas (⛶ / F11) suppresses the rail and readout bar.
+        let fullscreen = self.tab().chrome.canvas_fullscreen;
+        self.draw_menu_bar(ctx);
+        if !fullscreen {
+            self.draw_readout_bar(ctx);
+            self.draw_tools_rail(ctx);
+        }
         self.draw_top_chrome(ctx);
-        self.draw_readout_bar(ctx);
-        self.draw_tools_rail(ctx);
         self.draw_advanced_window(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {

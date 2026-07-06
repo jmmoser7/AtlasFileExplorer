@@ -936,6 +936,27 @@ impl AtlasApp {
         &mut self.tabs[i].chrome
     }
 
+    /// Full-screen canvas: hide the tools rail and readout bar (View menu,
+    /// the canvas mini menu ⛶, or F11).
+    pub(super) fn toggle_canvas_fullscreen(&mut self) {
+        let on = !self.active_chrome().canvas_fullscreen;
+        self.active_chrome_mut().canvas_fullscreen = on;
+    }
+
+    /// Push the current dark/light mode into egui (menu bar + Display panel).
+    pub(super) fn apply_theme(&self, ctx: &egui::Context) {
+        ctx.set_theme(if self.dark_mode {
+            egui::ThemePreference::Dark
+        } else {
+            egui::ThemePreference::Light
+        });
+        ctx.set_visuals(if self.dark_mode {
+            atlas_shell::theme::dark_visuals()
+        } else {
+            atlas_shell::theme::light_visuals()
+        });
+    }
+
     fn ingest_loaded(&mut self, root: PathBuf, loaded: LoadedRoot) {
         self.assign_state = loaded.assign_state;
         if let Some(json) = &loaded.journal_json {
@@ -1991,16 +2012,27 @@ impl AtlasApp {
             ctx.request_repaint();
         }
 
-        self.draw_top_chrome(ctx);
-        self.draw_readout_bar(ctx);
+        // Chrome, outermost first: the menu bar spans the full width, then
+        // the bottom readout bar, then the tools rail — registered *before*
+        // the tab strip so the rail runs from the readout bar all the way up
+        // to the menu bar, with the tabs nested in the remaining width.
+        // Full-screen canvas (⛶ / F11) suppresses the rail and readout bar.
+        let fullscreen = self.active_chrome().canvas_fullscreen;
+        self.draw_menu_bar(ctx);
+        if !fullscreen {
+            self.draw_readout_bar(ctx);
+        }
         // Stacks above the readout bar; only visible during a pre-warm run.
         self.draw_prewarm_dashboard(ctx);
         if self.root.is_some() {
-            self.draw_tools_rail(ctx);
+            if !fullscreen {
+                self.draw_tools_rail(ctx);
+            }
             self.bottom_tray(ctx);
             // Journal kept wired but hidden from chrome until its panel home
             // is decided (see ui/tabs.rs).
         }
+        self.draw_top_chrome(ctx);
         self.draw_advanced_window(ctx);
 
         let palette = self.palette();
@@ -2161,6 +2193,9 @@ impl AtlasApp {
         }
         if open_k {
             self.open_folder_dialog();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
+            self.toggle_canvas_fullscreen();
         }
 
         if !wants_kb {
@@ -2914,35 +2949,30 @@ impl AtlasApp {
         self.filter_dirty = true; // match counts move around
     }
 
+    /// Lower-left canvas mini menu (shared chrome): ⛶ full-screen toggle +
+    /// zoom controls.
     fn zoom_controls(&mut self, ui: &mut egui::Ui, rect: Rect) {
-        let pos = rect.right_bottom() + Vec2::new(-14.0, -14.0);
-        egui::Area::new(egui::Id::new("zoomctl"))
-            .fixed_pos(pos)
-            .pivot(Align2::RIGHT_BOTTOM)
-            .order(egui::Order::Middle)
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.button("âˆ’").clicked() {
-                            self.zoom_at(rect.center(), 1.0 / 1.3);
-                        }
-                        if ui
-                            .button(format!("{:.0}%", self.cam.z * 100.0))
-                            .on_hover_text("Reset to 100%")
-                            .clicked()
-                        {
-                            let f = 1.0 / self.cam.z;
-                            self.zoom_at(rect.center(), f);
-                        }
-                        if ui.button("+").clicked() {
-                            self.zoom_at(rect.center(), 1.3);
-                        }
-                        if ui.button("Fit").clicked() {
-                            self.pending_view = Some(ViewCmd::Fit);
-                        }
-                    });
-                });
-            });
+        use atlas_shell::widgets::{canvas_mini_menu, MiniMenuAction, MiniMenuModel};
+        let action = canvas_mini_menu(
+            ui.ctx(),
+            "atlas",
+            rect,
+            MiniMenuModel {
+                zoom_pct: Some(self.cam.z * 100.0),
+                fullscreen: self.active_chrome().canvas_fullscreen,
+            },
+        );
+        match action {
+            Some(MiniMenuAction::ZoomOut) => self.zoom_at(rect.center(), 1.0 / 1.3),
+            Some(MiniMenuAction::ZoomReset) => {
+                let f = 1.0 / self.cam.z;
+                self.zoom_at(rect.center(), f);
+            }
+            Some(MiniMenuAction::ZoomIn) => self.zoom_at(rect.center(), 1.3),
+            Some(MiniMenuAction::Fit) => self.pending_view = Some(ViewCmd::Fit),
+            Some(MiniMenuAction::ToggleFullscreen) => self.toggle_canvas_fullscreen(),
+            None => {}
+        }
     }
 
     fn draw_dot_grid(&self, painter: &egui::Painter, rect: Rect) {
