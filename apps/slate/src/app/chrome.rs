@@ -8,7 +8,7 @@
 pub enum ToolPanel {
     /// Hierarchical tag groups editor + tag focus selection.
     Tags = 0,
-    /// View mode (grid / Venn) and thumbnail display options.
+    /// Presentation mode (Board / Grid / Venn) and light/dark theme.
     Display = 1,
     /// Workbook file operations and the File Atlas link.
     Workbook = 2,
@@ -31,7 +31,7 @@ impl ToolPanel {
     pub fn label(self) -> &'static str {
         match self {
             ToolPanel::Tags => "Tags",
-            ToolPanel::Display => "Display",
+            ToolPanel::Display => "Presentation Mode",
             ToolPanel::Workbook => "Workbook",
             ToolPanel::Ai => "AI",
             ToolPanel::Selection => "Selection",
