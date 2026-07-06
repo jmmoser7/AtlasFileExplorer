@@ -20,6 +20,7 @@ use std::time::Instant;
 
 pub mod association;
 pub mod board;
+mod board_snap;
 pub mod canvas;
 pub mod chrome;
 pub mod commands;
@@ -194,6 +195,8 @@ pub struct SlateApp {
     pub last_board_edit: Option<(NodeId, Instant)>,
     /// Alt modifier state this frame (Alt-drag duplicates).
     pub alt_down: bool,
+    /// Transient smart-guide lines shown during board move/resize (cleared each frame).
+    pub board_snap_guides: Vec<board_snap::SnapGuide>,
 
     /// `.slate` files encountered in add/drop flows this frame. Workbooks
     /// never become items — they open as tabs at a safe point in the frame
@@ -246,6 +249,7 @@ impl SlateApp {
             export_inline: false,
             last_board_edit: None,
             alt_down: false,
+            board_snap_guides: Vec::new(),
             pending_workbooks: Vec::new(),
             frame_no: 0,
         };

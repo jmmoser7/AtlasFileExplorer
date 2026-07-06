@@ -11,10 +11,13 @@
 //!   release, so one gesture = one undo step.
 //! - `Alt`+drag duplicates the grabbed selection; `Ctrl+D` duplicates in
 //!   place. Deleting and z-order moves are plain command groups.
+//! - Smart guides align objects to each other while moving or resizing (on by
+//!   default). Hold `Alt` to bypass snapping; `Shift` locks aspect ratio on
+//!   corner resize; `Ctrl` resizes from center (Office/PowerPoint convention).
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 
-use super::{SlateApp, ThumbState};
+use super::{board_snap, SlateApp, ThumbState};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
     Corner, Crop, Dash, FontChoice, FrameNode, ImageAdjust, ImageNode, Node, NodeKind, Rgba,
@@ -901,6 +904,7 @@ impl SlateApp {
     // ----- main board entry -----------------------------------------------------
 
     pub fn board_canvas(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        self.board_snap_guides.clear();
         let palette = self.palette();
         let painter = ui.painter_at(rect);
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
@@ -951,14 +955,16 @@ impl SlateApp {
         // --- live gesture update ---
         if resp.dragged_by(egui::PointerButton::Primary) && !panning {
             if let Some(w) = wp {
-                self.update_gesture(w);
+                let mods = ui.input(|i| i.modifiers);
+                self.update_gesture(w, mods);
             }
         }
 
         // --- gesture end ---
         if resp.drag_stopped_by(egui::PointerButton::Primary) {
             if let Some(w) = wp {
-                self.end_gesture(w, pointer);
+                let mods = ui.input(|i| i.modifiers);
+                self.end_gesture(w, pointer, mods);
             }
         }
 
@@ -1010,6 +1016,16 @@ impl SlateApp {
                 }
             }
         }
+
+        // Smart guides (object alignment while dragging).
+        let guide_color = palette.accent.gamma_multiply(0.95);
+        Self::paint_snap_guides(
+            &painter,
+            &xf,
+            &self.board_snap_guides,
+            guide_color,
+            self.tab().cam.z,
+        );
 
         // Draw-gesture preview.
         if let (Some(BoardDrag::Draw { start_world, tool }), Some(w)) = (&self.board_drag, wp) {
@@ -1100,6 +1116,44 @@ impl SlateApp {
         ]
     }
 
+    fn paint_snap_guides(
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        guides: &[board_snap::SnapGuide],
+        color: Color32,
+        zoom: f32,
+    ) {
+        use board_snap::GuideAxis;
+        let stroke = EStroke::new((1.25 / zoom.max(0.25)).clamp(1.0, 2.5), color);
+        for g in guides {
+            match g.axis {
+                GuideAxis::Vertical => {
+                    let top = xf.w2s(Pos2::new(g.pos, g.span_start));
+                    let bot = xf.w2s(Pos2::new(g.pos, g.span_end));
+                    painter.line_segment([top, bot], stroke);
+                }
+                GuideAxis::Horizontal => {
+                    let left = xf.w2s(Pos2::new(g.span_start, g.pos));
+                    let right = xf.w2s(Pos2::new(g.span_end, g.pos));
+                    painter.line_segment([left, right], stroke);
+                }
+            }
+        }
+    }
+
+    fn board_snap_threshold(&self) -> f32 {
+        board_snap::SNAP_SCREEN_PX / self.tab().cam.z
+    }
+
+    fn board_node_rects(&self) -> Vec<(NodeId, WorldRect)> {
+        self.doc()
+            .scene
+            .nodes
+            .iter()
+            .map(|n| (n.id, n.rect))
+            .collect()
+    }
+
     // ----- gesture handling ------------------------------------------------------
 
     fn begin_gesture(&mut self, screen: Pos2, world: Pos2) -> Option<BoardDrag> {
@@ -1181,20 +1235,42 @@ impl SlateApp {
         }
     }
 
-    fn update_gesture(&mut self, world: Pos2) {
+    fn update_gesture(&mut self, world: Pos2, mods: egui::Modifiers) {
         match &self.board_drag {
             Some(BoardDrag::Move {
                 ids,
                 before,
                 start_world,
+                dup,
                 ..
             }) => {
                 let d = world - *start_world;
-                let pairs: Vec<(NodeId, WorldRect)> = ids
+                let mut pairs: Vec<(NodeId, WorldRect)> = ids
                     .iter()
                     .zip(before.iter())
                     .map(|(id, b)| (*id, b.rect.translated(d.x, d.y)))
                     .collect();
+
+                // Smart guides: align to other objects (on by default; Alt bypasses).
+                let snap_off = mods.alt || *dup;
+                if !snap_off {
+                    let rects: Vec<WorldRect> = pairs.iter().map(|(_, r)| *r).collect();
+                    if let Some(union) = board_snap::union_rect(&rects) {
+                        let all = self.board_node_rects();
+                        let (snapped, guides) =
+                            board_snap::snap_bbox(union, ids, &all, self.board_snap_threshold());
+                        let ax = snapped.x - union.x;
+                        let ay = snapped.y - union.y;
+                        if ax != 0.0 || ay != 0.0 {
+                            for (_, r) in pairs.iter_mut() {
+                                r.x += ax;
+                                r.y += ay;
+                            }
+                        }
+                        self.board_snap_guides = guides;
+                    }
+                }
+
                 let scene = &mut self.doc_mut().scene;
                 for (id, r) in pairs {
                     if let Some(n) = scene.node_mut(id) {
@@ -1203,20 +1279,35 @@ impl SlateApp {
                 }
             }
             Some(BoardDrag::Resize { id, before, handle }) => {
-                let anchor = match handle {
-                    0 => (before.rect.x + before.rect.w, before.rect.y + before.rect.h),
-                    1 => (before.rect.x, before.rect.y + before.rect.h),
-                    2 => (before.rect.x, before.rect.y),
-                    _ => (before.rect.x + before.rect.w, before.rect.y),
-                };
-                let r = WorldRect::new(
-                    anchor.0.min(world.x),
-                    anchor.1.min(world.y),
-                    (world.x - anchor.0).abs().max(MIN_DRAW),
-                    (world.y - anchor.1).abs().max(MIN_DRAW),
+                let node_id = *id;
+                let handle = *handle;
+                let before_rect = before.rect;
+                let lock_aspect = mods.shift;
+                let from_center = mods.ctrl;
+                let mut r = board_snap::resize_from_handle(
+                    before_rect,
+                    world,
+                    handle,
+                    MIN_DRAW,
+                    lock_aspect,
+                    from_center,
                 );
-                let id = *id;
-                if let Some(n) = self.doc_mut().scene.node_mut(id) {
+
+                if !mods.alt {
+                    let all = self.board_node_rects();
+                    let edges = board_snap::ResizeSnapEdges::for_handle(handle);
+                    let (snapped, guides) = board_snap::snap_resize_rect(
+                        r,
+                        &[node_id],
+                        &all,
+                        self.board_snap_threshold(),
+                        edges,
+                    );
+                    r = snapped;
+                    self.board_snap_guides = guides;
+                }
+
+                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
                     n.rect = r;
                 }
             }
@@ -1224,7 +1315,7 @@ impl SlateApp {
         }
     }
 
-    fn end_gesture(&mut self, world: Pos2, pointer: Option<Pos2>) {
+    fn end_gesture(&mut self, world: Pos2, pointer: Option<Pos2>, mods: egui::Modifiers) {
         let drag = self.board_drag.take();
         match drag {
             Some(BoardDrag::Move {
@@ -1276,7 +1367,7 @@ impl SlateApp {
                 }
             }
             Some(BoardDrag::Draw { start_world, tool }) => {
-                self.finish_draw(start_world, world, tool);
+                self.finish_draw(start_world, world, tool, mods);
             }
             Some(BoardDrag::Marquee { start_screen }) => {
                 if let Some(p) = pointer {
@@ -1324,14 +1415,18 @@ impl SlateApp {
         }
     }
 
-    fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool) {
+    fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
         let raw = WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
-        let flip = tool == BoardTool::Line && (raw.w < 0.0) != (raw.h < 0.0);
-        let r = raw.normalized();
+        let square_tool = matches!(
+            tool,
+            BoardTool::Frame | BoardTool::RectShape | BoardTool::Ellipse
+        );
+        let r = board_snap::constrain_draw_rect(raw, square_tool, mods.shift);
         if r.w < MIN_DRAW && r.h < MIN_DRAW {
             self.board_tool = BoardTool::Select;
             return;
         }
+        let flip = tool == BoardTool::Line && (raw.w < 0.0) != (raw.h < 0.0);
         let accent = {
             let p = self.palette();
             to_rgba(p.accent)
