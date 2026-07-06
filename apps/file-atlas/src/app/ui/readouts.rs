@@ -1,7 +1,7 @@
 //! Bottom readout bar — metrics and future status panels.
 
 use super::super::{AtlasApp, DateFilterField, ScanMode};
-use super::activity_heatmap::{draw_activity_heatmap, ActivityHeatmap};
+use super::activity_heatmap::draw_activity_heatmap;
 use crate::app::chrome::ReadoutPanel;
 use atlas_core::types::human_size;
 use atlas_shell::widgets::{gear_menu, group_digits};
@@ -96,6 +96,20 @@ fn metrics_row(app: &mut AtlasApp, ui: &mut egui::Ui) {
             ui.label(
                 egui::RichText::new(format!("· {} thumbs loading", app.thumbs_pending))
                     .color(palette.sub),
+            );
+        }
+        if let Some((done, total)) = app.warm_audit_progress() {
+            ui.label(
+                egui::RichText::new(format!(
+                    "· checking thumbnail cache {} / {}",
+                    group_digits(done as u64),
+                    group_digits(total as u64)
+                ))
+                .color(palette.sub),
+            )
+            .on_hover_text(
+                "Auditing which thumbnails are already cached (background \
+                 thread) — only the missing ones will be generated.",
             );
         }
         if app.warm_pending > 0 {
@@ -355,15 +369,12 @@ pub fn status_bar(app: &mut AtlasApp, ctx: &egui::Context) {
                 ui.add_space(4.0);
                 ui.separator();
                 ui.add_space(2.0);
-                let heatmap = ActivityHeatmap::from_timestamps(app.activity_timestamps());
-                draw_activity_heatmap(
-                    ui,
-                    &heatmap,
-                    date_field_label(app.date_field),
-                    activity_source_label(app),
-                    app.dark_mode,
-                    palette.sub,
-                );
+                let field_label = date_field_label(app.date_field);
+                let source_label = activity_source_label(app);
+                let dark = app.dark_mode;
+                // Cached in app state; rebuilding per frame was O(entries).
+                let heatmap = app.activity_heatmap();
+                draw_activity_heatmap(ui, heatmap, field_label, source_label, dark, palette.sub);
             }
         });
         ui.add_space(3.0);

@@ -13,7 +13,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Navigation",
         name: "Pan (precise)",
-        binding: "Left-drag on canvas background",
+        binding: "Left-drag on canvas background, or right-drag anywhere (even over a thumbnail)",
     },
     CommandEntry {
         category: "Navigation",

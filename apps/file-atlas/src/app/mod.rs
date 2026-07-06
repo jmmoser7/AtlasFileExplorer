@@ -173,17 +173,49 @@ impl PrewarmJob {
     }
 }
 
+/// Result of the background thumbnail-cache audit after a scan: the warm
+/// requests for files whose thumbnails are *not* already cached locally.
+struct WarmPlan {
+    generation: u64,
+    requests: Vec<ThumbRequest>,
+}
+
+/// Entry count above which tree builds move to a background thread. Building
+/// and laying out 20k+ entries takes long enough to freeze a frame; smaller
+/// roots keep the synchronous path so interactions stay latency-free.
+const ASYNC_TREE_THRESHOLD: usize = 8_000;
+
+/// A finished background tree build (see `rebuild_tree`).
+struct TreeBuild {
+    generation: u64,
+    /// This was the root's first build: place the initial camera on apply.
+    first: bool,
+    tree: Tree,
+}
+
+/// How the pre-warm walk treats portal-sized folders (more items than the
+/// portal threshold — typically video frame dumps with near-identical thumbs).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PrewarmPortalMode {
+    /// Warm like any other folder.
+    Normal,
+    /// Queue into the deferred slow lane so they warm last.
+    Defer,
+    /// Skip their files entirely (subfolders are still walked).
+    Skip,
+}
+
 /// Options for the pre-warm discovery walk.
 struct PrewarmWalkOpts {
-    /// When true, folders larger than `portal_threshold` queue into the
-    /// deferred slow lane (frame dumps warm last).
-    deprioritize_portals: bool,
+    /// Treatment of folders larger than `portal_threshold`.
+    portal_mode: PrewarmPortalMode,
     portal_threshold: usize,
 }
 
 /// Discovery walk behind `start_prewarm`, extracted so repository creation
 /// is testable. Descends from `dir`, queueing every thumbnail-able file via
-/// `queue` (or `queue_deferred` for portal-sized folders when enabled).
+/// `queue`. Portal-sized folders follow [`PrewarmWalkOpts::portal_mode`]:
+/// queued normally, into `queue_deferred`, or skipped entirely.
 /// Shared `.atlas-cache` repositories are created (and counted in
 /// `repos`) both by walking *up* from `dir` (picked inside a project) and
 /// while descending (picked a folder that contains projects); cache keys are
@@ -256,8 +288,16 @@ fn prewarm_walk(
                 }
             }
         }
-        let portal_like =
-            opts.deprioritize_portals && subdirs.len() + files.len() > opts.portal_threshold;
+        let portal_like = opts.portal_mode != PrewarmPortalMode::Normal
+            && subdirs.len() + files.len() > opts.portal_threshold;
+        if portal_like && opts.portal_mode == PrewarmPortalMode::Skip {
+            // Skip the dump's own files but keep walking subfolders — they
+            // may hold ordinary content below the threshold.
+            for sd in subdirs {
+                stack.push((sd, ctx.clone()));
+            }
+            continue;
+        }
         for entry in files {
             if cancel.load(Relaxed) {
                 break;
@@ -330,6 +370,9 @@ pub struct AtlasApp {
     tree: Option<Tree>,
     tree_dirty: bool,
     last_tree_build: Instant,
+    /// In-flight background tree build for large roots (`TreeBuild` arrives
+    /// through here). The old tree keeps painting until the new one lands.
+    tree_build_rx: Option<Receiver<TreeBuild>>,
     orient: Orient,
     dark_mode: bool,
     filter_mode: FilterMode,
@@ -384,6 +427,13 @@ pub struct AtlasApp {
     shown_bytes: u64,
     total_bytes: u64,
     alive_count: usize,
+    /// Bumped by `recompute_matches` so dependents (activity heatmap) can
+    /// invalidate cheaply instead of re-deriving from all entries per frame.
+    matches_rev: u64,
+    /// Bottom-bar activity heatmap, cached against a fingerprint of its
+    /// inputs (match revision, selection, date field). Rebuilding it every
+    /// frame allocated O(entries) and degraded long sessions on big roots.
+    heatmap_cache: Option<(u64, ui::activity_heatmap::ActivityHeatmap)>,
 
     // thumbnails
     thumb_state: Vec<ThumbState>,
@@ -393,14 +443,19 @@ pub struct AtlasApp {
     thumbs_pending: usize,
     /// Background cache-warming jobs still queued (network cold-cache filler).
     warm_pending: usize,
+    /// Post-scan cache audit running on a background thread: `(checked,
+    /// total)` progress for the readout bar.
+    warm_audit: Option<(std::sync::Arc<std::sync::atomic::AtomicUsize>, usize)>,
+    /// Delivers the audit's outcome (requests to warm) back to the UI thread.
+    warm_plan_rx: Option<Receiver<WarmPlan>>,
     /// Shared per-project cache (second tier), discovered from the template.
     shared_cache: Option<std::sync::Arc<PathBuf>>,
     /// Prefix making cache keys project-root-relative.
     key_prefix: String,
     // Overnight pre-warm bookkeeping.
     prewarm_picker_rx: Option<Receiver<Option<PathBuf>>>,
-    /// When true, pre-warm queues portal-sized folders into the deferred lane.
-    prewarm_deprioritize_portals: bool,
+    /// How pre-warm treats portal-sized folders: warm, defer, or skip.
+    prewarm_portal_mode: PrewarmPortalMode,
     /// Live pre-warm run (Some while active) — drives the temporary bottom
     /// dashboard and is dropped on completion or cancel.
     prewarm: Option<PrewarmJob>,
@@ -532,6 +587,7 @@ impl AtlasApp {
             tree: None,
             tree_dirty: false,
             last_tree_build: Instant::now(),
+            tree_build_rx: None,
             orient: Orient::H,
             dark_mode: true,
             filter_mode: FilterMode::Hide,
@@ -575,16 +631,20 @@ impl AtlasApp {
             shown_bytes: 0,
             total_bytes: 0,
             alive_count: 0,
+            matches_rev: 0,
+            heatmap_cache: None,
             thumb_state: Vec::new(),
             avg_color: Vec::new(),
             textures: HashMap::new(),
             frame_no: 0,
             thumbs_pending: 0,
             warm_pending: 0,
+            warm_audit: None,
+            warm_plan_rx: None,
             shared_cache: None,
             key_prefix: String::new(),
             prewarm_picker_rx: None,
-            prewarm_deprioritize_portals: true,
+            prewarm_portal_mode: PrewarmPortalMode::Defer,
             prewarm: None,
             selection: HashSet::new(),
             rubber_origin: None,
@@ -721,7 +781,7 @@ impl AtlasApp {
             return;
         }
         let pool = self.thumbs.clone();
-        let deprioritize = self.prewarm_deprioritize_portals;
+        let portal_mode = self.prewarm_portal_mode;
         let portal_threshold = self.portal_threshold;
         let job = PrewarmJob {
             dir: dir.clone(),
@@ -751,7 +811,7 @@ impl AtlasApp {
                 &|req| pool.request_slow(req),
                 &|req| pool.request_slow_deferred(req),
                 PrewarmWalkOpts {
-                    deprioritize_portals: deprioritize,
+                    portal_mode,
                     portal_threshold,
                 },
                 &queued,
@@ -828,6 +888,7 @@ impl AtlasApp {
         self.textures = HashMap::new();
         self.tree = None;
         self.tree_dirty = false;
+        self.tree_build_rx = None;
 
         // Interaction state that carries entry ids or in-progress gestures.
         self.selection = HashSet::new();
@@ -854,6 +915,7 @@ impl AtlasApp {
         self.all_owners.clear();
         self.rescan_buffer = Vec::new();
         self.filter_dirty = true;
+        self.heatmap_cache = None;
 
         // Async per-root machinery.
         self.scan_ui = None;
@@ -861,6 +923,8 @@ impl AtlasApp {
         self.watch = None;
         self.shared_cache = None;
         self.key_prefix = String::new();
+        self.warm_audit = None;
+        self.warm_plan_rx = None;
     }
 
     fn set_root(&mut self, root: PathBuf) {
@@ -1026,51 +1090,98 @@ impl AtlasApp {
 
     /// After a scan completes, quietly pre-generate thumbnails for everything
     /// so cold network folders are already cached by the time they're opened.
-    /// Throttled inside the pool; on-demand requests always win.
+    ///
+    /// The cache audit (one local stat per file, plus a shared-tier probe for
+    /// already-cached files) runs on a **background thread**: on 20k+ roots it
+    /// used to stall the UI for seconds right at "Indexed N files" — worst
+    /// when everything was already pre-warmed, since every file then hit the
+    /// (possibly network) shared-cache path. The thread reports progress via
+    /// `warm_audit` and delivers the requests to enqueue through
+    /// `warm_plan_rx`; on-demand requests always win inside the pool.
     fn queue_cache_warming(&mut self) {
         self.warm_pending = 0;
-        for i in 0..self.entries.len() {
-            let e = &self.entries[i];
-            if e.dead || !wants_thumb(e.family) {
-                continue;
+        let generation = self.generation;
+        let pool = self.thumbs.clone();
+        let shared = self.shared_cache.clone();
+        // Lightweight snapshot for the audit thread: key hashing is cheap,
+        // the fs stats are what must leave the UI thread.
+        let items: Vec<(u32, PathBuf, String, u64)> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| !e.dead && wants_thumb(e.family))
+            .map(|(i, e)| (i as u32, e.path.clone(), self.entry_key(e), e.size))
+            .collect();
+        if items.is_empty() {
+            self.warm_audit = None;
+            self.warm_plan_rx = None;
+            return;
+        }
+        let progress = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        self.warm_audit = Some((progress.clone(), items.len()));
+        let (tx, rx) = unbounded();
+        self.warm_plan_rx = Some(rx);
+        std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            for (id, path, key, size) in items {
+                if pool.has_local(&key) {
+                    // Already generated: re-warming would only burn worker
+                    // time. Publish to the shared project tier if missing.
+                    if let Some(sh) = &shared {
+                        pool.sync_to_shared(&key, sh);
+                    }
+                } else {
+                    requests.push(ThumbRequest {
+                        id,
+                        generation,
+                        path,
+                        key,
+                        color_only: false,
+                        shared_dir: shared.clone(),
+                        src_bytes: size,
+                        pdf_page: None,
+                    });
+                }
+                progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
-            let key = self.entry_key(e);
-            let e = &self.entries[i];
-            self.thumbs.request_warm(ThumbRequest {
-                id: i as u32,
-                generation: self.generation,
-                path: e.path.clone(),
-                key,
-                color_only: false,
-                shared_dir: self.shared_cache.clone(),
-                src_bytes: e.size,
-                pdf_page: None,
+            let _ = tx.send(WarmPlan {
+                generation,
+                requests,
             });
-            self.warm_pending += 1;
-        }
-        if self.warm_pending > 0 {
-            eprintln!(
-                "[atlas] warming thumbnail cache for {} files in background",
-                self.warm_pending
-            );
-        }
-        self.sync_shared_cache_from_local();
+        });
+    }
+
+    /// Cache-audit progress for the readout bar: `(checked, total)` while the
+    /// background thumbnail-cache check is running.
+    pub(crate) fn warm_audit_progress(&self) -> Option<(usize, usize)> {
+        self.warm_audit.as_ref().map(|(done, total)| {
+            (
+                done.load(std::sync::atomic::Ordering::Relaxed).min(*total),
+                *total,
+            )
+        })
     }
 
     /// Push any already-local thumbnails into the per-project shared cache.
-    /// Runs synchronously but only stat+copy per file; the heavy generation
-    /// still happens asynchronously via warming / on-demand workers.
+    /// Stat+copy per file on a background thread (20k files would otherwise
+    /// freeze the frame); the heavy generation still happens asynchronously
+    /// via warming / on-demand workers.
     fn sync_shared_cache_from_local(&self) {
-        let Some(shared) = &self.shared_cache else {
+        let Some(shared) = self.shared_cache.clone() else {
             return;
         };
-        for e in &self.entries {
-            if e.dead || !wants_thumb(e.family) {
-                continue;
+        let pool = self.thumbs.clone();
+        let keys: Vec<String> = self
+            .entries
+            .iter()
+            .filter(|e| !e.dead && wants_thumb(e.family))
+            .map(|e| self.entry_key(e))
+            .collect();
+        std::thread::spawn(move || {
+            for key in keys {
+                pool.sync_to_shared(&key, &shared);
             }
-            let key = self.entry_key(e);
-            self.thumbs.sync_to_shared(&key, shared);
-        }
+        });
     }
 
     fn rebuild_rel_map(&mut self) {
@@ -1091,6 +1202,12 @@ impl AtlasApp {
     }
 
     /// Rebuild the folder tree from entries, preserving collapse state.
+    ///
+    /// Small roots build synchronously (latency-free interactions). Above
+    /// [`ASYNC_TREE_THRESHOLD`] entries the build + layout runs on a
+    /// background thread — a 20k+ build froze the frame for long enough to
+    /// feel like a choke — and the previous tree keeps painting until the
+    /// new one arrives through `tree_build_rx`.
     fn rebuild_tree(&mut self, first: bool) {
         let collapsed: HashMap<String, bool> = self
             .tree
@@ -1102,6 +1219,44 @@ impl AtlasApp {
                     .collect()
             })
             .unwrap_or_default();
+
+        if self.entries.len() >= ASYNC_TREE_THRESHOLD {
+            if self.tree_build_rx.is_some() {
+                // A build is already in flight; run again once it lands.
+                self.tree_dirty = true;
+                return;
+            }
+            let generation = self.generation;
+            let entries = self.entries.clone();
+            let root_name = self.root_name();
+            let cfg = self.layout_config();
+            let orient = self.orient;
+            let hide = self.filter_mode == FilterMode::Hide && self.any_filter;
+            let file_match = self.file_match.clone();
+            let structure_only = self.structure_only;
+            let (tx, rx) = unbounded();
+            self.tree_build_rx = Some(rx);
+            self.tree_dirty = false;
+            self.last_tree_build = Instant::now();
+            std::thread::spawn(move || {
+                let mut t = Tree::build(&entries, &root_name, cfg);
+                if !collapsed.is_empty() {
+                    for d in t.dirs.iter_mut() {
+                        if let Some(&c) = collapsed.get(&d.rel) {
+                            d.collapsed = c;
+                        }
+                    }
+                }
+                t.layout_filtered(orient, hide, &file_match, structure_only);
+                let _ = tx.send(TreeBuild {
+                    generation,
+                    first,
+                    tree: t,
+                });
+            });
+            return;
+        }
+
         let mut t = Tree::build(&self.entries, &self.root_name(), self.layout_config());
         if !collapsed.is_empty() {
             for d in t.dirs.iter_mut() {
@@ -1116,6 +1271,12 @@ impl AtlasApp {
             &self.file_match,
             self.structure_only,
         );
+        self.adopt_tree(t, first);
+    }
+
+    /// Install a freshly built tree and, on the root's first build, place
+    /// the initial camera (restored tab position or the home view).
+    fn adopt_tree(&mut self, t: Tree, first: bool) {
         self.tree = Some(t);
         self.tree_dirty = false;
         self.last_tree_build = Instant::now();
@@ -1243,6 +1404,43 @@ impl AtlasApp {
             }
         }
 
+        // Background tree build finished: adopt it (or discard a stale one
+        // from a previous root).
+        if let Some(rx) = &self.tree_build_rx {
+            if let Ok(build) = rx.try_recv() {
+                self.tree_build_rx = None;
+                if build.generation == self.generation {
+                    let dirty = self.tree_dirty;
+                    self.adopt_tree(build.tree, build.first);
+                    // Entries changed while building (streaming scan):
+                    // keep the fresh tree but schedule another pass.
+                    self.tree_dirty = dirty;
+                }
+            }
+        }
+
+        // Background cache-audit outcome: enqueue warm jobs for the files
+        // whose thumbnails are missing. A stale plan (root changed while the
+        // audit ran) is simply discarded.
+        if let Some(rx) = &self.warm_plan_rx {
+            if let Ok(plan) = rx.try_recv() {
+                self.warm_plan_rx = None;
+                self.warm_audit = None;
+                if plan.generation == self.generation {
+                    self.warm_pending = plan.requests.len();
+                    if self.warm_pending > 0 {
+                        eprintln!(
+                            "[atlas] warming thumbnail cache for {} files in background",
+                            self.warm_pending
+                        );
+                    }
+                    for req in plan.requests {
+                        self.thumbs.request_warm(req);
+                    }
+                }
+            }
+        }
+
         // Scan results
         while let Ok((generation, msg)) = self.scan_rx.try_recv() {
             if generation != self.generation {
@@ -1360,6 +1558,23 @@ impl AtlasApp {
             if id >= self.thumb_state.len() {
                 continue;
             }
+            if res.dropped {
+                // Shed from an over-full hot queue without running: reset the
+                // card so the paint pass re-requests it while it's visible.
+                let state = &mut self.thumb_state[id];
+                match *state {
+                    ThumbState::AskedFull => {
+                        *state = if self.avg_color[id].is_some() {
+                            ThumbState::HasColor
+                        } else {
+                            ThumbState::NotAsked
+                        };
+                    }
+                    ThumbState::AskedColor => *state = ThumbState::NotAsked,
+                    _ => {}
+                }
+                continue;
+            }
             if let Some(avg) = res.avg {
                 if let Some(slot) = self.avg_color.get_mut(id) {
                     *slot = Some(avg);
@@ -1371,8 +1586,10 @@ impl AtlasApp {
                 continue;
             }
             if res.color_only {
+                // Color-only results carry no pixels (the worker strips them);
+                // success is "we harvested an average color".
                 if self.thumb_state[id] == ThumbState::AskedColor {
-                    self.thumb_state[id] = if res.image.is_some() {
+                    self.thumb_state[id] = if res.avg.is_some() {
                         ThumbState::HasColor
                     } else {
                         ThumbState::Failed
@@ -1516,6 +1733,9 @@ impl AtlasApp {
                     let rel = relp.to_string_lossy().into_owned();
                     if let Some(&i) = self.rel_to_id.get(&rel) {
                         self.entries[i as usize].dead = true;
+                        // Dead cards never paint again: free the GPU texture
+                        // now instead of waiting for LRU pressure.
+                        self.textures.remove(&i);
                         self.tree_dirty = true;
                         self.filter_dirty = true;
                     }
@@ -1614,6 +1834,35 @@ impl AtlasApp {
         }
     }
 
+    /// Cached activity heatmap for the bottom bar. Rebuilt only when the
+    /// match set, selection, or date field changes — never per frame.
+    pub(crate) fn activity_heatmap(&mut self) -> &ui::activity_heatmap::ActivityHeatmap {
+        // Order-independent selection digest: cheap relative to a rebuild and
+        // stable across HashSet iteration order.
+        let sel_digest = self
+            .selection
+            .iter()
+            .fold(0u64, |acc, &id| {
+                acc ^ (id as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            })
+            .wrapping_add(self.selection.len() as u64);
+        let fingerprint = self
+            .matches_rev
+            .wrapping_mul(0x100_0193)
+            .wrapping_add(sel_digest)
+            .wrapping_add(match self.date_field {
+                DateFilterField::Created => 0,
+                DateFilterField::Modified => 1 << 62,
+            });
+        let stale = !matches!(&self.heatmap_cache, Some((fp, _)) if *fp == fingerprint);
+        if stale {
+            let heatmap =
+                ui::activity_heatmap::ActivityHeatmap::from_timestamps(self.activity_timestamps());
+            self.heatmap_cache = Some((fingerprint, heatmap));
+        }
+        &self.heatmap_cache.as_ref().unwrap().1
+    }
+
     fn update_date_span(&mut self) {
         let mut min = i64::MAX;
         let mut max = i64::MIN;
@@ -1660,6 +1909,7 @@ impl AtlasApp {
     }
 
     fn recompute_matches(&mut self) {
+        self.matches_rev = self.matches_rev.wrapping_add(1);
         self.recount_owners();
         self.update_date_span();
         let search = self.search.to_lowercase();
@@ -2108,10 +2358,11 @@ impl AtlasApp {
             || self.drag_chip.is_some()
             || self.anim.is_some()
             || self.ai.picker_pending()
-            || self.tree_dirty;
+            || self.tree_dirty
+            || self.tree_build_rx.is_some();
         if busy {
             ctx.request_repaint_after(Duration::from_millis(33));
-        } else if self.warm_pending > 0 || self.prewarm.is_some() {
+        } else if self.warm_pending > 0 || self.prewarm.is_some() || self.warm_plan_rx.is_some() {
             // Keep draining warm results, but at a relaxed cadence.
             ctx.request_repaint_after(Duration::from_millis(500));
         }
@@ -2564,6 +2815,13 @@ impl AtlasApp {
         painter.rect_filled(rect, CornerRadius::ZERO, palette.bg);
         self.draw_dot_grid(&painter, rect);
 
+        // Explicit load feedback: nothing paintable yet (first index load,
+        // scan streaming in, or a large tree building in the background).
+        if self.tree.is_none() {
+            self.loading_overlay(ui, rect);
+            return;
+        }
+
         let pointer = ui.ctx().pointer_latest_pos();
         let shift = ui.input(|i| i.modifiers.shift);
 
@@ -2583,7 +2841,11 @@ impl AtlasApp {
         }
 
         // --- input: pan / rubber band / turbo pan / drag-to-Slate ---
-        if resp.drag_started() {
+        // Only the primary button starts a rubber band or a drag-to-Slate
+        // carry; the secondary button always pans, even when the press lands
+        // on a thumbnail (right-drag = pan anywhere, left-drag on a
+        // thumbnail = carry to Slate during a linked session).
+        if resp.drag_started_by(egui::PointerButton::Primary) {
             if shift {
                 self.rubber_origin = pointer;
             } else if self.session.is_some() {
@@ -2601,6 +2863,8 @@ impl AtlasApp {
                     }
                 }
             }
+        }
+        if resp.drag_started() {
             self.anim = None;
         }
         self.session_drag_frame(ui, pointer);
@@ -2864,6 +3128,86 @@ impl AtlasApp {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         } else if resp.dragged() && self.rubber_origin.is_none() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        }
+    }
+
+    /// Centered progress readout while the canvas has nothing to paint:
+    /// index load, streaming scan, or a large background tree build. Uses a
+    /// determinate bar when a total is known (refresh over a saved snapshot),
+    /// otherwise a sweeping indeterminate bar.
+    fn loading_overlay(&self, ui: &mut egui::Ui, rect: Rect) {
+        let palette = self.palette();
+        let painter = ui.painter().with_clip_rect(rect);
+        let files_found = self
+            .scan_handle
+            .as_ref()
+            .map(|h| h.files_found.load(std::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(0);
+        let (label, fraction): (String, Option<f32>) = if self.pending_load.is_some() {
+            ("Opening saved index…".into(), None)
+        } else if let Some(scan) = &self.scan_ui {
+            match scan.mode {
+                // Refresh re-verifies a known snapshot: a real fraction.
+                ScanMode::Refresh if !self.entries.is_empty() => (
+                    format!(
+                        "Re-verifying {} files…",
+                        ui::group_digits(self.entries.len() as u64)
+                    ),
+                    Some((files_found as f32 / self.entries.len() as f32).min(1.0)),
+                ),
+                _ => (
+                    format!("Scanning… {} files found", ui::group_digits(files_found)),
+                    None,
+                ),
+            }
+        } else if self.tree_build_rx.is_some() {
+            (
+                format!(
+                    "Building canvas — {} files…",
+                    ui::group_digits(self.entries.len() as u64)
+                ),
+                None,
+            )
+        } else {
+            return;
+        };
+
+        let center = rect.center();
+        painter.text(
+            center - Vec2::new(0.0, 18.0),
+            Align2::CENTER_CENTER,
+            &label,
+            FontId::proportional(14.0),
+            palette.ink,
+        );
+        // Progress bar: determinate fill, or a sweeping segment while the
+        // total is unknown.
+        let bar = Rect::from_center_size(center + Vec2::new(0.0, 8.0), Vec2::new(260.0, 6.0));
+        painter.rect_filled(bar, 3.0, palette.card);
+        match fraction {
+            Some(f) => {
+                let w = (bar.width() * f.clamp(0.0, 1.0)).max(6.0);
+                let fill = Rect::from_min_size(bar.min, Vec2::new(w, bar.height()));
+                painter.rect_filled(fill, 3.0, palette.select);
+            }
+            None => {
+                let t = ui.input(|i| i.time) as f32;
+                let seg = bar.width() * 0.28;
+                let span = bar.width() - seg;
+                // Ping-pong sweep.
+                let phase = (t * 0.8).fract();
+                let x = if phase < 0.5 {
+                    phase * 2.0
+                } else {
+                    2.0 - phase * 2.0
+                };
+                let fill = Rect::from_min_size(
+                    Pos2::new(bar.min.x + span * x, bar.min.y),
+                    Vec2::new(seg, bar.height()),
+                );
+                painter.rect_filled(fill, 3.0, palette.select);
+                ui.ctx().request_repaint();
+            }
         }
     }
 
@@ -4399,7 +4743,7 @@ mod prewarm_tests {
         run_walk_opts(
             dir,
             PrewarmWalkOpts {
-                deprioritize_portals: false,
+                portal_mode: PrewarmPortalMode::Normal,
                 portal_threshold: 100,
             },
         )
@@ -4558,7 +4902,7 @@ mod prewarm_tests {
             &|r| reqs.lock().unwrap().push(r),
             &|r| reqs.lock().unwrap().push(r),
             PrewarmWalkOpts {
-                deprioritize_portals: false,
+                portal_mode: PrewarmPortalMode::Normal,
                 portal_threshold: 100,
             },
             &queued,
@@ -4588,13 +4932,51 @@ mod prewarm_tests {
         let (normal, deferred, queued) = run_walk_lanes(
             root.clone(),
             PrewarmWalkOpts {
-                deprioritize_portals: true,
+                portal_mode: PrewarmPortalMode::Defer,
                 portal_threshold: 100,
             },
         );
         assert_eq!(queued, 102);
         assert_eq!(normal.len(), 1, "small folder stays on the normal lane");
         assert_eq!(deferred.len(), 101, "portal-sized folder is deferred");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn prewarm_skip_mode_omits_portal_folders_but_walks_below_them() {
+        let root = std::env::temp_dir().join(format!("nfa_pw_skip_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let small = root.join("sketches");
+        std::fs::create_dir_all(&small).unwrap();
+        std::fs::write(small.join("a.png"), b"x").unwrap();
+        // Portal-sized frame dump with a normal-sized subfolder inside it.
+        let frames = root.join("frames");
+        let nested = frames.join("selects");
+        std::fs::create_dir_all(&nested).unwrap();
+        for i in 0..101 {
+            std::fs::write(frames.join(format!("f{i:03}.png")), b"x").unwrap();
+        }
+        std::fs::write(nested.join("pick.png"), b"x").unwrap();
+
+        let (normal, deferred, queued) = run_walk_lanes(
+            root.clone(),
+            PrewarmWalkOpts {
+                portal_mode: PrewarmPortalMode::Skip,
+                portal_threshold: 100,
+            },
+        );
+        assert_eq!(deferred.len(), 0, "skip mode never uses the deferred lane");
+        let names: Vec<String> = normal
+            .iter()
+            .map(|r| r.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(queued, 2, "dump files are skipped, not deferred");
+        assert!(names.contains(&"a.png".to_string()));
+        assert!(
+            names.contains(&"pick.png".to_string()),
+            "subfolders inside a skipped dump are still walked"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

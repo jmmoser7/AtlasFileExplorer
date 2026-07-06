@@ -28,6 +28,15 @@ When you add or change any user-facing input binding:
 | Date filter timeline | `atlas_shell::widgets` → `sidebar_date_timeline` |
 | Keyboard shortcuts | `mod.rs` → `hotkeys` |
 
+## Pan buttons (reference)
+
+- **Left-drag** on empty canvas pans. On a thumbnail during a linked Slate
+  session it starts the drag-to-Slate carry instead (standalone Atlas pans).
+- **Right-drag** pans from anywhere — including presses that land on a
+  thumbnail — so navigation is never blocked by dense canvases. A right-click
+  *without* dragging still opens the file context menu.
+- **Shift + left-drag** rubber-band selects (left button only).
+
 ## Turbo pan (reference)
 
 - **Binding:** Ctrl + right-drag on canvas.

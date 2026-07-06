@@ -690,6 +690,12 @@ impl SlateApp {
             let Some(key) = self.thumb_slots.remove(&res.id) else {
                 continue;
             };
+            if res.dropped {
+                // Shed from an over-full hot queue: forget the pending marker
+                // so the paint pass re-requests it while the item is visible.
+                self.textures.remove(&key);
+                continue;
+            }
             let state = match res.image {
                 Some((w, h, rgba)) => {
                     let img =

@@ -151,8 +151,9 @@ pub fn decode_preview(
         .unwrap_or_default();
     match ext.as_str() {
         // Rasters the bundled `image` build decodes natively (all platforms).
-        "png" | "jpg" | "jpeg" => decode_raster(path, target_px)
-            .or_else(|| crate::thumbs::shell_image_at(path, target_px as i32)),
+        // If a standard raster is corrupt, fail fast instead of handing it to
+        // shell codecs that can block unpredictably under test/load.
+        "png" | "jpg" | "jpeg" => decode_raster(path, target_px),
         // PDFs render via the shared pdfium worker at the requested size.
         "pdf" => crate::pdf::thumbnail_page(path, pdf_page.unwrap_or(0), target_px as i32),
         // Everything else: the platform shell (Windows) often produces large
