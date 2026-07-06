@@ -1148,22 +1148,25 @@ impl SlateApp {
             }
         }
         let space = ui.input(|i| i.key_down(egui::Key::Space));
+        let mut cam_offset_tmp = self.tab().cam.offset;
+        let ctx2 = ui.ctx().clone();
+        let turbo_pan_active = self
+            .turbo_pan
+            .step(&ctx2, rect, pointer, &mut cam_offset_tmp);
+        if turbo_pan_active {
+            let zc = self.tab().cam.z;
+            let old = self.tab().cam.offset;
+            self.tab_mut().cam.offset = old - (cam_offset_tmp - old) / zc;
+        }
+        // Precise pan: middle-drag, Space+left-drag, or right-drag (File Atlas
+        // parity — right-drag pans even in Select tool; Ctrl+right is turbo pan).
         let panning = resp.dragged_by(egui::PointerButton::Middle)
-            || (space && resp.dragged_by(egui::PointerButton::Primary));
+            || (space && resp.dragged_by(egui::PointerButton::Primary))
+            || (resp.dragged_by(egui::PointerButton::Secondary) && !turbo_pan_active);
         if panning {
             let delta = resp.drag_delta();
             let zc = self.tab().cam.z;
             self.tab_mut().cam.offset -= delta / zc;
-        }
-        let mut cam_offset_tmp = self.tab().cam.offset;
-        let ctx2 = ui.ctx().clone();
-        if self
-            .turbo_pan
-            .step(&ctx2, rect, pointer, &mut cam_offset_tmp)
-        {
-            let zc = self.tab().cam.z;
-            let old = self.tab().cam.offset;
-            self.tab_mut().cam.offset = old - (cam_offset_tmp - old) / zc;
         }
 
         // --- gesture start ---
