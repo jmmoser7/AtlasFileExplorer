@@ -37,6 +37,13 @@ commands are registered in one place so users can look them up in
   `Ctrl + D` duplicates in place with a 24px offset.
 - One gesture = one undo step: live drags journal their net effect on
   release; inspector slider scrubs coalesce (1.5 s window per node).
+- **Multi-selection group transforms**: with 2+ objects selected the group
+  bounding box shows the standard 8 handles + rotate zones. Corner/edge drag
+  scales every member about the opposite corner/edge (Shift = uniform,
+  Ctrl = about the group center); outside-corner drag rotates every member
+  about the group center. Journaled as one undo step.
+- **Text editing** commits on Escape, focus loss, or clicking anywhere
+  outside the text box (the click also performs normal selection).
 - **3D viewports** (placed `.3dm` models) invert the drag convention while
   *unlocked*: drag = orbit, Shift+drag = pan, scroll = zoom — Rhino
   semantics inside the node. The padlock (hover, top-right) toggles the

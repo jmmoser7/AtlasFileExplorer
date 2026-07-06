@@ -149,7 +149,19 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Rotate object",
-        binding: "Drag outside a corner handle (Board view); snaps at 45°",
+        binding: "Drag outside a corner handle (Board view); snaps at 45°; with 2+ selected \
+                  rotates the whole group about its center",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Group resize (multi-selection)",
+        binding: "With 2+ selected, drag a group bounding-box handle — scales all members \
+                  about the opposite corner/edge; Shift locks aspect, Ctrl scales from center",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Finish text editing",
+        binding: "Escape, or click anywhere outside the text box",
     },
     CommandEntry {
         category: "Board",
