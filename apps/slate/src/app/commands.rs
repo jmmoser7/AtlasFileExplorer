@@ -138,6 +138,21 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Board",
+        name: "Rotate object",
+        binding: "Drag outside a corner handle (Board view); snaps at 45°",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Board grid / snap to grid",
+        binding: "Grid / Snap grid toggles in the board toolbar",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Align / distribute objects",
+        binding: "Align menu in the board toolbar (2+ selected)",
+    },
+    CommandEntry {
+        category: "Board",
         name: "Delete objects",
         binding: "Delete or Backspace",
     },

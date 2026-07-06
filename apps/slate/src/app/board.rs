@@ -14,10 +14,13 @@
 //! - Smart guides align objects to each other while moving or resizing (on by
 //!   default). Hold `Alt` to bypass snapping; `Shift` locks aspect ratio on
 //!   corner resize; `Ctrl` resizes from center (Office/PowerPoint convention).
+//! - Eight resize handles plus outside-corner rotate zones with native cursor
+//!   icons; rotation snaps at 45° intervals. Grid display and snap-to-grid are
+//!   toolbar toggles; Align menu covers align/distribute with 2+ selected.
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 
-use super::{board_snap, SlateApp, ThumbState};
+use super::{board_handles, board_snap, SlateApp, ThumbState};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
     Corner, Crop, Dash, FontChoice, FrameNode, ImageAdjust, ImageNode, Node, NodeKind, Rgba,
@@ -101,11 +104,17 @@ pub enum BoardDrag {
         start_world: Pos2,
         dup: bool,
     },
-    /// Resizing one node from a corner handle (0=NW 1=NE 2=SE 3=SW).
+    /// Resizing one node from a handle (0–7: corners then edge midpoints).
     Resize {
         id: NodeId,
         before: Node,
         handle: u8,
+    },
+    /// Rotating one node from an outside-corner zone.
+    Rotate {
+        id: NodeId,
+        before: Node,
+        start_angle: f32,
     },
     /// Rubber-band drawing a new node (not yet in the scene).
     Draw { start_world: Pos2, tool: BoardTool },
@@ -349,17 +358,17 @@ impl SlateApp {
         if items.is_empty() {
             return;
         }
+        let sizes: Vec<(f32, f32)> = items
+            .iter()
+            .map(|item| self.image_natural_size(*item))
+            .collect();
         let mut nodes = Vec::new();
         {
             let scene = &mut self.doc_mut().scene;
             for (i, item) in items.iter().enumerate() {
+                let (w, h) = sizes[i];
                 let off = i as f32 * 24.0;
-                let rect = WorldRect::new(
-                    at.x - IMAGE_W * 0.5 + off,
-                    at.y - IMAGE_H * 0.5 + off,
-                    IMAGE_W,
-                    IMAGE_H,
-                );
+                let rect = WorldRect::new(at.x - w * 0.5 + off, at.y - h * 0.5 + off, w, h);
                 nodes.push(scene.build_node(rect, NodeKind::Image(ImageNode::new(*item))));
             }
         }
@@ -480,6 +489,134 @@ impl SlateApp {
         self.fx_textures.insert(fx_key, tex.clone());
         Some(tex)
     }
+
+    /// Natural pixel dimensions for an item, scaled to a sensible board size.
+    fn image_natural_size(&self, item: ItemId) -> (f32, f32) {
+        let (mut w, mut h) = if let Some(key) = self.doc().item(item).map(|it| it.cache_key.clone())
+        {
+            self.thumb_pixels
+                .get(&key)
+                .map(|img| (img.width() as f32, img.height() as f32))
+                .unwrap_or((IMAGE_W, IMAGE_H))
+        } else {
+            (IMAGE_W, IMAGE_H)
+        };
+        if w <= 0.0 || h <= 0.0 {
+            w = IMAGE_W;
+            h = IMAGE_H;
+        }
+        let max_dim = 320.0;
+        let scale = (max_dim / w.max(h)).min(1.0);
+        (w * scale, h * scale)
+    }
+
+    fn paint_board_grid(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        palette: &atlas_shell::theme::Palette,
+        xf: &BoardXf,
+    ) {
+        let step = board_snap::GRID_WORLD * xf.z;
+        if step < 6.0 {
+            return;
+        }
+        let origin = xf.w2s(Pos2::ZERO);
+        let x0 = origin.x + ((rect.left() - origin.x) / step).floor() * step;
+        let y0 = origin.y + ((rect.top() - origin.y) / step).floor() * step;
+        let mut y = y0;
+        while y < rect.bottom() {
+            let mut x = x0;
+            while x < rect.right() {
+                painter.circle_filled(Pos2::new(x, y), 1.0, palette.grid_dot);
+                x += step;
+            }
+            y += step;
+        }
+    }
+
+    fn node_screen_outline(&self, xf: &BoardXf, node: &Node) -> Vec<Pos2> {
+        node.rect
+            .corners_rotated(node.rotation_deg)
+            .map(|(x, y)| xf.w2s(Pos2::new(x, y)))
+            .to_vec()
+    }
+
+    fn align_board_selection(&mut self, align: BoardAlign) {
+        let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
+        if ids.len() < 2 {
+            return;
+        }
+        let rects: Vec<WorldRect> = ids
+            .iter()
+            .filter_map(|id| self.doc().scene.node(*id).map(|n| n.rect))
+            .collect();
+        let Some(bounds) = board_snap::union_rect(&rects) else {
+            return;
+        };
+        self.patch_nodes(&ids, |n| match align {
+            BoardAlign::Left => n.rect.x = bounds.x,
+            BoardAlign::CenterH => n.rect.x = bounds.x + (bounds.w - n.rect.w) * 0.5,
+            BoardAlign::Right => n.rect.x = bounds.x + bounds.w - n.rect.w,
+            BoardAlign::Top => n.rect.y = bounds.y,
+            BoardAlign::CenterV => n.rect.y = bounds.y + (bounds.h - n.rect.h) * 0.5,
+            BoardAlign::Bottom => n.rect.y = bounds.y + bounds.h - n.rect.h,
+        });
+    }
+
+    fn distribute_board_selection(&mut self, axis: DistributeAxis) {
+        let mut ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
+        if ids.len() < 3 {
+            return;
+        }
+        ids.sort_by(|a, b| {
+            let ra = self.doc().scene.node(*a).map(|n| n.rect);
+            let rb = self.doc().scene.node(*b).map(|n| n.rect);
+            match (ra, rb) {
+                (Some(a), Some(b)) => match axis {
+                    DistributeAxis::Horizontal => a.x.partial_cmp(&b.x).unwrap(),
+                    DistributeAxis::Vertical => a.y.partial_cmp(&b.y).unwrap(),
+                },
+                _ => std::cmp::Ordering::Equal,
+            }
+        });
+        let first = self.doc().scene.node(ids[0]).unwrap().rect;
+        let last = self.doc().scene.node(*ids.last().unwrap()).unwrap().rect;
+        let widths: f32 = ids
+            .iter()
+            .map(|id| self.doc().scene.node(*id).unwrap().rect.w)
+            .sum();
+        let heights: f32 = ids
+            .iter()
+            .map(|id| self.doc().scene.node(*id).unwrap().rect.h)
+            .sum();
+        match axis {
+            DistributeAxis::Horizontal => {
+                let span = (last.x + last.w) - first.x;
+                let gap = (span - widths) / (ids.len() as f32 - 1.0);
+                let mut x = first.x;
+                for id in &ids {
+                    let w = self.doc().scene.node(*id).unwrap().rect.w;
+                    let target_x = x;
+                    x += w + gap;
+                    let id = *id;
+                    self.patch_nodes(&[id], |n| n.rect.x = target_x);
+                }
+            }
+            DistributeAxis::Vertical => {
+                let span = (last.y + last.h) - first.y;
+                let gap = (span - heights) / (ids.len() as f32 - 1.0);
+                let mut y = first.y;
+                for id in &ids {
+                    let h = self.doc().scene.node(*id).unwrap().rect.h;
+                    let target_y = y;
+                    y += h + gap;
+                    let id = *id;
+                    self.patch_nodes(&[id], |n| n.rect.y = target_y);
+                }
+            }
+        }
+    }
 }
 
 // ---------- outline geometry (shared by fill mesh + stroke) ----------
@@ -531,6 +668,23 @@ fn corner_outline(rect: Rect, corner: Corner, z: f32) -> Vec<Pos2> {
     }
 }
 
+/// Align selected board objects relative to their shared bounding box.
+#[derive(Clone, Copy)]
+pub enum BoardAlign {
+    Left,
+    CenterH,
+    Right,
+    Top,
+    CenterV,
+    Bottom,
+}
+
+#[derive(Clone, Copy)]
+pub enum DistributeAxis {
+    Horizontal,
+    Vertical,
+}
+
 /// Fan-triangulated textured polygon (convex outlines only). UVs map the
 /// node rect onto the crop window of the source texture.
 fn textured_polygon(
@@ -556,6 +710,33 @@ fn textured_polygon(
         });
     }
     for i in 1..outline.len() as u32 - 1 {
+        mesh.indices.extend_from_slice(&[0, i, i + 1]);
+    }
+    painter.add(mesh);
+}
+
+/// Textured polygon with UVs derived from world-space corners (supports rotation).
+fn textured_polygon_world(
+    painter: &egui::Painter,
+    tex: &egui::TextureHandle,
+    outline_screen: &[Pos2],
+    outline_world: &[(f32, f32)],
+    rect: WorldRect,
+    crop: Crop,
+    tint: Color32,
+) {
+    let crop = crop.clamped();
+    let mut mesh = egui::Mesh::with_texture(tex.id());
+    for (p, (wx, wy)) in outline_screen.iter().zip(outline_world.iter()) {
+        let fx = ((wx - rect.x) / rect.w.max(0.001)).clamp(0.0, 1.0);
+        let fy = ((wy - rect.y) / rect.h.max(0.001)).clamp(0.0, 1.0);
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: *p,
+            uv: Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h),
+            color: tint,
+        });
+    }
+    for i in 1..outline_screen.len() as u32 - 1 {
         mesh.indices.extend_from_slice(&[0, i, i + 1]);
     }
     painter.add(mesh);
@@ -713,16 +894,31 @@ impl SlateApp {
         let z = xf.z;
         let alpha = node.opacity.clamp(0.0, 1.0);
         let fade = |c: Color32| c.gamma_multiply(alpha);
+        let rotated = node.rotation_deg.abs() > 0.01;
+        let outline_world = node.rect.corners_rotated(node.rotation_deg);
+        let outline_s: Vec<Pos2> = outline_world.map(|(x, y)| xf.w2s(Pos2::new(x, y))).to_vec();
 
         match &node.kind {
             NodeKind::Frame(f) => {
-                painter.rect_filled(srect, 2.0, fade(rgba32(f.fill)));
+                if rotated {
+                    painter.add(egui::Shape::convex_polygon(
+                        outline_s.clone(),
+                        fade(rgba32(f.fill)),
+                        EStroke::NONE,
+                    ));
+                } else {
+                    painter.rect_filled(srect, 2.0, fade(rgba32(f.fill)));
+                }
                 let palette = self.palette();
-                painter.rect_stroke(
-                    srect,
-                    2.0,
-                    EStroke::new(1.0, palette.border_strong),
-                    egui::StrokeKind::Outside,
+                stroke_outline(
+                    painter,
+                    &outline_s,
+                    &slate_doc::scene::Stroke {
+                        width: 1.0,
+                        color: to_rgba(palette.border_strong),
+                        dash: Dash::Solid,
+                    },
+                    z,
                 );
                 if chrome {
                     let order = self
@@ -757,7 +953,11 @@ impl SlateApp {
                 }
             }
             NodeKind::Image(img) => {
-                let outline = corner_outline(srect, img.corner, z);
+                let outline = if rotated {
+                    outline_s.clone()
+                } else {
+                    corner_outline(srect, img.corner, z)
+                };
                 let (path, name) = self
                     .doc()
                     .item(img.item)
@@ -774,7 +974,19 @@ impl SlateApp {
                             // Node opacity = vertex tint on the textured mesh
                             // (matches CSS `opacity` compositing closely enough).
                             let tint = Color32::WHITE.gamma_multiply(alpha);
-                            textured_polygon(painter, &tex, &outline, srect, img.crop, tint);
+                            if rotated {
+                                textured_polygon_world(
+                                    painter,
+                                    &tex,
+                                    &outline_s,
+                                    &outline_world,
+                                    node.rect,
+                                    img.crop,
+                                    tint,
+                                );
+                            } else {
+                                textured_polygon(painter, &tex, &outline, srect, img.crop, tint);
+                            }
                             if let Some(ov) = img.adjust.overlay {
                                 painter.add(egui::Shape::convex_polygon(
                                     outline.clone(),
@@ -989,6 +1201,37 @@ impl SlateApp {
             }
         }
 
+        // Hover handles / rotate zones (single selection, select tool).
+        self.board_hover_hit = None;
+        if resp.hovered()
+            && !panning
+            && !editing_text
+            && self.board_tool == BoardTool::Select
+            && self.board_sel.len() == 1
+            && self.board_drag.is_none()
+        {
+            if let (Some(p), Some(id)) = (pointer, self.board_sel.iter().next()) {
+                if let Some(n) = self.doc().scene.node(*id) {
+                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+                    self.board_hover_hit = board_handles::hit_test_selection(p, &geom);
+                    match self.board_hover_hit {
+                        Some(board_handles::BoardHitTarget::Resize(h)) => {
+                            ui.ctx()
+                                .set_cursor_icon(board_handles::cursor_for_resize(h));
+                        }
+                        Some(board_handles::BoardHitTarget::Rotate(_)) => {
+                            ui.ctx().set_cursor_icon(board_handles::cursor_for_rotate());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        if self.board_show_grid {
+            self.paint_board_grid(&painter, rect, &palette, &xf);
+        }
+
         // --- paint scene ---
         let nodes: Vec<Node> = self.doc().scene.nodes.clone();
         for n in nodes.iter().filter(|n| n.is_frame()) {
@@ -998,21 +1241,27 @@ impl SlateApp {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
 
-        // Selection adornment.
-        let single = self.board_sel.len() == 1;
-        for id in self.board_sel.clone() {
-            if let Some(n) = self.doc().scene.node(id) {
-                let sr = xf.rect_w2s(n.rect);
-                painter.rect_stroke(
-                    sr.expand(1.0),
-                    0.0,
-                    EStroke::new(1.5, palette.select),
-                    egui::StrokeKind::Outside,
-                );
-                if single {
-                    for h in Self::handle_rects(sr) {
-                        painter.rect_filled(h, 1.0, palette.select);
-                    }
+        // Selection adornment (8 handles + rotate zones on single selection).
+        if self.board_sel.len() == 1 {
+            if let Some(id) = self.board_sel.iter().next() {
+                if let Some(n) = self.doc().scene.node(*id) {
+                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+                    board_handles::paint_selection(
+                        &painter,
+                        &geom,
+                        palette.select,
+                        self.board_hover_hit,
+                    );
+                }
+            }
+        } else {
+            for id in self.board_sel.clone() {
+                if let Some(n) = self.doc().scene.node(id) {
+                    let outline = self.node_screen_outline(&xf, n);
+                    painter.add(egui::Shape::closed_line(
+                        outline,
+                        EStroke::new(1.5, palette.select),
+                    ));
                 }
             }
         }
@@ -1029,9 +1278,24 @@ impl SlateApp {
 
         // Draw-gesture preview.
         if let (Some(BoardDrag::Draw { start_world, tool }), Some(w)) = (&self.board_drag, wp) {
-            let a = xf.w2s(*start_world);
-            let b = xf.w2s(w);
-            let r = Rect::from_two_pos(a, b);
+            let mods = ui.input(|i| i.modifiers);
+            let square_tool = matches!(
+                tool,
+                BoardTool::Frame | BoardTool::RectShape | BoardTool::Ellipse
+            );
+            let preview = board_snap::constrain_draw_rect(
+                WorldRect::new(
+                    start_world.x,
+                    start_world.y,
+                    w.x - start_world.x,
+                    w.y - start_world.y,
+                ),
+                square_tool,
+                mods.shift,
+            );
+            let a = xf.w2s(Pos2::new(preview.x, preview.y));
+            let b = xf.w2s(Pos2::new(preview.x + preview.w, preview.y + preview.h));
+            let r = Rect::from_min_max(a, b);
             let accent = palette.accent;
             match tool {
                 BoardTool::Line => {
@@ -1163,14 +1427,27 @@ impl SlateApp {
                 if self.board_sel.len() == 1 {
                     let id = *self.board_sel.iter().next().unwrap();
                     if let Some(n) = self.doc().scene.node(id) {
-                        let sr = self.board_xf().rect_w2s(n.rect);
-                        for (i, h) in Self::handle_rects(sr).iter().enumerate() {
-                            if h.expand(2.0).contains(screen) {
-                                return Some(BoardDrag::Resize {
-                                    id,
-                                    before: n.clone(),
-                                    handle: i as u8,
-                                });
+                        let geom =
+                            board_handles::selection_geom(&self.board_xf(), n.rect, n.rotation_deg);
+                        if let Some(hit) = board_handles::hit_test_selection(screen, &geom) {
+                            match hit {
+                                board_handles::BoardHitTarget::Resize(h) => {
+                                    return Some(BoardDrag::Resize {
+                                        id,
+                                        before: n.clone(),
+                                        handle: h as u8,
+                                    });
+                                }
+                                board_handles::BoardHitTarget::Rotate(_) => {
+                                    let (cx, cy) = n.rect.center();
+                                    let start_angle = (world.y - cy).atan2(world.x - cx);
+                                    return Some(BoardDrag::Rotate {
+                                        id,
+                                        before: n.clone(),
+                                        start_angle,
+                                    });
+                                }
+                                board_handles::BoardHitTarget::Body => {}
                             }
                         }
                     }
@@ -1270,6 +1547,11 @@ impl SlateApp {
                         self.board_snap_guides = guides;
                     }
                 }
+                if self.board_snap_grid && !snap_off {
+                    for (_, r) in pairs.iter_mut() {
+                        *r = board_snap::snap_rect_origin(*r, true);
+                    }
+                }
 
                 let scene = &mut self.doc_mut().scene;
                 for (id, r) in pairs {
@@ -1282,6 +1564,7 @@ impl SlateApp {
                 let node_id = *id;
                 let handle = *handle;
                 let before_rect = before.rect;
+                let rotation_deg = before.rotation_deg;
                 let lock_aspect = mods.shift;
                 let from_center = mods.ctrl;
                 let mut r = board_snap::resize_from_handle(
@@ -1291,6 +1574,7 @@ impl SlateApp {
                     MIN_DRAW,
                     lock_aspect,
                     from_center,
+                    rotation_deg,
                 );
 
                 if !mods.alt {
@@ -1309,6 +1593,28 @@ impl SlateApp {
 
                 if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
                     n.rect = r;
+                }
+            }
+            Some(BoardDrag::Rotate {
+                id,
+                before,
+                start_angle,
+            }) => {
+                let node_id = *id;
+                let (cx, cy) = before.rect.center();
+                let angle = (world.y - cy).atan2(world.x - cx);
+                let mut rot = before.rotation_deg + (angle - start_angle).to_degrees();
+                while rot > 180.0 {
+                    rot -= 360.0;
+                }
+                while rot < -180.0 {
+                    rot += 360.0;
+                }
+                if !mods.alt {
+                    rot = board_snap::snap_rotation_deg(rot, board_snap::ROTATION_SNAP_DEG);
+                }
+                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
+                    n.rotation_deg = rot;
                 }
             }
             _ => {}
@@ -1357,7 +1663,18 @@ impl SlateApp {
             }
             Some(BoardDrag::Resize { id, before, .. }) => {
                 if let Some(after) = self.doc().scene.node(id).cloned() {
-                    if after.rect != before.rect {
+                    if after.rect != before.rect || after.rotation_deg != before.rotation_deg {
+                        self.tab_mut().journal.record(vec![SceneCmd::Patch {
+                            before: Box::new(before),
+                            after: Box::new(after),
+                        }]);
+                        self.tab_mut().dirty = true;
+                    }
+                }
+            }
+            Some(BoardDrag::Rotate { id, before, .. }) => {
+                if let Some(after) = self.doc().scene.node(id).cloned() {
+                    if (after.rotation_deg - before.rotation_deg).abs() > f32::EPSILON {
                         self.tab_mut().journal.record(vec![SceneCmd::Patch {
                             before: Box::new(before),
                             after: Box::new(after),
@@ -1551,7 +1868,7 @@ impl SlateApp {
     fn board_toolbar(&mut self, ctx: &egui::Context, canvas: Rect) {
         let palette = self.palette();
         egui::Area::new(egui::Id::new("slate_board_tools"))
-            .fixed_pos(Pos2::new(canvas.center().x - 170.0, canvas.min.y + 8.0))
+            .fixed_pos(Pos2::new(canvas.center().x - 260.0, canvas.min.y + 8.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())
@@ -1575,6 +1892,55 @@ impl SlateApp {
                                 {
                                     self.board_tool = tool;
                                 }
+                            }
+                            ui.separator();
+                            ui.toggle_value(&mut self.board_show_grid, "Grid")
+                                .on_hover_text("Show board alignment grid");
+                            ui.toggle_value(&mut self.board_snap_grid, "Snap grid")
+                                .on_hover_text("Snap objects to the board grid while moving");
+                            if self.board_sel.len() >= 2 {
+                                ui.menu_button("Align", |ui| {
+                                    if ui.button("Left").clicked() {
+                                        self.align_board_selection(BoardAlign::Left);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("Center").clicked() {
+                                        self.align_board_selection(BoardAlign::CenterH);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("Right").clicked() {
+                                        self.align_board_selection(BoardAlign::Right);
+                                        ui.close_menu();
+                                    }
+                                    ui.separator();
+                                    if ui.button("Top").clicked() {
+                                        self.align_board_selection(BoardAlign::Top);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("Middle").clicked() {
+                                        self.align_board_selection(BoardAlign::CenterV);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("Bottom").clicked() {
+                                        self.align_board_selection(BoardAlign::Bottom);
+                                        ui.close_menu();
+                                    }
+                                    if self.board_sel.len() >= 3 {
+                                        ui.separator();
+                                        if ui.button("Distribute horizontally").clicked() {
+                                            self.distribute_board_selection(
+                                                DistributeAxis::Horizontal,
+                                            );
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Distribute vertically").clicked() {
+                                            self.distribute_board_selection(
+                                                DistributeAxis::Vertical,
+                                            );
+                                            ui.close_menu();
+                                        }
+                                    }
+                                });
                             }
                             ui.separator();
                             let has_frames = !self.doc().scene.frames_in_order().is_empty();

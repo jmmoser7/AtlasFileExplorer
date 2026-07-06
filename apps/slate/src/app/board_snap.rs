@@ -10,6 +10,10 @@ use slate_doc::NodeId;
 
 /// Snap activates within this many screen pixels (InDesign "snap-to zone" ≈ 6 pt).
 pub const SNAP_SCREEN_PX: f32 = 6.0;
+/// Board grid spacing in world units (visible dots + optional snap).
+pub const GRID_WORLD: f32 = 20.0;
+/// Mild rotation snap threshold in degrees (45° and 90° multiples).
+pub const ROTATION_SNAP_DEG: f32 = 4.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GuideAxis {
@@ -282,13 +286,37 @@ impl ResizeSnapEdges {
             },
             1 => Self {
                 left: false,
-                right: true,
+                right: false,
                 top: true,
                 bottom: false,
             },
             2 => Self {
                 left: false,
                 right: true,
+                top: true,
+                bottom: false,
+            },
+            3 => Self {
+                left: false,
+                right: true,
+                top: false,
+                bottom: false,
+            },
+            4 => Self {
+                left: false,
+                right: true,
+                top: false,
+                bottom: true,
+            },
+            5 => Self {
+                left: false,
+                right: false,
+                top: false,
+                bottom: true,
+            },
+            6 => Self {
+                left: true,
+                right: false,
                 top: false,
                 bottom: true,
             },
@@ -296,7 +324,7 @@ impl ResizeSnapEdges {
                 left: true,
                 right: false,
                 top: false,
-                bottom: true,
+                bottom: false,
             },
         }
     }
@@ -422,8 +450,59 @@ pub fn union_rect(rects: &[WorldRect]) -> Option<WorldRect> {
     Some(WorldRect::new(min_x, min_y, max_x - min_x, max_y - min_y))
 }
 
-/// Resize from a corner handle. Shift locks aspect ratio; Ctrl resizes from center
-/// (PowerPoint / Office convention).
+/// Snap a point to the board grid.
+pub fn snap_point_to_grid(p: Pos2, enabled: bool) -> Pos2 {
+    if !enabled {
+        return p;
+    }
+    Pos2::new(
+        (p.x / GRID_WORLD).round() * GRID_WORLD,
+        (p.y / GRID_WORLD).round() * GRID_WORLD,
+    )
+}
+
+/// Snap a rect's origin to the board grid (size unchanged).
+pub fn snap_rect_origin(mut r: WorldRect, enabled: bool) -> WorldRect {
+    if !enabled {
+        return r;
+    }
+    r.x = (r.x / GRID_WORLD).round() * GRID_WORLD;
+    r.y = (r.y / GRID_WORLD).round() * GRID_WORLD;
+    r
+}
+
+/// Snap rotation to the nearest 45° when within `threshold_deg`.
+pub fn snap_rotation_deg(deg: f32, threshold_deg: f32) -> f32 {
+    let snapped = (deg / 45.0).round() * 45.0;
+    let mut delta = deg - snapped;
+    while delta > 180.0 {
+        delta -= 360.0;
+    }
+    while delta < -180.0 {
+        delta += 360.0;
+    }
+    if delta.abs() <= threshold_deg {
+        snapped
+    } else {
+        deg
+    }
+}
+
+fn pointer_local(pointer: Pos2, rect: WorldRect, rotation_deg: f32) -> Pos2 {
+    if rotation_deg.abs() < f32::EPSILON {
+        return pointer;
+    }
+    let (cx, cy) = rect.center();
+    let rad = (-rotation_deg).to_radians();
+    let (sin, cos) = rad.sin_cos();
+    let dx = pointer.x - cx;
+    let dy = pointer.y - cy;
+    Pos2::new(cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
+}
+
+/// Resize from a handle (0–7: corners then edge midpoints). Operates in the
+/// node's local axes when `rotation_deg` is non-zero. Shift locks aspect ratio;
+/// Ctrl resizes from center (PowerPoint / Office convention).
 pub fn resize_from_handle(
     before: WorldRect,
     pointer: Pos2,
@@ -431,14 +510,16 @@ pub fn resize_from_handle(
     min_size: f32,
     lock_aspect: bool,
     from_center: bool,
+    rotation_deg: f32,
 ) -> WorldRect {
+    let local = pointer_local(pointer, before, rotation_deg);
     let aspect = (before.w / before.h.max(0.001)).max(0.001);
 
     if from_center {
         let cx = before.x + before.w * 0.5;
         let cy = before.y + before.h * 0.5;
-        let mut half_w = (pointer.x - cx).abs().max(min_size * 0.5);
-        let mut half_h = (pointer.y - cy).abs().max(min_size * 0.5);
+        let mut half_w = (local.x - cx).abs().max(min_size * 0.5);
+        let mut half_h = (local.y - cy).abs().max(min_size * 0.5);
         if lock_aspect {
             if half_w / aspect > half_h {
                 half_h = half_w / aspect;
@@ -449,42 +530,111 @@ pub fn resize_from_handle(
         return WorldRect::new(cx - half_w, cy - half_h, half_w * 2.0, half_h * 2.0);
     }
 
-    let anchor = match handle {
-        0 => (before.x + before.w, before.y + before.h),
-        1 => (before.x, before.y + before.h),
-        2 => (before.x, before.y),
-        _ => (before.x + before.w, before.y),
-    };
+    let is_corner = matches!(handle, 0 | 2 | 4 | 6);
+    let mut r = before;
 
-    let mut w = (pointer.x - anchor.0).abs().max(min_size);
-    let mut h = (pointer.y - anchor.1).abs().max(min_size);
-
-    if lock_aspect {
-        let dx = (pointer.x - anchor.0).abs();
-        let dy = (pointer.y - anchor.1).abs();
-        if dx / aspect > dy {
-            w = dx.max(min_size);
-            h = (w / aspect).max(min_size);
-        } else {
-            h = dy.max(min_size);
-            w = (h * aspect).max(min_size);
+    match handle {
+        0 => {
+            let ax = before.x + before.w;
+            let ay = before.y + before.h;
+            let mut w = (ax - local.x).max(min_size);
+            let mut h = (ay - local.y).max(min_size);
+            if lock_aspect && is_corner {
+                if w / aspect > h {
+                    h = w / aspect;
+                } else {
+                    w = h * aspect;
+                }
+            }
+            r = WorldRect::new(ax - w, ay - h, w, h);
+        }
+        1 => {
+            let bottom = before.y + before.h;
+            let mut h = (bottom - local.y).max(min_size);
+            let mut w = before.w;
+            if lock_aspect {
+                w = (h * aspect).max(min_size);
+                r = WorldRect::new(before.x + (before.w - w) * 0.5, bottom - h, w, h);
+            } else {
+                r = WorldRect::new(before.x, bottom - h, before.w, h);
+            }
+        }
+        2 => {
+            let ax = before.x;
+            let ay = before.y + before.h;
+            let mut w = (local.x - ax).max(min_size);
+            let mut h = (ay - local.y).max(min_size);
+            if lock_aspect && is_corner {
+                if w / aspect > h {
+                    h = w / aspect;
+                } else {
+                    w = h * aspect;
+                }
+            }
+            r = WorldRect::new(ax, ay - h, w, h);
+        }
+        3 => {
+            let mut w = (local.x - before.x).max(min_size);
+            let mut h = before.h;
+            if lock_aspect {
+                h = (w / aspect).max(min_size);
+                r = WorldRect::new(before.x, before.y + (before.h - h) * 0.5, w, h);
+            } else {
+                r = WorldRect::new(before.x, before.y, w, before.h);
+            }
+        }
+        4 => {
+            let ax = before.x;
+            let ay = before.y;
+            let mut w = (local.x - ax).max(min_size);
+            let mut h = (local.y - ay).max(min_size);
+            if lock_aspect && is_corner {
+                if w / aspect > h {
+                    h = w / aspect;
+                } else {
+                    w = h * aspect;
+                }
+            }
+            r = WorldRect::new(ax, ay, w, h);
+        }
+        5 => {
+            let mut h = (local.y - before.y).max(min_size);
+            let mut w = before.w;
+            if lock_aspect {
+                w = (h * aspect).max(min_size);
+                r = WorldRect::new(before.x + (before.w - w) * 0.5, before.y, w, h);
+            } else {
+                r = WorldRect::new(before.x, before.y, before.w, h);
+            }
+        }
+        6 => {
+            let ax = before.x + before.w;
+            let ay = before.y;
+            let mut w = (ax - local.x).max(min_size);
+            let mut h = (local.y - ay).max(min_size);
+            if lock_aspect && is_corner {
+                if w / aspect > h {
+                    h = w / aspect;
+                } else {
+                    w = h * aspect;
+                }
+            }
+            r = WorldRect::new(ax - w, ay, w, h);
+        }
+        _ => {
+            let ax = before.x + before.w;
+            let mut w = (ax - local.x).max(min_size);
+            let mut h = before.h;
+            if lock_aspect {
+                h = (w / aspect).max(min_size);
+                r = WorldRect::new(ax - w, before.y + (before.h - h) * 0.5, w, h);
+            } else {
+                r = WorldRect::new(ax - w, before.y, w, before.h);
+            }
         }
     }
 
-    WorldRect::new(
-        if pointer.x < anchor.0 {
-            anchor.0 - w
-        } else {
-            anchor.0
-        },
-        if pointer.y < anchor.1 {
-            anchor.1 - h
-        } else {
-            anchor.1
-        },
-        w,
-        h,
-    )
+    r
 }
 
 /// Shift-constrain a rubber-band draw rect (square for shapes/frames).
@@ -516,8 +666,14 @@ mod tests {
     #[test]
     fn resize_locks_aspect_with_shift() {
         let before = WorldRect::new(0.0, 0.0, 200.0, 100.0);
-        let r = resize_from_handle(before, Pos2::new(300.0, 50.0), 2, 8.0, true, false);
+        let r = resize_from_handle(before, Pos2::new(300.0, 50.0), 4, 8.0, true, false, 0.0);
         assert!((r.w / r.h - 2.0).abs() < 0.05, "w={} h={}", r.w, r.h);
+    }
+
+    #[test]
+    fn rotation_snaps_to_45() {
+        assert!((snap_rotation_deg(44.0, ROTATION_SNAP_DEG) - 45.0).abs() < 0.01);
+        assert!((snap_rotation_deg(10.0, ROTATION_SNAP_DEG) - 10.0).abs() < 0.01);
     }
 
     #[test]
