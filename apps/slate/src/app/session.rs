@@ -35,6 +35,9 @@ impl SlateApp {
             return;
         }
         let shared = new_session();
+        if let Ok(mut s) = shared.lock() {
+            s.dark_mode = self.dark_mode;
+        }
         let atlas = Box::new(native_file_atlas::AtlasApp::embedded(
             ctx,
             None,
@@ -96,8 +99,8 @@ impl SlateApp {
         }
     }
 
-    /// Per-frame session pump; also renders the embedded Atlas viewport.
-    pub fn session_frame(&mut self, ctx: &egui::Context) {
+    /// Per-frame bridge pump (tags, inbox, drag) — no Atlas viewport render.
+    pub fn session_pump(&mut self, ctx: &egui::Context) {
         let Some(sess) = &mut self.atlas else { return };
         let shared = sess.shared.clone();
 
@@ -108,26 +111,8 @@ impl SlateApp {
         });
         if let Ok(mut s) = shared.lock() {
             s.slate_window = slate_rect;
+            s.dark_mode = self.dark_mode;
         }
-
-        // Render the Atlas viewport (immediate: same thread, shared Context).
-        let viewport_id = egui::ViewportId::from_hash_of(ATLAS_VIEWPORT);
-        let workbook = self.tabs[self.active_tab].doc.name.clone();
-        let atlas = &mut sess.atlas;
-        let mut close_atlas = false;
-        ctx.show_viewport_immediate(
-            viewport_id,
-            egui::ViewportBuilder::default()
-                .with_title(format!("File Atlas — linked to {workbook}"))
-                .with_inner_size([1280.0, 800.0])
-                .with_min_inner_size([800.0, 500.0]),
-            |ctx, _class| {
-                atlas.run_frame(ctx);
-                if ctx.input(|i| i.viewport().close_requested()) {
-                    close_atlas = true;
-                }
-            },
-        );
 
         // Drain assignments and the cross-window drag.
         let (inbox, drag_done) = {
@@ -146,7 +131,8 @@ impl SlateApp {
             }
             if s.close_requested {
                 s.close_requested = false;
-                close_atlas = true;
+                self.close_atlas();
+                return;
             }
             (inbox, drag_done)
         };
@@ -192,6 +178,42 @@ impl SlateApp {
                     self.place_items_on_board(&ids, world);
                 }
                 self.toast(format!("{n} file(s) dropped from File Atlas"));
+            }
+        }
+    }
+
+    /// Render the linked Atlas viewport and sync theme changes back to Slate.
+    pub fn session_render_atlas(&mut self, ctx: &egui::Context) {
+        let Some(sess) = &mut self.atlas else { return };
+        let shared = sess.shared.clone();
+
+        // Render the Atlas viewport (immediate: same thread, shared Context).
+        let viewport_id = egui::ViewportId::from_hash_of(ATLAS_VIEWPORT);
+        let workbook = self.tabs[self.active_tab].doc.name.clone();
+        let slate_dark = self.dark_mode;
+        let atlas = &mut sess.atlas;
+        let mut close_atlas = false;
+        ctx.show_viewport_immediate(
+            viewport_id,
+            egui::ViewportBuilder::default()
+                .with_title(format!("File Atlas — linked to {workbook}"))
+                .with_inner_size([1280.0, 800.0])
+                .with_min_inner_size([800.0, 500.0]),
+            |ctx, _class| {
+                atlas.set_dark_mode(slate_dark, ctx);
+                atlas.run_frame(ctx);
+                if ctx.input(|i| i.viewport().close_requested()) {
+                    close_atlas = true;
+                }
+            },
+        );
+
+        let atlas_dark = atlas.dark_mode();
+        if atlas_dark != self.dark_mode {
+            self.dark_mode = atlas_dark;
+            self.apply_theme(ctx);
+            if let Ok(mut s) = shared.lock() {
+                s.dark_mode = atlas_dark;
             }
         }
 

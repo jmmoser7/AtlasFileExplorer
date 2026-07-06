@@ -17,7 +17,7 @@ use atlas_core::types::{
     age_string, date_string, human_size, ExtGroup, Family, FileEntry, FAMILIES,
 };
 use atlas_core::watcher::{self, FsChange, FsWatch};
-use atlas_shell::theme::{dark_visuals, Palette};
+use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2,
@@ -613,10 +613,32 @@ impl AtlasApp {
     }
 
     fn palette(&self) -> Palette {
-        if self.dark_mode {
-            Palette::dark()
+        Palette::for_mode(self.dark_mode)
+    }
+
+    fn apply_theme(&self, ctx: &egui::Context) {
+        ctx.set_theme(if self.dark_mode {
+            egui::ThemePreference::Dark
         } else {
-            Palette::light()
+            egui::ThemePreference::Light
+        });
+        ctx.set_visuals(if self.dark_mode {
+            dark_visuals()
+        } else {
+            light_visuals()
+        });
+    }
+
+    /// Current dark/light preference (for linked Slate sessions).
+    pub fn dark_mode(&self) -> bool {
+        self.dark_mode
+    }
+
+    /// Update dark/light preference and repaint this viewport immediately.
+    pub fn set_dark_mode(&mut self, dark: bool, ctx: &egui::Context) {
+        if self.dark_mode != dark {
+            self.dark_mode = dark;
+            self.apply_theme(ctx);
         }
     }
 
@@ -1953,6 +1975,12 @@ impl AtlasApp {
     /// test harness can pump frames without an eframe window.
     fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
+        if let Some(session) = &self.session {
+            if let Ok(s) = session.lock() {
+                self.dark_mode = s.dark_mode;
+            }
+        }
+        self.apply_theme(ctx);
         self.debug_screenshot(ctx);
         self.drain_channels(ctx);
         self.ai.poll();
@@ -2223,6 +2251,7 @@ impl AtlasApp {
         }
 
         egui::TopBottomPanel::bottom("tray").show(ctx, |ui| {
+            let palette = self.palette();
             ui.add_space(6.0);
             if let Some(exp) = &self.export_ui {
                 ui.horizontal(|ui| {
@@ -2249,7 +2278,7 @@ impl AtlasApp {
                         egui::RichText::new(
                             "no assignments yet â€” right-click files or drag chips",
                         )
-                        .color(Color32::from_gray(120)),
+                        .color(palette.sub),
                     );
                 }
                 let mut assign_to: Option<String> = None;
@@ -2307,6 +2336,7 @@ impl AtlasApp {
     /// Hidden from chrome for now; re-enable via a future `ToolPanel::Journal`.
     #[allow(dead_code)]
     fn journal_panel(&mut self, ctx: &egui::Context) {
+        let palette = self.palette();
         egui::SidePanel::right("journal")
             .resizable(true)
             .default_width(280.0)
@@ -2317,31 +2347,25 @@ impl AtlasApp {
                     ui.label(
                         egui::RichText::new("every action, reversible")
                             .small()
-                            .color(Color32::from_gray(120)),
+                            .color(palette.sub),
                     );
                 });
                 ui.separator();
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if self.journal.entries.is_empty() {
-                        ui.label(
-                            egui::RichText::new("No actions yet").color(Color32::from_gray(120)),
-                        );
+                        ui.label(egui::RichText::new("No actions yet").color(palette.sub));
                     }
                     let cursor = self.journal.cursor;
                     for (i, entry) in self.journal.entries.iter().enumerate().rev() {
                         let applied = i < cursor;
-                        let color = if applied {
-                            Color32::from_gray(220)
-                        } else {
-                            Color32::from_gray(100)
-                        };
+                        let color = if applied { palette.ink } else { palette.sub };
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new(if applied { "â—" } else { "â—‹" }).color(
                                     if applied {
                                         Color32::from_rgb(0x7a, 0xc7, 0x8a)
                                     } else {
-                                        Color32::from_gray(90)
+                                        palette.sub
                                     },
                                 ),
                             );
@@ -2350,7 +2374,7 @@ impl AtlasApp {
                                 ui.label(
                                     egui::RichText::new(date_string(entry.ts))
                                         .small()
-                                        .color(Color32::from_gray(100)),
+                                        .color(palette.sub),
                                 );
                             });
                         });
@@ -2361,6 +2385,7 @@ impl AtlasApp {
     }
 
     fn welcome(&mut self, ui: &mut egui::Ui) {
+        let palette = self.palette();
         ui.vertical_centered(|ui| {
             ui.add_space(ui.available_height() * 0.3);
             ui.heading(egui::RichText::new("File Atlas").size(34.0));
@@ -2369,7 +2394,7 @@ impl AtlasApp {
                 egui::RichText::new(
                     "Map a folder. See everything at a glance. Organize without touching a single original.",
                 )
-                .color(Color32::from_gray(150)),
+                .color(palette.sub),
             );
             ui.add_space(18.0);
             if ui
@@ -2384,7 +2409,7 @@ impl AtlasApp {
             ui.label(
                 egui::RichText::new("or drop a folder anywhere in this window Â· Ctrl+O")
                     .small()
-                    .color(Color32::from_gray(120)),
+                    .color(palette.sub),
             );
         });
     }
@@ -3599,7 +3624,7 @@ impl AtlasApp {
                             Align2::CENTER_CENTER,
                             "â–¶",
                             FontId::proportional(r),
-                            Color32::from_rgb(0x1b, 0x1e, 0x22),
+                            p.ink,
                         );
                     }
                 }
@@ -3701,12 +3726,13 @@ impl AtlasApp {
             .fixed_pos(pos)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                let palette = self.palette();
                 egui::Frame::menu(ui.style()).show(ui, |ui| {
                     ui.set_min_width(190.0);
                     ui.label(
                         egui::RichText::new(format!("{n} file(s)"))
                             .small()
-                            .color(Color32::from_gray(130)),
+                            .color(palette.sub),
                     );
                     if ui.button("Assign…").clicked() {
                         self.open_edit_panel();
@@ -3875,6 +3901,7 @@ impl AtlasApp {
     /// stays open so several tags can be applied in one right-click instance.
     fn session_menu_section(&mut self, ui: &mut egui::Ui, rels: &[String]) {
         let Some(session) = &self.session else { return };
+        let palette = self.palette();
         let (groups, workbook) = match session.lock() {
             Ok(s) => (s.tag_groups.clone(), s.workbook_name.clone()),
             Err(_) => return,
@@ -3883,13 +3910,13 @@ impl AtlasApp {
         ui.label(
             egui::RichText::new(format!("Slate tags — {workbook}"))
                 .small()
-                .color(Color32::from_gray(130)),
+                .color(palette.sub),
         );
         if groups.is_empty() {
             ui.label(
                 egui::RichText::new("No tags yet — create groups in Slate's Tags panel")
                     .small()
-                    .color(Color32::from_gray(110)),
+                    .color(palette.sub),
             );
             return;
         }
@@ -3964,6 +3991,7 @@ impl AtlasApp {
             .collapsible(false)
             .default_width(360.0)
             .show(ctx, |ui| {
+                let palette = self.palette();
                 ui.strong("Destination folder (relative to export root)");
                 ui.horizontal(|ui| {
                     ui.add(
@@ -3984,11 +4012,7 @@ impl AtlasApp {
                 });
                 if !self.known_dests.is_empty() {
                     ui.horizontal_wrapped(|ui| {
-                        ui.label(
-                            egui::RichText::new("known:")
-                                .small()
-                                .color(Color32::from_gray(120)),
-                        );
+                        ui.label(egui::RichText::new("known:").small().color(palette.sub));
                         let dests: Vec<String> = self.known_dests.iter().cloned().collect();
                         for d in dests {
                             if ui.small_button(&d).clicked() {
@@ -4036,7 +4060,7 @@ impl AtlasApp {
                             "Only the exported copy is renamed â€” the original is never touched.",
                         )
                         .small()
-                        .color(Color32::from_gray(120)),
+                        .color(palette.sub),
                     );
                 }
             });
@@ -4072,7 +4096,7 @@ impl AtlasApp {
                 ui.label(
                     egui::RichText::new(e.path.to_string_lossy())
                         .small()
-                        .color(Color32::from_gray(140)),
+                        .color(p.sub),
                 );
                 if let Some((dest, nn)) = self.assign_state.assigns.get(&e.rel) {
                     ui.label(

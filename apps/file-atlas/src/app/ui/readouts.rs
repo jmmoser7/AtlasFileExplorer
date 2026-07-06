@@ -5,7 +5,7 @@ use super::activity_heatmap::{draw_activity_heatmap, ActivityHeatmap};
 use crate::app::chrome::ReadoutPanel;
 use atlas_core::types::human_size;
 use atlas_shell::widgets::{gear_menu, group_digits};
-use eframe::egui::{self, Color32};
+use eframe::egui;
 
 fn readouts_gear(app: &mut AtlasApp, ui: &mut egui::Ui) {
     gear_menu(ui, "readouts_gear", |ui| {
@@ -61,7 +61,7 @@ fn metrics_row(app: &mut AtlasApp, ui: &mut egui::Ui) {
                         "Showing saved index · re-verifying… {} files",
                         group_digits(files)
                     ))
-                    .color(Color32::from_gray(150)),
+                    .color(palette.sub),
                 );
             }
         }
@@ -95,13 +95,13 @@ fn metrics_row(app: &mut AtlasApp, ui: &mut egui::Ui) {
         if app.thumbs_pending > 0 {
             ui.label(
                 egui::RichText::new(format!("· {} thumbs loading", app.thumbs_pending))
-                    .color(Color32::from_gray(130)),
+                    .color(palette.sub),
             );
         }
         if app.warm_pending > 0 {
             ui.label(
                 egui::RichText::new(format!("· warming cache ({} left)", app.warm_pending))
-                    .color(Color32::from_gray(110)),
+                    .color(palette.sub),
             )
             .on_hover_text(
                 "Pre-generating thumbnails in the background so \
@@ -112,8 +112,7 @@ fn metrics_row(app: &mut AtlasApp, ui: &mut egui::Ui) {
         let prewarm = app.prewarm_remaining();
         if prewarm > 0 {
             ui.label(
-                egui::RichText::new(format!("· pre-warming ({} left)", prewarm))
-                    .color(Color32::from_gray(110)),
+                egui::RichText::new(format!("· pre-warming ({} left)", prewarm)).color(palette.sub),
             )
             .on_hover_text(
                 "Overnight pre-warm: filling the shared project \
@@ -130,14 +129,11 @@ fn metrics_row(app: &mut AtlasApp, ui: &mut egui::Ui) {
                         .unwrap_or_else(|| "active".into())
                 ))
                 .small()
-                .color(Color32::from_gray(100)),
+                .color(palette.sub),
             )
             .on_hover_text(sc.to_string_lossy());
         }
-        ui.label(
-            egui::RichText::new(format!("· {:.0}%", app.cam.z * 100.0))
-                .color(Color32::from_gray(110)),
-        );
+        ui.label(egui::RichText::new(format!("· {:.0}%", app.cam.z * 100.0)).color(palette.sub));
     }
 }
 
@@ -170,6 +166,7 @@ pub fn prewarm_dashboard(app: &mut AtlasApp, ctx: &egui::Context) {
     let (files_per_s, bytes_per_s) = job.speed();
     let elapsed = job.started.elapsed().as_secs();
     let limit = app.thumbs.slow_limit();
+    let palette = app.palette();
 
     let mut cancel = false;
     let mut new_limit: Option<usize> = None;
@@ -178,12 +175,8 @@ pub fn prewarm_dashboard(app: &mut AtlasApp, ctx: &egui::Context) {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Pre-warm").strong());
-            ui.label(
-                egui::RichText::new(&dir_name)
-                    .small()
-                    .color(Color32::from_gray(140)),
-            )
-            .on_hover_text(&dir_full);
+            ui.label(egui::RichText::new(&dir_name).small().color(palette.sub))
+                .on_hover_text(&dir_full);
             ui.separator();
 
             // Phase 1 readout: file discovery (background walk).
@@ -235,14 +228,14 @@ pub fn prewarm_dashboard(app: &mut AtlasApp, ctx: &egui::Context) {
                         files_per_s,
                         human_size(bytes_per_s as u64)
                     ))
-                    .color(Color32::from_gray(150)),
+                    .color(palette.sub),
                 );
                 if !discovering && files_per_s > 0.01 {
                     let eta = (remaining as f32 / files_per_s) as u64;
                     ui.label(
                         egui::RichText::new(format!("~{} left", fmt_secs(eta)))
                             .small()
-                            .color(Color32::from_gray(120)),
+                            .color(palette.sub),
                     );
                 }
             }
@@ -256,7 +249,7 @@ pub fn prewarm_dashboard(app: &mut AtlasApp, ctx: &egui::Context) {
                         if repos == 1 { "y" } else { "ies" }
                     ))
                     .small()
-                    .color(Color32::from_gray(130)),
+                    .color(palette.sub),
                 )
                 .on_hover_text(
                     "Projects found under the pre-warmed folder get a shared \
@@ -295,19 +288,15 @@ pub fn prewarm_dashboard(app: &mut AtlasApp, ctx: &egui::Context) {
                 {
                     new_limit = Some(limit - 1);
                 }
-                ui.label(
-                    egui::RichText::new("Speed")
-                        .small()
-                        .color(Color32::from_gray(140)),
-                )
-                .on_hover_text(
-                    "Parallel thumbnail jobs for this pre-warm. Lower is \
+                ui.label(egui::RichText::new("Speed").small().color(palette.sub))
+                    .on_hover_text(
+                        "Parallel thumbnail jobs for this pre-warm. Lower is \
                      gentler on the network; on-demand views always win.",
-                );
+                    );
                 ui.label(
                     egui::RichText::new(format!("· {} elapsed", fmt_secs(elapsed)))
                         .small()
-                        .color(Color32::from_gray(110)),
+                        .color(palette.sub),
                 );
             });
         });
@@ -340,6 +329,7 @@ pub fn status_bar(app: &mut AtlasApp, ctx: &egui::Context) {
     }
 
     egui::TopBottomPanel::bottom("readouts").show(ctx, |ui| {
+        let palette = app.palette();
         ui.add_space(3.0);
         ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
             ui.horizontal(|ui| {
@@ -355,7 +345,7 @@ pub fn status_bar(app: &mut AtlasApp, ctx: &egui::Context) {
                         ui.label(
                             egui::RichText::new(root.to_string_lossy())
                                 .small()
-                                .color(Color32::from_gray(120)),
+                                .color(palette.sub),
                         );
                     }
                 });
@@ -372,6 +362,7 @@ pub fn status_bar(app: &mut AtlasApp, ctx: &egui::Context) {
                     date_field_label(app.date_field),
                     activity_source_label(app),
                     app.dark_mode,
+                    palette.sub,
                 );
             }
         });

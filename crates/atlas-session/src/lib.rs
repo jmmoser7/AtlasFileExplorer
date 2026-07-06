@@ -68,7 +68,6 @@ pub struct DragPayload {
 pub type ScreenRect = (f32, f32, f32, f32);
 
 /// Everything the two apps share during a linked session.
-#[derive(Default)]
 pub struct SessionState {
     /// Published by Slate whenever the workbook's tag structure changes.
     pub tag_groups: Vec<SessionTagGroup>,
@@ -84,10 +83,27 @@ pub struct SessionState {
     pub atlas_window: Option<ScreenRect>,
     /// Slate sets this to ask the Atlas viewport to close with the session.
     pub close_requested: bool,
+    /// Shared dark/light preference — kept in sync by both apps during a link.
+    pub dark_mode: bool,
 }
 
 /// Handle shared between the Slate host and the embedded Atlas viewport.
 pub type SharedSession = Arc<Mutex<SessionState>>;
+
+impl Default for SessionState {
+    fn default() -> Self {
+        Self {
+            tag_groups: Vec::new(),
+            workbook_name: String::new(),
+            inbox: Vec::new(),
+            drag: None,
+            slate_window: None,
+            atlas_window: None,
+            close_requested: false,
+            dark_mode: true,
+        }
+    }
+}
 
 /// Convenience constructor.
 pub fn new_session() -> SharedSession {

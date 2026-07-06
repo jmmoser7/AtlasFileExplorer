@@ -358,17 +358,12 @@ fn display_settings_body(
         }
         let mut dark = app.dark_mode;
         if ui.checkbox(&mut dark, "Dark").changed() {
-            app.dark_mode = dark;
-            ctx.set_theme(if dark {
-                egui::ThemePreference::Dark
-            } else {
-                egui::ThemePreference::Light
-            });
-            ctx.set_visuals(if dark {
-                atlas_shell::theme::dark_visuals()
-            } else {
-                atlas_shell::theme::light_visuals()
-            });
+            app.set_dark_mode(dark, ctx);
+            if let Some(session) = &app.session {
+                if let Ok(mut s) = session.lock() {
+                    s.dark_mode = dark;
+                }
+            }
         }
     });
 

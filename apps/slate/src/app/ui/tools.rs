@@ -358,6 +358,11 @@ fn display_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     if ui.checkbox(&mut dark, "Dark mode").changed() {
         app.dark_mode = dark;
         app.apply_theme(ui.ctx());
+        if let Some(sess) = &app.atlas {
+            if let Ok(mut s) = sess.shared.lock() {
+                s.dark_mode = dark;
+            }
+        }
     }
 }
 
