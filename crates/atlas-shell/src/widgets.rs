@@ -31,6 +31,81 @@ pub fn chip(ui: &mut Ui, text: &str, active: bool, base: Color32) -> egui::Respo
     ui.add(btn)
 }
 
+/// Painted grip radius for thin sidebar sliders. The egui `Slider` handle
+/// used previously rendered at ~5.6 px radius; the grips are deliberately
+/// 60% smaller than that.
+const THIN_SLIDER_HANDLE_RADIUS: f32 = 2.2;
+/// Visible rail thickness (matches the previous `slider_rail_height`).
+const THIN_SLIDER_RAIL_HEIGHT: f32 = 2.5;
+/// Allocated (visual) height of the rail strip.
+const THIN_SLIDER_HEIGHT: f32 = 8.0;
+/// Extra vertical hit slop so the thin strip stays easy to grab.
+const THIN_SLIDER_HIT_SLOP: f32 = 3.0;
+/// Gap between the rail strip and its label/value row. Kept tight so the
+/// text reads as belonging to the slider above it, never the one below.
+const THIN_SLIDER_LABEL_GAP: f32 = 1.0;
+/// Separation above each rail — keeps a stacked slider clearly apart from
+/// the previous slider's label row.
+const THIN_SLIDER_TOP_GAP: f32 = 5.0;
+
+/// Shared rail + grip painting and pointer handling for thin sliders.
+/// `frac` is the normalized handle position in `0..=1`.
+fn thin_slider_rail(ui: &mut Ui, frac: &mut f32, hover: &str) -> bool {
+    ui.add_space(THIN_SLIDER_TOP_GAP);
+    let width = ui.available_width();
+    let (rect, alloc) =
+        ui.allocate_exact_size(Vec2::new(width, THIN_SLIDER_HEIGHT), Sense::hover());
+    let resp = ui
+        .interact(
+            rect.expand2(Vec2::new(0.0, THIN_SLIDER_HIT_SLOP)),
+            alloc.id.with("thin_slider"),
+            Sense::click_and_drag(),
+        )
+        .on_hover_text(hover);
+
+    let x0 = rect.left() + THIN_SLIDER_HANDLE_RADIUS;
+    let x1 = (rect.right() - THIN_SLIDER_HANDLE_RADIUS).max(x0 + 1.0);
+    let mut changed = false;
+    if resp.is_pointer_button_down_on() || resp.dragged() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            let t = ((pos.x - x0) / (x1 - x0)).clamp(0.0, 1.0);
+            if t != *frac {
+                *frac = t;
+                changed = true;
+            }
+        }
+    }
+
+    let painter = ui.painter();
+    let rail = Rect::from_center_size(
+        rect.center(),
+        Vec2::new(rect.width(), THIN_SLIDER_RAIL_HEIGHT),
+    );
+    painter.rect_filled(
+        rail,
+        THIN_SLIDER_RAIL_HEIGHT * 0.5,
+        ui.visuals().widgets.inactive.bg_fill,
+    );
+    let visuals = ui.style().interact(&resp);
+    let cx = x0 + (x1 - x0) * frac.clamp(0.0, 1.0);
+    painter.circle(
+        Pos2::new(cx, rect.center().y),
+        THIN_SLIDER_HANDLE_RADIUS + visuals.expansion,
+        visuals.bg_fill,
+        visuals.fg_stroke,
+    );
+    changed
+}
+
+fn thin_slider_label_row(ui: &mut Ui, label: &str, value_text: &str, sub_color: Color32) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).small().color(sub_color));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(egui::RichText::new(value_text).small().color(sub_color));
+        });
+    });
+}
+
 pub fn thin_sidebar_slider(
     ui: &mut Ui,
     value: &mut usize,
@@ -40,37 +115,62 @@ pub fn thin_sidebar_slider(
     hover: &str,
     sub_color: Color32,
 ) -> bool {
+    let (lo, hi) = (*range.start(), *range.end());
     let before = *value;
+    *value = (*value).clamp(lo, hi);
     ui.scope(|ui| {
-        let width = ui.available_width();
-        ui.spacing_mut().slider_width = width;
-        ui.spacing_mut().slider_rail_height = 2.5;
-        ui.spacing_mut().interact_size.y = 6.0;
-        ui.add(
-            egui::Slider::new(value, range)
-                .show_value(false)
-                .clamping(egui::SliderClamping::Always),
-        )
-    })
-    .inner
-    .on_hover_text(hover);
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).small().color(sub_color));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                egui::RichText::new(format!("{} {}", *value, unit))
-                    .small()
-                    .color(sub_color),
-            );
-        });
+        ui.spacing_mut().item_spacing.y = THIN_SLIDER_LABEL_GAP;
+        let mut frac = if hi > lo {
+            (*value - lo) as f32 / (hi - lo) as f32
+        } else {
+            0.0
+        };
+        if thin_slider_rail(ui, &mut frac, hover) {
+            *value = lo + (frac * (hi - lo) as f32).round() as usize;
+        }
+        thin_slider_label_row(ui, label, &format!("{} {}", *value, unit), sub_color);
     });
     *value != before
 }
 
-/// Minimum visible span when fully zoomed in (30 minutes).
-const TIMELINE_MIN_VIEW_SECS: f64 = 30.0 * SECS_PER_MINUTE as f64;
+/// Signed variant of [`thin_sidebar_slider`] for ranges spanning zero
+/// (e.g. hue rotation in degrees). Same rail, grip, and label layout.
+pub fn thin_sidebar_slider_i32(
+    ui: &mut Ui,
+    value: &mut i32,
+    range: std::ops::RangeInclusive<i32>,
+    label: &str,
+    unit: &str,
+    hover: &str,
+    sub_color: Color32,
+) -> bool {
+    let (lo, hi) = (*range.start(), *range.end());
+    let before = *value;
+    *value = (*value).clamp(lo, hi);
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.y = THIN_SLIDER_LABEL_GAP;
+        let mut frac = if hi > lo {
+            (*value - lo) as f32 / (hi - lo) as f32
+        } else {
+            0.0
+        };
+        if thin_slider_rail(ui, &mut frac, hover) {
+            *value = lo + (frac * (hi - lo) as f32).round() as i32;
+        }
+        thin_slider_label_row(ui, label, &format!("{} {}", *value, unit), sub_color);
+    });
+    *value != before
+}
+
+/// Minimum visible span when fully zoomed in (2 minutes) — deep enough for
+/// the scale to resolve individual minute marks.
+const TIMELINE_MIN_VIEW_SECS: f64 = 2.0 * SECS_PER_MINUTE as f64;
 /// Inset from each handle center where the range grip begins (px).
 const TIMELINE_HANDLE_GRIP_INSET: f32 = 8.0;
+/// Painted radius of the two range-handle grips.
+const TIMELINE_HANDLE_RADIUS: f32 = 1.8;
+/// Square hit area around each handle center (larger than the painted grip).
+const TIMELINE_HANDLE_HIT: f32 = 12.0;
 
 #[derive(Clone, Copy)]
 struct TimelineView {
@@ -81,6 +181,10 @@ struct TimelineView {
 }
 
 /// After Effects–style zoomable folder timeline with dual handles and dynamic scale.
+/// Scroll-wheel zooms around the cursor; fully zoomed out the whole span is
+/// visible, and zooming in reveals progressively finer tick marks.
+/// Returns `true` only when the selected range changed (zoom/pan alone
+/// never dirties the caller's filters).
 pub fn sidebar_date_timeline(
     ui: &mut Ui,
     id: Id,
@@ -95,6 +199,7 @@ pub fn sidebar_date_timeline(
     }
 
     let mut changed = false;
+    let mut view_changed = false;
     let span_secs = (span_hi - span_lo).max(1) as f64;
     let view_id = id.with("view");
 
@@ -121,7 +226,7 @@ pub fn sidebar_date_timeline(
     let width = ui.available_width().max(48.0);
     let (block, block_resp) = ui.allocate_exact_size(Vec2::new(width, total_h), Sense::hover());
     let block_resp = block_resp.on_hover_text(
-        "Ctrl + scroll to zoom around cursor · drag background to pan · double-click to fit · \
+        "Scroll to zoom around cursor · drag background to pan · double-click to fit · \
          drag handles to filter · drag between handles to scrub the range",
     );
 
@@ -129,15 +234,20 @@ pub fn sidebar_date_timeline(
     let snap_secs = snap_unit(visible);
     let tick_step = tick_step_secs(visible, block.width());
 
-    // --- zoom (Ctrl + scroll wheel) ---
+    // --- zoom (scroll wheel; anchored at the cursor so the view expands
+    //     off either side, resolving years → months → weeks → days → hours →
+    //     minutes as the visible span shrinks) ---
     if block_resp.hovered() {
-        let (scroll, ctrl) = ui.input(|i| {
-            (
-                i.smooth_scroll_delta.y + i.raw_scroll_delta.y,
-                i.modifiers.ctrl,
-            )
+        // Consume the scroll so an enclosing scroll container doesn't move.
+        let scroll = ui.input_mut(|i| {
+            let s = i.smooth_scroll_delta.y + i.raw_scroll_delta.y;
+            if s.abs() > 0.0 {
+                i.smooth_scroll_delta.y = 0.0;
+                i.raw_scroll_delta.y = 0.0;
+            }
+            s
         });
-        if ctrl && scroll.abs() > 0.0 {
+        if scroll.abs() > 0.0 {
             let pointer = ui
                 .input(|i| i.pointer.hover_pos())
                 .unwrap_or(block.center());
@@ -153,14 +263,14 @@ pub fn sidebar_date_timeline(
             view.view_lo = anchor_t - rel * new_w;
             view.view_hi = view.view_lo + new_w;
             clamp_view(&mut view, span_lo, span_hi);
-            changed = true;
+            view_changed = true;
         }
     }
 
     if block_resp.double_clicked() {
         view.view_lo = span_lo as f64;
         view.view_hi = span_hi as f64;
-        changed = true;
+        view_changed = true;
     }
 
     let rail = Rect::from_min_max(
@@ -184,7 +294,7 @@ pub fn sidebar_date_timeline(
                 view.view_lo -= dt;
                 view.view_hi -= dt;
                 clamp_view(&mut view, span_lo, span_hi);
-                changed = true;
+                view_changed = true;
             }
         }
     }
@@ -211,7 +321,7 @@ pub fn sidebar_date_timeline(
         let handle_id = id.with("handle").with(i);
         let x = time_to_x(*handle as f64, block, view.view_lo, view.view_hi);
         let center = Pos2::new(x, rail_mid);
-        let handle_rect = Rect::from_center_size(center, Vec2::splat(12.0));
+        let handle_rect = Rect::from_center_size(center, Vec2::splat(TIMELINE_HANDLE_HIT));
         let resp = ui.interact(handle_rect, handle_id, Sense::drag());
         handle_active[i] = resp.hovered() || resp.dragged();
         if resp.dragged() {
@@ -222,7 +332,7 @@ pub fn sidebar_date_timeline(
         }
         painter.circle_filled(
             center,
-            4.5,
+            TIMELINE_HANDLE_RADIUS,
             if handle_active[i] {
                 theme.ink
             } else {
@@ -289,9 +399,16 @@ pub fn sidebar_date_timeline(
     );
 
     ui.ctx().data_mut(|d| d.insert_temp(view_id, view));
+    if view_changed {
+        ui.ctx().request_repaint();
+    }
 
-    let caption = timeline_range_caption(*range_lo, *range_hi, snap_secs);
-    ui.label(RichText::new(caption).small().color(theme.sub));
+    // Caption hugs the scale so it clearly belongs to this timeline.
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let caption = timeline_range_caption(*range_lo, *range_hi, snap_secs);
+        ui.label(RichText::new(caption).small().color(theme.sub));
+    });
     ui.add_space(4.0);
     changed
 }

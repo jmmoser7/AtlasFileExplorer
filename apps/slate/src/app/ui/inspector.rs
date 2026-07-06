@@ -12,7 +12,7 @@ use atlas_shell::sidebar::{
     sidebar_collapsible_region, sidebar_section, sidebar_slider_block, sidebar_subtle_divider,
     SidebarTheme,
 };
-use atlas_shell::widgets::thin_sidebar_slider;
+use atlas_shell::widgets::{thin_sidebar_slider, thin_sidebar_slider_i32};
 use eframe::egui::{self, Color32, Id, RichText};
 use slate_doc::scene::{Corner, Dash, FontChoice, Node, NodeKind, Rgba, TextAlign};
 use slate_doc::{NodeId, ViewKind};
@@ -535,15 +535,19 @@ fn adjust_controls(
             }
         }
     });
-    // Hue can be negative; use a plain slider for it.
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Hue").small().color(theme.sub));
-        let mut hue = a.hue_deg;
-        if ui
-            .add(egui::Slider::new(&mut hue, -180.0..=180.0).suffix("°"))
-            .changed()
-        {
-            a.hue_deg = hue;
+    // Hue can be negative; use the signed thin slider for it.
+    sidebar_slider_block(ui, |ui| {
+        let mut hue = a.hue_deg.round() as i32;
+        if thin_sidebar_slider_i32(
+            ui,
+            &mut hue,
+            -180..=180,
+            "Hue",
+            "°",
+            "hue-rotate()",
+            theme.sub,
+        ) {
+            a.hue_deg = hue as f32;
             changed = true;
         }
     });
