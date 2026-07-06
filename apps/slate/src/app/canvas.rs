@@ -543,9 +543,7 @@ impl SlateApp {
     ) {
         let z = self.tab().cam.z;
         let visible = self.canvas_rect.expand(80.0);
-
-        // Collect thumb requests first (avoids borrowing fights).
-        let mut need_thumbs: Vec<ItemId> = Vec::new();
+        let ppp = ui.ctx().pixels_per_point();
 
         for pl in &layout.placed {
             let srect = self.world_rect_to_screen(pl.rect);
@@ -555,20 +553,15 @@ impl SlateApp {
             let Some(item) = self.doc().item(pl.id) else {
                 continue;
             };
-            let key = item.cache_key.clone();
             let name = item.file_name.clone();
             let missing = link_status(item) == LinkStatus::Missing;
             let selected = self.selection.contains(&pl.id);
             let is_hovered = hovered == Some(pl.id);
 
-            let tex = match self.textures.get(&key) {
-                Some(ThumbState::Ready(t)) => Some(t.clone()),
-                Some(_) => None,
-                None => {
-                    need_thumbs.push(pl.id);
-                    None
-                }
-            };
+            // Best resident texture for the on-screen size: full-res preview
+            // when loaded, thumbnail meanwhile (lazy upgrade, never blocks).
+            let desired_px = srect.width().max(srect.height()) * ppp;
+            let tex = self.item_texture(pl.id, desired_px);
 
             match pl.circle_r {
                 Some(r_world) => {
@@ -668,9 +661,6 @@ impl SlateApp {
             }
         }
 
-        for id in need_thumbs {
-            self.request_thumb(id);
-        }
         if self
             .textures
             .values()

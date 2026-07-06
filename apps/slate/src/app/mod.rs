@@ -25,7 +25,9 @@ pub mod chrome;
 pub mod commands;
 pub mod imagefx;
 pub mod present;
+pub mod preview;
 pub mod session;
+pub mod settings;
 #[cfg(test)]
 mod tests;
 mod ui;
@@ -158,6 +160,23 @@ pub struct SlateApp {
     thumb_slots: HashMap<u32, String>,
     next_thumb_slot: u32,
 
+    /// Lazy full-resolution tier above the thumbnails (see `preview.rs`).
+    pub previews: atlas_core::preview::PreviewPool,
+    /// Resident full-res textures, LRU-bounded by the settings budget.
+    pub preview_cache: HashMap<String, preview::PreviewEntry>,
+    /// Round-trip mapping for in-flight preview requests: slot → (key, tier).
+    preview_slots: HashMap<u32, (String, u32)>,
+    /// Highest tier currently in flight per cache key (dedupes requests).
+    preview_inflight: HashMap<String, u32>,
+    /// Keys that can never beat their thumbnail (undecodable or tiny source).
+    preview_failed: HashSet<String>,
+    next_preview_slot: u32,
+    /// Per-frame budget: how many decodes were started this frame.
+    preview_reqs_this_frame: u32,
+
+    /// Persisted UI settings (`slate-settings.json`).
+    pub settings: settings::SlateSettings,
+
     pub picker_rx: Option<Receiver<PickerMsg>>,
     pub toasts: Vec<(String, Instant)>,
 
@@ -228,6 +247,14 @@ impl SlateApp {
             textures: HashMap::new(),
             thumb_slots: HashMap::new(),
             next_thumb_slot: 0,
+            previews: atlas_core::preview::PreviewPool::new(),
+            preview_cache: HashMap::new(),
+            preview_slots: HashMap::new(),
+            preview_inflight: HashMap::new(),
+            preview_failed: HashSet::new(),
+            next_preview_slot: 0,
+            preview_reqs_this_frame: 0,
+            settings: settings::SlateSettings::load(),
             picker_rx: None,
             toasts: Vec::new(),
             new_tag_edit: None,
@@ -817,9 +844,11 @@ impl SlateApp {
     /// One full UI frame (split out for testability, mirroring Atlas).
     pub fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
+        self.preview_reqs_this_frame = 0;
         self.alt_down = ctx.input(|i| i.modifiers.alt);
         self.drain_pickers();
         self.drain_thumbs(ctx);
+        self.drain_previews(ctx);
         self.session_frame(ctx);
         self.ai.poll();
         self.ai_context_frame();
@@ -861,6 +890,13 @@ impl SlateApp {
         self.draw_toasts(ctx);
         // Presentation overlay paints above everything, last.
         self.present_frame(ctx);
+
+        // Preview upkeep after painting so this frame's `last_used` marks
+        // are fresh; keep pumping frames while decodes are in flight.
+        self.evict_previews();
+        if !self.preview_slots.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(150));
+        }
         if self.ai.picker_pending() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
