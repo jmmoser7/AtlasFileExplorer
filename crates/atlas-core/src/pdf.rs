@@ -22,10 +22,20 @@ const PDF_READ_TIMEOUT: Duration = Duration::from_secs(12);
 /// Skip previews for very large PDFs — pdfium would need to scan the whole file.
 const MAX_PDF_BYTES: u64 = 150 * 1024 * 1024;
 
+enum PdfJobKind {
+    Thumbnail {
+        page: u16,
+        target_px: i32,
+        reply: mpsc::Sender<Option<(u32, u32, Vec<u8>)>>,
+    },
+    PageCount {
+        reply: mpsc::Sender<Option<u16>>,
+    },
+}
+
 struct PdfJob {
     path: PathBuf,
-    target_px: i32,
-    reply: mpsc::Sender<Option<(u32, u32, Vec<u8>)>>,
+    kind: PdfJobKind,
 }
 
 struct PdfRendererInner {
@@ -80,14 +90,33 @@ fn spawn_worker(job_rx: Receiver<PdfJob>) -> JoinHandle<()> {
 fn pdf_worker_loop(job_rx: Receiver<PdfJob>) {
     let Some(pdfium) = init_pdfium() else {
         for job in job_rx {
-            let _ = job.reply.send(None);
+            match job.kind {
+                PdfJobKind::Thumbnail { reply, .. } => {
+                    let _ = reply.send(None);
+                }
+                PdfJobKind::PageCount { reply } => {
+                    let _ = reply.send(None);
+                }
+            }
         }
         return;
     };
 
     for job in job_rx {
-        let result = render_pdf(&pdfium, &job.path, job.target_px);
-        let _ = job.reply.send(result);
+        match job.kind {
+            PdfJobKind::Thumbnail {
+                page,
+                target_px,
+                reply,
+            } => {
+                let result = render_pdf(&pdfium, &job.path, page, target_px);
+                let _ = reply.send(result);
+            }
+            PdfJobKind::PageCount { reply } => {
+                let count = count_pdf_pages(&pdfium, &job.path);
+                let _ = reply.send(count);
+            }
+        }
     }
 }
 
@@ -156,13 +185,28 @@ fn read_pdf_bytes_inner(path: &Path) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-fn render_pdf(pdfium: &Pdfium, path: &Path, target_px: i32) -> Option<(u32, u32, Vec<u8>)> {
+fn count_pdf_pages(pdfium: &Pdfium, path: &Path) -> Option<u16> {
+    let bytes = read_pdf_bytes(path)?;
+    let doc = pdfium.load_pdf_from_byte_vec(bytes, None).ok()?;
+    let n = doc.pages().len();
+    if n == 0 {
+        return None;
+    }
+    u16::try_from(n).ok()
+}
+
+fn render_pdf(
+    pdfium: &Pdfium,
+    path: &Path,
+    page_index: u16,
+    target_px: i32,
+) -> Option<(u32, u32, Vec<u8>)> {
     let bytes = read_pdf_bytes(path)?;
     let doc = pdfium.load_pdf_from_byte_vec(bytes, None).ok()?;
     if doc.pages().is_empty() {
         return None;
     }
-    let page = doc.pages().get(0).ok()?;
+    let page = doc.pages().get(page_index as u16).ok()?;
     let config = PdfRenderConfig::new()
         .set_target_width(target_px)
         .set_maximum_height(target_px * 2)
@@ -178,14 +222,16 @@ fn render_pdf(pdfium: &Pdfium, path: &Path, target_px: i32) -> Option<(u32, u32,
     Some((w, h, rgba.into_raw()))
 }
 
-/// Render page 1 of a PDF at thumbnail size. Returns RGBA pixels.
-pub fn thumbnail(path: &Path, target_px: i32) -> Option<(u32, u32, Vec<u8>)> {
+fn dispatch_thumbnail(path: &Path, page: u16, target_px: i32) -> Option<(u32, u32, Vec<u8>)> {
     let renderer = PdfRenderer::global();
     let (reply_tx, reply_rx) = mpsc::channel();
     let job = PdfJob {
         path: path.to_path_buf(),
-        target_px,
-        reply: reply_tx,
+        kind: PdfJobKind::Thumbnail {
+            page,
+            target_px,
+            reply: reply_tx,
+        },
     };
     if !renderer.send(job) {
         return None;
@@ -194,6 +240,38 @@ pub fn thumbnail(path: &Path, target_px: i32) -> Option<(u32, u32, Vec<u8>)> {
         Ok(result) => result,
         Err(RecvTimeoutError::Timeout) => {
             eprintln!("[atlas] PDF preview timed out: {}", path.display());
+            renderer.restart();
+            None
+        }
+        Err(RecvTimeoutError::Disconnected) => None,
+    }
+}
+
+/// Render page 1 of a PDF at thumbnail size. Returns RGBA pixels.
+pub fn thumbnail(path: &Path, target_px: i32) -> Option<(u32, u32, Vec<u8>)> {
+    thumbnail_page(path, 0, target_px)
+}
+
+/// Render a specific PDF page (0-based) at thumbnail size.
+pub fn thumbnail_page(path: &Path, page: u16, target_px: i32) -> Option<(u32, u32, Vec<u8>)> {
+    dispatch_thumbnail(path, page, target_px)
+}
+
+/// Number of pages in a PDF document.
+pub fn page_count(path: &Path) -> Option<u16> {
+    let renderer = PdfRenderer::global();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let job = PdfJob {
+        path: path.to_path_buf(),
+        kind: PdfJobKind::PageCount { reply: reply_tx },
+    };
+    if !renderer.send(job) {
+        return None;
+    }
+    match reply_rx.recv_timeout(PDF_RENDER_TIMEOUT) {
+        Ok(count) => count,
+        Err(RecvTimeoutError::Timeout) => {
+            eprintln!("[atlas] PDF page count timed out: {}", path.display());
             renderer.restart();
             None
         }

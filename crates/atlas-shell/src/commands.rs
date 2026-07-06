@@ -136,6 +136,11 @@ impl TurboPanState {
 /// Reference table for Advanced settings. `source_hint` names the file where
 /// the app's `ENTRIES` table lives so contributors keep it complete.
 pub fn shortcuts_reference_ui(ui: &mut Ui, entries: &[CommandEntry], source_hint: &str) {
+    let visuals = ui.visuals();
+    let hint = visuals.weak_text_color();
+    let name_color = visuals.text_color();
+    let binding_color = visuals.weak_text_color();
+
     ui.label(egui::RichText::new("Commands & shortcuts").small().strong());
     ui.label(
         egui::RichText::new(format!(
@@ -143,7 +148,7 @@ pub fn shortcuts_reference_ui(ui: &mut Ui, entries: &[CommandEntry], source_hint
              commands there so this list stays complete."
         ))
         .small()
-        .color(egui::Color32::from_gray(120)),
+        .color(hint),
     );
     ui.add_space(6.0);
 
@@ -161,16 +166,12 @@ pub fn shortcuts_reference_ui(ui: &mut Ui, entries: &[CommandEntry], source_hint
                     last_category = entry.category;
                 }
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(entry.name)
-                            .small()
-                            .color(egui::Color32::from_gray(200)),
-                    );
+                    ui.label(egui::RichText::new(entry.name).small().color(name_color));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             egui::RichText::new(entry.binding)
                                 .small()
-                                .color(egui::Color32::from_gray(130)),
+                                .color(binding_color),
                         );
                     });
                 });

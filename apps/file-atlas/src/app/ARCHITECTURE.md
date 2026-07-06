@@ -3,13 +3,20 @@
 The shell is layered so each concern has one home. When adding features, extend
 the matching layer instead of growing `mod.rs`.
 
-## Layer 0 — Top chrome (`ui/tabs.rs`)
+## Layer 0 — Top chrome (`ui/menubar.rs` + `ui/tabs.rs`)
 
-- **Scope:** Browser-style tabs, global Undo/Redo only.
-- **Rule:** Nothing that acts on the canvas lives here. Tabs sit above all tab
-  workspaces.
-- **Painting lives in `atlas-shell`** (`atlas_shell::tabs`) so Slate renders
-  identical chrome; this module only adapts `AtlasApp` state to `TabSpec`s.
+- **Scope:** the Windows-style File/View menu bar (topmost, full width), then
+  browser-style tabs. Global Undo/Redo stays keyboard-only.
+- **Rule:** Nothing that acts on the canvas lives here. The menu bar spans the
+  whole window; the tools rail is registered *before* the tab strip so the
+  rail runs from the readout bar up to the menu bar, with tabs nested in the
+  remaining width (see the panel-order comment in `mod.rs::update_app`).
+- **Painting lives in `atlas-shell`** (`atlas_shell::menubar`,
+  `atlas_shell::tabs`) so Slate renders identical chrome; these modules only
+  adapt `AtlasApp` state to `MenuSpec`s / `TabSpec`s.
+- **Full-screen canvas** (`ChromeConfig::canvas_fullscreen`, toggled by F11,
+  View → Full-screen canvas, or ⛶ in the canvas mini menu) suppresses the
+  tools rail and readout bar; menu bar and tabs stay.
 
 ## Layer 1 — Tab workspace
 
