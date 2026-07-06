@@ -367,6 +367,60 @@ impl VideoOpts {
     }
 }
 
+/// Saved viewport pose for placed 3D models (`MediaKind::Model`). Like
+/// [`VideoOpts`], this is media behavior, not styling: the pose selects
+/// *which view* of the model both renderers show. The board renders the
+/// model from this camera (live while unlocked, as a frozen poster while
+/// locked); the artifact embeds the poster image rendered from the same
+/// pose. Duplicated nodes keep independent poses, which is how one model
+/// appears from several perspectives across slides.
+///
+/// Orbit convention follows Rhino: Z-up world, `yaw` spins around +Z,
+/// `pitch` tilts above/below the XY plane, the eye sits `distance` from
+/// `target` along that direction.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelCamera {
+    /// Orbit target in model space. Non-finite/unset = model bounds center.
+    pub target: [f32; 3],
+    /// Rotation around +Z, radians.
+    pub yaw: f32,
+    /// Elevation above the XY plane, radians (clamped near ±π/2).
+    pub pitch: f32,
+    /// Eye distance from the target. `<= 0` = auto-fit to the model bounds
+    /// (the state of a freshly placed node, resolved on first render).
+    pub distance: f32,
+}
+
+impl Default for ModelCamera {
+    fn default() -> Self {
+        // Rhino's default perspective view: three-quarter view from
+        // south-west, looking slightly down.
+        Self {
+            target: [0.0, 0.0, 0.0],
+            yaw: -std::f32::consts::FRAC_PI_4,
+            pitch: 0.5,
+            distance: 0.0,
+        }
+    }
+}
+
+impl ModelCamera {
+    /// Stable hash identifying this pose (poster caching: one rendered
+    /// poster per (model file, camera) pair).
+    pub fn cache_hash(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for v in self.target {
+            v.to_bits().hash(&mut h);
+        }
+        self.yaw.to_bits().hash(&mut h);
+        self.pitch.to_bits().hash(&mut h);
+        self.distance.to_bits().hash(&mut h);
+        h.finish()
+    }
+}
+
 /// Never pixels — the pool item owns the file link.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageNode {
@@ -382,6 +436,10 @@ pub struct ImageNode {
     /// Playback settings when the linked item is a video; default otherwise.
     #[serde(default)]
     pub video: VideoOpts,
+    /// Saved viewport pose when the linked item is a 3D model; default
+    /// otherwise.
+    #[serde(default)]
+    pub model: ModelCamera,
 }
 
 impl ImageNode {
@@ -395,6 +453,7 @@ impl ImageNode {
             stroke: Stroke::none(),
             adjust: ImageAdjust::default(),
             video: VideoOpts::default(),
+            model: ModelCamera::default(),
         }
     }
 }
@@ -960,6 +1019,24 @@ mod tests {
         let img: ImageNode = serde_json::from_str(json).unwrap();
         assert_eq!(img.video, VideoOpts::default());
         assert!(img.video.muted && img.video.autoplay);
+        // Pre-3D documents likewise omit the model camera.
+        assert_eq!(img.model, ModelCamera::default());
+    }
+
+    #[test]
+    fn model_camera_defaults_and_hash() {
+        let cam = ModelCamera::default();
+        assert!(cam.distance <= 0.0, "fresh nodes auto-fit");
+
+        let mut moved = cam;
+        moved.yaw += 0.25;
+        assert_ne!(cam.cache_hash(), moved.cache_hash());
+        assert_eq!(cam.cache_hash(), ModelCamera::default().cache_hash());
+
+        // Round-trips through the document JSON.
+        let json = serde_json::to_string(&moved).unwrap();
+        let back: ModelCamera = serde_json::from_str(&json).unwrap();
+        assert_eq!(moved, back);
     }
 
     #[test]

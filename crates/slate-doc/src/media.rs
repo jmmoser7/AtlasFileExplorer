@@ -16,6 +16,10 @@ pub enum MediaKind {
     Image,
     /// Video files (`<video>` when web-safe, thumbnail card otherwise).
     Video,
+    /// 3D model files with an interactive board viewport (Rhino `.3dm`).
+    /// The board renders a live viewport or its frozen-camera poster; the
+    /// artifact exports the poster image linking to the copied original.
+    Model,
     Pdf,
     /// Plain-text-ish files whose content can be excerpted inline.
     Text,
@@ -33,6 +37,7 @@ impl MediaKind {
         match self {
             MediaKind::Image => "Image",
             MediaKind::Video => "Video",
+            MediaKind::Model => "3D model",
             MediaKind::Pdf => "PDF",
             MediaKind::Text => "Text",
             MediaKind::Doc => "Document",
@@ -57,6 +62,10 @@ pub fn media_kind(path: &Path) -> MediaKind {
         "mp4" | "webm" | "ogv" | "m4v" | "mov" | "avi" | "mkv" | "wmv" | "mpg" | "mpeg" => {
             MediaKind::Video
         }
+        // Only .3dm for now: Model implies the board can extract meshes and
+        // drive an interactive viewport (rhino-mesh crate). Other 3D formats
+        // (obj/stl/gltf…) stay `Other` until they have a mesh loader too.
+        "3dm" => MediaKind::Model,
         "pdf" => MediaKind::Pdf,
         "txt" | "md" | "markdown" | "log" | "csv" | "json" | "toml" | "yaml" | "yml" | "xml"
         | "rs" | "py" | "js" | "ts" | "html" | "css" | "sh" | "bat" | "ini" | "cfg" => {
@@ -102,6 +111,9 @@ mod tests {
             ("photo.JPG", MediaKind::Image),
             ("clip.mp4", MediaKind::Video),
             ("clip.MOV", MediaKind::Video),
+            ("tower.3dm", MediaKind::Model),
+            ("Tower.3DM", MediaKind::Model),
+            ("mesh.obj", MediaKind::Other),
             ("report.pdf", MediaKind::Pdf),
             ("notes.md", MediaKind::Text),
             ("deck.pptx", MediaKind::Doc),
