@@ -20,6 +20,7 @@ use std::time::Instant;
 
 pub mod association;
 pub mod board;
+pub mod board_icons;
 mod board_handles;
 mod board_snap;
 pub mod canvas;
@@ -198,6 +199,8 @@ pub struct SlateApp {
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
     pub board_sel: HashSet<NodeId>,
     pub board_tool: board::BoardTool,
+    pub board_frame_preset: board::FramePreset,
+    pub board_frame_custom: Option<board::FrameCustomDraft>,
     pub board_drag: Option<board::BoardDrag>,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
@@ -277,6 +280,8 @@ impl SlateApp {
             ai: atlas_ai::AiPanel::new(),
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
+            board_frame_preset: board::FramePreset::default(),
+            board_frame_custom: None,
             board_drag: None,
             text_edit: None,
             board_menu: None,
@@ -829,6 +834,9 @@ impl SlateApp {
                 // Tool keys (match the board toolbar hints).
                 if i.key_pressed(egui::Key::V) {
                     self.board_tool = board::BoardTool::Select;
+                }
+                if i.key_pressed(egui::Key::H) {
+                    self.board_tool = board::BoardTool::Pan;
                 }
                 if i.key_pressed(egui::Key::F) {
                     self.board_tool = board::BoardTool::Frame;

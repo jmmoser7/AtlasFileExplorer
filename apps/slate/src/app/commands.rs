@@ -103,13 +103,18 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Board",
-        name: "Frame tool (slides)",
-        binding: "F, then drag (Board view)",
+        name: "Pan tool (hand)",
+        binding: "H, or middle-drag / Space + drag (Board view)",
     },
     CommandEntry {
         category: "Board",
-        name: "Rectangle / Ellipse / Line tool",
-        binding: "R / O / L, then drag (Board view)",
+        name: "Frame tool (slides)",
+        binding: "F, then click or drag (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Shapes / Curve / Text tools",
+        binding: "R / O / L / T (Board view); hover create toolbar for presets",
     },
     CommandEntry {
         category: "Board",
@@ -174,7 +179,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Pan board",
-        binding: "Middle-drag, right-drag, or Space + left-drag",
+        binding: "H (hand tool), middle-drag, right-drag, or Space + left-drag",
     },
     CommandEntry {
         category: "Board",
