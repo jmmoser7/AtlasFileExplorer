@@ -20,12 +20,16 @@ use std::time::Instant;
 
 pub mod association;
 pub mod board;
+mod board_handles;
+mod board_snap;
 pub mod canvas;
 pub mod chrome;
 pub mod commands;
 pub mod imagefx;
 pub mod present;
+pub mod preview;
 pub mod session;
+pub mod settings;
 #[cfg(test)]
 mod tests;
 mod ui;
@@ -158,6 +162,23 @@ pub struct SlateApp {
     thumb_slots: HashMap<u32, String>,
     next_thumb_slot: u32,
 
+    /// Lazy full-resolution tier above the thumbnails (see `preview.rs`).
+    pub previews: atlas_core::preview::PreviewPool,
+    /// Resident full-res textures, LRU-bounded by the settings budget.
+    pub preview_cache: HashMap<String, preview::PreviewEntry>,
+    /// Round-trip mapping for in-flight preview requests: slot → (key, tier).
+    preview_slots: HashMap<u32, (String, u32)>,
+    /// Highest tier currently in flight per cache key (dedupes requests).
+    preview_inflight: HashMap<String, u32>,
+    /// Keys that can never beat their thumbnail (undecodable or tiny source).
+    preview_failed: HashSet<String>,
+    next_preview_slot: u32,
+    /// Per-frame budget: how many decodes were started this frame.
+    preview_reqs_this_frame: u32,
+
+    /// Persisted UI settings (`slate-settings.json`).
+    pub settings: settings::SlateSettings,
+
     pub picker_rx: Option<Receiver<PickerMsg>>,
     pub toasts: Vec<(String, Instant)>,
 
@@ -194,6 +215,14 @@ pub struct SlateApp {
     pub last_board_edit: Option<(NodeId, Instant)>,
     /// Alt modifier state this frame (Alt-drag duplicates).
     pub alt_down: bool,
+    /// Transient smart-guide lines shown during board move/resize (cleared each frame).
+    pub board_snap_guides: Vec<board_snap::SnapGuide>,
+    /// Show the board dot grid (Board view).
+    pub board_show_grid: bool,
+    /// Snap moved objects to the board grid.
+    pub board_snap_grid: bool,
+    /// Hover target on the current single selection (handles / rotate zones).
+    pub board_hover_hit: Option<board_handles::BoardHitTarget>,
 
     /// `.slate` files encountered in add/drop flows this frame. Workbooks
     /// never become items — they open as tabs at a safe point in the frame
@@ -228,6 +257,14 @@ impl SlateApp {
             textures: HashMap::new(),
             thumb_slots: HashMap::new(),
             next_thumb_slot: 0,
+            previews: atlas_core::preview::PreviewPool::new(),
+            preview_cache: HashMap::new(),
+            preview_slots: HashMap::new(),
+            preview_inflight: HashMap::new(),
+            preview_failed: HashSet::new(),
+            next_preview_slot: 0,
+            preview_reqs_this_frame: 0,
+            settings: settings::SlateSettings::load(),
             picker_rx: None,
             toasts: Vec::new(),
             new_tag_edit: None,
@@ -246,6 +283,10 @@ impl SlateApp {
             export_inline: false,
             last_board_edit: None,
             alt_down: false,
+            board_snap_guides: Vec::new(),
+            board_show_grid: true,
+            board_snap_grid: false,
+            board_hover_hit: None,
             pending_workbooks: Vec::new(),
             frame_no: 0,
         };
@@ -277,6 +318,13 @@ impl SlateApp {
 
     pub fn palette(&self) -> Palette {
         Palette::for_mode(self.dark_mode)
+    }
+
+    /// Full-screen canvas: hide the tools rail and readout bar (View menu,
+    /// the canvas mini menu ⛶, or F11).
+    pub fn toggle_canvas_fullscreen(&mut self) {
+        let on = !self.tab().chrome.canvas_fullscreen;
+        self.tab_mut().chrome.canvas_fullscreen = on;
     }
 
     pub fn apply_theme(&self, ctx: &egui::Context) {
@@ -755,6 +803,9 @@ impl SlateApp {
             if i.key_pressed(egui::Key::F5) {
                 self.start_present(None);
             }
+            if i.key_pressed(egui::Key::F11) {
+                self.toggle_canvas_fullscreen();
+            }
             if board && !wants_kb && !editing && !i.modifiers.ctrl {
                 // Tool keys (match the board toolbar hints).
                 if i.key_pressed(egui::Key::V) {
@@ -817,9 +868,11 @@ impl SlateApp {
     /// One full UI frame (split out for testability, mirroring Atlas).
     pub fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
+        self.preview_reqs_this_frame = 0;
         self.alt_down = ctx.input(|i| i.modifiers.alt);
         self.drain_pickers();
         self.drain_thumbs(ctx);
+        self.drain_previews(ctx);
         self.session_frame(ctx);
         self.ai.poll();
         self.ai_context_frame();
@@ -849,9 +902,18 @@ impl SlateApp {
 
         self.hotkeys(ctx);
 
+        // Chrome, outermost first: the menu bar spans the full width, then
+        // the bottom readout bar, then the tools rail — registered *before*
+        // the tab strip so the rail runs from the readout bar all the way up
+        // to the menu bar, with the tabs nested in the remaining width.
+        // Full-screen canvas (⛶ / F11) suppresses the rail and readout bar.
+        let fullscreen = self.tab().chrome.canvas_fullscreen;
+        self.draw_menu_bar(ctx);
+        if !fullscreen {
+            self.draw_readout_bar(ctx);
+            self.draw_tools_rail(ctx);
+        }
         self.draw_top_chrome(ctx);
-        self.draw_readout_bar(ctx);
-        self.draw_tools_rail(ctx);
         self.draw_advanced_window(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -861,6 +923,13 @@ impl SlateApp {
         self.draw_toasts(ctx);
         // Presentation overlay paints above everything, last.
         self.present_frame(ctx);
+
+        // Preview upkeep after painting so this frame's `last_used` marks
+        // are fresh; keep pumping frames while decodes are in flight.
+        self.evict_previews();
+        if !self.preview_slots.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(150));
+        }
         if self.ai.picker_pending() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }

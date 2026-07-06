@@ -578,3 +578,78 @@ where
         .response
         .on_hover_text("Choose visible panels");
 }
+
+/// State the app feeds into [`canvas_mini_menu`] each frame.
+pub struct MiniMenuModel {
+    /// Camera zoom in percent; `None` hides the zoom cluster (views that own
+    /// their camera separately, e.g. the Slate board).
+    pub zoom_pct: Option<f32>,
+    /// Current full-screen-canvas state (paints the ⛶ toggle accordingly).
+    pub fullscreen: bool,
+}
+
+pub enum MiniMenuAction {
+    ZoomOut,
+    /// Reset zoom to 100%.
+    ZoomReset,
+    ZoomIn,
+    /// Fit the content in view.
+    Fit,
+    /// Toggle full-screen canvas (suppress the tools rail + readout bar).
+    ToggleFullscreen,
+}
+
+/// Floating mini menu in the lower-left corner of the canvas: the ⛶
+/// full-screen-canvas toggle plus optional zoom controls. Shared so the
+/// overlay is pixel-identical in every app.
+pub fn canvas_mini_menu(
+    ctx: &egui::Context,
+    id: &str,
+    canvas: Rect,
+    model: MiniMenuModel,
+) -> Option<MiniMenuAction> {
+    let mut action = None;
+    let pos = canvas.left_bottom() + Vec2::new(14.0, -14.0);
+    egui::Area::new(Id::new(("canvas_mini_menu", id)))
+        .fixed_pos(pos)
+        .pivot(egui::Align2::LEFT_BOTTOM)
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let hint = if model.fullscreen {
+                        "Exit full-screen canvas (F11)"
+                    } else {
+                        "Full-screen canvas — hide the sidebar and bottom bar (F11)"
+                    };
+                    if ui
+                        .selectable_label(model.fullscreen, "⛶")
+                        .on_hover_text(hint)
+                        .clicked()
+                    {
+                        action = Some(MiniMenuAction::ToggleFullscreen);
+                    }
+                    if let Some(pct) = model.zoom_pct {
+                        ui.separator();
+                        if ui.button("−").clicked() {
+                            action = Some(MiniMenuAction::ZoomOut);
+                        }
+                        if ui
+                            .button(format!("{pct:.0}%"))
+                            .on_hover_text("Reset to 100%")
+                            .clicked()
+                        {
+                            action = Some(MiniMenuAction::ZoomReset);
+                        }
+                        if ui.button("+").clicked() {
+                            action = Some(MiniMenuAction::ZoomIn);
+                        }
+                        if ui.button("Fit").clicked() {
+                            action = Some(MiniMenuAction::Fit);
+                        }
+                    }
+                });
+            });
+        });
+    action
+}

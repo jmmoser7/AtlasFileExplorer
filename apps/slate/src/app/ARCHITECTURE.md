@@ -5,10 +5,16 @@ different workspace model: instead of a filesystem root per tab, each tab owns
 one **workbook** (`.slate` document — links to files plus a faceted tag
 system, never file copies).
 
-## Layer 0 — Top chrome (`ui/tabs.rs`)
+## Layer 0 — Top chrome (`ui/menubar.rs` + `ui/tabs.rs`)
 
-Browser-style workbook tabs. All painting comes from `atlas_shell::tabs`;
-this module only adapts `SlateTab` state to `TabSpec`s and applies actions.
+The Windows-style File/View menu bar (topmost, full width), then
+browser-style workbook tabs. All painting comes from `atlas_shell::menubar` /
+`atlas_shell::tabs`; these modules only adapt `SlateApp` state to
+`MenuSpec`s / `TabSpec`s and apply actions. The tools rail is registered
+*before* the tab strip so the rail runs from the readout bar up to the menu
+bar, with tabs nested in the remaining width. Full-screen canvas
+(`ChromeConfig::canvas_fullscreen`; F11, View → Full-screen canvas, or ⛶ in
+the canvas mini menu) suppresses the tools rail and readout bar.
 
 ## Layer 1 — Tab workspace
 
@@ -19,8 +25,10 @@ this module only adapts `SlateTab` state to `TabSpec`s and applies actions.
 | Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, draw tools, gestures |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
 | Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
+| Previews | `preview.rs` | Lazy full-resolution texture tier above the thumbnails (see below) |
+| Settings | `settings.rs` | Persisted UI settings (`slate-settings.json` next to the index DB) |
 | Bottom readouts | `ui/readouts.rs` | Item/tag counts, link health, zoom |
-| Advanced | `ui/advanced.rs` | Floating window (workbook info, commands reference) |
+| Advanced | `ui/advanced.rs` | Floating window (canvas preview settings, workbook info, commands reference) |
 | Commands | `commands.rs` | Canonical bindings; see `COMMANDS.md` |
 
 ## The tag model (`slate-doc`)
@@ -45,6 +53,34 @@ this module only adapts `SlateTab` state to `TabSpec`s and applies actions.
 - New presentations should follow the same pattern: pure geometry in a crate,
   a `*_layout` builder producing `Placed` items, painting + hit-testing on the
   shared camera.
+
+## Lazy full-resolution previews (`preview.rs`)
+
+All item painting goes through `SlateApp::item_texture(item, desired_px)`
+(`desired_px` = on-screen size in physical pixels). It returns the best
+GPU-resident texture — full-res preview, else thumbnail, else `None` — and
+only *queues* upgrades; it never blocks a paint. The pipeline:
+
+1. The 192 px thumbnail (shared disk cache, `atlas_core::thumbs`) is always
+   the instant tier.
+2. When an item's on-screen size outgrows its thumbnail, a capped decode of
+   the original is queued on `atlas_core::preview::PreviewPool` (LIFO — what
+   the user looks at now decodes first; a few requests start per frame).
+   Rasters decode via the `image` crate, PDFs render through pdfium at the
+   requested size, everything else asks the platform shell (Windows).
+3. Target sizes are quantized to a power-of-two ladder capped by the user's
+   max-resolution setting (Advanced → Canvas previews), so continuous zoom
+   re-decodes a bounded number of times.
+4. Resident previews live in `preview_cache`, an LRU bounded by the user's
+   memory budget; least-recently-viewed entries fall back to thumbnails.
+   Sources that can't beat their thumbnail land in `preview_failed` and are
+   never re-requested (until "Unload all").
+
+Board specifics: unadjusted images sharpen through the same path; images
+with non-identity `ImageAdjust` intentionally stay on thumbnail-based FX
+textures (CPU filter math over multi-megapixel previews would stall the
+canvas). Presentation mode inherits full-res automatically because it paints
+through `paint_board_node` at fullscreen sizes.
 - **Board** (`board.rs`) — the *authored* view: unlike Grid/Venn (generated
   arrangements of the pool), the Board is a persistent scene the user
   composes. See below.
