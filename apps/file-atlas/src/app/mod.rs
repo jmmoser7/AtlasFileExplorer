@@ -173,17 +173,29 @@ impl PrewarmJob {
     }
 }
 
+/// How the pre-warm walk treats portal-sized folders (more items than the
+/// portal threshold — typically video frame dumps with near-identical thumbs).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PrewarmPortalMode {
+    /// Warm like any other folder.
+    Normal,
+    /// Queue into the deferred slow lane so they warm last.
+    Defer,
+    /// Skip their files entirely (subfolders are still walked).
+    Skip,
+}
+
 /// Options for the pre-warm discovery walk.
 struct PrewarmWalkOpts {
-    /// When true, folders larger than `portal_threshold` queue into the
-    /// deferred slow lane (frame dumps warm last).
-    deprioritize_portals: bool,
+    /// Treatment of folders larger than `portal_threshold`.
+    portal_mode: PrewarmPortalMode,
     portal_threshold: usize,
 }
 
 /// Discovery walk behind `start_prewarm`, extracted so repository creation
 /// is testable. Descends from `dir`, queueing every thumbnail-able file via
-/// `queue` (or `queue_deferred` for portal-sized folders when enabled).
+/// `queue`. Portal-sized folders follow [`PrewarmWalkOpts::portal_mode`]:
+/// queued normally, into `queue_deferred`, or skipped entirely.
 /// Shared `.atlas-cache` repositories are created (and counted in
 /// `repos`) both by walking *up* from `dir` (picked inside a project) and
 /// while descending (picked a folder that contains projects); cache keys are
@@ -256,8 +268,16 @@ fn prewarm_walk(
                 }
             }
         }
-        let portal_like =
-            opts.deprioritize_portals && subdirs.len() + files.len() > opts.portal_threshold;
+        let portal_like = opts.portal_mode != PrewarmPortalMode::Normal
+            && subdirs.len() + files.len() > opts.portal_threshold;
+        if portal_like && opts.portal_mode == PrewarmPortalMode::Skip {
+            // Skip the dump's own files but keep walking subfolders — they
+            // may hold ordinary content below the threshold.
+            for sd in subdirs {
+                stack.push((sd, ctx.clone()));
+            }
+            continue;
+        }
         for entry in files {
             if cancel.load(Relaxed) {
                 break;
@@ -406,8 +426,8 @@ pub struct AtlasApp {
     key_prefix: String,
     // Overnight pre-warm bookkeeping.
     prewarm_picker_rx: Option<Receiver<Option<PathBuf>>>,
-    /// When true, pre-warm queues portal-sized folders into the deferred lane.
-    prewarm_deprioritize_portals: bool,
+    /// How pre-warm treats portal-sized folders: warm, defer, or skip.
+    prewarm_portal_mode: PrewarmPortalMode,
     /// Live pre-warm run (Some while active) — drives the temporary bottom
     /// dashboard and is dropped on completion or cancel.
     prewarm: Option<PrewarmJob>,
@@ -593,7 +613,7 @@ impl AtlasApp {
             shared_cache: None,
             key_prefix: String::new(),
             prewarm_picker_rx: None,
-            prewarm_deprioritize_portals: true,
+            prewarm_portal_mode: PrewarmPortalMode::Defer,
             prewarm: None,
             selection: HashSet::new(),
             rubber_origin: None,
@@ -730,7 +750,7 @@ impl AtlasApp {
             return;
         }
         let pool = self.thumbs.clone();
-        let deprioritize = self.prewarm_deprioritize_portals;
+        let portal_mode = self.prewarm_portal_mode;
         let portal_threshold = self.portal_threshold;
         let job = PrewarmJob {
             dir: dir.clone(),
@@ -760,7 +780,7 @@ impl AtlasApp {
                 &|req| pool.request_slow(req),
                 &|req| pool.request_slow_deferred(req),
                 PrewarmWalkOpts {
-                    deprioritize_portals: deprioritize,
+                    portal_mode,
                     portal_threshold,
                 },
                 &queued,
@@ -4473,7 +4493,7 @@ mod prewarm_tests {
         run_walk_opts(
             dir,
             PrewarmWalkOpts {
-                deprioritize_portals: false,
+                portal_mode: PrewarmPortalMode::Normal,
                 portal_threshold: 100,
             },
         )
@@ -4632,7 +4652,7 @@ mod prewarm_tests {
             &|r| reqs.lock().unwrap().push(r),
             &|r| reqs.lock().unwrap().push(r),
             PrewarmWalkOpts {
-                deprioritize_portals: false,
+                portal_mode: PrewarmPortalMode::Normal,
                 portal_threshold: 100,
             },
             &queued,
@@ -4662,13 +4682,51 @@ mod prewarm_tests {
         let (normal, deferred, queued) = run_walk_lanes(
             root.clone(),
             PrewarmWalkOpts {
-                deprioritize_portals: true,
+                portal_mode: PrewarmPortalMode::Defer,
                 portal_threshold: 100,
             },
         );
         assert_eq!(queued, 102);
         assert_eq!(normal.len(), 1, "small folder stays on the normal lane");
         assert_eq!(deferred.len(), 101, "portal-sized folder is deferred");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn prewarm_skip_mode_omits_portal_folders_but_walks_below_them() {
+        let root = std::env::temp_dir().join(format!("nfa_pw_skip_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let small = root.join("sketches");
+        std::fs::create_dir_all(&small).unwrap();
+        std::fs::write(small.join("a.png"), b"x").unwrap();
+        // Portal-sized frame dump with a normal-sized subfolder inside it.
+        let frames = root.join("frames");
+        let nested = frames.join("selects");
+        std::fs::create_dir_all(&nested).unwrap();
+        for i in 0..101 {
+            std::fs::write(frames.join(format!("f{i:03}.png")), b"x").unwrap();
+        }
+        std::fs::write(nested.join("pick.png"), b"x").unwrap();
+
+        let (normal, deferred, queued) = run_walk_lanes(
+            root.clone(),
+            PrewarmWalkOpts {
+                portal_mode: PrewarmPortalMode::Skip,
+                portal_threshold: 100,
+            },
+        );
+        assert_eq!(deferred.len(), 0, "skip mode never uses the deferred lane");
+        let names: Vec<String> = normal
+            .iter()
+            .map(|r| r.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(queued, 2, "dump files are skipped, not deferred");
+        assert!(names.contains(&"a.png".to_string()));
+        assert!(
+            names.contains(&"pick.png".to_string()),
+            "subfolders inside a skipped dump are still walked"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

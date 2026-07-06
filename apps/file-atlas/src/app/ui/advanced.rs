@@ -2,7 +2,7 @@
 //! gear menu — not a permanent rail panel.
 
 use super::super::commands;
-use super::super::AtlasApp;
+use super::super::{AtlasApp, PrewarmPortalMode};
 use eframe::egui;
 
 pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
@@ -30,17 +30,35 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
             ui.add_space(6.0);
             let running = app.prewarm.is_some();
             ui.add_enabled_ui(!running, |ui| {
-                ui.checkbox(
-                    &mut app.prewarm_deprioritize_portals,
-                    format!(
-                        "Deprioritize large folders (>{} items)",
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Large folders (>{} items) — often video frame dumps \
+                         with near-identical thumbnails:",
                         app.portal_threshold
-                    ),
-                )
-                .on_hover_text(
-                    "Portal-sized folders (often video frame dumps) queue last — \
-                     their thumbnails are usually near-identical and less urgent.",
+                    ))
+                    .small(),
                 );
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut app.prewarm_portal_mode,
+                        PrewarmPortalMode::Normal,
+                        "Warm normally",
+                    );
+                    ui.radio_value(
+                        &mut app.prewarm_portal_mode,
+                        PrewarmPortalMode::Defer,
+                        "Warm last",
+                    )
+                    .on_hover_text("Queued behind everything else in the run.");
+                    ui.radio_value(
+                        &mut app.prewarm_portal_mode,
+                        PrewarmPortalMode::Skip,
+                        "Skip",
+                    )
+                    .on_hover_text(
+                        "Their files are not warmed at all; subfolders are still walked.",
+                    );
+                });
             });
             if ui
                 .add_enabled(!running, egui::Button::new("Pre-warm a folder…"))
