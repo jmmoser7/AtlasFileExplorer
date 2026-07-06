@@ -20,6 +20,7 @@ use std::time::Instant;
 
 pub mod association;
 pub mod board;
+pub mod board_icons;
 pub mod canvas;
 pub mod chrome;
 pub mod commands;
@@ -763,6 +764,9 @@ impl SlateApp {
                 // Tool keys (match the board toolbar hints).
                 if i.key_pressed(egui::Key::V) {
                     self.board_tool = board::BoardTool::Select;
+                }
+                if i.key_pressed(egui::Key::H) {
+                    self.board_tool = board::BoardTool::Pan;
                 }
                 if i.key_pressed(egui::Key::F) {
                     self.board_tool = board::BoardTool::Frame;

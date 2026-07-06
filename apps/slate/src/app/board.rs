@@ -14,7 +14,7 @@
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 
-use super::{SlateApp, ThumbState};
+use super::{board_icons, SlateApp, ThumbState};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
     Corner, Crop, Dash, FontChoice, FrameNode, ImageAdjust, ImageNode, Node, NodeKind, Rgba,
@@ -57,7 +57,10 @@ pub enum FramePreset {
     Letter,
     Tabloid,
     Wide169,
-    Custom { w: f32, h: f32 },
+    Custom {
+        w: f32,
+        h: f32,
+    },
 }
 
 impl FramePreset {
@@ -96,6 +99,7 @@ pub struct FrameCustomDraft {
 pub enum BoardTool {
     #[default]
     Select,
+    Pan,
     Frame,
     RectShape,
     Ellipse,
@@ -110,6 +114,7 @@ impl BoardTool {
     pub fn label(self) -> &'static str {
         match self {
             BoardTool::Select => "Select",
+            BoardTool::Pan => "Pan",
             BoardTool::Frame => "Frame",
             BoardTool::RectShape => "Rectangle",
             BoardTool::Ellipse => "Ellipse",
@@ -121,23 +126,25 @@ impl BoardTool {
         }
     }
 
-    pub fn icon(self) -> &'static str {
+    pub fn tool_icon(self) -> board_icons::ToolIcon {
         match self {
-            BoardTool::Select => "➤",
-            BoardTool::Frame => "🖽",
-            BoardTool::RectShape => "▭",
-            BoardTool::Ellipse => "◯",
-            BoardTool::Line => "╱",
-            BoardTool::Arc => "⌒",
-            BoardTool::Polyline => "⌇",
-            BoardTool::BezierSpan => "∿",
-            BoardTool::Text => "T",
+            BoardTool::Select => board_icons::ToolIcon::Select,
+            BoardTool::Pan => board_icons::ToolIcon::Pan,
+            BoardTool::Frame => board_icons::ToolIcon::Frame,
+            BoardTool::RectShape => board_icons::ToolIcon::Rect,
+            BoardTool::Ellipse => board_icons::ToolIcon::Ellipse,
+            BoardTool::Line => board_icons::ToolIcon::Line,
+            BoardTool::Arc => board_icons::ToolIcon::Arc,
+            BoardTool::Polyline => board_icons::ToolIcon::Polyline,
+            BoardTool::BezierSpan => board_icons::ToolIcon::Bezier,
+            BoardTool::Text => board_icons::ToolIcon::Text,
         }
     }
 
     pub fn hotkey(self) -> &'static str {
         match self {
             BoardTool::Select => "V",
+            BoardTool::Pan => "H",
             BoardTool::Frame => "F",
             BoardTool::RectShape => "R",
             BoardTool::Ellipse => "O",
@@ -154,7 +161,7 @@ impl BoardTool {
             BoardTool::Line | BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => {
                 Some(CreateCategory::Curve)
             }
-            BoardTool::Select | BoardTool::Text => None,
+            BoardTool::Select | BoardTool::Pan | BoardTool::Text => None,
         }
     }
 
@@ -1007,8 +1014,17 @@ impl SlateApp {
             }
         }
         let space = ui.input(|i| i.key_down(egui::Key::Space));
+        let hand_pan = self.board_tool == BoardTool::Pan;
         let panning = resp.dragged_by(egui::PointerButton::Middle)
-            || (space && resp.dragged_by(egui::PointerButton::Primary));
+            || (space && resp.dragged_by(egui::PointerButton::Primary))
+            || (hand_pan && resp.dragged_by(egui::PointerButton::Primary));
+        if hand_pan && resp.hovered() {
+            ui.ctx().set_cursor_icon(if panning {
+                egui::CursorIcon::Grabbing
+            } else {
+                egui::CursorIcon::Grab
+            });
+        }
         if panning {
             let delta = resp.drag_delta();
             let zc = self.tab().cam.z;
@@ -1265,6 +1281,7 @@ impl SlateApp {
                 }
             }
             BoardTool::Text => None, // created on click, not drag
+            BoardTool::Pan => None,  // drag pans the canvas
             tool => {
                 if !tool.is_implemented() {
                     self.toast(format!(
@@ -1604,33 +1621,42 @@ impl SlateApp {
         let palette = self.palette();
         let tool = self.board_tool;
         let preset = self.board_frame_preset;
+        let ink = palette.ink;
+        let accent = palette.accent;
+        let hover_fill = palette.card_hover;
+        let selected_fill = palette.accent.gamma_multiply(0.22);
         let mut pick_tool: Option<BoardTool> = None;
         let mut pick_preset: Option<FramePreset> = None;
         let mut open_custom = false;
 
         egui::Area::new(egui::Id::new("slate_board_tools"))
-            .fixed_pos(Pos2::new(canvas.center().x - 150.0, canvas.min.y + 8.0))
+            .fixed_pos(Pos2::new(canvas.center().x - 168.0, canvas.min.y + 8.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())
                     .fill(palette.card)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            // Select — click to enter selection mode.
-                            let on = tool == BoardTool::Select;
-                            if ui
-                                .selectable_label(
+                            // Select — pointer; Pan — hand grip.
+                            for nav in [BoardTool::Select, BoardTool::Pan] {
+                                let on = tool == nav;
+                                let resp = board_icons::tool_icon_button(
+                                    ui,
+                                    nav.tool_icon(),
                                     on,
-                                    egui::RichText::new(BoardTool::Select.icon()).size(15.0),
+                                    ink,
+                                    accent,
+                                    hover_fill,
+                                    selected_fill,
                                 )
                                 .on_hover_text(format!(
                                     "{} ({})",
-                                    BoardTool::Select.label(),
-                                    BoardTool::Select.hotkey()
-                                ))
-                                .clicked()
-                            {
-                                pick_tool = Some(BoardTool::Select);
+                                    nav.label(),
+                                    nav.hotkey()
+                                ));
+                                if resp.clicked() {
+                                    pick_tool = Some(nav);
+                                }
                             }
 
                             ui.separator();
@@ -1642,31 +1668,35 @@ impl SlateApp {
                                 preset.label(),
                                 BoardTool::Frame.hotkey()
                             );
-                            let frame_resp = ui
-                                .selectable_label(
-                                    frame_on,
-                                    egui::RichText::new(BoardTool::Frame.icon()).size(15.0),
-                                )
-                                .on_hover_text(&frame_hint)
-                                .on_hover_ui(|ui| {
-                                    ui.set_min_width(120.0);
-                                    ui.label(egui::RichText::new("Frame size").small().strong());
-                                    ui.separator();
-                                    for preset in [
-                                        FramePreset::Letter,
-                                        FramePreset::Tabloid,
-                                        FramePreset::Wide169,
-                                    ] {
-                                        if ui.button(preset.label()).clicked() {
-                                            pick_preset = Some(preset);
-                                            pick_tool = Some(BoardTool::Frame);
-                                        }
-                                    }
-                                    if ui.button("Custom…").clicked() {
-                                        open_custom = true;
+                            let frame_resp = board_icons::tool_icon_button(
+                                ui,
+                                board_icons::ToolIcon::Frame,
+                                frame_on,
+                                ink,
+                                accent,
+                                hover_fill,
+                                selected_fill,
+                            )
+                            .on_hover_text(&frame_hint)
+                            .on_hover_ui(|ui| {
+                                ui.set_min_width(120.0);
+                                ui.label(egui::RichText::new("Frame size").small().strong());
+                                ui.separator();
+                                for preset in [
+                                    FramePreset::Letter,
+                                    FramePreset::Tabloid,
+                                    FramePreset::Wide169,
+                                ] {
+                                    if ui.button(preset.label()).clicked() {
+                                        pick_preset = Some(preset);
                                         pick_tool = Some(BoardTool::Frame);
                                     }
-                                });
+                                }
+                                if ui.button("Custom…").clicked() {
+                                    open_custom = true;
+                                    pick_tool = Some(BoardTool::Frame);
+                                }
+                            });
                             if frame_resp.clicked() {
                                 pick_tool = Some(BoardTool::Frame);
                             }
@@ -1674,25 +1704,34 @@ impl SlateApp {
                             // Shapes — hover for 2D primitives.
                             let shapes_on =
                                 matches!(tool, BoardTool::RectShape | BoardTool::Ellipse);
-                            let shapes_resp = ui
-                                .selectable_label(shapes_on, egui::RichText::new("▣").size(15.0))
-                                .on_hover_text("Shapes — rectangle, ellipse")
-                                .on_hover_ui(|ui| {
-                                    ui.set_min_width(110.0);
-                                    ui.label(egui::RichText::new("2D shapes").small().strong());
-                                    ui.separator();
-                                    for shape in [BoardTool::RectShape, BoardTool::Ellipse] {
-                                        if ui
-                                            .selectable_label(
-                                                tool == shape,
-                                                format!("{} {}", shape.icon(), shape.label()),
-                                            )
-                                            .clicked()
-                                        {
-                                            pick_tool = Some(shape);
-                                        }
+                            let shapes_resp = board_icons::tool_icon_button(
+                                ui,
+                                board_icons::ToolIcon::Shapes,
+                                shapes_on,
+                                ink,
+                                accent,
+                                hover_fill,
+                                selected_fill,
+                            )
+                            .on_hover_text("Shapes — rectangle, ellipse")
+                            .on_hover_ui(|ui| {
+                                ui.set_min_width(130.0);
+                                ui.label(egui::RichText::new("2D shapes").small().strong());
+                                ui.separator();
+                                for shape in [BoardTool::RectShape, BoardTool::Ellipse] {
+                                    if board_icons::tool_menu_row(
+                                        ui,
+                                        shape.tool_icon(),
+                                        shape.label(),
+                                        tool == shape,
+                                        ink,
+                                    )
+                                    .clicked()
+                                    {
+                                        pick_tool = Some(shape);
                                     }
-                                });
+                                }
+                            });
                             if shapes_resp.clicked() && pick_tool.is_none() {
                                 pick_tool = Some(BoardTool::RectShape);
                             }
@@ -1705,51 +1744,64 @@ impl SlateApp {
                                     | BoardTool::Polyline
                                     | BoardTool::BezierSpan
                             );
-                            let curve_resp = ui
-                                .selectable_label(curve_on, egui::RichText::new("⌇").size(15.0))
-                                .on_hover_text("Curve — line, arc, polyline, bezier")
-                                .on_hover_ui(|ui| {
-                                    ui.set_min_width(130.0);
-                                    ui.label(egui::RichText::new("Curves").small().strong());
-                                    ui.separator();
-                                    for curve in [
-                                        BoardTool::Line,
-                                        BoardTool::Arc,
-                                        BoardTool::Polyline,
-                                        BoardTool::BezierSpan,
-                                    ] {
-                                        let resp = ui.selectable_label(
-                                            tool == curve,
-                                            format!("{} {}", curve.icon(), curve.label()),
-                                        );
-                                        let resp = if curve.is_implemented() {
-                                            resp
-                                        } else {
-                                            resp.on_hover_text("Coming soon")
-                                        };
-                                        if resp.clicked() {
-                                            pick_tool = Some(curve);
-                                        }
+                            let curve_resp = board_icons::tool_icon_button(
+                                ui,
+                                board_icons::ToolIcon::Curve,
+                                curve_on,
+                                ink,
+                                accent,
+                                hover_fill,
+                                selected_fill,
+                            )
+                            .on_hover_text("Curve — line, arc, polyline, bezier")
+                            .on_hover_ui(|ui| {
+                                ui.set_min_width(140.0);
+                                ui.label(egui::RichText::new("Curves").small().strong());
+                                ui.separator();
+                                for curve in [
+                                    BoardTool::Line,
+                                    BoardTool::Arc,
+                                    BoardTool::Polyline,
+                                    BoardTool::BezierSpan,
+                                ] {
+                                    let resp = board_icons::tool_menu_row(
+                                        ui,
+                                        curve.tool_icon(),
+                                        curve.label(),
+                                        tool == curve,
+                                        ink,
+                                    );
+                                    let resp = if curve.is_implemented() {
+                                        resp
+                                    } else {
+                                        resp.on_hover_text("Coming soon")
+                                    };
+                                    if resp.clicked() {
+                                        pick_tool = Some(curve);
                                     }
-                                });
+                                }
+                            });
                             if curve_resp.clicked() && pick_tool.is_none() {
                                 pick_tool = Some(BoardTool::Line);
                             }
 
                             // Text — click to draw a text box.
                             let text_on = tool == BoardTool::Text;
-                            if ui
-                                .selectable_label(
-                                    text_on,
-                                    egui::RichText::new(BoardTool::Text.icon()).size(15.0),
-                                )
-                                .on_hover_text(format!(
-                                    "{} ({}) — click to place",
-                                    BoardTool::Text.label(),
-                                    BoardTool::Text.hotkey()
-                                ))
-                                .clicked()
-                            {
+                            let text_resp = board_icons::tool_icon_button(
+                                ui,
+                                board_icons::ToolIcon::Text,
+                                text_on,
+                                ink,
+                                accent,
+                                hover_fill,
+                                selected_fill,
+                            )
+                            .on_hover_text(format!(
+                                "{} ({}) — click to place",
+                                BoardTool::Text.label(),
+                                BoardTool::Text.hotkey()
+                            ));
+                            if text_resp.clicked() {
                                 pick_tool = Some(BoardTool::Text);
                             }
 

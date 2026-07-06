@@ -98,6 +98,11 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Board",
+        name: "Pan tool (hand)",
+        binding: "H, or middle-drag / Space + drag (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
         name: "Frame tool (slides)",
         binding: "F, then click or drag (Board view)",
     },
@@ -134,7 +139,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Pan board",
-        binding: "Middle-drag, or Space + left-drag",
+        binding: "H (hand tool), middle-drag, or Space + left-drag",
     },
     CommandEntry {
         category: "Board",
