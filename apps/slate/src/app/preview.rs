@@ -24,6 +24,8 @@ use atlas_core::thumbs::THUMB_PX;
 use eframe::egui::{self, TextureHandle};
 use slate_doc::ItemId;
 
+use super::pdf;
+
 /// Don't start a full-res decode until the thumbnail is visibly upscaled.
 const UPGRADE_FACTOR: f32 = 1.15;
 
@@ -53,10 +55,17 @@ impl SlateApp {
     /// thumbnail, else `None` (caller paints its placeholder). Queues the
     /// thumbnail and any preview upgrade as side effects — never blocks.
     pub fn item_texture(&mut self, item_id: ItemId, desired_px: f32) -> Option<TextureHandle> {
-        let (key, path) = self
-            .doc()
-            .item(item_id)
-            .map(|it| (it.cache_key.clone(), it.path.clone()))?;
+        let (key, path, pdf_page) = self.doc().item(item_id).map(|it| {
+            (
+                pdf::item_thumb_key(it),
+                it.path.clone(),
+                if it.pdf_page == 0 {
+                    None
+                } else {
+                    Some(it.pdf_page)
+                },
+            )
+        })?;
         if key.is_empty() {
             return None;
         }
@@ -88,6 +97,7 @@ impl SlateApp {
                     path,
                     key: key.clone(),
                     target_px: tier,
+                    pdf_page,
                 });
             }
             // Touch the LRU only while the preview is actually needed; a

@@ -52,6 +52,8 @@ pub struct PreviewRequest {
     pub key: String,
     /// Quantized ladder rung to decode toward (longest edge, px).
     pub target_px: u32,
+    /// PDF page index (0-based). `None` renders page 1 (legacy default).
+    pub pdf_page: Option<u16>,
 }
 
 pub struct PreviewResult {
@@ -119,7 +121,7 @@ fn worker(shared: Arc<Shared>, tx: Sender<PreviewResult>) {
         };
         // Results no larger than the thumbnail tier carry no extra detail;
         // report them as "can't beat the thumbnail" so callers stop asking.
-        let image = decode_preview(&req.path, req.target_px)
+        let image = decode_preview(&req.path, req.target_px, req.pdf_page)
             .filter(|(w, h, _)| (*w).max(*h) > crate::thumbs::THUMB_PX as u32);
         let _ = tx.send(PreviewResult { id: req.id, image });
     }
@@ -138,7 +140,11 @@ pub fn tier_for(desired_px: f32, max_px: u32) -> u32 {
 }
 
 /// Decode one file toward `target_px` (longest edge). Never upscales.
-pub fn decode_preview(path: &Path, target_px: u32) -> Option<(u32, u32, Vec<u8>)> {
+pub fn decode_preview(
+    path: &Path,
+    target_px: u32,
+    pdf_page: Option<u16>,
+) -> Option<(u32, u32, Vec<u8>)> {
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
@@ -148,7 +154,7 @@ pub fn decode_preview(path: &Path, target_px: u32) -> Option<(u32, u32, Vec<u8>)
         "png" | "jpg" | "jpeg" => decode_raster(path, target_px)
             .or_else(|| crate::thumbs::shell_image_at(path, target_px as i32)),
         // PDFs render via the shared pdfium worker at the requested size.
-        "pdf" => crate::pdf::thumbnail(path, target_px as i32),
+        "pdf" => crate::pdf::thumbnail_page(path, pdf_page.unwrap_or(0), target_px as i32),
         // Everything else: the platform shell (Windows) often produces large
         // previews — video posters, HEIC/PSD with codec packs installed, …
         _ => crate::thumbs::shell_image_at(path, target_px as i32),
@@ -215,12 +221,12 @@ mod tests {
     #[test]
     fn decode_downscales_but_never_upscales() {
         let big = temp_png("big.png", 1000, 500);
-        let (w, h, rgba) = decode_preview(&big, 512).expect("large png decodes");
+        let (w, h, rgba) = decode_preview(&big, 512, None).expect("large png decodes");
         assert_eq!((w, h), (512, 256));
         assert_eq!(rgba.len(), (w * h * 4) as usize);
 
         let small = temp_png("small.png", 100, 80);
-        let (w, h, _) = decode_preview(&small, 512).expect("small png decodes");
+        let (w, h, _) = decode_preview(&small, 512, None).expect("small png decodes");
         assert_eq!((w, h), (100, 80), "sources are never upscaled");
     }
 
@@ -234,12 +240,14 @@ mod tests {
             path: big,
             key: "big".into(),
             target_px: 512,
+            pdf_page: None,
         });
         pool.request(PreviewRequest {
             id: 2,
             path: tiny,
             key: "tiny".into(),
             target_px: 512,
+            pdf_page: None,
         });
         let mut got_big = false;
         let mut got_tiny = false;

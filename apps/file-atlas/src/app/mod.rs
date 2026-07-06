@@ -269,6 +269,7 @@ fn prewarm_walk(
                 color_only: false,
                 shared_dir: ctx.1.clone(),
                 src_bytes: fe.size,
+                pdf_page: None,
             });
             queued.fetch_add(1, Relaxed);
             bytes_queued.fetch_add(fe.size, Relaxed);
@@ -1007,6 +1008,7 @@ impl AtlasApp {
                 color_only: false,
                 shared_dir: self.shared_cache.clone(),
                 src_bytes: e.size,
+                pdf_page: None,
             });
             self.warm_pending += 1;
         }
@@ -3490,6 +3492,7 @@ impl AtlasApp {
                     color_only: false,
                     shared_dir: self.shared_cache.clone(),
                     src_bytes: e.size,
+                    pdf_page: None,
                 });
             }
             ThumbState::Loaded => {
@@ -3504,6 +3507,7 @@ impl AtlasApp {
                         color_only: false,
                         shared_dir: self.shared_cache.clone(),
                         src_bytes: e.size,
+                        pdf_page: None,
                     });
                 }
             }
@@ -3537,6 +3541,7 @@ impl AtlasApp {
             color_only: true,
             shared_dir: self.shared_cache.clone(),
             src_bytes: e.size,
+            pdf_page: None,
         });
     }
 
