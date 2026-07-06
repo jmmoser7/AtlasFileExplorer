@@ -637,6 +637,61 @@ pub fn resize_from_handle(
     r
 }
 
+/// Rotate `p` about `center` by `delta_deg` (clockwise in y-down world
+/// space — same convention as `WorldRect::corners_rotated`).
+pub fn orbit_point(center: (f32, f32), p: (f32, f32), delta_deg: f32) -> (f32, f32) {
+    let rad = delta_deg.to_radians();
+    let (sin, cos) = rad.sin_cos();
+    let dx = p.0 - center.0;
+    let dy = p.1 - center.1;
+    (
+        center.0 + dx * cos - dy * sin,
+        center.1 + dx * sin + dy * cos,
+    )
+}
+
+fn segments_intersect(a1: (f32, f32), a2: (f32, f32), b1: (f32, f32), b2: (f32, f32)) -> bool {
+    fn orient(p: (f32, f32), q: (f32, f32), r: (f32, f32)) -> f32 {
+        (q.0 - p.0) * (r.1 - p.1) - (q.1 - p.1) * (r.0 - p.0)
+    }
+    let d1 = orient(b1, b2, a1);
+    let d2 = orient(b1, b2, a2);
+    let d3 = orient(a1, a2, b1);
+    let d4 = orient(a1, a2, b2);
+    ((d1 > 0.0) != (d2 > 0.0)) && ((d3 > 0.0) != (d4 > 0.0))
+}
+
+/// Does an axis-aligned marquee rect intersect a node's *rotated* rect?
+/// Corner-in-rect, rect-corner-in-polygon, or any edge crossing counts.
+pub fn marquee_intersects_rotated(marquee: WorldRect, rect: WorldRect, rotation_deg: f32) -> bool {
+    let corners = rect.corners_rotated(rotation_deg);
+    if corners.iter().any(|(x, y)| marquee.contains(*x, *y)) {
+        return true;
+    }
+    let mc = [
+        (marquee.x, marquee.y),
+        (marquee.x + marquee.w, marquee.y),
+        (marquee.x + marquee.w, marquee.y + marquee.h),
+        (marquee.x, marquee.y + marquee.h),
+    ];
+    if mc
+        .iter()
+        .any(|(x, y)| rect.contains_rotated(*x, *y, rotation_deg))
+    {
+        return true;
+    }
+    for i in 0..4 {
+        let a1 = corners[i];
+        let a2 = corners[(i + 1) % 4];
+        for j in 0..4 {
+            if segments_intersect(a1, a2, mc[j], mc[(j + 1) % 4]) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Shift-constrain a rubber-band draw rect (square for shapes/frames).
 pub fn constrain_draw_rect(raw: WorldRect, tool_square: bool, shift: bool) -> WorldRect {
     if !shift || !tool_square {
@@ -674,6 +729,26 @@ mod tests {
     fn rotation_snaps_to_45() {
         assert!((snap_rotation_deg(44.0, ROTATION_SNAP_DEG) - 45.0).abs() < 0.01);
         assert!((snap_rotation_deg(10.0, ROTATION_SNAP_DEG) - 10.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn orbit_rotates_about_center() {
+        let (x, y) = orbit_point((0.0, 0.0), (10.0, 0.0), 90.0);
+        assert!((x - 0.0).abs() < 1e-4, "x={x}");
+        assert!((y - 10.0).abs() < 1e-4, "y={y}");
+        // Full turn is the identity.
+        let (x, y) = orbit_point((5.0, 5.0), (8.0, 2.0), 360.0);
+        assert!((x - 8.0).abs() < 1e-3 && (y - 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn marquee_hits_rotated_node() {
+        // A tall thin node rotated 90° lies horizontally: a marquee over its
+        // extended end must hit it even though the stored rect misses.
+        let node = WorldRect::new(45.0, 0.0, 10.0, 100.0); // center (50, 50)
+        let marquee = WorldRect::new(80.0, 40.0, 40.0, 20.0);
+        assert!(!marquee_intersects_rotated(marquee, node, 0.0));
+        assert!(marquee_intersects_rotated(marquee, node, 90.0));
     }
 
     #[test]

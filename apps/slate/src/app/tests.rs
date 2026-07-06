@@ -508,8 +508,10 @@ fn export_renders_kind_specific_cards() {
 
     let ids = h.app.add_paths(&[notes, clip, report]);
     assert_eq!(ids.len(), 3);
+    // Drop at the frame center: the multi-item grid is centered on the drop
+    // point, so this keeps all three cards inside the exported frame.
     h.app
-        .place_items_on_board(&ids, eframe::egui::Pos2::new(100.0, 100.0));
+        .place_items_on_board(&ids, eframe::egui::Pos2::new(400.0, 225.0));
     for _ in 0..3 {
         h.frame(); // board paints snippet cards / badges without panicking
     }

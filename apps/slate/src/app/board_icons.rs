@@ -187,18 +187,39 @@ pub fn tool_icon_button(
     response
 }
 
-/// Submenu row: small icon + label.
+/// Submenu row: small icon + label, with an optional right-aligned dim hotkey.
 pub fn tool_menu_row(
     ui: &mut Ui,
     icon: ToolIcon,
     label: &str,
+    hotkey: Option<&str>,
     selected: bool,
     ink: Color32,
+    sub: Color32,
 ) -> Response {
     ui.horizontal(|ui| {
         let (icon_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
         paint_tool_icon(ui.painter(), icon_rect.shrink(1.0), icon, ink);
-        ui.selectable_label(selected, label)
+        let resp = ui.selectable_label(selected, label);
+        if let Some(key) = hotkey {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(egui::RichText::new(key).small().color(sub));
+            });
+        }
+        resp
     })
     .inner
+}
+
+/// Tiny bottom-right triangle marking a toolbar button that owns a flyout
+/// submenu (Adobe/Figma convention).
+pub fn paint_flyout_corner(painter: &egui::Painter, r: Rect, color: Color32) {
+    let a = Pos2::new(r.max.x - 3.5, r.max.y - 8.0);
+    let b = Pos2::new(r.max.x - 3.5, r.max.y - 3.5);
+    let c = Pos2::new(r.max.x - 8.0, r.max.y - 3.5);
+    painter.add(egui::Shape::convex_polygon(
+        vec![a, b, c],
+        color,
+        Stroke::NONE,
+    ));
 }

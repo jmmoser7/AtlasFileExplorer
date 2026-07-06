@@ -10,7 +10,8 @@
 //!   mesh, no GPU buffers, no per-frame work. Duplicating the node and
 //!   changing each copy's camera is how one model appears from several
 //!   perspectives across slides.
-//! - **Unlocked (hover the node → padlock).** The mesh is parsed off-thread
+//! - **Unlocked (double-click the node, or hover → padlock).** The mesh is
+//!   parsed off-thread
 //!   (`rhino-mesh` reads the render meshes Rhino cached into the file),
 //!   uploaded to the GPU, and rendered live with Rhino-style controls:
 //!   drag = orbit, Shift+drag = pan, scroll = zoom. At most [`MAX_LIVE`]
@@ -32,7 +33,9 @@
 //! extracts — same look as before this feature existed.
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -250,6 +253,97 @@ fn quantize_px(v: f32) -> u32 {
     (((v / 32.0).ceil() * 32.0) as u32).clamp(64, MAX_RENDER_PX)
 }
 
+// ---------- parse progress ----------
+
+/// Coarse stage of an off-thread model parse, for the in-viewport load bar.
+const STAGE_READING: u8 = 0;
+const STAGE_PARSING: u8 = 1;
+const STAGE_DONE: u8 = 2;
+
+/// Reading the file is the measurable part; parsing gets the tail slice.
+const READ_SPAN: f32 = 0.75;
+const PARSE_CHECKPOINT: f32 = 0.9;
+
+/// Progress shared between the parse worker and the paint pass. The file
+/// read is measured exactly (bytes copied vs file size); the mesh parse has
+/// no incremental hook in `rhino-mesh`, so it reports a fixed checkpoint and
+/// the UI eases the bar between checkpoints.
+pub struct ParseProgress {
+    /// File size in bytes (0 until stat'd).
+    total: AtomicU64,
+    /// Bytes read from disk so far.
+    read: AtomicU64,
+    /// One of `STAGE_READING` / `STAGE_PARSING` / `STAGE_DONE`.
+    stage: AtomicU8,
+}
+
+impl ParseProgress {
+    fn new() -> Self {
+        ParseProgress {
+            total: AtomicU64::new(0),
+            read: AtomicU64::new(0),
+            stage: AtomicU8::new(STAGE_READING),
+        }
+    }
+
+    fn set_total(&self, bytes: u64) {
+        self.total.store(bytes, Ordering::Relaxed);
+    }
+
+    fn add_read(&self, bytes: u64) {
+        self.read.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    fn set_stage(&self, stage: u8) {
+        self.stage.store(stage, Ordering::Relaxed);
+    }
+
+    /// Monotonic 0..=1 checkpoint for the load bar: the byte-accurate read
+    /// fills `0..READ_SPAN`, parsing sits at `PARSE_CHECKPOINT`, done = 1.
+    pub fn fraction(&self) -> f32 {
+        match self.stage.load(Ordering::Relaxed) {
+            STAGE_READING => {
+                let total = self.total.load(Ordering::Relaxed);
+                let read = self.read.load(Ordering::Relaxed);
+                if total == 0 {
+                    0.0
+                } else {
+                    READ_SPAN * (read as f32 / total as f32).clamp(0.0, 1.0)
+                }
+            }
+            STAGE_PARSING => PARSE_CHECKPOINT,
+            _ => 1.0,
+        }
+    }
+}
+
+/// Worker-side parse: read the file in chunks (updating `progress` so the
+/// UI bar tracks real bytes), then hand the buffer to the mesh parser.
+fn parse_with_progress(path: &Path, progress: &ParseProgress) -> Result<rhino_mesh::Model, String> {
+    let bytes = read_counted(path, progress).map_err(|e| e.to_string())?;
+    progress.set_stage(STAGE_PARSING);
+    let result = rhino_mesh::read_render_meshes_from(&bytes).map_err(|e| e.to_string());
+    progress.set_stage(STAGE_DONE);
+    result
+}
+
+fn read_counted(path: &Path, progress: &ParseProgress) -> std::io::Result<Vec<u8>> {
+    let mut file = std::fs::File::open(path)?;
+    let total = file.metadata()?.len();
+    progress.set_total(total);
+    let mut buf = Vec::with_capacity(total as usize);
+    let mut chunk = vec![0u8; 512 * 1024];
+    loop {
+        let n = file.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        progress.add_read(n as u64);
+    }
+    Ok(buf)
+}
+
 // ---------- state ----------
 
 /// Parse status of one model file (keyed by the item's thumbnail cache key,
@@ -284,6 +378,8 @@ struct GpuEntry {
 struct CpuEntry {
     state: ModelState,
     last_used: Instant,
+    /// Load-bar state while `state` is `Loading`.
+    progress: Arc<ParseProgress>,
 }
 
 enum EngineSlot {
@@ -337,18 +433,20 @@ impl ModelSpace {
         if self.models.contains_key(cache_key) {
             return;
         }
+        let progress = Arc::new(ParseProgress::new());
         self.models.insert(
             cache_key.to_string(),
             CpuEntry {
                 state: ModelState::Loading,
                 last_used: Instant::now(),
+                progress: progress.clone(),
             },
         );
         let tx = self.parse_tx.clone();
         let key = cache_key.to_string();
         let path = path.to_path_buf();
         std::thread::spawn(move || {
-            let result = rhino_mesh::read_render_meshes(&path).map_err(|e| e.to_string());
+            let result = parse_with_progress(&path, &progress);
             let _ = tx.send((key, result));
         });
     }
@@ -867,6 +965,13 @@ impl SlateApp {
             }
         });
         self.last_board_edit = None;
+    }
+
+    /// Load-bar checkpoint (0..=1) while a model file is still parsing.
+    /// `None` once the parse finished (ready or failed) or never started.
+    pub fn model_parse_progress(&self, cache_key: &str) -> Option<f32> {
+        let entry = self.model3d.models.get(cache_key)?;
+        matches!(entry.state, ModelState::Loading).then(|| entry.progress.fraction())
     }
 
     /// Parse-failure message for a model file, if it failed.
@@ -1458,6 +1563,33 @@ mod tests {
         let (w, h) = poster_size(50);
         assert_eq!(h, POSTER_LONG_EDGE);
         assert_eq!(w, POSTER_LONG_EDGE / 2);
+    }
+
+    #[test]
+    fn parse_progress_checkpoints_are_monotonic() {
+        let p = ParseProgress::new();
+        // No file size yet: nothing meaningful to report.
+        assert_eq!(p.fraction(), 0.0);
+        p.set_total(1000);
+        assert_eq!(p.fraction(), 0.0);
+        p.add_read(500);
+        let half = p.fraction();
+        assert!(half > 0.0 && half < READ_SPAN);
+        p.add_read(500);
+        assert!((p.fraction() - READ_SPAN).abs() < 1e-6);
+        p.set_stage(STAGE_PARSING);
+        assert!(p.fraction() >= READ_SPAN);
+        assert_eq!(p.fraction(), PARSE_CHECKPOINT);
+        p.set_stage(STAGE_DONE);
+        assert_eq!(p.fraction(), 1.0);
+    }
+
+    #[test]
+    fn parse_progress_clamps_overshoot() {
+        let p = ParseProgress::new();
+        p.set_total(100);
+        p.add_read(1_000_000); // short files can over-report via chunking
+        assert!(p.fraction() <= READ_SPAN + 1e-6);
     }
 
     #[test]

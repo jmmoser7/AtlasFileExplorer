@@ -12,15 +12,16 @@
 //! - `Alt`+drag duplicates the grabbed selection; `Ctrl+D` duplicates in
 //!   place. Deleting and z-order moves are plain command groups.
 //! - Smart guides align objects to each other while moving or resizing (on by
-//!   default). Hold `Alt` to bypass snapping; `Shift` locks aspect ratio on
-//!   corner resize; `Ctrl` resizes from center (Office/PowerPoint convention).
+//!   default). Hold `Alt` to bypass snapping; corner resize scales
+//!   proportionally by default and `Shift` frees the aspect (distortion);
+//!   `Ctrl` resizes from center (Office/PowerPoint convention).
 //! - Eight resize handles plus outside-corner rotate zones with native cursor
 //!   icons; rotation snaps at 45° intervals. Grid display and snap-to-grid are
 //!   toolbar toggles; Align menu covers align/distribute with 2+ selected.
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 
-use super::{board_handles, board_icons, board_snap, SlateApp, ThumbState};
+use super::{board_crop, board_handles, board_icons, board_snap, SlateApp, ThumbState};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
     Corner, Crop, Dash, FontChoice, FrameNode, ImageAdjust, ImageNode, Node, NodeKind, Rgba,
@@ -35,8 +36,6 @@ type TagRows = Vec<(slate_doc::TagId, String, [u8; 3])>;
 
 const ZOOM_MIN: f32 = 0.05;
 const ZOOM_MAX: f32 = 3.5;
-/// Screen-px half-size of resize handles.
-const HANDLE: f32 = 5.0;
 /// Minimum node size (world units) accepted from a draw gesture.
 const MIN_DRAW: f32 = 8.0;
 /// Coalescing window for continuous inspector edits (one undo step).
@@ -48,9 +47,11 @@ pub const IMAGE_H: f32 = 180.0;
 
 // ---------- tools & gestures ----------
 
-/// Primary create-toolbar categories (hover submenus for Frame / Shapes / Curve).
+/// Toolbar categories that own a persistent flyout submenu
+/// (Nav = the combined Select/Pan button; Frame / Shapes / Curve = create tools).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CreateCategory {
+    Nav,
     Frame,
     Shapes,
     Curve,
@@ -162,12 +163,13 @@ impl BoardTool {
 
     pub fn category(self) -> Option<CreateCategory> {
         match self {
+            BoardTool::Select | BoardTool::Pan => Some(CreateCategory::Nav),
             BoardTool::Frame => Some(CreateCategory::Frame),
             BoardTool::RectShape | BoardTool::Ellipse => Some(CreateCategory::Shapes),
             BoardTool::Line | BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => {
                 Some(CreateCategory::Curve)
             }
-            BoardTool::Select | BoardTool::Pan | BoardTool::Text => None,
+            BoardTool::Text => None,
         }
     }
 
@@ -199,6 +201,35 @@ pub enum BoardDrag {
     Rotate {
         id: NodeId,
         before: Node,
+        start_angle: f32,
+    },
+    /// Crop mode: dragging a crop-window edge/corner. The node rect and the
+    /// UV crop change together so the content stays fixed — only the mask
+    /// moves (InDesign frame-edge cropping).
+    CropEdge {
+        id: NodeId,
+        before: Node,
+        handle: u8,
+    },
+    /// Crop mode: sliding the content under a fixed crop window (the center
+    /// content grabber / interior drag).
+    CropPan {
+        id: NodeId,
+        before: Node,
+        start_world: Pos2,
+    },
+    /// Scaling a multi-selection from a group bounding-box handle.
+    GroupResize {
+        ids: Vec<NodeId>,
+        before: Vec<Node>,
+        group_before: WorldRect,
+        handle: u8,
+    },
+    /// Rotating a multi-selection about the group bounding-box center.
+    GroupRotate {
+        ids: Vec<NodeId>,
+        before: Vec<Node>,
+        center: (f32, f32),
         start_angle: f32,
     },
     /// Rubber-band drawing a new node (not yet in the scene).
@@ -440,8 +471,10 @@ impl SlateApp {
         new_ids
     }
 
-    /// Place image nodes for pool items at a world position (cascading), one
-    /// undo group. Items dropped inside a tagged frame inherit its tags.
+    /// Place image nodes for pool items at a world position, one undo group.
+    /// A single item lands centered on the drop point; 2+ items are laid out
+    /// in a grid (max 10 columns) centered on it. Items whose center lands
+    /// inside a tagged frame inherit its tags.
     pub fn place_items_on_board(&mut self, items: &[ItemId], at: Pos2) {
         if items.is_empty() {
             return;
@@ -450,22 +483,27 @@ impl SlateApp {
             .iter()
             .map(|item| self.image_natural_size(*item))
             .collect();
+        let rects = grid_drop_rects(&sizes, at);
         let mut nodes = Vec::new();
         {
             let scene = &mut self.doc_mut().scene;
             for (i, item) in items.iter().enumerate() {
-                let (w, h) = sizes[i];
-                let off = i as f32 * 24.0;
-                let rect = WorldRect::new(at.x - w * 0.5 + off, at.y - h * 0.5 + off, w, h);
-                nodes.push(scene.build_node(rect, NodeKind::Image(ImageNode::new(*item))));
+                nodes.push(scene.build_node(rects[i], NodeKind::Image(ImageNode::new(*item))));
             }
         }
         let ids = self.add_nodes(nodes);
         self.board_sel = ids.iter().copied().collect();
 
-        // Frame tag inheritance.
-        if let Some(frame_id) = self.doc().scene.frame_at(at.x, at.y) {
-            self.apply_frame_tags(frame_id, items);
+        // Frame tag inheritance: each item checks its own landing center.
+        let mut per_frame: BTreeMap<NodeId, Vec<ItemId>> = BTreeMap::new();
+        for (i, item) in items.iter().enumerate() {
+            let (cx, cy) = rects[i].center();
+            if let Some(frame_id) = self.doc().scene.frame_at(cx, cy) {
+                per_frame.entry(frame_id).or_default().push(*item);
+            }
+        }
+        for (frame_id, tagged) in per_frame {
+            self.apply_frame_tags(frame_id, &tagged);
         }
     }
 
@@ -631,6 +669,29 @@ impl SlateApp {
         }
     }
 
+    /// Axis-aligned world bounds of the multi-selection (union of each
+    /// member's rotated-corner bounds). `None` when nothing is selected.
+    fn board_group_bounds(&self) -> Option<WorldRect> {
+        let mut min_x = f32::INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        let mut any = false;
+        for id in &self.board_sel {
+            let Some(n) = self.doc().scene.node(*id) else {
+                continue;
+            };
+            for (x, y) in n.rect.corners_rotated(n.rotation_deg) {
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+            any = true;
+        }
+        any.then(|| WorldRect::new(min_x, min_y, max_x - min_x, max_y - min_y))
+    }
+
     fn node_screen_outline(&self, xf: &BoardXf, node: &Node) -> Vec<Pos2> {
         node.rect
             .corners_rotated(node.rotation_deg)
@@ -761,6 +822,78 @@ fn corner_outline(rect: Rect, corner: Corner, z: f32) -> Vec<Pos2> {
             }
             pts
         }
+    }
+}
+
+/// Rotate screen points about a center (clockwise, y-down; matches
+/// `WorldRect::corners_rotated` under the uniform board zoom).
+fn rotate_points(pts: &[Pos2], center: Pos2, deg: f32) -> Vec<Pos2> {
+    let rad = deg.to_radians();
+    let (sin, cos) = rad.sin_cos();
+    pts.iter()
+        .map(|p| {
+            let d = *p - center;
+            Pos2::new(
+                center.x + d.x * cos - d.y * sin,
+                center.y + d.x * sin + d.y * cos,
+            )
+        })
+        .collect()
+}
+
+/// World rects for a multi-item drop: one item lands centered on `at`
+/// (previous behavior); 2+ items form a grid capped at 10 columns, cell
+/// pitch = the batch's max natural size + a 16px gap, the whole grid
+/// centered on the drop point, filled left-to-right then top-to-bottom.
+fn grid_drop_rects(sizes: &[(f32, f32)], at: Pos2) -> Vec<WorldRect> {
+    if sizes.len() <= 1 {
+        return sizes
+            .iter()
+            .map(|(w, h)| WorldRect::new(at.x - w * 0.5, at.y - h * 0.5, *w, *h))
+            .collect();
+    }
+    let gap = 16.0;
+    let cols = sizes.len().min(10);
+    let rows = sizes.len().div_ceil(cols);
+    let cell_w = sizes.iter().map(|s| s.0).fold(0.0f32, f32::max);
+    let cell_h = sizes.iter().map(|s| s.1).fold(0.0f32, f32::max);
+    let pitch_x = cell_w + gap;
+    let pitch_y = cell_h + gap;
+    let grid_w = cols as f32 * pitch_x - gap;
+    let grid_h = rows as f32 * pitch_y - gap;
+    let ox = at.x - grid_w * 0.5;
+    let oy = at.y - grid_h * 0.5;
+    sizes
+        .iter()
+        .enumerate()
+        .map(|(i, (w, h))| {
+            let col = (i % cols) as f32;
+            let row = (i / cols) as f32;
+            let cx = ox + col * pitch_x + cell_w * 0.5;
+            let cy = oy + row * pitch_y + cell_h * 0.5;
+            WorldRect::new(cx - w * 0.5, cy - h * 0.5, *w, *h)
+        })
+        .collect()
+}
+
+/// The fixed point of a group resize: the opposite corner/edge of the group
+/// box for the dragged handle, or the group center with Ctrl held.
+fn group_scale_anchor(gb: WorldRect, handle: u8, from_center: bool) -> (f32, f32) {
+    let (cx, cy) = gb.center();
+    if from_center {
+        return (cx, cy);
+    }
+    let (left, right) = (gb.x, gb.x + gb.w);
+    let (top, bottom) = (gb.y, gb.y + gb.h);
+    match handle {
+        0 => (right, bottom),
+        1 => (cx, bottom),
+        2 => (left, bottom),
+        3 => (left, cy),
+        4 => (left, top),
+        5 => (cx, top),
+        6 => (right, top),
+        _ => (right, cy),
     }
 }
 
@@ -995,7 +1128,7 @@ impl SlateApp {
         let tint = Color32::WHITE.gamma_multiply(alpha);
         let live = self.model3d.live.contains_key(&node_id);
 
-        let tex = if live {
+        let rendered = if live {
             self.model_live_texture(ui.ctx(), node_id, srect.width(), srect.height())
         } else {
             let poster = self
@@ -1006,10 +1139,20 @@ impl SlateApp {
             }
             poster
         };
+        let render_ready = rendered.is_some();
+
+        // Mesh parse still running for this node's file? Drives the load bar
+        // whenever the render (live frame or poster) is waiting on it.
+        let parse_progress = if render_ready {
+            None
+        } else {
+            self.model_node_info(node_id)
+                .and_then(|info| self.model_parse_progress(&info.cache_key))
+        };
 
         // While the render isn't ready, fall back to the item thumbnail
         // (atlas-core extracts the preview image embedded in .3dm files).
-        let tex = tex.or_else(|| {
+        let tex = rendered.or_else(|| {
             let desired_px = srect.width().max(srect.height()) * ui.ctx().pixels_per_point();
             self.board_texture(
                 ui.ctx(),
@@ -1030,27 +1173,69 @@ impl SlateApp {
                     palette.thumb_bg,
                     EStroke::NONE,
                 ));
-                // Distinguish "still working" from "this file has no meshes".
-                let msg = self
-                    .model_node_info(node_id)
-                    .and_then(|info| {
-                        self.model_failure(&info.cache_key)
-                            .map(|_| "No render meshes — save from a shaded viewport".to_string())
-                    })
-                    .unwrap_or_else(|| {
-                        format!(
-                            "{} — preparing 3D view…",
-                            atlas_shell::widgets::trunc(name, 18)
-                        )
-                    });
+                // Distinguish "still working" from "this file has no meshes"
+                // (the load bar overlay below carries the working state).
+                if parse_progress.is_none() {
+                    let msg = self
+                        .model_node_info(node_id)
+                        .and_then(|info| {
+                            self.model_failure(&info.cache_key).map(|_| {
+                                "No render meshes — save from a shaded viewport".to_string()
+                            })
+                        })
+                        .unwrap_or_else(|| {
+                            format!(
+                                "{} — preparing 3D view…",
+                                atlas_shell::widgets::trunc(name, 18)
+                            )
+                        });
+                    painter.text(
+                        srect.center(),
+                        Align2::CENTER_CENTER,
+                        msg,
+                        FontId::proportional(11.0),
+                        palette.sub,
+                    );
+                }
+            }
+        }
+
+        // Load bar while the mesh parse blocks this node's render (live
+        // unlock, or first poster generation for a locked node). The worker
+        // reports byte-accurate checkpoints; the bar eases between them.
+        if let Some(target) = parse_progress {
+            let palette = self.palette();
+            let shown = ui.ctx().animate_value_with_time(
+                egui::Id::new(("slate_model_progress", node_id.0)),
+                target,
+                0.4,
+            );
+            let bar_w = (srect.width() * 0.55).clamp(40.0, 180.0);
+            let bar_h = 5.0f32;
+            let bar = Rect::from_center_size(srect.center(), Vec2::new(bar_w, bar_h));
+            painter.rect_filled(
+                bar.expand2(Vec2::new(8.0, 7.0)),
+                6.0,
+                palette.card.gamma_multiply(0.85 * alpha),
+            );
+            painter.rect_filled(
+                bar,
+                bar_h * 0.5,
+                palette.border_strong.gamma_multiply(alpha),
+            );
+            let mut fill = bar;
+            fill.set_width(bar_w * shown.clamp(0.0, 1.0));
+            painter.rect_filled(fill, bar_h * 0.5, palette.accent.gamma_multiply(alpha));
+            if srect.height() > 52.0 {
                 painter.text(
-                    srect.center(),
-                    Align2::CENTER_CENTER,
-                    msg,
-                    FontId::proportional(11.0),
-                    palette.sub,
+                    bar.center_top() + Vec2::new(0.0, -6.0),
+                    Align2::CENTER_BOTTOM,
+                    "Preparing 3D view…",
+                    FontId::proportional(10.5),
+                    palette.sub.gamma_multiply(alpha),
                 );
             }
+            ui.ctx().request_repaint();
         }
 
         if live {
@@ -1227,7 +1412,13 @@ impl SlateApp {
             }
             NodeKind::Shape(s) => match s.shape {
                 ShapeKind::Rect => {
-                    let outline = corner_outline(srect, s.corner, z);
+                    // Corner treatment first, then rotate the outline about
+                    // the rect center (screen rotation matches world rotation
+                    // under the uniform board zoom).
+                    let mut outline = corner_outline(srect, s.corner, z);
+                    if rotated {
+                        outline = rotate_points(&outline, srect.center(), node.rotation_deg);
+                    }
                     if let Some(fill) = s.fill {
                         painter.add(egui::Shape::convex_polygon(
                             outline.clone(),
@@ -1239,32 +1430,61 @@ impl SlateApp {
                 }
                 ShapeKind::Ellipse => {
                     let radius = srect.size() * 0.5;
-                    if let Some(fill) = s.fill {
-                        painter.add(egui::epaint::EllipseShape::filled(
-                            srect.center(),
-                            radius,
-                            fade(rgba32(fill)),
-                        ));
-                    }
-                    if !s.stroke.is_none() {
+                    if rotated {
+                        // Sampled outline rotated about the center; fill and
+                        // dash logic both reuse it.
                         let n = 48;
-                        let pts: Vec<Pos2> = (0..=n)
+                        let pts: Vec<Pos2> = (0..n)
                             .map(|i| {
                                 let a = i as f32 / n as f32 * std::f32::consts::TAU;
                                 srect.center() + Vec2::new(a.cos() * radius.x, a.sin() * radius.y)
                             })
                             .collect();
-                        let stroke = slate_doc::scene::Stroke { ..s.stroke };
-                        // Reuse the dash logic over the sampled outline.
-                        stroke_outline(painter, &pts[..pts.len() - 1], &stroke, z);
+                        let pts = rotate_points(&pts, srect.center(), node.rotation_deg);
+                        if let Some(fill) = s.fill {
+                            painter.add(egui::Shape::convex_polygon(
+                                pts.clone(),
+                                fade(rgba32(fill)),
+                                EStroke::NONE,
+                            ));
+                        }
+                        if !s.stroke.is_none() {
+                            stroke_outline(painter, &pts, &s.stroke, z);
+                        }
+                    } else {
+                        if let Some(fill) = s.fill {
+                            painter.add(egui::epaint::EllipseShape::filled(
+                                srect.center(),
+                                radius,
+                                fade(rgba32(fill)),
+                            ));
+                        }
+                        if !s.stroke.is_none() {
+                            let n = 48;
+                            let pts: Vec<Pos2> = (0..=n)
+                                .map(|i| {
+                                    let a = i as f32 / n as f32 * std::f32::consts::TAU;
+                                    srect.center()
+                                        + Vec2::new(a.cos() * radius.x, a.sin() * radius.y)
+                                })
+                                .collect();
+                            let stroke = slate_doc::scene::Stroke { ..s.stroke };
+                            // Reuse the dash logic over the sampled outline.
+                            stroke_outline(painter, &pts[..pts.len() - 1], &stroke, z);
+                        }
                     }
                 }
                 ShapeKind::Line => {
-                    let (a, b) = if s.flip {
+                    let (mut a, mut b) = if s.flip {
                         (srect.left_bottom(), srect.right_top())
                     } else {
                         (srect.left_top(), srect.right_bottom())
                     };
+                    if rotated {
+                        let ends = rotate_points(&[a, b], srect.center(), node.rotation_deg);
+                        a = ends[0];
+                        b = ends[1];
+                    }
                     let w = (s.stroke.width.max(1.0) * z).max(0.5);
                     let color = fade(rgba32(s.stroke.color));
                     match s.stroke.dash {
@@ -1323,6 +1543,7 @@ impl SlateApp {
 
     pub fn board_canvas(&mut self, ui: &mut egui::Ui, rect: Rect) {
         self.board_snap_guides.clear();
+        self.sync_crop_mode();
         let palette = self.palette();
         let painter = ui.painter_at(rect);
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
@@ -1380,9 +1601,13 @@ impl SlateApp {
         }
 
         // --- gesture start ---
+        // Hit-test at the pointer *press origin*: by the time egui's drag
+        // threshold fires, a fast drag has often already left the tiny
+        // handle, which used to degrade corner scaling into a node move.
         if resp.drag_started_by(egui::PointerButton::Primary) && !space && !panning {
-            if let (Some(p), Some(w)) = (pointer, wp) {
-                self.board_drag = self.begin_gesture(p, w);
+            let origin = ui.input(|i| i.pointer.press_origin()).or(pointer);
+            if let Some(p) = origin {
+                self.board_drag = self.begin_gesture(p, xf.s2w(p));
             }
         }
 
@@ -1403,8 +1628,27 @@ impl SlateApp {
         }
 
         // --- clicks ---
-        if resp.clicked() && !editing_text {
-            if let Some(w) = wp {
+        if resp.clicked() {
+            if editing_text {
+                // Click-off commits the in-flight text edit (same path as
+                // Escape / lost focus), then still performs selection.
+                let outside = pointer
+                    .zip(self.text_edit.as_ref().map(|(id, _)| *id))
+                    .map(|(p, id)| {
+                        self.doc()
+                            .scene
+                            .node(id)
+                            .map(|n| !xf.rect_w2s(n.rect).expand(4.0).contains(p))
+                            .unwrap_or(true)
+                    })
+                    .unwrap_or(false);
+                if outside {
+                    self.commit_text_edit();
+                    if let Some(w) = wp {
+                        self.board_click(w, ui.input(|i| i.modifiers.ctrl));
+                    }
+                }
+            } else if let Some(w) = wp {
                 self.board_click(w, ui.input(|i| i.modifiers.ctrl));
             }
         }
@@ -1423,23 +1667,71 @@ impl SlateApp {
             }
         }
 
-        // Hover handles / rotate zones (single selection, select tool).
+        // Crop-mode hover cursors: resize arrows on the window handles,
+        // Grab/Grabbing over the interior (content pan).
+        if let Some(crop_id) = self.board_crop {
+            if resp.hovered() && !panning {
+                if let (Some(p), Some(w), Some(n)) =
+                    (pointer, wp, self.doc().scene.node(crop_id).cloned())
+                {
+                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+                    let mid_drag = matches!(
+                        self.board_drag,
+                        Some(BoardDrag::CropEdge { .. } | BoardDrag::CropPan { .. })
+                    );
+                    match &self.board_drag {
+                        Some(BoardDrag::CropEdge { handle, .. }) => {
+                            ui.ctx().set_cursor_icon(board_handles::cursor_for_resize(
+                                board_handles::ResizeHandle::from_u8(*handle),
+                                &geom,
+                            ));
+                        }
+                        Some(BoardDrag::CropPan { .. }) => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                        }
+                        _ if !mid_drag => {
+                            if let Some(h) = board_handles::hit_test_resize_handles(p, &geom) {
+                                ui.ctx()
+                                    .set_cursor_icon(board_handles::cursor_for_resize(h, &geom));
+                            } else if n.rect.contains_rotated(w.x, w.y, n.rotation_deg) {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // Hover handles / rotate zones (single node or the multi-selection
+        // group box, select tool). Suspended while crop mode is active —
+        // crop gestures own the node then.
         self.board_hover_hit = None;
         if resp.hovered()
             && !panning
             && !editing_text
             && self.board_tool == BoardTool::Select
-            && self.board_sel.len() == 1
+            && !self.board_sel.is_empty()
             && self.board_drag.is_none()
+            && self.board_crop.is_none()
         {
-            if let (Some(p), Some(id)) = (pointer, self.board_sel.iter().next()) {
-                if let Some(n) = self.doc().scene.node(*id) {
-                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+            if let Some(p) = pointer {
+                let geom = if self.board_sel.len() == 1 {
+                    let id = *self.board_sel.iter().next().unwrap();
+                    self.doc()
+                        .scene
+                        .node(id)
+                        .map(|n| board_handles::selection_geom(&xf, n.rect, n.rotation_deg))
+                } else {
+                    self.board_group_bounds()
+                        .map(|gb| board_handles::selection_geom(&xf, gb, 0.0))
+                };
+                if let Some(geom) = geom {
                     self.board_hover_hit = board_handles::hit_test_selection(p, &geom);
                     match self.board_hover_hit {
                         Some(board_handles::BoardHitTarget::Resize(h)) => {
                             ui.ctx()
-                                .set_cursor_icon(board_handles::cursor_for_resize(h));
+                                .set_cursor_icon(board_handles::cursor_for_resize(h, &geom));
                         }
                         Some(board_handles::BoardHitTarget::Rotate(_)) => {
                             ui.ctx().set_cursor_icon(board_handles::cursor_for_rotate());
@@ -1463,8 +1755,10 @@ impl SlateApp {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
 
-        // Selection adornment (8 handles + rotate zones on single selection).
-        if self.board_sel.len() == 1 {
+        // Selection adornment: 8 handles + rotate zones on a single node, or
+        // per-node outlines plus the same geometry on the group box with 2+.
+        // The crop-mode node draws its own adornment (below) instead.
+        if self.board_sel.len() == 1 && self.board_crop != self.board_sel.iter().next().copied() {
             if let Some(id) = self.board_sel.iter().next() {
                 if let Some(n) = self.doc().scene.node(*id) {
                     let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
@@ -1485,6 +1779,64 @@ impl SlateApp {
                         EStroke::new(1.5, palette.select),
                     ));
                 }
+            }
+            if self.board_sel.len() >= 2 {
+                if let Some(gb) = self.board_group_bounds() {
+                    let geom = board_handles::selection_geom(&xf, gb, 0.0);
+                    board_handles::paint_selection(
+                        &painter,
+                        &geom,
+                        palette.select,
+                        self.board_hover_hit,
+                    );
+                }
+            }
+        }
+
+        // Crop-mode overlay: ghosted full image, scrim, crop border +
+        // handles, content grabber.
+        self.paint_crop_overlay(ui, &painter, &xf);
+
+        // Mid-gesture cursor: keep the resize arrow / rotate glyph pinned
+        // while the drag is active, even when the pointer leaves the handle.
+        match &self.board_drag {
+            Some(BoardDrag::Resize { id, handle, .. }) => {
+                let (id, handle) = (*id, *handle);
+                if let Some(n) = self.doc().scene.node(id) {
+                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+                    ui.ctx().set_cursor_icon(board_handles::cursor_for_resize(
+                        board_handles::ResizeHandle::from_u8(handle),
+                        &geom,
+                    ));
+                }
+            }
+            Some(BoardDrag::GroupResize { handle, .. }) => {
+                let handle = *handle;
+                if let Some(gb) = self.board_group_bounds() {
+                    let geom = board_handles::selection_geom(&xf, gb, 0.0);
+                    ui.ctx().set_cursor_icon(board_handles::cursor_for_resize(
+                        board_handles::ResizeHandle::from_u8(handle),
+                        &geom,
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        // Rotate cursor: egui has no native rotate icon, so the OS cursor is
+        // hidden over rotate zones and a circular-arrow glyph is painted at
+        // the pointer (also during an active rotate drag).
+        let rotate_cursor = matches!(
+            self.board_hover_hit,
+            Some(board_handles::BoardHitTarget::Rotate(_))
+        ) || matches!(
+            self.board_drag,
+            Some(BoardDrag::Rotate { .. }) | Some(BoardDrag::GroupRotate { .. })
+        );
+        if rotate_cursor {
+            if let Some(p) = pointer {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                board_handles::paint_rotate_cursor(&painter, p, palette.select);
             }
         }
 
@@ -1509,8 +1861,7 @@ impl SlateApp {
                     painter.line_segment([a, b], EStroke::new(1.5, accent));
                 }
                 BoardTool::Ellipse => {
-                    let preview =
-                        self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
+                    let preview = self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
                     painter.add(egui::epaint::EllipseShape {
                         center: preview.center(),
                         radius: preview.size() * 0.5,
@@ -1519,8 +1870,7 @@ impl SlateApp {
                     });
                 }
                 _ => {
-                    let preview =
-                        self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
+                    let preview = self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
                     painter.rect_stroke(
                         preview,
                         0.0,
@@ -1603,6 +1953,34 @@ impl SlateApp {
             if !live && !hovered {
                 continue;
             }
+            // Locked + hovered: advertise that navigation exists at all —
+            // the padlock alone is easy to miss (and absent on small nodes).
+            if !live && hovered && self.board_drag.is_none() {
+                let painter = ui.painter_at(self.canvas_rect);
+                let text = if srect.width() >= 150.0 {
+                    "Double-click to enter 3D"
+                } else {
+                    "2×click: 3D"
+                };
+                let pos = srect.center_bottom() + Vec2::new(0.0, -8.0);
+                let galley = painter.layout_no_wrap(
+                    text.into(),
+                    FontId::proportional(10.5),
+                    Color32::from_white_alpha(235),
+                );
+                let bg = Rect::from_center_size(
+                    pos - Vec2::new(0.0, galley.size().y * 0.5),
+                    galley.size() + Vec2::new(12.0, 6.0),
+                );
+                if bg.width() < srect.width() {
+                    painter.rect_filled(bg, bg.height() * 0.5, Color32::from_black_alpha(150));
+                    painter.galley(
+                        bg.center() - galley.size() * 0.5,
+                        galley,
+                        Color32::from_white_alpha(235),
+                    );
+                }
+            }
             let side = 24.0f32;
             if srect.width() < side * 2.0 || srect.height() < side * 2.0 {
                 continue; // too small on screen for an in-node button
@@ -1649,7 +2027,8 @@ impl SlateApp {
                 "Lock the viewport — freezes this camera angle as the slide image \
                  (auto-locks after 30 s idle)"
             } else {
-                "Unlock the 3D viewport — drag to orbit, Shift+drag to pan, scroll to zoom"
+                "Unlock the 3D viewport (or double-click it) — drag to orbit, \
+                 Shift+drag to pan, scroll to zoom"
             };
             if resp.on_hover_text(hover_hint).clicked() {
                 if live {
@@ -1669,16 +2048,6 @@ impl SlateApp {
         let cam_z = cam.z;
         let center = self.canvas_rect.center();
         self.tab_mut().cam.offset = world_before.to_vec2() - (pointer - center) / cam_z;
-    }
-
-    fn handle_rects(sr: Rect) -> [Rect; 4] {
-        let h = Vec2::splat(HANDLE);
-        [
-            Rect::from_center_size(sr.left_top(), h * 2.0),
-            Rect::from_center_size(sr.right_top(), h * 2.0),
-            Rect::from_center_size(sr.right_bottom(), h * 2.0),
-            Rect::from_center_size(sr.left_bottom(), h * 2.0),
-        ]
     }
 
     fn paint_snap_guides(
@@ -1719,11 +2088,229 @@ impl SlateApp {
             .collect()
     }
 
+    // ----- crop mode ---------------------------------------------------------------
+
+    /// Whether the node is an image whose crop can be edited on canvas —
+    /// the same eligibility as the inspector's Crop section: textured media
+    /// (images / PDF pages / video posters / doc thumbnails), never 3D
+    /// model viewports or text snippet cards.
+    pub fn croppable_image(&self, id: NodeId) -> bool {
+        let Some(n) = self.doc().scene.node(id) else {
+            return false;
+        };
+        let NodeKind::Image(img) = &n.kind else {
+            return false;
+        };
+        let Some(item) = self.doc().item(img.item) else {
+            return false;
+        };
+        !matches!(
+            slate_doc::media_kind(&item.path),
+            slate_doc::MediaKind::Model
+                | slate_doc::MediaKind::Text
+                | slate_doc::MediaKind::Workbook
+        )
+    }
+
+    /// Enter crop mode on an eligible image node (selects it and switches
+    /// to the Select tool). Entering on another node switches to it.
+    pub fn enter_crop_mode(&mut self, id: NodeId) {
+        if !self.croppable_image(id) {
+            return;
+        }
+        self.board_crop = Some(id);
+        self.board_sel.clear();
+        self.board_sel.insert(id);
+        self.board_tool = BoardTool::Select;
+        self.board_menu = None;
+    }
+
+    /// Per-frame crop-mode validity: exits when the node vanished, stopped
+    /// being croppable, or a non-Select tool was picked.
+    fn sync_crop_mode(&mut self) {
+        if let Some(id) = self.board_crop {
+            if self.board_tool != BoardTool::Select || !self.croppable_image(id) {
+                self.board_crop = None;
+            }
+        }
+    }
+
+    /// Crop-mode adornment: ghosted full image at the content rect, scrim
+    /// outside the crop window, accent border + 8 handles, and the center
+    /// content-grabber ring (InDesign convention).
+    fn paint_crop_overlay(&mut self, ui: &egui::Ui, painter: &egui::Painter, xf: &BoardXf) {
+        let Some(id) = self.board_crop else {
+            return;
+        };
+        let Some(node) = self.doc().scene.node(id).cloned() else {
+            return;
+        };
+        let NodeKind::Image(img) = &node.kind else {
+            return;
+        };
+        let palette = self.palette();
+        let accent = palette.accent;
+        let rot = node.rotation_deg;
+        let (cx, cy) = node.rect.center();
+        let content = board_crop::content_rect(node.rect, img.crop);
+
+        // Points are computed in the node's local (unrotated) space, then
+        // rotated about the node rect center — the same frame the crop math
+        // and the node painter use.
+        let rotate_w = |x: f32, y: f32| -> (f32, f32) {
+            if rot.abs() < f32::EPSILON {
+                return (x, y);
+            }
+            let rad = rot.to_radians();
+            let (sin, cos) = rad.sin_cos();
+            let dx = x - cx;
+            let dy = y - cy;
+            (cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
+        };
+        let screen_of = |x: f32, y: f32| -> Pos2 {
+            let (wx, wy) = rotate_w(x, y);
+            xf.w2s(Pos2::new(wx, wy))
+        };
+        let quad_screen = |r: WorldRect| -> Vec<Pos2> {
+            vec![
+                screen_of(r.x, r.y),
+                screen_of(r.x + r.w, r.y),
+                screen_of(r.x + r.w, r.y + r.h),
+                screen_of(r.x, r.y + r.h),
+            ]
+        };
+
+        // Ghosted full image over the content rect (dimmed).
+        let desired_px = (xf
+            .rect_w2s(content)
+            .width()
+            .max(xf.rect_w2s(content).height()))
+            * ui.ctx().pixels_per_point();
+        if let Some(tex) = self.board_texture(ui.ctx(), img.item, &img.adjust, desired_px) {
+            let outline_screen = quad_screen(content);
+            let outline_local: [(f32, f32); 4] = [
+                (content.x, content.y),
+                (content.x + content.w, content.y),
+                (content.x + content.w, content.y + content.h),
+                (content.x, content.y + content.h),
+            ];
+            textured_polygon_world(
+                painter,
+                &tex,
+                &outline_screen,
+                &outline_local,
+                content,
+                Crop::full(),
+                Color32::WHITE.gamma_multiply(0.35),
+            );
+        }
+
+        // Scrim between the content rect and the crop window (the masked
+        // area of the ghost).
+        let scrim = palette.bg.gamma_multiply(0.55);
+        let right = node.rect.x + node.rect.w;
+        let bottom = node.rect.y + node.rect.h;
+        let bands = [
+            WorldRect::new(content.x, content.y, content.w, node.rect.y - content.y),
+            WorldRect::new(content.x, bottom, content.w, content.y + content.h - bottom),
+            WorldRect::new(content.x, node.rect.y, node.rect.x - content.x, node.rect.h),
+            WorldRect::new(
+                right,
+                node.rect.y,
+                content.x + content.w - right,
+                node.rect.h,
+            ),
+        ];
+        for band in bands {
+            if band.w > 0.01 && band.h > 0.01 {
+                painter.add(egui::Shape::convex_polygon(
+                    quad_screen(band),
+                    scrim,
+                    EStroke::NONE,
+                ));
+            }
+        }
+
+        // Crop window border + the 8 handles.
+        let geom = board_handles::selection_geom(xf, node.rect, rot);
+        painter.add(egui::Shape::closed_line(
+            geom.corners.to_vec(),
+            EStroke::new(2.0, accent),
+        ));
+        let hovered = ui
+            .ctx()
+            .pointer_latest_pos()
+            .and_then(|p| board_handles::hit_test_resize_handles(p, &geom));
+        // Handle points in `ResizeHandle` order (corners and edge midpoints
+        // interleaved: Nw N Ne E Se S Sw W).
+        let handle_pts = [
+            geom.corners[0],
+            geom.edges[0],
+            geom.corners[1],
+            geom.edges[1],
+            geom.corners[2],
+            geom.edges[2],
+            geom.corners[3],
+            geom.edges[3],
+        ];
+        for (i, pt) in handle_pts.into_iter().enumerate() {
+            let handle = board_handles::ResizeHandle::from_u8(i as u8);
+            let fill = if hovered == Some(handle) {
+                accent
+            } else {
+                accent.gamma_multiply(0.85)
+            };
+            painter.rect_filled(
+                Rect::from_center_size(pt, Vec2::splat(board_handles::HANDLE_PX * 2.0)),
+                1.0,
+                fill,
+            );
+        }
+
+        // Content grabber: donut ring at the crop-window center.
+        let center = geom.corners[0] + (geom.corners[2] - geom.corners[0]) * 0.5;
+        painter.circle_stroke(center, 11.0, EStroke::new(2.0, accent));
+        painter.circle_stroke(center, 6.0, EStroke::new(2.0, accent.gamma_multiply(0.8)));
+
+        // Readable hint under the window.
+        painter.text(
+            geom.edges[2] + Vec2::new(0.0, 14.0),
+            Align2::CENTER_TOP,
+            "Drag edges to crop · drag inside to pan · Enter / Esc to finish",
+            FontId::proportional(11.0),
+            palette.sub,
+        );
+    }
+
     // ----- gesture handling ------------------------------------------------------
 
     fn begin_gesture(&mut self, screen: Pos2, world: Pos2) -> Option<BoardDrag> {
         match self.board_tool {
             BoardTool::Select => {
+                // Crop mode intercepts everything on its node: handles move
+                // the crop window, interior drags pan the content, presses
+                // outside exit crop mode and fall through to normal behavior.
+                if let Some(crop_id) = self.board_crop {
+                    if let Some(n) = self.doc().scene.node(crop_id).cloned() {
+                        let geom =
+                            board_handles::selection_geom(&self.board_xf(), n.rect, n.rotation_deg);
+                        if let Some(h) = board_handles::hit_test_resize_handles(screen, &geom) {
+                            return Some(BoardDrag::CropEdge {
+                                id: crop_id,
+                                before: n,
+                                handle: h as u8,
+                            });
+                        }
+                        if n.rect.contains_rotated(world.x, world.y, n.rotation_deg) {
+                            return Some(BoardDrag::CropPan {
+                                id: crop_id,
+                                before: n,
+                                start_world: world,
+                            });
+                        }
+                    }
+                    self.board_crop = None;
+                }
                 // Resize handle on the single selection?
                 if self.board_sel.len() == 1 {
                     let id = *self.board_sel.iter().next().unwrap();
@@ -1753,11 +2340,54 @@ impl SlateApp {
                         }
                     }
                 }
+                // Group handles on the multi-selection bounding box.
+                if self.board_sel.len() >= 2 {
+                    if let Some(gb) = self.board_group_bounds() {
+                        let geom = board_handles::selection_geom(&self.board_xf(), gb, 0.0);
+                        if let Some(hit) = board_handles::hit_test_selection(screen, &geom) {
+                            let before: Vec<Node> = self
+                                .board_sel
+                                .iter()
+                                .filter_map(|i| self.doc().scene.node(*i).cloned())
+                                .collect();
+                            let ids: Vec<NodeId> = before.iter().map(|n| n.id).collect();
+                            match hit {
+                                board_handles::BoardHitTarget::Resize(h) => {
+                                    return Some(BoardDrag::GroupResize {
+                                        ids,
+                                        before,
+                                        group_before: gb,
+                                        handle: h as u8,
+                                    });
+                                }
+                                board_handles::BoardHitTarget::Rotate(_) => {
+                                    let (cx, cy) = gb.center();
+                                    let start_angle = (world.y - cy).atan2(world.x - cx);
+                                    return Some(BoardDrag::GroupRotate {
+                                        ids,
+                                        before,
+                                        center: (cx, cy),
+                                        start_angle,
+                                    });
+                                }
+                                board_handles::BoardHitTarget::Body => {}
+                            }
+                        }
+                    }
+                }
                 // Dragging inside an unlocked 3D viewport orbits its camera
                 // instead of moving the node (Alt still duplicates, so the
                 // node itself can be grabbed by locking or Alt-dragging).
                 if !self.alt_down {
                     if let Some(id) = self.live_model_at(world.x, world.y) {
+                        // Orbiting also selects the node (egui suppresses the
+                        // click after a drag), so its resize handles appear
+                        // and win the next press — live viewports resize
+                        // exactly like images.
+                        if !self.board_sel.contains(&id) {
+                            self.board_sel.clear();
+                            self.board_sel.insert(id);
+                        }
                         return Some(BoardDrag::ModelOrbit {
                             id,
                             last_screen: screen,
@@ -1908,7 +2538,11 @@ impl SlateApp {
                 let handle = *handle;
                 let before_rect = before.rect;
                 let rotation_deg = before.rotation_deg;
-                let lock_aspect = mods.shift;
+                // Corner drags scale proportionally by default; Shift frees
+                // the aspect (distortion). Edge drags are single-axis, with
+                // Shift locking the aspect instead.
+                let is_corner = matches!(handle, 0 | 2 | 4 | 6);
+                let lock_aspect = if is_corner { !mods.shift } else { mods.shift };
                 let from_center = mods.ctrl;
                 let mut r = board_snap::resize_from_handle(
                     before_rect,
@@ -1938,6 +2572,44 @@ impl SlateApp {
                     n.rect = r;
                 }
             }
+            Some(BoardDrag::CropEdge { id, before, handle }) => {
+                let node_id = *id;
+                let handle = *handle;
+                let (before_rect, before_crop, rot) = match &before.kind {
+                    NodeKind::Image(img) => (before.rect, img.crop, before.rotation_deg),
+                    _ => return,
+                };
+                // Rotated nodes: do the rect math in the node's local axes
+                // about the gesture-start center (see board_crop docs).
+                let (cx, cy) = before_rect.center();
+                let local = board_crop::to_local(world.x, world.y, cx, cy, rot);
+                let (r, c) = board_crop::edge_drag(before_rect, before_crop, handle, local);
+                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
+                    n.rect = r;
+                    if let NodeKind::Image(img) = &mut n.kind {
+                        img.crop = c;
+                    }
+                }
+            }
+            Some(BoardDrag::CropPan {
+                id,
+                before,
+                start_world,
+            }) => {
+                let node_id = *id;
+                let (before_rect, before_crop, rot) = match &before.kind {
+                    NodeKind::Image(img) => (before.rect, img.crop, before.rotation_deg),
+                    _ => return,
+                };
+                let d = world - *start_world;
+                let delta = board_crop::delta_local(d.x, d.y, rot);
+                let c = board_crop::pan_drag(before_rect, before_crop, delta);
+                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
+                    if let NodeKind::Image(img) = &mut n.kind {
+                        img.crop = c;
+                    }
+                }
+            }
             Some(BoardDrag::Rotate {
                 id,
                 before,
@@ -1958,6 +2630,101 @@ impl SlateApp {
                 }
                 if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
                     n.rotation_deg = rot;
+                }
+            }
+            Some(BoardDrag::GroupResize {
+                ids,
+                before,
+                group_before,
+                handle,
+            }) => {
+                let ids = ids.clone();
+                let before = before.clone();
+                let gb = *group_before;
+                let handle = *handle;
+                // Same convention as single-node resize: corners scale
+                // proportionally by default, Shift distorts.
+                let is_corner = matches!(handle, 0 | 2 | 4 | 6);
+                let lock_aspect = if is_corner { !mods.shift } else { mods.shift };
+                let new_group = board_snap::resize_from_handle(
+                    gb,
+                    world,
+                    handle,
+                    MIN_DRAW,
+                    lock_aspect,
+                    mods.ctrl,
+                    0.0,
+                );
+                let mut sx = new_group.w / gb.w.max(0.001);
+                let mut sy = new_group.h / gb.h.max(0.001);
+                // No member may collapse below MIN_DRAW world units (but a
+                // member already smaller than that never blocks the gesture).
+                let min_w = before
+                    .iter()
+                    .map(|n| n.rect.w)
+                    .fold(f32::INFINITY, f32::min);
+                let min_h = before
+                    .iter()
+                    .map(|n| n.rect.h)
+                    .fold(f32::INFINITY, f32::min);
+                if min_w.is_finite() {
+                    sx = sx.max((MIN_DRAW / min_w.max(0.001)).min(1.0));
+                }
+                if min_h.is_finite() {
+                    sy = sy.max((MIN_DRAW / min_h.max(0.001)).min(1.0));
+                }
+                let (ax, ay) = group_scale_anchor(gb, handle, mods.ctrl);
+                let mean = (sx + sy) * 0.5;
+                let scene = &mut self.doc_mut().scene;
+                for (id, b) in ids.iter().zip(before.iter()) {
+                    if let Some(n) = scene.node_mut(*id) {
+                        n.rect = WorldRect::new(
+                            ax + (b.rect.x - ax) * sx,
+                            ay + (b.rect.y - ay) * sy,
+                            b.rect.w * sx,
+                            b.rect.h * sy,
+                        );
+                        // Text scales with the group; stroke widths stay
+                        // fixed (CSS keeps stroke width on resize).
+                        if let (NodeKind::Text(t), NodeKind::Text(tb)) = (&mut n.kind, &b.kind) {
+                            t.size = (tb.size * mean).max(4.0);
+                        }
+                    }
+                }
+            }
+            Some(BoardDrag::GroupRotate {
+                ids,
+                before,
+                center,
+                start_angle,
+            }) => {
+                let ids = ids.clone();
+                let before = before.clone();
+                let (cx, cy) = *center;
+                let start = *start_angle;
+                let angle = (world.y - cy).atan2(world.x - cx);
+                let mut delta = (angle - start).to_degrees();
+                if !mods.alt {
+                    delta = board_snap::snap_rotation_deg(delta, board_snap::ROTATION_SNAP_DEG);
+                }
+                let scene = &mut self.doc_mut().scene;
+                for (id, b) in ids.iter().zip(before.iter()) {
+                    if let Some(n) = scene.node_mut(*id) {
+                        let mut rot = b.rotation_deg + delta;
+                        while rot > 180.0 {
+                            rot -= 360.0;
+                        }
+                        while rot < -180.0 {
+                            rot += 360.0;
+                        }
+                        n.rotation_deg = rot;
+                        // Orbit the rect center around the group center;
+                        // width/height are unchanged by rotation.
+                        let (bx, by) = b.rect.center();
+                        let (nx, ny) = board_snap::orbit_point((cx, cy), (bx, by), delta);
+                        n.rect.x = nx - b.rect.w * 0.5;
+                        n.rect.y = ny - b.rect.h * 0.5;
+                    }
                 }
             }
             _ => {}
@@ -2015,6 +2782,20 @@ impl SlateApp {
                     }
                 }
             }
+            // Crop gestures: one Patch for the whole drag — both the rect
+            // (window) and the image crop may differ between before/after.
+            Some(BoardDrag::CropEdge { id, before, .. })
+            | Some(BoardDrag::CropPan { id, before, .. }) => {
+                if let Some(after) = self.doc().scene.node(id).cloned() {
+                    if after != before {
+                        self.tab_mut().journal.record(vec![SceneCmd::Patch {
+                            before: Box::new(before),
+                            after: Box::new(after),
+                        }]);
+                        self.tab_mut().dirty = true;
+                    }
+                }
+            }
             Some(BoardDrag::Rotate { id, before, .. }) => {
                 if let Some(after) = self.doc().scene.node(id).cloned() {
                     if (after.rotation_deg - before.rotation_deg).abs() > f32::EPSILON {
@@ -2024,6 +2805,25 @@ impl SlateApp {
                         }]);
                         self.tab_mut().dirty = true;
                     }
+                }
+            }
+            // One Patch group for the whole gesture, like the Move arm.
+            Some(BoardDrag::GroupResize { ids, before, .. })
+            | Some(BoardDrag::GroupRotate { ids, before, .. }) => {
+                let cmds: Vec<SceneCmd> = ids
+                    .iter()
+                    .zip(before)
+                    .filter_map(|(id, b)| {
+                        let after = self.doc().scene.node(*id)?.clone();
+                        (after != b).then(|| SceneCmd::Patch {
+                            before: Box::new(b),
+                            after: Box::new(after),
+                        })
+                    })
+                    .collect();
+                if !cmds.is_empty() {
+                    self.tab_mut().journal.record(cmds);
+                    self.tab_mut().dirty = true;
                 }
             }
             Some(BoardDrag::Draw { start_world, tool }) => {
@@ -2039,7 +2839,7 @@ impl SlateApp {
             Some(BoardDrag::Marquee { start_screen }) => {
                 if let Some(p) = pointer {
                     let xf = self.board_xf();
-                    let r = Rect::from_two_pos(xf.s2w(start_screen), xf.s2w(p));
+                    let r = wr(Rect::from_two_pos(xf.s2w(start_screen), xf.s2w(p)));
                     let hits: Vec<NodeId> = self
                         .doc()
                         .scene
@@ -2047,11 +2847,7 @@ impl SlateApp {
                         .iter()
                         .filter(|n| !n.is_frame())
                         .filter(|n| {
-                            let nr = Rect::from_min_size(
-                                Pos2::new(n.rect.x, n.rect.y),
-                                Vec2::new(n.rect.w, n.rect.h),
-                            );
-                            r.intersects(nr)
+                            board_snap::marquee_intersects_rotated(r, n.rect, n.rotation_deg)
                         })
                         .map(|n| n.id)
                         .collect();
@@ -2215,6 +3011,17 @@ impl SlateApp {
     }
 
     fn board_click(&mut self, world: Pos2, ctrl: bool) {
+        // Crop mode: clicking outside the node finishes the crop and the
+        // click passes through to normal selection; clicks inside are the
+        // pan gesture's territory and change nothing.
+        if let Some(crop_id) = self.board_crop {
+            if let Some(n) = self.doc().scene.node(crop_id) {
+                if n.rect.contains_rotated(world.x, world.y, n.rotation_deg) {
+                    return;
+                }
+            }
+            self.board_crop = None;
+        }
         if self.board_tool == BoardTool::Text {
             // Click-to-create text; dark text on frames, light on the void.
             let on_frame = self.doc().scene.frame_at(world.x, world.y).is_some();
@@ -2270,7 +3077,19 @@ impl SlateApp {
             }
             NodeKind::Image(img) => {
                 if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {
-                    self.open_item_path(&path);
+                    // Locked 3D viewports unlock into live navigation instead
+                    // of opening the file (padlock/auto-lock re-locks them).
+                    if slate_doc::media_kind(&path) == slate_doc::MediaKind::Model {
+                        if !self.model3d.live.contains_key(&id) {
+                            self.unlock_model(id);
+                        }
+                    } else if self.croppable_image(id) {
+                        // InDesign/Figma convention: double-click enters crop
+                        // mode. "Open file" stays in the right-click menu.
+                        self.enter_crop_mode(id);
+                    } else {
+                        self.open_item_path(&path);
+                    }
                 }
             }
             _ => {}
@@ -2280,17 +3099,47 @@ impl SlateApp {
     // ----- overlays ---------------------------------------------------------------
 
     /// Floating create toolbar, top-center of the canvas (board view only).
+    ///
+    /// Submenu state machine: `board_submenu` holds the currently open flyout
+    /// category. A category button opens its menu on click or after a short
+    /// hover delay; while one is open, hovering a sibling category switches to
+    /// it (menubar behavior). The open menu is a real `egui::Area` anchored
+    /// below the button, so it stays put while the pointer travels into it;
+    /// it closes when an item is picked, a click lands outside both the button
+    /// and the menu, or the pointer strays well away from their union.
     fn board_toolbar(&mut self, ctx: &egui::Context, canvas: Rect) {
+        /// Hover dwell before a flyout opens without a click.
+        const HOVER_OPEN: Duration = Duration::from_millis(350);
+        /// Pointer distance from button+menu union that closes the flyout.
+        const CLOSE_MARGIN: f32 = 40.0;
+
         let palette = self.palette();
+        // Keep the combined nav button in sync with hotkey switches (V / H).
+        if matches!(self.board_tool, BoardTool::Select | BoardTool::Pan) {
+            self.board_nav_tool = self.board_tool;
+        }
         let tool = self.board_tool;
+        let nav_tool = self.board_nav_tool;
         let preset = self.board_frame_preset;
         let ink = palette.ink;
+        let sub = palette.sub;
         let accent = palette.accent;
         let hover_fill = palette.card_hover;
         let selected_fill = palette.accent.gamma_multiply(0.22);
         let mut pick_tool: Option<BoardTool> = None;
         let mut pick_preset: Option<FramePreset> = None;
         let mut open_custom = false;
+        // Flyout bookkeeping for this frame.
+        let mut hovered_cat: Option<CreateCategory> = None;
+        let mut click_open: Option<CreateCategory> = None;
+        // Button rects recorded so the open flyout can anchor below its button.
+        let mut cat_rects: [Option<Rect>; 4] = [None; 4];
+        let cat_ix = |c: CreateCategory| match c {
+            CreateCategory::Nav => 0usize,
+            CreateCategory::Frame => 1,
+            CreateCategory::Shapes => 2,
+            CreateCategory::Curve => 3,
+        };
 
         egui::Area::new(egui::Id::new("slate_board_tools"))
             .fixed_pos(Pos2::new(canvas.center().x - 280.0, canvas.min.y + 8.0))
@@ -2300,31 +3149,51 @@ impl SlateApp {
                     .fill(palette.card)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            // Select — pointer; Pan — hand grip.
-                            for nav in [BoardTool::Select, BoardTool::Pan] {
-                                let on = tool == nav;
-                                let resp = board_icons::tool_icon_button(
-                                    ui,
-                                    nav.tool_icon(),
-                                    on,
-                                    ink,
-                                    accent,
-                                    hover_fill,
-                                    selected_fill,
-                                )
-                                .on_hover_text(format!(
-                                    "{} ({})",
-                                    nav.label(),
-                                    nav.hotkey()
-                                ));
-                                if resp.clicked() {
-                                    pick_tool = Some(nav);
-                                }
+                            // Combined nav button: shows the last-used of
+                            // Select / Pan; clicking while active toggles to
+                            // the other one (Adobe split-tool convention).
+                            let nav_on = matches!(tool, BoardTool::Select | BoardTool::Pan);
+                            let nav_other = if nav_tool == BoardTool::Select {
+                                BoardTool::Pan
+                            } else {
+                                BoardTool::Select
+                            };
+                            let nav_resp = board_icons::tool_icon_button(
+                                ui,
+                                nav_tool.tool_icon(),
+                                nav_on,
+                                ink,
+                                accent,
+                                hover_fill,
+                                selected_fill,
+                            )
+                            .on_hover_text(format!(
+                                "{} ({}) — click again for {} ({})",
+                                nav_tool.label(),
+                                nav_tool.hotkey(),
+                                nav_other.label(),
+                                nav_other.hotkey()
+                            ));
+                            board_icons::paint_flyout_corner(
+                                ui.painter(),
+                                nav_resp.rect,
+                                if nav_on { accent } else { sub },
+                            );
+                            cat_rects[cat_ix(CreateCategory::Nav)] = Some(nav_resp.rect);
+                            if nav_resp.hovered() {
+                                hovered_cat = Some(CreateCategory::Nav);
+                            }
+                            if nav_resp.clicked() {
+                                pick_tool = Some(if tool == nav_tool {
+                                    nav_other
+                                } else {
+                                    nav_tool
+                                });
                             }
 
                             ui.separator();
 
-                            // Frame — hover for typical slide sizes.
+                            // Frame — flyout with typical slide sizes.
                             let frame_on = tool == BoardTool::Frame;
                             let frame_hint = format!(
                                 "Frame — {} ({})",
@@ -2340,31 +3209,22 @@ impl SlateApp {
                                 hover_fill,
                                 selected_fill,
                             )
-                            .on_hover_text(&frame_hint)
-                            .on_hover_ui(|ui| {
-                                ui.set_min_width(120.0);
-                                ui.label(egui::RichText::new("Frame size").small().strong());
-                                ui.separator();
-                                for preset in [
-                                    FramePreset::Letter,
-                                    FramePreset::Tabloid,
-                                    FramePreset::Wide169,
-                                ] {
-                                    if ui.button(preset.label()).clicked() {
-                                        pick_preset = Some(preset);
-                                        pick_tool = Some(BoardTool::Frame);
-                                    }
-                                }
-                                if ui.button("Custom…").clicked() {
-                                    open_custom = true;
-                                    pick_tool = Some(BoardTool::Frame);
-                                }
-                            });
+                            .on_hover_text(&frame_hint);
+                            board_icons::paint_flyout_corner(
+                                ui.painter(),
+                                frame_resp.rect,
+                                if frame_on { accent } else { sub },
+                            );
+                            cat_rects[cat_ix(CreateCategory::Frame)] = Some(frame_resp.rect);
+                            if frame_resp.hovered() {
+                                hovered_cat = Some(CreateCategory::Frame);
+                            }
                             if frame_resp.clicked() {
                                 pick_tool = Some(BoardTool::Frame);
+                                click_open = Some(CreateCategory::Frame);
                             }
 
-                            // Shapes — hover for 2D primitives.
+                            // Shapes — flyout with 2D primitives.
                             let shapes_on =
                                 matches!(tool, BoardTool::RectShape | BoardTool::Ellipse);
                             let shapes_resp = board_icons::tool_icon_button(
@@ -2376,30 +3236,22 @@ impl SlateApp {
                                 hover_fill,
                                 selected_fill,
                             )
-                            .on_hover_text("Shapes — rectangle, ellipse")
-                            .on_hover_ui(|ui| {
-                                ui.set_min_width(130.0);
-                                ui.label(egui::RichText::new("2D shapes").small().strong());
-                                ui.separator();
-                                for shape in [BoardTool::RectShape, BoardTool::Ellipse] {
-                                    if board_icons::tool_menu_row(
-                                        ui,
-                                        shape.tool_icon(),
-                                        shape.label(),
-                                        tool == shape,
-                                        ink,
-                                    )
-                                    .clicked()
-                                    {
-                                        pick_tool = Some(shape);
-                                    }
-                                }
-                            });
-                            if shapes_resp.clicked() && pick_tool.is_none() {
+                            .on_hover_text("Shapes — rectangle, ellipse");
+                            board_icons::paint_flyout_corner(
+                                ui.painter(),
+                                shapes_resp.rect,
+                                if shapes_on { accent } else { sub },
+                            );
+                            cat_rects[cat_ix(CreateCategory::Shapes)] = Some(shapes_resp.rect);
+                            if shapes_resp.hovered() {
+                                hovered_cat = Some(CreateCategory::Shapes);
+                            }
+                            if shapes_resp.clicked() {
                                 pick_tool = Some(BoardTool::RectShape);
+                                click_open = Some(CreateCategory::Shapes);
                             }
 
-                            // Curve — hover for line and future curve types.
+                            // Curve — flyout with line and future curve types.
                             let curve_on = matches!(
                                 tool,
                                 BoardTool::Line
@@ -2416,36 +3268,19 @@ impl SlateApp {
                                 hover_fill,
                                 selected_fill,
                             )
-                            .on_hover_text("Curve — line, arc, polyline, bezier")
-                            .on_hover_ui(|ui| {
-                                ui.set_min_width(140.0);
-                                ui.label(egui::RichText::new("Curves").small().strong());
-                                ui.separator();
-                                for curve in [
-                                    BoardTool::Line,
-                                    BoardTool::Arc,
-                                    BoardTool::Polyline,
-                                    BoardTool::BezierSpan,
-                                ] {
-                                    let resp = board_icons::tool_menu_row(
-                                        ui,
-                                        curve.tool_icon(),
-                                        curve.label(),
-                                        tool == curve,
-                                        ink,
-                                    );
-                                    let resp = if curve.is_implemented() {
-                                        resp
-                                    } else {
-                                        resp.on_hover_text("Coming soon")
-                                    };
-                                    if resp.clicked() {
-                                        pick_tool = Some(curve);
-                                    }
-                                }
-                            });
-                            if curve_resp.clicked() && pick_tool.is_none() {
+                            .on_hover_text("Curve — line, arc, polyline, bezier");
+                            board_icons::paint_flyout_corner(
+                                ui.painter(),
+                                curve_resp.rect,
+                                if curve_on { accent } else { sub },
+                            );
+                            cat_rects[cat_ix(CreateCategory::Curve)] = Some(curve_resp.rect);
+                            if curve_resp.hovered() {
+                                hovered_cat = Some(CreateCategory::Curve);
+                            }
+                            if curve_resp.clicked() {
                                 pick_tool = Some(BoardTool::Line);
+                                click_open = Some(CreateCategory::Curve);
                             }
 
                             // Text — click to draw a text box.
@@ -2539,6 +3374,164 @@ impl SlateApp {
                     });
             });
 
+        // Flyout open/switch logic (runs after the toolbar so hover state is known).
+        if let Some(cat) = click_open {
+            self.board_submenu = Some(cat);
+            self.board_submenu_hover = None;
+        } else if let Some(cat) = hovered_cat {
+            if self.board_submenu.is_some() {
+                // Menubar behavior: hovering a sibling switches the open menu.
+                self.board_submenu = Some(cat);
+                self.board_submenu_hover = None;
+            } else {
+                let start = match self.board_submenu_hover {
+                    Some((c, t)) if c == cat => t,
+                    _ => Instant::now(),
+                };
+                self.board_submenu_hover = Some((cat, start));
+                if start.elapsed() >= HOVER_OPEN {
+                    self.board_submenu = Some(cat);
+                } else {
+                    ctx.request_repaint_after(HOVER_OPEN - start.elapsed());
+                }
+            }
+        } else {
+            self.board_submenu_hover = None;
+        }
+
+        // Render the open flyout as a persistent popup anchored under its button.
+        if let Some(cat) = self.board_submenu {
+            let mut menu_pick = false;
+            if let Some(btn) = cat_rects[cat_ix(cat)] {
+                let area = egui::Area::new(egui::Id::new("slate_board_tool_menu"))
+                    .fixed_pos(Pos2::new(btn.min.x - 4.0, btn.max.y + 6.0))
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style())
+                            .fill(palette.card)
+                            .show(ui, |ui| {
+                                ui.set_min_width(140.0);
+                                match cat {
+                                    CreateCategory::Nav => {
+                                        for nav in [BoardTool::Select, BoardTool::Pan] {
+                                            if board_icons::tool_menu_row(
+                                                ui,
+                                                nav.tool_icon(),
+                                                nav.label(),
+                                                Some(nav.hotkey()),
+                                                tool == nav,
+                                                ink,
+                                                sub,
+                                            )
+                                            .clicked()
+                                            {
+                                                pick_tool = Some(nav);
+                                                menu_pick = true;
+                                            }
+                                        }
+                                    }
+                                    CreateCategory::Frame => {
+                                        for p in [
+                                            FramePreset::Letter,
+                                            FramePreset::Tabloid,
+                                            FramePreset::Wide169,
+                                        ] {
+                                            if board_icons::tool_menu_row(
+                                                ui,
+                                                board_icons::ToolIcon::Frame,
+                                                p.label(),
+                                                None,
+                                                preset == p,
+                                                ink,
+                                                sub,
+                                            )
+                                            .clicked()
+                                            {
+                                                pick_preset = Some(p);
+                                                pick_tool = Some(BoardTool::Frame);
+                                                menu_pick = true;
+                                            }
+                                        }
+                                        if board_icons::tool_menu_row(
+                                            ui,
+                                            board_icons::ToolIcon::Frame,
+                                            "Custom…",
+                                            None,
+                                            matches!(preset, FramePreset::Custom { .. }),
+                                            ink,
+                                            sub,
+                                        )
+                                        .clicked()
+                                        {
+                                            open_custom = true;
+                                            pick_tool = Some(BoardTool::Frame);
+                                            menu_pick = true;
+                                        }
+                                    }
+                                    CreateCategory::Shapes => {
+                                        for shape in [BoardTool::RectShape, BoardTool::Ellipse] {
+                                            if board_icons::tool_menu_row(
+                                                ui,
+                                                shape.tool_icon(),
+                                                shape.label(),
+                                                Some(shape.hotkey()),
+                                                tool == shape,
+                                                ink,
+                                                sub,
+                                            )
+                                            .clicked()
+                                            {
+                                                pick_tool = Some(shape);
+                                                menu_pick = true;
+                                            }
+                                        }
+                                    }
+                                    CreateCategory::Curve => {
+                                        for curve in [
+                                            BoardTool::Line,
+                                            BoardTool::Arc,
+                                            BoardTool::Polyline,
+                                            BoardTool::BezierSpan,
+                                        ] {
+                                            let hotkey = (curve == BoardTool::Line)
+                                                .then_some(curve.hotkey());
+                                            let resp = board_icons::tool_menu_row(
+                                                ui,
+                                                curve.tool_icon(),
+                                                curve.label(),
+                                                hotkey,
+                                                tool == curve,
+                                                ink,
+                                                sub,
+                                            );
+                                            let resp = if curve.is_implemented() {
+                                                resp
+                                            } else {
+                                                resp.on_hover_text("Coming soon")
+                                            };
+                                            if resp.clicked() {
+                                                pick_tool = Some(curve);
+                                                menu_pick = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                    });
+                let menu_rect = area.response.rect;
+                let hull = btn.union(menu_rect);
+                let pointer = ctx.pointer_latest_pos();
+                let clicked_outside = ctx.input(|i| i.pointer.any_click())
+                    && pointer.is_some_and(|p| !btn.contains(p) && !menu_rect.contains(p));
+                let strayed = pointer.is_some_and(|p| !hull.expand(CLOSE_MARGIN).contains(p));
+                if menu_pick || clicked_outside || strayed {
+                    self.board_submenu = None;
+                }
+            } else {
+                self.board_submenu = None;
+            }
+        }
+
         if let Some(t) = pick_tool {
             if !t.is_implemented() {
                 self.toast(format!(
@@ -2547,6 +3540,9 @@ impl SlateApp {
                 ));
             } else {
                 self.board_tool = t;
+                if matches!(t, BoardTool::Select | BoardTool::Pan) {
+                    self.board_nav_tool = t;
+                }
             }
         }
         if let Some(p) = pick_preset {
@@ -2876,14 +3872,23 @@ impl SlateApp {
                 }
             });
         if commit {
-            let new_text = self.text_edit.take().map(|(_, s)| s).unwrap_or(buf);
-            self.patch_nodes(&[id], |n| {
-                if let NodeKind::Text(t) = &mut n.kind {
-                    t.text = new_text.clone();
-                }
-            });
-            self.last_board_edit = None;
+            self.commit_text_edit();
         }
+    }
+
+    /// Commit the in-flight inline text edit through the journal and leave
+    /// editing mode. Shared by the overlay (Escape / lost focus) and the
+    /// canvas click-off path; a no-op when nothing is being edited.
+    pub(crate) fn commit_text_edit(&mut self) {
+        let Some((id, text)) = self.text_edit.take() else {
+            return;
+        };
+        self.patch_nodes(&[id], |n| {
+            if let NodeKind::Text(t) = &mut n.kind {
+                t.text = text.clone();
+            }
+        });
+        self.last_board_edit = None;
     }
 
     /// Right-click node menu.
@@ -2930,6 +3935,23 @@ impl SlateApp {
                     if ui.button("Send to back").clicked() {
                         self.reorder_nodes(&targets, false);
                         close = true;
+                    }
+                    // Single-image actions: on-canvas crop mode (also enter
+                    // via double-click) and opening the source file (the old
+                    // double-click behavior).
+                    if let Some(NodeKind::Image(img)) =
+                        self.doc().scene.node(node_id).map(|n| n.kind.clone())
+                    {
+                        if self.croppable_image(node_id) && ui.button("Crop image").clicked() {
+                            self.enter_crop_mode(node_id);
+                            close = true;
+                        }
+                        if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {
+                            if ui.button("Open file").clicked() {
+                                self.open_item_path(&path);
+                                close = true;
+                            }
+                        }
                     }
                     // Tag assignment for placed images: same faceted menu as
                     // the grid, targeting the underlying pool items.
@@ -3083,5 +4105,52 @@ impl SlateApp {
             let picked = rfd::FileDialog::new().pick_folder();
             let _ = tx.send(super::PickerMsg::ExportArtifact(picked));
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_drop_centers_on_point() {
+        let rects = grid_drop_rects(&[(100.0, 80.0)], Pos2::new(10.0, 20.0));
+        assert_eq!(rects.len(), 1);
+        let (cx, cy) = rects[0].center();
+        assert!((cx - 10.0).abs() < 1e-3 && (cy - 20.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn grid_drop_caps_at_ten_columns_and_centers() {
+        let sizes = vec![(100.0, 80.0); 12];
+        let rects = grid_drop_rects(&sizes, Pos2::new(0.0, 0.0));
+        assert_eq!(rects.len(), 12);
+        // 10 columns max: item 10 wraps to the second row.
+        assert!((rects[0].y - rects[9].y).abs() < 1e-3);
+        assert!(rects[10].y > rects[0].y);
+        // Cell pitch = max natural width + 16px gap.
+        assert!(((rects[1].x - rects[0].x) - 116.0).abs() < 1e-3);
+        // The whole grid is centered on the drop point.
+        let min_x = rects.iter().map(|r| r.x).fold(f32::INFINITY, f32::min);
+        let max_x = rects
+            .iter()
+            .map(|r| r.x + r.w)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let min_y = rects.iter().map(|r| r.y).fold(f32::INFINITY, f32::min);
+        let max_y = rects
+            .iter()
+            .map(|r| r.y + r.h)
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert!(((min_x + max_x) * 0.5).abs() < 1e-3);
+        assert!(((min_y + max_y) * 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn group_scale_anchor_is_opposite_corner_or_center() {
+        let gb = WorldRect::new(0.0, 0.0, 100.0, 50.0);
+        assert_eq!(group_scale_anchor(gb, 0, false), (100.0, 50.0)); // Nw → Se
+        assert_eq!(group_scale_anchor(gb, 4, false), (0.0, 0.0)); // Se → Nw
+        assert_eq!(group_scale_anchor(gb, 3, false), (0.0, 25.0)); // E → W edge
+        assert_eq!(group_scale_anchor(gb, 0, true), (50.0, 25.0)); // Ctrl → center
     }
 }

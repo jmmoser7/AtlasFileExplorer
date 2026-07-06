@@ -99,12 +99,17 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Select tool",
-        binding: "V (Board view)",
+        binding: "V (Board view), or the combined Select/Pan toolbar button",
     },
     CommandEntry {
         category: "Board",
         name: "Pan tool (hand)",
         binding: "H, or middle-drag / Space + drag (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Toggle Select ⇄ Pan",
+        binding: "Click the combined Select/Pan toolbar button while it is active",
     },
     CommandEntry {
         category: "Board",
@@ -114,7 +119,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Shapes / Curve / Text tools",
-        binding: "R / O / L / T (Board view); hover create toolbar for presets",
+        binding: "R / O / L / T (Board view); click or hover a toolbar button to open its submenu",
     },
     CommandEntry {
         category: "Board",
@@ -128,8 +133,9 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Board",
-        name: "Resize (lock aspect ratio)",
-        binding: "Shift + drag corner handle (Board view)",
+        name: "Resize (free aspect / distort)",
+        binding: "Shift + drag corner handle (corners scale proportionally by default); \
+                  Shift + drag edge handle locks aspect instead",
     },
     CommandEntry {
         category: "Board",
@@ -149,7 +155,44 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Rotate object",
-        binding: "Drag outside a corner handle (Board view); snaps at 45°",
+        binding: "Drag outside a corner handle (Board view); snaps at 45°; with 2+ selected \
+                  rotates the whole group about its center",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Group resize (multi-selection)",
+        binding: "With 2+ selected, drag a group bounding-box handle — scales all members \
+                  about the opposite corner/edge; corners scale proportionally, Shift \
+                  distorts, Ctrl scales from center",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Crop image (enter crop mode)",
+        binding: "Double-click an image, right-click → Crop image, or Selection \
+                  inspector → Edit crop on canvas (images, PDF pages, video posters — \
+                  not 3D viewports or text snippets)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Crop: move the window / pan the content",
+        binding: "In crop mode, drag the edge/corner handles to mask the image in \
+                  place; drag inside the window (content grabber) to slide the \
+                  image under the mask",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Finish cropping",
+        binding: "Enter, Escape, or click outside the image (crop mode)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Open image file",
+        binding: "Right-click object → Open file (double-click enters crop mode instead)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Finish text editing",
+        binding: "Escape, or click anywhere outside the text box",
     },
     CommandEntry {
         category: "Board",
@@ -199,8 +242,9 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Unlock / lock 3D viewport",
-        binding: "Hover a placed .3dm model → click the padlock; live viewports \
-                  auto-lock after 30 s idle (the frozen view becomes the slide image)",
+        binding: "Double-click a locked .3dm model (or hover → click the padlock); \
+                  live viewports auto-lock after 30 s idle (the frozen view becomes \
+                  the slide image)",
     },
     CommandEntry {
         category: "Board",

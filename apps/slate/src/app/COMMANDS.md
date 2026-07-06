@@ -33,15 +33,47 @@ commands are registered in one place so users can look them up in
 - Single-key tool switches (`V F R O L T`) are **Board-view only** and are
   suppressed while typing or presenting. Grid/Venn keep `F` = fit view; the
   Board uses `Home` for fit because `F` is the Frame tool there.
+- **Create toolbar flyouts**: Select and Pan share one combined button that
+  shows the last-used nav tool; clicking it while active toggles Select ⇄ Pan.
+  Buttons marked with a small corner triangle (nav, Frame, Shapes, Curve) open
+  a persistent submenu on click or after a short hover; the menu stays open
+  until an item is picked, a click lands elsewhere, or the pointer moves away.
 - **Alt + drag** duplicates the grabbed selection (Figma convention);
   `Ctrl + D` duplicates in place with a 24px offset.
 - One gesture = one undo step: live drags journal their net effect on
   release; inspector slider scrubs coalesce (1.5 s window per node).
+- **Resize aspect convention** (single node and group alike): corner drags
+  scale proportionally by default; holding `Shift` frees the aspect
+  (distortion scaling). Edge drags are single-axis, with `Shift` locking the
+  aspect instead. `Ctrl` resizes about the center.
+- **Multi-selection group transforms**: with 2+ objects selected the group
+  bounding box shows the standard 8 handles + rotate zones. Corner/edge drag
+  scales every member about the opposite corner/edge (aspect convention
+  above); outside-corner drag rotates every member about the group center.
+  Journaled as one undo step.
+- **Text editing** commits on Escape, focus loss, or clicking anywhere
+  outside the text box (the click also performs normal selection).
+- **Crop mode** (InDesign-style): double-click an eligible image (or
+  right-click → Crop image, or Selection inspector → Edit crop on canvas) to
+  edit its crop directly on the canvas. The full uncropped image shows
+  ghosted at its content rect with a scrim outside the crop window; dragging
+  the eight window handles moves the mask while the content stays put (rect
+  and UV crop change together); dragging inside the window (the center
+  content-grabber ring) slides the content under the mask. One crop drag =
+  one undo step. Finish with Enter, Escape, or a click outside the image —
+  the click passes through to normal selection. Eligible media: textured
+  images, PDF pages, video posters, and doc thumbnails; 3D viewports and
+  text snippet cards have no crop. Rotated nodes are supported by doing the
+  window math in the node's local (unrotated) axes.
 - **3D viewports** (placed `.3dm` models) invert the drag convention while
   *unlocked*: drag = orbit, Shift+drag = pan, scroll = zoom — Rhino
-  semantics inside the node. The padlock (hover, top-right) toggles the
-  live state; camera poses journal as one undo step when the viewport
-  locks (click, 30 s idle, tab switch, present, or export).
+  semantics inside the node. **Double-click a locked viewport to unlock it**
+  (double-click enters crop mode for croppable images and opens the file for
+  the remaining kinds); the padlock
+  (hover, top-right) toggles the live state too. Orbit drags also select the
+  node, so its resize handles stay available while live — handle presses
+  always beat orbit. Camera poses journal as one undo step when the viewport
+  locks (padlock click, 30 s idle, tab switch, present, or export).
 
 ## Tagging gestures (reference)
 

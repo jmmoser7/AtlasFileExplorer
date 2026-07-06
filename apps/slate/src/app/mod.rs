@@ -20,8 +20,9 @@ use std::time::Instant;
 
 pub mod association;
 pub mod board;
-pub mod board_icons;
+pub mod board_crop;
 mod board_handles;
+pub mod board_icons;
 mod board_snap;
 pub mod canvas;
 pub mod chrome;
@@ -200,9 +201,18 @@ pub struct SlateApp {
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
     pub board_sel: HashSet<NodeId>,
     pub board_tool: board::BoardTool,
+    /// Last-used navigation tool (Select or Pan) shown on the combined toolbar button.
+    pub board_nav_tool: board::BoardTool,
+    /// Open create-toolbar flyout submenu (persistent popup; `None` = closed).
+    pub board_submenu: Option<board::CreateCategory>,
+    /// Hover-dwell tracker for opening toolbar flyouts: (category, hover start).
+    pub board_submenu_hover: Option<(board::CreateCategory, Instant)>,
     pub board_frame_preset: board::FramePreset,
     pub board_frame_custom: Option<board::FrameCustomDraft>,
     pub board_drag: Option<board::BoardDrag>,
+    /// InDesign-style crop mode: the image node whose crop is being edited
+    /// directly on the canvas (`None` = normal interaction).
+    pub board_crop: Option<NodeId>,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
     /// Board right-click menu: (node, screen position).
@@ -291,9 +301,13 @@ impl SlateApp {
             ai: atlas_ai::AiPanel::new(),
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
+            board_nav_tool: board::BoardTool::Select,
+            board_submenu: None,
+            board_submenu_hover: None,
             board_frame_preset: board::FramePreset::default(),
             board_frame_custom: None,
             board_drag: None,
+            board_crop: None,
             text_edit: None,
             board_menu: None,
             presenting: None,
@@ -879,6 +893,10 @@ impl SlateApp {
                 self.toggle_canvas_fullscreen();
             }
             if board && !wants_kb && !editing && !i.modifiers.ctrl {
+                // Enter finishes crop mode (Escape does too, below).
+                if i.key_pressed(egui::Key::Enter) && self.board_crop.is_some() {
+                    self.board_crop = None;
+                }
                 // Tool keys (match the board toolbar hints).
                 if i.key_pressed(egui::Key::V) {
                     self.board_tool = board::BoardTool::Select;
@@ -931,11 +949,17 @@ impl SlateApp {
                 }
             }
             if i.key_pressed(egui::Key::Escape) {
-                self.selection.clear();
-                self.new_tag_edit = None;
-                self.board_sel.clear();
-                self.board_menu = None;
-                self.board_tool = board::BoardTool::Select;
+                if self.board_crop.is_some() {
+                    // First Escape only exits crop mode; the node stays
+                    // selected (press again to clear the selection).
+                    self.board_crop = None;
+                } else {
+                    self.selection.clear();
+                    self.new_tag_edit = None;
+                    self.board_sel.clear();
+                    self.board_menu = None;
+                    self.board_tool = board::BoardTool::Select;
+                }
             }
         });
     }

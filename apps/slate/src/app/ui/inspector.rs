@@ -449,64 +449,109 @@ fn crop_controls(
     let crop = img.crop;
     let mut c = crop;
     let mut changed = false;
-    sidebar_slider_block(ui, |ui| {
-        let mut w = (c.w * 100.0).round() as usize;
-        if thin_sidebar_slider(
-            ui,
-            &mut w,
-            5..=100,
-            "Width",
-            "%",
-            "Visible width of the source",
-            theme.sub,
-        ) {
-            c.w = w as f32 / 100.0;
-            changed = true;
-        }
-        let mut h = (c.h * 100.0).round() as usize;
-        if thin_sidebar_slider(
-            ui,
-            &mut h,
-            5..=100,
-            "Height",
-            "%",
-            "Visible height of the source",
-            theme.sub,
-        ) {
-            c.h = h as f32 / 100.0;
-            changed = true;
-        }
-        let mut x = (c.x * 100.0).round() as usize;
-        if thin_sidebar_slider(
-            ui,
-            &mut x,
-            0..=95,
-            "Pan X",
-            "%",
-            "Crop window offset",
-            theme.sub,
-        ) {
-            c.x = x as f32 / 100.0;
-            changed = true;
-        }
-        let mut y = (c.y * 100.0).round() as usize;
-        if thin_sidebar_slider(
-            ui,
-            &mut y,
-            0..=95,
-            "Pan Y",
-            "%",
-            "Crop window offset",
-            theme.sub,
-        ) {
-            c.y = y as f32 / 100.0;
-            changed = true;
-        }
-    });
+
+    // Primary UI: direct manipulation on the canvas (InDesign-style crop
+    // mode) + a compact readout of the visible window.
+    let cropping = app.board_crop == Some(primary.id);
+    if app.croppable_image(primary.id) {
+        ui.horizontal(|ui| {
+            let label = if cropping {
+                "Finish crop (Enter)"
+            } else {
+                "Edit crop on canvas"
+            };
+            if ui
+                .button(RichText::new(label).small())
+                .on_hover_text(
+                    "Drag the window edges to mask the image in place; \
+                     drag inside to slide the content (double-click the \
+                     image also enters crop mode)",
+                )
+                .clicked()
+            {
+                if cropping {
+                    app.board_crop = None;
+                } else {
+                    app.enter_crop_mode(primary.id);
+                }
+            }
+            ui.label(
+                RichText::new(format!(
+                    "{:.0}% × {:.0}%",
+                    (c.w * 100.0).round(),
+                    (c.h * 100.0).round()
+                ))
+                .small()
+                .color(theme.sub),
+            );
+        });
+    }
     if !crop.is_full() && ui.button(RichText::new("Reset crop").small()).clicked() {
         c = slate_doc::scene::Crop::full();
         changed = true;
     }
+
+    // Precision sliders, collapsed by default.
+    egui::CollapsingHeader::new(RichText::new("Fine-tune").small().color(theme.sub))
+        .id_salt(("slate_crop_fine_tune", primary.id.0))
+        .default_open(false)
+        .show(ui, |ui| {
+            sidebar_slider_block(ui, |ui| {
+                let mut w = (c.w * 100.0).round() as usize;
+                if thin_sidebar_slider(
+                    ui,
+                    &mut w,
+                    5..=100,
+                    "Width",
+                    "%",
+                    "Visible width of the source",
+                    theme.sub,
+                ) {
+                    c.w = w as f32 / 100.0;
+                    changed = true;
+                }
+                let mut h = (c.h * 100.0).round() as usize;
+                if thin_sidebar_slider(
+                    ui,
+                    &mut h,
+                    5..=100,
+                    "Height",
+                    "%",
+                    "Visible height of the source",
+                    theme.sub,
+                ) {
+                    c.h = h as f32 / 100.0;
+                    changed = true;
+                }
+                let mut x = (c.x * 100.0).round() as usize;
+                if thin_sidebar_slider(
+                    ui,
+                    &mut x,
+                    0..=95,
+                    "Pan X",
+                    "%",
+                    "Crop window offset",
+                    theme.sub,
+                ) {
+                    c.x = x as f32 / 100.0;
+                    changed = true;
+                }
+                let mut y = (c.y * 100.0).round() as usize;
+                if thin_sidebar_slider(
+                    ui,
+                    &mut y,
+                    0..=95,
+                    "Pan Y",
+                    "%",
+                    "Crop window offset",
+                    theme.sub,
+                ) {
+                    c.y = y as f32 / 100.0;
+                    changed = true;
+                }
+            });
+        });
+
     if changed {
         let c = c.clamped();
         app.patch_nodes(ids, move |n| {
@@ -622,7 +667,7 @@ fn model_controls(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme, pr
          Auto-locks after 30 s idle."
     } else {
         "Locked — showing the saved camera angle as a still. \
-         Unlock to orbit the model."
+         Double-click the node (or unlock) to orbit the model."
     };
     ui.label(RichText::new(status).small().color(theme.sub));
     ui.horizontal(|ui| {
