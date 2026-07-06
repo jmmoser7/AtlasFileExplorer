@@ -5,9 +5,12 @@ the matching layer instead of growing `mod.rs`.
 
 ## Layer 0 — Top chrome (`ui/menubar.rs` + `ui/tabs.rs`)
 
-- **Scope:** the Windows-style File/View menu bar (topmost, full width), then
-  browser-style tabs. Global Undo/Redo stays keyboard-only.
-- **Rule:** Nothing that acts on the canvas lives here. The menu bar spans the
+- **Scope:** the custom title bar (topmost, full width; the window runs
+  without OS decorations): app icon — no app-name text — then the File/View
+  menus, a draggable caption area, and the minimize/maximize/close buttons,
+  all on one row. Below it, browser-style tabs. Global Undo/Redo stays
+  keyboard-only.
+- **Rule:** Nothing that acts on the canvas lives here. The title bar spans the
   whole window; the tools rail is registered *before* the tab strip so the
   rail runs from the readout bar up to the menu bar, with tabs nested in the
   remaining width (see the panel-order comment in `mod.rs::update_app`).

@@ -16,7 +16,10 @@ pub fn run(initial_root: Option<std::path::PathBuf>) -> eframe::Result {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1440.0, 900.0])
             .with_min_inner_size([800.0, 500.0])
-            .with_title("File Atlas"),
+            .with_title("File Atlas")
+            // OS decorations off: the shared chrome draws its own title bar
+            // (icon + menus + window buttons — see atlas_shell::menubar).
+            .with_decorations(false),
         vsync: true,
         ..Default::default()
     };

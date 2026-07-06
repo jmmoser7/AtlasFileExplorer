@@ -5,7 +5,9 @@
 //! apart visually:
 //!
 //! - [`theme`] — the one [`theme::Palette`] + egui visuals both apps use.
-//! - [`menubar`] — Windows-style File/View menu bar (topmost chrome row).
+//! - [`menubar`] — custom title bar: app icon, File/View menus, caption drag,
+//!   and the minimize/maximize/close buttons (topmost chrome row; the apps
+//!   run without OS decorations).
 //! - [`tabs`] — browser-style top bar and tab strip (identical painting).
 //! - [`sidebar`] — left tools-rail layout primitives (sections, rows).
 //! - [`widgets`] — shared controls (chips, sliders, timeline, gear menu).

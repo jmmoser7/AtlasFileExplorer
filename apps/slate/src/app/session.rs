@@ -198,7 +198,9 @@ impl SlateApp {
             egui::ViewportBuilder::default()
                 .with_title(format!("File Atlas — linked to {workbook}"))
                 .with_inner_size([1280.0, 800.0])
-                .with_min_inner_size([800.0, 500.0]),
+                .with_min_inner_size([800.0, 500.0])
+                // Same custom title bar as the standalone apps.
+                .with_decorations(false),
             |ctx, _class| {
                 atlas.set_dark_mode(slate_dark, ctx);
                 atlas.run_frame(ctx);

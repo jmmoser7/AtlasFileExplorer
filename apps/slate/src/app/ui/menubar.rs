@@ -3,7 +3,7 @@
 //! the returned action.
 
 use super::super::SlateApp;
-use atlas_shell::menubar::{self, MenuBarModel, MenuItem, MenuSpec};
+use atlas_shell::menubar::{self, AppIcon, MenuBarModel, MenuItem, MenuSpec};
 use eframe::egui;
 use slate_doc::ViewKind;
 
@@ -51,6 +51,7 @@ pub fn menu_bar(app: &mut SlateApp, ctx: &egui::Context) {
         &palette,
         MenuBarModel {
             app_title: "Slate",
+            icon: AppIcon::Slate,
             menus: &menus,
         },
     );
