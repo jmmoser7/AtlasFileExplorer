@@ -143,12 +143,13 @@ pub fn draw_activity_heatmap(
     date_field_label: &str,
     source_label: &str,
     dark: bool,
+    muted: Color32,
 ) {
     if heatmap.is_empty() {
         ui.label(
             RichText::new(format!("No {date_field_label} dates for {source_label}"))
                 .small()
-                .color(Color32::from_gray(120)),
+                .color(muted),
         );
         return;
     }
@@ -167,7 +168,7 @@ pub fn draw_activity_heatmap(
                 heatmap.total_files
             ))
             .small()
-            .color(Color32::from_gray(130)),
+            .color(muted),
         );
     });
 
@@ -180,7 +181,7 @@ pub fn draw_activity_heatmap(
             let origin = rect.min + Vec2::new(DAY_LABEL_W, MONTH_LABEL_H);
 
             // Month labels along the top.
-            draw_month_labels(&painter, heatmap, origin, grid_w, dark);
+            draw_month_labels(&painter, heatmap, origin, grid_w, muted);
 
             // Day-of-week labels (Mon/Wed/Fri like GitHub).
             for &(row, label) in &[(1, "Mon"), (3, "Wed"), (5, "Fri")] {
@@ -190,7 +191,7 @@ pub fn draw_activity_heatmap(
                     egui::Align2::LEFT_CENTER,
                     label,
                     FontId::proportional(9.0),
-                    Color32::from_gray(110),
+                    muted,
                 );
             }
 
@@ -240,7 +241,7 @@ pub fn draw_activity_heatmap(
                 egui::Align2::LEFT_BOTTOM,
                 "Less",
                 FontId::proportional(9.0),
-                Color32::from_gray(110),
+                muted,
             );
             for lvl in 0..5 {
                 let lx = legend_x + 28.0 + lvl as f32 * (CELL + 2.0);
@@ -255,7 +256,7 @@ pub fn draw_activity_heatmap(
                 egui::Align2::LEFT_BOTTOM,
                 "More",
                 FontId::proportional(9.0),
-                Color32::from_gray(110),
+                muted,
             );
 
             resp.on_hover_text(format!(
@@ -269,7 +270,7 @@ fn draw_month_labels(
     heatmap: &ActivityHeatmap,
     origin: Pos2,
     _grid_w: f32,
-    _dark: bool,
+    muted: Color32,
 ) {
     let weeks = heatmap.week_columns();
     let mut last_month: Option<u32> = None;
@@ -286,7 +287,7 @@ fn draw_month_labels(
                 egui::Align2::LEFT_BOTTOM,
                 month_short(m),
                 FontId::proportional(9.0),
-                Color32::from_gray(110),
+                muted,
             );
             last_month = Some(m);
         }

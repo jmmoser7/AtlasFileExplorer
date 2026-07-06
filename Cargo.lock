@@ -3225,6 +3225,7 @@ dependencies = [
  "native-file-atlas",
  "rfd",
  "rhino-mesh",
+ "serde",
  "serde_json",
  "slate-artifact",
  "slate-doc",

@@ -50,6 +50,42 @@ impl WorldRect {
         Self::new(self.x + dx, self.y + dy, self.w, self.h)
     }
 
+    /// Inverse-rotate `(px, py)` into the rect's local axes and test containment.
+    pub fn contains_rotated(&self, px: f32, py: f32, rotation_deg: f32) -> bool {
+        if rotation_deg.abs() < f32::EPSILON {
+            return self.contains(px, py);
+        }
+        let (cx, cy) = self.center();
+        let rad = (-rotation_deg).to_radians();
+        let (sin, cos) = rad.sin_cos();
+        let dx = px - cx;
+        let dy = py - cy;
+        let lx = cx + dx * cos - dy * sin;
+        let ly = cy + dx * sin + dy * cos;
+        self.contains(lx, ly)
+    }
+
+    /// Four corners in world space (NW, NE, SE, SW), rotated about the center.
+    pub fn corners_rotated(&self, rotation_deg: f32) -> [(f32, f32); 4] {
+        let (cx, cy) = self.center();
+        let local = [
+            (self.x, self.y),
+            (self.x + self.w, self.y),
+            (self.x + self.w, self.y + self.h),
+            (self.x, self.y + self.h),
+        ];
+        if rotation_deg.abs() < f32::EPSILON {
+            return local;
+        }
+        let rad = rotation_deg.to_radians();
+        let (sin, cos) = rad.sin_cos();
+        local.map(|(x, y)| {
+            let dx = x - cx;
+            let dy = y - cy;
+            (cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
+        })
+    }
+
     /// Returns a copy with non-negative width/height (flips min corner).
     pub fn normalized(&self) -> Self {
         let (x, w) = if self.w < 0.0 {
@@ -514,6 +550,9 @@ impl NodeKind {
 pub struct Node {
     pub id: NodeId,
     pub rect: WorldRect,
+    /// Clockwise rotation in degrees; maps to CSS `transform: rotate()`.
+    #[serde(default)]
+    pub rotation_deg: f32,
     /// Whole-node opacity 0..=1; maps to CSS `opacity`.
     #[serde(default = "one")]
     pub opacity: f32,
@@ -556,6 +595,7 @@ impl Scene {
         Node {
             id: self.alloc_id(),
             rect: rect.normalized(),
+            rotation_deg: 0.0,
             opacity: 1.0,
             kind,
         }
@@ -635,7 +675,7 @@ impl Scene {
         self.nodes
             .iter()
             .rev()
-            .find(|n| !n.is_frame() && n.rect.contains(x, y))
+            .find(|n| !n.is_frame() && n.rect.contains_rotated(x, y, n.rotation_deg))
             .map(|n| n.id)
             .or_else(|| self.frame_at(x, y))
     }

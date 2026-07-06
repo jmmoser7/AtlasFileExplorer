@@ -259,7 +259,7 @@ fn render_image(
         None => ("?", None),
     };
 
-    let mut style = geometry_style(rel);
+    let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
     append_corner(&mut style, img.corner);
     append_stroke(&mut style, &img.stroke);
@@ -488,7 +488,7 @@ fn render_rect_shape(
     rel: WorldRect,
     ellipse: bool,
 ) {
-    let mut style = geometry_style(rel);
+    let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
 
     if ellipse {
@@ -530,7 +530,7 @@ fn render_line(
     let stroke_width = shape.stroke.width;
     let dash = line_dash_attrs(&shape.stroke);
 
-    let mut wrap = geometry_style(rel);
+    let mut wrap = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut wrap, node.opacity);
     wrap.push_str("overflow:visible;background:transparent;");
 
@@ -569,7 +569,7 @@ fn render_line(
 }
 
 fn render_text(html: &mut String, node: &Node, text: &slate_doc::scene::TextNode, rel: WorldRect) {
-    let mut style = geometry_style(rel);
+    let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
     style.push_str("font-family:");
     style.push_str(text.family.css_stack());
@@ -588,14 +588,23 @@ fn render_text(html: &mut String, node: &Node, text: &slate_doc::scene::TextNode
     html.push_str("</div>\n");
 }
 
-fn geometry_style(rect: WorldRect) -> String {
-    format!(
+fn geometry_style(rect: WorldRect, rotation_deg: f32) -> String {
+    let mut style = format!(
         "left:{}px;top:{}px;width:{}px;height:{}px;",
         fmt_px(rect.x),
         fmt_px(rect.y),
         fmt_px(rect.w),
         fmt_px(rect.h),
-    )
+    );
+    if rotation_deg.abs() > f32::EPSILON {
+        use std::fmt::Write;
+        let _ = write!(
+            style,
+            "transform:rotate({:.3}deg);transform-origin:center center;",
+            rotation_deg
+        );
+    }
+    style
 }
 
 fn append_opacity(style: &mut String, opacity: f32) {

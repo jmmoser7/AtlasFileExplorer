@@ -3,6 +3,7 @@
 
 mod advanced;
 mod inspector;
+mod menubar;
 mod readouts;
 mod tabs;
 mod tools;
@@ -11,6 +12,10 @@ use super::SlateApp;
 use eframe::egui::Context;
 
 impl SlateApp {
+    pub(super) fn draw_menu_bar(&mut self, ctx: &Context) {
+        menubar::menu_bar(self, ctx);
+    }
+
     pub(super) fn draw_top_chrome(&mut self, ctx: &Context) {
         tabs::top_bar(self, ctx);
     }

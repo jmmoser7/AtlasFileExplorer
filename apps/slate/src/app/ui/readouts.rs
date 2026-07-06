@@ -64,8 +64,7 @@ pub fn status_bar(app: &mut SlateApp, ctx: &egui::Context) {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
-                    RichText::new(format!("{:.0}%", app.tab().cam.z * 100.0))
-                        .color(egui::Color32::from_gray(110)),
+                    RichText::new(format!("{:.0}%", app.tab().cam.z * 100.0)).color(palette.sub),
                 );
                 if app.atlas.is_some() {
                     ui.label(

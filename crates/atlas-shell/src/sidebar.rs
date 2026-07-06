@@ -195,6 +195,43 @@ pub fn sidebar_region(
     add_body(ui);
 }
 
+/// Accordion row inside a section body — title toggles an indented control block.
+///
+/// `group_id` scopes mutual exclusivity: at most one region in the group is
+/// open. Clicking the active row again collapses it. Top-level section cards
+/// (`sidebar_section`) are unaffected.
+pub fn sidebar_collapsible_region(
+    ui: &mut Ui,
+    group_id: Id,
+    region_id: Id,
+    label: &str,
+    theme: SidebarTheme,
+    add_body: impl FnOnce(&mut Ui),
+) {
+    let expanded = ui.ctx().data(|d| d.get_temp::<Option<Id>>(group_id)) == Some(Some(region_id));
+
+    ui.horizontal(|ui| {
+        ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
+        let toggle = sidebar_expand_toggle(ui, expanded, theme);
+        let label_color = if expanded { theme.ink } else { theme.sub };
+        let label_resp = ui
+            .add(
+                egui::Label::new(RichText::new(label).small().color(label_color))
+                    .sense(Sense::click()),
+            )
+            .on_hover_cursor(CursorIcon::PointingHand);
+        if toggle.clicked() || label_resp.clicked() {
+            let next = if expanded { None } else { Some(region_id) };
+            ui.ctx().data_mut(|d| d.insert_temp(group_id, next));
+        }
+    });
+
+    if ui.ctx().data(|d| d.get_temp::<Option<Id>>(group_id)) == Some(Some(region_id)) {
+        ui.indent(region_id, add_body);
+        ui.add_space(SidebarTokens::ROW_GAP);
+    }
+}
+
 /// Very subtle horizontal rule between sub-regions inside a section card.
 pub fn sidebar_subtle_divider(ui: &mut Ui, theme: SidebarTheme) {
     ui.add_space(SidebarTokens::ROW_GAP);

@@ -3,12 +3,13 @@
 
 use super::super::commands;
 use super::super::AtlasApp;
-use eframe::egui::{self, Color32};
+use eframe::egui;
 
 pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
     if !app.active_chrome().advanced_open {
         return;
     }
+    let palette = app.palette();
     let mut open = true;
     egui::Window::new("Advanced")
         .open(&mut open)
@@ -24,7 +25,7 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
                      at the bottom of the window while a run is active.",
                 )
                 .small()
-                .color(Color32::from_gray(120)),
+                .color(palette.sub),
             );
             ui.add_space(6.0);
             let running = app.prewarm.is_some();
@@ -46,7 +47,7 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
                     ui.label(
                         egui::RichText::new(format!("{remaining} files remaining"))
                             .small()
-                            .color(Color32::from_gray(140)),
+                            .color(palette.sub),
                     )
                     .on_hover_text(dir);
                     if ui.small_button("Cancel").clicked() {
@@ -60,7 +61,7 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new(sc.display().to_string())
                         .small()
-                        .color(Color32::from_gray(110)),
+                        .color(palette.sub),
                 );
                 if ui.small_button("Sync local thumbnails now").clicked() {
                     app.sync_shared_cache_from_local();
@@ -74,7 +75,7 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
                          …\\02 DESIGN\\05 RESOURCES\\03 DATA in the project tree.",
                     )
                     .small()
-                    .color(Color32::from_gray(130)),
+                    .color(palette.sub),
                 );
             }
             ui.add_space(12.0);

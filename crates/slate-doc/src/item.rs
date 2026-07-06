@@ -14,6 +14,9 @@ pub struct SlateItem {
     pub size: u64,
     pub mtime: i64,
     pub cache_key: String,
+    /// 0-based PDF page shown as this item's poster (0 = first page).
+    #[serde(default)]
+    pub pdf_page: u16,
     /// At most one tag per group; empty means uncategorized.
     pub assignments: BTreeMap<GroupId, TagId>,
 }

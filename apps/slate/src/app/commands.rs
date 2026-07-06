@@ -13,12 +13,12 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Navigation",
         name: "Pan (precise)",
-        binding: "Left-drag on canvas background",
+        binding: "Left-drag or right-drag on canvas background",
     },
     CommandEntry {
         category: "Navigation",
         name: "Turbo pan",
-        binding: "Right-drag on canvas — pull away from the click point; speed scales with \
+        binding: "Ctrl + right-drag on canvas — pull away from the click point; speed scales with \
                   distance; returns to zero at the origin; locked to horizontal or vertical",
     },
     CommandEntry {
@@ -35,6 +35,11 @@ pub const ENTRIES: &[CommandEntry] = &[
         category: "Navigation",
         name: "Fit view",
         binding: "F",
+    },
+    CommandEntry {
+        category: "Navigation",
+        name: "Full-screen canvas (hide sidebar + bottom bar)",
+        binding: "F11, or ⛶ in the canvas mini menu (lower-left), or View → Full-screen canvas",
     },
     CommandEntry {
         category: "Navigation",
@@ -118,6 +123,41 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Board",
+        name: "Resize (lock aspect ratio)",
+        binding: "Shift + drag corner handle (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Resize from center",
+        binding: "Ctrl + drag corner handle (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Draw square / circle",
+        binding: "Shift + drag with Frame, Rectangle, or Ellipse tool",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Smart guides (align to objects)",
+        binding: "On by default while moving or resizing; Alt temporarily disables",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Rotate object",
+        binding: "Drag outside a corner handle (Board view); snaps at 45°",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Board grid / snap to grid",
+        binding: "Grid / Snap grid toggles in the board toolbar",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Align / distribute objects",
+        binding: "Align menu in the board toolbar (2+ selected)",
+    },
+    CommandEntry {
+        category: "Board",
         name: "Delete objects",
         binding: "Delete or Backspace",
     },
@@ -134,7 +174,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Pan board",
-        binding: "Middle-drag, or Space + left-drag",
+        binding: "Middle-drag, right-drag, or Space + left-drag",
     },
     CommandEntry {
         category: "Board",
