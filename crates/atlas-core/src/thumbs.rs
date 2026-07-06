@@ -575,7 +575,7 @@ fn save_cached(path: &Path, w: u32, h: u32, rgba: &[u8]) {
 /// fallback that masks our PDF/Office extractors.
 #[cfg(windows)]
 fn shell_thumbnail_cached_only(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
-    shell_get_image(path, SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK)
+    shell_get_image(path, SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK, THUMB_PX)
 }
 
 #[cfg(not(windows))]
@@ -588,8 +588,20 @@ fn shell_thumbnail_cached_only(_path: &Path) -> Option<(u32, u32, Vec<u8>)> {
 /// a full extraction (which may be a scaled type icon).
 #[cfg(windows)]
 fn shell_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
-    shell_get_image(path, SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK)
-        .or_else(|| shell_get_image(path, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK))
+    shell_image_at(path, THUMB_PX)
+}
+
+/// Full shell extraction at an arbitrary target size — the preview pipeline
+/// (`crate::preview`) uses this for formats it can't decode natively.
+#[cfg(windows)]
+pub(crate) fn shell_image_at(path: &Path, px: i32) -> Option<(u32, u32, Vec<u8>)> {
+    shell_get_image(path, SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK, px)
+        .or_else(|| shell_get_image(path, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK, px))
+}
+
+#[cfg(not(windows))]
+pub(crate) fn shell_image_at(_path: &Path, _px: i32) -> Option<(u32, u32, Vec<u8>)> {
+    None
 }
 
 /// Non-Windows (e.g. Linux CI): decode common raster formats directly so
@@ -612,6 +624,7 @@ fn shell_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
 fn shell_get_image(
     path: &Path,
     flags: windows::Win32::UI::Shell::SIIGBF,
+    px: i32,
 ) -> Option<(u32, u32, Vec<u8>)> {
     let wide: Vec<u16> = path
         .as_os_str()
@@ -623,10 +636,7 @@ fn shell_get_image(
     unsafe {
         let factory: IShellItemImageFactory =
             SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None).ok()?;
-        let size = SIZE {
-            cx: THUMB_PX,
-            cy: THUMB_PX,
-        };
+        let size = SIZE { cx: px, cy: px };
         let hbmp = factory.GetImage(size, flags).ok()?;
         hbitmap_to_rgba(hbmp)
     }
