@@ -94,6 +94,64 @@ fn empty_app_pumps_frames() {
     }
 }
 
+/// Placed 3D models must be safe headless (no GL): the board paints the
+/// thumbnail/placeholder path, unlocking is refused with a toast instead of
+/// creating a live viewport, and the model camera stays journalable.
+#[test]
+fn model_nodes_survive_headless_frames() {
+    let mut h = Harness::new("model3d");
+    let model = h.base.join("tower.3dm");
+    std::fs::write(&model, b"3D Geometry File Format fake").unwrap();
+    let ids = h.app.add_paths(&[model]);
+    assert_eq!(ids.len(), 1);
+
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app
+        .place_items_on_board(&[ids[0]], Pos2::new(200.0, 200.0));
+    let node_id = h.app.doc().scene.nodes.last().unwrap().id;
+    assert!(
+        h.app.model_node_info(node_id).is_some(),
+        "classified as model"
+    );
+    for _ in 0..5 {
+        h.frame();
+    }
+
+    // No GL in the harness: unlock refuses politely.
+    h.app.unlock_model(node_id);
+    assert!(h.app.model3d.live.is_empty());
+    assert!(!h.app.toasts.is_empty(), "user told why");
+    for _ in 0..3 {
+        h.frame();
+    }
+
+    // The camera pose is plain journaled node state.
+    h.app.reset_model_camera(node_id);
+    let cam_before = match &h.app.doc().scene.node(node_id).unwrap().kind {
+        slate_doc::scene::NodeKind::Image(img) => img.model,
+        _ => unreachable!(),
+    };
+    h.app.patch_nodes(&[node_id], |n| {
+        if let slate_doc::scene::NodeKind::Image(img) = &mut n.kind {
+            img.model.yaw = 1.0;
+            img.model.distance = 25.0;
+        }
+    });
+    h.app.board_undo();
+    let cam_after_undo = match &h.app.doc().scene.node(node_id).unwrap().kind {
+        slate_doc::scene::NodeKind::Image(img) => img.model,
+        _ => unreachable!(),
+    };
+    assert_eq!(cam_before, cam_after_undo);
+
+    // Deleting the node while (hypothetically) tracked must not wedge the
+    // per-frame upkeep.
+    h.app.delete_board_nodes(&[node_id]);
+    for _ in 0..3 {
+        h.frame();
+    }
+}
+
 #[test]
 fn grid_and_venn_views_render_seeded_doc() {
     let mut h = Harness::new("views");

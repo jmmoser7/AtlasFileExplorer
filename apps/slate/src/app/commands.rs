@@ -152,6 +152,27 @@ pub const ENTRIES: &[CommandEntry] = &[
         binding: "Ctrl + Z / Ctrl + Y (or Ctrl + Shift + Z)",
     },
     CommandEntry {
+        category: "Board",
+        name: "Unlock / lock 3D viewport",
+        binding: "Hover a placed .3dm model → click the padlock; live viewports \
+                  auto-lock after 30 s idle (the frozen view becomes the slide image)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Orbit 3D model",
+        binding: "Drag inside an unlocked viewport (Rhino-style Z-up orbit)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Pan 3D model",
+        binding: "Shift + drag inside an unlocked viewport",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Zoom 3D model",
+        binding: "Scroll inside an unlocked viewport",
+    },
+    CommandEntry {
         category: "Presentation",
         name: "Present frames as slides",
         binding: "F5, or ▶ Present in the board toolbar",

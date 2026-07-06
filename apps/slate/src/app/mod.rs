@@ -24,6 +24,7 @@ pub mod canvas;
 pub mod chrome;
 pub mod commands;
 pub mod imagefx;
+pub mod model3d;
 pub mod present;
 pub mod session;
 #[cfg(test)]
@@ -194,6 +195,14 @@ pub struct SlateApp {
     pub last_board_edit: Option<(NodeId, Instant)>,
     /// Alt modifier state this frame (Alt-drag duplicates).
     pub alt_down: bool,
+    /// Shift modifier state this frame (3D viewport drag = pan).
+    pub shift_down: bool,
+
+    /// The glow GL context, for offscreen 3D viewport rendering. `None` in
+    /// the headless test harness (3D stays poster/thumbnail-only there).
+    pub gl: Option<std::sync::Arc<eframe::glow::Context>>,
+    /// Interactive 3D model viewport state (see `model3d.rs`).
+    pub model3d: model3d::ModelSpace,
 
     /// `.slate` files encountered in add/drop flows this frame. Workbooks
     /// never become items — they open as tabs at a safe point in the frame
@@ -206,7 +215,9 @@ pub struct SlateApp {
 impl SlateApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_doc: Option<PathBuf>) -> Self {
         association::ensure_file_association();
-        Self::with_ctx(&cc.egui_ctx, initial_doc)
+        let mut app = Self::with_ctx(&cc.egui_ctx, initial_doc);
+        app.gl = cc.gl.clone();
+        app
     }
 
     /// Full construction from a bare egui context. Used by `new` and by the
@@ -246,6 +257,9 @@ impl SlateApp {
             export_inline: false,
             last_board_edit: None,
             alt_down: false,
+            shift_down: false,
+            gl: None,
+            model3d: model3d::ModelSpace::default(),
             pending_workbooks: Vec::new(),
             frame_no: 0,
         };
@@ -327,6 +341,9 @@ impl SlateApp {
 
     pub fn switch_tab(&mut self, i: usize) {
         if i < self.tabs.len() && i != self.active_tab {
+            // Live 3D viewports are keyed by node id, which is per-document:
+            // freeze them before another doc's ids can collide.
+            self.lock_all_models();
             self.active_tab = i;
             self.selection.clear();
             self.publish_session_tags();
@@ -340,6 +357,9 @@ impl SlateApp {
         if self.tabs[i].dirty {
             self.toast("Workbook has unsaved changes — save or Save As first");
             return;
+        }
+        if i == self.active_tab {
+            self.lock_all_models();
         }
         self.tabs.remove(i);
         if self.tabs.is_empty() {
@@ -635,8 +655,35 @@ impl SlateApp {
         map
     }
 
+    /// Frozen-camera posters for placed 3D model nodes (one per node — the
+    /// same model can appear from several saved perspectives). Best effort:
+    /// nodes whose poster was never rendered (model never seen on the
+    /// board) fall back to the item thumbnail card.
+    fn export_model_poster_map(&self) -> std::collections::BTreeMap<slate_doc::NodeId, PathBuf> {
+        let mut map = std::collections::BTreeMap::new();
+        for info in self.model_nodes() {
+            let cam = if info.cam.distance > 0.0 {
+                info.cam
+            } else {
+                // Auto-fit pose: resolvable only if the model was loaded.
+                match self.model3d.bounds.get(&info.cache_key) {
+                    Some((min, max)) => model3d::resolve_camera(&info.cam, *min, *max),
+                    None => continue,
+                }
+            };
+            let aq = model3d::aspect_q(info.rect.w, info.rect.h);
+            let poster = model3d::poster_path(&info.cache_key, &cam, aq);
+            if poster.exists() {
+                map.insert(info.node, poster);
+            }
+        }
+        map
+    }
+
     /// Write the HTML artifact into `<dir>/<workbook>-slides/`.
     fn do_export(&mut self, dir: PathBuf) {
+        // Freeze live 3D viewports so the export shows their latest poses.
+        self.lock_all_models();
         let safe: String = self
             .doc()
             .name
@@ -653,6 +700,7 @@ impl SlateApp {
         let opts = slate_artifact::ExportOptions {
             inline_assets: self.export_inline,
             thumbs: self.export_thumb_map(),
+            model_posters: self.export_model_poster_map(),
         };
         match slate_artifact::export_html(self.doc(), &out, &opts) {
             Ok(rep) => {
@@ -818,8 +866,11 @@ impl SlateApp {
     pub fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
         self.alt_down = ctx.input(|i| i.modifiers.alt);
+        self.shift_down = ctx.input(|i| i.modifiers.shift);
         self.drain_pickers();
         self.drain_thumbs(ctx);
+        self.model3d_frame(ctx);
+        self.note_engine_failure();
         self.session_frame(ctx);
         self.ai.poll();
         self.ai_context_frame();

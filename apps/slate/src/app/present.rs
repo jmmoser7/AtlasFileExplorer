@@ -41,6 +41,9 @@ impl SlateApp {
         let idx = from_frame
             .and_then(|id| frames.iter().position(|f| f.id == id))
             .unwrap_or(0);
+        // Presentation shows frozen states: lock live 3D viewports so every
+        // slide renders the committed camera pose.
+        self.lock_all_models();
         self.presenting = Some(Present { idx, from: None });
         self.board_menu = None;
         self.text_edit = None;
