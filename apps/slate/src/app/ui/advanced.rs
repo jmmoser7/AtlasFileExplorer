@@ -3,12 +3,13 @@
 
 use super::super::{commands, settings, SlateApp};
 use atlas_core::preview::{MAX_PX_MAX, MAX_PX_MIN};
-use eframe::egui::{self, Color32};
+use eframe::egui;
 
 pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
     if !app.tab().chrome.advanced_open {
         return;
     }
+    let palette = app.palette();
     let mut open = true;
     egui::Window::new("Advanced")
         .open(&mut open)
@@ -22,7 +23,7 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
                      instantly here.",
                 )
                 .small()
-                .color(Color32::from_gray(120)),
+                .color(palette.sub),
             );
             if let Some(path) = &app.tab().path {
                 ui.add_space(6.0);
@@ -30,7 +31,7 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
                 ui.label(
                     egui::RichText::new(path.display().to_string())
                         .small()
-                        .color(Color32::from_gray(110)),
+                        .color(palette.sub),
                 );
             }
             ui.add_space(12.0);
@@ -50,6 +51,7 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
 /// Canvas previews: the lazy full-resolution tier above the thumbnails.
 /// Changes persist to `slate-settings.json` immediately.
 fn preview_section(app: &mut SlateApp, ui: &mut egui::Ui) {
+    let palette = app.palette();
     ui.label(egui::RichText::new("Canvas previews").strong());
     ui.label(
         egui::RichText::new(
@@ -61,7 +63,7 @@ fn preview_section(app: &mut SlateApp, ui: &mut egui::Ui) {
              recently viewed fall back to thumbnails first).",
         )
         .small()
-        .color(Color32::from_gray(120)),
+        .color(palette.sub),
     );
     ui.add_space(4.0);
 
@@ -113,7 +115,7 @@ fn preview_section(app: &mut SlateApp, ui: &mut egui::Ui) {
                 bytes as f64 / (1024.0 * 1024.0)
             ))
             .small()
-            .color(Color32::from_gray(140)),
+            .color(palette.sub),
         );
         if entries > 0 && ui.small_button("Unload all").clicked() {
             app.clear_preview_cache();

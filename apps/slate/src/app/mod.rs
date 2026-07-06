@@ -333,6 +333,11 @@ impl SlateApp {
     }
 
     pub fn apply_theme(&self, ctx: &egui::Context) {
+        ctx.set_theme(if self.dark_mode {
+            egui::ThemePreference::Dark
+        } else {
+            egui::ThemePreference::Light
+        });
         ctx.set_visuals(if self.dark_mode {
             dark_visuals()
         } else {
@@ -882,12 +887,13 @@ impl SlateApp {
     /// One full UI frame (split out for testability, mirroring Atlas).
     pub fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
+        self.apply_theme(ctx);
         self.preview_reqs_this_frame = 0;
         self.alt_down = ctx.input(|i| i.modifiers.alt);
         self.drain_pickers();
         self.drain_thumbs(ctx);
         self.drain_previews(ctx);
-        self.session_frame(ctx);
+        self.session_pump(ctx);
         self.ai.poll();
         self.ai_context_frame();
 
@@ -937,6 +943,7 @@ impl SlateApp {
         self.draw_toasts(ctx);
         // Presentation overlay paints above everything, last.
         self.present_frame(ctx);
+        self.session_render_atlas(ctx);
 
         // Preview upkeep after painting so this frame's `last_used` marks
         // are fresh; keep pumping frames while decodes are in flight.

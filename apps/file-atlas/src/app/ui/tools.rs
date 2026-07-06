@@ -358,8 +358,12 @@ fn display_settings_body(
         }
         let mut dark = app.dark_mode;
         if ui.checkbox(&mut dark, "Dark").changed() {
-            app.dark_mode = dark;
-            app.apply_theme(ctx);
+            app.set_dark_mode(dark, ctx);
+            if let Some(session) = &app.session {
+                if let Ok(mut s) = session.lock() {
+                    s.dark_mode = dark;
+                }
+            }
         }
     });
 
