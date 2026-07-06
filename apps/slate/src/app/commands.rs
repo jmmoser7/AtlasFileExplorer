@@ -13,12 +13,12 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Navigation",
         name: "Pan (precise)",
-        binding: "Left-drag on canvas background",
+        binding: "Left-drag or right-drag on canvas background",
     },
     CommandEntry {
         category: "Navigation",
         name: "Turbo pan",
-        binding: "Right-drag on canvas — pull away from the click point; speed scales with \
+        binding: "Ctrl + right-drag on canvas — pull away from the click point; speed scales with \
                   distance; returns to zero at the origin; locked to horizontal or vertical",
     },
     CommandEntry {
@@ -134,7 +134,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Pan board",
-        binding: "Middle-drag, or Space + left-drag",
+        binding: "Middle-drag, right-drag, or Space + left-drag",
     },
     CommandEntry {
         category: "Board",

@@ -360,7 +360,9 @@ impl SlateApp {
             // pointer" polarity; our camera offset is the world point at the
             // canvas center, so convert and invert.
             self.tab_mut().cam.offset = old - (cam_offset_tmp - old) / z;
-        } else if resp.dragged_by(egui::PointerButton::Primary) {
+        } else if resp.dragged_by(egui::PointerButton::Primary)
+            || resp.dragged_by(egui::PointerButton::Secondary)
+        {
             let delta = resp.drag_delta();
             let z = self.tab().cam.z;
             self.tab_mut().cam.offset -= delta / z;
