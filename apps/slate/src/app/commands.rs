@@ -133,8 +133,9 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Board",
-        name: "Resize (lock aspect ratio)",
-        binding: "Shift + drag corner handle (Board view)",
+        name: "Resize (free aspect / distort)",
+        binding: "Shift + drag corner handle (corners scale proportionally by default); \
+                  Shift + drag edge handle locks aspect instead",
     },
     CommandEntry {
         category: "Board",
@@ -161,7 +162,8 @@ pub const ENTRIES: &[CommandEntry] = &[
         category: "Board",
         name: "Group resize (multi-selection)",
         binding: "With 2+ selected, drag a group bounding-box handle — scales all members \
-                  about the opposite corner/edge; Shift locks aspect, Ctrl scales from center",
+                  about the opposite corner/edge; corners scale proportionally, Shift \
+                  distorts, Ctrl scales from center",
     },
     CommandEntry {
         category: "Board",

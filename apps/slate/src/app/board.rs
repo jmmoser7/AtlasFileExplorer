@@ -12,8 +12,9 @@
 //! - `Alt`+drag duplicates the grabbed selection; `Ctrl+D` duplicates in
 //!   place. Deleting and z-order moves are plain command groups.
 //! - Smart guides align objects to each other while moving or resizing (on by
-//!   default). Hold `Alt` to bypass snapping; `Shift` locks aspect ratio on
-//!   corner resize; `Ctrl` resizes from center (Office/PowerPoint convention).
+//!   default). Hold `Alt` to bypass snapping; corner resize scales
+//!   proportionally by default and `Shift` frees the aspect (distortion);
+//!   `Ctrl` resizes from center (Office/PowerPoint convention).
 //! - Eight resize handles plus outside-corner rotate zones with native cursor
 //!   icons; rotation snaps at 45° intervals. Grid display and snap-to-grid are
 //!   toolbar toggles; Align menu covers align/distribute with 2+ selected.
@@ -35,8 +36,6 @@ type TagRows = Vec<(slate_doc::TagId, String, [u8; 3])>;
 
 const ZOOM_MIN: f32 = 0.05;
 const ZOOM_MAX: f32 = 3.5;
-/// Screen-px half-size of resize handles.
-const HANDLE: f32 = 5.0;
 /// Minimum node size (world units) accepted from a draw gesture.
 const MIN_DRAW: f32 = 8.0;
 /// Coalescing window for continuous inspector edits (one undo step).
@@ -2051,16 +2050,6 @@ impl SlateApp {
         self.tab_mut().cam.offset = world_before.to_vec2() - (pointer - center) / cam_z;
     }
 
-    fn handle_rects(sr: Rect) -> [Rect; 4] {
-        let h = Vec2::splat(HANDLE);
-        [
-            Rect::from_center_size(sr.left_top(), h * 2.0),
-            Rect::from_center_size(sr.right_top(), h * 2.0),
-            Rect::from_center_size(sr.right_bottom(), h * 2.0),
-            Rect::from_center_size(sr.left_bottom(), h * 2.0),
-        ]
-    }
-
     fn paint_snap_guides(
         painter: &egui::Painter,
         xf: &BoardXf,
@@ -2549,7 +2538,11 @@ impl SlateApp {
                 let handle = *handle;
                 let before_rect = before.rect;
                 let rotation_deg = before.rotation_deg;
-                let lock_aspect = mods.shift;
+                // Corner drags scale proportionally by default; Shift frees
+                // the aspect (distortion). Edge drags are single-axis, with
+                // Shift locking the aspect instead.
+                let is_corner = matches!(handle, 0 | 2 | 4 | 6);
+                let lock_aspect = if is_corner { !mods.shift } else { mods.shift };
                 let from_center = mods.ctrl;
                 let mut r = board_snap::resize_from_handle(
                     before_rect,
@@ -2649,8 +2642,18 @@ impl SlateApp {
                 let before = before.clone();
                 let gb = *group_before;
                 let handle = *handle;
+                // Same convention as single-node resize: corners scale
+                // proportionally by default, Shift distorts.
+                let is_corner = matches!(handle, 0 | 2 | 4 | 6);
+                let lock_aspect = if is_corner { !mods.shift } else { mods.shift };
                 let new_group = board_snap::resize_from_handle(
-                    gb, world, handle, MIN_DRAW, mods.shift, mods.ctrl, 0.0,
+                    gb,
+                    world,
+                    handle,
+                    MIN_DRAW,
+                    lock_aspect,
+                    mods.ctrl,
+                    0.0,
                 );
                 let mut sx = new_group.w / gb.w.max(0.001);
                 let mut sy = new_group.h / gb.h.max(0.001);
