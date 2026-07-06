@@ -779,9 +779,7 @@ impl SlateApp {
                                 .unwrap_or(false)
                         })
                         .collect();
-                    if pdf_targets.len() == 1
-                        && ui.button("Explode PDF into pages…").clicked()
-                    {
+                    if pdf_targets.len() == 1 && ui.button("Explode PDF into pages…").clicked() {
                         self.explode_pdf(pdf_targets[0]);
                         close = true;
                     }

@@ -256,4 +256,19 @@ impl SlateApp {
                 .request_repaint_after(std::time::Duration::from_millis(120));
         }
     }
+
+    /// Topmost PDF image node under a board world point, if any.
+    pub(crate) fn board_hovered_pdf(&self, world: Pos2) -> Option<(ItemId, Rect)> {
+        let id = self.doc().scene.node_at(world.x, world.y)?;
+        let n = self.doc().scene.node(id)?;
+        let slate_doc::scene::NodeKind::Image(img) = &n.kind else {
+            return None;
+        };
+        let item = self.doc().item(img.item)?;
+        if slate_doc::media_kind(&item.path) != MediaKind::Pdf {
+            return None;
+        }
+        let srect = self.board_xf().rect_w2s(n.rect);
+        Some((img.item, srect))
+    }
 }

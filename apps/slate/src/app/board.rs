@@ -1052,6 +1052,17 @@ impl SlateApp {
             );
         }
 
+        // PDF page picker on hover (multi-page documents only).
+        if self.board_menu.is_none() && !editing_text && self.board_drag.is_none() && !panning {
+            if let (Some(p), Some(w)) = (pointer, wp) {
+                if rect.contains(p) {
+                    if let Some((item_id, srect)) = self.board_hovered_pdf(w) {
+                        self.paint_pdf_page_picker(ui, item_id, srect, &palette);
+                    }
+                }
+            }
+        }
+
         // Empty-board hint.
         if self.doc().scene.is_empty() {
             painter.text(
@@ -1841,6 +1852,19 @@ impl SlateApp {
                                 }
                             }
                         }
+                    }
+                    let pdf_items: std::collections::HashSet<ItemId> = image_items
+                        .iter()
+                        .copied()
+                        .filter(|id| {
+                            self.doc().item(*id).is_some_and(|it| {
+                                slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Pdf
+                            })
+                        })
+                        .collect();
+                    if pdf_items.len() == 1 && ui.button("Explode PDF into pages…").clicked() {
+                        self.explode_pdf(*pdf_items.iter().next().unwrap());
+                        close = true;
                     }
                     ui.separator();
                     if ui.button("Delete  (Del)").clicked() {
