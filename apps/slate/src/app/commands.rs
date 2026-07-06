@@ -165,6 +165,30 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Board",
+        name: "Crop image (enter crop mode)",
+        binding: "Double-click an image, right-click → Crop image, or Selection \
+                  inspector → Edit crop on canvas (images, PDF pages, video posters — \
+                  not 3D viewports or text snippets)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Crop: move the window / pan the content",
+        binding: "In crop mode, drag the edge/corner handles to mask the image in \
+                  place; drag inside the window (content grabber) to slide the \
+                  image under the mask",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Finish cropping",
+        binding: "Enter, Escape, or click outside the image (crop mode)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Open image file",
+        binding: "Right-click object → Open file (double-click enters crop mode instead)",
+    },
+    CommandEntry {
+        category: "Board",
         name: "Finish text editing",
         binding: "Escape, or click anywhere outside the text box",
     },

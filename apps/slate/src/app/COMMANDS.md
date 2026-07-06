@@ -49,10 +49,23 @@ commands are registered in one place so users can look them up in
   about the group center. Journaled as one undo step.
 - **Text editing** commits on Escape, focus loss, or clicking anywhere
   outside the text box (the click also performs normal selection).
+- **Crop mode** (InDesign-style): double-click an eligible image (or
+  right-click → Crop image, or Selection inspector → Edit crop on canvas) to
+  edit its crop directly on the canvas. The full uncropped image shows
+  ghosted at its content rect with a scrim outside the crop window; dragging
+  the eight window handles moves the mask while the content stays put (rect
+  and UV crop change together); dragging inside the window (the center
+  content-grabber ring) slides the content under the mask. One crop drag =
+  one undo step. Finish with Enter, Escape, or a click outside the image —
+  the click passes through to normal selection. Eligible media: textured
+  images, PDF pages, video posters, and doc thumbnails; 3D viewports and
+  text snippet cards have no crop. Rotated nodes are supported by doing the
+  window math in the node's local (unrotated) axes.
 - **3D viewports** (placed `.3dm` models) invert the drag convention while
   *unlocked*: drag = orbit, Shift+drag = pan, scroll = zoom — Rhino
   semantics inside the node. **Double-click a locked viewport to unlock it**
-  (double-click opens the file for every other image kind); the padlock
+  (double-click enters crop mode for croppable images and opens the file for
+  the remaining kinds); the padlock
   (hover, top-right) toggles the live state too. Orbit drags also select the
   node, so its resize handles stay available while live — handle presses
   always beat orbit. Camera poses journal as one undo step when the viewport

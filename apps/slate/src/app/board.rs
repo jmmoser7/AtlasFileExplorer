@@ -20,7 +20,7 @@
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 
-use super::{board_handles, board_icons, board_snap, SlateApp, ThumbState};
+use super::{board_crop, board_handles, board_icons, board_snap, SlateApp, ThumbState};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
     Corner, Crop, Dash, FontChoice, FrameNode, ImageAdjust, ImageNode, Node, NodeKind, Rgba,
@@ -203,6 +203,21 @@ pub enum BoardDrag {
         id: NodeId,
         before: Node,
         start_angle: f32,
+    },
+    /// Crop mode: dragging a crop-window edge/corner. The node rect and the
+    /// UV crop change together so the content stays fixed — only the mask
+    /// moves (InDesign frame-edge cropping).
+    CropEdge {
+        id: NodeId,
+        before: Node,
+        handle: u8,
+    },
+    /// Crop mode: sliding the content under a fixed crop window (the center
+    /// content grabber / interior drag).
+    CropPan {
+        id: NodeId,
+        before: Node,
+        start_world: Pos2,
     },
     /// Scaling a multi-selection from a group bounding-box handle.
     GroupResize {
@@ -1529,6 +1544,7 @@ impl SlateApp {
 
     pub fn board_canvas(&mut self, ui: &mut egui::Ui, rect: Rect) {
         self.board_snap_guides.clear();
+        self.sync_crop_mode();
         let palette = self.palette();
         let painter = ui.painter_at(rect);
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
@@ -1652,8 +1668,45 @@ impl SlateApp {
             }
         }
 
+        // Crop-mode hover cursors: resize arrows on the window handles,
+        // Grab/Grabbing over the interior (content pan).
+        if let Some(crop_id) = self.board_crop {
+            if resp.hovered() && !panning {
+                if let (Some(p), Some(w), Some(n)) =
+                    (pointer, wp, self.doc().scene.node(crop_id).cloned())
+                {
+                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+                    let mid_drag = matches!(
+                        self.board_drag,
+                        Some(BoardDrag::CropEdge { .. } | BoardDrag::CropPan { .. })
+                    );
+                    match &self.board_drag {
+                        Some(BoardDrag::CropEdge { handle, .. }) => {
+                            ui.ctx().set_cursor_icon(board_handles::cursor_for_resize(
+                                board_handles::ResizeHandle::from_u8(*handle),
+                                &geom,
+                            ));
+                        }
+                        Some(BoardDrag::CropPan { .. }) => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                        }
+                        _ if !mid_drag => {
+                            if let Some(h) = board_handles::hit_test_resize_handles(p, &geom) {
+                                ui.ctx()
+                                    .set_cursor_icon(board_handles::cursor_for_resize(h, &geom));
+                            } else if n.rect.contains_rotated(w.x, w.y, n.rotation_deg) {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
         // Hover handles / rotate zones (single node or the multi-selection
-        // group box, select tool).
+        // group box, select tool). Suspended while crop mode is active —
+        // crop gestures own the node then.
         self.board_hover_hit = None;
         if resp.hovered()
             && !panning
@@ -1661,6 +1714,7 @@ impl SlateApp {
             && self.board_tool == BoardTool::Select
             && !self.board_sel.is_empty()
             && self.board_drag.is_none()
+            && self.board_crop.is_none()
         {
             if let Some(p) = pointer {
                 let geom = if self.board_sel.len() == 1 {
@@ -1704,7 +1758,8 @@ impl SlateApp {
 
         // Selection adornment: 8 handles + rotate zones on a single node, or
         // per-node outlines plus the same geometry on the group box with 2+.
-        if self.board_sel.len() == 1 {
+        // The crop-mode node draws its own adornment (below) instead.
+        if self.board_sel.len() == 1 && self.board_crop != self.board_sel.iter().next().copied() {
             if let Some(id) = self.board_sel.iter().next() {
                 if let Some(n) = self.doc().scene.node(*id) {
                     let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
@@ -1738,6 +1793,10 @@ impl SlateApp {
                 }
             }
         }
+
+        // Crop-mode overlay: ghosted full image, scrim, crop border +
+        // handles, content grabber.
+        self.paint_crop_overlay(ui, &painter, &xf);
 
         // Mid-gesture cursor: keep the resize arrow / rotate glyph pinned
         // while the drag is active, even when the pointer leaves the handle.
@@ -2040,11 +2099,229 @@ impl SlateApp {
             .collect()
     }
 
+    // ----- crop mode ---------------------------------------------------------------
+
+    /// Whether the node is an image whose crop can be edited on canvas —
+    /// the same eligibility as the inspector's Crop section: textured media
+    /// (images / PDF pages / video posters / doc thumbnails), never 3D
+    /// model viewports or text snippet cards.
+    pub fn croppable_image(&self, id: NodeId) -> bool {
+        let Some(n) = self.doc().scene.node(id) else {
+            return false;
+        };
+        let NodeKind::Image(img) = &n.kind else {
+            return false;
+        };
+        let Some(item) = self.doc().item(img.item) else {
+            return false;
+        };
+        !matches!(
+            slate_doc::media_kind(&item.path),
+            slate_doc::MediaKind::Model
+                | slate_doc::MediaKind::Text
+                | slate_doc::MediaKind::Workbook
+        )
+    }
+
+    /// Enter crop mode on an eligible image node (selects it and switches
+    /// to the Select tool). Entering on another node switches to it.
+    pub fn enter_crop_mode(&mut self, id: NodeId) {
+        if !self.croppable_image(id) {
+            return;
+        }
+        self.board_crop = Some(id);
+        self.board_sel.clear();
+        self.board_sel.insert(id);
+        self.board_tool = BoardTool::Select;
+        self.board_menu = None;
+    }
+
+    /// Per-frame crop-mode validity: exits when the node vanished, stopped
+    /// being croppable, or a non-Select tool was picked.
+    fn sync_crop_mode(&mut self) {
+        if let Some(id) = self.board_crop {
+            if self.board_tool != BoardTool::Select || !self.croppable_image(id) {
+                self.board_crop = None;
+            }
+        }
+    }
+
+    /// Crop-mode adornment: ghosted full image at the content rect, scrim
+    /// outside the crop window, accent border + 8 handles, and the center
+    /// content-grabber ring (InDesign convention).
+    fn paint_crop_overlay(&mut self, ui: &egui::Ui, painter: &egui::Painter, xf: &BoardXf) {
+        let Some(id) = self.board_crop else {
+            return;
+        };
+        let Some(node) = self.doc().scene.node(id).cloned() else {
+            return;
+        };
+        let NodeKind::Image(img) = &node.kind else {
+            return;
+        };
+        let palette = self.palette();
+        let accent = palette.accent;
+        let rot = node.rotation_deg;
+        let (cx, cy) = node.rect.center();
+        let content = board_crop::content_rect(node.rect, img.crop);
+
+        // Points are computed in the node's local (unrotated) space, then
+        // rotated about the node rect center — the same frame the crop math
+        // and the node painter use.
+        let rotate_w = |x: f32, y: f32| -> (f32, f32) {
+            if rot.abs() < f32::EPSILON {
+                return (x, y);
+            }
+            let rad = rot.to_radians();
+            let (sin, cos) = rad.sin_cos();
+            let dx = x - cx;
+            let dy = y - cy;
+            (cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
+        };
+        let screen_of = |x: f32, y: f32| -> Pos2 {
+            let (wx, wy) = rotate_w(x, y);
+            xf.w2s(Pos2::new(wx, wy))
+        };
+        let quad_screen = |r: WorldRect| -> Vec<Pos2> {
+            vec![
+                screen_of(r.x, r.y),
+                screen_of(r.x + r.w, r.y),
+                screen_of(r.x + r.w, r.y + r.h),
+                screen_of(r.x, r.y + r.h),
+            ]
+        };
+
+        // Ghosted full image over the content rect (dimmed).
+        let desired_px = (xf
+            .rect_w2s(content)
+            .width()
+            .max(xf.rect_w2s(content).height()))
+            * ui.ctx().pixels_per_point();
+        if let Some(tex) = self.board_texture(ui.ctx(), img.item, &img.adjust, desired_px) {
+            let outline_screen = quad_screen(content);
+            let outline_local: [(f32, f32); 4] = [
+                (content.x, content.y),
+                (content.x + content.w, content.y),
+                (content.x + content.w, content.y + content.h),
+                (content.x, content.y + content.h),
+            ];
+            textured_polygon_world(
+                painter,
+                &tex,
+                &outline_screen,
+                &outline_local,
+                content,
+                Crop::full(),
+                Color32::WHITE.gamma_multiply(0.35),
+            );
+        }
+
+        // Scrim between the content rect and the crop window (the masked
+        // area of the ghost).
+        let scrim = palette.bg.gamma_multiply(0.55);
+        let right = node.rect.x + node.rect.w;
+        let bottom = node.rect.y + node.rect.h;
+        let bands = [
+            WorldRect::new(content.x, content.y, content.w, node.rect.y - content.y),
+            WorldRect::new(content.x, bottom, content.w, content.y + content.h - bottom),
+            WorldRect::new(content.x, node.rect.y, node.rect.x - content.x, node.rect.h),
+            WorldRect::new(
+                right,
+                node.rect.y,
+                content.x + content.w - right,
+                node.rect.h,
+            ),
+        ];
+        for band in bands {
+            if band.w > 0.01 && band.h > 0.01 {
+                painter.add(egui::Shape::convex_polygon(
+                    quad_screen(band),
+                    scrim,
+                    EStroke::NONE,
+                ));
+            }
+        }
+
+        // Crop window border + the 8 handles.
+        let geom = board_handles::selection_geom(xf, node.rect, rot);
+        painter.add(egui::Shape::closed_line(
+            geom.corners.to_vec(),
+            EStroke::new(2.0, accent),
+        ));
+        let hovered = ui
+            .ctx()
+            .pointer_latest_pos()
+            .and_then(|p| board_handles::hit_test_resize_handles(p, &geom));
+        // Handle points in `ResizeHandle` order (corners and edge midpoints
+        // interleaved: Nw N Ne E Se S Sw W).
+        let handle_pts = [
+            geom.corners[0],
+            geom.edges[0],
+            geom.corners[1],
+            geom.edges[1],
+            geom.corners[2],
+            geom.edges[2],
+            geom.corners[3],
+            geom.edges[3],
+        ];
+        for (i, pt) in handle_pts.into_iter().enumerate() {
+            let handle = board_handles::ResizeHandle::from_u8(i as u8);
+            let fill = if hovered == Some(handle) {
+                accent
+            } else {
+                accent.gamma_multiply(0.85)
+            };
+            painter.rect_filled(
+                Rect::from_center_size(pt, Vec2::splat(board_handles::HANDLE_PX * 2.0)),
+                1.0,
+                fill,
+            );
+        }
+
+        // Content grabber: donut ring at the crop-window center.
+        let center = geom.corners[0] + (geom.corners[2] - geom.corners[0]) * 0.5;
+        painter.circle_stroke(center, 11.0, EStroke::new(2.0, accent));
+        painter.circle_stroke(center, 6.0, EStroke::new(2.0, accent.gamma_multiply(0.8)));
+
+        // Readable hint under the window.
+        painter.text(
+            geom.edges[2] + Vec2::new(0.0, 14.0),
+            Align2::CENTER_TOP,
+            "Drag edges to crop · drag inside to pan · Enter / Esc to finish",
+            FontId::proportional(11.0),
+            palette.sub,
+        );
+    }
+
     // ----- gesture handling ------------------------------------------------------
 
     fn begin_gesture(&mut self, screen: Pos2, world: Pos2) -> Option<BoardDrag> {
         match self.board_tool {
             BoardTool::Select => {
+                // Crop mode intercepts everything on its node: handles move
+                // the crop window, interior drags pan the content, presses
+                // outside exit crop mode and fall through to normal behavior.
+                if let Some(crop_id) = self.board_crop {
+                    if let Some(n) = self.doc().scene.node(crop_id).cloned() {
+                        let geom =
+                            board_handles::selection_geom(&self.board_xf(), n.rect, n.rotation_deg);
+                        if let Some(h) = board_handles::hit_test_resize_handles(screen, &geom) {
+                            return Some(BoardDrag::CropEdge {
+                                id: crop_id,
+                                before: n,
+                                handle: h as u8,
+                            });
+                        }
+                        if n.rect.contains_rotated(world.x, world.y, n.rotation_deg) {
+                            return Some(BoardDrag::CropPan {
+                                id: crop_id,
+                                before: n,
+                                start_world: world,
+                            });
+                        }
+                    }
+                    self.board_crop = None;
+                }
                 // Resize handle on the single selection?
                 if self.board_sel.len() == 1 {
                     let id = *self.board_sel.iter().next().unwrap();
@@ -2302,6 +2579,44 @@ impl SlateApp {
                     n.rect = r;
                 }
             }
+            Some(BoardDrag::CropEdge { id, before, handle }) => {
+                let node_id = *id;
+                let handle = *handle;
+                let (before_rect, before_crop, rot) = match &before.kind {
+                    NodeKind::Image(img) => (before.rect, img.crop, before.rotation_deg),
+                    _ => return,
+                };
+                // Rotated nodes: do the rect math in the node's local axes
+                // about the gesture-start center (see board_crop docs).
+                let (cx, cy) = before_rect.center();
+                let local = board_crop::to_local(world.x, world.y, cx, cy, rot);
+                let (r, c) = board_crop::edge_drag(before_rect, before_crop, handle, local);
+                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
+                    n.rect = r;
+                    if let NodeKind::Image(img) = &mut n.kind {
+                        img.crop = c;
+                    }
+                }
+            }
+            Some(BoardDrag::CropPan {
+                id,
+                before,
+                start_world,
+            }) => {
+                let node_id = *id;
+                let (before_rect, before_crop, rot) = match &before.kind {
+                    NodeKind::Image(img) => (before.rect, img.crop, before.rotation_deg),
+                    _ => return,
+                };
+                let d = world - *start_world;
+                let delta = board_crop::delta_local(d.x, d.y, rot);
+                let c = board_crop::pan_drag(before_rect, before_crop, delta);
+                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
+                    if let NodeKind::Image(img) = &mut n.kind {
+                        img.crop = c;
+                    }
+                }
+            }
             Some(BoardDrag::Rotate {
                 id,
                 before,
@@ -2456,6 +2771,20 @@ impl SlateApp {
             Some(BoardDrag::Resize { id, before, .. }) => {
                 if let Some(after) = self.doc().scene.node(id).cloned() {
                     if after.rect != before.rect || after.rotation_deg != before.rotation_deg {
+                        self.tab_mut().journal.record(vec![SceneCmd::Patch {
+                            before: Box::new(before),
+                            after: Box::new(after),
+                        }]);
+                        self.tab_mut().dirty = true;
+                    }
+                }
+            }
+            // Crop gestures: one Patch for the whole drag — both the rect
+            // (window) and the image crop may differ between before/after.
+            Some(BoardDrag::CropEdge { id, before, .. })
+            | Some(BoardDrag::CropPan { id, before, .. }) => {
+                if let Some(after) = self.doc().scene.node(id).cloned() {
+                    if after != before {
                         self.tab_mut().journal.record(vec![SceneCmd::Patch {
                             before: Box::new(before),
                             after: Box::new(after),
@@ -2679,6 +3008,17 @@ impl SlateApp {
     }
 
     fn board_click(&mut self, world: Pos2, ctrl: bool) {
+        // Crop mode: clicking outside the node finishes the crop and the
+        // click passes through to normal selection; clicks inside are the
+        // pan gesture's territory and change nothing.
+        if let Some(crop_id) = self.board_crop {
+            if let Some(n) = self.doc().scene.node(crop_id) {
+                if n.rect.contains_rotated(world.x, world.y, n.rotation_deg) {
+                    return;
+                }
+            }
+            self.board_crop = None;
+        }
         if self.board_tool == BoardTool::Text {
             // Click-to-create text; dark text on frames, light on the void.
             let on_frame = self.doc().scene.frame_at(world.x, world.y).is_some();
@@ -2740,6 +3080,10 @@ impl SlateApp {
                         if !self.model3d.live.contains_key(&id) {
                             self.unlock_model(id);
                         }
+                    } else if self.croppable_image(id) {
+                        // InDesign/Figma convention: double-click enters crop
+                        // mode. "Open file" stays in the right-click menu.
+                        self.enter_crop_mode(id);
                     } else {
                         self.open_item_path(&path);
                     }
@@ -3588,6 +3932,23 @@ impl SlateApp {
                     if ui.button("Send to back").clicked() {
                         self.reorder_nodes(&targets, false);
                         close = true;
+                    }
+                    // Single-image actions: on-canvas crop mode (also enter
+                    // via double-click) and opening the source file (the old
+                    // double-click behavior).
+                    if let Some(NodeKind::Image(img)) =
+                        self.doc().scene.node(node_id).map(|n| n.kind.clone())
+                    {
+                        if self.croppable_image(node_id) && ui.button("Crop image").clicked() {
+                            self.enter_crop_mode(node_id);
+                            close = true;
+                        }
+                        if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {
+                            if ui.button("Open file").clicked() {
+                                self.open_item_path(&path);
+                                close = true;
+                            }
+                        }
                     }
                     // Tag assignment for placed images: same faceted menu as
                     // the grid, targeting the underlying pool items.

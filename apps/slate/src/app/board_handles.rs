@@ -110,6 +110,15 @@ fn handle_rects(geom: &SelectionGeom) -> [(ResizeHandle, Rect); 8] {
     ]
 }
 
+/// Handle-only hit test (no rotate zones) — used by crop mode, where the
+/// eight handles move the crop window edges and rotation is unavailable.
+pub fn hit_test_resize_handles(screen: Pos2, geom: &SelectionGeom) -> Option<ResizeHandle> {
+    handle_rects(geom)
+        .into_iter()
+        .find(|(_, rect)| rect.expand(2.0).contains(screen))
+        .map(|(handle, _)| handle)
+}
+
 pub fn hit_test_selection(screen: Pos2, geom: &SelectionGeom) -> Option<BoardHitTarget> {
     for (i, rp) in geom.rotate_points.iter().enumerate() {
         if screen.distance(*rp) <= ROTATE_ZONE_PX + 2.0 {
