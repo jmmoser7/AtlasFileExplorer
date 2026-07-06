@@ -256,8 +256,8 @@ fn prewarm_walk(
                 }
             }
         }
-        let portal_like = opts.deprioritize_portals
-            && subdirs.len() + files.len() > opts.portal_threshold;
+        let portal_like =
+            opts.deprioritize_portals && subdirs.len() + files.len() > opts.portal_threshold;
         for entry in files {
             if cancel.load(Relaxed) {
                 break;

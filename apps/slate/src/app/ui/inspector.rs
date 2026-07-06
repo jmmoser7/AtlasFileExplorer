@@ -622,7 +622,7 @@ fn model_controls(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme, pr
          Auto-locks after 30 s idle."
     } else {
         "Locked — showing the saved camera angle as a still. \
-         Unlock to orbit the model."
+         Double-click the node (or unlock) to orbit the model."
     };
     ui.label(RichText::new(status).small().color(theme.sub));
     ui.horizontal(|ui| {

@@ -99,12 +99,17 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Select tool",
-        binding: "V (Board view)",
+        binding: "V (Board view), or the combined Select/Pan toolbar button",
     },
     CommandEntry {
         category: "Board",
         name: "Pan tool (hand)",
         binding: "H, or middle-drag / Space + drag (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Toggle Select ⇄ Pan",
+        binding: "Click the combined Select/Pan toolbar button while it is active",
     },
     CommandEntry {
         category: "Board",
@@ -114,7 +119,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Shapes / Curve / Text tools",
-        binding: "R / O / L / T (Board view); hover create toolbar for presets",
+        binding: "R / O / L / T (Board view); click or hover a toolbar button to open its submenu",
     },
     CommandEntry {
         category: "Board",
@@ -211,8 +216,9 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Unlock / lock 3D viewport",
-        binding: "Hover a placed .3dm model → click the padlock; live viewports \
-                  auto-lock after 30 s idle (the frozen view becomes the slide image)",
+        binding: "Double-click a locked .3dm model (or hover → click the padlock); \
+                  live viewports auto-lock after 30 s idle (the frozen view becomes \
+                  the slide image)",
     },
     CommandEntry {
         category: "Board",

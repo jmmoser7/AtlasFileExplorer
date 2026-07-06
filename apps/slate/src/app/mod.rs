@@ -20,8 +20,8 @@ use std::time::Instant;
 
 pub mod association;
 pub mod board;
-pub mod board_icons;
 mod board_handles;
+pub mod board_icons;
 mod board_snap;
 pub mod canvas;
 pub mod chrome;
@@ -200,6 +200,12 @@ pub struct SlateApp {
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
     pub board_sel: HashSet<NodeId>,
     pub board_tool: board::BoardTool,
+    /// Last-used navigation tool (Select or Pan) shown on the combined toolbar button.
+    pub board_nav_tool: board::BoardTool,
+    /// Open create-toolbar flyout submenu (persistent popup; `None` = closed).
+    pub board_submenu: Option<board::CreateCategory>,
+    /// Hover-dwell tracker for opening toolbar flyouts: (category, hover start).
+    pub board_submenu_hover: Option<(board::CreateCategory, Instant)>,
     pub board_frame_preset: board::FramePreset,
     pub board_frame_custom: Option<board::FrameCustomDraft>,
     pub board_drag: Option<board::BoardDrag>,
@@ -291,6 +297,9 @@ impl SlateApp {
             ai: atlas_ai::AiPanel::new(),
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
+            board_nav_tool: board::BoardTool::Select,
+            board_submenu: None,
+            board_submenu_hover: None,
             board_frame_preset: board::FramePreset::default(),
             board_frame_custom: None,
             board_drag: None,

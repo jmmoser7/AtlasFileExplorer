@@ -33,6 +33,11 @@ commands are registered in one place so users can look them up in
 - Single-key tool switches (`V F R O L T`) are **Board-view only** and are
   suppressed while typing or presenting. Grid/Venn keep `F` = fit view; the
   Board uses `Home` for fit because `F` is the Frame tool there.
+- **Create toolbar flyouts**: Select and Pan share one combined button that
+  shows the last-used nav tool; clicking it while active toggles Select ⇄ Pan.
+  Buttons marked with a small corner triangle (nav, Frame, Shapes, Curve) open
+  a persistent submenu on click or after a short hover; the menu stays open
+  until an item is picked, a click lands elsewhere, or the pointer moves away.
 - **Alt + drag** duplicates the grabbed selection (Figma convention);
   `Ctrl + D` duplicates in place with a 24px offset.
 - One gesture = one undo step: live drags journal their net effect on
@@ -46,9 +51,12 @@ commands are registered in one place so users can look them up in
   outside the text box (the click also performs normal selection).
 - **3D viewports** (placed `.3dm` models) invert the drag convention while
   *unlocked*: drag = orbit, Shift+drag = pan, scroll = zoom — Rhino
-  semantics inside the node. The padlock (hover, top-right) toggles the
-  live state; camera poses journal as one undo step when the viewport
-  locks (click, 30 s idle, tab switch, present, or export).
+  semantics inside the node. **Double-click a locked viewport to unlock it**
+  (double-click opens the file for every other image kind); the padlock
+  (hover, top-right) toggles the live state too. Orbit drags also select the
+  node, so its resize handles stay available while live — handle presses
+  always beat orbit. Camera poses journal as one undo step when the viewport
+  locks (padlock click, 30 s idle, tab switch, present, or export).
 
 ## Tagging gestures (reference)
 
