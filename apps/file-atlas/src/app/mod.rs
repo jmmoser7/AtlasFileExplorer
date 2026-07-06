@@ -173,9 +173,18 @@ impl PrewarmJob {
     }
 }
 
+/// Options for the pre-warm discovery walk.
+struct PrewarmWalkOpts {
+    /// When true, folders larger than `portal_threshold` queue into the
+    /// deferred slow lane (frame dumps warm last).
+    deprioritize_portals: bool,
+    portal_threshold: usize,
+}
+
 /// Discovery walk behind `start_prewarm`, extracted so repository creation
 /// is testable. Descends from `dir`, queueing every thumbnail-able file via
-/// `queue`. Shared `.atlas-cache` repositories are created (and counted in
+/// `queue` (or `queue_deferred` for portal-sized folders when enabled).
+/// Shared `.atlas-cache` repositories are created (and counted in
 /// `repos`) both by walking *up* from `dir` (picked inside a project) and
 /// while descending (picked a folder that contains projects); cache keys are
 /// project-root-relative wherever a repository applies so every machine
@@ -183,6 +192,8 @@ impl PrewarmJob {
 fn prewarm_walk(
     dir: PathBuf,
     queue: &dyn Fn(ThumbRequest),
+    queue_deferred: &dyn Fn(ThumbRequest),
+    opts: PrewarmWalkOpts,
     queued: &std::sync::atomic::AtomicUsize,
     bytes_queued: &std::sync::atomic::AtomicU64,
     repos: &std::sync::atomic::AtomicUsize,
@@ -245,6 +256,8 @@ fn prewarm_walk(
                 }
             }
         }
+        let portal_like = opts.deprioritize_portals
+            && subdirs.len() + files.len() > opts.portal_threshold;
         for entry in files {
             if cancel.load(Relaxed) {
                 break;
@@ -261,7 +274,7 @@ fn prewarm_walk(
                 continue;
             }
             let key = cache_key(&fe.rel, fe.size, fe.mtime);
-            queue(ThumbRequest {
+            let req = ThumbRequest {
                 id: u32::MAX,
                 generation: atlas_core::thumbs::PINNED_GENERATION,
                 path: fe.path,
@@ -270,7 +283,12 @@ fn prewarm_walk(
                 shared_dir: ctx.1.clone(),
                 src_bytes: fe.size,
                 pdf_page: None,
-            });
+            };
+            if portal_like {
+                queue_deferred(req);
+            } else {
+                queue(req);
+            }
             queued.fetch_add(1, Relaxed);
             bytes_queued.fetch_add(fe.size, Relaxed);
         }
@@ -381,6 +399,8 @@ pub struct AtlasApp {
     key_prefix: String,
     // Overnight pre-warm bookkeeping.
     prewarm_picker_rx: Option<Receiver<Option<PathBuf>>>,
+    /// When true, pre-warm queues portal-sized folders into the deferred lane.
+    prewarm_deprioritize_portals: bool,
     /// Live pre-warm run (Some while active) — drives the temporary bottom
     /// dashboard and is dropped on completion or cancel.
     prewarm: Option<PrewarmJob>,
@@ -564,6 +584,7 @@ impl AtlasApp {
             shared_cache: None,
             key_prefix: String::new(),
             prewarm_picker_rx: None,
+            prewarm_deprioritize_portals: true,
             prewarm: None,
             selection: HashSet::new(),
             rubber_origin: None,
@@ -700,6 +721,8 @@ impl AtlasApp {
             return;
         }
         let pool = self.thumbs.clone();
+        let deprioritize = self.prewarm_deprioritize_portals;
+        let portal_threshold = self.portal_threshold;
         let job = PrewarmJob {
             dir: dir.clone(),
             started: Instant::now(),
@@ -726,6 +749,11 @@ impl AtlasApp {
             prewarm_walk(
                 dir,
                 &|req| pool.request_slow(req),
+                &|req| pool.request_slow_deferred(req),
+                PrewarmWalkOpts {
+                    deprioritize_portals: deprioritize,
+                    portal_threshold,
+                },
                 &queued,
                 &bytes_queued,
                 &repos,
@@ -4368,6 +4396,19 @@ mod prewarm_tests {
     }
 
     fn run_walk(dir: PathBuf) -> (Vec<ThumbRequest>, usize, usize, u64) {
+        run_walk_opts(
+            dir,
+            PrewarmWalkOpts {
+                deprioritize_portals: false,
+                portal_threshold: 100,
+            },
+        )
+    }
+
+    fn run_walk_opts(
+        dir: PathBuf,
+        opts: PrewarmWalkOpts,
+    ) -> (Vec<ThumbRequest>, usize, usize, u64) {
         let reqs = Mutex::new(Vec::new());
         let queued = AtomicUsize::new(0);
         let bytes = AtomicU64::new(0);
@@ -4376,6 +4417,8 @@ mod prewarm_tests {
         prewarm_walk(
             dir,
             &|r| reqs.lock().unwrap().push(r),
+            &|r| reqs.lock().unwrap().push(r),
+            opts,
             &queued,
             &bytes,
             &repos,
@@ -4386,6 +4429,33 @@ mod prewarm_tests {
             queued.load(Ordering::Relaxed),
             repos.load(Ordering::Relaxed),
             bytes.load(Ordering::Relaxed),
+        )
+    }
+
+    fn run_walk_lanes(
+        dir: PathBuf,
+        opts: PrewarmWalkOpts,
+    ) -> (Vec<ThumbRequest>, Vec<ThumbRequest>, usize) {
+        let normal = Mutex::new(Vec::new());
+        let deferred = Mutex::new(Vec::new());
+        let queued = AtomicUsize::new(0);
+        let bytes = AtomicU64::new(0);
+        let repos = AtomicUsize::new(0);
+        let cancel = AtomicBool::new(false);
+        prewarm_walk(
+            dir,
+            &|r| normal.lock().unwrap().push(r),
+            &|r| deferred.lock().unwrap().push(r),
+            opts,
+            &queued,
+            &bytes,
+            &repos,
+            &cancel,
+        );
+        (
+            normal.into_inner().unwrap(),
+            deferred.into_inner().unwrap(),
+            queued.load(Ordering::Relaxed),
         )
     }
 
@@ -4486,6 +4556,11 @@ mod prewarm_tests {
         prewarm_walk(
             root.clone(),
             &|r| reqs.lock().unwrap().push(r),
+            &|r| reqs.lock().unwrap().push(r),
+            PrewarmWalkOpts {
+                deprioritize_portals: false,
+                portal_threshold: 100,
+            },
             &queued,
             &bytes,
             &repos,
@@ -4493,6 +4568,33 @@ mod prewarm_tests {
         );
         assert_eq!(queued.load(Ordering::Relaxed), 0);
         assert!(reqs.into_inner().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn prewarm_deprioritizes_portal_sized_folders() {
+        let root = std::env::temp_dir().join(format!("nfa_pw_portal_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let small = root.join("sketches");
+        std::fs::create_dir_all(&small).unwrap();
+        std::fs::write(small.join("a.png"), b"x").unwrap();
+        let frames = root.join("frames");
+        std::fs::create_dir_all(&frames).unwrap();
+        for i in 0..101 {
+            std::fs::write(frames.join(format!("f{i:03}.png")), b"x").unwrap();
+        }
+
+        let (normal, deferred, queued) = run_walk_lanes(
+            root.clone(),
+            PrewarmWalkOpts {
+                deprioritize_portals: true,
+                portal_threshold: 100,
+            },
+        );
+        assert_eq!(queued, 102);
+        assert_eq!(normal.len(), 1, "small folder stays on the normal lane");
+        assert_eq!(deferred.len(), 101, "portal-sized folder is deferred");
         let _ = std::fs::remove_dir_all(&root);
     }
 

@@ -96,6 +96,9 @@ struct Queues {
     /// Explicit pre-warm runs, FIFO, throttled to SLOW_CONCURRENCY and
     /// exempt from generation cancellation.
     slow: VecDeque<ThumbRequest>,
+    /// Pre-warm jobs from portal-sized folders (frame dumps): same concurrency
+    /// as `slow`, but only picked when the normal slow queue is empty.
+    slow_deferred: VecDeque<ThumbRequest>,
 }
 
 struct Shared {
@@ -155,6 +158,7 @@ impl ThumbPool {
                 hot: Vec::new(),
                 warm: VecDeque::new(),
                 slow: VecDeque::new(),
+                slow_deferred: VecDeque::new(),
             }),
             cv: Condvar::new(),
             active_generation: AtomicU64::new(0),
@@ -226,6 +230,14 @@ impl ThumbPool {
         self.shared.cv.notify_one();
     }
 
+    /// Like [`Self::request_slow`], but behind the normal slow queue — used for
+    /// portal-sized folders (e.g. video frame sequences with near-identical thumbs).
+    pub fn request_slow_deferred(&self, req: ThumbRequest) {
+        let mut q = self.shared.queue.lock().unwrap();
+        q.slow_deferred.push_back(req);
+        self.shared.cv.notify_one();
+    }
+
     /// Current cap on concurrent pre-warm jobs.
     pub fn slow_limit(&self) -> usize {
         self.shared.slow_limit.load(Ordering::Relaxed)
@@ -244,9 +256,11 @@ impl ThumbPool {
     /// The few in-flight jobs finish naturally. Returns how many were dropped.
     pub fn cancel_slow(&self) -> usize {
         let mut q = self.shared.queue.lock().unwrap();
-        let dropped = q.slow.len();
+        let dropped = q.slow.len() + q.slow_deferred.len();
         q.slow.clear();
+        q.slow_deferred.clear();
         q.slow.shrink_to_fit();
+        q.slow_deferred.shrink_to_fit();
         dropped
     }
 
@@ -415,12 +429,17 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
                     shared.warm_active.fetch_add(1, Ordering::Relaxed);
                     break (q.warm.pop_front().unwrap(), 1);
                 }
-                if !q.slow.is_empty()
-                    && shared.slow_active.load(Ordering::Relaxed)
-                        < shared.slow_limit.load(Ordering::Relaxed)
+                if shared.slow_active.load(Ordering::Relaxed)
+                    < shared.slow_limit.load(Ordering::Relaxed)
                 {
-                    shared.slow_active.fetch_add(1, Ordering::Relaxed);
-                    break (q.slow.pop_front().unwrap(), 2);
+                    if let Some(r) = q.slow.pop_front() {
+                        shared.slow_active.fetch_add(1, Ordering::Relaxed);
+                        break (r, 2);
+                    }
+                    if let Some(r) = q.slow_deferred.pop_front() {
+                        shared.slow_active.fetch_add(1, Ordering::Relaxed);
+                        break (r, 2);
+                    }
                 }
                 q = shared.cv.wait(q).unwrap();
             }
@@ -787,21 +806,25 @@ mod tests {
         // while pushing, and pathless jobs finish fast even if raced.)
         {
             let mut q = pool.shared.queue.lock().unwrap();
-            for _ in 0..5 {
-                q.slow.push_back(ThumbRequest {
-                    id: u32::MAX,
-                    generation: PINNED_GENERATION,
-                    path: PathBuf::from("nonexistent"),
-                    key: "k".into(),
-                    color_only: false,
-                    shared_dir: None,
-                    src_bytes: 0,
-                    pdf_page: None,
-                });
+            let stub = || ThumbRequest {
+                id: u32::MAX,
+                generation: PINNED_GENERATION,
+                path: PathBuf::from("nonexistent"),
+                key: "k".into(),
+                color_only: false,
+                shared_dir: None,
+                src_bytes: 0,
+                pdf_page: None,
+            };
+            for _ in 0..3 {
+                q.slow.push_back(stub());
+            }
+            for _ in 0..2 {
+                q.slow_deferred.push_back(stub());
             }
         }
         let dropped = pool.cancel_slow();
-        assert!(dropped <= 5 && dropped > 0);
+        assert_eq!(dropped, 5);
     }
 
     #[test]
