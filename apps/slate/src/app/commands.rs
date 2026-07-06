@@ -38,6 +38,11 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Navigation",
+        name: "Full-screen canvas (hide sidebar + bottom bar)",
+        binding: "F11, or ⛶ in the canvas mini menu (lower-left), or View → Full-screen canvas",
+    },
+    CommandEntry {
+        category: "Navigation",
         name: "Zoom in / out",
         binding: "+ / −",
     },

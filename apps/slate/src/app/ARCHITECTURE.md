@@ -5,10 +5,16 @@ different workspace model: instead of a filesystem root per tab, each tab owns
 one **workbook** (`.slate` document — links to files plus a faceted tag
 system, never file copies).
 
-## Layer 0 — Top chrome (`ui/tabs.rs`)
+## Layer 0 — Top chrome (`ui/menubar.rs` + `ui/tabs.rs`)
 
-Browser-style workbook tabs. All painting comes from `atlas_shell::tabs`;
-this module only adapts `SlateTab` state to `TabSpec`s and applies actions.
+The Windows-style File/View menu bar (topmost, full width), then
+browser-style workbook tabs. All painting comes from `atlas_shell::menubar` /
+`atlas_shell::tabs`; these modules only adapt `SlateApp` state to
+`MenuSpec`s / `TabSpec`s and apply actions. The tools rail is registered
+*before* the tab strip so the rail runs from the readout bar up to the menu
+bar, with tabs nested in the remaining width. Full-screen canvas
+(`ChromeConfig::canvas_fullscreen`; F11, View → Full-screen canvas, or ⛶ in
+the canvas mini menu) suppresses the tools rail and readout bar.
 
 ## Layer 1 — Tab workspace
 
