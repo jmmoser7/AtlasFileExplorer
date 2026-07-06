@@ -4,10 +4,10 @@
 use super::super::chrome::ToolPanel;
 use super::super::SlateApp;
 use atlas_shell::sidebar::{
-    sidebar_mode_row, sidebar_region, sidebar_section, sidebar_slider_block,
-    sidebar_subtle_divider, sidebar_toolbar_row, SidebarTheme,
+    sidebar_region, sidebar_section, sidebar_subtle_divider, sidebar_toolbar_row, SidebarTheme,
+    SidebarTokens,
 };
-use atlas_shell::widgets::{gear_menu, thin_sidebar_slider};
+use atlas_shell::widgets::gear_menu;
 use eframe::egui::{self, Color32, Id, RichText};
 use slate_doc::{GroupId, TagId, ViewKind};
 
@@ -273,18 +273,26 @@ fn toggle_focus(app: &mut SlateApp, siblings: &[(TagId, String, [u8; 3], usize)]
     }
 }
 
-// ----- Display panel ------------------------------------------------------------
+// ----- Presentation Mode panel --------------------------------------------------
+
+fn view_kind_label(kind: ViewKind) -> &'static str {
+    match kind.normalized() {
+        ViewKind::Board | ViewKind::Branch => "Board",
+        ViewKind::Grid | ViewKind::Unknown => "Grid",
+        ViewKind::Venn => "Venn",
+    }
+}
 
 fn display_panel(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     let mut expanded = app.tab().chrome.tool_expanded(ToolPanel::Display);
     if sidebar_section(
         ui,
-        Id::new("slate_display"),
-        "Display",
+        Id::new("slate_presentation_mode"),
+        "Presentation Mode",
         None,
         &mut expanded,
         theme,
-        |ui| display_body(app, ui, theme),
+        |ui| display_body(app, ui),
     ) {
         app.tab_mut()
             .chrome
@@ -292,73 +300,36 @@ fn display_panel(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     }
 }
 
-fn display_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    sidebar_region(ui, "Presentation", theme, |ui| {
-        let current = app.doc().view.active_view;
-        if sidebar_mode_row(
-            ui,
-            current == ViewKind::Board,
-            "Board",
-            "open-world canvas",
-            "An authored canvas: slide frames, shapes, text, and freely placed \
-             images. Presents as slides and exports an HTML artifact.",
-            theme,
-        )
-        .clicked()
-        {
-            app.doc_mut().view.active_view = ViewKind::Board;
-        }
-        if sidebar_mode_row(
-            ui,
-            current == ViewKind::Grid,
-            "Grid",
-            "grouped by tags",
-            "Thumbnails grouped into sections by their tag combination.",
-            theme,
-        )
-        .clicked()
-        {
-            app.doc_mut().view.active_view = ViewKind::Grid;
-        }
-        if sidebar_mode_row(
-            ui,
-            current == ViewKind::Venn,
-            "Venn",
-            "overlapping circles",
-            "Each focused tag becomes a circle; files sharing tags sit in the overlaps. \
-             Thumbnails render as packed circles.",
-            theme,
-        )
-        .clicked()
-        {
-            app.doc_mut().view.active_view = ViewKind::Venn;
-        }
-    });
+fn display_body(app: &mut SlateApp, ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = SidebarTokens::OPTION_GAP;
+        ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
 
-    sidebar_subtle_divider(ui, theme);
-    sidebar_region(ui, "Thumbnails", theme, |ui| {
-        sidebar_slider_block(ui, |ui| {
-            let mut cell = app.cell as usize;
-            if thin_sidebar_slider(
-                ui,
-                &mut cell,
-                72..=240,
-                "Cell size",
-                "px",
-                "Grid cell size in world units",
-                theme.sub,
-            ) {
-                app.cell = cell as f32;
-            }
-        });
-    });
+        let mut dark = app.dark_mode;
+        let theme_label = if dark { "Dark" } else { "Light" };
+        if ui.checkbox(&mut dark, theme_label).changed() {
+            app.dark_mode = dark;
+            app.apply_theme(ui.ctx());
+        }
 
-    sidebar_subtle_divider(ui, theme);
-    let mut dark = app.dark_mode;
-    if ui.checkbox(&mut dark, "Dark mode").changed() {
-        app.dark_mode = dark;
-        app.apply_theme(ui.ctx());
-    }
+        let current = match app.doc().view.active_view.normalized() {
+            ViewKind::Branch => ViewKind::Board,
+            other => other,
+        };
+        egui::ComboBox::from_id_salt("slate_presentation_view")
+            .selected_text(view_kind_label(current))
+            .width(ui.available_width())
+            .show_ui(ui, |ui| {
+                for kind in [ViewKind::Board, ViewKind::Grid, ViewKind::Venn] {
+                    if ui
+                        .selectable_label(current == kind, view_kind_label(kind))
+                        .clicked()
+                    {
+                        app.doc_mut().view.active_view = kind;
+                    }
+                }
+            });
+    });
 }
 
 // ----- Workbook panel -------------------------------------------------------------

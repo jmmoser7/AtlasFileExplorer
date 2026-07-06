@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ViewKind {
-    #[default]
     Grid,
     Branch,
     Venn,
     /// Open-world authored canvas: frames, shapes, text, placed images.
+    #[default]
     Board,
     /// Catch-all for forward-compatible deserialization; treated as [`ViewKind::Grid`].
     #[serde(other)]
@@ -37,7 +37,7 @@ pub struct ViewState {
 impl Default for ViewState {
     fn default() -> Self {
         Self {
-            active_view: ViewKind::Grid,
+            active_view: ViewKind::Board,
             cam_x: 0.0,
             cam_y: 0.0,
             zoom: 1.0,
