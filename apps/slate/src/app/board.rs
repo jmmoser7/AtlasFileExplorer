@@ -42,6 +42,56 @@ pub const IMAGE_H: f32 = 180.0;
 
 // ---------- tools & gestures ----------
 
+/// Primary create-toolbar categories (hover submenus for Frame / Shapes / Curve).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CreateCategory {
+    Frame,
+    Shapes,
+    Curve,
+}
+
+/// Typical slide frame sizes (world units at 72 pt/in).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum FramePreset {
+    #[default]
+    Letter,
+    Tabloid,
+    Wide169,
+    Custom { w: f32, h: f32 },
+}
+
+impl FramePreset {
+    pub fn label(self) -> &'static str {
+        match self {
+            FramePreset::Letter => "8.5 × 11",
+            FramePreset::Tabloid => "11 × 17",
+            FramePreset::Wide169 => "16:9",
+            FramePreset::Custom { .. } => "Custom",
+        }
+    }
+
+    pub fn size(self) -> (f32, f32) {
+        match self {
+            FramePreset::Letter => (612.0, 792.0),
+            FramePreset::Tabloid => (792.0, 1224.0),
+            FramePreset::Wide169 => (960.0, 540.0),
+            FramePreset::Custom { w, h } => (w.max(MIN_DRAW), h.max(MIN_DRAW)),
+        }
+    }
+
+    fn aspect(self) -> f32 {
+        let (w, h) = self.size();
+        w / h.max(1.0)
+    }
+}
+
+/// Draft fields for the custom frame size dialog.
+#[derive(Clone, Debug, Default)]
+pub struct FrameCustomDraft {
+    pub w: String,
+    pub h: String,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum BoardTool {
     #[default]
@@ -50,6 +100,9 @@ pub enum BoardTool {
     RectShape,
     Ellipse,
     Line,
+    Arc,
+    Polyline,
+    BezierSpan,
     Text,
 }
 
@@ -61,6 +114,9 @@ impl BoardTool {
             BoardTool::RectShape => "Rectangle",
             BoardTool::Ellipse => "Ellipse",
             BoardTool::Line => "Line",
+            BoardTool::Arc => "Arc",
+            BoardTool::Polyline => "Polyline",
+            BoardTool::BezierSpan => "Bezier",
             BoardTool::Text => "Text",
         }
     }
@@ -72,6 +128,9 @@ impl BoardTool {
             BoardTool::RectShape => "▭",
             BoardTool::Ellipse => "◯",
             BoardTool::Line => "╱",
+            BoardTool::Arc => "⌒",
+            BoardTool::Polyline => "⌇",
+            BoardTool::BezierSpan => "∿",
             BoardTool::Text => "T",
         }
     }
@@ -83,8 +142,27 @@ impl BoardTool {
             BoardTool::RectShape => "R",
             BoardTool::Ellipse => "O",
             BoardTool::Line => "L",
+            BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => "L",
             BoardTool::Text => "T",
         }
+    }
+
+    pub fn category(self) -> Option<CreateCategory> {
+        match self {
+            BoardTool::Frame => Some(CreateCategory::Frame),
+            BoardTool::RectShape | BoardTool::Ellipse => Some(CreateCategory::Shapes),
+            BoardTool::Line | BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => {
+                Some(CreateCategory::Curve)
+            }
+            BoardTool::Select | BoardTool::Text => None,
+        }
+    }
+
+    pub fn is_implemented(self) -> bool {
+        !matches!(
+            self,
+            BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan
+        )
     }
 }
 
@@ -877,6 +955,13 @@ impl SlateApp {
                 }
             },
             NodeKind::Text(t) => {
+                if self
+                    .text_edit
+                    .as_ref()
+                    .is_some_and(|(edit_id, _)| *edit_id == node.id)
+                {
+                    return;
+                }
                 let wrap = (node.rect.w * z).max(8.0);
                 let galley = painter.layout(
                     t.text.clone(),
@@ -941,8 +1026,7 @@ impl SlateApp {
         }
 
         // --- gesture start ---
-        if resp.drag_started_by(egui::PointerButton::Primary) && !space && !panning && !editing_text
-        {
+        if resp.drag_started_by(egui::PointerButton::Primary) && !space && !panning {
             if let (Some(p), Some(w)) = (pointer, wp) {
                 self.board_drag = self.begin_gesture(p, w);
             }
@@ -1014,24 +1098,30 @@ impl SlateApp {
         // Draw-gesture preview.
         if let (Some(BoardDrag::Draw { start_world, tool }), Some(w)) = (&self.board_drag, wp) {
             let a = xf.w2s(*start_world);
-            let b = xf.w2s(w);
-            let r = Rect::from_two_pos(a, b);
+            let preview = if *tool == BoardTool::Frame {
+                let r = self.frame_drag_rect(*start_world, w);
+                xf.rect_w2s(r)
+            } else {
+                let b = xf.w2s(w);
+                Rect::from_two_pos(a, b)
+            };
             let accent = palette.accent;
             match tool {
                 BoardTool::Line => {
+                    let b = xf.w2s(w);
                     painter.line_segment([a, b], EStroke::new(1.5, accent));
                 }
                 BoardTool::Ellipse => {
                     painter.add(egui::epaint::EllipseShape {
-                        center: r.center(),
-                        radius: r.size() * 0.5,
+                        center: preview.center(),
+                        radius: preview.size() * 0.5,
                         fill: Color32::TRANSPARENT,
                         stroke: EStroke::new(1.5, accent),
                     });
                 }
                 _ => {
                     painter.rect_stroke(
-                        r,
+                        preview,
                         0.0,
                         EStroke::new(1.5, accent),
                         egui::StrokeKind::Inside,
@@ -1057,7 +1147,7 @@ impl SlateApp {
             painter.text(
                 rect.center(),
                 Align2::CENTER_CENTER,
-                "An open board — press F and drag to create a slide frame,\n\
+                "An open board — choose Frame in the create toolbar for a slide,\n\
                  drop files anywhere, or place images from the Grid view (right-click).",
                 FontId::proportional(14.0),
                 palette.sub,
@@ -1066,6 +1156,7 @@ impl SlateApp {
 
         // Overlays.
         self.board_toolbar(ui.ctx(), rect);
+        self.frame_custom_dialog(ui.ctx(), rect);
         self.frame_toolbar(ui.ctx(), &xf);
         self.text_edit_overlay(ui.ctx(), &xf);
         self.board_action_menu(ui.ctx());
@@ -1174,10 +1265,20 @@ impl SlateApp {
                 }
             }
             BoardTool::Text => None, // created on click, not drag
-            tool => Some(BoardDrag::Draw {
-                start_world: world,
-                tool,
-            }),
+            tool => {
+                if !tool.is_implemented() {
+                    self.toast(format!(
+                        "{} is not available yet — use Line for now.",
+                        tool.label()
+                    ));
+                    None
+                } else {
+                    Some(BoardDrag::Draw {
+                        start_world: world,
+                        tool,
+                    })
+                }
+            }
         }
     }
 
@@ -1276,7 +1377,12 @@ impl SlateApp {
                 }
             }
             Some(BoardDrag::Draw { start_world, tool }) => {
-                self.finish_draw(start_world, world, tool);
+                let moved = (world - start_world).length_sq().sqrt() > 4.0;
+                if tool == BoardTool::Frame && !moved {
+                    self.place_frame_at(start_world);
+                } else {
+                    self.finish_draw(start_world, world, tool);
+                }
             }
             Some(BoardDrag::Marquee { start_screen }) => {
                 if let Some(p) = pointer {
@@ -1324,10 +1430,51 @@ impl SlateApp {
         }
     }
 
+    fn frame_drag_rect(&self, start: Pos2, end: Pos2) -> WorldRect {
+        let aspect = self.board_frame_preset.aspect();
+        let dx = end.x - start.x;
+        let dy = end.y - start.y;
+        let w = dx.abs().max(MIN_DRAW);
+        let h = (w / aspect).max(MIN_DRAW);
+        let (x, y) = if dx >= 0.0 {
+            (start.x, if dy >= 0.0 { start.y } else { start.y - h })
+        } else {
+            (start.x - w, if dy >= 0.0 { start.y } else { start.y - h })
+        };
+        WorldRect::new(x, y, w, h)
+    }
+
+    fn place_frame_at(&mut self, center: Pos2) {
+        let (w, h) = self.board_frame_preset.size();
+        let rect = WorldRect::new(center.x - w * 0.5, center.y - h * 0.5, w, h);
+        let kind = NodeKind::Frame(FrameNode {
+            title: format!("Slide {}", self.doc().scene.next_frame_order() + 1),
+            order: self.doc().scene.next_frame_order(),
+            fill: Rgba::WHITE,
+            assignments: BTreeMap::new(),
+        });
+        let node = self.doc_mut().scene.build_node(rect, kind);
+        let ids = self.add_nodes(vec![node]);
+        self.board_sel = ids.into_iter().collect();
+        self.board_tool = BoardTool::Select;
+    }
+
     fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool) {
+        if !tool.is_implemented() {
+            self.toast(format!(
+                "{} is not available yet — use Line for now.",
+                tool.label()
+            ));
+            self.board_tool = BoardTool::Select;
+            return;
+        }
         let raw = WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
         let flip = tool == BoardTool::Line && (raw.w < 0.0) != (raw.h < 0.0);
-        let r = raw.normalized();
+        let r = if tool == BoardTool::Frame {
+            self.frame_drag_rect(a, b)
+        } else {
+            raw.normalized()
+        };
         if r.w < MIN_DRAW && r.h < MIN_DRAW {
             self.board_tool = BoardTool::Select;
             return;
@@ -1452,35 +1599,160 @@ impl SlateApp {
 
     // ----- overlays ---------------------------------------------------------------
 
-    /// Floating tool strip, top-center of the canvas (board view only).
+    /// Floating create toolbar, top-center of the canvas (board view only).
     fn board_toolbar(&mut self, ctx: &egui::Context, canvas: Rect) {
         let palette = self.palette();
+        let tool = self.board_tool;
+        let preset = self.board_frame_preset;
+        let mut pick_tool: Option<BoardTool> = None;
+        let mut pick_preset: Option<FramePreset> = None;
+        let mut open_custom = false;
+
         egui::Area::new(egui::Id::new("slate_board_tools"))
-            .fixed_pos(Pos2::new(canvas.center().x - 170.0, canvas.min.y + 8.0))
+            .fixed_pos(Pos2::new(canvas.center().x - 150.0, canvas.min.y + 8.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())
                     .fill(palette.card)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            for tool in [
-                                BoardTool::Select,
-                                BoardTool::Frame,
-                                BoardTool::RectShape,
-                                BoardTool::Ellipse,
-                                BoardTool::Line,
-                                BoardTool::Text,
-                            ] {
-                                let on = self.board_tool == tool;
-                                let label = egui::RichText::new(tool.icon()).size(15.0);
-                                if ui
-                                    .selectable_label(on, label)
-                                    .on_hover_text(format!("{} ({})", tool.label(), tool.hotkey()))
-                                    .clicked()
-                                {
-                                    self.board_tool = tool;
-                                }
+                            // Select — click to enter selection mode.
+                            let on = tool == BoardTool::Select;
+                            if ui
+                                .selectable_label(
+                                    on,
+                                    egui::RichText::new(BoardTool::Select.icon()).size(15.0),
+                                )
+                                .on_hover_text(format!(
+                                    "{} ({})",
+                                    BoardTool::Select.label(),
+                                    BoardTool::Select.hotkey()
+                                ))
+                                .clicked()
+                            {
+                                pick_tool = Some(BoardTool::Select);
                             }
+
+                            ui.separator();
+
+                            // Frame — hover for typical slide sizes.
+                            let frame_on = tool == BoardTool::Frame;
+                            let frame_hint = format!(
+                                "Frame — {} ({})",
+                                preset.label(),
+                                BoardTool::Frame.hotkey()
+                            );
+                            let frame_resp = ui
+                                .selectable_label(
+                                    frame_on,
+                                    egui::RichText::new(BoardTool::Frame.icon()).size(15.0),
+                                )
+                                .on_hover_text(&frame_hint)
+                                .on_hover_ui(|ui| {
+                                    ui.set_min_width(120.0);
+                                    ui.label(egui::RichText::new("Frame size").small().strong());
+                                    ui.separator();
+                                    for preset in [
+                                        FramePreset::Letter,
+                                        FramePreset::Tabloid,
+                                        FramePreset::Wide169,
+                                    ] {
+                                        if ui.button(preset.label()).clicked() {
+                                            pick_preset = Some(preset);
+                                            pick_tool = Some(BoardTool::Frame);
+                                        }
+                                    }
+                                    if ui.button("Custom…").clicked() {
+                                        open_custom = true;
+                                        pick_tool = Some(BoardTool::Frame);
+                                    }
+                                });
+                            if frame_resp.clicked() {
+                                pick_tool = Some(BoardTool::Frame);
+                            }
+
+                            // Shapes — hover for 2D primitives.
+                            let shapes_on =
+                                matches!(tool, BoardTool::RectShape | BoardTool::Ellipse);
+                            let shapes_resp = ui
+                                .selectable_label(shapes_on, egui::RichText::new("▣").size(15.0))
+                                .on_hover_text("Shapes — rectangle, ellipse")
+                                .on_hover_ui(|ui| {
+                                    ui.set_min_width(110.0);
+                                    ui.label(egui::RichText::new("2D shapes").small().strong());
+                                    ui.separator();
+                                    for shape in [BoardTool::RectShape, BoardTool::Ellipse] {
+                                        if ui
+                                            .selectable_label(
+                                                tool == shape,
+                                                format!("{} {}", shape.icon(), shape.label()),
+                                            )
+                                            .clicked()
+                                        {
+                                            pick_tool = Some(shape);
+                                        }
+                                    }
+                                });
+                            if shapes_resp.clicked() && pick_tool.is_none() {
+                                pick_tool = Some(BoardTool::RectShape);
+                            }
+
+                            // Curve — hover for line and future curve types.
+                            let curve_on = matches!(
+                                tool,
+                                BoardTool::Line
+                                    | BoardTool::Arc
+                                    | BoardTool::Polyline
+                                    | BoardTool::BezierSpan
+                            );
+                            let curve_resp = ui
+                                .selectable_label(curve_on, egui::RichText::new("⌇").size(15.0))
+                                .on_hover_text("Curve — line, arc, polyline, bezier")
+                                .on_hover_ui(|ui| {
+                                    ui.set_min_width(130.0);
+                                    ui.label(egui::RichText::new("Curves").small().strong());
+                                    ui.separator();
+                                    for curve in [
+                                        BoardTool::Line,
+                                        BoardTool::Arc,
+                                        BoardTool::Polyline,
+                                        BoardTool::BezierSpan,
+                                    ] {
+                                        let resp = ui.selectable_label(
+                                            tool == curve,
+                                            format!("{} {}", curve.icon(), curve.label()),
+                                        );
+                                        let resp = if curve.is_implemented() {
+                                            resp
+                                        } else {
+                                            resp.on_hover_text("Coming soon")
+                                        };
+                                        if resp.clicked() {
+                                            pick_tool = Some(curve);
+                                        }
+                                    }
+                                });
+                            if curve_resp.clicked() && pick_tool.is_none() {
+                                pick_tool = Some(BoardTool::Line);
+                            }
+
+                            // Text — click to draw a text box.
+                            let text_on = tool == BoardTool::Text;
+                            if ui
+                                .selectable_label(
+                                    text_on,
+                                    egui::RichText::new(BoardTool::Text.icon()).size(15.0),
+                                )
+                                .on_hover_text(format!(
+                                    "{} ({}) — click to place",
+                                    BoardTool::Text.label(),
+                                    BoardTool::Text.hotkey()
+                                ))
+                                .clicked()
+                            {
+                                pick_tool = Some(BoardTool::Text);
+                            }
+
                             ui.separator();
                             let has_frames = !self.doc().scene.frames_in_order().is_empty();
                             ui.add_enabled_ui(has_frames, |ui| {
@@ -1502,6 +1774,100 @@ impl SlateApp {
                         });
                     });
             });
+
+        if let Some(t) = pick_tool {
+            if !t.is_implemented() {
+                self.toast(format!(
+                    "{} is not available yet — use Line for now.",
+                    t.label()
+                ));
+            } else {
+                self.board_tool = t;
+            }
+        }
+        if let Some(p) = pick_preset {
+            self.board_frame_preset = p;
+        }
+        if open_custom {
+            self.board_frame_custom
+                .get_or_insert_with(|| FrameCustomDraft {
+                    w: "612".into(),
+                    h: "792".into(),
+                });
+        }
+    }
+
+    /// Manual frame dimensions entry (opened from Frame → Custom…).
+    fn frame_custom_dialog(&mut self, ctx: &egui::Context, canvas: Rect) {
+        if self.board_frame_custom.is_none() {
+            return;
+        }
+        let palette = self.palette();
+        let mut close = false;
+        let mut apply = false;
+        let mut w_buf = self.board_frame_custom.as_ref().unwrap().w.clone();
+        let mut h_buf = self.board_frame_custom.as_ref().unwrap().h.clone();
+
+        egui::Area::new(egui::Id::new("slate_frame_custom"))
+            .fixed_pos(Pos2::new(canvas.center().x - 110.0, canvas.min.y + 52.0))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style())
+                    .fill(palette.card)
+                    .show(ui, |ui| {
+                        ui.set_min_width(200.0);
+                        ui.label(egui::RichText::new("Custom frame size").strong());
+                        ui.label(
+                            egui::RichText::new("World units (72 pt per inch)")
+                                .small()
+                                .color(palette.sub),
+                        );
+                        ui.horizontal(|ui| {
+                            ui.label("W");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut w_buf)
+                                    .desired_width(72.0)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                            ui.label("H");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut h_buf)
+                                    .desired_width(72.0)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            if ui.button("Apply").clicked() {
+                                apply = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            });
+
+        if let Some(draft) = self.board_frame_custom.as_mut() {
+            draft.w.clone_from(&w_buf);
+            draft.h.clone_from(&h_buf);
+        }
+
+        if apply {
+            if let (Ok(w), Ok(h)) = (w_buf.trim().parse::<f32>(), h_buf.trim().parse::<f32>()) {
+                if w >= MIN_DRAW && h >= MIN_DRAW {
+                    self.board_frame_preset = FramePreset::Custom { w, h };
+                    self.board_tool = BoardTool::Frame;
+                    close = true;
+                } else {
+                    self.toast("Frame width and height must be at least 8 world units.");
+                }
+            } else {
+                self.toast("Enter numeric width and height.");
+            }
+        }
+        if close {
+            self.board_frame_custom = None;
+        }
     }
 
     /// The per-frame toolbar that "comes along for the ride": anchored above
@@ -1715,16 +2081,24 @@ impl SlateApp {
             return;
         };
         let sr = xf.rect_w2s(node.rect);
+        let box_w = sr.width().max(8.0);
+        let box_h = sr.height().max(8.0);
+        let font_size = (t.size * xf.z).max(4.0);
         let mut commit = false;
         egui::Area::new(egui::Id::new(("slate_text_edit", id.0)))
             .fixed_pos(sr.min)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                ui.set_width(box_w);
+                ui.set_height(box_h);
+                ui.set_clip_rect(sr);
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut buf)
-                        .desired_width(sr.width().max(120.0))
-                        .desired_rows(1)
-                        .font(font_id(t.family, (t.size * xf.z).clamp(10.0, 72.0))),
+                        .desired_width(box_w)
+                        .frame(false)
+                        .clip_text(true)
+                        .margin(egui::Margin::ZERO)
+                        .font(font_id(t.family, font_size)),
                 );
                 resp.request_focus();
                 if resp.changed() {

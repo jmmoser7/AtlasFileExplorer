@@ -99,12 +99,12 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Frame tool (slides)",
-        binding: "F, then drag (Board view)",
+        binding: "F, then click or drag (Board view)",
     },
     CommandEntry {
         category: "Board",
-        name: "Rectangle / Ellipse / Line tool",
-        binding: "R / O / L, then drag (Board view)",
+        name: "Shapes / Curve / Text tools",
+        binding: "R / O / L / T (Board view); hover create toolbar for presets",
     },
     CommandEntry {
         category: "Board",

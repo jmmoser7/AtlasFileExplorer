@@ -176,6 +176,8 @@ pub struct SlateApp {
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
     pub board_sel: HashSet<NodeId>,
     pub board_tool: board::BoardTool,
+    pub board_frame_preset: board::FramePreset,
+    pub board_frame_custom: Option<board::FrameCustomDraft>,
     pub board_drag: Option<board::BoardDrag>,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
@@ -236,6 +238,8 @@ impl SlateApp {
             ai: atlas_ai::AiPanel::new(),
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
+            board_frame_preset: board::FramePreset::default(),
+            board_frame_custom: None,
             board_drag: None,
             text_edit: None,
             board_menu: None,
