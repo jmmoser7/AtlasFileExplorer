@@ -33,6 +33,7 @@ pub fn menu_bar(app: &mut SlateApp, ctx: &egui::Context) {
                 MenuItem::new("view.grid", "Grid").checked(view == ViewKind::Grid),
                 MenuItem::new("view.venn", "Venn").checked(view == ViewKind::Venn),
                 MenuItem::new("view.board", "Board").checked(view == ViewKind::Board),
+                MenuItem::new("view.lens", "Lens").checked(view == ViewKind::Lens),
                 MenuItem::new("view.present", "Present")
                     .shortcut("F5")
                     .separated(),
@@ -70,6 +71,7 @@ pub fn menu_bar(app: &mut SlateApp, ctx: &egui::Context) {
         Some("view.grid") => app.doc_mut().view.active_view = ViewKind::Grid,
         Some("view.venn") => app.doc_mut().view.active_view = ViewKind::Venn,
         Some("view.board") => app.doc_mut().view.active_view = ViewKind::Board,
+        Some("view.lens") => app.doc_mut().view.active_view = ViewKind::Lens,
         Some("view.present") => app.start_present(None),
         Some("view.fullscreen") => app.toggle_canvas_fullscreen(),
         Some("view.dark") => {

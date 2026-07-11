@@ -281,6 +281,51 @@ pub const ENTRIES: &[CommandEntry] = &[
         name: "Export HTML artifact",
         binding: "Ctrl + E, or Workbook → Export artifact…",
     },
+    CommandEntry {
+        category: "Lens",
+        name: "Switch to Lens view",
+        binding: "View → Lens, or Presentation Mode → Lens",
+    },
+    CommandEntry {
+        category: "Lens",
+        name: "Choose code root",
+        binding: "Lens panel → Choose…, or empty-state button",
+    },
+    CommandEntry {
+        category: "Lens",
+        name: "Rescan codebase",
+        binding: "Lens panel → Rescan",
+    },
+    CommandEntry {
+        category: "Lens",
+        name: "Focus node",
+        binding: "Click a node or container header",
+    },
+    CommandEntry {
+        category: "Lens",
+        name: "Clear focus",
+        binding: "Escape (Lens view)",
+    },
+    CommandEntry {
+        category: "Lens",
+        name: "Expand / collapse container",
+        binding: "Double-click an expandable container",
+    },
+    CommandEntry {
+        category: "Lens",
+        name: "Open source file",
+        binding: "Double-click a file or item leaf",
+    },
+    CommandEntry {
+        category: "Lens",
+        name: "Fit graph to view",
+        binding: "F (Lens view)",
+    },
+    CommandEntry {
+        category: "Lens",
+        name: "Pan / zoom graph",
+        binding: "Same as Grid/Venn (drag, scroll, Shift+scroll, Ctrl+right-drag turbo pan, +/−)",
+    },
 ];
 
 /// Reference table for Advanced settings.

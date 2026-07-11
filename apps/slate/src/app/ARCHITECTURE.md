@@ -23,8 +23,9 @@ the canvas mini menu) suppresses the tools rail and readout bar.
 
 | Region | Module | Role |
 |--------|--------|------|
-| Left tools rail | `ui/tools.rs` | **Tags** (hierarchical group editor), **Display** (Board/Grid/Venn, cell size, theme), **Selection** (dynamic inspector, `ui/inspector.rs`), **Workbook** (open/save, add files, artifact export, Atlas link), **AI** (Cursor launcher + AI workspace; body shared with Atlas via `crates/atlas-ai`) |
+| Left tools rail | `ui/tools.rs` | **Tags** (hierarchical group editor), **Display** (Board/Grid/Venn/Lens, cell size, theme), **Selection** (dynamic inspector, `ui/inspector.rs`), **Workbook** (open/save, add files, artifact export, Atlas link), **AI** (Cursor launcher + AI workspace; body shared with Atlas via `crates/atlas-ai`), **Lens** (code root, depth, edge filters, search, overlay legend) |
 | Canvas | `canvas.rs` | Grid + Venn presentations, selection, right-click tag assignment |
+| Lens | `lens.rs` | Code-dependency graph canvas: worker pump, painting, focus/expand gestures |
 | Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, draw tools, gestures |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
 | Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
@@ -54,6 +55,11 @@ the canvas mini menu) suppresses the tools rail and readout bar.
   (`crates/circle-pack::venn_layout`); thumbnails render as circle-cropped
   textured meshes packed inside their set circles, shared files sit in the
   lens overlaps. Tag focus is toggled from the Tags panel.
+- **Lens** (`lens.rs`) — interactive code-dependency graph over a workbook's
+  `lens_root`. Deterministic analysis and layout come from `code-lens`; Slate
+  paints containers/chips/wires on the shared camera, runs analysis on a
+  background thread, and writes `graph.json` / reads `overlay.json` through
+  `code_lens::LensBeacon` when an AI workspace is configured.
 - New presentations should follow the same pattern: pure geometry in a crate,
   a `*_layout` builder producing `Placed` items, painting + hit-testing on the
   shared camera.

@@ -14,7 +14,7 @@ commands are registered in one place so users can look them up in
 3. **Do not** duplicate shortcut lists elsewhere — the Advanced window reads
    `ENTRIES` via `atlas_shell::commands::shortcuts_reference_ui`.
 4. **Keep categories stable:** Navigation, Files, Selection, Workbook, Board,
-   Presentation.
+   Presentation, Lens.
 
 ## Module map
 
@@ -26,6 +26,7 @@ commands are registered in one place so users can look them up in
 | Board gestures (tools, move/resize, Alt-drag duplicate, marquee) | `board.rs` |
 | 3D viewport gestures (orbit / pan / zoom, padlock) | `board.rs` routes into `model3d.rs` |
 | Presentation navigation | `present.rs` |
+| Lens graph (pan, focus, expand, open source) | `lens.rs` |
 | Keyboard shortcuts | `app/mod.rs` → `hotkeys` |
 
 ## Board gesture conventions (reference)
@@ -74,6 +75,22 @@ commands are registered in one place so users can look them up in
   node, so its resize handles stay available while live — handle presses
   always beat orbit. Camera poses journal as one undo step when the viewport
   locks (padlock click, 30 s idle, tab switch, present, or export).
+
+## Lens gestures (reference)
+
+- **Pan / zoom** reuse the Grid/Venn camera: left- or right-drag to pan,
+  scroll to zoom at the pointer, Shift+scroll for horizontal pan, Ctrl+right-drag
+  for turbo pan, `F` to fit the laid-out graph, `+`/`−` for stepped zoom.
+- **Focus** a node (click its chip or container header); neighbors stay at full
+  opacity, everything else dims to ~25%. Click empty canvas or press Escape to
+  clear focus.
+- **Expand / collapse** an expandable container (workspace, package, module)
+  with a double-click on its header.
+- **Open source** by double-clicking a file or item leaf (opens via the OS).
+- **Code root** is chosen in the Lens sidebar (or the empty-state button);
+  Rescan re-runs `code_lens::analyze_workspace` on the current root.
+- Edge-kind filters and name search live in the Lens sidebar; depth quick
+  buttons set how many hierarchy levels are expanded.
 
 ## Tagging gestures (reference)
 

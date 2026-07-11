@@ -2,6 +2,7 @@
 //! `egui::Context` (no eframe window) with the real thumbnail pool, exercising
 //! the tag model, both presentations, tabs, and workbook save/load.
 
+use super::lens::LensStatus;
 use super::*;
 use eframe::egui::{Pos2, Rect as ERect, Vec2 as EVec2};
 use slate_doc::ViewKind;
@@ -624,4 +625,49 @@ fn remove_group_strips_assignments_via_menu_path() {
     // Red assignment (other group) survives.
     assert_eq!(h.app.doc().items_with_tag(red).len(), 1);
     h.frame();
+}
+
+/// Lens view: empty state, then analysis on a minimal Cargo workspace.
+#[test]
+fn lens_view_pumps_without_panic() {
+    let mut h = Harness::new("lens");
+    h.app.doc_mut().view.active_view = ViewKind::Lens;
+
+    for _ in 0..5 {
+        h.frame();
+    }
+    assert_eq!(h.app.lens.status, LensStatus::Idle);
+
+    let root = h.base.join("mini-crate");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"mini\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
+
+    h.app.doc_mut().lens_root = Some(root);
+    h.app.lens_rescan();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        h.frame();
+        match &h.app.lens.status {
+            LensStatus::Ready => break,
+            LensStatus::Error(msg) => panic!("lens analysis failed: {msg}"),
+            LensStatus::Analyzing | LensStatus::Idle => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "lens analysis timed out"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+        }
+    }
+
+    assert!(h.app.lens.graph.is_some());
+    for _ in 0..3 {
+        h.frame();
+    }
 }
