@@ -32,9 +32,9 @@
     {
       "id": "ai_link",
       "title": "AI link",
-      "summary": "Cursor integration: shared AI workspace config, launcher, live-link context beacon, and the sidebar AI panel body rendered identically in both apps.",
+      "summary": "Cursor integration: shared AI workspace config, launcher, live-link context beacon, the sidebar AI panel body rendered identically in both apps, and the deterministic code graph plus agent overlay contract for Slate Lens.",
       "color": [130, 200, 95],
-      "members": ["crate:atlas-ai"]
+      "members": ["crate:atlas-ai", "crate:code-lens"]
     },
     {
       "id": "session_bridge",

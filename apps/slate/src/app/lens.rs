@@ -22,6 +22,14 @@ const HEADER_STRIP_H: f32 = 28.0;
 const CHIP_RADIUS: f32 = 6.0;
 const CONTAINER_RADIUS: f32 = 8.0;
 
+struct LensPaintStyle<'a> {
+    alpha: f32,
+    search_hit: bool,
+    cluster: Option<&'a code_lens::OverlayCluster>,
+    palette: &'a atlas_shell::theme::Palette,
+    z: f32,
+}
+
 enum LensMsg {
     Ready { root: PathBuf, graph: CodeGraph },
     Error { root: PathBuf, msg: String },
@@ -53,6 +61,8 @@ pub struct LensState {
     pub search: String,
     pub beacon: LensBeacon,
     pub overlay: Option<LensOverlay>,
+    /// Fit camera to layout bounds once after the first successful analysis.
+    pending_auto_fit: bool,
 }
 
 impl Default for LensState {
@@ -73,6 +83,7 @@ impl Default for LensState {
             search: String::new(),
             beacon: LensBeacon::new(),
             overlay: None,
+            pending_auto_fit: false,
         }
     }
 }
@@ -96,6 +107,7 @@ impl SlateApp {
                         self.lens.expanded = default_expanded(self.lens.graph.as_ref().unwrap());
                         self.lens.status = LensStatus::Ready;
                         self.lens.layout_dirty = true;
+                        self.lens.pending_auto_fit = true;
                         self.lens.focus = None;
                     }
                     LensMsg::Error { root, msg } => {
@@ -125,6 +137,12 @@ impl SlateApp {
 
         self.lens_tick_beacon();
         self.lens_ensure_layout();
+        if self.lens.pending_auto_fit {
+            if let Some(layout) = self.lens.layout.clone() {
+                self.lens_fit_layout(&layout);
+            }
+            self.lens.pending_auto_fit = false;
+        }
     }
 
     fn lens_tick_beacon(&mut self) {
@@ -571,13 +589,23 @@ impl SlateApp {
             let search_hit = !search.is_empty() && node.name.to_lowercase().contains(search);
 
             if pl.collapsed {
-                self.lens_paint_chip(
-                    painter, screen, node, alpha, search_hit, cluster, palette, z,
-                );
+                let style = LensPaintStyle {
+                    alpha,
+                    search_hit,
+                    cluster,
+                    palette,
+                    z,
+                };
+                self.lens_paint_chip(painter, screen, node, &style);
             } else {
-                self.lens_paint_container(
-                    painter, screen, node, alpha, search_hit, cluster, palette, z,
-                );
+                let style = LensPaintStyle {
+                    alpha,
+                    search_hit,
+                    cluster,
+                    palette,
+                    z,
+                };
+                self.lens_paint_container(painter, screen, node, &style);
             }
         }
     }
@@ -587,29 +615,26 @@ impl SlateApp {
         painter: &egui::Painter,
         rect: Rect,
         node: &code_lens::LensNode,
-        alpha: f32,
-        search_hit: bool,
-        cluster: Option<&code_lens::OverlayCluster>,
-        palette: &atlas_shell::theme::Palette,
-        z: f32,
+        style: &LensPaintStyle<'_>,
     ) {
-        let fade = |c: Color32| c.gamma_multiply(alpha);
-        let radius = CornerRadius::same((CONTAINER_RADIUS * z.max(0.5)).clamp(4.0, 12.0) as u8);
-        painter.rect_filled(rect, radius, fade(palette.card));
+        let fade = |c: Color32| c.gamma_multiply(style.alpha);
+        let radius =
+            CornerRadius::same((CONTAINER_RADIUS * style.z.max(0.5)).clamp(4.0, 12.0) as u8);
+        painter.rect_filled(rect, radius, fade(style.palette.card));
         painter.rect_stroke(
             rect,
             radius,
-            Stroke::new(1.0, fade(palette.border)),
+            Stroke::new(1.0_f32, fade(style.palette.border)),
             StrokeKind::Outside,
         );
 
-        let header_h = (HEADER_STRIP_H * z).clamp(18.0, 36.0);
+        let header_h = (HEADER_STRIP_H * style.z).clamp(18.0, 36.0);
         let header = Rect::from_min_max(rect.min, Pos2::new(rect.max.x, rect.min.y + header_h));
-        let header_fill = if let Some(c) = cluster.and_then(|cl| cl.color) {
+        let header_fill = if let Some(c) = style.cluster.and_then(|cl| cl.color) {
             let accent = Color32::from_rgb(c[0], c[1], c[2]);
-            accent.gamma_multiply(0.30 * alpha)
+            accent.gamma_multiply(0.30 * style.alpha)
         } else {
-            fade(palette.card_hover)
+            fade(style.palette.card_hover)
         };
         painter.rect_filled(
             Rect::from_min_max(header.min, Pos2::new(header.max.x, header.max.y + 1.0)),
@@ -622,23 +647,23 @@ impl SlateApp {
             header_fill,
         );
 
-        let font = FontId::proportional((12.0 * z).clamp(10.0, 16.0));
+        let font = FontId::proportional((12.0 * style.z).clamp(10.0, 16.0));
         painter.text(
             header.left_center() + Vec2::new(8.0, 0.0),
             Align2::LEFT_CENTER,
             &node.name,
             font.clone(),
-            fade(palette.ink),
+            fade(style.palette.ink),
         );
         painter.text(
             header.right_center() + Vec2::new(-8.0, 0.0),
             Align2::RIGHT_CENTER,
             format!("{} LOC", node.loc),
             font,
-            fade(palette.sub),
+            fade(style.palette.sub),
         );
 
-        if let Some(cl) = cluster {
+        if let Some(cl) = style.cluster {
             let tag = Rect::from_min_size(
                 header.min + Vec2::new(8.0, 2.0),
                 Vec2::new(
@@ -647,22 +672,22 @@ impl SlateApp {
                 ),
             );
             if tag.max.x < header.max.x - 60.0 {
-                painter.rect_filled(tag, CornerRadius::same(3), fade(palette.portal));
+                painter.rect_filled(tag, CornerRadius::same(3), fade(style.palette.portal));
                 painter.text(
                     tag.center(),
                     Align2::CENTER_CENTER,
                     &cl.title,
                     FontId::proportional(9.0),
-                    fade(palette.ink),
+                    fade(style.palette.ink),
                 );
             }
         }
 
-        if search_hit {
+        if style.search_hit {
             painter.rect_stroke(
                 rect,
                 radius,
-                Stroke::new(2.0, fade(palette.select)),
+                Stroke::new(2.0_f32, fade(style.palette.select)),
                 StrokeKind::Outside,
             );
         }
@@ -673,49 +698,45 @@ impl SlateApp {
         painter: &egui::Painter,
         rect: Rect,
         node: &code_lens::LensNode,
-        alpha: f32,
-        search_hit: bool,
-        cluster: Option<&code_lens::OverlayCluster>,
-        palette: &atlas_shell::theme::Palette,
-        z: f32,
+        style: &LensPaintStyle<'_>,
     ) {
-        let fade = |c: Color32| c.gamma_multiply(alpha);
-        let radius = CornerRadius::same((CHIP_RADIUS * z.max(0.5)).clamp(3.0, 10.0) as u8);
-        let fill = if let Some(c) = cluster.and_then(|cl| cl.color) {
-            Color32::from_rgb(c[0], c[1], c[2]).gamma_multiply(0.18 * alpha)
+        let fade = |c: Color32| c.gamma_multiply(style.alpha);
+        let radius = CornerRadius::same((CHIP_RADIUS * style.z.max(0.5)).clamp(3.0, 10.0) as u8);
+        let fill = if let Some(c) = style.cluster.and_then(|cl| cl.color) {
+            Color32::from_rgb(c[0], c[1], c[2]).gamma_multiply(0.18 * style.alpha)
         } else {
-            fade(palette.card)
+            fade(style.palette.card)
         };
         painter.rect_filled(rect, radius, fill);
         painter.rect_stroke(
             rect,
             radius,
-            Stroke::new(1.0, fade(palette.border)),
+            Stroke::new(1.0_f32, fade(style.palette.border)),
             StrokeKind::Outside,
         );
 
         let glyph = node_glyph(node.kind);
-        let font = FontId::proportional((11.0 * z).clamp(9.0, 14.0));
+        let font = FontId::proportional((11.0 * style.z).clamp(9.0, 14.0));
         painter.text(
             rect.left_center() + Vec2::new(10.0, 0.0),
             Align2::LEFT_CENTER,
             glyph,
             font.clone(),
-            fade(palette.accent),
+            fade(style.palette.accent),
         );
         painter.text(
             rect.left_center() + Vec2::new(22.0, 0.0),
             Align2::LEFT_CENTER,
             &node.name,
             font,
-            fade(palette.ink),
+            fade(style.palette.ink),
         );
 
-        if search_hit {
+        if style.search_hit {
             painter.rect_stroke(
                 rect,
                 radius,
-                Stroke::new(2.0, fade(palette.select)),
+                Stroke::new(2.0_f32, fade(style.palette.select)),
                 StrokeKind::Outside,
             );
         }

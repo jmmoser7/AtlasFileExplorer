@@ -81,6 +81,7 @@ commands are registered in one place so users can look them up in
 - **Pan / zoom** reuse the Grid/Venn camera: left- or right-drag to pan,
   scroll to zoom at the pointer, Shift+scroll for horizontal pan, Ctrl+right-drag
   for turbo pan, `F` to fit the laid-out graph, `+`/`−` for stepped zoom.
+  The camera auto-fits once when analysis first completes.
 - **Focus** a node (click its chip or container header); neighbors stay at full
   opacity, everything else dims to ~25%. Click empty canvas or press Escape to
   clear focus.

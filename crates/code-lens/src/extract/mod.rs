@@ -14,7 +14,8 @@ use cargo::{
 };
 use modules::walk_package_src;
 use rust_src::{
-    extract_impl_trait_edges, extract_items, extract_use_edges, parse_file, rollup_loc, TraitIndex,
+    extract_impl_trait_edges, extract_items, extract_use_edges, parse_file, rollup_loc,
+    ImplTraitEdgeCtx, TraitIndex, UseEdgeCtx,
 };
 
 pub fn analyze_workspace(root: &Path) -> Result<CodeGraph, LensError> {
@@ -115,28 +116,23 @@ pub fn analyze_workspace(root: &Path) -> Result<CodeGraph, LensError> {
     for (file_id, pkg_id, file_rel, ast) in parsed_files {
         let nodes = builder.nodes().to_vec();
         let maps = all_maps.get(&pkg_id).expect("maps for package");
-        let imports = extract_use_edges(
-            &mut builder,
-            file_id,
-            &file_rel,
-            &ast,
-            pkg_id,
+        let use_ctx = UseEdgeCtx {
+            file_package_id: pkg_id,
             maps,
-            &package_by_name,
-            &nodes,
-        );
+            package_by_name: &package_by_name,
+            nodes: &nodes,
+        };
+        let imports = extract_use_edges(&mut builder, file_id, &file_rel, &ast, &use_ctx);
         let nodes = builder.nodes().to_vec();
-        extract_impl_trait_edges(
-            &mut builder,
-            file_id,
-            &ast,
-            pkg_id,
-            &imports,
-            &trait_index,
-            &package_by_name,
-            &nodes,
-            &package_for_item,
-        );
+        let impl_ctx = ImplTraitEdgeCtx {
+            file_package_id: pkg_id,
+            file_imports: &imports,
+            trait_index: &trait_index,
+            package_by_name: &package_by_name,
+            nodes: &nodes,
+            package_for_item: &package_for_item,
+        };
+        extract_impl_trait_edges(&mut builder, file_id, &ast, &impl_ctx);
     }
 
     let generated_at = SystemTime::now()

@@ -78,6 +78,13 @@ enum EdgeSide {
     Right,
 }
 
+struct PlaceNodeCtx<'a> {
+    graph: &'a CodeGraph,
+    expanded: &'a HashSet<NodeId>,
+    sizes: &'a HashMap<NodeId, (f32, f32)>,
+    placed: &'a mut Vec<PlacedNode>,
+}
+
 /// `expanded`: nodes whose children are shown. A node is visible when every
 /// ancestor is in `expanded`. Edges roll up to the deepest visible ancestor
 /// on each side; (from,to,kind) duplicates merge summing weight; self-loops
@@ -102,17 +109,13 @@ pub fn layout_graph(graph: &CodeGraph, expanded: &HashSet<NodeId>) -> LensLayout
             .get(&graph.root)
             .copied()
             .unwrap_or_else(|| chip_size(graph.node(graph.root)));
-        place_node(
+        let mut ctx = PlaceNodeCtx {
             graph,
-            graph.root,
-            0.0,
-            0.0,
-            w,
-            h,
             expanded,
-            &sizes,
-            &mut placed,
-        );
+            sizes: &sizes,
+            placed: &mut placed,
+        };
+        place_node(&mut ctx, graph.root, 0.0, 0.0, w, h);
     }
 
     placed.sort_by(|a, b| a.depth.cmp(&b.depth).then_with(|| a.id.cmp(&b.id)));
@@ -276,16 +279,8 @@ fn compute_size(
     size
 }
 
-fn place_children_grid(
-    graph: &CodeGraph,
-    parent: NodeId,
-    origin_x: f32,
-    origin_y: f32,
-    expanded: &HashSet<NodeId>,
-    sizes: &HashMap<NodeId, (f32, f32)>,
-    placed: &mut Vec<PlacedNode>,
-) {
-    let children = sorted_visible_children(graph, parent, expanded);
+fn place_children_grid(ctx: &mut PlaceNodeCtx<'_>, parent: NodeId, origin_x: f32, origin_y: f32) {
+    let children = sorted_visible_children(ctx.graph, parent, ctx.expanded);
     if children.is_empty() {
         return;
     }
@@ -299,7 +294,7 @@ fn place_children_grid(
     let mut row_heights = vec![0.0_f32; rows];
 
     for (i, &child) in children.iter().enumerate() {
-        let (cw, ch) = sizes[&child];
+        let (cw, ch) = ctx.sizes[&child];
         let row = i / cols;
         let col = i % cols;
         if col > 0 {
@@ -318,8 +313,8 @@ fn place_children_grid(
             if col > 0 {
                 x += INNER_GAP;
             }
-            let (cw, ch) = sizes[&child];
-            place_node(graph, child, x, y, cw, ch, expanded, sizes, placed);
+            let (cw, ch) = ctx.sizes[&child];
+            place_node(ctx, child, x, y, cw, ch);
             x += cw;
         }
         y += row_h;
@@ -329,29 +324,19 @@ fn place_children_grid(
     }
 }
 
-fn place_node(
-    graph: &CodeGraph,
-    id: NodeId,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    expanded: &HashSet<NodeId>,
-    sizes: &HashMap<NodeId, (f32, f32)>,
-    placed: &mut Vec<PlacedNode>,
-) {
-    let collapsed = is_collapsed(graph, id, expanded);
-    placed.push(PlacedNode {
+fn place_node(ctx: &mut PlaceNodeCtx<'_>, id: NodeId, x: f32, y: f32, w: f32, h: f32) {
+    let collapsed = is_collapsed(ctx.graph, id, ctx.expanded);
+    ctx.placed.push(PlacedNode {
         id,
         rect: Rectf { x, y, w, h },
         collapsed,
-        depth: node_depth(graph, id),
+        depth: node_depth(ctx.graph, id),
     });
 
     if !collapsed {
         let content_x = x + PADDING;
         let content_y = y + HEADER_H + PADDING;
-        place_children_grid(graph, id, content_x, content_y, expanded, sizes, placed);
+        place_children_grid(ctx, id, content_x, content_y);
     }
 }
 
@@ -449,12 +434,18 @@ fn place_top_level(
     }
 
     let mut x = 0.0_f32;
+    let mut ctx = PlaceNodeCtx {
+        graph,
+        expanded,
+        sizes,
+        placed,
+    };
     for (col_idx, col) in columns.iter().enumerate() {
         let mut y = 0.0_f32;
         for (row_idx, &id) in col.iter().enumerate() {
             let (w, h) = sizes[&id];
             let px = x + (col_widths[col_idx] - w) * 0.5;
-            place_node(graph, id, px, y, w, h, expanded, sizes, placed);
+            place_node(&mut ctx, id, px, y, w, h);
             y += h;
             if row_idx + 1 < col.len() {
                 y += ROW_GAP;

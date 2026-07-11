@@ -58,8 +58,9 @@ the canvas mini menu) suppresses the tools rail and readout bar.
 - **Lens** (`lens.rs`) — interactive code-dependency graph over a workbook's
   `lens_root`. Deterministic analysis and layout come from `code-lens`; Slate
   paints containers/chips/wires on the shared camera, runs analysis on a
-  background thread, and writes `graph.json` / reads `overlay.json` through
-  `code_lens::LensBeacon` when an AI workspace is configured.
+  background thread, auto-fits the camera on first successful analysis, and
+  writes `graph.json` / reads `overlay.json` through `code_lens::LensBeacon`
+  when an AI workspace is configured.
 - New presentations should follow the same pattern: pure geometry in a crate,
   a `*_layout` builder producing `Placed` items, painting + hit-testing on the
   shared camera.

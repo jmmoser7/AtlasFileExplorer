@@ -103,10 +103,9 @@ fn resolve_trait_via_import(
                 item: ItemKind::Trait,
             } = node.kind
             {
-                if node.name == *trait_name {
-                    if package_for_item.get(&node.id) == Some(&pkg_node_id) {
-                        return Some(node.id);
-                    }
+                if node.name == *trait_name && package_for_item.get(&node.id) == Some(&pkg_node_id)
+                {
+                    return Some(node.id);
                 }
             }
         }
@@ -115,6 +114,24 @@ fn resolve_trait_via_import(
 }
 
 pub type ImportMap = HashMap<String, Vec<String>>;
+
+/// Shared resolution context for `use`-edge extraction.
+pub(crate) struct UseEdgeCtx<'a> {
+    pub file_package_id: NodeId,
+    pub maps: &'a ModuleMaps,
+    pub package_by_name: &'a HashMap<String, NodeId>,
+    pub nodes: &'a [crate::model::LensNode],
+}
+
+/// Shared resolution context for `impl Trait` edge extraction.
+pub(crate) struct ImplTraitEdgeCtx<'a> {
+    pub file_package_id: NodeId,
+    pub file_imports: &'a ImportMap,
+    pub trait_index: &'a TraitIndex,
+    pub package_by_name: &'a HashMap<String, NodeId>,
+    pub nodes: &'a [crate::model::LensNode],
+    pub package_for_item: &'a HashMap<NodeId, NodeId>,
+}
 
 pub(crate) fn extract_items(
     builder: &mut GraphBuilder,
@@ -147,10 +164,7 @@ pub(crate) fn extract_use_edges(
     file_id: NodeId,
     file_rel: &Path,
     ast: &syn::File,
-    file_package_id: NodeId,
-    maps: &ModuleMaps,
-    package_by_name: &HashMap<String, NodeId>,
-    nodes: &[crate::model::LensNode],
+    ctx: &UseEdgeCtx<'_>,
 ) -> ImportMap {
     let mut imports = ImportMap::new();
     let mut seen_paths: HashSet<Vec<String>> = HashSet::new();
@@ -164,14 +178,7 @@ pub(crate) fn extract_use_edges(
                 }
                 record_import(&mut imports, &path);
                 if seen_paths.insert(path.clone()) {
-                    if let Some(target) = resolve_use_path(
-                        &path,
-                        file_rel,
-                        file_package_id,
-                        maps,
-                        package_by_name,
-                        nodes,
-                    ) {
+                    if let Some(target) = resolve_use_path(&path, file_rel, ctx) {
                         if target != file_id {
                             builder.add_edge(file_id, target, EdgeKind::Use);
                         }
@@ -188,23 +195,18 @@ pub(crate) fn extract_impl_trait_edges(
     builder: &mut GraphBuilder,
     file_id: NodeId,
     ast: &syn::File,
-    file_package_id: NodeId,
-    file_imports: &ImportMap,
-    trait_index: &TraitIndex,
-    package_by_name: &HashMap<String, NodeId>,
-    nodes: &[crate::model::LensNode],
-    package_for_item: &HashMap<NodeId, NodeId>,
+    ctx: &ImplTraitEdgeCtx<'_>,
 ) {
     for item in &ast.items {
         if let Item::Impl(item_impl) = item {
             if let Some(trait_name) = trait_name_from_impl(item_impl) {
-                if let Some(trait_id) = trait_index.resolve_trait(
+                if let Some(trait_id) = ctx.trait_index.resolve_trait(
                     &trait_name,
-                    file_package_id,
-                    file_imports,
-                    package_by_name,
-                    nodes,
-                    package_for_item,
+                    ctx.file_package_id,
+                    ctx.file_imports,
+                    ctx.package_by_name,
+                    ctx.nodes,
+                    ctx.package_for_item,
                 ) {
                     builder.add_edge(file_id, trait_id, EdgeKind::ImplTrait);
                 }
@@ -356,14 +358,7 @@ fn collect_use_paths(tree: &UseTree, prefix: &mut Vec<String>) -> Vec<Vec<String
     }
 }
 
-fn resolve_use_path(
-    segments: &[String],
-    file_rel: &Path,
-    file_package_id: NodeId,
-    maps: &ModuleMaps,
-    package_by_name: &HashMap<String, NodeId>,
-    nodes: &[crate::model::LensNode],
-) -> Option<NodeId> {
+fn resolve_use_path(segments: &[String], file_rel: &Path, ctx: &UseEdgeCtx<'_>) -> Option<NodeId> {
     if segments.is_empty() {
         return None;
     }
@@ -373,21 +368,22 @@ fn resolve_use_path(
 
     if matches!(first_norm.as_str(), "crate" | "self" | "super") {
         let start = match first_norm.as_str() {
-            "crate" => file_package_id,
-            "self" => super::modules::module_for_file(maps, file_rel).unwrap_or(file_package_id),
-            "super" => {
-                super::modules::parent_module_for_file(maps, file_rel).unwrap_or(file_package_id)
+            "crate" => ctx.file_package_id,
+            "self" => {
+                super::modules::module_for_file(ctx.maps, file_rel).unwrap_or(ctx.file_package_id)
             }
-            _ => file_package_id,
+            "super" => super::modules::parent_module_for_file(ctx.maps, file_rel)
+                .unwrap_or(ctx.file_package_id),
+            _ => ctx.file_package_id,
         };
-        if let Some(target) = resolve_in_container(nodes, start, rest) {
+        if let Some(target) = resolve_in_container(ctx.nodes, start, rest) {
             return Some(target);
         }
-        return Some(file_package_id);
+        return Some(ctx.file_package_id);
     }
 
-    if let Some(&pkg_id) = package_by_name.get(&first_norm) {
-        if let Some(target) = resolve_in_container(nodes, pkg_id, rest) {
+    if let Some(&pkg_id) = ctx.package_by_name.get(&first_norm) {
+        if let Some(target) = resolve_in_container(ctx.nodes, pkg_id, rest) {
             return Some(target);
         }
         return Some(pkg_id);
