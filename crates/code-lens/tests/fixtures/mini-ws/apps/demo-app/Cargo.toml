@@ -1,0 +1,8 @@
+[package]
+name = "demo-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+core-lib = { path = "../../core-lib" }
+geo = { path = "../../geo" }
