@@ -1,0 +1,61 @@
+{
+  "generated_at": 1710000000,
+  "clusters": [
+    {
+      "id": "shared_chrome",
+      "title": "Shared chrome",
+      "summary": "Shared window chrome: theme and Palette, tab strip, sidebar primitives, widgets, panel registry, and command reference used identically by File Atlas and Slate.",
+      "color": [95, 145, 210],
+      "members": ["crate:atlas-shell"]
+    },
+    {
+      "id": "document_model",
+      "title": "Document model & artifact",
+      "summary": "Slate workbook document model with faceted tags and the board scene graph, plus the HTML artifact writer that serializes scenes to slides with embedded CSS and JS.",
+      "color": [175, 120, 200],
+      "members": ["crate:slate-doc", "crate:slate-artifact"]
+    },
+    {
+      "id": "geometry",
+      "title": "Geometry",
+      "summary": "Pure geometry utilities: circle packing and Venn layout, plus a Rust reader for cached render meshes in Rhino .3dm files used by Slate board viewports.",
+      "color": [80, 185, 150],
+      "members": ["crate:circle-pack", "crate:rhino-mesh"]
+    },
+    {
+      "id": "core_index",
+      "title": "Core index & scanning",
+      "summary": "UI-free backend for types, folder scanning, SQLite index, thumbnail pool and cache tiers, tree layout, journal, export, and filesystem watching.",
+      "color": [210, 155, 75],
+      "members": ["crate:atlas-core"]
+    },
+    {
+      "id": "ai_link",
+      "title": "AI link",
+      "summary": "Cursor integration: shared AI workspace config, launcher, live-link context beacon, and the sidebar AI panel body rendered identically in both apps.",
+      "color": [130, 200, 95],
+      "members": ["crate:atlas-ai"]
+    },
+    {
+      "id": "session_bridge",
+      "title": "Session bridge",
+      "summary": "In-process bridge for linked Slate and Atlas sessions: tag groups, assignment queues, and cross-window drag payloads.",
+      "color": [200, 110, 110],
+      "members": ["crate:atlas-session"]
+    },
+    {
+      "id": "atlas_app",
+      "title": "Atlas app",
+      "summary": "File Atlas application: folder scanning, tree canvas, destination assignment, and export workflow built on shared Atlas crates.",
+      "color": [220, 175, 90],
+      "members": ["crate:native-file-atlas"]
+    },
+    {
+      "id": "slate_app",
+      "title": "Slate app",
+      "summary": "Slate application: tag-driven workbooks, grid and Venn views, board authoring, Lens canvas, tagging sidebar, and linked-session host.",
+      "color": [110, 175, 220],
+      "members": ["crate:slate"]
+    }
+  ]
+}
