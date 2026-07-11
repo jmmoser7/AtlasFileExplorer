@@ -321,6 +321,7 @@ impl SlateApp {
 
         let layout = match self.doc().view.active_view {
             ViewKind::Venn => self.venn_layout_now(),
+            ViewKind::Lens => self.grid_layout(),
             _ => self.grid_layout(),
         };
 

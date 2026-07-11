@@ -27,6 +27,9 @@ pub struct SlateDoc {
     /// with the workbook; absent in pre-board documents (defaults empty).
     #[serde(default)]
     pub scene: Scene,
+    /// Cargo workspace or crate root for the Lens view; absent in older workbooks.
+    #[serde(default)]
+    pub lens_root: Option<std::path::PathBuf>,
     next_group_id: u64,
     next_tag_id: u64,
     next_item_id: u64,
@@ -48,6 +51,7 @@ impl SlateDoc {
             items: Vec::new(),
             view: ViewState::default(),
             scene: Scene::default(),
+            lens_root: None,
             next_group_id: 1,
             next_tag_id: 1,
             next_item_id: 1,
@@ -593,6 +597,43 @@ mod tests {
         fs::write(&path, json).expect("write");
         let doc = SlateDoc::load_from(&path).expect("load");
         assert_eq!(doc.view.active_view, crate::view::ViewKind::Grid);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_without_lens_root_defaults_none() {
+        let dir = unique_temp_dir("slate-doc-lens-root-backcompat");
+        let path = dir.join("no-lens.slate");
+        let json = r#"{
+            "format_version": 2,
+            "name": "legacy",
+            "groups": [],
+            "items": [],
+            "view": { "active_view": "grid", "cam_x": 0.0, "cam_y": 0.0, "zoom": 1.0 },
+            "next_group_id": 1,
+            "next_tag_id": 1,
+            "next_item_id": 1
+        }"#;
+        fs::write(&path, json).expect("write");
+        let doc = SlateDoc::load_from(&path).expect("load");
+        assert_eq!(doc.lens_root, None);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn lens_root_round_trip() {
+        let dir = unique_temp_dir("slate-doc-lens-root-roundtrip");
+        let path = dir.join(format!("lens.{SLATE_EXTENSION}"));
+
+        let mut doc = SlateDoc::new("Lens root");
+        doc.lens_root = Some(PathBuf::from("/workspace"));
+        doc.view.active_view = crate::view::ViewKind::Lens;
+
+        doc.save_to(&path).expect("save");
+        let loaded = SlateDoc::load_from(&path).expect("load");
+        assert_eq!(loaded.lens_root, Some(PathBuf::from("/workspace")));
+        assert_eq!(loaded.view.active_view, crate::view::ViewKind::Lens);
+
         let _ = fs::remove_dir_all(dir);
     }
 

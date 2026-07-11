@@ -280,6 +280,7 @@ fn view_kind_label(kind: ViewKind) -> &'static str {
         ViewKind::Board | ViewKind::Branch => "Board",
         ViewKind::Grid | ViewKind::Unknown => "Grid",
         ViewKind::Venn => "Venn",
+        ViewKind::Lens => "Lens",
     }
 }
 
