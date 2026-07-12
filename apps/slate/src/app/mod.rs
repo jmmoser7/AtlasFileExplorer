@@ -1058,6 +1058,42 @@ impl SlateApp {
         if self.ai.picker_pending() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
+        self.debug_screenshot(ctx);
+    }
+
+    /// Dev harness: `SLATE_SHOT=<path>[;delay_frames]` saves a screenshot and exits.
+    fn debug_screenshot(&mut self, ctx: &egui::Context) {
+        let Ok(spec) = std::env::var("SLATE_SHOT") else {
+            return;
+        };
+        let (path, delay) = match spec.split_once(';') {
+            Some((p, d)) => (p.to_string(), d.parse().unwrap_or(240u64)),
+            None => (spec, 240),
+        };
+        if self.frame_no == delay {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+        }
+        let shot: Option<std::sync::Arc<egui::ColorImage>> = ctx.input(|i| {
+            i.raw.events.iter().find_map(|e| {
+                if let egui::Event::Screenshot { image, .. } = e {
+                    Some(image.clone())
+                } else {
+                    None
+                }
+            })
+        });
+        if let Some(img) = shot {
+            let [w, h] = img.size;
+            let mut rgba = Vec::with_capacity(w * h * 4);
+            for px in &img.pixels {
+                rgba.extend_from_slice(&px.to_array());
+            }
+            if let Some(buf) = image::RgbaImage::from_raw(w as u32, h as u32, rgba) {
+                let _ = buf.save(&path);
+            }
+            std::process::exit(0);
+        }
+        ctx.request_repaint();
     }
 
     /// Maintain the AI live-link beacon: which workbook is open, what's

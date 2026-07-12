@@ -1,4 +1,4 @@
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{hash_map::DefaultHasher, HashSet};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
@@ -57,6 +57,14 @@ pub struct LensEdge {
     pub weight: u32, // aggregated count (e.g. number of use statements)
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EdgeStats {
+    pub incoming_edges: usize,
+    pub outgoing_edges: usize,
+    pub incoming_weight: u32,
+    pub outgoing_weight: u32,
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct CodeGraph {
     pub root: NodeId,         // the Workspace node (0 when non-empty)
@@ -85,6 +93,66 @@ impl CodeGraph {
             }
         }
         out
+    }
+
+    /// Directed relationship and aggregate-weight pressure for one edge family.
+    pub fn edge_stats(&self, id: NodeId, kind: EdgeKind) -> EdgeStats {
+        let mut stats = EdgeStats::default();
+        for edge in self.edges.iter().filter(|edge| edge.kind == kind) {
+            if edge.to == id {
+                stats.incoming_edges += 1;
+                stats.incoming_weight = stats.incoming_weight.saturating_add(edge.weight);
+            }
+            if edge.from == id {
+                stats.outgoing_edges += 1;
+                stats.outgoing_weight = stats.outgoing_weight.saturating_add(edge.weight);
+            }
+        }
+        stats
+    }
+
+    /// One package-dependency cycle containing `id`, including the repeated
+    /// start node at the end to make the closure explicit. Non-package nodes
+    /// and acyclic packages return `None`.
+    pub fn package_cycle_containing(&self, id: NodeId) -> Option<Vec<NodeId>> {
+        if !matches!(self.node(id).kind, NodeKind::Package { .. }) {
+            return None;
+        }
+
+        fn find_cycle(
+            graph: &CodeGraph,
+            current: NodeId,
+            target: NodeId,
+            visited: &mut HashSet<NodeId>,
+            path: &mut Vec<NodeId>,
+        ) -> bool {
+            if !visited.insert(current) {
+                return false;
+            }
+            for edge in graph
+                .edges
+                .iter()
+                .filter(|edge| edge.kind == EdgeKind::PackageDep && edge.from == current)
+            {
+                if edge.to == target {
+                    path.push(target);
+                    return true;
+                }
+                if !matches!(graph.node(edge.to).kind, NodeKind::Package { .. }) {
+                    continue;
+                }
+                path.push(edge.to);
+                if find_cycle(graph, edge.to, target, visited, path) {
+                    return true;
+                }
+                path.pop();
+            }
+            false
+        }
+
+        let mut path = vec![id];
+        let mut visited = HashSet::new();
+        find_cycle(self, id, id, &mut visited, &mut path).then_some(path)
     }
 
     /// Walk up parents until `pred` holds; used for edge rollup.
@@ -241,5 +309,43 @@ mod tests {
         assert_eq!(a.fingerprint(), b.fingerprint());
         b.edges[0].weight = 99;
         assert_ne!(a.fingerprint(), b.fingerprint());
+    }
+
+    #[test]
+    fn edge_stats_keep_direction_and_aggregate_weight() {
+        let graph = tiny_graph();
+        assert_eq!(
+            graph.edge_stats(1, EdgeKind::PackageDep),
+            EdgeStats {
+                incoming_edges: 0,
+                outgoing_edges: 1,
+                incoming_weight: 0,
+                outgoing_weight: 1,
+            }
+        );
+        assert_eq!(
+            graph.edge_stats(1, EdgeKind::Use),
+            EdgeStats {
+                incoming_edges: 1,
+                outgoing_edges: 0,
+                incoming_weight: 3,
+                outgoing_weight: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn package_cycle_reports_closed_path() {
+        let mut graph = tiny_graph();
+        assert!(graph.package_cycle_containing(1).is_none());
+        graph.edges.push(LensEdge {
+            from: 2,
+            to: 1,
+            kind: EdgeKind::PackageDep,
+            weight: 1,
+        });
+        assert_eq!(graph.package_cycle_containing(1), Some(vec![1, 2, 1]));
+        assert_eq!(graph.package_cycle_containing(2), Some(vec![2, 1, 2]));
+        assert!(graph.package_cycle_containing(0).is_none());
     }
 }

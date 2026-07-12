@@ -5,14 +5,15 @@
 //! `LensState` is app-wide today (could become per-tab later).
 
 use super::SlateApp;
+use code_lens::model::EdgeStats;
 use code_lens::{
     analyze_workspace, layout_graph, match_cluster, CodeGraph, EdgeKind, ItemKind, LensBeacon,
     LensLayout, LensOverlay, LensWire, NodeId, NodeKind, Rectf,
 };
 use crossbeam_channel::{unbounded, Receiver};
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui,
-    Vec2,
+    self, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Pos2, Rect, Sense, Stroke,
+    StrokeKind, Ui, Vec2,
 };
 use slate_doc::ViewKind;
 use std::collections::HashSet;
@@ -25,9 +26,24 @@ const CONTAINER_RADIUS: f32 = 8.0;
 struct LensPaintStyle<'a> {
     alpha: f32,
     search_hit: bool,
+    focused: bool,
+    hovered: bool,
+    expandable: bool,
+    expanded: bool,
     cluster: Option<&'a code_lens::OverlayCluster>,
     palette: &'a atlas_shell::theme::Palette,
     z: f32,
+}
+
+struct LensFocusInfo {
+    name: String,
+    kind: &'static str,
+    path: PathBuf,
+    loc: u32,
+    can_open: bool,
+    expandable: bool,
+    edge_stats: [(&'static str, EdgeStats); 3],
+    package_cycle: Option<String>,
 }
 
 enum LensMsg {
@@ -63,6 +79,8 @@ pub struct LensState {
     pub overlay: Option<LensOverlay>,
     /// Fit camera to layout bounds once after the first successful analysis.
     pending_auto_fit: bool,
+    /// `SLATE_LENS_FOCUS` harness: applied once after the graph is ready.
+    harness_focus_applied: bool,
 }
 
 impl Default for LensState {
@@ -84,6 +102,7 @@ impl Default for LensState {
             beacon: LensBeacon::new(),
             overlay: None,
             pending_auto_fit: false,
+            harness_focus_applied: false,
         }
     }
 }
@@ -137,6 +156,7 @@ impl SlateApp {
 
         self.lens_tick_beacon();
         self.lens_ensure_layout();
+        self.lens_apply_harness_focus();
         if self.lens.pending_auto_fit {
             if let Some(layout) = self.lens.layout.clone() {
                 self.lens_fit_layout(&layout);
@@ -294,6 +314,14 @@ impl SlateApp {
                     .small()
                     .color(theme.sub),
             );
+            ui.label(
+                egui::RichText::new("Source-derived · read-only")
+                    .small()
+                    .color(theme.sub),
+            )
+            .on_hover_text(
+                "Lens visualizes analyzed source. It does not move, rename, or rewrite code yet.",
+            );
         });
 
         sidebar_subtle_divider(ui, theme);
@@ -320,13 +348,115 @@ impl SlateApp {
         });
 
         sidebar_subtle_divider(ui, theme);
+        self.lens_wire_legend(ui, theme);
+
+        sidebar_subtle_divider(ui, theme);
         sidebar_region(ui, "Search", theme, |ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.lens.search)
-                    .hint_text("Filter by name…")
+                    .hint_text("Highlight by name…")
                     .desired_width(ui.available_width()),
             );
         });
+
+        let focus_info = self.lens.focus.and_then(|id| {
+            self.lens.graph.as_ref().map(|graph| {
+                let node = graph.node(id);
+                let package_cycle = graph
+                    .ancestor_where(id, |candidate| {
+                        matches!(graph.node(candidate).kind, NodeKind::Package { .. })
+                    })
+                    .and_then(|package| graph.package_cycle_containing(package))
+                    .map(|cycle| {
+                        cycle
+                            .iter()
+                            .map(|cycle_id| graph.node(*cycle_id).name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" → ")
+                    });
+                LensFocusInfo {
+                    name: node.name.clone(),
+                    kind: kind_label(node.kind),
+                    path: node.path.clone(),
+                    loc: node.loc,
+                    can_open: matches!(node.kind, NodeKind::File | NodeKind::Item { .. }),
+                    expandable: can_expand(node.kind),
+                    edge_stats: edge_stats_by_kind(graph, id),
+                    package_cycle,
+                }
+            })
+        });
+        if let Some(info) = focus_info {
+            sidebar_subtle_divider(ui, theme);
+            sidebar_region(ui, "Focused node", theme, |ui| {
+                ui.label(egui::RichText::new(info.name).strong());
+                ui.label(
+                    egui::RichText::new(format!("{} · {} LOC", info.kind, info.loc))
+                        .small()
+                        .color(theme.sub),
+                );
+                if !info.path.as_os_str().is_empty() {
+                    ui.label(
+                        egui::RichText::new(info.path.display().to_string())
+                            .small()
+                            .color(theme.sub),
+                    )
+                    .on_hover_text(info.path.display().to_string());
+                }
+                let mut has_edges = false;
+                for (label, stats) in info.edge_stats {
+                    if stats.incoming_edges == 0 && stats.outgoing_edges == 0 {
+                        continue;
+                    }
+                    has_edges = true;
+                    ui.label(
+                        egui::RichText::new(edge_stats_line(label, stats))
+                            .small()
+                            .color(theme.sub),
+                    );
+                }
+                if !has_edges {
+                    ui.label(
+                        egui::RichText::new("No direct analyzed dependencies")
+                            .small()
+                            .color(theme.sub),
+                    );
+                }
+                if let Some(cycle) = &info.package_cycle {
+                    ui.label(
+                        egui::RichText::new(format!("Package cycle: {cycle}"))
+                            .small()
+                            .color(self.palette().staged),
+                    )
+                    .on_hover_text(
+                        "This package participates in a circular Cargo workspace dependency.",
+                    );
+                }
+                sidebar_toolbar_row(ui, |ui| {
+                    if info.can_open && ui.button("Open source").clicked() {
+                        if let Some(root) = self.doc().lens_root.clone() {
+                            Self::open_path(&root.join(&info.path));
+                        }
+                    }
+                    if ui.button("Clear focus").clicked() {
+                        self.lens.focus = None;
+                    }
+                });
+                if info.can_open {
+                    ui.label(
+                        egui::RichText::new("Double-click the node to open it.")
+                            .small()
+                            .color(theme.sub),
+                    );
+                } else if info.expandable {
+                    ui.label(
+                        egui::RichText::new("Double-click the header to expand or collapse.")
+                            .small()
+                            .color(theme.sub),
+                    );
+                }
+            });
+        }
 
         if let Some(overlay) = &self.lens.overlay {
             if !overlay.clusters.is_empty() {
@@ -349,6 +479,54 @@ impl SlateApp {
                 });
             }
         }
+    }
+
+    fn lens_wire_legend(&self, ui: &mut Ui, theme: atlas_shell::sidebar::SidebarTheme) {
+        use atlas_shell::sidebar::sidebar_region;
+
+        let palette = self.palette();
+        sidebar_region(ui, "Wire legend", theme, |ui| {
+            for (label, kind) in [
+                ("Package dependencies", EdgeKind::PackageDep),
+                ("Use / import", EdgeKind::Use),
+                ("Trait implementations", EdgeKind::ImplTrait),
+            ] {
+                ui.horizontal(|ui| {
+                    let (rect, _) = ui.allocate_exact_size(Vec2::new(44.0, 14.0), Sense::hover());
+                    paint_wire_legend_swatch(ui.painter(), rect, kind, &palette);
+                    ui.label(egui::RichText::new(label).small().color(theme.sub));
+                });
+            }
+            ui.label(
+                egui::RichText::new("Thickness grows with reference count.")
+                    .small()
+                    .color(theme.sub),
+            );
+        });
+    }
+
+    fn lens_apply_harness_focus(&mut self) {
+        if self.lens.harness_focus_applied {
+            return;
+        }
+        let Ok(name) = std::env::var("SLATE_LENS_FOCUS") else {
+            return;
+        };
+        if !matches!(self.lens.status, LensStatus::Ready) {
+            return;
+        }
+        let Some(graph) = self.lens.graph.as_ref() else {
+            return;
+        };
+        let needle = name.trim();
+        if needle.is_empty() {
+            self.lens.harness_focus_applied = true;
+            return;
+        }
+        if let Some(id) = lens_find_node_by_name(graph, needle) {
+            self.lens.focus = Some(id);
+        }
+        self.lens.harness_focus_applied = true;
     }
 
     fn lens_status_line(&self) -> String {
@@ -435,6 +613,15 @@ impl SlateApp {
             self.tab_mut().cam.offset -= delta / z;
         }
 
+        // Hit-test before painting so hover feedback is visible in this frame.
+        let hovered_node = pointer
+            .filter(|p| rect.contains(*p))
+            .and_then(|p| self.lens_hit_test(&layout, self.screen_to_world(p)));
+        self.lens.hover = hovered_node;
+        if hovered_node.is_some() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        }
+
         let focus_set = self
             .lens
             .focus
@@ -444,13 +631,6 @@ impl SlateApp {
         self.paint_dot_grid(&painter, rect, &palette);
         self.lens_paint_wires(&painter, &layout, focus_set.as_ref(), &palette);
         self.lens_paint_nodes(ui, &painter, &layout, focus_set.as_ref(), &search, &palette);
-
-        // Hit test (reverse paint order).
-        let hovered_node = pointer
-            .filter(|p| rect.contains(*p))
-            .and_then(|p| self.lens_hit_test(&layout, self.screen_to_world(p)));
-
-        self.lens.hover = hovered_node;
 
         if resp.clicked() {
             self.lens.focus = hovered_node;
@@ -587,11 +767,19 @@ impl SlateApp {
 
             let cluster = overlay.and_then(|ov| match_cluster(ov, graph, pl.id));
             let search_hit = !search.is_empty() && node.name.to_lowercase().contains(search);
+            let focused = self.lens.focus == Some(pl.id);
+            let hovered = self.lens.hover == Some(pl.id);
+            let expandable = can_expand(node.kind) && !node.children.is_empty();
+            let expanded = self.lens.expanded.contains(&pl.id);
 
             if pl.collapsed {
                 let style = LensPaintStyle {
                     alpha,
                     search_hit,
+                    focused,
+                    hovered,
+                    expandable,
+                    expanded,
                     cluster,
                     palette,
                     z,
@@ -601,6 +789,10 @@ impl SlateApp {
                 let style = LensPaintStyle {
                     alpha,
                     search_hit,
+                    focused,
+                    hovered,
+                    expandable,
+                    expanded,
                     cluster,
                     palette,
                     z,
@@ -648,8 +840,17 @@ impl SlateApp {
         );
 
         let font = FontId::proportional((12.0 * style.z).clamp(10.0, 16.0));
+        if style.expandable {
+            painter.text(
+                header.left_center() + Vec2::new(8.0, 0.0),
+                Align2::LEFT_CENTER,
+                if style.expanded { "▾" } else { "▸" },
+                font.clone(),
+                fade(style.palette.accent),
+            );
+        }
         painter.text(
-            header.left_center() + Vec2::new(8.0, 0.0),
+            header.left_center() + Vec2::new(if style.expandable { 21.0 } else { 8.0 }, 0.0),
             Align2::LEFT_CENTER,
             &node.name,
             font.clone(),
@@ -683,13 +884,8 @@ impl SlateApp {
             }
         }
 
-        if style.search_hit {
-            painter.rect_stroke(
-                rect,
-                radius,
-                Stroke::new(2.0_f32, fade(style.palette.select)),
-                StrokeKind::Outside,
-            );
+        if let Some(stroke) = interaction_stroke(style) {
+            painter.rect_stroke(rect, radius, stroke, StrokeKind::Outside);
         }
     }
 
@@ -717,28 +913,34 @@ impl SlateApp {
 
         let glyph = node_glyph(node.kind);
         let font = FontId::proportional((11.0 * style.z).clamp(9.0, 14.0));
+        if style.expandable {
+            painter.text(
+                rect.left_center() + Vec2::new(8.0, 0.0),
+                Align2::LEFT_CENTER,
+                if style.expanded { "▾" } else { "▸" },
+                font.clone(),
+                fade(style.palette.accent),
+            );
+        }
+        let glyph_x = if style.expandable { 20.0 } else { 10.0 };
         painter.text(
-            rect.left_center() + Vec2::new(10.0, 0.0),
+            rect.left_center() + Vec2::new(glyph_x, 0.0),
             Align2::LEFT_CENTER,
             glyph,
             font.clone(),
             fade(style.palette.accent),
         );
+        let name_x = if style.expandable { 32.0 } else { 22.0 };
         painter.text(
-            rect.left_center() + Vec2::new(22.0, 0.0),
+            rect.left_center() + Vec2::new(name_x, 0.0),
             Align2::LEFT_CENTER,
             &node.name,
             font,
             fade(style.palette.ink),
         );
 
-        if style.search_hit {
-            painter.rect_stroke(
-                rect,
-                radius,
-                Stroke::new(2.0_f32, fade(style.palette.select)),
-                StrokeKind::Outside,
-            );
+        if let Some(stroke) = interaction_stroke(style) {
+            painter.rect_stroke(rect, radius, stroke, StrokeKind::Outside);
         }
     }
 
@@ -767,11 +969,7 @@ impl SlateApp {
     ) {
         let from = self.world_to_screen(Pos2::new(wire.from_pt.0, wire.from_pt.1));
         let to = self.world_to_screen(Pos2::new(wire.to_pt.0, wire.to_pt.1));
-        let (color, base_w, dashed) = match wire.kind {
-            EdgeKind::PackageDep => (palette.ink, 2.5, false),
-            EdgeKind::Use => (palette.accent, 1.0, false),
-            EdgeKind::ImplTrait => (palette.portal, 1.0, true),
-        };
+        let (color, base_w, dashed) = wire_kind_style(wire.kind, palette);
         let fade = color.gamma_multiply(alpha);
         let w = (base_w + (wire.weight.max(1) as f32).log2()).clamp(1.0, 4.0)
             * self.tab().cam.z.max(0.4);
@@ -799,12 +997,7 @@ impl SlateApp {
 
     fn lens_show_tooltip(&self, ui: &Ui, graph: &CodeGraph, id: NodeId) {
         let node = graph.node(id);
-        let neighbors = graph.neighbors(id);
-        let in_deg = neighbors
-            .iter()
-            .filter(|(nid, _, _)| graph.edges.iter().any(|e| e.to == id && e.from == *nid))
-            .count();
-        let out_deg = neighbors.len().saturating_sub(in_deg);
+        let (in_deg, out_deg) = degree_counts(graph, id);
 
         let mut text = format!(
             "{}\nKind: {}\nLOC: {}\nIn: {in_deg}  Out: {out_deg}",
@@ -844,6 +1037,105 @@ fn focus_neighborhood(graph: &CodeGraph, focus: NodeId) -> HashSet<NodeId> {
         set.insert(nid);
     }
     set
+}
+
+fn degree_counts(graph: &CodeGraph, id: NodeId) -> (usize, usize) {
+    let in_deg = graph.edges.iter().filter(|edge| edge.to == id).count();
+    let out_deg = graph.edges.iter().filter(|edge| edge.from == id).count();
+    (in_deg, out_deg)
+}
+
+fn edge_stats_by_kind(graph: &CodeGraph, id: NodeId) -> [(&'static str, EdgeStats); 3] {
+    [
+        (
+            "Package dependencies",
+            graph.edge_stats(id, EdgeKind::PackageDep),
+        ),
+        ("Use / import", graph.edge_stats(id, EdgeKind::Use)),
+        (
+            "Trait implementations",
+            graph.edge_stats(id, EdgeKind::ImplTrait),
+        ),
+    ]
+}
+
+fn edge_stats_line(label: &str, stats: EdgeStats) -> String {
+    let weighted = stats.incoming_weight != stats.incoming_edges as u32
+        || stats.outgoing_weight != stats.outgoing_edges as u32;
+    if weighted {
+        format!(
+            "{label}: {} in / {} refs · {} out / {} refs",
+            stats.incoming_edges,
+            stats.incoming_weight,
+            stats.outgoing_edges,
+            stats.outgoing_weight
+        )
+    } else {
+        format!(
+            "{label}: {} incoming · {} outgoing",
+            stats.incoming_edges, stats.outgoing_edges
+        )
+    }
+}
+
+fn wire_kind_style(kind: EdgeKind, palette: &atlas_shell::theme::Palette) -> (Color32, f32, bool) {
+    match kind {
+        EdgeKind::PackageDep => (palette.ink, 2.5, false),
+        EdgeKind::Use => (palette.accent, 1.0, false),
+        EdgeKind::ImplTrait => (palette.portal, 1.0, true),
+    }
+}
+
+fn paint_wire_legend_swatch(
+    painter: &egui::Painter,
+    rect: Rect,
+    kind: EdgeKind,
+    palette: &atlas_shell::theme::Palette,
+) {
+    let (color, base_w, dashed) = wire_kind_style(kind, palette);
+    let y = rect.center().y;
+    let from = Pos2::new(rect.left() + 2.0, y);
+    let to = Pos2::new(rect.right() - 2.0, y);
+    let stroke = Stroke::new(base_w, color);
+    if dashed {
+        let mut x = from.x;
+        while x < to.x {
+            let end = (x + 5.0).min(to.x);
+            painter.line_segment([Pos2::new(x, y), Pos2::new(end, y)], stroke);
+            x += 8.0;
+        }
+    } else {
+        painter.line_segment([from, to], stroke);
+    }
+    paint_arrowhead(painter, from, to, color, base_w);
+}
+
+fn lens_find_node_by_name(graph: &CodeGraph, needle: &str) -> Option<NodeId> {
+    let lower = needle.to_lowercase();
+    graph
+        .nodes
+        .iter()
+        .find(|node| node.name == needle)
+        .map(|node| node.id)
+        .or_else(|| {
+            graph
+                .nodes
+                .iter()
+                .find(|node| node.name.to_lowercase() == lower)
+                .map(|node| node.id)
+        })
+}
+
+fn interaction_stroke(style: &LensPaintStyle<'_>) -> Option<Stroke> {
+    if style.focused {
+        Some(Stroke::new(2.5, style.palette.select))
+    } else if style.hovered {
+        Some(Stroke::new(1.5, style.palette.border_strong))
+    } else if style.search_hit {
+        Some(Stroke::new(2.0, style.palette.staged))
+    } else {
+        None
+    }
 }
 
 fn focus_alpha(focus_set: Option<&HashSet<NodeId>>, id: NodeId) -> f32 {
@@ -996,5 +1288,72 @@ fn paint_dashed_bezier(
             j += 1;
         }
         i = j + (gap / dash).ceil() as usize;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use code_lens::{LensEdge, LensNode};
+
+    #[test]
+    fn degree_counts_preserve_edge_direction() {
+        let node = |id| LensNode {
+            id,
+            parent: None,
+            kind: NodeKind::File,
+            name: format!("node-{id}"),
+            path: PathBuf::from(format!("node-{id}.rs")),
+            loc: 1,
+            children: Vec::new(),
+        };
+        let graph = CodeGraph {
+            root: 0,
+            nodes: vec![node(0), node(1), node(2)],
+            edges: vec![
+                LensEdge {
+                    from: 0,
+                    to: 1,
+                    kind: EdgeKind::Use,
+                    weight: 1,
+                },
+                LensEdge {
+                    from: 2,
+                    to: 1,
+                    kind: EdgeKind::Use,
+                    weight: 3,
+                },
+                LensEdge {
+                    from: 1,
+                    to: 2,
+                    kind: EdgeKind::ImplTrait,
+                    weight: 1,
+                },
+            ],
+            generated_at: 0,
+        };
+
+        assert_eq!(degree_counts(&graph, 1), (2, 1));
+    }
+
+    #[test]
+    fn lens_find_node_by_name_prefers_exact_match() {
+        let node = |id, name: &str| LensNode {
+            id,
+            parent: None,
+            kind: NodeKind::File,
+            name: name.into(),
+            path: PathBuf::from(format!("{name}.rs")),
+            loc: 1,
+            children: Vec::new(),
+        };
+        let graph = CodeGraph {
+            root: 0,
+            nodes: vec![node(0, "lib"), node(1, "Lib")],
+            edges: Vec::new(),
+            generated_at: 0,
+        };
+        assert_eq!(lens_find_node_by_name(&graph, "Lib"), Some(1));
+        assert_eq!(lens_find_node_by_name(&graph, "lib"), Some(0));
     }
 }
