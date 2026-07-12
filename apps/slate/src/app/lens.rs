@@ -350,6 +350,13 @@ impl SlateApp {
         sidebar_subtle_divider(ui, theme);
         self.lens_wire_legend(ui, theme);
 
+        if matches!(self.lens.status, LensStatus::Ready) {
+            if let Some(graph) = self.lens.graph.clone() {
+                sidebar_subtle_divider(ui, theme);
+                self.lens_workspace_pressure(ui, theme, &graph);
+            }
+        }
+
         sidebar_subtle_divider(ui, theme);
         sidebar_region(ui, "Search", theme, |ui| {
             ui.add(
@@ -477,6 +484,86 @@ impl SlateApp {
                         });
                     }
                 });
+            }
+        }
+    }
+
+    fn lens_workspace_pressure(
+        &mut self,
+        ui: &mut Ui,
+        theme: atlas_shell::sidebar::SidebarTheme,
+        graph: &CodeGraph,
+    ) {
+        use atlas_shell::sidebar::sidebar_region;
+
+        let summary = graph.workspace_summary();
+        sidebar_region(ui, "Workspace pressure", theme, |ui| {
+            let cycle_note = if summary.packages_in_cycles > 0 {
+                format!(" · {} in cycles", summary.packages_in_cycles)
+            } else {
+                String::new()
+            };
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} packages · {} nodes{cycle_note}",
+                    summary.packages, summary.nodes
+                ))
+                .small()
+                .color(theme.sub),
+            );
+            ui.label(
+                egui::RichText::new(format!(
+                    "Edges: {} pkg · {} use · {} trait",
+                    summary.edges_package_dep, summary.edges_use, summary.edges_impl_trait
+                ))
+                .small()
+                .color(theme.sub),
+            );
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Top package fan-in").small().strong());
+            self.lens_pressure_rows(ui, theme, graph, EdgeKind::PackageDep, true);
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Top use fan-in").small().strong());
+            self.lens_pressure_rows(ui, theme, graph, EdgeKind::Use, true);
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Top package fan-out").small().strong());
+            self.lens_pressure_rows(ui, theme, graph, EdgeKind::PackageDep, false);
+        });
+    }
+
+    fn lens_pressure_rows(
+        &mut self,
+        ui: &mut Ui,
+        theme: atlas_shell::sidebar::SidebarTheme,
+        graph: &CodeGraph,
+        kind: EdgeKind,
+        fan_in: bool,
+    ) {
+        let rows = if fan_in {
+            graph.top_packages_by_fan_in(kind, 3)
+        } else {
+            graph.top_packages_by_fan_out(kind, 3)
+        };
+        if rows.is_empty() || rows.iter().all(|row| row.fan_in == 0 && row.fan_out == 0) {
+            ui.label(
+                egui::RichText::new("No cross-package links")
+                    .small()
+                    .color(theme.sub),
+            );
+            return;
+        }
+        for row in rows {
+            let metric = if fan_in { row.fan_in } else { row.fan_out };
+            if metric == 0 {
+                continue;
+            }
+            let name = graph.node(row.id).name.as_str();
+            let label = format!("{name} · {metric}");
+            if ui
+                .selectable_label(self.lens.focus == Some(row.id), label)
+                .clicked()
+            {
+                self.lens.focus = Some(row.id);
             }
         }
     }

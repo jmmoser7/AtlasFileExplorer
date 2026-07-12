@@ -73,6 +73,23 @@ pub struct CodeGraph {
     pub generated_at: u64,    // unix seconds
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WorkspaceSummary {
+    pub packages: usize,
+    pub nodes: usize,
+    pub edges_package_dep: usize,
+    pub edges_use: usize,
+    pub edges_impl_trait: usize,
+    pub packages_in_cycles: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PackagePressure {
+    pub id: NodeId,
+    pub fan_in: u32,
+    pub fan_out: u32,
+}
+
 impl CodeGraph {
     pub fn node(&self, id: NodeId) -> &LensNode {
         &self.nodes[id as usize]
@@ -153,6 +170,110 @@ impl CodeGraph {
         let mut path = vec![id];
         let mut visited = HashSet::new();
         find_cycle(self, id, id, &mut visited, &mut path).then_some(path)
+    }
+
+    /// Workspace-wide counts and cycle participation for the Lens sidebar.
+    pub fn workspace_summary(&self) -> WorkspaceSummary {
+        let mut summary = WorkspaceSummary {
+            packages: self
+                .nodes
+                .iter()
+                .filter(|node| matches!(node.kind, NodeKind::Package { .. }))
+                .count(),
+            nodes: self.nodes.len(),
+            ..WorkspaceSummary::default()
+        };
+        let mut cyclic = HashSet::new();
+        for node in &self.nodes {
+            match node.kind {
+                NodeKind::Package { .. } => {
+                    if let Some(cycle) = self.package_cycle_containing(node.id) {
+                        for id in cycle.iter().take(cycle.len().saturating_sub(1)) {
+                            cyclic.insert(*id);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            // edge counts below
+        }
+        for edge in &self.edges {
+            match edge.kind {
+                EdgeKind::PackageDep => summary.edges_package_dep += 1,
+                EdgeKind::Use => summary.edges_use += 1,
+                EdgeKind::ImplTrait => summary.edges_impl_trait += 1,
+            }
+        }
+        summary.packages_in_cycles = cyclic.len();
+        summary
+    }
+
+    /// Per-package weighted fan-in/out for one edge family, rolling child edges
+    /// up to their enclosing package and skipping intra-package links.
+    pub fn package_pressures(&self, kind: EdgeKind) -> Vec<PackagePressure> {
+        let packages: Vec<NodeId> = self
+            .nodes
+            .iter()
+            .filter(|node| matches!(node.kind, NodeKind::Package { .. }))
+            .map(|node| node.id)
+            .collect();
+        let mut fan_in = std::collections::HashMap::<NodeId, u32>::new();
+        let mut fan_out = std::collections::HashMap::<NodeId, u32>::new();
+        for &id in &packages {
+            fan_in.insert(id, 0);
+            fan_out.insert(id, 0);
+        }
+        for edge in self.edges.iter().filter(|edge| edge.kind == kind) {
+            let Some(from_pkg) = self.package_ancestor(edge.from) else {
+                continue;
+            };
+            let Some(to_pkg) = self.package_ancestor(edge.to) else {
+                continue;
+            };
+            if from_pkg == to_pkg {
+                continue;
+            }
+            *fan_out.entry(from_pkg).or_default() += edge.weight;
+            *fan_in.entry(to_pkg).or_default() += edge.weight;
+        }
+        packages
+            .into_iter()
+            .map(|id| PackagePressure {
+                id,
+                fan_in: fan_in.get(&id).copied().unwrap_or(0),
+                fan_out: fan_out.get(&id).copied().unwrap_or(0),
+            })
+            .collect()
+    }
+
+    pub fn top_packages_by_fan_in(&self, kind: EdgeKind, limit: usize) -> Vec<PackagePressure> {
+        let mut rows = self.package_pressures(kind);
+        rows.sort_by(|left, right| {
+            right
+                .fan_in
+                .cmp(&left.fan_in)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        rows.truncate(limit);
+        rows
+    }
+
+    pub fn top_packages_by_fan_out(&self, kind: EdgeKind, limit: usize) -> Vec<PackagePressure> {
+        let mut rows = self.package_pressures(kind);
+        rows.sort_by(|left, right| {
+            right
+                .fan_out
+                .cmp(&left.fan_out)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        rows.truncate(limit);
+        rows
+    }
+
+    fn package_ancestor(&self, id: NodeId) -> Option<NodeId> {
+        self.ancestor_where(id, |candidate| {
+            matches!(self.node(candidate).kind, NodeKind::Package { .. })
+        })
     }
 
     /// Walk up parents until `pred` holds; used for edge rollup.
@@ -347,5 +468,90 @@ mod tests {
         assert_eq!(graph.package_cycle_containing(1), Some(vec![1, 2, 1]));
         assert_eq!(graph.package_cycle_containing(2), Some(vec![2, 1, 2]));
         assert!(graph.package_cycle_containing(0).is_none());
+    }
+
+    #[test]
+    fn package_pressures_roll_up_child_use_edges() {
+        let graph = CodeGraph {
+            root: 0,
+            nodes: vec![
+                LensNode {
+                    id: 0,
+                    parent: None,
+                    kind: NodeKind::Workspace,
+                    name: "ws".into(),
+                    path: PathBuf::new(),
+                    loc: 0,
+                    children: vec![1, 2],
+                },
+                LensNode {
+                    id: 1,
+                    parent: Some(0),
+                    kind: NodeKind::Package { is_app: false },
+                    name: "core".into(),
+                    path: PathBuf::from("crates/core"),
+                    loc: 10,
+                    children: vec![3],
+                },
+                LensNode {
+                    id: 2,
+                    parent: Some(0),
+                    kind: NodeKind::Package { is_app: true },
+                    name: "app".into(),
+                    path: PathBuf::from("apps/app"),
+                    loc: 20,
+                    children: vec![4],
+                },
+                LensNode {
+                    id: 3,
+                    parent: Some(1),
+                    kind: NodeKind::File,
+                    name: "lib.rs".into(),
+                    path: PathBuf::from("crates/core/src/lib.rs"),
+                    loc: 10,
+                    children: vec![],
+                },
+                LensNode {
+                    id: 4,
+                    parent: Some(2),
+                    kind: NodeKind::File,
+                    name: "main.rs".into(),
+                    path: PathBuf::from("apps/app/src/main.rs"),
+                    loc: 20,
+                    children: vec![],
+                },
+            ],
+            edges: vec![LensEdge {
+                from: 4,
+                to: 3,
+                kind: EdgeKind::Use,
+                weight: 5,
+            }],
+            generated_at: 0,
+        };
+        let pressures = graph.package_pressures(EdgeKind::Use);
+        let app = pressures.iter().find(|row| row.id == 2).unwrap();
+        let core = pressures.iter().find(|row| row.id == 1).unwrap();
+        assert_eq!(app.fan_out, 5);
+        assert_eq!(app.fan_in, 0);
+        assert_eq!(core.fan_in, 5);
+        assert_eq!(core.fan_out, 0);
+    }
+
+    #[test]
+    fn workspace_summary_counts_edges_and_cycles() {
+        let mut graph = tiny_graph();
+        graph.edges.push(LensEdge {
+            from: 2,
+            to: 1,
+            kind: EdgeKind::PackageDep,
+            weight: 1,
+        });
+        let summary = graph.workspace_summary();
+        assert_eq!(summary.packages, 2);
+        assert_eq!(summary.nodes, 3);
+        assert_eq!(summary.edges_package_dep, 2);
+        assert_eq!(summary.edges_use, 1);
+        assert_eq!(summary.packages_in_cycles, 2);
     }
 }

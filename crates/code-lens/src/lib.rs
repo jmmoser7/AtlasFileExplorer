@@ -13,5 +13,8 @@ pub mod overlay;
 pub use beacon::LensBeacon;
 pub use extract::analyze_workspace;
 pub use layout::{layout_graph, LensLayout, LensWire, PlacedNode, Rectf};
-pub use model::{CodeGraph, EdgeKind, ItemKind, LensEdge, LensError, LensNode, NodeId, NodeKind};
+pub use model::{
+    CodeGraph, EdgeKind, ItemKind, LensEdge, LensError, LensNode, NodeId, NodeKind,
+    PackagePressure, WorkspaceSummary,
+};
 pub use overlay::{lens_dir, match_cluster, read_overlay, LensOverlay, OverlayCluster};
