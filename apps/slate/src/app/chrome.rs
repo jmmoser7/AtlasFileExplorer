@@ -8,7 +8,7 @@
 pub enum ToolPanel {
     /// Hierarchical tag groups editor + tag focus selection.
     Tags = 0,
-    /// Presentation mode (Board / Grid / Venn) and light/dark theme.
+    /// Presentation mode (Board / Grid / Venn / Lens) and light/dark theme.
     Display = 1,
     /// Workbook file operations and the File Atlas link.
     Workbook = 2,
@@ -17,15 +17,18 @@ pub enum ToolPanel {
     /// Dynamic inspector: properties of the current board selection
     /// (shape stroke/fill, image crop/adjust, text style, frame settings).
     Selection = 4,
+    /// Code-dependency graph (Lens view): root picker, filters, search.
+    Lens = 5,
 }
 
 impl ToolPanel {
-    pub const ALL: [ToolPanel; 5] = [
+    pub const ALL: [ToolPanel; 6] = [
         ToolPanel::Tags,
         ToolPanel::Display,
         ToolPanel::Selection,
         ToolPanel::Workbook,
         ToolPanel::Ai,
+        ToolPanel::Lens,
     ];
 
     pub fn label(self) -> &'static str {
@@ -35,6 +38,7 @@ impl ToolPanel {
             ToolPanel::Workbook => "Workbook",
             ToolPanel::Ai => "AI",
             ToolPanel::Selection => "Selection",
+            ToolPanel::Lens => "Lens",
         }
     }
 }
@@ -72,7 +76,7 @@ impl From<ReadoutPanel> for usize {
 }
 
 /// Per-tab UI chrome configuration.
-pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<5, 2>;
+pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<6, 2>;
 
 /// App default: everything visible, the AI panel starts collapsed (it's the
 /// optional assistant toolbar, not part of the core tagging workflow).

@@ -28,6 +28,7 @@ pub mod canvas;
 pub mod chrome;
 pub mod commands;
 pub mod imagefx;
+pub mod lens;
 pub mod model3d;
 pub mod pdf;
 pub mod present;
@@ -138,6 +139,8 @@ pub enum PickerMsg {
     },
     /// Folder picked for "Export artifact…".
     ExportArtifact(Option<PathBuf>),
+    /// Folder picked as the Lens code root.
+    LensRoot(Option<PathBuf>),
 }
 
 pub enum ThumbState {
@@ -196,6 +199,10 @@ pub struct SlateApp {
     /// AI / Cursor integration: workspace link, launcher, context beacon
     /// (shared plumbing and panel body from `atlas-ai`).
     pub ai: atlas_ai::AiPanel,
+
+    /// Lens view state (code-dependency graph). App-wide for now; could
+    /// become per-tab later.
+    pub lens: lens::LensState,
 
     // ----- board (authored canvas) state -----
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
@@ -299,6 +306,7 @@ impl SlateApp {
             tag_color_cursor: 0,
             atlas: None,
             ai: atlas_ai::AiPanel::new(),
+            lens: lens::LensState::default(),
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
             board_nav_tool: board::BoardTool::Select,
@@ -835,6 +843,10 @@ impl SlateApp {
                         self.place_items_in_frame(frame, &items);
                     }
                     PickerMsg::ExportArtifact(Some(dir)) => self.do_export(dir),
+                    PickerMsg::LensRoot(Some(path)) => {
+                        self.doc_mut().lens_root = Some(path);
+                        self.lens_rescan();
+                    }
                     _ => {}
                 }
             }
@@ -955,7 +967,9 @@ impl SlateApp {
                 }
             }
             if i.key_pressed(egui::Key::Escape) {
-                if self.board_crop.is_some() {
+                if self.doc().view.active_view == ViewKind::Lens && self.lens.focus.is_some() {
+                    self.lens.focus = None;
+                } else if self.board_crop.is_some() {
                     // First Escape only exits crop mode; the node stays
                     // selected (press again to clear the selection).
                     self.board_crop = None;
@@ -984,6 +998,7 @@ impl SlateApp {
         self.note_engine_failure();
         self.session_pump(ctx);
         self.ai.poll();
+        self.lens_pump(ctx);
         self.ai_context_frame();
 
         // Dropped files land in the active workbook, uncategorized. On the

@@ -57,6 +57,9 @@ pub fn left_panel(app: &mut SlateApp, ctx: &egui::Context) {
             if chrome.tool(ToolPanel::Ai) {
                 ai_panel(app, ui, theme);
             }
+            if chrome.tool(ToolPanel::Lens) {
+                lens_panel(app, ui, theme);
+            }
         });
 }
 
@@ -280,6 +283,7 @@ fn view_kind_label(kind: ViewKind) -> &'static str {
         ViewKind::Board | ViewKind::Branch => "Board",
         ViewKind::Grid | ViewKind::Unknown => "Grid",
         ViewKind::Venn => "Venn",
+        ViewKind::Lens => "Lens",
     }
 }
 
@@ -325,7 +329,12 @@ fn display_body(app: &mut SlateApp, ui: &mut egui::Ui) {
             .selected_text(view_kind_label(current))
             .width(ui.available_width())
             .show_ui(ui, |ui| {
-                for kind in [ViewKind::Board, ViewKind::Grid, ViewKind::Venn] {
+                for kind in [
+                    ViewKind::Board,
+                    ViewKind::Grid,
+                    ViewKind::Venn,
+                    ViewKind::Lens,
+                ] {
                     if ui
                         .selectable_label(current == kind, view_kind_label(kind))
                         .clicked()
@@ -335,6 +344,25 @@ fn display_body(app: &mut SlateApp, ui: &mut egui::Ui) {
                 }
             });
     });
+}
+
+// ----- Lens panel ---------------------------------------------------------------
+
+fn lens_panel(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    let mut expanded = app.tab().chrome.tool_expanded(ToolPanel::Lens);
+    if sidebar_section(
+        ui,
+        Id::new("slate_lens"),
+        "Lens",
+        Some("code graph"),
+        &mut expanded,
+        theme,
+        |ui| app.lens_sidebar(ui, theme),
+    ) {
+        app.tab_mut()
+            .chrome
+            .set_tool_expanded(ToolPanel::Lens, expanded);
+    }
 }
 
 // ----- Workbook panel -------------------------------------------------------------

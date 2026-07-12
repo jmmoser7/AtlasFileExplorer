@@ -47,17 +47,17 @@ struct Layout {
 }
 
 impl SlateApp {
-    fn world_to_screen(&self, w: Pos2) -> Pos2 {
+    pub(crate) fn world_to_screen(&self, w: Pos2) -> Pos2 {
         let cam = self.tab().cam;
         self.canvas_rect.center() + (w.to_vec2() - cam.offset) * cam.z
     }
 
-    fn screen_to_world(&self, s: Pos2) -> Pos2 {
+    pub(crate) fn screen_to_world(&self, s: Pos2) -> Pos2 {
         let cam = self.tab().cam;
         (((s - self.canvas_rect.center()) / cam.z) + cam.offset).to_pos2()
     }
 
-    fn world_rect_to_screen(&self, r: Rect) -> Rect {
+    pub(crate) fn world_rect_to_screen(&self, r: Rect) -> Rect {
         Rect::from_min_max(self.world_to_screen(r.min), self.world_to_screen(r.max))
     }
 
@@ -260,7 +260,7 @@ impl SlateApp {
 
     // ----- interaction ----------------------------------------------------------
 
-    fn fit_view(&mut self, bounds: Rect) {
+    pub(crate) fn fit_view(&mut self, bounds: Rect) {
         let canvas = self.canvas_rect;
         let z = ((canvas.width() / bounds.width().max(1.0))
             .min(canvas.height() / bounds.height().max(1.0))
@@ -271,7 +271,7 @@ impl SlateApp {
         cam.offset = bounds.center().to_vec2();
     }
 
-    fn zoom_at(&mut self, pointer: Pos2, factor: f32) {
+    pub(crate) fn zoom_at(&mut self, pointer: Pos2, factor: f32) {
         let world_before = self.screen_to_world(pointer);
         let cam = &mut self.tab_mut().cam;
         cam.z = (cam.z * factor).clamp(ZOOM_MIN, ZOOM_MAX);
@@ -311,6 +311,11 @@ impl SlateApp {
             // The board owns its own camera; the mini menu only offers the
             // full-screen toggle here (zoom lives in the board toolbar keys).
             self.mini_menu(ui.ctx(), rect, None);
+            return;
+        }
+
+        if self.doc().view.active_view == ViewKind::Lens {
+            self.lens_canvas(ui, rect);
             return;
         }
 
@@ -438,7 +443,7 @@ impl SlateApp {
 
     /// Lower-left canvas mini menu (shared chrome): ⛶ full-screen toggle +
     /// zoom controls when the shared camera is in charge (`fit_bounds` set).
-    fn mini_menu(&mut self, ctx: &egui::Context, rect: Rect, fit_bounds: Option<Rect>) {
+    pub(crate) fn mini_menu(&mut self, ctx: &egui::Context, rect: Rect, fit_bounds: Option<Rect>) {
         use atlas_shell::widgets::{canvas_mini_menu, MiniMenuAction, MiniMenuModel};
         let action = canvas_mini_menu(
             ctx,
@@ -501,7 +506,7 @@ impl SlateApp {
 
     // ----- painting ------------------------------------------------------------
 
-    fn paint_dot_grid(
+    pub(crate) fn paint_dot_grid(
         &self,
         painter: &egui::Painter,
         rect: Rect,

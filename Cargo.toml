@@ -8,6 +8,7 @@ members = [
     "crates/slate-doc",
     "crates/slate-artifact",
     "crates/circle-pack",
+    "crates/code-lens",
     "crates/rhino-mesh",
     "apps/file-atlas",
     "apps/slate",
@@ -27,6 +28,9 @@ notify = "8"
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
+syn = { version = "2", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 dirs = "6"
 zip = { version = "2", default-features = false, features = ["deflate"] }
@@ -41,6 +45,7 @@ atlas-ai = { path = "crates/atlas-ai" }
 slate-doc = { path = "crates/slate-doc" }
 slate-artifact = { path = "crates/slate-artifact" }
 circle-pack = { path = "crates/circle-pack" }
+code-lens = { path = "crates/code-lens" }
 rhino-mesh = { path = "crates/rhino-mesh" }
 native-file-atlas = { path = "apps/file-atlas" }
 

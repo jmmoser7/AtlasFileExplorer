@@ -10,6 +10,8 @@ pub enum ViewKind {
     /// Open-world authored canvas: frames, shapes, text, placed images.
     #[default]
     Board,
+    /// Codebase dependency graph over a linked Cargo workspace root.
+    Lens,
     /// Catch-all for forward-compatible deserialization; treated as [`ViewKind::Grid`].
     #[serde(other)]
     Unknown,
