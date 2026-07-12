@@ -847,9 +847,14 @@ mod tests {
         pool.set_slow_limit(4);
         assert_eq!(pool.slow_limit(), 4);
 
-        // cancel_slow drops queued jobs and reports how many.
-        // (No workers will pick these up instantly: the queue lock is held
-        // while pushing, and pathless jobs finish fast even if raced.)
+        // Pretend every slow lane is occupied so workers cannot race this
+        // queue-only cancellation assertion.
+        pool.shared
+            .slow_active
+            .store(pool.slow_limit(), Ordering::Relaxed);
+
+        // cancel_slow drops queued jobs from both priority lanes and reports
+        // the exact number removed.
         {
             let mut q = pool.shared.queue.lock().unwrap();
             let stub = || ThumbRequest {
