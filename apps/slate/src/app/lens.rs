@@ -16,7 +16,7 @@ use eframe::egui::{
     StrokeKind, Ui, Vec2,
 };
 use slate_doc::ViewKind;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 const HEADER_STRIP_H: f32 = 28.0;
@@ -59,6 +59,17 @@ pub enum LensStatus {
     Error(String),
 }
 
+struct LensNodeDrag {
+    subtree: HashSet<NodeId>,
+    last_world: Pos2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LensWireStyle {
+    Bezier,
+    Orthogonal,
+}
+
 /// Runtime Lens state (one instance on [`SlateApp`] for now).
 pub struct LensState {
     analyze_rx: Option<Receiver<LensMsg>>,
@@ -74,6 +85,7 @@ pub struct LensState {
     pub filter_package_dep: bool,
     pub filter_use: bool,
     pub filter_impl_trait: bool,
+    wire_style: LensWireStyle,
     pub search: String,
     pub beacon: LensBeacon,
     pub overlay: Option<LensOverlay>,
@@ -81,6 +93,10 @@ pub struct LensState {
     pending_auto_fit: bool,
     /// `SLATE_LENS_FOCUS` harness: applied once after the graph is ready.
     harness_focus_applied: bool,
+    /// Cosmetic layout nudges keyed by node id (subtree moves share one delta).
+    node_offsets: HashMap<NodeId, Vec2>,
+    offsets_fingerprint: Option<u64>,
+    drag: Option<LensNodeDrag>,
 }
 
 impl Default for LensState {
@@ -98,11 +114,39 @@ impl Default for LensState {
             filter_package_dep: true,
             filter_use: true,
             filter_impl_trait: true,
+            wire_style: LensWireStyle::Orthogonal,
             search: String::new(),
             beacon: LensBeacon::new(),
             overlay: None,
             pending_auto_fit: false,
             harness_focus_applied: false,
+            node_offsets: HashMap::new(),
+            offsets_fingerprint: None,
+            drag: None,
+        }
+    }
+}
+
+impl LensState {
+    fn sync_offsets(&mut self, graph: &CodeGraph) {
+        let fp = graph.fingerprint();
+        if self.offsets_fingerprint != Some(fp) {
+            self.node_offsets.clear();
+            self.drag = None;
+            self.offsets_fingerprint = Some(fp);
+        }
+    }
+
+    fn offset_for(&self, id: NodeId) -> Vec2 {
+        self.node_offsets.get(&id).copied().unwrap_or(Vec2::ZERO)
+    }
+
+    fn nudge_subtree(&mut self, ids: &HashSet<NodeId>, delta: Vec2) {
+        if delta == Vec2::ZERO {
+            return;
+        }
+        for id in ids {
+            *self.node_offsets.entry(*id).or_insert(Vec2::ZERO) += delta;
         }
     }
 }
@@ -122,6 +166,7 @@ impl SlateApp {
                 match msg {
                     LensMsg::Ready { root, graph } => {
                         self.lens.graph_root = Some(root);
+                        self.lens.sync_offsets(&graph);
                         self.lens.graph = Some(graph);
                         self.lens.expanded = default_expanded(self.lens.graph.as_ref().unwrap());
                         self.lens.status = LensStatus::Ready;
@@ -320,8 +365,18 @@ impl SlateApp {
                     .color(theme.sub),
             )
             .on_hover_text(
-                "Lens visualizes analyzed source. It does not move, rename, or rewrite code yet.",
+                "Lens visualizes analyzed source. Drag node headers to rearrange \
+                 the view; analysis and code are unchanged.",
             );
+            if !self.lens.node_offsets.is_empty()
+                && ui
+                    .button("Reset layout")
+                    .on_hover_text("Restore the automatic layout")
+                    .clicked()
+            {
+                self.lens.node_offsets.clear();
+                self.lens.drag = None;
+            }
         });
 
         sidebar_subtle_divider(ui, theme);
@@ -568,8 +623,8 @@ impl SlateApp {
         }
     }
 
-    fn lens_wire_legend(&self, ui: &mut Ui, theme: atlas_shell::sidebar::SidebarTheme) {
-        use atlas_shell::sidebar::sidebar_region;
+    fn lens_wire_legend(&mut self, ui: &mut Ui, theme: atlas_shell::sidebar::SidebarTheme) {
+        use atlas_shell::sidebar::{sidebar_option_group, sidebar_region};
 
         let palette = self.palette();
         sidebar_region(ui, "Wire legend", theme, |ui| {
@@ -580,7 +635,13 @@ impl SlateApp {
             ] {
                 ui.horizontal(|ui| {
                     let (rect, _) = ui.allocate_exact_size(Vec2::new(44.0, 14.0), Sense::hover());
-                    paint_wire_legend_swatch(ui.painter(), rect, kind, &palette);
+                    paint_wire_legend_swatch(
+                        ui.painter(),
+                        rect,
+                        kind,
+                        &palette,
+                        self.lens.wire_style,
+                    );
                     ui.label(egui::RichText::new(label).small().color(theme.sub));
                 });
             }
@@ -589,6 +650,24 @@ impl SlateApp {
                     .small()
                     .color(theme.sub),
             );
+            ui.add_space(4.0);
+            sidebar_option_group(ui, "Wire style", theme, |ui| {
+                if ui
+                    .selectable_label(self.lens.wire_style == LensWireStyle::Bezier, "bezier")
+                    .clicked()
+                {
+                    self.lens.wire_style = LensWireStyle::Bezier;
+                }
+                if ui
+                    .selectable_label(
+                        self.lens.wire_style == LensWireStyle::Orthogonal,
+                        "orthogonal",
+                    )
+                    .clicked()
+                {
+                    self.lens.wire_style = LensWireStyle::Orthogonal;
+                }
+            });
         });
     }
 
@@ -685,19 +764,28 @@ impl SlateApp {
 
         let mut cam_offset_tmp = self.tab().cam.offset;
         let ctx = ui.ctx().clone();
+        let pointer_on_draggable = self.lens_pointer_on_draggable(&layout, pointer, rect);
+        let node_drag_active = self.lens_handle_node_drag(&resp, &layout, pointer, rect);
         let turbo_active = self
             .turbo_pan
             .step(&ctx, rect, pointer, &mut cam_offset_tmp);
-        if turbo_active {
+        if !self.lens.drag.is_some() && !node_drag_active && turbo_active {
             let z = self.tab().cam.z;
             let old = self.tab().cam.offset;
             self.tab_mut().cam.offset = old - (cam_offset_tmp - old) / z;
-        } else if resp.dragged_by(egui::PointerButton::Primary)
-            || resp.dragged_by(egui::PointerButton::Secondary)
+        } else if !self.lens.drag.is_some()
+            && !node_drag_active
+            && !pointer_on_draggable
+            && (resp.dragged_by(egui::PointerButton::Primary)
+                || resp.dragged_by(egui::PointerButton::Secondary))
         {
             let delta = resp.drag_delta();
             let z = self.tab().cam.z;
             self.tab_mut().cam.offset -= delta / z;
+        }
+
+        if node_drag_active {
+            ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
         }
 
         // Hit-test before painting so hover feedback is visible in this frame.
@@ -705,8 +793,12 @@ impl SlateApp {
             .filter(|p| rect.contains(*p))
             .and_then(|p| self.lens_hit_test(&layout, self.screen_to_world(p)));
         self.lens.hover = hovered_node;
-        if hovered_node.is_some() {
-            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        if hovered_node.is_some() && !node_drag_active {
+            ui.ctx().set_cursor_icon(if pointer_on_draggable {
+                CursorIcon::Grab
+            } else {
+                CursorIcon::PointingHand
+            });
         }
 
         let focus_set = self
@@ -719,7 +811,7 @@ impl SlateApp {
         self.lens_paint_wires(&painter, &layout, focus_set.as_ref(), &palette);
         self.lens_paint_nodes(ui, &painter, &layout, focus_set.as_ref(), &search, &palette);
 
-        if resp.clicked() {
+        if resp.clicked() && !node_drag_active && self.lens.drag.is_none() {
             self.lens.focus = hovered_node;
         }
         if resp.double_clicked() {
@@ -783,13 +875,45 @@ impl SlateApp {
     }
 
     fn lens_fit_layout(&mut self, layout: &LensLayout) {
-        self.fit_view(rectf_to_rect(layout.bounds));
+        self.fit_view(self.lens_layout_bounds(layout));
+    }
+
+    fn lens_layout_bounds(&self, layout: &LensLayout) -> Rect {
+        let mut bounds: Option<Rect> = None;
+        for pl in &layout.placed {
+            let r = self.lens_placed_world_rect(pl);
+            bounds = Some(match bounds {
+                None => r,
+                Some(acc) => acc.union(r),
+            });
+        }
+        for wire in &layout.wires {
+            if !wire_visible(wire, &self.lens) {
+                continue;
+            }
+            let from = self.lens_wire_point(wire.from, wire.from_pt);
+            let to = self.lens_wire_point(wire.to, wire.to_pt);
+            let pt_bounds = Rect::from_two_pos(from, to);
+            bounds = Some(match bounds {
+                None => pt_bounds,
+                Some(acc) => acc.union(pt_bounds),
+            });
+        }
+        bounds.unwrap_or_else(|| rectf_to_rect(layout.bounds))
+    }
+
+    fn lens_placed_world_rect(&self, pl: &code_lens::PlacedNode) -> Rect {
+        rectf_to_rect(pl.rect).translate(self.lens.offset_for(pl.id))
+    }
+
+    fn lens_wire_point(&self, node: NodeId, pt: (f32, f32)) -> Pos2 {
+        Pos2::new(pt.0, pt.1) + self.lens.offset_for(node)
     }
 
     fn lens_hit_test(&self, layout: &LensLayout, world: Pos2) -> Option<NodeId> {
         let graph = self.lens.graph.as_ref()?;
         layout.placed.iter().rev().find_map(|pl| {
-            let r = rectf_to_rect(pl.rect);
+            let r = self.lens_placed_world_rect(pl);
             if pl.collapsed {
                 return r.contains(world).then_some(pl.id);
             }
@@ -803,6 +927,74 @@ impl SlateApp {
                 None
             }
         })
+    }
+
+    fn lens_drag_target(&self, layout: &LensLayout, world: Pos2) -> Option<NodeId> {
+        layout.placed.iter().rev().find_map(|pl| {
+            let r = self.lens_placed_world_rect(pl);
+            r.contains(world).then_some(pl.id)
+        })
+    }
+
+    fn lens_pointer_on_draggable(
+        &self,
+        layout: &LensLayout,
+        pointer: Option<Pos2>,
+        rect: Rect,
+    ) -> bool {
+        pointer
+            .filter(|p| rect.contains(*p))
+            .and_then(|p| self.lens_drag_target(layout, self.screen_to_world(p)))
+            .is_some()
+    }
+
+    fn lens_handle_node_drag(
+        &mut self,
+        resp: &egui::Response,
+        layout: &LensLayout,
+        pointer: Option<Pos2>,
+        rect: Rect,
+    ) -> bool {
+        let Some(graph) = self.lens.graph.as_ref() else {
+            self.lens.drag = None;
+            return false;
+        };
+
+        if let Some(p) = pointer.filter(|p| rect.contains(*p)) {
+            let world = self.screen_to_world(p);
+            if self.lens.drag.is_none() && resp.dragged_by(egui::PointerButton::Primary) {
+                if let Some(id) = self.lens_drag_target(layout, world) {
+                    self.lens.drag = Some(LensNodeDrag {
+                        subtree: subtree_ids(graph, id),
+                        last_world: world,
+                    });
+                    self.lens.focus = Some(id);
+                }
+            }
+        }
+
+        if self.lens.drag.is_none() {
+            return false;
+        }
+
+        if !resp.dragged_by(egui::PointerButton::Primary) {
+            self.lens.drag = None;
+            return false;
+        }
+
+        let Some(p) = pointer else {
+            return true;
+        };
+        let world = self.screen_to_world(p);
+        let (subtree, delta) = {
+            let drag = self.lens.drag.as_ref().unwrap();
+            (drag.subtree.clone(), world - drag.last_world)
+        };
+        if let Some(drag) = self.lens.drag.as_mut() {
+            drag.last_world = world;
+        }
+        self.lens.nudge_subtree(&subtree, delta);
+        true
     }
 
     fn lens_handle_double_click(&mut self, id: NodeId) {
@@ -846,7 +1038,7 @@ impl SlateApp {
         for pl in &layout.placed {
             let alpha = focus_alpha(focus_set, pl.id);
             let node = graph.node(pl.id);
-            let world = rectf_to_rect(pl.rect);
+            let world = self.lens_placed_world_rect(pl);
             let screen = self.world_rect_to_screen(world);
             if !screen.intersects(ui.clip_rect()) {
                 continue;
@@ -1054,32 +1246,44 @@ impl SlateApp {
         alpha: f32,
         palette: &atlas_shell::theme::Palette,
     ) {
-        let from = self.world_to_screen(Pos2::new(wire.from_pt.0, wire.from_pt.1));
-        let to = self.world_to_screen(Pos2::new(wire.to_pt.0, wire.to_pt.1));
+        let from = self.world_to_screen(self.lens_wire_point(wire.from, wire.from_pt));
+        let to = self.world_to_screen(self.lens_wire_point(wire.to, wire.to_pt));
         let (color, base_w, dashed) = wire_kind_style(wire.kind, palette);
         let fade = color.gamma_multiply(alpha);
         let w = (base_w + (wire.weight.max(1) as f32).log2()).clamp(1.0, 4.0)
             * self.tab().cam.z.max(0.4);
+        let stroke = Stroke::new(w, fade);
 
-        let dx = (to.x - from.x).abs().max(40.0) * 0.45;
-        let c1 = Pos2::new(from.x + dx, from.y);
-        let c2 = Pos2::new(to.x - dx, to.y);
-
-        if dashed {
-            paint_dashed_bezier(painter, from, c1, c2, to, fade, w);
-        } else {
-            let stroke = Stroke::new(w, fade);
-            painter.add(egui::Shape::CubicBezier(
-                egui::epaint::CubicBezierShape::from_points_stroke(
-                    [from, c1, c2, to],
-                    false,
-                    Color32::TRANSPARENT,
-                    stroke,
-                ),
-            ));
+        match self.lens.wire_style {
+            LensWireStyle::Orthogonal => {
+                let pts = lens_orthogonal_route(from, to);
+                let radius = (9.0 * self.tab().cam.z).clamp(2.0, 11.0);
+                if dashed {
+                    paint_dashed_polyline(painter, &pts, stroke);
+                } else {
+                    rounded_route(painter, &pts, radius, stroke);
+                }
+                paint_arrowhead(painter, pts[pts.len() - 2], to, fade, w);
+            }
+            LensWireStyle::Bezier => {
+                let dx = (to.x - from.x).abs().max(40.0) * 0.45;
+                let c1 = Pos2::new(from.x + dx, from.y);
+                let c2 = Pos2::new(to.x - dx, to.y);
+                if dashed {
+                    paint_dashed_bezier(painter, from, c1, c2, to, fade, w);
+                } else {
+                    painter.add(egui::Shape::CubicBezier(
+                        egui::epaint::CubicBezierShape::from_points_stroke(
+                            [from, c1, c2, to],
+                            false,
+                            Color32::TRANSPARENT,
+                            stroke,
+                        ),
+                    ));
+                }
+                paint_arrowhead(painter, c2, to, fade, w);
+            }
         }
-
-        paint_arrowhead(painter, c2, to, fade, w);
     }
 
     fn lens_show_tooltip(&self, ui: &Ui, graph: &CodeGraph, id: NodeId) {
@@ -1178,23 +1382,110 @@ fn paint_wire_legend_swatch(
     rect: Rect,
     kind: EdgeKind,
     palette: &atlas_shell::theme::Palette,
+    wire_style: LensWireStyle,
 ) {
     let (color, base_w, dashed) = wire_kind_style(kind, palette);
     let y = rect.center().y;
     let from = Pos2::new(rect.left() + 2.0, y);
     let to = Pos2::new(rect.right() - 2.0, y);
     let stroke = Stroke::new(base_w, color);
-    if dashed {
-        let mut x = from.x;
-        while x < to.x {
-            let end = (x + 5.0).min(to.x);
-            painter.line_segment([Pos2::new(x, y), Pos2::new(end, y)], stroke);
-            x += 8.0;
+    match wire_style {
+        LensWireStyle::Orthogonal => {
+            let pts = lens_orthogonal_route(from, to);
+            if dashed {
+                paint_dashed_polyline(painter, &pts, stroke);
+            } else {
+                rounded_route(painter, &pts, 3.0, stroke);
+            }
+            paint_arrowhead(painter, pts[pts.len() - 2], to, color, base_w);
         }
-    } else {
-        painter.line_segment([from, to], stroke);
+        LensWireStyle::Bezier => {
+            if dashed {
+                let mut x = from.x;
+                while x < to.x {
+                    let end = (x + 5.0).min(to.x);
+                    painter.line_segment([Pos2::new(x, y), Pos2::new(end, y)], stroke);
+                    x += 8.0;
+                }
+            } else {
+                painter.line_segment([from, to], stroke);
+            }
+            paint_arrowhead(painter, from, to, color, base_w);
+        }
     }
-    paint_arrowhead(painter, from, to, color, base_w);
+}
+
+fn lens_orthogonal_route(from: Pos2, to: Pos2) -> [Pos2; 4] {
+    let mid_x = (from.x + to.x) * 0.5;
+    [from, Pos2::new(mid_x, from.y), Pos2::new(mid_x, to.y), to]
+}
+
+/// Axis-aligned wire route with rounded corners (File Atlas PCB trace style).
+fn rounded_route(painter: &egui::Painter, pts: &[Pos2], radius: f32, stroke: Stroke) {
+    if pts.len() < 2 {
+        return;
+    }
+    let mut cursor = pts[0];
+    for i in 1..pts.len() {
+        let cur = pts[i];
+        if i + 1 < pts.len() {
+            let next = pts[i + 1];
+            let in_v = cur - cursor;
+            let out_v = next - cur;
+            let in_len = in_v.length();
+            let out_len = out_v.length();
+            let r = radius.min(in_len * 0.5).min(out_len * 0.5);
+            if r < 0.5 || in_len < 0.5 || out_len < 0.5 {
+                if in_len >= 0.5 {
+                    painter.line_segment([cursor, cur], stroke);
+                }
+                cursor = cur;
+                continue;
+            }
+            let a = cur - in_v.normalized() * r;
+            let b = cur + out_v.normalized() * r;
+            painter.line_segment([cursor, a], stroke);
+            painter.add(egui::Shape::CubicBezier(
+                egui::epaint::CubicBezierShape::from_points_stroke(
+                    [a, cur, cur, b],
+                    false,
+                    Color32::TRANSPARENT,
+                    stroke,
+                ),
+            ));
+            cursor = b;
+        } else {
+            painter.line_segment([cursor, cur], stroke);
+        }
+    }
+}
+
+fn paint_dashed_polyline(painter: &egui::Painter, pts: &[Pos2], stroke: Stroke) {
+    if pts.len() < 2 {
+        return;
+    }
+    let dash = (stroke.width * 4.0).max(6.0);
+    let gap = dash * 0.6;
+    for window in pts.windows(2) {
+        let start = window[0];
+        let end = window[1];
+        let seg_len = (end - start).length();
+        if seg_len < 0.5 {
+            continue;
+        }
+        let dir = (end - start) / seg_len;
+        let mut traveled = 0.0f32;
+        let mut drawing = true;
+        while traveled < seg_len {
+            let span = if drawing { dash } else { gap };
+            let next = (traveled + span).min(seg_len);
+            if drawing {
+                painter.line_segment([start + dir * traveled, start + dir * next], stroke);
+            }
+            traveled = next;
+            drawing = !drawing;
+        }
+    }
 }
 
 fn lens_find_node_by_name(graph: &CodeGraph, needle: &str) -> Option<NodeId> {
@@ -1211,6 +1502,19 @@ fn lens_find_node_by_name(graph: &CodeGraph, needle: &str) -> Option<NodeId> {
                 .find(|node| node.name.to_lowercase() == lower)
                 .map(|node| node.id)
         })
+}
+
+fn subtree_ids(graph: &CodeGraph, root: NodeId) -> HashSet<NodeId> {
+    let mut set = HashSet::new();
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        if set.insert(id) {
+            for &child in &graph.node(id).children {
+                stack.push(child);
+            }
+        }
+    }
+    set
 }
 
 fn interaction_stroke(style: &LensPaintStyle<'_>) -> Option<Stroke> {
@@ -1421,6 +1725,45 @@ mod tests {
         };
 
         assert_eq!(degree_counts(&graph, 1), (2, 1));
+    }
+
+    #[test]
+    fn lens_orthogonal_route_uses_horizontal_then_vertical_legs() {
+        let from = Pos2::new(100.0, 40.0);
+        let to = Pos2::new(200.0, 80.0);
+        let pts = lens_orthogonal_route(from, to);
+        assert_eq!(pts[0], from);
+        assert_eq!(pts[3], to);
+        assert_eq!(pts[1], Pos2::new(150.0, 40.0));
+        assert_eq!(pts[2], Pos2::new(150.0, 80.0));
+    }
+
+    #[test]
+    fn subtree_ids_include_root_and_descendants() {
+        let node = |id, children: Vec<NodeId>| LensNode {
+            id,
+            parent: None,
+            kind: NodeKind::Package { is_app: false },
+            name: format!("n{id}"),
+            path: PathBuf::from(format!("n{id}")),
+            loc: 1,
+            children,
+        };
+        let graph = CodeGraph {
+            root: 0,
+            nodes: vec![
+                node(0, vec![1, 2]),
+                node(1, vec![3]),
+                node(2, vec![]),
+                node(3, vec![]),
+            ],
+            edges: Vec::new(),
+            generated_at: 0,
+        };
+        let ids = subtree_ids(&graph, 0);
+        assert_eq!(ids.len(), 4);
+        assert!(ids.contains(&3));
+        assert_eq!(subtree_ids(&graph, 2), HashSet::from([2]));
     }
 
     #[test]

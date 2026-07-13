@@ -538,16 +538,9 @@ fn build_wires(
     wires
 }
 
-fn wire_sides(from_rect: Rectf, to_rect: Rectf) -> (EdgeSide, EdgeSide) {
-    let from_cx = from_rect.x + from_rect.w * 0.5;
-    let to_cx = to_rect.x + to_rect.w * 0.5;
-    if to_cx > from_cx {
-        (EdgeSide::Right, EdgeSide::Left)
-    } else if to_cx < from_cx {
-        (EdgeSide::Left, EdgeSide::Left)
-    } else {
-        (EdgeSide::Right, EdgeSide::Right)
-    }
+fn wire_sides(_from_rect: Rectf, _to_rect: Rectf) -> (EdgeSide, EdgeSide) {
+    // Outputs leave the right edge; dependents receive on the left.
+    (EdgeSide::Right, EdgeSide::Left)
 }
 
 fn edge_point(rect: Rectf, side: EdgeSide, t: f32) -> (f32, f32) {
@@ -1089,5 +1082,69 @@ mod tests {
             .collect();
         assert_eq!(sibs.len(), 6);
         assert_no_overlap(&sibs);
+    }
+
+    #[test]
+    fn wire_endpoints_use_right_output_and_left_input() {
+        let graph = CodeGraph {
+            root: 0,
+            nodes: vec![
+                LensNode {
+                    id: 0,
+                    parent: None,
+                    kind: NodeKind::Workspace,
+                    name: "ws".into(),
+                    path: PathBuf::new(),
+                    loc: 0,
+                    children: vec![1, 2],
+                },
+                LensNode {
+                    id: 1,
+                    parent: Some(0),
+                    kind: NodeKind::Package { is_app: false },
+                    name: "parent".into(),
+                    path: PathBuf::from("crates/parent"),
+                    loc: 10,
+                    children: vec![],
+                },
+                LensNode {
+                    id: 2,
+                    parent: Some(0),
+                    kind: NodeKind::Package { is_app: true },
+                    name: "child".into(),
+                    path: PathBuf::from("apps/child"),
+                    loc: 20,
+                    children: vec![],
+                },
+            ],
+            edges: vec![LensEdge {
+                from: 1,
+                to: 2,
+                kind: EdgeKind::PackageDep,
+                weight: 1,
+            }],
+            generated_at: 0,
+        };
+        let expanded: HashSet<NodeId> = [0, 1, 2].into();
+        let layout = layout_graph(&graph, &expanded);
+        let wire = layout
+            .wires
+            .iter()
+            .find(|wire| wire.from == 1 && wire.to == 2)
+            .expect("rolled wire");
+        let from_rect = layout
+            .placed
+            .iter()
+            .find(|pl| pl.id == 1)
+            .expect("from node")
+            .rect;
+        let to_rect = layout
+            .placed
+            .iter()
+            .find(|pl| pl.id == 2)
+            .expect("to node")
+            .rect;
+        assert!((wire.from_pt.0 - (from_rect.x + from_rect.w)).abs() < 0.01);
+        assert!((wire.to_pt.0 - to_rect.x).abs() < 0.01);
     }
 }
