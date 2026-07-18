@@ -19,6 +19,9 @@ pub enum ToolIcon {
     Polyline,
     Bezier,
     Text,
+    Ruler,
+    ChevronRight,
+    ChevronLeft,
 }
 
 impl ToolIcon {
@@ -36,6 +39,9 @@ impl ToolIcon {
             ToolIcon::Polyline => "Polyline",
             ToolIcon::Bezier => "Bezier",
             ToolIcon::Text => "Text",
+            ToolIcon::Ruler => "Measure",
+            ToolIcon::ChevronRight => "Expand",
+            ToolIcon::ChevronLeft => "Collapse",
         }
     }
 }
@@ -158,6 +164,31 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
             );
             painter.line_segment([pt(r, 0.28, 0.32), pt(r, 0.72, 0.32)], s);
             painter.line_segment([pt(r, 0.50, 0.32), pt(r, 0.50, 0.72)], s);
+        }
+        ToolIcon::Ruler => {
+            // Ruler bar with tick marks.
+            let bar = Rect::from_min_max(pt(r, 0.22, 0.38), pt(r, 0.86, 0.62));
+            painter.rect_stroke(bar, 1.5, s, egui::StrokeKind::Inside);
+            for x in [0.30, 0.42, 0.54, 0.66, 0.78] {
+                let h = if (x - 0.54f32).abs() < 0.01 {
+                    0.22
+                } else {
+                    0.14
+                };
+                painter.line_segment([pt(r, x, 0.38), pt(r, x, 0.38 + h)], s);
+            }
+        }
+        ToolIcon::ChevronRight => {
+            painter.add(egui::Shape::line(
+                vec![pt(r, 0.34, 0.22), pt(r, 0.62, 0.50), pt(r, 0.34, 0.78)],
+                s,
+            ));
+        }
+        ToolIcon::ChevronLeft => {
+            painter.add(egui::Shape::line(
+                vec![pt(r, 0.66, 0.22), pt(r, 0.38, 0.50), pt(r, 0.66, 0.78)],
+                s,
+            ));
         }
     }
 }

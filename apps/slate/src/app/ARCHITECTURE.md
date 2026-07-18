@@ -163,6 +163,43 @@ can sit on several slides from different saved perspectives while only ever
 loading once (and not at all while locked). Crop/filter adjustments don't
 apply to model nodes; camera framing replaces them in both renderers.
 
+#### In-viewport tool palette (`board.rs` + `model3d.rs`)
+
+Each **live** (unlocked) viewport shows a Miro-style floating strip on its
+left edge:
+
+- **Collapsed** — rounded tab with a chevron (click to expand).
+- **Expanded** — vertical icon row: Navigate (orbit/pan/zoom) and Measure
+  (ruler icon). Hovering Measure opens a submenu; **Point to point** is
+  implemented first (Rhino `Distance`).
+
+Measure mode owns primary clicks inside the viewport: raycast against the
+cached render mesh (`model3d::raycast_model`), draw a rubber-band line with
+a length label, and accumulate completed measurements for the live session
+(cleared on lock). Shift+drag still pans; scroll still zooms.
+
+**Planned measure modes** (need richer geometry than render meshes):
+
+| Mode | Rhino analogue | Input | Result |
+|------|----------------|-------|--------|
+| Point to point | `Distance` | Two surface picks | Euclidean distance |
+| Curve length | `Length` on crv/edge | Sub-object pick | Arc length |
+| Surface area | `Area` on srf/face | Sub-object pick | Area |
+| Solid volume | `Volume` on closed polysrf | Sub-object pick | Volume |
+
+#### Rhino selection & measurement UX (reference)
+
+- **Whole object:** click (window = left→right, crossing = right→left).
+- **Sub-object:** **Ctrl+Shift+click** — edges, faces, mesh elements, etc.
+- **Deselect sub-object:** **Ctrl+click**.
+- **Command-line filters:** `_Edge`, `_Face`, `_Srf`, `_Crv`, `_Polysrf`, …
+- **Point-to-point:** `Distance` — two picks; optional cursor tooltips.
+- **Length / area / volume:** sub-object select, then `Length` / `Area` /
+  `Volume`.
+
+The `.3dm` reader currently exposes **render meshes only** (`rhino-mesh`), so
+point-to-point works now; curve/surface/volume modes need brep/NURBS metadata.
+
 ### Workbook-in-workbook guards
 
 Adding a `.slate` file to a workbook — file dialog, OS drop, Atlas drag, or
