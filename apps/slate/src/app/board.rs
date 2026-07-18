@@ -2195,8 +2195,10 @@ impl SlateApp {
                                             ui,
                                             board_icons::ToolIcon::Ruler,
                                             "Point to point",
+                                            None,
                                             measure_on,
                                             ink,
+                                            palette.sub,
                                         )
                                         .on_hover_text(
                                             "Rhino Distance — pick two points on the model",
