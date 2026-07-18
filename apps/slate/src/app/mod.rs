@@ -20,8 +20,8 @@ use std::time::Instant;
 
 pub mod association;
 pub mod board;
-pub mod board_icons;
 mod board_handles;
+pub mod board_icons;
 mod board_snap;
 pub mod canvas;
 pub mod chrome;

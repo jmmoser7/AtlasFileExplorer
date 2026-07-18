@@ -20,7 +20,7 @@
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 
-use super::{board_handles, board_icons, board_snap, SlateApp, ThumbState};
+use super::{board_handles, board_icons, board_snap, model3d, SlateApp, ThumbState};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
     Corner, Crop, Dash, FontChoice, FrameNode, ImageAdjust, ImageNode, Node, NodeKind, Rgba,
@@ -208,6 +208,9 @@ pub enum BoardDrag {
     /// Orbit/pan inside an unlocked 3D model viewport (Shift = pan). The
     /// camera pose is journaled once, when the viewport locks.
     ModelOrbit { id: NodeId, last_screen: Pos2 },
+    /// Point-to-point measurement inside a live viewport (Navigate tool uses
+    /// [`ModelOrbit`] instead).
+    ModelMeasure { id: NodeId, start_screen: Pos2 },
 }
 
 /// World→screen transform. The board uses the tab camera; presentation mode
@@ -1331,6 +1334,9 @@ impl SlateApp {
         let wp = pointer.map(|p| xf.s2w(p));
         let editing_text = self.text_edit.is_some();
 
+        // Live viewport tool strip (before gestures so it can capture clicks).
+        let model_toolbar_captures = self.model_viewport_toolbar(ui.ctx(), &xf);
+
         // --- camera ---
         if resp.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.raw_scroll_delta.y);
@@ -1381,14 +1387,23 @@ impl SlateApp {
 
         // --- gesture start ---
         if resp.drag_started_by(egui::PointerButton::Primary) && !space && !panning {
-            if let (Some(p), Some(w)) = (pointer, wp) {
-                self.board_drag = self.begin_gesture(p, w);
+            if !model_toolbar_captures {
+                if let (Some(p), Some(w)) = (pointer, wp) {
+                    self.board_drag = self.begin_gesture(p, w);
+                }
             }
         }
 
         // --- live gesture update ---
         if resp.dragged_by(egui::PointerButton::Primary) && !panning {
-            if let Some(w) = wp {
+            if let Some(BoardDrag::ModelMeasure { id, .. }) = &self.board_drag {
+                if let Some(p) = pointer {
+                    if let Some(n) = self.doc().scene.node(*id) {
+                        let srect = xf.rect_w2s(n.rect);
+                        self.model_measure_preview(*id, p, srect);
+                    }
+                }
+            } else if let Some(w) = wp {
                 let mods = ui.input(|i| i.modifiers);
                 self.update_gesture(w, mods);
             }
@@ -1509,8 +1524,7 @@ impl SlateApp {
                     painter.line_segment([a, b], EStroke::new(1.5, accent));
                 }
                 BoardTool::Ellipse => {
-                    let preview =
-                        self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
+                    let preview = self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
                     painter.add(egui::epaint::EllipseShape {
                         center: preview.center(),
                         radius: preview.size() * 0.5,
@@ -1519,8 +1533,7 @@ impl SlateApp {
                     });
                 }
                 _ => {
-                    let preview =
-                        self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
+                    let preview = self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
                     painter.rect_stroke(
                         preview,
                         0.0,
@@ -1545,6 +1558,9 @@ impl SlateApp {
 
         // 3D viewport padlocks (hover to reveal; always shown while live).
         self.model_lock_buttons(ui, &xf);
+
+        // In-viewport measurement overlays (live only).
+        self.paint_model_measurements(&painter, &xf);
 
         // PDF page picker on hover (multi-page documents only).
         if self.board_menu.is_none() && !editing_text && self.board_drag.is_none() && !panning {
@@ -1661,6 +1677,274 @@ impl SlateApp {
         }
     }
 
+    /// Miro-inspired expandable tool strip on the left edge of each live
+    /// viewport. Collapsed: rounded tab with a chevron; expanded: vertical
+    /// icon palette with hover submenus (measure types).
+    ///
+    /// Returns `true` when the pointer is over any tool strip (gestures should defer).
+    fn model_viewport_toolbar(&mut self, ctx: &egui::Context, xf: &BoardXf) -> bool {
+        let palette = self.palette();
+        let ink = palette.ink;
+        let accent = palette.accent;
+        let hover_fill = palette.card_hover;
+        let selected_fill = palette.accent.gamma_multiply(0.22);
+        let live_ids: Vec<NodeId> = self.model3d.live.keys().copied().collect();
+        let mut captures = false;
+
+        for id in live_ids {
+            let Some(n) = self.doc().scene.node(id).cloned() else {
+                continue;
+            };
+            let srect = xf.rect_w2s(n.rect);
+            if !srect.intersects(self.canvas_rect) {
+                continue;
+            }
+            let min_side = 28.0f32;
+            if srect.width() < min_side * 3.0 || srect.height() < min_side * 2.0 {
+                continue;
+            }
+
+            let expanded = self
+                .model3d
+                .live
+                .get(&id)
+                .map(|vp| vp.toolbar_expanded)
+                .unwrap_or(false);
+            let tool = self
+                .model3d
+                .live
+                .get(&id)
+                .map(|vp| vp.tool)
+                .unwrap_or(model3d::ModelViewportTool::Navigate);
+
+            let tab = if expanded {
+                Vec2::new(36.0, 96.0)
+            } else {
+                Vec2::splat(28.0)
+            };
+            let anchor = srect.min + Vec2::new(6.0, 6.0);
+
+            let mut pick_tool: Option<model3d::ModelViewportTool> = None;
+            let mut toggle_expand = false;
+            let mut clear_measures = false;
+
+            let area_resp = egui::Area::new(egui::Id::new(("slate_model_vptools", id.0)))
+                .fixed_pos(anchor)
+                .order(egui::Order::Foreground)
+                .interactable(true)
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style())
+                        .fill(palette.card)
+                        .corner_radius(egui::CornerRadius {
+                            nw: 8,
+                            ne: 2,
+                            sw: 8,
+                            se: 2,
+                        })
+                        .show(ui, |ui| {
+                            ui.set_min_size(tab);
+                            if !expanded {
+                                let resp = board_icons::tool_icon_button(
+                                    ui,
+                                    board_icons::ToolIcon::ChevronRight,
+                                    false,
+                                    ink,
+                                    accent,
+                                    hover_fill,
+                                    selected_fill,
+                                )
+                                .on_hover_text("Show viewport tools");
+                                if resp.clicked() {
+                                    toggle_expand = true;
+                                }
+                            } else {
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 2.0;
+                                    let collapse = board_icons::tool_icon_button(
+                                        ui,
+                                        board_icons::ToolIcon::ChevronLeft,
+                                        false,
+                                        ink,
+                                        accent,
+                                        hover_fill,
+                                        selected_fill,
+                                    )
+                                    .on_hover_text("Hide tools");
+                                    if collapse.clicked() {
+                                        toggle_expand = true;
+                                    }
+
+                                    let nav_on = tool == model3d::ModelViewportTool::Navigate;
+                                    if board_icons::tool_icon_button(
+                                        ui,
+                                        board_icons::ToolIcon::Pan,
+                                        nav_on,
+                                        ink,
+                                        accent,
+                                        hover_fill,
+                                        selected_fill,
+                                    )
+                                    .on_hover_text("Navigate — drag to orbit, Shift+drag to pan, scroll to zoom")
+                                    .clicked()
+                                    {
+                                        pick_tool = Some(model3d::ModelViewportTool::Navigate);
+                                    }
+
+                                    let measure_on =
+                                        tool == model3d::ModelViewportTool::MeasureDistance;
+                                    let measure_resp = board_icons::tool_icon_button(
+                                        ui,
+                                        board_icons::ToolIcon::Ruler,
+                                        measure_on,
+                                        ink,
+                                        accent,
+                                        hover_fill,
+                                        selected_fill,
+                                    )
+                                    .on_hover_text("Measure")
+                                    .on_hover_ui(|ui| {
+                                        ui.set_min_width(160.0);
+                                        ui.label(
+                                            egui::RichText::new("Measurement")
+                                                .small()
+                                                .strong(),
+                                        );
+                                        ui.separator();
+                                        if board_icons::tool_menu_row(
+                                            ui,
+                                            board_icons::ToolIcon::Ruler,
+                                            "Point to point",
+                                            measure_on,
+                                            ink,
+                                        )
+                                        .on_hover_text(
+                                            "Rhino Distance — pick two points on the model",
+                                        )
+                                        .clicked()
+                                        {
+                                            pick_tool =
+                                                Some(model3d::ModelViewportTool::MeasureDistance);
+                                        }
+                                        ui.label(
+                                            egui::RichText::new("Length · Area · Volume")
+                                                .small()
+                                                .color(palette.sub),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new("Coming soon — curve/surface/volume sub-selection")
+                                                .small()
+                                                .color(palette.sub),
+                                        );
+                                    });
+                                    if measure_resp.clicked() && pick_tool.is_none() {
+                                        pick_tool =
+                                            Some(model3d::ModelViewportTool::MeasureDistance);
+                                    }
+
+                                    if measure_on
+                                        && ui
+                                            .small_button("Clear")
+                                            .on_hover_text("Remove measurement overlays")
+                                            .clicked()
+                                    {
+                                        clear_measures = true;
+                                    }
+                                });
+                            }
+                        });
+                });
+
+            if area_resp.response.contains_pointer() {
+                captures = true;
+            }
+
+            if let Some(vp) = self.model3d.live.get_mut(&id) {
+                if toggle_expand {
+                    vp.toolbar_expanded = !vp.toolbar_expanded;
+                }
+                if let Some(t) = pick_tool {
+                    if vp.tool != t {
+                        vp.tool = t;
+                        vp.measure_first = None;
+                        vp.measure_preview = None;
+                    }
+                }
+                if clear_measures {
+                    vp.measures.clear();
+                    vp.measure_first = None;
+                    vp.measure_preview = None;
+                }
+            }
+        }
+        captures
+    }
+
+    /// Dimension lines for point-to-point measurements (live session only).
+    fn paint_model_measurements(&self, painter: &egui::Painter, xf: &BoardXf) {
+        let palette = self.palette();
+        let accent = palette.accent;
+        let ink = palette.ink;
+
+        for (id, vp) in &self.model3d.live {
+            if vp.tool != model3d::ModelViewportTool::MeasureDistance {
+                continue;
+            }
+            let Some(n) = self.doc().scene.node(*id) else {
+                continue;
+            };
+            let srect = xf.rect_w2s(n.rect);
+            let bounds = match self.model3d.bounds.get(&vp.cache_key) {
+                Some(b) => *b,
+                None => continue,
+            };
+            let aspect = n.rect.w / n.rect.h.max(1.0);
+            let cam = vp.cam;
+
+            let to_screen = |p: [f32; 3]| -> Option<Pos2> {
+                let (u, v) = model3d::project_model_point(p, aspect, &cam, bounds)?;
+                Some(Pos2::new(
+                    srect.min.x + u * srect.width(),
+                    srect.min.y + v * srect.height(),
+                ))
+            };
+
+            let draw_segment = |a: [f32; 3], b: [f32; 3], label: &str| {
+                let Some(sa) = to_screen(a) else {
+                    return;
+                };
+                let Some(sb) = to_screen(b) else {
+                    return;
+                };
+                painter.line_segment([sa, sb], EStroke::new(2.0, accent));
+                painter.circle_filled(sa, 4.0, accent);
+                painter.circle_filled(sb, 4.0, accent);
+                let mid = sa.lerp(sb, 0.5);
+                painter.text(
+                    mid + Vec2::new(0.0, -10.0),
+                    Align2::CENTER_BOTTOM,
+                    label,
+                    FontId::monospace(11.0),
+                    ink,
+                );
+            };
+
+            for m in &vp.measures {
+                draw_segment(m.a, m.b, &format!("{:.3}", m.length()));
+            }
+
+            if let Some(a) = vp.measure_first {
+                let end = vp.measure_preview.unwrap_or(a);
+                let len = model3d::DistanceMeasurement { a, b: end }.length();
+                let label = if vp.measure_preview.is_some() {
+                    format!("{:.3}", len)
+                } else {
+                    "Pick second point".into()
+                };
+                draw_segment(a, end, &label);
+            }
+        }
+    }
+
     fn board_zoom_at(&mut self, pointer: Pos2, factor: f32) {
         let xf = self.board_xf();
         let world_before = xf.s2w(pointer);
@@ -1758,6 +2042,18 @@ impl SlateApp {
                 // node itself can be grabbed by locking or Alt-dragging).
                 if !self.alt_down {
                     if let Some(id) = self.live_model_at(world.x, world.y) {
+                        let tool = self
+                            .model3d
+                            .live
+                            .get(&id)
+                            .map(|vp| vp.tool)
+                            .unwrap_or(model3d::ModelViewportTool::Navigate);
+                        if tool == model3d::ModelViewportTool::MeasureDistance && !self.shift_down {
+                            return Some(BoardDrag::ModelMeasure {
+                                id,
+                                start_screen: screen,
+                            });
+                        }
                         return Some(BoardDrag::ModelOrbit {
                             id,
                             last_screen: screen,
@@ -1903,6 +2199,7 @@ impl SlateApp {
                     }
                 }
             }
+            Some(BoardDrag::ModelMeasure { .. }) => {}
             Some(BoardDrag::Resize { id, before, handle }) => {
                 let node_id = *id;
                 let handle = *handle;
@@ -2036,6 +2333,15 @@ impl SlateApp {
             }
             // Camera poses journal on lock, not per orbit gesture.
             Some(BoardDrag::ModelOrbit { .. }) => {}
+            Some(BoardDrag::ModelMeasure { id, .. }) => {
+                if let Some(p) = pointer {
+                    if let Some(n) = self.doc().scene.node(id) {
+                        let xf = self.board_xf();
+                        let srect = xf.rect_w2s(n.rect);
+                        self.model_measure_pick(id, p, srect);
+                    }
+                }
+            }
             Some(BoardDrag::Marquee { start_screen }) => {
                 if let Some(p) = pointer {
                     let xf = self.board_xf();

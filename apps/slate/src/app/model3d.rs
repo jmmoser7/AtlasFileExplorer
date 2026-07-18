@@ -59,9 +59,38 @@ const MAX_RENDER_PX: u32 = 1920;
 /// Poster render resolution (long edge, physical px).
 const POSTER_LONG_EDGE: u32 = 1600;
 /// Vertical field of view, radians (≈ Rhino's default perspective lens).
-const FOV_Y: f32 = 0.6108652; // 35°
+pub const FOV_Y: f32 = 0.6108652; // 35°
 /// Orbit sensitivity, radians per screen px.
 const ORBIT_PER_PX: f32 = 0.008;
+
+// ---------- viewport tools ----------
+
+/// Active tool inside a live 3D viewport. Navigation matches Rhino's default
+/// perspective viewport; measure tools own primary clicks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ModelViewportTool {
+    #[default]
+    Navigate,
+    /// Rhino `Distance` — direct line between two picked surface points.
+    MeasureDistance,
+}
+
+/// One completed point-to-point measurement (session-local until lock).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DistanceMeasurement {
+    pub a: [f32; 3],
+    pub b: [f32; 3],
+}
+
+impl DistanceMeasurement {
+    pub fn length(&self) -> f32 {
+        distance_3d(self.a, self.b)
+    }
+}
+
+fn distance_3d(a: [f32; 3], b: [f32; 3]) -> f32 {
+    v_sub(b, a).map(|x| x * x).into_iter().sum::<f32>().sqrt()
+}
 
 // ---------- camera math (pure, unit-tested) ----------
 
@@ -213,6 +242,131 @@ pub fn world_per_px(cam: &ModelCamera, viewport_px_h: f32) -> f32 {
     2.0 * cam.distance * (FOV_Y * 0.5).tan() / viewport_px_h.max(1.0)
 }
 
+// ---------- picking (CPU raycast against render meshes) ----------
+
+/// Normalized viewport coordinates (0..1, origin top-left) → world-space ray.
+pub fn ray_from_viewport_uv(
+    u: f32,
+    v: f32,
+    aspect: f32,
+    cam: &ModelCamera,
+    bounds: ([f32; 3], [f32; 3]),
+) -> ([f32; 3], [f32; 3]) {
+    let cam = resolve_camera(cam, bounds.0, bounds.1);
+    let eye = eye_of(&cam);
+    let f = v_norm(v_sub(cam.target, eye));
+    let s = v_norm(v_cross(f, [0.0, 0.0, 1.0]));
+    let up = v_cross(s, f);
+    let tan_half = (FOV_Y * 0.5).tan();
+    let nx = (u - 0.5) * 2.0;
+    let ny = (0.5 - v) * 2.0;
+    let dir = v_norm([
+        f[0] + s[0] * (nx * tan_half * aspect) + up[0] * (ny * tan_half),
+        f[1] + s[1] * (nx * tan_half * aspect) + up[1] * (ny * tan_half),
+        f[2] + s[2] * (nx * tan_half * aspect) + up[2] * (ny * tan_half),
+    ]);
+    (eye, dir)
+}
+
+/// Closest triangle hit along a ray (Möller–Trumbore). Returns world hit point.
+pub fn raycast_model(
+    model: &rhino_mesh::Model,
+    origin: [f32; 3],
+    dir: [f32; 3],
+) -> Option<[f32; 3]> {
+    let mut best_t = f32::INFINITY;
+    let mut best = None;
+    for part in &model.parts {
+        let idx = &part.indices;
+        let pos = &part.positions;
+        for tri in idx.chunks_exact(3) {
+            let i0 = tri[0] as usize;
+            let i1 = tri[1] as usize;
+            let i2 = tri[2] as usize;
+            if i0 >= pos.len() || i1 >= pos.len() || i2 >= pos.len() {
+                continue;
+            }
+            if let Some(t) = ray_triangle(origin, dir, pos[i0], pos[i1], pos[i2]) {
+                if t > 1e-4 && t < best_t {
+                    best_t = t;
+                    best = Some([
+                        origin[0] + dir[0] * t,
+                        origin[1] + dir[1] * t,
+                        origin[2] + dir[2] * t,
+                    ]);
+                }
+            }
+        }
+    }
+    best
+}
+
+fn ray_triangle(
+    origin: [f32; 3],
+    dir: [f32; 3],
+    v0: [f32; 3],
+    v1: [f32; 3],
+    v2: [f32; 3],
+) -> Option<f32> {
+    const EPS: f32 = 1e-7;
+    let e1 = v_sub(v1, v0);
+    let e2 = v_sub(v2, v0);
+    let p = v_cross(dir, e2);
+    let det = v_dot(e1, p);
+    if det.abs() < EPS {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let tvec = v_sub(origin, v0);
+    let u = v_dot(tvec, p) * inv;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let q = v_cross(tvec, e1);
+    let v = v_dot(dir, q) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    let t = v_dot(e2, q) * inv;
+    (t > EPS).then_some(t)
+}
+
+/// Project a model-space point to normalized viewport UV (0..1, top-left).
+/// Returns `None` when behind the camera.
+pub fn project_model_point(
+    point: [f32; 3],
+    aspect: f32,
+    cam: &ModelCamera,
+    bounds: ([f32; 3], [f32; 3]),
+) -> Option<(f32, f32)> {
+    let cam = resolve_camera(cam, bounds.0, bounds.1);
+    let eye = eye_of(&cam);
+    let view = look_at(eye, cam.target);
+    let (_, radius) = bounds_sphere(bounds.0, bounds.1);
+    let near = (cam.distance - radius * 2.0)
+        .max(cam.distance * 0.01)
+        .max(radius * 1e-3);
+    let far = cam.distance + radius * 4.0;
+    let proj = perspective(aspect, near, far);
+    let mvp = mat_mul(&proj, &view);
+    let clip = [
+        mvp[0] * point[0] + mvp[4] * point[1] + mvp[8] * point[2] + mvp[12],
+        mvp[1] * point[0] + mvp[5] * point[1] + mvp[9] * point[2] + mvp[13],
+        mvp[2] * point[0] + mvp[6] * point[1] + mvp[10] * point[2] + mvp[14],
+        mvp[3] * point[0] + mvp[7] * point[1] + mvp[11] * point[2] + mvp[15],
+    ];
+    if clip[3].abs() < 1e-8 {
+        return None;
+    }
+    let ndc_x = clip[0] / clip[3];
+    let ndc_y = clip[1] / clip[3];
+    let ndc_z = clip[2] / clip[3];
+    if ndc_z < -1.0 || ndc_z > 1.0 {
+        return None;
+    }
+    Some(((ndc_x + 1.0) * 0.5, (1.0 - ndc_y) * 0.5))
+}
+
 // ---------- poster cache (pure path helpers, unit-tested) ----------
 
 /// Disk cache for frozen-viewport posters, beside the shared thumb cache.
@@ -274,6 +428,15 @@ pub struct LiveViewport {
     rendered: Option<(u64, u32, u32)>,
     /// Bounds radius once known (zoom clamps, pan scale).
     pub radius: f32,
+    /// Left-edge tool palette (Miro-style expandable strip).
+    pub toolbar_expanded: bool,
+    pub tool: ModelViewportTool,
+    /// In-progress first point for point-to-point measure.
+    pub measure_first: Option<[f32; 3]>,
+    /// Hover/drag preview endpoint.
+    pub measure_preview: Option<[f32; 3]>,
+    /// Completed measurements this live session (cleared on lock).
+    pub measures: Vec<DistanceMeasurement>,
 }
 
 struct GpuEntry {
@@ -371,6 +534,11 @@ impl ModelSpace {
             }
         }
         any
+    }
+
+    /// Parsed CPU mesh when ready (for picking / measurement).
+    pub fn mesh_for_key(&mut self, cache_key: &str) -> Option<Arc<rhino_mesh::Model>> {
+        self.ready_model(cache_key)
     }
 
     fn ready_model(&mut self, cache_key: &str) -> Option<Arc<rhino_mesh::Model>> {
@@ -581,6 +749,11 @@ impl SlateApp {
                 tex: None,
                 rendered: None,
                 radius,
+                toolbar_expanded: false,
+                tool: ModelViewportTool::Navigate,
+                measure_first: None,
+                measure_preview: None,
+                measures: Vec::new(),
             },
         );
     }
@@ -812,6 +985,67 @@ impl SlateApp {
             vp.rendered = Some(stamp);
         }
         self.model3d.live.get(&id).and_then(|vp| vp.tex.clone())
+    }
+
+    /// Raycast against a live viewport at a screen point inside the node rect.
+    pub fn model_pick_at_screen(
+        &mut self,
+        id: NodeId,
+        screen: egui::Pos2,
+        srect: egui::Rect,
+    ) -> Option<[f32; 3]> {
+        let (cache_key, cam) = {
+            let vp = self.model3d.live.get(&id)?;
+            (vp.cache_key.clone(), vp.cam)
+        };
+        let bounds = self.model3d.bounds.get(&cache_key).copied()?;
+        let u = (screen.x - srect.min.x) / srect.width().max(1.0);
+        let v = (screen.y - srect.min.y) / srect.height().max(1.0);
+        if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+            return None;
+        }
+        let aspect = srect.width() / srect.height().max(1.0);
+        let (origin, dir) = ray_from_viewport_uv(u, v, aspect, &cam, bounds);
+        let model = self.model3d.mesh_for_key(&cache_key)?;
+        raycast_model(&model, origin, dir)
+    }
+
+    /// Update the hover preview while measuring.
+    pub fn model_measure_preview(&mut self, id: NodeId, screen: egui::Pos2, srect: egui::Rect) {
+        let hit = self.model_pick_at_screen(id, screen, srect);
+        if let Some(vp) = self.model3d.live.get_mut(&id) {
+            vp.measure_preview = hit;
+            if hit.is_some() {
+                vp.last_interact = Instant::now();
+            }
+        }
+    }
+
+    /// Commit a measure pick (first or second point).
+    pub fn model_measure_pick(&mut self, id: NodeId, screen: egui::Pos2, srect: egui::Rect) {
+        let Some(hit) = self.model_pick_at_screen(id, screen, srect) else {
+            return;
+        };
+        let Some(vp) = self.model3d.live.get_mut(&id) else {
+            return;
+        };
+        vp.last_interact = Instant::now();
+        match vp.measure_first {
+            None => vp.measure_first = Some(hit),
+            Some(a) => {
+                vp.measures.push(DistanceMeasurement { a, b: hit });
+                vp.measure_first = None;
+            }
+        }
+        vp.measure_preview = None;
+    }
+
+    /// Clear in-progress measure picks.
+    pub fn model_measure_cancel(&mut self, id: NodeId) {
+        if let Some(vp) = self.model3d.live.get_mut(&id) {
+            vp.measure_first = None;
+            vp.measure_preview = None;
+        }
     }
 
     /// Route an orbit/pan drag into a live viewport. `pan_mode` = Shift.
@@ -1466,5 +1700,34 @@ mod tests {
         assert_eq!(quantize_px(100.0), 128);
         assert_eq!(quantize_px(128.0), 128);
         assert_eq!(quantize_px(1e9), MAX_RENDER_PX);
+    }
+
+    #[test]
+    fn raycast_hits_a_simple_triangle() {
+        let model = rhino_mesh::Model {
+            parts: vec![rhino_mesh::MeshPart {
+                positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                normals: vec![[0.0, 0.0, 1.0]; 3],
+                indices: vec![0, 1, 2],
+                color: None,
+            }],
+            bounds_min: [0.0, 0.0, 0.0],
+            bounds_max: [1.0, 1.0, 0.0],
+        };
+        let origin = [0.2, 0.2, 5.0];
+        let dir = [0.0, 0.0, -1.0];
+        let hit = raycast_model(&model, origin, dir).unwrap();
+        assert!((hit[0] - 0.2).abs() < 1e-3);
+        assert!((hit[1] - 0.2).abs() < 1e-3);
+        assert!(hit[2].abs() < 1e-3);
+    }
+
+    #[test]
+    fn distance_measurement_length() {
+        let m = DistanceMeasurement {
+            a: [0.0, 0.0, 0.0],
+            b: [3.0, 4.0, 0.0],
+        };
+        assert!((m.length() - 5.0).abs() < 1e-4);
     }
 }
