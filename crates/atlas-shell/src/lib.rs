@@ -5,10 +5,12 @@
 //! apart visually:
 //!
 //! - [`theme`] — the one [`theme::Palette`] + egui visuals both apps use.
-//! - [`menubar`] — custom title bar: app icon, File/View menus, caption drag,
-//!   and the minimize/maximize/close buttons (topmost chrome row; the apps
-//!   run without OS decorations).
-//! - [`tabs`] — browser-style top bar and tab strip (identical painting).
+//! - [`menubar`] — unified top bar: icon portal (File/View menus), inline
+//!   browser tabs, caption drag, and window controls (see `TOPBAR.md`).
+//! - [`tabs`] — tab strip painting used inside the unified top bar.
+//! - [`dock`] — floating squircle docks and popover hosts.
+//! - [`tokens`] — values embedded from the human-editable `ui-tokens.toml`.
+//! - [`tuning`] — optional live editor, compiled only with `ui-tuner`.
 //! - [`sidebar`] — left tools-rail layout primitives (sections, rows).
 //! - [`widgets`] — shared controls (chips, sliders, timeline, gear menu).
 //! - [`chrome`] — gear-menu panel registry, generic over each app's panels.
@@ -20,8 +22,12 @@
 
 pub mod chrome;
 pub mod commands;
+pub mod dock;
+pub mod grid_fade;
 pub mod menubar;
 pub mod sidebar;
 pub mod tabs;
 pub mod theme;
+pub mod tokens;
+pub mod tuning;
 pub mod widgets;

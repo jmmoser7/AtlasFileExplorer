@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 description = "Slate — tag-driven workbook dashboard for the Atlas ecosystem"
 
+[features]
+default = []
+ui-tuner = ["atlas-shell/ui-tuner"]
+
 [dependencies]
 atlas-core = { workspace = true }
 atlas-shell = { workspace = true }

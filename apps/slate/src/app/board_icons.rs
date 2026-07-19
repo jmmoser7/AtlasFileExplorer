@@ -22,6 +22,9 @@ pub enum ToolIcon {
     Ruler,
     ChevronRight,
     ChevronLeft,
+    Grid,
+    Snap,
+    Align,
 }
 
 impl ToolIcon {
@@ -42,6 +45,9 @@ impl ToolIcon {
             ToolIcon::Ruler => "Measure",
             ToolIcon::ChevronRight => "Expand",
             ToolIcon::ChevronLeft => "Collapse",
+            ToolIcon::Grid => "Grid",
+            ToolIcon::Snap => "Snap to grid",
+            ToolIcon::Align => "Align",
         }
     }
 }
@@ -189,6 +195,41 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
                 vec![pt(r, 0.66, 0.22), pt(r, 0.38, 0.50), pt(r, 0.66, 0.78)],
                 s,
             ));
+        }
+        ToolIcon::Grid => {
+            // 3×3 lattice.
+            for f in [0.38, 0.62] {
+                painter.line_segment([pt(r, 0.16, f), pt(r, 0.84, f)], s);
+                painter.line_segment([pt(r, f, 0.16), pt(r, f, 0.84)], s);
+            }
+            let outer = Rect::from_min_max(pt(r, 0.16, 0.16), pt(r, 0.84, 0.84));
+            painter.rect_stroke(outer, 1.0, s, egui::StrokeKind::Inside);
+        }
+        ToolIcon::Snap => {
+            // Horseshoe magnet with pole ticks and a target dot.
+            painter.add(egui::Shape::line(
+                vec![
+                    pt(r, 0.30, 0.20),
+                    pt(r, 0.30, 0.52),
+                    pt(r, 0.38, 0.68),
+                    pt(r, 0.54, 0.72),
+                    pt(r, 0.68, 0.62),
+                    pt(r, 0.72, 0.44),
+                    pt(r, 0.72, 0.20),
+                ],
+                s,
+            ));
+            painter.line_segment([pt(r, 0.24, 0.28), pt(r, 0.38, 0.28)], s);
+            painter.line_segment([pt(r, 0.64, 0.28), pt(r, 0.80, 0.28)], s);
+            painter.circle_filled(pt(r, 0.51, 0.88), r.width() * 0.05, color);
+        }
+        ToolIcon::Align => {
+            // Two offset bars snapping to a shared left datum.
+            painter.line_segment([pt(r, 0.24, 0.14), pt(r, 0.24, 0.86)], s);
+            let top = Rect::from_min_max(pt(r, 0.30, 0.24), pt(r, 0.84, 0.42));
+            let bottom = Rect::from_min_max(pt(r, 0.30, 0.58), pt(r, 0.64, 0.76));
+            painter.rect_stroke(top, 1.0, s, egui::StrokeKind::Inside);
+            painter.rect_stroke(bottom, 1.0, s, egui::StrokeKind::Inside);
         }
     }
 }

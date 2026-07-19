@@ -1,0 +1,281 @@
+# Canonical shared-chrome design tokens.
+# Edit directly, or run either app with `--features ui-tuner` for live editing.
+# Saved tuner values are embedded by the next build.
+
+schema_version = 2
+
+[topbar]
+height = 31.0
+tab_top_inset = 6.0
+tab_top_radius = 6.699999809265137
+tab_shoulder_radius = 9.5
+tab_horizontal_padding = 22.0
+tab_close_width = 14.5
+tab_title_chars = 32
+tab_text_size = 12.0
+tab_min_width = 122.0
+tab_max_width = 390.0
+plus_hit_width = 16.200000762939453
+plus_radius = 8.0
+plus_text_size = 20.0
+icon_zone_width = 34.0
+icon_size = 20.5
+window_button_width = 38.0
+glow_outer_width = 3.0
+glow_outer_opacity = 0.11999999731779099
+glow_middle_width = 0.0
+glow_middle_opacity = 0.2800000011920929
+glow_core_width = 0.699999988079071
+glow_core_opacity = 0.8500000238418579
+inner_highlight_opacity = 0.0
+
+[topbar.portal]
+width = 200.0
+submenu_width = 220.0
+row_height = 28.0
+panel_padding = 9.0
+corner_radius = 9.0
+panel_offset_x = 8.0
+panel_gap = 6.5
+submenu_gap = 5.0
+header_text_size = 12.0
+row_text_size = 12.5
+shortcut_text_size = 10.0
+chevron_text_size = 16.5
+separator_gap = 7.0
+shadow_offset_x = 0.0
+shadow_offset_y = 5.0
+shadow_blur = 18.0
+shadow_spread = 1.0
+shadow_opacity = 0.2800000011920929
+close_delay = 0.2199999988079071
+
+[topbar.portal.light]
+fill = [
+    248,
+    249,
+    250,
+    250,
+]
+border = [
+    218,
+    221,
+    225,
+    255,
+]
+hover = [
+    231,
+    233,
+    236,
+    255,
+]
+text = [
+    72,
+    76,
+    82,
+    255,
+]
+muted_text = [
+    112,
+    116,
+    122,
+    255,
+]
+
+[topbar.portal.dark]
+fill = [
+    18,
+    20,
+    22,
+    250,
+]
+border = [
+    54,
+    57,
+    61,
+    255,
+]
+hover = [
+    39,
+    40,
+    43,
+    255,
+]
+text = [
+    239,
+    236,
+    226,
+    255,
+]
+muted_text = [
+    169,
+    166,
+    158,
+    255,
+]
+
+[topbar.light]
+bar = [
+    228,
+    231,
+    235,
+    255,
+]
+bar_top = [
+    236,
+    238,
+    242,
+    255,
+]
+inactive = [
+    210,
+    214,
+    220,
+    255,
+]
+inactive_hover = [
+    234,
+    236,
+    240,
+    255,
+]
+active_top_mix = 0.07999999821186066
+divider_strength = 0.550000011920929
+accent_white_mix = 0.20000000298023224
+
+[topbar.dark]
+bar = [
+    14,
+    16,
+    18,
+    255,
+]
+bar_top = [
+    30,
+    34,
+    40,
+    255,
+]
+inactive = [
+    24,
+    28,
+    34,
+    255,
+]
+inactive_hover = [
+    33,
+    40,
+    50,
+    255,
+]
+active_top_mix = 0.07999999821186066
+divider_strength = 0.3799999952316284
+accent_white_mix = 0.0
+
+[dock]
+icon_size = 40.0
+icon_gap = 9.5
+icon_text_size = 15.5
+label_text_size = 11.0
+squircle_exponent = 2.5
+popover_width = 270.0
+popover_max_height = 450.0
+popover_gap = 13.0
+popover_padding = 6.0
+popover_corner_radius = 10.5
+shadow_offset_x = 0.0
+shadow_offset_y = 6.0
+shadow_blur = 20.0
+shadow_spread = 1.0
+shadow_opacity = 0.25999999046325684
+close_delay = 0.20000000298023224
+left_margin = 15.0
+bottom_margin = 13.0
+
+[dock.light]
+icon_fill = [
+    248,
+    249,
+    250,
+    238,
+]
+icon_hover = [
+    232,
+    235,
+    239,
+    255,
+]
+icon_active = [
+    215,
+    235,
+    242,
+    255,
+]
+popover_fill = [
+    248,
+    249,
+    250,
+    248,
+]
+border = [
+    215,
+    220,
+    226,
+    255,
+]
+text = [
+    24,
+    25,
+    27,
+    255,
+]
+muted_text = [
+    112,
+    116,
+    122,
+    255,
+]
+
+[dock.dark]
+icon_fill = [
+    18,
+    21,
+    25,
+    238,
+]
+icon_hover = [
+    34,
+    39,
+    46,
+    255,
+]
+icon_active = [
+    22,
+    55,
+    58,
+    255,
+]
+popover_fill = [
+    18,
+    20,
+    22,
+    248,
+]
+border = [
+    54,
+    60,
+    66,
+    255,
+]
+text = [
+    235,
+    238,
+    241,
+    255,
+]
+muted_text = [
+    145,
+    150,
+    156,
+    255,
+]

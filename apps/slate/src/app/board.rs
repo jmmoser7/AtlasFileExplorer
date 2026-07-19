@@ -47,16 +47,6 @@ pub const IMAGE_H: f32 = 180.0;
 
 // ---------- tools & gestures ----------
 
-/// Toolbar categories that own a persistent flyout submenu
-/// (Nav = the combined Select/Pan button; Frame / Shapes / Curve = create tools).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum CreateCategory {
-    Nav,
-    Frame,
-    Shapes,
-    Curve,
-}
-
 /// Typical slide frame sizes (world units at 72 pt/in).
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum FramePreset {
@@ -158,18 +148,6 @@ impl BoardTool {
             BoardTool::Line => "L",
             BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => "L",
             BoardTool::Text => "T",
-        }
-    }
-
-    pub fn category(self) -> Option<CreateCategory> {
-        match self {
-            BoardTool::Select | BoardTool::Pan => Some(CreateCategory::Nav),
-            BoardTool::Frame => Some(CreateCategory::Frame),
-            BoardTool::RectShape | BoardTool::Ellipse => Some(CreateCategory::Shapes),
-            BoardTool::Line | BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => {
-                Some(CreateCategory::Curve)
-            }
-            BoardTool::Text => None,
         }
     }
 
@@ -653,7 +631,12 @@ impl SlateApp {
         rect: Rect,
         palette: &atlas_shell::theme::Palette,
         xf: &BoardXf,
+        alpha: f32,
     ) {
+        if alpha <= 0.001 {
+            return;
+        }
+        let dot = palette.grid_dot.gamma_multiply(alpha);
         let step = board_snap::GRID_WORLD * xf.z;
         if step < 6.0 {
             return;
@@ -665,7 +648,7 @@ impl SlateApp {
         while y < rect.bottom() {
             let mut x = x0;
             while x < rect.right() {
-                painter.circle_filled(Pos2::new(x, y), 1.0, palette.grid_dot);
+                painter.circle_filled(Pos2::new(x, y), 1.0, dot);
                 x += step;
             }
             y += step;
@@ -702,7 +685,7 @@ impl SlateApp {
             .to_vec()
     }
 
-    fn align_board_selection(&mut self, align: BoardAlign) {
+    pub(crate) fn align_board_selection(&mut self, align: BoardAlign) {
         let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
         if ids.len() < 2 {
             return;
@@ -724,7 +707,7 @@ impl SlateApp {
         });
     }
 
-    fn distribute_board_selection(&mut self, axis: DistributeAxis) {
+    pub(crate) fn distribute_board_selection(&mut self, axis: DistributeAxis) {
         let mut ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
         if ids.len() < 3 {
             return;
@@ -1558,6 +1541,9 @@ impl SlateApp {
         // Live viewport tool strip (before gestures so it can capture clicks).
         let model_toolbar_captures = self.model_viewport_toolbar(ui.ctx(), &xf);
 
+        let now = ui.input(|i| i.time);
+        let mut canvas_nav = false;
+
         // --- camera ---
         if resp.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.raw_scroll_delta.y);
@@ -1570,8 +1556,10 @@ impl SlateApp {
                 } else if ui.input(|i| i.modifiers.shift) {
                     let zc = self.tab().cam.z;
                     self.tab_mut().cam.offset.x -= scroll / zc;
+                    canvas_nav = true;
                 } else if let Some(p) = pointer {
                     self.board_zoom_at(p, 1.0 + scroll * 0.0015);
+                    canvas_nav = true;
                 }
             }
         }
@@ -1586,6 +1574,7 @@ impl SlateApp {
             let zc = self.tab().cam.z;
             let old = self.tab().cam.offset;
             self.tab_mut().cam.offset = old - (cam_offset_tmp - old) / zc;
+            canvas_nav = true;
         }
         // Precise pan: middle-drag, Space+left-drag, right-drag (File Atlas
         // parity), or Hand tool (H) left-drag.
@@ -1604,6 +1593,10 @@ impl SlateApp {
             let delta = resp.drag_delta();
             let zc = self.tab().cam.z;
             self.tab_mut().cam.offset -= delta / zc;
+            canvas_nav = true;
+        }
+        if canvas_nav {
+            self.bump_grid_fade(now);
         }
 
         // --- gesture start ---
@@ -1758,7 +1751,8 @@ impl SlateApp {
         }
 
         if self.board_show_grid {
-            self.paint_board_grid(&painter, rect, &palette, &xf);
+            let grid_alpha = self.tab().grid_fade.alpha(now);
+            self.paint_board_grid(&painter, rect, &palette, &xf, grid_alpha);
         }
 
         // --- paint scene ---
@@ -1937,8 +1931,8 @@ impl SlateApp {
             );
         }
 
-        // Overlays.
-        self.board_toolbar(ui.ctx(), rect);
+        // Overlays. (The create toolbar now lives in the shared bottom dock —
+        // see `ui/tools.rs::floating_tools_dock`.)
         self.frame_custom_dialog(ui.ctx(), rect);
         self.frame_toolbar(ui.ctx(), &xf);
         self.text_edit_overlay(ui.ctx(), &xf);
@@ -2336,6 +2330,7 @@ impl SlateApp {
         let cam_z = cam.z;
         let center = self.canvas_rect.center();
         self.tab_mut().cam.offset = world_before.to_vec2() - (pointer - center) / cam_z;
+        self.tab_mut().grid_fade_armed = true;
     }
 
     fn paint_snap_guides(
@@ -3407,465 +3402,6 @@ impl SlateApp {
     }
 
     // ----- overlays ---------------------------------------------------------------
-
-    /// Floating create toolbar, top-center of the canvas (board view only).
-    ///
-    /// Submenu state machine: `board_submenu` holds the currently open flyout
-    /// category. A category button opens its menu on click or after a short
-    /// hover delay; while one is open, hovering a sibling category switches to
-    /// it (menubar behavior). The open menu is a real `egui::Area` anchored
-    /// below the button, so it stays put while the pointer travels into it;
-    /// it closes when an item is picked, a click lands outside both the button
-    /// and the menu, or the pointer strays well away from their union.
-    fn board_toolbar(&mut self, ctx: &egui::Context, canvas: Rect) {
-        /// Hover dwell before a flyout opens without a click.
-        const HOVER_OPEN: Duration = Duration::from_millis(350);
-        /// Pointer distance from button+menu union that closes the flyout.
-        const CLOSE_MARGIN: f32 = 40.0;
-
-        let palette = self.palette();
-        // Keep the combined nav button in sync with hotkey switches (V / H).
-        if matches!(self.board_tool, BoardTool::Select | BoardTool::Pan) {
-            self.board_nav_tool = self.board_tool;
-        }
-        let tool = self.board_tool;
-        let nav_tool = self.board_nav_tool;
-        let preset = self.board_frame_preset;
-        let ink = palette.ink;
-        let sub = palette.sub;
-        let accent = palette.accent;
-        let hover_fill = palette.card_hover;
-        let selected_fill = palette.accent.gamma_multiply(0.22);
-        let mut pick_tool: Option<BoardTool> = None;
-        let mut pick_preset: Option<FramePreset> = None;
-        let mut open_custom = false;
-        // Flyout bookkeeping for this frame.
-        let mut hovered_cat: Option<CreateCategory> = None;
-        let mut click_open: Option<CreateCategory> = None;
-        // Button rects recorded so the open flyout can anchor below its button.
-        let mut cat_rects: [Option<Rect>; 4] = [None; 4];
-        let cat_ix = |c: CreateCategory| match c {
-            CreateCategory::Nav => 0usize,
-            CreateCategory::Frame => 1,
-            CreateCategory::Shapes => 2,
-            CreateCategory::Curve => 3,
-        };
-
-        egui::Area::new(egui::Id::new("slate_board_tools"))
-            .fixed_pos(Pos2::new(canvas.center().x - 280.0, canvas.min.y + 8.0))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style())
-                    .fill(palette.card)
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            // Combined nav button: shows the last-used of
-                            // Select / Pan; clicking while active toggles to
-                            // the other one (Adobe split-tool convention).
-                            let nav_on = matches!(tool, BoardTool::Select | BoardTool::Pan);
-                            let nav_other = if nav_tool == BoardTool::Select {
-                                BoardTool::Pan
-                            } else {
-                                BoardTool::Select
-                            };
-                            let nav_resp = board_icons::tool_icon_button(
-                                ui,
-                                nav_tool.tool_icon(),
-                                nav_on,
-                                ink,
-                                accent,
-                                hover_fill,
-                                selected_fill,
-                            )
-                            .on_hover_text(format!(
-                                "{} ({}) — click again for {} ({})",
-                                nav_tool.label(),
-                                nav_tool.hotkey(),
-                                nav_other.label(),
-                                nav_other.hotkey()
-                            ));
-                            board_icons::paint_flyout_corner(
-                                ui.painter(),
-                                nav_resp.rect,
-                                if nav_on { accent } else { sub },
-                            );
-                            cat_rects[cat_ix(CreateCategory::Nav)] = Some(nav_resp.rect);
-                            if nav_resp.hovered() {
-                                hovered_cat = Some(CreateCategory::Nav);
-                            }
-                            if nav_resp.clicked() {
-                                pick_tool = Some(if tool == nav_tool {
-                                    nav_other
-                                } else {
-                                    nav_tool
-                                });
-                            }
-
-                            ui.separator();
-
-                            // Frame — flyout with typical slide sizes.
-                            let frame_on = tool == BoardTool::Frame;
-                            let frame_hint = format!(
-                                "Frame — {} ({})",
-                                preset.label(),
-                                BoardTool::Frame.hotkey()
-                            );
-                            let frame_resp = board_icons::tool_icon_button(
-                                ui,
-                                board_icons::ToolIcon::Frame,
-                                frame_on,
-                                ink,
-                                accent,
-                                hover_fill,
-                                selected_fill,
-                            )
-                            .on_hover_text(&frame_hint);
-                            board_icons::paint_flyout_corner(
-                                ui.painter(),
-                                frame_resp.rect,
-                                if frame_on { accent } else { sub },
-                            );
-                            cat_rects[cat_ix(CreateCategory::Frame)] = Some(frame_resp.rect);
-                            if frame_resp.hovered() {
-                                hovered_cat = Some(CreateCategory::Frame);
-                            }
-                            if frame_resp.clicked() {
-                                pick_tool = Some(BoardTool::Frame);
-                                click_open = Some(CreateCategory::Frame);
-                            }
-
-                            // Shapes — flyout with 2D primitives.
-                            let shapes_on =
-                                matches!(tool, BoardTool::RectShape | BoardTool::Ellipse);
-                            let shapes_resp = board_icons::tool_icon_button(
-                                ui,
-                                board_icons::ToolIcon::Shapes,
-                                shapes_on,
-                                ink,
-                                accent,
-                                hover_fill,
-                                selected_fill,
-                            )
-                            .on_hover_text("Shapes — rectangle, ellipse");
-                            board_icons::paint_flyout_corner(
-                                ui.painter(),
-                                shapes_resp.rect,
-                                if shapes_on { accent } else { sub },
-                            );
-                            cat_rects[cat_ix(CreateCategory::Shapes)] = Some(shapes_resp.rect);
-                            if shapes_resp.hovered() {
-                                hovered_cat = Some(CreateCategory::Shapes);
-                            }
-                            if shapes_resp.clicked() {
-                                pick_tool = Some(BoardTool::RectShape);
-                                click_open = Some(CreateCategory::Shapes);
-                            }
-
-                            // Curve — flyout with line and future curve types.
-                            let curve_on = matches!(
-                                tool,
-                                BoardTool::Line
-                                    | BoardTool::Arc
-                                    | BoardTool::Polyline
-                                    | BoardTool::BezierSpan
-                            );
-                            let curve_resp = board_icons::tool_icon_button(
-                                ui,
-                                board_icons::ToolIcon::Curve,
-                                curve_on,
-                                ink,
-                                accent,
-                                hover_fill,
-                                selected_fill,
-                            )
-                            .on_hover_text("Curve — line, arc, polyline, bezier");
-                            board_icons::paint_flyout_corner(
-                                ui.painter(),
-                                curve_resp.rect,
-                                if curve_on { accent } else { sub },
-                            );
-                            cat_rects[cat_ix(CreateCategory::Curve)] = Some(curve_resp.rect);
-                            if curve_resp.hovered() {
-                                hovered_cat = Some(CreateCategory::Curve);
-                            }
-                            if curve_resp.clicked() {
-                                pick_tool = Some(BoardTool::Line);
-                                click_open = Some(CreateCategory::Curve);
-                            }
-
-                            // Text — click to draw a text box.
-                            let text_on = tool == BoardTool::Text;
-                            let text_resp = board_icons::tool_icon_button(
-                                ui,
-                                board_icons::ToolIcon::Text,
-                                text_on,
-                                ink,
-                                accent,
-                                hover_fill,
-                                selected_fill,
-                            )
-                            .on_hover_text(format!(
-                                "{} ({}) — click to place",
-                                BoardTool::Text.label(),
-                                BoardTool::Text.hotkey()
-                            ));
-                            if text_resp.clicked() {
-                                pick_tool = Some(BoardTool::Text);
-                            }
-
-                            ui.separator();
-                            ui.toggle_value(&mut self.board_show_grid, "Grid")
-                                .on_hover_text("Show board alignment grid");
-                            ui.toggle_value(&mut self.board_snap_grid, "Snap grid")
-                                .on_hover_text("Snap objects to the board grid while moving");
-                            if self.board_sel.len() >= 2 {
-                                ui.menu_button("Align", |ui| {
-                                    if ui.button("Left").clicked() {
-                                        self.align_board_selection(BoardAlign::Left);
-                                        ui.close_menu();
-                                    }
-                                    if ui.button("Center").clicked() {
-                                        self.align_board_selection(BoardAlign::CenterH);
-                                        ui.close_menu();
-                                    }
-                                    if ui.button("Right").clicked() {
-                                        self.align_board_selection(BoardAlign::Right);
-                                        ui.close_menu();
-                                    }
-                                    ui.separator();
-                                    if ui.button("Top").clicked() {
-                                        self.align_board_selection(BoardAlign::Top);
-                                        ui.close_menu();
-                                    }
-                                    if ui.button("Middle").clicked() {
-                                        self.align_board_selection(BoardAlign::CenterV);
-                                        ui.close_menu();
-                                    }
-                                    if ui.button("Bottom").clicked() {
-                                        self.align_board_selection(BoardAlign::Bottom);
-                                        ui.close_menu();
-                                    }
-                                    if self.board_sel.len() >= 3 {
-                                        ui.separator();
-                                        if ui.button("Distribute horizontally").clicked() {
-                                            self.distribute_board_selection(
-                                                DistributeAxis::Horizontal,
-                                            );
-                                            ui.close_menu();
-                                        }
-                                        if ui.button("Distribute vertically").clicked() {
-                                            self.distribute_board_selection(
-                                                DistributeAxis::Vertical,
-                                            );
-                                            ui.close_menu();
-                                        }
-                                    }
-                                });
-                            }
-                            ui.separator();
-                            let has_frames = !self.doc().scene.frames_in_order().is_empty();
-                            ui.add_enabled_ui(has_frames, |ui| {
-                                if ui
-                                    .button("▶ Present")
-                                    .on_hover_text("Play the frames as slides (F5)")
-                                    .clicked()
-                                {
-                                    self.start_present(None);
-                                }
-                            });
-                            if ui
-                                .button("⬇ Export")
-                                .on_hover_text("Export the HTML artifact (Ctrl+E)")
-                                .clicked()
-                            {
-                                self.export_artifact_dialog();
-                            }
-                        });
-                    });
-            });
-
-        // Flyout open/switch logic (runs after the toolbar so hover state is known).
-        if let Some(cat) = click_open {
-            self.board_submenu = Some(cat);
-            self.board_submenu_hover = None;
-        } else if let Some(cat) = hovered_cat {
-            if self.board_submenu.is_some() {
-                // Menubar behavior: hovering a sibling switches the open menu.
-                self.board_submenu = Some(cat);
-                self.board_submenu_hover = None;
-            } else {
-                let start = match self.board_submenu_hover {
-                    Some((c, t)) if c == cat => t,
-                    _ => Instant::now(),
-                };
-                self.board_submenu_hover = Some((cat, start));
-                if start.elapsed() >= HOVER_OPEN {
-                    self.board_submenu = Some(cat);
-                } else {
-                    ctx.request_repaint_after(HOVER_OPEN - start.elapsed());
-                }
-            }
-        } else {
-            self.board_submenu_hover = None;
-        }
-
-        // Render the open flyout as a persistent popup anchored under its button.
-        if let Some(cat) = self.board_submenu {
-            let mut menu_pick = false;
-            if let Some(btn) = cat_rects[cat_ix(cat)] {
-                let area = egui::Area::new(egui::Id::new("slate_board_tool_menu"))
-                    .fixed_pos(Pos2::new(btn.min.x - 4.0, btn.max.y + 6.0))
-                    .order(egui::Order::Foreground)
-                    .show(ctx, |ui| {
-                        egui::Frame::popup(ui.style())
-                            .fill(palette.card)
-                            .show(ui, |ui| {
-                                ui.set_min_width(140.0);
-                                match cat {
-                                    CreateCategory::Nav => {
-                                        for nav in [BoardTool::Select, BoardTool::Pan] {
-                                            if board_icons::tool_menu_row(
-                                                ui,
-                                                nav.tool_icon(),
-                                                nav.label(),
-                                                Some(nav.hotkey()),
-                                                tool == nav,
-                                                ink,
-                                                sub,
-                                            )
-                                            .clicked()
-                                            {
-                                                pick_tool = Some(nav);
-                                                menu_pick = true;
-                                            }
-                                        }
-                                    }
-                                    CreateCategory::Frame => {
-                                        for p in [
-                                            FramePreset::Letter,
-                                            FramePreset::Tabloid,
-                                            FramePreset::Wide169,
-                                        ] {
-                                            if board_icons::tool_menu_row(
-                                                ui,
-                                                board_icons::ToolIcon::Frame,
-                                                p.label(),
-                                                None,
-                                                preset == p,
-                                                ink,
-                                                sub,
-                                            )
-                                            .clicked()
-                                            {
-                                                pick_preset = Some(p);
-                                                pick_tool = Some(BoardTool::Frame);
-                                                menu_pick = true;
-                                            }
-                                        }
-                                        if board_icons::tool_menu_row(
-                                            ui,
-                                            board_icons::ToolIcon::Frame,
-                                            "Custom…",
-                                            None,
-                                            matches!(preset, FramePreset::Custom { .. }),
-                                            ink,
-                                            sub,
-                                        )
-                                        .clicked()
-                                        {
-                                            open_custom = true;
-                                            pick_tool = Some(BoardTool::Frame);
-                                            menu_pick = true;
-                                        }
-                                    }
-                                    CreateCategory::Shapes => {
-                                        for shape in [BoardTool::RectShape, BoardTool::Ellipse] {
-                                            if board_icons::tool_menu_row(
-                                                ui,
-                                                shape.tool_icon(),
-                                                shape.label(),
-                                                Some(shape.hotkey()),
-                                                tool == shape,
-                                                ink,
-                                                sub,
-                                            )
-                                            .clicked()
-                                            {
-                                                pick_tool = Some(shape);
-                                                menu_pick = true;
-                                            }
-                                        }
-                                    }
-                                    CreateCategory::Curve => {
-                                        for curve in [
-                                            BoardTool::Line,
-                                            BoardTool::Arc,
-                                            BoardTool::Polyline,
-                                            BoardTool::BezierSpan,
-                                        ] {
-                                            let hotkey = (curve == BoardTool::Line)
-                                                .then_some(curve.hotkey());
-                                            let resp = board_icons::tool_menu_row(
-                                                ui,
-                                                curve.tool_icon(),
-                                                curve.label(),
-                                                hotkey,
-                                                tool == curve,
-                                                ink,
-                                                sub,
-                                            );
-                                            let resp = if curve.is_implemented() {
-                                                resp
-                                            } else {
-                                                resp.on_hover_text("Coming soon")
-                                            };
-                                            if resp.clicked() {
-                                                pick_tool = Some(curve);
-                                                menu_pick = true;
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                    });
-                let menu_rect = area.response.rect;
-                let hull = btn.union(menu_rect);
-                let pointer = ctx.pointer_latest_pos();
-                let clicked_outside = ctx.input(|i| i.pointer.any_click())
-                    && pointer.is_some_and(|p| !btn.contains(p) && !menu_rect.contains(p));
-                let strayed = pointer.is_some_and(|p| !hull.expand(CLOSE_MARGIN).contains(p));
-                if menu_pick || clicked_outside || strayed {
-                    self.board_submenu = None;
-                }
-            } else {
-                self.board_submenu = None;
-            }
-        }
-
-        if let Some(t) = pick_tool {
-            if !t.is_implemented() {
-                self.toast(format!(
-                    "{} is not available yet — use Line for now.",
-                    t.label()
-                ));
-            } else {
-                self.board_tool = t;
-                if matches!(t, BoardTool::Select | BoardTool::Pan) {
-                    self.board_nav_tool = t;
-                }
-            }
-        }
-        if let Some(p) = pick_preset {
-            self.board_frame_preset = p;
-        }
-        if open_custom {
-            self.board_frame_custom
-                .get_or_insert_with(|| FrameCustomDraft {
-                    w: "612".into(),
-                    h: "792".into(),
-                });
-        }
-    }
 
     /// Manual frame dimensions entry (opened from Frame → Custom…).
     fn frame_custom_dialog(&mut self, ctx: &egui::Context, canvas: Rect) {

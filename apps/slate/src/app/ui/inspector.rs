@@ -6,11 +6,9 @@
 //! undo steps, and the same command surface will later back the MCP agent.
 
 use super::super::board::to_rgba;
-use super::super::chrome::ToolPanel;
 use super::super::SlateApp;
 use atlas_shell::sidebar::{
-    sidebar_collapsible_region, sidebar_section, sidebar_slider_block, sidebar_subtle_divider,
-    SidebarTheme,
+    sidebar_collapsible_region, sidebar_slider_block, sidebar_subtle_divider, SidebarTheme,
 };
 use atlas_shell::widgets::{thin_sidebar_slider, thin_sidebar_slider_i32};
 use eframe::egui::{self, Color32, Id, RichText};
@@ -21,27 +19,9 @@ fn rgba32(c: Rgba) -> Color32 {
     Color32::from_rgba_unmultiplied(c.0[0], c.0[1], c.0[2], c.0[3])
 }
 
-pub fn selection_panel(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let n = app.board_sel.len();
-    let subtitle = match n {
-        0 => None,
-        1 => Some("1 object"),
-        _ => Some("multiple"),
-    };
-    let mut expanded = app.tab().chrome.tool_expanded(ToolPanel::Selection);
-    if sidebar_section(
-        ui,
-        Id::new("slate_selection"),
-        "Selection",
-        subtitle,
-        &mut expanded,
-        theme,
-        |ui| body(app, ui, theme),
-    ) {
-        app.tab_mut()
-            .chrome
-            .set_tool_expanded(ToolPanel::Selection, expanded);
-    }
+/// Inspector body rendered inside the Selection dock popover.
+pub fn selection_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    body(app, ui, theme)
 }
 
 fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {

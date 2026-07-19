@@ -5,28 +5,26 @@ different workspace model: instead of a filesystem root per tab, each tab owns
 one **workbook** (`.slate` document — links to files plus a faceted tag
 system, never file copies).
 
-## Layer 0 — Top chrome (`ui/menubar.rs` + `ui/tabs.rs`)
+## Layer 0 — Unified top bar (`ui/menubar.rs`)
 
-The custom title bar (topmost, full width; the window runs without OS
-decorations): app icon — no app-name text — then the File/View menus, a
-draggable caption area, and the minimize/maximize/close buttons, all on one
-row. Below it, browser-style workbook tabs. All painting comes from
-`atlas_shell::menubar` /
-`atlas_shell::tabs`; these modules only adapt `SlateApp` state to
-`MenuSpec`s / `TabSpec`s and apply actions. The tools rail is registered
-*before* the tab strip so the rail runs from the readout bar up to the menu
-bar, with tabs nested in the remaining width. Full-screen canvas
-(`ChromeConfig::canvas_fullscreen`; F11, View → Full-screen canvas, or ⛶ in
-the canvas mini menu) suppresses the tools rail and readout bar.
+One Chrome-style strip: icon menu portal (File / View on hover or click),
+inline workbook tabs, caption drag, and window controls. Painting lives in
+`atlas-shell` — see `crates/atlas-shell/TOPBAR.md`. This module only adapts
+`SlateApp` state and applies returned actions.
+
+The top bar is registered first so it remains outermost and spans the full
+viewport width; the tools rail begins below it. Full-screen canvas
+(`ChromeConfig::canvas_fullscreen`; F11, View → Full-screen canvas, or ⛶)
+suppresses the tools rail and readout bar; the top bar stays.
 
 ## Layer 1 — Tab workspace
 
 | Region | Module | Role |
 |--------|--------|------|
-| Left tools rail | `ui/tools.rs` | **Tags** (hierarchical group editor), **Display** (Board/Grid/Venn/Lens, cell size, theme), **Selection** (dynamic inspector, `ui/inspector.rs`), **Workbook** (open/save, add files, artifact export, Atlas link), **AI** (Cursor launcher + AI workspace; body shared with Atlas via `crates/atlas-ai`), **Lens** (code root, depth, edge filters, search, overlay legend) |
+| Floating tools dock | `ui/tools.rs` + `atlas-shell::dock` | The **single** bottom-centered toolbar: board creation tools (Select/Pan, Frame, Shapes, Curve, Text — Board view only), Grid/Snap/Align, plus **Tags**, **Selection**, **View**, and **Lens** (Lens view only). Flyouts and panels open upward, anchored to their icon. Workbook, AI, Present, Export, and Advanced live in the app-icon portal. See `crates/atlas-shell/DOCK.md`. |
 | Canvas | `canvas.rs` | Grid + Venn presentations, selection, right-click tag assignment |
 | Lens | `lens.rs` | Code-dependency graph canvas: worker pump, painting, focus/expand gestures |
-| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, draw tools, gestures |
+| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock) |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
 | Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
 | 3D viewports | `model3d.rs` | Rhino `.3dm` viewport lifecycle: off-thread mesh parse (`crates/rhino-mesh`), offscreen glow render, lock/unlock + poster cache |

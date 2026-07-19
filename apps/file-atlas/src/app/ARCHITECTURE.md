@@ -3,23 +3,21 @@
 The shell is layered so each concern has one home. When adding features, extend
 the matching layer instead of growing `mod.rs`.
 
-## Layer 0 — Top chrome (`ui/menubar.rs` + `ui/tabs.rs`)
+## Layer 0 — Unified top bar (`ui/menubar.rs`)
 
-- **Scope:** the custom title bar (topmost, full width; the window runs
-  without OS decorations): app icon — no app-name text — then the File/View
-  menus, a draggable caption area, and the minimize/maximize/close buttons,
-  all on one row. Below it, browser-style tabs. Global Undo/Redo stays
-  keyboard-only.
-- **Rule:** Nothing that acts on the canvas lives here. The title bar spans the
-  whole window; the tools rail is registered *before* the tab strip so the
-  rail runs from the readout bar up to the menu bar, with tabs nested in the
-  remaining width (see the panel-order comment in `mod.rs::update_app`).
-- **Painting lives in `atlas-shell`** (`atlas_shell::menubar`,
-  `atlas_shell::tabs`) so Slate renders identical chrome; these modules only
-  adapt `AtlasApp` state to `MenuSpec`s / `TabSpec`s.
+One Chrome-style strip replaces the old two-row header (title bar + tab strip).
+The app icon is a **menu portal**: hover or click reveals **File** and **View**;
+tabs sit inline to the right of the portal; window controls stay on the far
+right. All painting lives in `atlas-shell` (`menubar::unified_top_bar`,
+`tabs::tab_strip`) — see `crates/atlas-shell/TOPBAR.md`. This module only
+adapts `AtlasApp` state to `UnifiedTopBarModel` / `MenuSpec` / `TabSpec` and
+applies the returned actions.
+
+- The top bar is registered first so it remains outermost and spans the full
+  viewport width; side and bottom panels begin below it.
 - **Full-screen canvas** (`ChromeConfig::canvas_fullscreen`, toggled by F11,
   View → Full-screen canvas, or ⛶ in the canvas mini menu) suppresses the
-  tools rail and readout bar; menu bar and tabs stay.
+  tools rail and readout bar; the unified top bar stays.
 
 ## Layer 1 — Tab workspace
 
@@ -27,7 +25,7 @@ Everything below the tab bar belongs to the **active tab** (`TabState`):
 
 | Region | Module | Role |
 |--------|--------|------|
-| Left tools rail | `ui/tools.rs` | Filters, display settings, workflow, AI (Cursor launcher + AI workspace; body shared with Slate via `crates/atlas-ai`) — actions on the canvas. Free-text tagging lives in Slate; Atlas keeps destination assignment only. See `ui/SIDEBAR.md` for panel layout rules. |
+| Floating tools dock | `ui/tools.rs` + `atlas-shell::dock` | Left-centered squircle icons for Filters, Display, Workflow, AI. Popovers reuse the former sidebar bodies without reserving canvas space. Free-text tagging lives in Slate; Atlas keeps destination assignment only. See `crates/atlas-shell/DOCK.md`. |
 | Canvas | `mod.rs` (`canvas`) | Infinite map, selection, thumbnails |
 | Bottom readouts | `ui/readouts.rs` | Metrics, scan progress, cache status — read-only |
 | Pre-warm dashboard | `ui/readouts.rs` (`prewarm_dashboard`) | Temporary panel above the readouts while a pre-warm runs: discovery, progress, speed control, cancel |

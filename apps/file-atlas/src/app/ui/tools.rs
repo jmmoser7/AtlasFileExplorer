@@ -1,15 +1,21 @@
-//! Left tools rail — canvas actions, filters, display settings.
-//! Optional sub-panels are toggled from the gear menu (`chrome::ToolPanel`).
+//! File Atlas's floating tools dock — a vertical stack of squircle icons
+//! centered on the canvas's left edge. Panel popovers open to the right;
+//! dock chrome is painted by `atlas_shell::dock`.
+//!
+//! To add a tool: add a `DockItem` in [`floating_tools_dock`] and an arm in
+//! the panel-body match. Renaming a tool = changing its `label`. Icon
+//! visibility is toggled from the app-icon portal (Preferences).
 
 use super::super::{AtlasApp, DateFilterField, FilterMode, LeaderStyle, Orient, ViewCmd};
 use crate::app::chrome::ToolPanel;
 use atlas_core::types::{ExtGroup, FAMILIES};
+use atlas_shell::dock::{floating_dock, DockIcon, DockItem, DockItemKind, DockSide};
 use atlas_shell::sidebar::{
     sidebar_checkbox_row, sidebar_family_master_row, sidebar_mode_row, sidebar_nested_checkbox_row,
-    sidebar_option_group, sidebar_region, sidebar_section, sidebar_slider_block,
-    sidebar_subtle_divider, sidebar_toolbar_row, SidebarTheme, SidebarTokens,
+    sidebar_option_group, sidebar_region, sidebar_slider_block, sidebar_subtle_divider,
+    sidebar_toolbar_row, SidebarTheme, SidebarTokens,
 };
-use atlas_shell::widgets::{gear_menu, sidebar_date_timeline, thin_sidebar_slider};
+use atlas_shell::widgets::{sidebar_date_timeline, thin_sidebar_slider};
 use eframe::egui::{self, Id};
 
 fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
@@ -22,84 +28,64 @@ fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
     }
 }
 
-fn tools_gear(app: &mut AtlasApp, ui: &mut egui::Ui) {
-    gear_menu(ui, "tools_gear", |ui| {
-        ui.label(egui::RichText::new("Visible tool panels").small().strong());
-        ui.separator();
-        for panel in ToolPanel::ALL {
-            let mut on = app.active_chrome().tool(panel);
-            if ui.checkbox(&mut on, panel.label()).changed() {
-                app.active_chrome_mut().set_tool(panel, on);
-            }
-        }
-        ui.separator();
-        if ui.button("Advanced settings…").clicked() {
-            app.active_chrome_mut().advanced_open = true;
-            ui.close_menu();
-        }
-    });
-}
-
-pub fn left_panel(app: &mut AtlasApp, ctx: &egui::Context) {
+pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
     let chrome = app.active_chrome().clone();
+    let items = [
+        DockItem {
+            id: "filters",
+            label: "Basic filters",
+            icon: DockIcon::Filters,
+            kind: DockItemKind::Panel,
+            active: app.any_filter,
+            visible: chrome.tool(ToolPanel::BasicFilters),
+            gap_before: false,
+        },
+        DockItem {
+            id: "display",
+            label: "Display settings",
+            icon: DockIcon::Display,
+            kind: DockItemKind::Panel,
+            active: false,
+            visible: chrome.tool(ToolPanel::DisplaySettings),
+            gap_before: false,
+        },
+        DockItem {
+            id: "workflow",
+            label: "Workflow",
+            icon: DockIcon::Workflow,
+            kind: DockItemKind::Panel,
+            active: app.only_unassigned,
+            visible: chrome.tool(ToolPanel::Workflow),
+            gap_before: false,
+        },
+        DockItem {
+            id: "ai",
+            label: "AI · Cursor",
+            icon: DockIcon::Ai,
+            kind: DockItemKind::Panel,
+            active: false,
+            visible: chrome.tool(ToolPanel::Ai),
+            gap_before: true,
+        },
+    ];
+    let palette = app.palette();
     let theme = sidebar_theme(app);
-    egui::SidePanel::left("tools_rail")
-        .resizable(true)
-        .default_width(200.0)
-        .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                tools_gear(app, ui);
-                ui.label(egui::RichText::new("Tools").small().color(theme.sub));
-            });
-            ui.add_space(4.0);
-
-            if chrome.tool(ToolPanel::BasicFilters) {
-                basic_filters(app, ui, theme);
-            }
-            if chrome.tool(ToolPanel::DisplaySettings) {
-                display_settings(app, ui, ctx, theme);
-            }
-            if chrome.tool(ToolPanel::Workflow) {
-                workflow(app, ui, theme);
-            }
-            if chrome.tool(ToolPanel::Ai) {
-                ai_panel(app, ui, theme);
-            }
-        });
-}
-
-/// AI / Cursor panel — the body is shared with Slate (`atlas_ai::ui`), so the
-/// assistant toolbar looks and behaves identically in both apps.
-fn ai_panel(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let mut expanded = app.active_chrome().tool_expanded(ToolPanel::Ai);
-    if sidebar_section(
-        ui,
-        Id::new("tools_ai"),
-        "AI",
-        Some("Cursor"),
-        &mut expanded,
-        theme,
-        |ui| atlas_ai::ui::ai_body(&mut app.ai, ui, theme),
-    ) {
-        app.active_chrome_mut()
-            .set_tool_expanded(ToolPanel::Ai, expanded);
-    }
-}
-
-fn basic_filters(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let mut expanded = app.active_chrome().tool_expanded(ToolPanel::BasicFilters);
-    if sidebar_section(
-        ui,
-        Id::new("tools_basic_filters"),
-        "Basic filters",
-        None,
-        &mut expanded,
-        theme,
-        |ui| basic_filters_body(app, ui, theme),
-    ) {
-        app.active_chrome_mut()
-            .set_tool_expanded(ToolPanel::BasicFilters, expanded);
-    }
+    let canvas = app.canvas_rect;
+    floating_dock(
+        ctx,
+        "file_atlas_tools",
+        canvas,
+        &palette,
+        DockSide::LeftCenter,
+        &items,
+        |ui, id| match id {
+            "filters" => basic_filters_body(app, ui, theme),
+            "display" => display_settings_body(app, ui, ctx, theme),
+            "workflow" => workflow_body(app, ui),
+            "ai" => atlas_ai::ui::ai_body(&mut app.ai, ui, theme),
+            _ => {}
+        },
+    );
 }
 
 fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
@@ -307,29 +293,6 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
     });
 }
 
-fn display_settings(
-    app: &mut AtlasApp,
-    ui: &mut egui::Ui,
-    ctx: &egui::Context,
-    theme: SidebarTheme,
-) {
-    let mut expanded = app
-        .active_chrome()
-        .tool_expanded(ToolPanel::DisplaySettings);
-    if sidebar_section(
-        ui,
-        Id::new("tools_display_settings"),
-        "Display settings",
-        None,
-        &mut expanded,
-        theme,
-        |ui| display_settings_body(app, ui, ctx, theme),
-    ) {
-        app.active_chrome_mut()
-            .set_tool_expanded(ToolPanel::DisplaySettings, expanded);
-    }
-}
-
 fn display_settings_body(
     app: &mut AtlasApp,
     ui: &mut egui::Ui,
@@ -443,22 +406,6 @@ fn display_settings_body(
             }
         }
         app.relayout();
-    }
-}
-
-fn workflow(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let mut expanded = app.active_chrome().tool_expanded(ToolPanel::Workflow);
-    if sidebar_section(
-        ui,
-        Id::new("tools_workflow"),
-        "Workflow",
-        None,
-        &mut expanded,
-        theme,
-        |ui| workflow_body(app, ui),
-    ) {
-        app.active_chrome_mut()
-            .set_tool_expanded(ToolPanel::Workflow, expanded);
     }
 }
 

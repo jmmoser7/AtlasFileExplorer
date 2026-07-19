@@ -1,7 +1,14 @@
-# Sidebar design system
+# Sidebar design system (legacy panel bodies)
 
-Rules for the left tools rail (`ui/tools.rs`). Read `ARCHITECTURE.md` Layer 1
-before adding panels.
+The permanent left tools rail has been replaced by floating canvas docks. Read
+`crates/atlas-shell/DOCK.md` before adding or moving tool surfaces.
+
+This document still describes the reusable section/body primitives that many
+tool popovers render inside their dock panels. Do not use it as permission to
+reintroduce a layout-reserving rail.
+
+Rules for legacy panel bodies (`ui/tools.rs`). Read `ARCHITECTURE.md` Layer 1
+and `DOCK.md` before adding panels.
 
 ## Two levels of visibility
 

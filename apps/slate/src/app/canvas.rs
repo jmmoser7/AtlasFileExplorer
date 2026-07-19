@@ -278,6 +278,18 @@ impl SlateApp {
         let cam_z = cam.z;
         let center = self.canvas_rect.center();
         self.tab_mut().cam.offset = world_before.to_vec2() - (pointer - center) / cam_z;
+        self.tab_mut().grid_fade_armed = true;
+    }
+
+    pub(crate) fn bump_grid_fade(&mut self, time: f64) {
+        self.tab_mut().grid_fade.bump(time);
+    }
+
+    pub(crate) fn flush_grid_fade_armed(&mut self, time: f64) {
+        if self.tab().grid_fade_armed {
+            self.tab_mut().grid_fade.bump(time);
+            self.tab_mut().grid_fade_armed = false;
+        }
     }
 
     pub(crate) fn open_path(path: &std::path::Path) {
@@ -302,11 +314,11 @@ impl SlateApp {
         let palette = self.palette();
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, palette.bg);
+        self.flush_grid_fade_armed(ui.ctx().input(|i| i.time));
 
         // The Board is the authored open-world canvas; it owns its own
         // input/paint loop (see `board.rs`).
         if self.doc().view.active_view == ViewKind::Board {
-            self.paint_dot_grid(&painter, rect, &palette);
             self.board_canvas(ui, rect);
             // The board owns its own camera; the mini menu only offers the
             // full-screen toggle here (zoom lives in the board toolbar keys).
@@ -331,6 +343,8 @@ impl SlateApp {
 
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         let pointer = ui.ctx().pointer_latest_pos();
+        let now = ui.ctx().input(|i| i.time);
+        let mut canvas_nav = false;
 
         // --- camera: zoom / pan / turbo pan ---
         if resp.hovered() {
@@ -339,8 +353,10 @@ impl SlateApp {
                 if ui.input(|i| i.modifiers.shift) {
                     let z = self.tab().cam.z;
                     self.tab_mut().cam.offset.x -= scroll / z;
+                    canvas_nav = true;
                 } else if let Some(p) = pointer {
                     self.zoom_at(p, 1.0 + scroll * 0.0015);
+                    canvas_nav = true;
                 }
             }
         }
@@ -368,12 +384,17 @@ impl SlateApp {
             // pointer" polarity; our camera offset is the world point at the
             // canvas center, so convert and invert.
             self.tab_mut().cam.offset = old - (cam_offset_tmp - old) / z;
+            canvas_nav = true;
         } else if resp.dragged_by(egui::PointerButton::Primary)
             || resp.dragged_by(egui::PointerButton::Secondary)
         {
             let delta = resp.drag_delta();
             let z = self.tab().cam.z;
             self.tab_mut().cam.offset -= delta / z;
+            canvas_nav = true;
+        }
+        if canvas_nav {
+            self.bump_grid_fade(now);
         }
 
         // --- hit test (topmost last-drawn wins; reverse iterate) ---
@@ -425,7 +446,8 @@ impl SlateApp {
         }
 
         // --- paint ---
-        self.paint_dot_grid(&painter, rect, &palette);
+        let grid_alpha = self.tab().grid_fade.alpha(now);
+        self.paint_dot_grid(&painter, rect, &palette, grid_alpha);
         self.paint_venn_sets(&painter, &layout, &palette);
         self.paint_sections(&painter, &layout, &palette);
         self.paint_items(ui, &painter, &layout, hovered_item, &palette);
@@ -511,7 +533,12 @@ impl SlateApp {
         painter: &egui::Painter,
         rect: Rect,
         palette: &atlas_shell::theme::Palette,
+        alpha: f32,
     ) {
+        if alpha <= 0.001 {
+            return;
+        }
+        let dot = palette.grid_dot.gamma_multiply(alpha);
         let z = self.tab().cam.z;
         let step_w = 64.0;
         let step = step_w * z;
@@ -525,7 +552,7 @@ impl SlateApp {
         while y < rect.bottom() {
             let mut x = x0;
             while x < rect.right() {
-                painter.circle_filled(Pos2::new(x, y), 1.0, palette.grid_dot);
+                painter.circle_filled(Pos2::new(x, y), 1.0, dot);
                 x += step;
             }
             y += step;

@@ -99,7 +99,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Select tool",
-        binding: "V (Board view), or the combined Select/Pan toolbar button",
+        binding: "V (Board view), or the combined Select/Pan bottom-dock button",
     },
     CommandEntry {
         category: "Board",
@@ -109,7 +109,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Toggle Select ⇄ Pan",
-        binding: "Click the combined Select/Pan toolbar button while it is active",
+        binding: "Click the combined Select/Pan bottom-dock button while it is active",
     },
     CommandEntry {
         category: "Board",
@@ -119,7 +119,8 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Shapes / Curve / Text tools",
-        binding: "R / O / L / T (Board view); click or hover a toolbar button to open its submenu",
+        binding:
+            "R / O / L / T (Board view); click or hover a bottom-dock button to open its submenu",
     },
     CommandEntry {
         category: "Board",
@@ -197,12 +198,12 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Board",
         name: "Board grid / snap to grid",
-        binding: "Grid / Snap grid toggles in the board toolbar",
+        binding: "Grid / Snap grid toggles in the board bottom dock",
     },
     CommandEntry {
         category: "Board",
         name: "Align / distribute objects",
-        binding: "Align menu in the board toolbar (2+ selected)",
+        binding: "Align menu in the board bottom dock (2+ selected)",
     },
     CommandEntry {
         category: "Board",
@@ -264,7 +265,7 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Presentation",
         name: "Present frames as slides",
-        binding: "F5, or ▶ Present in the board toolbar",
+        binding: "F5, or View → Present",
     },
     CommandEntry {
         category: "Presentation",
@@ -279,12 +280,12 @@ pub const ENTRIES: &[CommandEntry] = &[
     CommandEntry {
         category: "Presentation",
         name: "Export HTML artifact",
-        binding: "Ctrl + E, or Workbook → Export artifact…",
+        binding: "Ctrl + E, or File → Export HTML artifact…",
     },
     CommandEntry {
         category: "Lens",
         name: "Switch to Lens view",
-        binding: "View → Lens, or Presentation Mode → Lens",
+        binding: "View → Lens, or the View dock popover",
     },
     CommandEntry {
         category: "Lens",

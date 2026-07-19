@@ -382,6 +382,8 @@ pub struct AtlasApp {
     row_spacing: usize,
     leader_style: LeaderStyle,
     cam: Camera,
+    grid_fade: atlas_shell::grid_fade::GridFade,
+    grid_fade_armed: bool,
     anim: Option<CamAnim>,
     pending_view: Option<ViewCmd>,
     canvas_rect: Rect,
@@ -600,6 +602,8 @@ impl AtlasApp {
                 offset: Vec2::ZERO,
                 z: 0.6,
             },
+            grid_fade: atlas_shell::grid_fade::GridFade::default(),
+            grid_fade_armed: false,
             anim: None,
             pending_view: None,
             canvas_rect: Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0)),
@@ -2302,32 +2306,32 @@ impl AtlasApp {
             self.cam.z = a.from.z + (a.to.z - a.from.z) * k;
             if t >= 1.0 {
                 self.anim = None;
+            } else {
+                self.grid_fade.bump(ctx.input(|i| i.time));
             }
             ctx.request_repaint();
         }
 
-        // Chrome, outermost first: the menu bar spans the full width, then
-        // the bottom readout bar, then the tools rail — registered *before*
-        // the tab strip so the rail runs from the readout bar all the way up
-        // to the menu bar, with the tabs nested in the remaining width.
-        // Full-screen canvas (⛶ / F11) suppresses the rail and readout bar.
+        if self.grid_fade_armed {
+            self.grid_fade.bump(ctx.input(|i| i.time));
+            self.grid_fade_armed = false;
+        }
+
+        // Register the unified top bar first
+        // always spans the full viewport width. Side/bottom chrome is then
+        // constrained to the workspace below it.
+        self.draw_top_bar(ctx);
         let fullscreen = self.active_chrome().canvas_fullscreen;
-        self.draw_menu_bar(ctx);
         if !fullscreen {
             self.draw_readout_bar(ctx);
         }
         // Stacks above the readout bar; only visible during a pre-warm run.
         self.draw_prewarm_dashboard(ctx);
         if self.root.is_some() {
-            if !fullscreen {
-                self.draw_tools_rail(ctx);
-            }
             self.bottom_tray(ctx);
-            // Journal kept wired but hidden from chrome until its panel home
-            // is decided (see ui/tabs.rs).
         }
-        self.draw_top_chrome(ctx);
         self.draw_advanced_window(ctx);
+        atlas_shell::tuning::show(ctx);
 
         let palette = self.palette();
         egui::CentralPanel::default()
@@ -2340,6 +2344,9 @@ impl AtlasApp {
                 }
             });
 
+        if self.root.is_some() {
+            self.draw_tools_rail(ctx);
+        }
         self.edit_window(ctx);
         self.action_menu(ctx);
         self.detail_window(ctx);
@@ -2740,6 +2747,7 @@ impl AtlasApp {
         self.cam.offset.x = screen.x - (screen.x - self.cam.offset.x) * k;
         self.cam.offset.y = screen.y - (screen.y - self.cam.offset.y) * k;
         self.cam.z = nz;
+        self.grid_fade_armed = true;
     }
 
     fn cam_for_bounds(&self, b: Rect, max_z: f32) -> Camera {
@@ -2813,7 +2821,10 @@ impl AtlasApp {
 
         let painter = ui.painter().with_clip_rect(rect);
         painter.rect_filled(rect, CornerRadius::ZERO, palette.bg);
-        self.draw_dot_grid(&painter, rect);
+        let grid_alpha = self
+            .grid_fade
+            .alpha(ui.ctx().input(|i| i.time));
+        self.draw_dot_grid(&painter, rect, grid_alpha);
 
         // Explicit load feedback: nothing paintable yet (first index load,
         // scan streaming in, or a large tree building in the background).
@@ -2824,6 +2835,8 @@ impl AtlasApp {
 
         let pointer = ui.ctx().pointer_latest_pos();
         let shift = ui.input(|i| i.modifiers.shift);
+        let now = ui.input(|i| i.time);
+        let mut canvas_nav = false;
 
         // --- input: zoom (wheel & pinch) ---
         if resp.hovered() {
@@ -2831,11 +2844,14 @@ impl AtlasApp {
             if let Some(p) = pointer {
                 if scroll.y.abs() > 0.0 && !shift {
                     self.zoom_at(p, (scroll.y as f32 * 0.0021).exp());
+                    canvas_nav = true;
                 } else if shift && (scroll.y.abs() > 0.0 || scroll.x.abs() > 0.0) {
                     self.cam.offset.x -= scroll.y + scroll.x;
+                    canvas_nav = true;
                 }
                 if zoom_delta != 1.0 {
                     self.zoom_at(p, zoom_delta);
+                    canvas_nav = true;
                 }
             }
         }
@@ -2873,6 +2889,7 @@ impl AtlasApp {
             .step(ui.ctx(), rect, pointer, &mut self.cam.offset);
         if turbo_pan_active {
             self.anim = None;
+            canvas_nav = true;
         }
         if resp.dragged()
             && self.rubber_origin.is_none()
@@ -2880,6 +2897,10 @@ impl AtlasApp {
             && self.session_drag.is_none()
         {
             self.cam.offset += resp.drag_delta();
+            canvas_nav = true;
+        }
+        if canvas_nav {
+            self.grid_fade.bump(now);
         }
 
         // --- hover ---
@@ -3360,8 +3381,12 @@ impl AtlasApp {
         }
     }
 
-    fn draw_dot_grid(&self, painter: &egui::Painter, rect: Rect) {
+    fn draw_dot_grid(&self, painter: &egui::Painter, rect: Rect, alpha: f32) {
+        if alpha <= 0.001 {
+            return;
+        }
         let p = self.palette();
+        let dot = p.grid_dot.gamma_multiply(alpha);
         let z = self.cam.z;
         if z < 0.05 {
             return;
@@ -3380,7 +3405,7 @@ impl AtlasApp {
                 painter.rect_filled(
                     Rect::from_center_size(Pos2::new(x, y), Vec2::splat(r)),
                     CornerRadius::ZERO,
-                    p.grid_dot,
+                    dot,
                 );
                 y += s;
             }

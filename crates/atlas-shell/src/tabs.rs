@@ -1,61 +1,60 @@
-//! Browser-style tab strip — the only UI above the tab workspace.
+//! Browser-style tab strip — shared painting for the unified top bar.
 //!
 //! Data-driven so every app in the ecosystem paints identical tabs: the app
 //! supplies [`TabSpec`]s and reacts to the returned [`TabAction`]. All
 //! geometry and colors live here; apps must not paint their own tab chrome.
 //!
-//! The bar is tabs-only: no title row, no buttons. Undo/redo lives on
-//! Ctrl+Z / Ctrl+Y in each app's hotkeys.
+//! Tabs render inline inside [`crate::menubar::unified_top_bar`] — they no
+//! longer occupy a separate panel row.
 
 use crate::theme::Palette;
+use crate::tokens::TopBarTokens;
 use crate::widgets::trunc;
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Layout, Margin, Pos2, Rect,
-    Sense, Stroke, StrokeKind, Ui, Vec2,
+    self, Align, Align2, Color32, CursorIcon, FontId, Layout, Pos2, Rect, Sense,
+    Shape, Stroke, Ui, Vec2,
 };
-
-/// Height of the tab-bar row (70% of the original 34px strip).
-const TAB_BAR_H: f32 = 24.0;
-const TAB_TOP_RADIUS: u8 = 6;
-/// Radius of the concave shoulder curves on an active tab.
-const TAB_SHOULDER_R: f32 = 4.0;
-const TAB_H_PAD: f32 = 10.0;
-const TAB_CLOSE_W: f32 = 16.0;
-/// Width of an empty tab before content is chosen (no label text).
-const TAB_EMPTY_W: f32 = 88.0;
-const TAB_WIDTH_SCALE: f32 = 2.0;
-/// Truncation width for tab titles.
-const TAB_TITLE_CHARS: usize = 36;
 
 #[derive(Clone, Copy)]
 pub struct TabChromeColors {
     pub bar: Color32,
+    pub bar_top: Color32,
     pub inactive: Color32,
     pub inactive_hover: Color32,
     pub active: Color32,
+    pub active_top: Color32,
     pub divider: Color32,
+    pub accent_stroke: Color32,
 }
 
 impl TabChromeColors {
-    pub fn from_palette(p: &Palette) -> Self {
-        if p.bg.r() > 128 {
-            Self {
-                bar: Color32::from_rgb(0xe4, 0xe7, 0xeb),
-                inactive: Color32::from_rgb(0xd2, 0xd6, 0xdc),
-                inactive_hover: Color32::from_rgb(0xea, 0xec, 0xf0),
-                active: p.bg,
-                divider: p.border_strong.gamma_multiply(0.55),
-            }
+    pub fn from_palette(p: &Palette, metrics: &TopBarTokens) -> Self {
+        let theme = if p.bg.r() > 128 {
+            &metrics.light
         } else {
-            Self {
-                bar: Color32::from_rgb(0x14, 0x17, 0x1b),
-                inactive: Color32::from_rgb(0x1a, 0x1e, 0x24),
-                inactive_hover: Color32::from_rgb(0x22, 0x27, 0x2e),
-                active: p.bg,
-                divider: p.border.gamma_multiply(0.65),
-            }
+            &metrics.dark
+        };
+        Self {
+            bar: theme.bar_color(),
+            bar_top: theme.bar_top_color(),
+            inactive: theme.inactive_color(),
+            inactive_hover: theme.inactive_hover_color(),
+            active: p.bg,
+            active_top: lerp_color(p.bg, Color32::WHITE, theme.active_top_mix),
+            divider: p.border.gamma_multiply(theme.divider_strength),
+            accent_stroke: lerp_color(p.accent, Color32::WHITE, theme.accent_white_mix),
         }
     }
+}
+
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    Color32::from_rgba_unmultiplied(
+        (a.r() as f32 + (b.r() as f32 - a.r() as f32) * t) as u8,
+        (a.g() as f32 + (b.g() as f32 - a.g() as f32) * t) as u8,
+        (a.b() as f32 + (b.b() as f32 - a.b() as f32) * t) as u8,
+        (a.a() as f32 + (b.a() as f32 - a.a() as f32) * t) as u8,
+    )
 }
 
 /// What the app wants shown for one tab.
@@ -83,68 +82,166 @@ struct TabSlot {
     active: bool,
     hovered: bool,
     closable: bool,
-    /// `None` for empty tabs (blank label until content is chosen).
-    title: Option<String>,
+    title: String,
 }
 
-fn tab_paint_rect(rect: Rect, active: bool, bar_h: f32) -> Rect {
-    let mut h = bar_h;
-    if active {
-        // Overlap the canvas by 1px so the active tab reads as connected.
-        h += 1.0;
-    }
-    Rect::from_min_size(
-        Pos2::new(rect.min.x, rect.max.y - h),
-        Vec2::new(rect.width(), h),
+fn tab_paint_rect(rect: Rect, metrics: &TopBarTokens) -> Rect {
+    Rect::from_min_max(
+        Pos2::new(rect.min.x, rect.min.y + metrics.tab_top_inset),
+        rect.max,
     )
 }
 
-fn paint_chrome_tab(
+pub(crate) fn paint_vertical_gradient(
     painter: &egui::Painter,
     rect: Rect,
-    fill: Color32,
-    active: bool,
+    top: Color32,
+    bottom: Color32,
+) {
+    let steps = rect.height().ceil().max(1.0) as usize;
+    for step in 0..steps {
+        let t = step as f32 / steps as f32;
+        let y = rect.top() + rect.height() * t;
+        painter.line_segment(
+            [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+            Stroke::new(1.25_f32, lerp_color(top, bottom, t)),
+        );
+    }
+}
+
+fn active_tab_x_bounds(rect: Rect, y: f32, metrics: &TopBarTokens) -> (f32, f32) {
+    let shoulder = metrics.tab_shoulder_radius.max(0.5);
+    let body_left = rect.left() + shoulder;
+    let body_right = rect.right() - shoulder;
+    let radius = metrics.tab_top_radius.max(0.5);
+
+    if y < rect.top() + radius {
+        let dy = y - (rect.top() + radius);
+        let dx = (radius * radius - dy * dy).max(0.0).sqrt();
+        (body_left + radius - dx, body_right - radius + dx)
+    } else if y > rect.bottom() - shoulder {
+        let t = ((y - (rect.bottom() - shoulder)) / shoulder).clamp(0.0, 1.0);
+        let flare = shoulder * (1.0 - (1.0 - t * t).sqrt());
+        (body_left - flare, body_right + flare)
+    } else {
+        (body_left, body_right)
+    }
+}
+
+fn active_tab_outline(rect: Rect, metrics: &TopBarTokens) -> Vec<Pos2> {
+    let mut points = Vec::new();
+    let samples = (rect.height() * 1.5).ceil() as usize;
+    for i in (0..=samples).rev() {
+        let y = rect.top() + rect.height() * i as f32 / samples as f32;
+        points.push(Pos2::new(active_tab_x_bounds(rect, y, metrics).0, y));
+    }
+    for i in 0..=samples {
+        let y = rect.top() + rect.height() * i as f32 / samples as f32;
+        points.push(Pos2::new(active_tab_x_bounds(rect, y, metrics).1, y));
+    }
+    points
+}
+
+fn paint_active_tab(
+    painter: &egui::Painter,
+    rect: Rect,
+    fill_top: Color32,
+    fill_bottom: Color32,
+    colors: TabChromeColors,
+    metrics: &TopBarTokens,
+) {
+    let steps = rect.height().ceil().max(1.0) as usize;
+    for step in 0..steps {
+        let t = step as f32 / steps as f32;
+        let y = rect.top() + rect.height() * t;
+        let (left, right) = active_tab_x_bounds(rect, y, metrics);
+        painter.line_segment(
+            [Pos2::new(left, y), Pos2::new(right, y)],
+            Stroke::new(1.35_f32, lerp_color(fill_top, fill_bottom, t)),
+        );
+    }
+
+    // Three nested strokes reproduce the reference's soft cyan falloff.
+    let outline = active_tab_outline(rect, metrics);
+    painter.add(Shape::line(
+        outline.clone(),
+        Stroke::new(
+            metrics.glow_outer_width,
+            colors
+                .accent_stroke
+                .gamma_multiply(metrics.glow_outer_opacity),
+        ),
+    ));
+    painter.add(Shape::line(
+        outline.clone(),
+        Stroke::new(
+            metrics.glow_middle_width,
+            colors
+                .accent_stroke
+                .gamma_multiply(metrics.glow_middle_opacity),
+        ),
+    ));
+    painter.add(Shape::line(
+        outline,
+        Stroke::new(
+            metrics.glow_core_width,
+            colors
+                .accent_stroke
+                .gamma_multiply(metrics.glow_core_opacity),
+        ),
+    ));
+
+    // A faint inner highlight gives the raised/embossed top edge.
+    let inner = Rect::from_min_max(
+        Pos2::new(
+            rect.left() + metrics.tab_shoulder_radius + 3.0,
+            rect.top() + 1.5,
+        ),
+        Pos2::new(
+            rect.right() - metrics.tab_shoulder_radius - 3.0,
+            rect.top() + 2.5,
+        ),
+    );
+    paint_vertical_gradient(
+        painter,
+        inner,
+        Color32::from_white_alpha((metrics.inner_highlight_opacity.clamp(0.0, 1.0) * 255.0) as u8),
+        Color32::TRANSPARENT,
+    );
+}
+
+fn paint_inactive_dividers(
+    painter: &egui::Painter,
+    slots: &[TabSlot],
     colors: TabChromeColors,
 ) {
-    let cr = CornerRadius {
-        nw: TAB_TOP_RADIUS,
-        ne: TAB_TOP_RADIUS,
-        sw: 0,
-        se: 0,
-    };
-    painter.rect_filled(rect, cr, fill);
-
-    if active {
-        // Concave shoulders where the active tab meets the tab bar.
-        painter.circle_filled(
-            Pos2::new(rect.left(), rect.bottom()),
-            TAB_SHOULDER_R,
-            colors.bar,
-        );
-        painter.circle_filled(
-            Pos2::new(rect.right(), rect.bottom()),
-            TAB_SHOULDER_R,
-            colors.bar,
-        );
-        // Soft top highlight so the tab reads as raised.
-        painter.rect_stroke(
-            rect,
-            cr,
-            Stroke::new(1.0, Color32::from_white_alpha(18)),
-            StrokeKind::Inside,
-        );
-    } else {
+    for pair in slots.windows(2) {
+        if pair[0].active || pair[1].active {
+            continue;
+        }
+        let x = pair[0].paint.right();
+        let y0 = pair[0].paint.top() + 5.0;
+        let y1 = pair[0].paint.bottom() - 3.0;
         painter.line_segment(
-            [rect.right_top(), rect.right_bottom()],
-            Stroke::new(1.0, colors.divider),
+            [Pos2::new(x, y0), Pos2::new(x, y1)],
+            Stroke::new(1.0_f32, colors.divider),
         );
     }
 }
 
 /// Paint the hoverable close "×" for one tab slot.
-fn paint_close_x(ui: &Ui, painter: &egui::Painter, slot: &TabSlot, palette: &Palette) {
+fn paint_close_x(
+    ui: &Ui,
+    painter: &egui::Painter,
+    slot: &TabSlot,
+    palette: &Palette,
+    metrics: &TopBarTokens,
+) {
     let cx = egui::Rect::from_center_size(
-        Pos2::new(slot.paint.right() - TAB_H_PAD, slot.paint.center().y),
+        Pos2::new(
+            slot.paint.right() - metrics.tab_horizontal_padding,
+            slot.paint.center().y,
+        ),
         Vec2::splat(14.0),
     );
     let over_x = ui
@@ -156,52 +253,48 @@ fn paint_close_x(ui: &Ui, painter: &egui::Painter, slot: &TabSlot, palette: &Pal
         cx.center(),
         Align2::CENTER_CENTER,
         "×",
-        FontId::proportional(13.0),
+        FontId::proportional(metrics.plus_text_size),
         if over_x { palette.ink } else { palette.sub },
     );
 }
 
-/// Renders the tab strip row; returns the user's action, if any.
+/// Renders the tab strip inline inside an existing [`Ui`]; returns the user's
+/// action, if any. Used by the unified top bar — not a standalone panel.
 pub fn tab_strip(
     ui: &mut Ui,
     palette: &Palette,
+    metrics: &TopBarTokens,
     tabs: &[TabSpec],
     active_tab: usize,
     busy: bool,
 ) -> Option<TabAction> {
-    let colors = TabChromeColors::from_palette(palette);
+    let colors = TabChromeColors::from_palette(palette, metrics);
     let mut action: Option<TabAction> = None;
     let mut slots: Vec<TabSlot> = Vec::new();
 
-    ui.set_min_height(TAB_BAR_H);
+    ui.set_min_height(metrics.height);
     ui.with_layout(Layout::left_to_right(Align::BOTTOM), |ui| {
         for (i, spec) in tabs.iter().enumerate() {
             let active = i == active_tab;
-            let title = if spec.is_empty {
-                None
-            } else {
-                Some(trunc(&spec.title, TAB_TITLE_CHARS))
-            };
+            let title = trunc(&spec.title, metrics.tab_title_chars);
 
-            let font = FontId::proportional(12.5);
-            let text_w = title
-                .as_ref()
-                .map(|t| {
-                    ui.painter()
-                        .layout_no_wrap(t.clone(), font.clone(), Color32::WHITE)
-                        .size()
-                        .x
-                })
-                .unwrap_or(0.0);
-            let base_w = if spec.is_empty {
-                TAB_EMPTY_W + if spec.closable { TAB_CLOSE_W } else { 0.0 }
-            } else {
-                text_w + TAB_H_PAD * 2.0 + if spec.closable { TAB_CLOSE_W } else { 0.0 }
-            };
-            let w = base_w * TAB_WIDTH_SCALE;
-            let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, TAB_BAR_H), Sense::click());
+            let font = FontId::proportional(metrics.tab_text_size);
+            let text_w = ui
+                .painter()
+                .layout_no_wrap(title.clone(), font.clone(), Color32::WHITE)
+                .size()
+                .x;
+            let base_w = text_w
+                + metrics.tab_horizontal_padding * 2.0
+                + if spec.closable {
+                    metrics.tab_close_width
+                } else {
+                    0.0
+                };
+            let w = base_w.clamp(metrics.tab_min_width, metrics.tab_max_width);
+            let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, metrics.height), Sense::click());
             let hovered = resp.hovered() && !active;
-            let paint = tab_paint_rect(rect, active, TAB_BAR_H);
+            let paint = tab_paint_rect(rect, metrics);
 
             slots.push(TabSlot {
                 paint,
@@ -213,7 +306,10 @@ pub fn tab_strip(
 
             if spec.closable {
                 let cx = egui::Rect::from_center_size(
-                    Pos2::new(rect.right_center().x - 12.0, paint.center().y),
+                    Pos2::new(
+                        rect.right_center().x - metrics.tab_horizontal_padding - 2.0,
+                        paint.center().y,
+                    ),
                     Vec2::splat(14.0),
                 );
                 let over_x = ui
@@ -240,20 +336,23 @@ pub fn tab_strip(
             resp.on_hover_text(spec.tooltip.clone());
         }
 
-        ui.add_space(1.0);
-        let (prect, presp) = ui.allocate_exact_size(Vec2::new(28.0, TAB_BAR_H), Sense::click());
+        ui.add_space(2.0);
+        let (prect, presp) = ui.allocate_exact_size(
+            Vec2::new(metrics.plus_hit_width, metrics.height),
+            Sense::click(),
+        );
         let presp = presp.on_hover_cursor(CursorIcon::PointingHand);
         let plus_center = prect.center();
         let plus_hover = presp.hovered();
         if plus_hover {
             ui.painter()
-                .circle_filled(plus_center, 9.0, colors.inactive_hover);
+                .circle_filled(plus_center, metrics.plus_radius, colors.inactive_hover);
         }
         ui.painter().text(
             plus_center,
             Align2::CENTER_CENTER,
             "+",
-            FontId::proportional(13.0),
+            FontId::proportional(metrics.plus_text_size),
             if plus_hover { palette.ink } else { palette.sub },
         );
         if presp.on_hover_text("New tab").clicked() {
@@ -267,30 +366,21 @@ pub fn tab_strip(
     });
 
     let painter = ui.painter().clone();
-    let inactive: Vec<_> = slots.iter().filter(|s| !s.active).collect();
     let active = slots.iter().find(|s| s.active);
 
-    for slot in &inactive {
-        let fill = if slot.hovered {
-            colors.inactive_hover
-        } else {
-            colors.inactive
-        };
-        paint_chrome_tab(&painter, slot.paint, fill, false, colors);
-    }
+    paint_inactive_dividers(&painter, &slots, colors);
     if let Some(slot) = active {
-        paint_chrome_tab(&painter, slot.paint, colors.active, true, colors);
+        paint_active_tab(
+            &painter,
+            slot.paint,
+            colors.active_top,
+            colors.active,
+            colors,
+            metrics,
+        );
     }
 
     for slot in &slots {
-        let Some(title) = &slot.title else {
-            // Empty tab: blank label, just the close affordance.
-            if slot.closable && (slot.hovered || slot.active) {
-                paint_close_x(ui, &painter, slot, palette);
-            }
-            continue;
-        };
-
         let text_color = if slot.active {
             palette.ink
         } else if slot.hovered {
@@ -299,53 +389,20 @@ pub fn tab_strip(
             palette.sub
         };
         painter.text(
-            Pos2::new(slot.paint.left() + TAB_H_PAD, slot.paint.center().y),
+            Pos2::new(
+                slot.paint.left() + metrics.tab_horizontal_padding,
+                slot.paint.center().y,
+            ),
             Align2::LEFT_CENTER,
-            title.clone(),
-            FontId::proportional(12.5),
+            slot.title.clone(),
+            FontId::proportional(metrics.tab_text_size),
             text_color,
         );
 
         if slot.closable && (slot.hovered || slot.active) {
-            paint_close_x(ui, &painter, slot, palette);
+            paint_close_x(ui, &painter, slot, palette, metrics);
         }
     }
-
-    action
-}
-
-/// State the app feeds into [`top_bar`] each frame.
-pub struct TopBarModel<'a> {
-    /// Salts the panel id — in linked sessions two apps share one egui
-    /// Context (two viewports), and panel state must not collide. Not
-    /// rendered: the bar is tabs-only.
-    pub app_title: &'a str,
-    /// Show a spinner after the tabs (e.g. a picker dialog is open).
-    pub busy: bool,
-    pub tabs: &'a [TabSpec],
-    pub active_tab: usize,
-}
-
-/// Tabs-only top bar. Identical chrome for every Atlas app; returns the
-/// user's tab action, if any.
-pub fn top_bar(
-    ctx: &egui::Context,
-    palette: &Palette,
-    model: TopBarModel<'_>,
-) -> Option<TabAction> {
-    let colors = TabChromeColors::from_palette(palette);
-    let mut action = None;
-
-    egui::TopBottomPanel::top(egui::Id::new(("topbar", model.app_title)))
-        .frame(egui::Frame::new().fill(colors.bar).inner_margin(Margin {
-            left: 8,
-            right: 8,
-            top: 2,
-            bottom: 0,
-        }))
-        .show(ctx, |ui| {
-            action = tab_strip(ui, palette, model.tabs, model.active_tab, model.busy);
-        });
 
     action
 }

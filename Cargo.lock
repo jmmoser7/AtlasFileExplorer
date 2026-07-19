@@ -434,6 +434,8 @@ version = "0.1.0"
 dependencies = [
  "atlas-core",
  "eframe",
+ "serde",
+ "toml 0.8.23",
 ]
 
 [[package]]

@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 description = "File Atlas — native, high-performance visual file organizer"
 
+[features]
+default = []
+ui-tuner = ["atlas-shell/ui-tuner"]
+
 [dependencies]
 atlas-core = { workspace = true }
 atlas-shell = { workspace = true }

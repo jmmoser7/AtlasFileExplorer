@@ -1,105 +1,358 @@
-//! Left tools rail — the hierarchical tagging editor, display settings, and
-//! workbook operations. Layout primitives come from `atlas_shell::sidebar`.
+//! Slate's unified bottom dock — one centered row of floating squircle icons
+//! over the canvas. Board creation tools (Board view only), grid/snap/align,
+//! and the Tags / Selection / View / Lens panels all live here; the dock
+//! chrome itself is painted by `atlas_shell::dock`.
+//!
+//! To add a tool: add a `DockItem` in [`floating_tools_dock`], an arm in the
+//! panel-body match (for Panel items), and an arm in the click match (for
+//! Action items). Renaming a tool = changing its `label`.
 
+use super::super::board::{BoardAlign, BoardTool, DistributeAxis, FrameCustomDraft, FramePreset};
+use super::super::board_icons::{self, ToolIcon};
 use super::super::chrome::ToolPanel;
 use super::super::SlateApp;
-use atlas_shell::sidebar::{
-    sidebar_region, sidebar_section, sidebar_subtle_divider, sidebar_toolbar_row, SidebarTheme,
-    SidebarTokens,
-};
-use atlas_shell::widgets::gear_menu;
-use eframe::egui::{self, Color32, Id, RichText};
+use atlas_shell::dock::{floating_dock, DockIcon, DockItem, DockItemKind, DockSide};
+use atlas_shell::sidebar::{sidebar_subtle_divider, SidebarTheme, SidebarTokens};
+use eframe::egui::{self, Color32, Rect, RichText};
 use slate_doc::{GroupId, TagId, ViewKind};
 
-fn tools_gear(app: &mut SlateApp, ui: &mut egui::Ui) {
-    gear_menu(ui, "slate_tools_gear", |ui| {
-        ui.label(RichText::new("Visible tool panels").small().strong());
-        ui.separator();
-        for panel in ToolPanel::ALL {
-            let mut on = app.tab().chrome.tool(panel);
-            if ui.checkbox(&mut on, panel.label()).changed() {
-                app.tab_mut().chrome.set_tool(panel, on);
-            }
+// Custom dock-icon painters bridging the shared dock to Slate's board icons.
+macro_rules! board_dock_icon {
+    ($name:ident, $icon:expr) => {
+        fn $name(p: &egui::Painter, r: Rect, c: Color32) {
+            board_icons::paint_tool_icon(p, r, $icon, c);
         }
-        ui.separator();
-        if ui.button("Advanced settings…").clicked() {
-            app.tab_mut().chrome.advanced_open = true;
-            ui.close_menu();
-        }
-    });
+    };
 }
+board_dock_icon!(icon_select, ToolIcon::Select);
+board_dock_icon!(icon_pan, ToolIcon::Pan);
+board_dock_icon!(icon_frame, ToolIcon::Frame);
+board_dock_icon!(icon_shapes, ToolIcon::Shapes);
+board_dock_icon!(icon_curve, ToolIcon::Curve);
+board_dock_icon!(icon_text, ToolIcon::Text);
+board_dock_icon!(icon_grid, ToolIcon::Grid);
+board_dock_icon!(icon_snap, ToolIcon::Snap);
+board_dock_icon!(icon_align, ToolIcon::Align);
 
-pub fn left_panel(app: &mut SlateApp, ctx: &egui::Context) {
+/// The single floating toolbar: board tools + panel launchers, one dock.
+pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
     let theme = app.palette().sidebar_theme();
     let chrome = app.tab().chrome.clone();
-    egui::SidePanel::left("slate_tools_rail")
-        .resizable(true)
-        .default_width(210.0)
-        .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                tools_gear(app, ui);
-                ui.label(RichText::new("Tools").small().color(theme.sub));
+    let view = app.doc().view.active_view;
+    let board = view == ViewKind::Board;
+
+    // Keep the combined nav button in sync with hotkey switches (V / H).
+    if matches!(app.board_tool, BoardTool::Select | BoardTool::Pan) {
+        app.board_nav_tool = app.board_tool;
+    }
+    let tool = app.board_tool;
+    let nav_tool = app.board_nav_tool;
+
+    let items = [
+        // ----- board creation tools (Board view only) -----
+        DockItem {
+            id: "tool.nav",
+            label: "Select / Pan",
+            icon: DockIcon::Custom(if nav_tool == BoardTool::Pan {
+                icon_pan
+            } else {
+                icon_select
+            }),
+            kind: DockItemKind::Panel,
+            active: matches!(tool, BoardTool::Select | BoardTool::Pan),
+            visible: board,
+            gap_before: false,
+        },
+        DockItem {
+            id: "tool.frame",
+            label: "Frame",
+            icon: DockIcon::Custom(icon_frame),
+            kind: DockItemKind::Panel,
+            active: tool == BoardTool::Frame,
+            visible: board,
+            gap_before: false,
+        },
+        DockItem {
+            id: "tool.shapes",
+            label: "Shapes",
+            icon: DockIcon::Custom(icon_shapes),
+            kind: DockItemKind::Panel,
+            active: matches!(tool, BoardTool::RectShape | BoardTool::Ellipse),
+            visible: board,
+            gap_before: false,
+        },
+        DockItem {
+            id: "tool.curve",
+            label: "Curve",
+            icon: DockIcon::Custom(icon_curve),
+            kind: DockItemKind::Panel,
+            active: matches!(
+                tool,
+                BoardTool::Line | BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan
+            ),
+            visible: board,
+            gap_before: false,
+        },
+        DockItem {
+            id: "tool.text",
+            label: "Text (T)",
+            icon: DockIcon::Custom(icon_text),
+            kind: DockItemKind::Action,
+            active: tool == BoardTool::Text,
+            visible: board,
+            gap_before: false,
+        },
+        // ----- board view options -----
+        DockItem {
+            id: "board.grid",
+            label: "Board grid",
+            icon: DockIcon::Custom(icon_grid),
+            kind: DockItemKind::Action,
+            active: app.board_show_grid,
+            visible: board,
+            gap_before: true,
+        },
+        DockItem {
+            id: "board.snap",
+            label: "Snap to grid",
+            icon: DockIcon::Custom(icon_snap),
+            kind: DockItemKind::Action,
+            active: app.board_snap_grid,
+            visible: board,
+            gap_before: false,
+        },
+        DockItem {
+            id: "board.align",
+            label: "Align",
+            icon: DockIcon::Custom(icon_align),
+            kind: DockItemKind::Panel,
+            active: false,
+            visible: board && app.board_sel.len() >= 2,
+            gap_before: false,
+        },
+        // ----- workspace panels (all views) -----
+        DockItem {
+            id: "tags",
+            label: "Tags",
+            icon: DockIcon::Tags,
+            kind: DockItemKind::Panel,
+            active: false,
+            visible: chrome.tool(ToolPanel::Tags),
+            gap_before: board,
+        },
+        DockItem {
+            id: "selection",
+            label: "Selection",
+            icon: DockIcon::Selection,
+            kind: DockItemKind::Panel,
+            active: !app.board_sel.is_empty(),
+            visible: chrome.tool(ToolPanel::Selection),
+            gap_before: false,
+        },
+        DockItem {
+            id: "view",
+            label: "View",
+            icon: DockIcon::View,
+            kind: DockItemKind::Panel,
+            active: false,
+            visible: chrome.tool(ToolPanel::Display),
+            gap_before: false,
+        },
+        DockItem {
+            id: "lens",
+            label: "Lens",
+            icon: DockIcon::Lens,
+            kind: DockItemKind::Panel,
+            active: view == ViewKind::Lens,
+            visible: chrome.tool(ToolPanel::Lens) && view == ViewKind::Lens,
+            gap_before: false,
+        },
+    ];
+
+    let palette = app.palette();
+    let canvas = app.canvas_rect;
+    let clicked = floating_dock(
+        ctx,
+        "slate_tools",
+        canvas,
+        &palette,
+        DockSide::BottomCenter,
+        &items,
+        |ui, id| match id {
+            "tool.nav" => nav_flyout(app, ui, theme),
+            "tool.frame" => frame_flyout(app, ui, theme),
+            "tool.shapes" => shapes_flyout(app, ui, theme),
+            "tool.curve" => curve_flyout(app, ui, theme),
+            "board.align" => align_flyout(app, ui),
+            "tags" => tags_body(app, ui, theme),
+            "selection" => super::inspector::selection_body(app, ui, theme),
+            "view" => display_body(app, ui),
+            "lens" => app.lens_sidebar(ui, theme),
+            _ => {}
+        },
+    );
+
+    // Icon clicks: tool activation and toggles.
+    match clicked {
+        Some("tool.nav") => {
+            let other = if nav_tool == BoardTool::Select {
+                BoardTool::Pan
+            } else {
+                BoardTool::Select
+            };
+            app.board_tool = if tool == nav_tool { other } else { nav_tool };
+            app.board_nav_tool = app.board_tool;
+        }
+        Some("tool.frame") => app.board_tool = BoardTool::Frame,
+        Some("tool.shapes") => app.board_tool = BoardTool::RectShape,
+        Some("tool.curve") => app.board_tool = BoardTool::Line,
+        Some("tool.text") => app.board_tool = BoardTool::Text,
+        Some("board.grid") => app.board_show_grid = !app.board_show_grid,
+        Some("board.snap") => app.board_snap_grid = !app.board_snap_grid,
+        _ => {}
+    }
+}
+
+// ----- board tool flyouts -------------------------------------------------------
+
+fn nav_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    for nav in [BoardTool::Select, BoardTool::Pan] {
+        if board_icons::tool_menu_row(
+            ui,
+            nav.tool_icon(),
+            nav.label(),
+            Some(nav.hotkey()),
+            app.board_tool == nav,
+            theme.ink,
+            theme.sub,
+        )
+        .clicked()
+        {
+            app.board_tool = nav;
+            app.board_nav_tool = nav;
+        }
+    }
+}
+
+fn frame_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    for preset in [
+        FramePreset::Letter,
+        FramePreset::Tabloid,
+        FramePreset::Wide169,
+    ] {
+        if board_icons::tool_menu_row(
+            ui,
+            ToolIcon::Frame,
+            preset.label(),
+            None,
+            app.board_frame_preset == preset,
+            theme.ink,
+            theme.sub,
+        )
+        .clicked()
+        {
+            app.board_frame_preset = preset;
+            app.board_tool = BoardTool::Frame;
+        }
+    }
+    if board_icons::tool_menu_row(
+        ui,
+        ToolIcon::Frame,
+        "Custom…",
+        None,
+        matches!(app.board_frame_preset, FramePreset::Custom { .. }),
+        theme.ink,
+        theme.sub,
+    )
+    .clicked()
+    {
+        app.board_tool = BoardTool::Frame;
+        app.board_frame_custom
+            .get_or_insert_with(|| FrameCustomDraft {
+                w: "612".into(),
+                h: "792".into(),
             });
-            ui.add_space(4.0);
-
-            if chrome.tool(ToolPanel::Tags) {
-                tags_panel(app, ui, theme);
-            }
-            if chrome.tool(ToolPanel::Display) {
-                display_panel(app, ui, theme);
-            }
-            if chrome.tool(ToolPanel::Selection) {
-                super::inspector::selection_panel(app, ui, theme);
-            }
-            if chrome.tool(ToolPanel::Workbook) {
-                workbook_panel(app, ui, theme);
-            }
-            if chrome.tool(ToolPanel::Ai) {
-                ai_panel(app, ui, theme);
-            }
-            if chrome.tool(ToolPanel::Lens) {
-                lens_panel(app, ui, theme);
-            }
-        });
-}
-
-/// AI / Cursor panel — the body is shared with File Atlas (`atlas_ai::ui`),
-/// so the assistant toolbar looks and behaves identically in both apps.
-fn ai_panel(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let mut expanded = app.tab().chrome.tool_expanded(ToolPanel::Ai);
-    if sidebar_section(
-        ui,
-        Id::new("slate_ai"),
-        "AI",
-        Some("Cursor"),
-        &mut expanded,
-        theme,
-        |ui| atlas_ai::ui::ai_body(&mut app.ai, ui, theme),
-    ) {
-        app.tab_mut()
-            .chrome
-            .set_tool_expanded(ToolPanel::Ai, expanded);
     }
 }
 
-// ----- Tags panel -------------------------------------------------------------
-
-fn tags_panel(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let mut expanded = app.tab().chrome.tool_expanded(ToolPanel::Tags);
-    if sidebar_section(
-        ui,
-        Id::new("slate_tags"),
-        "Tags",
-        Some("groups are exclusive"),
-        &mut expanded,
-        theme,
-        |ui| tags_body(app, ui, theme),
-    ) {
-        app.tab_mut()
-            .chrome
-            .set_tool_expanded(ToolPanel::Tags, expanded);
+fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    for shape in [BoardTool::RectShape, BoardTool::Ellipse] {
+        if board_icons::tool_menu_row(
+            ui,
+            shape.tool_icon(),
+            shape.label(),
+            Some(shape.hotkey()),
+            app.board_tool == shape,
+            theme.ink,
+            theme.sub,
+        )
+        .clicked()
+        {
+            app.board_tool = shape;
+        }
     }
 }
+
+fn curve_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    for curve in [
+        BoardTool::Line,
+        BoardTool::Arc,
+        BoardTool::Polyline,
+        BoardTool::BezierSpan,
+    ] {
+        let hotkey = (curve == BoardTool::Line).then_some(curve.hotkey());
+        let resp = board_icons::tool_menu_row(
+            ui,
+            curve.tool_icon(),
+            curve.label(),
+            hotkey,
+            app.board_tool == curve,
+            theme.ink,
+            theme.sub,
+        );
+        let resp = if curve.is_implemented() {
+            resp
+        } else {
+            resp.on_hover_text("Coming soon")
+        };
+        if resp.clicked() {
+            if curve.is_implemented() {
+                app.board_tool = curve;
+            } else {
+                app.toast(format!(
+                    "{} is not available yet — use Line for now.",
+                    curve.label()
+                ));
+            }
+        }
+    }
+}
+
+fn align_flyout(app: &mut SlateApp, ui: &mut egui::Ui) {
+    for (label, align) in [
+        ("Left", BoardAlign::Left),
+        ("Center", BoardAlign::CenterH),
+        ("Right", BoardAlign::Right),
+        ("Top", BoardAlign::Top),
+        ("Middle", BoardAlign::CenterV),
+        ("Bottom", BoardAlign::Bottom),
+    ] {
+        if ui.button(label).clicked() {
+            app.align_board_selection(align);
+        }
+    }
+    if app.board_sel.len() >= 3 {
+        ui.separator();
+        if ui.button("Distribute horizontally").clicked() {
+            app.distribute_board_selection(DistributeAxis::Horizontal);
+        }
+        if ui.button("Distribute vertically").clicked() {
+            app.distribute_board_selection(DistributeAxis::Vertical);
+        }
+    }
+}
+
+// ----- Tags panel body ----------------------------------------------------------
 
 fn tags_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     let groups: Vec<(GroupId, String)> = app
@@ -287,23 +540,6 @@ fn view_kind_label(kind: ViewKind) -> &'static str {
     }
 }
 
-fn display_panel(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let mut expanded = app.tab().chrome.tool_expanded(ToolPanel::Display);
-    if sidebar_section(
-        ui,
-        Id::new("slate_presentation_mode"),
-        "Presentation Mode",
-        None,
-        &mut expanded,
-        theme,
-        |ui| display_body(app, ui),
-    ) {
-        app.tab_mut()
-            .chrome
-            .set_tool_expanded(ToolPanel::Display, expanded);
-    }
-}
-
 fn display_body(app: &mut SlateApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = SidebarTokens::OPTION_GAP;
@@ -346,110 +582,5 @@ fn display_body(app: &mut SlateApp, ui: &mut egui::Ui) {
     });
 }
 
-// ----- Lens panel ---------------------------------------------------------------
-
-fn lens_panel(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let mut expanded = app.tab().chrome.tool_expanded(ToolPanel::Lens);
-    if sidebar_section(
-        ui,
-        Id::new("slate_lens"),
-        "Lens",
-        Some("code graph"),
-        &mut expanded,
-        theme,
-        |ui| app.lens_sidebar(ui, theme),
-    ) {
-        app.tab_mut()
-            .chrome
-            .set_tool_expanded(ToolPanel::Lens, expanded);
-    }
-}
-
-// ----- Workbook panel -------------------------------------------------------------
-
-fn workbook_panel(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let mut expanded = app.tab().chrome.tool_expanded(ToolPanel::Workbook);
-    if sidebar_section(
-        ui,
-        Id::new("slate_workbook"),
-        "Workbook",
-        None,
-        &mut expanded,
-        theme,
-        |ui| workbook_body(app, ui, theme),
-    ) {
-        app.tab_mut()
-            .chrome
-            .set_tool_expanded(ToolPanel::Workbook, expanded);
-    }
-}
-
-fn workbook_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    sidebar_toolbar_row(ui, |ui| {
-        if ui.button("Open…").on_hover_text("Ctrl+O").clicked() {
-            app.open_doc_dialog();
-        }
-        if ui.button("Save").on_hover_text("Ctrl+S").clicked() {
-            app.save_doc();
-        }
-        if ui
-            .button("Save as…")
-            .on_hover_text("Ctrl+Shift+S")
-            .clicked()
-        {
-            app.save_doc_as_dialog();
-        }
-    });
-    sidebar_toolbar_row(ui, |ui| {
-        if ui
-            .button("Add files…")
-            .on_hover_text("Add files to this workbook (or drop them onto the window)")
-            .clicked()
-        {
-            app.add_files_dialog();
-        }
-    });
-
-    sidebar_subtle_divider(ui, theme);
-    sidebar_region(ui, "Artifact", theme, |ui| {
-        if ui
-            .button("Export artifact…")
-            .on_hover_text(
-                "Write the board as an HTML slide deck (Ctrl+E). Frames become \
-                 slides; what you see on the board is what the file shows.",
-            )
-            .clicked()
-        {
-            app.export_artifact_dialog();
-        }
-        ui.checkbox(&mut app.export_inline, "Single file (inline assets)")
-            .on_hover_text(
-                "Embed images as base64 inside index.html — one portable file, \
-                 larger size — instead of an assets/ folder.",
-            );
-    });
-
-    sidebar_subtle_divider(ui, theme);
-    sidebar_region(ui, "File Atlas", theme, |ui| {
-        if app.atlas.is_some() {
-            ui.label(
-                RichText::new("Linked — right-click files in Atlas to tag them")
-                    .small()
-                    .color(theme.sub),
-            );
-            if ui.button("Close linked Atlas").clicked() {
-                app.close_atlas();
-            }
-        } else if ui
-            .button("Open File Atlas…")
-            .on_hover_text(
-                "Opens File Atlas in a linked window. This workbook's tags appear \
-                 in Atlas's right-click menu, and tagged or dragged files flow \
-                 straight onto this slate.",
-            )
-            .clicked()
-        {
-            app.open_atlas(ui.ctx());
-        }
-    });
-}
+// Workbook file operations and the File Atlas link now live in the app-icon
+// portal (File menu); AI/Cursor lives in Preferences. See `ui/menubar.rs`.

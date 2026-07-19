@@ -736,6 +736,9 @@ impl SlateApp {
 
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         let pointer = ui.ctx().pointer_latest_pos();
+        let now = ui.input(|i| i.time);
+        let mut canvas_nav = false;
+        self.flush_grid_fade_armed(now);
 
         // Camera — identical to Grid/Venn.
         if resp.hovered() {
@@ -744,8 +747,10 @@ impl SlateApp {
                 if ui.input(|i| i.modifiers.shift) {
                     let z = self.tab().cam.z;
                     self.tab_mut().cam.offset.x -= scroll / z;
+                    canvas_nav = true;
                 } else if let Some(p) = pointer {
                     self.zoom_at(p, 1.0 + scroll * 0.0015);
+                    canvas_nav = true;
                 }
             }
         }
@@ -773,6 +778,7 @@ impl SlateApp {
             let z = self.tab().cam.z;
             let old = self.tab().cam.offset;
             self.tab_mut().cam.offset = old - (cam_offset_tmp - old) / z;
+            canvas_nav = true;
         } else if !self.lens.drag.is_some()
             && !node_drag_active
             && !pointer_on_draggable
@@ -782,6 +788,10 @@ impl SlateApp {
             let delta = resp.drag_delta();
             let z = self.tab().cam.z;
             self.tab_mut().cam.offset -= delta / z;
+            canvas_nav = true;
+        }
+        if canvas_nav {
+            self.bump_grid_fade(now);
         }
 
         if node_drag_active {
@@ -807,7 +817,8 @@ impl SlateApp {
             .and_then(|fid| self.lens.graph.as_ref().map(|g| focus_neighborhood(g, fid)));
         let search = self.lens.search.trim().to_lowercase();
 
-        self.paint_dot_grid(&painter, rect, &palette);
+        let grid_alpha = self.tab().grid_fade.alpha(now);
+        self.paint_dot_grid(&painter, rect, &palette, grid_alpha);
         self.lens_paint_wires(&painter, &layout, focus_set.as_ref(), &palette);
         self.lens_paint_nodes(ui, &painter, &layout, focus_set.as_ref(), &search, &palette);
 

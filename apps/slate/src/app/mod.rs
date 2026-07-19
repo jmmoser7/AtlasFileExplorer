@@ -82,6 +82,8 @@ pub struct SlateTab {
     pub dirty: bool,
     pub chrome: ChromeConfig,
     pub cam: Camera,
+    pub grid_fade: atlas_shell::grid_fade::GridFade,
+    pub grid_fade_armed: bool,
     /// Tags currently focused for the Venn presentation (empty = all).
     pub venn_focus: HashSet<TagId>,
     /// Board undo/redo history (session-local, not saved with the doc).
@@ -98,6 +100,8 @@ impl SlateTab {
             dirty: false,
             chrome: chrome::default_chrome(),
             cam: Camera::default(),
+            grid_fade: atlas_shell::grid_fade::GridFade::default(),
+            grid_fade_armed: false,
             venn_focus: HashSet::new(),
             journal: SceneJournal::default(),
         }
@@ -208,12 +212,8 @@ pub struct SlateApp {
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
     pub board_sel: HashSet<NodeId>,
     pub board_tool: board::BoardTool,
-    /// Last-used navigation tool (Select or Pan) shown on the combined toolbar button.
+    /// Last-used navigation tool (Select or Pan) shown on the combined dock button.
     pub board_nav_tool: board::BoardTool,
-    /// Open create-toolbar flyout submenu (persistent popup; `None` = closed).
-    pub board_submenu: Option<board::CreateCategory>,
-    /// Hover-dwell tracker for opening toolbar flyouts: (category, hover start).
-    pub board_submenu_hover: Option<(board::CreateCategory, Instant)>,
     pub board_frame_preset: board::FramePreset,
     pub board_frame_custom: Option<board::FrameCustomDraft>,
     pub board_drag: Option<board::BoardDrag>,
@@ -310,8 +310,6 @@ impl SlateApp {
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
             board_nav_tool: board::BoardTool::Select,
-            board_submenu: None,
-            board_submenu_hover: None,
             board_frame_preset: board::FramePreset::default(),
             board_frame_custom: None,
             board_drag: None,
@@ -1026,24 +1024,24 @@ impl SlateApp {
 
         self.hotkeys(ctx);
 
-        // Chrome, outermost first: the menu bar spans the full width, then
-        // the bottom readout bar, then the tools rail — registered *before*
-        // the tab strip so the rail runs from the readout bar all the way up
-        // to the menu bar, with the tabs nested in the remaining width.
-        // Full-screen canvas (⛶ / F11) suppresses the rail and readout bar.
+        // Register the unified top bar first so it is the outermost panel and
+        // always spans the full viewport width. Side/bottom chrome is then
+        // constrained to the workspace below it.
+        self.draw_top_bar(ctx);
         let fullscreen = self.tab().chrome.canvas_fullscreen;
-        self.draw_menu_bar(ctx);
         if !fullscreen {
             self.draw_readout_bar(ctx);
-            self.draw_tools_rail(ctx);
         }
-        self.draw_top_chrome(ctx);
         self.draw_advanced_window(ctx);
+        atlas_shell::tuning::show(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.canvas(ui);
         });
 
+        if self.presenting.is_none() {
+            self.draw_tools_rail(ctx);
+        }
         self.draw_toasts(ctx);
         // Presentation overlay paints above everything, last.
         self.present_frame(ctx);

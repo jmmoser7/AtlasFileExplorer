@@ -37,8 +37,10 @@ Read `apps/file-atlas/src/app/ARCHITECTURE.md` and
 Both apps must look and feel identical. This is enforced structurally:
 
 1. **All chrome painting lives in `atlas-shell`** — tab shapes, palette,
-   sidebar section cards, widgets, gear menus. Apps supply *data* (tab specs,
-   panel sets, command entries) and react to returned actions.
+   sidebar section cards, widgets, gear menus. The **unified top bar** (icon
+   portal + inline tabs) is documented in `crates/atlas-shell/TOPBAR.md`.
+   Apps supply *data* (tab specs, panel sets, command entries) and react to
+   returned actions.
 2. **Never define chrome colors, tab painting, or sidebar layout primitives
    inside an app crate.** If an app needs a new chrome capability, add it to
    `atlas-shell` so the other app gets it too.
