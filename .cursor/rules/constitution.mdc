@@ -1,0 +1,51 @@
+---
+description: The project constitution — governing law for all agents
+alwaysApply: true
+---
+
+# The constitution governs this repository
+
+`CONSTITUTION.md` (repo root) is the project's governing law. Read it before
+any change that touches architecture, document models, geometry, the command
+system, exports, or the agent surface. Where it conflicts with any other
+rule, doc, or code, the constitution wins.
+
+**The pushback mandate (Article XI):** if a request conflicts with an
+article, do NOT silently comply. Name the article, explain the damage, and
+propose a conforming alternative or a draft amendment. Only the user
+ratifies amendments, by explicit edit to `CONSTITUTION.md`.
+
+The articles, in one line each:
+
+1. **Minimal core** — core = canvas paradigm (camera, tabs, journal, chrome,
+   command registry); all else is a capability; no document model, geometry,
+   or capability logic may depend on egui or any renderer.
+2. **Performance is a feature** — 60fps canvas; no per-frame allocation or
+   tessellation in paint paths (tessellate once, cache); heavy work async
+   and generation-tagged.
+3. **The 10% rule** — capabilities implement the deliberately chosen
+   fraction of a domain actually used. "Photoshop has it" is not a reason.
+4. **Honest models** — exports are serializations; graphs are extracted,
+   never hallucinated; the board's styling ceiling is **SVG-expressible**
+   (supersedes CSS-only), held identically by the egui painter and the
+   artifact writer.
+5. **One universe, portals** — the board is the only universe; generated
+   views (Grid/Venn/Lens/…) are portal nodes: journaled frames,
+   deterministically regenerated contents.
+6. **Journal-only mutation** — every mutation is a named, invertible,
+   journaled command carrying its author (human | named agent). Never mutate
+   documents outside a journaled path.
+7. **Command parity** — humans and agents drive the same command surface;
+   agents extend the workspace with data (declarative assets), never code;
+   script execution requires a future ratified amendment.
+8. **Bandwidth** — the canvas is the prompt (selection/viewport/ink are
+   agent context); every input modality compiles to commands; the human is
+   never blocked synchronously on an agent.
+9. **Slate is a linker, never a database** — links resolve through the
+   `Source` abstraction.
+10. **No chrome divergence** — see `.cursor/rules/shared-chrome.mdc`.
+11. **Agent conduct** — pushback mandate; amendments only by user-ratified
+    edits to `CONSTITUTION.md`.
+
+Companions: `ROADMAP.md` (phase sequencing), `docs/facet-taxonomy.md`
+(tools bind to facets, not formats).

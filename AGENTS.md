@@ -1,5 +1,16 @@
 # Agent instructions — Atlas ecosystem (native)
 
+## Governing documents
+
+**`CONSTITUTION.md` (repo root) is the project's governing law** — read it
+before any change touching architecture, document models, geometry, the
+command system, exports, or the agent surface. It carries a pushback
+mandate: if a request conflicts with an article, name the article and
+propose an alternative or amendment instead of silently complying.
+`ROADMAP.md` sequences the long-term build; `docs/facet-taxonomy.md` defines
+how file types are classified. Where this file and the constitution
+disagree, the constitution wins.
+
 Rust + egui Windows desktop apps for visual file organization at scale. The
 repo is a **Cargo workspace** containing two launchable applications built on
 shared crates:
@@ -93,11 +104,15 @@ identical in both apps — extend it there, never per-app. The crate owns:
 
 Two structural rules keep the board honest — hold both when extending it:
 
-1. **The scene model is constrained to CSS.** `slate-doc::scene` only holds
-   styling that HTML+CSS can express; `apps/slate/src/app/board.rs` (egui
-   painter) and `crates/slate-artifact` (HTML writer) are two interpreters of
-   that one model, and `imagefx.rs` mirrors the CSS filter math on pixels.
-   A new board style property must land in all three, or not at all.
+1. **The scene model is constrained to the SVG ceiling.** `slate-doc::scene`
+   only holds styling that SVG (including CSS) can express — the
+   constitution's Article IV amended this from the original CSS-only rule to
+   make room for paths, variable-width strokes, and blend modes (the code
+   itself still reflects the CSS-only era until Roadmap Phase 2 lands).
+   `apps/slate/src/app/board.rs` (egui painter) and `crates/slate-artifact`
+   (HTML writer) are two interpreters of that one model, and `imagefx.rs`
+   mirrors the CSS filter math on pixels. A new board style property must
+   land in all interpreters, or not at all.
 2. **All board mutations are invertible `SceneCmd`s** committed through the
    tab's `SceneJournal` (undo/redo now; the MCP agent surface later). UI code
    must not mutate `doc.scene` outside a journaled path
