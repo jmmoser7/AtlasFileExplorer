@@ -561,6 +561,11 @@ pub fn upstream_folders(path: &Path) -> Vec<(String, PathBuf)> {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| p.to_string_lossy().into_owned())
         };
+        // Relative paths bottom out at an empty parent (`"Users".parent()` is
+        // `Some("")`); there is no folder to show for it.
+        if name.is_empty() {
+            break;
+        }
         stack.push((name, p.to_path_buf()));
         let parent = p.parent();
         if parent == Some(p) || parent == cur {
