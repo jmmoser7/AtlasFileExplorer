@@ -13,14 +13,16 @@ Hard rules:
 
 1. All chrome painting, colors, spacing, and layout primitives live in
    `crates/atlas-shell` (`theme.rs`, `menubar.rs`, `tabs.rs`, `sidebar.rs`,
-   `dock.rs`, `widgets.rs`, `chrome.rs`, `commands.rs`, and `ui-tokens.toml`). Apps pass
-   data in and handle returned actions. **Read
+   `dock.rs`, `taper.rs`, `widgets.rs`, `chrome.rs`, `commands.rs`, and
+   `ui-tokens.toml`). Apps pass data in and handle returned actions. **Read
    `crates/atlas-shell/TOPBAR.md` before changing the top bar** — one unified
    strip (icon portal + inline tabs + window controls); never split title bar
    and tab strip into separate rows again. Adjustable top-bar values belong in
    `ui-tokens.toml`, not scattered constants. Follow
    `docs/ui-tuning-workflow.md` when adding tunable UI areas. Read
-   `crates/atlas-shell/DOCK.md` before changing floating canvas docks.
+   `crates/atlas-shell/DOCK.md` before changing floating canvas docks, and
+   `crates/atlas-shell/PAINT.md` before adding soft AA strokes (partition
+   ribbons, etc.).
 2. Never hardcode chrome colors or repaint tab/sidebar shapes inside an app
    crate. If a new chrome capability is needed, extend `atlas-shell` so both
    apps inherit it.

@@ -43,6 +43,18 @@ pub const SKIP_DIRS: [&str; 5] = [
 pub use crate::metadata::mtime_of;
 
 pub fn start_scan(root: PathBuf, generation: u64, tx: Sender<(u64, ScanMsg)>) -> ScanHandle {
+    start_scan_seeds(root.clone(), vec![root], generation, tx)
+}
+
+/// Walk only `seeds` (and their descendants), emitting paths relative to
+/// `root`. Used when the user multi-selects sibling folders so the canvas
+/// maps those branches without scanning the rest of the parent.
+pub fn start_scan_seeds(
+    root: PathBuf,
+    seeds: Vec<PathBuf>,
+    generation: u64,
+    tx: Sender<(u64, ScanMsg)>,
+) -> ScanHandle {
     let cancel = Arc::new(AtomicBool::new(false));
     let files_found = Arc::new(AtomicU64::new(0));
 
@@ -51,8 +63,14 @@ pub fn start_scan(root: PathBuf, generation: u64, tx: Sender<(u64, ScanMsg)>) ->
         files_found: files_found.clone(),
     };
 
+    let seeds = if seeds.is_empty() {
+        vec![root.clone()]
+    } else {
+        seeds
+    };
+
     let queue = Arc::new(Queue {
-        dirs: Mutex::new((vec![root.clone()], 0)),
+        dirs: Mutex::new((seeds, 0)),
         cv: Condvar::new(),
     });
 
@@ -236,6 +254,35 @@ mod tests {
         assert_eq!(mp4.family, crate::types::Family::Video);
         let rhino = got.iter().find(|e| e.ext == "3dm").unwrap();
         assert_eq!(rhino.family, crate::types::Family::Cad);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn scan_seeds_skip_unselected_siblings() {
+        let root = std::env::temp_dir().join(format!("nfa_scan_seeds_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("a")).unwrap();
+        std::fs::create_dir_all(root.join("b")).unwrap();
+        std::fs::create_dir_all(root.join("c")).unwrap();
+        std::fs::write(root.join("a/one.txt"), b"1").unwrap();
+        std::fs::write(root.join("b/two.txt"), b"22").unwrap();
+        std::fs::write(root.join("c/three.txt"), b"333").unwrap();
+
+        let (tx, rx) = unbounded();
+        let _h = start_scan_seeds(root.clone(), vec![root.join("a"), root.join("c")], 3, tx);
+
+        let mut got: Vec<FileEntry> = Vec::new();
+        loop {
+            let (generation, msg) = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+            assert_eq!(generation, 3);
+            match msg {
+                ScanMsg::Batch(b) => got.extend(b),
+                ScanMsg::Done { .. } => break,
+            }
+        }
+        let mut rels: Vec<&str> = got.iter().map(|e| e.rel.as_str()).collect();
+        rels.sort();
+        assert_eq!(rels, vec!["a\\one.txt", "c\\three.txt"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

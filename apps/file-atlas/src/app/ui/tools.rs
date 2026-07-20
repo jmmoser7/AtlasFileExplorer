@@ -9,7 +9,7 @@
 use super::super::{AtlasApp, DateFilterField, FilterMode, LeaderStyle, Orient, ViewCmd};
 use crate::app::chrome::ToolPanel;
 use atlas_core::types::{ExtGroup, FAMILIES};
-use atlas_shell::dock::{floating_dock, DockIcon, DockItem, DockItemKind, DockSide};
+use atlas_shell::dock::{floating_dock, DockIcon, DockItem, DockItemKind};
 use atlas_shell::sidebar::{
     sidebar_checkbox_row, sidebar_family_master_row, sidebar_mode_row, sidebar_nested_checkbox_row,
     sidebar_option_group, sidebar_region, sidebar_slider_block, sidebar_subtle_divider,
@@ -30,12 +30,15 @@ fn sidebar_theme(app: &AtlasApp) -> SidebarTheme {
 
 pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
     let chrome = app.active_chrome().clone();
+    // All File Atlas dock icons are Dashboards (settings panels). List them
+    // as one contiguous group — no visible separator (see DOCK.md).
     let items = [
         DockItem {
             id: "filters",
             label: "Basic filters",
+            description: "Search, file types, owners, dates, and duplicate hiding.",
             icon: DockIcon::Filters,
-            kind: DockItemKind::Panel,
+            kind: DockItemKind::Dashboard,
             active: app.any_filter,
             visible: chrome.tool(ToolPanel::BasicFilters),
             gap_before: false,
@@ -43,8 +46,9 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         DockItem {
             id: "display",
             label: "Display settings",
+            description: "Layout density, portals, leader lines, and fit controls.",
             icon: DockIcon::Display,
-            kind: DockItemKind::Panel,
+            kind: DockItemKind::Dashboard,
             active: false,
             visible: chrome.tool(ToolPanel::DisplaySettings),
             gap_before: false,
@@ -52,8 +56,9 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         DockItem {
             id: "workflow",
             label: "Workflow",
+            description: "Focus the canvas on unassigned files during export prep.",
             icon: DockIcon::Workflow,
-            kind: DockItemKind::Panel,
+            kind: DockItemKind::Dashboard,
             active: app.only_unassigned,
             visible: chrome.tool(ToolPanel::Workflow),
             gap_before: false,
@@ -61,11 +66,12 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         DockItem {
             id: "ai",
             label: "AI · Cursor",
+            description: "Launch Cursor against the AI workspace and live link.",
             icon: DockIcon::Ai,
-            kind: DockItemKind::Panel,
+            kind: DockItemKind::Dashboard,
             active: false,
             visible: chrome.tool(ToolPanel::Ai),
-            gap_before: true,
+            gap_before: false,
         },
     ];
     let palette = app.palette();
@@ -76,7 +82,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         "file_atlas_tools",
         canvas,
         &palette,
-        DockSide::LeftCenter,
+        app.dock_side,
         &items,
         |ui, id| match id {
             "filters" => basic_filters_body(app, ui, theme),

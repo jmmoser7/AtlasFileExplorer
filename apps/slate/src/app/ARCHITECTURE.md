@@ -17,6 +17,11 @@ viewport width; the tools rail begins below it. Full-screen canvas
 (`ChromeConfig::canvas_fullscreen`; F11, View → Full-screen canvas, or ⛶)
 suppresses the tools rail and readout bar; the top bar stays.
 
+**Home:** Orthogonal to workbook tabs (`at_home`; no tab selected). On launch
+with no CLI workbook, Cover Flow shows recent workbooks or template
+placeholders (`atlas_shell::home`). Re-open via **File → Home**. Tools dock
+hidden on home. Opening is the shelf; **New** starts a blank workbook.
+
 ## Layer 1 — Tab workspace
 
 | Region | Module | Role |

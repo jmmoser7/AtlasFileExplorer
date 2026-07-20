@@ -49,6 +49,8 @@ impl Harness {
     /// A workbook with two facet groups, three tags, and three linked files
     /// (one uncategorized, one single-tagged, one cross-group tagged).
     fn seed(&mut self) -> (TagId, TagId, TagId) {
+        self.app.leave_home();
+        self.app.ensure_work_tab();
         let files: Vec<PathBuf> = (0..3)
             .map(|i| {
                 let p = self.base.join(format!("file{i}.png"));
@@ -77,7 +79,10 @@ impl Harness {
 }
 
 fn assert_invariants(app: &SlateApp) {
-    assert!(!app.tabs.is_empty(), "at least one tab must exist");
+    if app.at_home && app.tabs.is_empty() {
+        return;
+    }
+    assert!(!app.tabs.is_empty(), "work tabs must exist when not at home");
     assert!(app.active_tab < app.tabs.len(), "active tab in bounds");
     for id in &app.selection {
         assert!(

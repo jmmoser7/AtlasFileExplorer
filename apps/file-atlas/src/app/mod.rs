@@ -12,9 +12,12 @@ use atlas_core::index::{AssignState, Db, DbCmd, LoadedRoot};
 use atlas_core::journal::{Action, AssignVal, Journal, JournalEntry};
 use atlas_core::scanner::{self, ScanHandle, ScanMsg};
 use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
-use atlas_core::tree::{self, FilePlace, Hit, LayoutConfig, Orient, Tree};
+use atlas_core::tree::{
+    self, FilePlace, Hit, LayoutConfig, Orient, Tree, COL_H, COL_W, DIR_H, DIR_W,
+};
 use atlas_core::types::{
-    age_string, date_string, human_size, ExtGroup, Family, FileEntry, FAMILIES,
+    age_string, common_ancestor, date_string, human_size, normalize_folder_selection,
+    upstream_folders, ExtGroup, Family, FileEntry, FAMILIES,
 };
 use atlas_core::watcher::{self, FsChange, FsWatch};
 use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
@@ -362,6 +365,21 @@ pub struct AtlasApp {
     thumbs: ThumbPool,
 
     root: Option<PathBuf>,
+    /// Folders seeded into the scanner. Equal to `[root]` for a single-folder
+    /// open; for multi-select, the individually picked folders under `root`
+    /// (their common ancestor). Empty when no folder is open.
+    scan_seeds: Vec<PathBuf>,
+    /// Cover Flow home MRU (folders). Shown when `at_home`.
+    recents: atlas_shell::recent::RecentList,
+    /// Shared home surface (shelf focus + cover textures) from `atlas-shell`.
+    home: atlas_shell::home::HomeScreen,
+    /// Cover Flow home — orthogonal to folder tabs (default launch surface).
+    at_home: bool,
+    /// Chrome prefs while at home with no work tabs.
+    home_chrome: ChromeConfig,
+    /// Parent folders of the mapped root (volume → … → parent), drawn as a
+    /// visual upstream chain into the tree — not part of the scan.
+    upstream: Vec<(String, PathBuf)>,
     generation: u64,
     entries: Vec<FileEntry>,
     rel_to_id: HashMap<String, u32>,
@@ -375,6 +393,8 @@ pub struct AtlasApp {
     tree_build_rx: Option<Receiver<TreeBuild>>,
     orient: Orient,
     dark_mode: bool,
+    /// Floating tools dock placement (Preferences → Dock location).
+    pub dock_side: atlas_shell::dock::DockSide,
     filter_mode: FilterMode,
     grid_cols: usize,
     portal_threshold: usize,
@@ -400,7 +420,9 @@ pub struct AtlasApp {
     pending_load: Option<(PathBuf, Receiver<LoadedRoot>)>,
     /// Folder picker: the tab (by stable id) that asked for it. The result
     /// lands on that tab even if the user switched or closed tabs meanwhile.
-    picker_rx: Option<(u64, Receiver<Option<PathBuf>>)>,
+    /// `None` means the dialog was cancelled; `Some(vec)` may hold one or
+    /// more folders to open on the same canvas.
+    picker_rx: Option<(u64, Receiver<Option<Vec<PathBuf>>>)>,
     /// Export destination picker: bound to the root it was opened for, so a
     /// tab switch mid-dialog can't export another tab's staging.
     export_picker_rx: Option<(PathBuf, Receiver<Option<PathBuf>>)>,
@@ -519,7 +541,11 @@ struct TabState {
     /// Stable identity: tab indices shift when tabs close, so anything async
     /// (like the folder picker) must reference tabs by id, never by index.
     id: u64,
+    /// Common ancestor used as the scan/index anchor (`None` = empty tab).
     root: Option<PathBuf>,
+    /// Folders the user opened into this canvas. One entry for a classic
+    /// single-folder open; several siblings share one map under `root`.
+    folders: Vec<PathBuf>,
     cam: Option<Camera>,
     chrome: ChromeConfig,
 }
@@ -530,18 +556,54 @@ impl TabState {
         TabState {
             id: NEXT_TAB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             root: None,
+            folders: Vec::new(),
             cam: None,
             chrome: chrome::default_chrome(),
         }
     }
 
+    fn set_folders(&mut self, folders: Vec<PathBuf>) {
+        let folders = normalize_folder_selection(folders);
+        if folders.is_empty() {
+            self.root = None;
+            self.folders.clear();
+            return;
+        }
+        let root = if folders.len() == 1 {
+            folders[0].clone()
+        } else {
+            common_ancestor(&folders).unwrap_or_else(|| folders[0].clone())
+        };
+        self.root = Some(root);
+        self.folders = folders;
+    }
+
     fn title(&self) -> String {
-        match &self.root {
-            Some(r) => r
+        match self.folders.as_slice() {
+            [] => "New tab".into(),
+            [one] => one
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| r.to_string_lossy().into_owned()),
-            None => "New tab".into(),
+                .unwrap_or_else(|| one.to_string_lossy().into_owned()),
+            [first, rest @ ..] => {
+                let name = first
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| first.to_string_lossy().into_owned());
+                format!("{name} +{}", rest.len())
+            }
+        }
+    }
+
+    fn tooltip_path(&self) -> String {
+        if self.folders.is_empty() {
+            "Click to choose folder(s) for this tab".into()
+        } else {
+            self.folders
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("\n")
         }
     }
 }
@@ -583,6 +645,19 @@ impl AtlasApp {
             db,
             thumbs: ThumbPool::new(),
             root: None,
+            scan_seeds: Vec::new(),
+            recents: {
+                let mut r = atlas_shell::recent::RecentList::load("file-atlas");
+                r.remove_missing();
+                r
+            },
+            home: atlas_shell::home::HomeScreen::new(
+                "file-atlas",
+                atlas_shell::home::HomeShelfKind::Folders,
+            ),
+            at_home: initial_root.is_none(),
+            home_chrome: chrome::default_chrome(),
+            upstream: Vec::new(),
             generation: 0,
             entries: Vec::new(),
             rel_to_id: HashMap::new(),
@@ -592,6 +667,11 @@ impl AtlasApp {
             tree_build_rx: None,
             orient: Orient::H,
             dark_mode: true,
+            dock_side: atlas_shell::prefs::ChromePrefs::load(
+                "file-atlas",
+                atlas_shell::dock::DockSide::LeftCenter,
+            )
+            .dock_side,
             filter_mode: FilterMode::Hide,
             grid_cols: 10,
             portal_threshold: 100,
@@ -674,13 +754,15 @@ impl AtlasApp {
             edit_rename_input: String::new(),
             export_ui: None,
             watch: None,
-            tabs: vec![TabState::empty()],
+            tabs: vec![],
             active_tab: 0,
             pending_cam: None,
             toasts: Vec::new(),
             demo_ran: false,
         };
         if let Some(root) = initial_root {
+            app.at_home = false;
+            app.ensure_tab();
             app.set_root(root);
         }
         // Dev harness: ATLAS_PREWARM=<dir> kicks off an overnight pre-warm
@@ -744,14 +826,15 @@ impl AtlasApp {
         if self.picker_rx.is_some() {
             return;
         }
+        self.ensure_tab();
         let Some(tab_id) = self.tabs.get(self.active_tab).map(|t| t.id) else {
             return;
         };
         let (tx, rx) = unbounded();
         std::thread::spawn(move || {
             let picked = rfd::FileDialog::new()
-                .set_title("Choose a folder to map")
-                .pick_folder();
+                .set_title("Choose folder(s) to map")
+                .pick_folders();
             let _ = tx.send(picked);
         });
         self.picker_rx = Some((tab_id, rx));
@@ -929,15 +1012,48 @@ impl AtlasApp {
         self.key_prefix = String::new();
         self.warm_audit = None;
         self.warm_plan_rx = None;
+        self.scan_seeds.clear();
+        self.upstream.clear();
     }
 
     fn set_root(&mut self, root: PathBuf) {
-        self.reset_workspace();
-        self.root = Some(root.clone());
-        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
-            tab.root = Some(root.clone());
+        self.set_roots(vec![root]);
+    }
+
+    /// Open one or more folders on the active tab's canvas. Multiple picks
+    /// that share a parent are mapped together (only those branches scan);
+    /// a single pick keeps the classic index-first load path.
+    fn set_roots(&mut self, folders: Vec<PathBuf>) {
+        let folders = normalize_folder_selection(folders);
+        if folders.is_empty() {
+            self.clear_root();
+            return;
         }
-        if atlas_core::thumbs::is_network_path(&root) {
+        let root = if folders.len() == 1 {
+            folders[0].clone()
+        } else if let Some(ancestor) = common_ancestor(&folders) {
+            ancestor
+        } else {
+            // Different volume roots: open the first pick alone rather than
+            // failing the whole selection.
+            self.toast("Selected folders are on different drives — opening the first");
+            return self.set_roots(vec![folders[0].clone()]);
+        };
+
+        self.reset_workspace();
+        self.at_home = false;
+        self.ensure_tab();
+        self.root = Some(root.clone());
+        self.scan_seeds = folders.clone();
+        self.upstream = upstream_folders(&root);
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.set_folders(folders.clone());
+        }
+        if atlas_core::thumbs::is_network_path(&root)
+            || folders
+                .iter()
+                .any(|f| atlas_core::thumbs::is_network_path(f))
+        {
             // Network shares are latency-bound: many parallel SMB requests
             // multiply throughput without extra CPU cost.
             self.thumbs.ensure_workers(24);
@@ -957,9 +1073,67 @@ impl AtlasApp {
             started: Instant::now(),
         });
 
-        // Index-first paint: ask the DB for a snapshot; scan decision follows.
-        self.pending_load = Some((root.clone(), self.db.load_root(root.clone())));
+        if folders.len() == 1 {
+            // Index-first paint: ask the DB for a snapshot; scan decision follows.
+            self.pending_load = Some((root.clone(), self.db.load_root(root.clone())));
+        } else {
+            // Multi-select is a partial view of the parent — don't load or
+            // overwrite the parent's full index snapshot.
+            self.scan_handle = Some(scanner::start_scan_seeds(
+                root.clone(),
+                folders.clone(),
+                self.generation,
+                self.scan_tx.clone(),
+            ));
+        }
         self.watch = watcher::watch(root);
+        self.record_recent_folders(&folders);
+    }
+
+    /// Return to the Cover Flow home (clear the active workspace).
+    pub(crate) fn go_home(&mut self) {
+        self.at_home = true;
+        self.clear_root();
+    }
+
+    pub(crate) fn ensure_tab(&mut self) {
+        if self.tabs.is_empty() {
+            let mut tab = TabState::empty();
+            tab.chrome = self.home_chrome.clone();
+            self.tabs.push(tab);
+            self.active_tab = 0;
+        }
+    }
+
+    pub(crate) fn home_new_workspace(&mut self) {
+        self.at_home = false;
+        if self.tabs.is_empty() {
+            self.ensure_tab();
+        } else if self.root.is_some() {
+            self.new_tab();
+        }
+    }
+
+    fn record_recent_folders(&mut self, folders: &[PathBuf]) {
+        for folder in folders {
+            let title = folder
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| folder.to_string_lossy().into_owned());
+            self.recents.record(folder.clone(), title);
+            let folder = folder.clone();
+            std::thread::spawn(move || {
+                let _ = atlas_shell::covers::bake_folder_cover(&folder);
+            });
+        }
+        // Refresh cover paths that may already exist from a prior bake.
+        for e in &mut self.recents.entries {
+            let cover = atlas_shell::recent::cover_cache_path(&e.path);
+            if cover.is_file() {
+                e.cover = Some(cover);
+            }
+        }
+        self.recents.save("file-atlas");
     }
 
     /// Reset to the welcome screen (empty tab): same cleanup as `set_root`
@@ -967,6 +1141,14 @@ impl AtlasApp {
     fn clear_root(&mut self) {
         self.reset_workspace();
         self.root = None;
+        self.scan_seeds.clear();
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.set_folders(Vec::new());
+        }
+    }
+
+    fn is_multi_root(&self) -> bool {
+        self.scan_seeds.len() > 1
     }
 
     // ---------- tabs ----------
@@ -975,39 +1157,60 @@ impl AtlasApp {
         if i >= self.tabs.len() {
             return;
         }
+        self.at_home = false;
         // Remember where the current tab was.
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.cam = Some(self.cam);
-            tab.root = self.root.clone();
+            if self.scan_seeds.is_empty() {
+                if let Some(r) = &self.root {
+                    tab.set_folders(vec![r.clone()]);
+                } else {
+                    tab.set_folders(Vec::new());
+                }
+            } else {
+                tab.set_folders(self.scan_seeds.clone());
+            }
         }
         if i == self.active_tab {
             return;
         }
         self.active_tab = i;
+        let target_folders = self.tabs[i].folders.clone();
         let target_root = self.tabs[i].root.clone();
         let target_cam = self.tabs[i].cam;
-        match target_root {
-            Some(r) => {
-                if self.root.as_ref() == Some(&r) {
-                    // Same folder in two tabs: just jump the camera.
-                    if let Some(cam) = target_cam {
-                        self.cam = cam;
-                        self.anim = None;
-                    }
-                } else {
-                    // The index-first load repaints in milliseconds; restore
-                    // this tab's camera once its tree is rebuilt. Set after
-                    // `set_root`, which resets any stale pending camera.
-                    self.set_root(r);
-                    self.pending_cam = target_cam;
-                }
+        if target_folders.is_empty() && target_root.is_none() {
+            self.clear_root();
+            return;
+        }
+        let folders = if target_folders.is_empty() {
+            target_root.into_iter().collect()
+        } else {
+            target_folders
+        };
+        let same = self.scan_seeds == folders
+            || (folders.len() == 1
+                && self.root.as_ref() == folders.first()
+                && self.scan_seeds.len() <= 1);
+        if same {
+            // Same folder(s) in two tabs: just jump the camera.
+            if let Some(cam) = target_cam {
+                self.cam = cam;
+                self.anim = None;
             }
-            None => self.clear_root(),
+        } else {
+            // The index-first load repaints in milliseconds; restore
+            // this tab's camera once its tree is rebuilt. Set after
+            // `set_roots`, which resets any stale pending camera.
+            self.set_roots(folders);
+            self.pending_cam = target_cam;
         }
     }
 
     fn new_tab(&mut self) {
-        self.tabs.push(TabState::empty());
+        self.at_home = false;
+        let mut tab = TabState::empty();
+        tab.chrome = self.active_chrome().clone();
+        self.tabs.push(tab);
         self.switch_tab(self.tabs.len() - 1);
     }
 
@@ -1016,9 +1219,9 @@ impl AtlasApp {
             return;
         }
         if self.tabs.len() == 1 {
-            // Last tab: closing it just resets to an empty one.
-            self.tabs[0] = TabState::empty();
+            self.tabs.clear();
             self.active_tab = 0;
+            self.at_home = true;
             self.clear_root();
             return;
         }
@@ -1026,14 +1229,20 @@ impl AtlasApp {
         if self.active_tab == i {
             // Activate the neighbor (same index now holds the next tab).
             let next = i.min(self.tabs.len() - 1);
-            let (root, cam) = (self.tabs[next].root.clone(), self.tabs[next].cam);
+            let folders = self.tabs[next].folders.clone();
+            let root = self.tabs[next].root.clone();
+            let cam = self.tabs[next].cam;
             self.active_tab = next;
-            match root {
-                Some(r) => {
-                    self.set_root(r);
-                    self.pending_cam = cam;
-                }
-                None => self.clear_root(),
+            let folders = if folders.is_empty() {
+                root.into_iter().collect()
+            } else {
+                folders
+            };
+            if folders.is_empty() {
+                self.clear_root();
+            } else {
+                self.set_roots(folders);
+                self.pending_cam = cam;
             }
         } else if self.active_tab > i {
             self.active_tab -= 1;
@@ -1044,12 +1253,18 @@ impl AtlasApp {
     /// by `switch_tab`/`close_tab`; the clamp makes chrome lookups survive
     /// even if that invariant is ever broken instead of crashing the app.
     pub(super) fn active_chrome(&self) -> &ChromeConfig {
+        if self.tabs.is_empty() {
+            return &self.home_chrome;
+        }
         debug_assert!(self.active_tab < self.tabs.len());
         let i = self.active_tab.min(self.tabs.len().saturating_sub(1));
         &self.tabs[i].chrome
     }
 
     pub(super) fn active_chrome_mut(&mut self) -> &mut ChromeConfig {
+        if self.tabs.is_empty() {
+            return &mut self.home_chrome;
+        }
         debug_assert!(self.active_tab < self.tabs.len());
         let i = self.active_tab.min(self.tabs.len().saturating_sub(1));
         &mut self.tabs[i].chrome
@@ -1085,8 +1300,15 @@ impl AtlasApp {
             mode,
             started: Instant::now(),
         });
-        self.scan_handle = Some(scanner::start_scan(
-            root,
+        let seeds = if self.scan_seeds.is_empty() {
+            vec![root]
+        } else {
+            self.scan_seeds.clone()
+        };
+        let anchor = self.root.clone().unwrap_or_else(|| seeds[0].clone());
+        self.scan_handle = Some(scanner::start_scan_seeds(
+            anchor,
+            seeds,
             self.generation,
             self.scan_tx.clone(),
         ));
@@ -1197,14 +1419,6 @@ impl AtlasApp {
             .collect();
     }
 
-    fn root_name(&self) -> String {
-        self.root
-            .as_ref()
-            .and_then(|r| r.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .or_else(|| self.root.as_ref().map(|r| r.to_string_lossy().into_owned()))
-            .unwrap_or_else(|| "root".into())
-    }
-
     /// Rebuild the folder tree from entries, preserving collapse state.
     ///
     /// Small roots build synchronously (latency-free interactions). Above
@@ -1232,7 +1446,7 @@ impl AtlasApp {
             }
             let generation = self.generation;
             let entries = self.entries.clone();
-            let root_name = self.root_name();
+            let root_path = self.root.clone().unwrap_or_else(|| PathBuf::from("root"));
             let cfg = self.layout_config();
             let orient = self.orient;
             let hide = self.filter_mode == FilterMode::Hide && self.any_filter;
@@ -1243,7 +1457,7 @@ impl AtlasApp {
             self.tree_dirty = false;
             self.last_tree_build = Instant::now();
             std::thread::spawn(move || {
-                let mut t = Tree::build(&entries, &root_name, cfg);
+                let mut t = Tree::build(&entries, &root_path, cfg);
                 if !collapsed.is_empty() {
                     for d in t.dirs.iter_mut() {
                         if let Some(&c) = collapsed.get(&d.rel) {
@@ -1261,7 +1475,8 @@ impl AtlasApp {
             return;
         }
 
-        let mut t = Tree::build(&self.entries, &self.root_name(), self.layout_config());
+        let root_path = self.root.clone().unwrap_or_else(|| PathBuf::from("root"));
+        let mut t = Tree::build(&self.entries, &root_path, self.layout_config());
         if !collapsed.is_empty() {
             for d in t.dirs.iter_mut() {
                 if let Some(&c) = collapsed.get(&d.rel) {
@@ -1315,6 +1530,11 @@ impl AtlasApp {
 
     fn save_snapshot(&self) {
         let Some(root) = &self.root else { return };
+        // Multi-select is a partial parent view — never overwrite the parent's
+        // full index with a subset.
+        if self.is_multi_root() {
+            return;
+        }
         let rows: Vec<(String, u64, i64, i64, String)> = self
             .entries
             .iter()
@@ -1334,13 +1554,13 @@ impl AtlasApp {
             if let Ok(res) = rx.try_recv() {
                 let tab_id = *tab_id;
                 self.picker_rx = None;
-                if let Some(root) = res {
+                if let Some(folders) = res {
                     match self.tabs.iter().position(|t| t.id == tab_id) {
-                        Some(i) if i == self.active_tab => self.set_root(root),
+                        Some(i) if i == self.active_tab => self.set_roots(folders),
                         Some(i) => {
                             // The user switched tabs while the dialog was
                             // open: remember the choice, load on activation.
-                            self.tabs[i].root = Some(root);
+                            self.tabs[i].set_folders(folders);
                             self.tabs[i].cam = None;
                         }
                         None => {} // tab closed while the dialog was open
@@ -1686,21 +1906,33 @@ impl AtlasApp {
         }
     }
 
+    fn path_in_open_folders(&self, path: &std::path::Path) -> bool {
+        if self.scan_seeds.len() <= 1 {
+            return true;
+        }
+        self.scan_seeds.iter().any(|s| path.starts_with(s))
+    }
+
     fn apply_fs_change(&mut self, ev: FsChange) {
         let Some(root) = self.root.clone() else {
             return;
         };
         match ev {
             FsChange::Upsert(path) => {
+                if !self.path_in_open_folders(&path) {
+                    return;
+                }
                 if let Some(fe) = scanner::stat_file(&root, &path) {
-                    self.db.send(DbCmd::UpsertFile {
-                        root: root.clone(),
-                        rel: fe.rel.clone(),
-                        size: fe.size,
-                        mtime: fe.mtime,
-                        ctime: fe.ctime,
-                        owner: fe.owner.clone(),
-                    });
+                    if !self.is_multi_root() {
+                        self.db.send(DbCmd::UpsertFile {
+                            root: root.clone(),
+                            rel: fe.rel.clone(),
+                            size: fe.size,
+                            mtime: fe.mtime,
+                            ctime: fe.ctime,
+                            owner: fe.owner.clone(),
+                        });
+                    }
                     match self.rel_to_id.get(&fe.rel) {
                         Some(&i) => {
                             let slot = &mut self.entries[i as usize];
@@ -1733,6 +1965,9 @@ impl AtlasApp {
                 }
             }
             FsChange::Remove(path) => {
+                if !self.path_in_open_folders(&path) {
+                    return;
+                }
                 if let Ok(relp) = path.strip_prefix(&root) {
                     let rel = relp.to_string_lossy().into_owned();
                     if let Some(&i) = self.rel_to_id.get(&rel) {
@@ -1743,7 +1978,9 @@ impl AtlasApp {
                         self.tree_dirty = true;
                         self.filter_dirty = true;
                     }
-                    self.db.send(DbCmd::RemoveFile { root, rel });
+                    if !self.is_multi_root() {
+                        self.db.send(DbCmd::RemoveFile { root, rel });
+                    }
                 }
             }
             FsChange::Rescan => {}
@@ -2277,19 +2514,17 @@ impl AtlasApp {
         self.ai.poll();
         self.ai_context_frame();
 
-        // Dropped folder = open it.
+        // Dropped folder(s) = open them on this canvas.
         let dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw
                 .dropped_files
                 .iter()
                 .filter_map(|f| f.path.clone())
+                .filter(|p| p.is_dir())
                 .collect()
         });
-        for p in dropped {
-            if p.is_dir() {
-                self.set_root(p);
-                break;
-            }
+        if !dropped.is_empty() {
+            self.set_roots(dropped);
         }
 
         self.hotkeys(ctx);
@@ -2337,14 +2572,16 @@ impl AtlasApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.bg))
             .show(ctx, |ui| {
-                if self.root.is_none() {
+                if self.at_home {
                     self.welcome(ui);
+                } else if self.root.is_none() {
+                    self.empty_workspace(ui);
                 } else {
                     self.canvas(ui);
                 }
             });
 
-        if self.root.is_some() {
+        if self.root.is_some() || (!self.at_home && !self.tabs.is_empty()) {
             self.draw_tools_rail(ctx);
         }
         self.edit_window(ctx);
@@ -2695,31 +2932,46 @@ impl AtlasApp {
 
     fn welcome(&mut self, ui: &mut egui::Ui) {
         let palette = self.palette();
-        ui.vertical_centered(|ui| {
-            ui.add_space(ui.available_height() * 0.3);
-            ui.heading(egui::RichText::new("File Atlas").size(34.0));
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new(
-                    "Map a folder. See everything at a glance. Organize without touching a single original.",
-                )
-                .color(palette.sub),
-            );
-            ui.add_space(18.0);
-            if ui
-                .add(egui::Button::new(
-                    egui::RichText::new("  Open folderâ€¦  ").size(18.0),
-                ))
-                .clicked()
-            {
+        match self.home.show(ui, &palette, &self.recents) {
+            Some(atlas_shell::home::HomeScreenAction::New) => {
+                self.home_new_workspace();
                 self.open_folder_dialog();
             }
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new("or drop a folder anywhere in this window Â· Ctrl+O")
-                    .small()
-                    .color(palette.sub),
-            );
+            Some(atlas_shell::home::HomeScreenAction::Open(path)) => {
+                if path.is_dir() {
+                    self.home_new_workspace();
+                    self.set_roots(vec![path]);
+                } else if atlas_shell::home::is_synthetic_cover_path(&path) {
+                    self.home_new_workspace();
+                } else {
+                    self.toast("That folder is no longer available");
+                    self.recents.remove_missing();
+                    self.recents.save("file-atlas");
+                }
+            }
+            None => {}
+        }
+    }
+
+    fn empty_workspace(&mut self, ui: &mut egui::Ui) {
+        let palette = self.palette();
+        let rect = ui.available_rect_before_wrap();
+        ui.painter_at(rect).rect_filled(rect, 0.0, palette.bg);
+        ui.allocate_new_ui(egui::UiBuilder::new().max_rect(rect), |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(rect.height() * 0.38);
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Open folders…").size(16.0).color(palette.ink),
+                        )
+                        .min_size(egui::vec2(200.0, 40.0)),
+                    )
+                    .clicked()
+                {
+                    self.open_folder_dialog();
+                }
+            });
         });
     }
 
@@ -2763,6 +3015,31 @@ impl AtlasApp {
         }
     }
 
+    /// Tree bounds expanded to include the upstream parent-folder chain.
+    fn map_bounds(&self, t: &Tree) -> Rect {
+        let mut b = t.root_bounds();
+        if self.upstream.is_empty() {
+            return b;
+        }
+        let Some(root) = t.dirs.first() else {
+            return b;
+        };
+        let n = self.upstream.len() as f32;
+        let v = self.orient == Orient::V;
+        let step = if v { COL_W * 0.55 } else { COL_H * 0.55 };
+        for i in 0..self.upstream.len() {
+            let depth_i = (i as f32) - n;
+            let (x, y) = if v {
+                (depth_i * step, root.y)
+            } else {
+                (root.x, depth_i * step + root.h / 2.0)
+            };
+            let r = Rect::from_min_size(Pos2::new(x, y - DIR_H / 2.0), Vec2::new(DIR_W, DIR_H));
+            b = b.union(r);
+        }
+        b
+    }
+
     fn fly_to(&mut self, to: Camera) {
         self.anim = Some(CamAnim {
             t0: Instant::now(),
@@ -2776,7 +3053,7 @@ impl AtlasApp {
         let Some(t) = &self.tree else { return };
         match cmd {
             ViewCmd::Fit => {
-                self.cam = self.cam_for_bounds(t.root_bounds(), 1.2);
+                self.cam = self.cam_for_bounds(self.map_bounds(t), 1.2);
             }
             ViewCmd::Home => {
                 // Opening view: root readable, thumbnails already visible.
@@ -2796,9 +3073,9 @@ impl AtlasApp {
                         z,
                     },
                 };
-                // Small trees: just fit.
+                // Small trees: just fit (include upstream parents).
                 if t.dirs[0].desc_files <= 60 {
-                    self.cam = self.cam_for_bounds(t.root_bounds(), 1.2);
+                    self.cam = self.cam_for_bounds(self.map_bounds(t), 1.2);
                 }
             }
             ViewCmd::FlyToBounds(b) => {
@@ -2821,9 +3098,7 @@ impl AtlasApp {
 
         let painter = ui.painter().with_clip_rect(rect);
         painter.rect_filled(rect, CornerRadius::ZERO, palette.bg);
-        let grid_alpha = self
-            .grid_fade
-            .alpha(ui.ctx().input(|i| i.time));
+        let grid_alpha = self.grid_fade.alpha(ui.ctx().input(|i| i.time));
         self.draw_dot_grid(&painter, rect, grid_alpha);
 
         // Explicit load feedback: nothing paintable yet (first index load,
@@ -2956,6 +3231,7 @@ impl AtlasApp {
         let mut color_budget: i32 = 14;
         if self.tree.is_some() {
             let tree = self.tree.take().unwrap();
+            self.draw_upstream_chain(&painter, &tree, lod);
             self.draw_branch(
                 &painter,
                 &tree,
@@ -3743,10 +4019,10 @@ impl AtlasApp {
                         text_pos + Vec2::new(0.0, 9.0 * z),
                         Align2::LEFT_CENTER,
                         format!(
-                            "{} files Â· {}{}",
+                            "{} files · {}{}",
                             group_digits(d.desc_files as u64),
                             human_size(d.desc_bytes),
-                            if d.collapsed { "  â–¸" } else { "" }
+                            if d.collapsed { "  ▸" } else { "" }
                         ),
                         FontId::proportional(sub_px),
                         p.sub,
@@ -3770,6 +4046,77 @@ impl AtlasApp {
                     p.ink,
                 );
             }
+        }
+    }
+
+    /// Folder cards for every parent of the mapped root (C: → … → parent),
+    /// leading into the tree. Visual context only — not part of the scan.
+    fn draw_upstream_chain(&self, painter: &egui::Painter, t: &Tree, lod: u8) {
+        if self.upstream.is_empty() || lod == 0 {
+            return;
+        }
+        let Some(root) = t.dirs.first() else {
+            return;
+        };
+        let p = self.palette();
+        let z = self.cam.z;
+        let n = self.upstream.len() as f32;
+        let v = self.orient == Orient::V;
+        let step = if v { COL_W * 0.55 } else { COL_H * 0.55 };
+
+        for (i, (name, _)) in self.upstream.iter().enumerate() {
+            let depth_i = (i as f32) - n; // negative depths before root at 0
+            let (x, y) = if v {
+                (depth_i * step, root.y)
+            } else {
+                (root.x, depth_i * step + root.h / 2.0)
+            };
+            let rect = Rect::from_min_size(Pos2::new(x, y - DIR_H / 2.0), Vec2::new(DIR_W, DIR_H));
+            let sr = self.w2s_rect(rect);
+            let cr = CornerRadius::same((10.0 * z).clamp(2.0, 10.0) as u8);
+            // Muted so they read as context, not the active map.
+            painter.rect_filled(sr, cr, p.card.gamma_multiply(0.85));
+            painter.rect_stroke(
+                sr,
+                cr,
+                Stroke::new(1.0, p.border.gamma_multiply(0.9)),
+                StrokeKind::Inside,
+            );
+            let ring_c = self.w2s(Pos2::new(x + 20.0, y));
+            let ring_r = 6.5 * z;
+            if ring_r > 1.5 {
+                painter.circle_stroke(ring_c, ring_r, Stroke::new((1.8 * z).max(1.0), p.sub));
+            }
+            let name_px = (13.0 * z).min(15.0);
+            if name_px >= 6.0 {
+                painter.text(
+                    self.w2s(Pos2::new(x + 34.0, y)),
+                    Align2::LEFT_CENTER,
+                    trunc(name, 13),
+                    FontId::proportional(name_px),
+                    p.sub,
+                );
+            }
+            // Wire to the next card (or the map root).
+            let (nx, ny) = if i + 1 < self.upstream.len() {
+                let depth_n = ((i + 1) as f32) - n;
+                if v {
+                    (depth_n * step, root.y)
+                } else {
+                    (root.x, depth_n * step + root.h / 2.0)
+                }
+            } else if v {
+                (root.x, root.y)
+            } else {
+                (root.x, root.y)
+            };
+            let from = self.w2s(Pos2::new(x + DIR_W, y));
+            let to = if v {
+                self.w2s(Pos2::new(nx, ny))
+            } else {
+                self.w2s(Pos2::new(nx + DIR_W / 2.0, ny - DIR_H / 2.0))
+            };
+            painter.line_segment([from, to], Stroke::new((1.2 * z).max(1.0), p.line));
         }
     }
 
@@ -3817,7 +4164,9 @@ impl AtlasApp {
                 );
                 match sample {
                     Some(f) => {
-                        if lod == 2 {
+                        // Mid and full LOD both request — otherwise fit-to-view
+                        // on a large Desktop never fills the mosaic.
+                        if lod >= 1 {
                             self.maybe_request_full(t, f, requests);
                         }
                         if let Some((tex, last)) = self.textures.get_mut(&f) {

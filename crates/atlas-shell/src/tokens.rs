@@ -16,6 +16,7 @@ pub struct UiTokens {
     pub schema_version: u32,
     pub topbar: TopBarTokens,
     pub dock: DockTokens,
+    pub home: HomeTokens,
 }
 
 impl Default for UiTokens {
@@ -24,6 +25,139 @@ impl Default for UiTokens {
             schema_version: 2,
             topbar: TopBarTokens::default(),
             dock: DockTokens::default(),
+            home: HomeTokens::default(),
+        }
+    }
+}
+
+/// Cover Flow home shelf geometry and motion (see `home.rs`).
+///
+/// Layout is sigmoidal: `x(o) = side_step·o + center_bulge·tanh(o/bulge_width)`
+/// opens a wide gap around the focused cover and packs side covers tightly.
+/// Rotation and depth saturate with their own widths.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HomeTokens {
+    /// Cover size as a fraction of the canvas height (covers are square).
+    pub cover_frac: f32,
+    /// Cover size clamp (px).
+    pub cover_min: f32,
+    pub cover_max: f32,
+    /// Vertical center of the rack as a fraction of the canvas height.
+    pub center_y_frac: f32,
+    /// Asymptotic side-cover spacing (× cover size).
+    pub side_step_frac: f32,
+    /// Extra gap pushed outward around the focused cover (× cover size).
+    pub center_bulge_frac: f32,
+    /// Sigmoid width of the center gap — smaller = sharper falloff.
+    pub bulge_width: f32,
+    /// Saturating side-cover rotation (degrees; negative flips inward).
+    pub angle_max_deg: f32,
+    /// Sigmoid width of the rotation ramp — smaller = flips sooner.
+    pub angle_width: f32,
+    /// Corner fillet radius as a fraction of the card size (rounded corners).
+    /// (Field name kept for saved-token compatibility.)
+    pub corner_bevel_frac: f32,
+    /// Ambient-occlusion halo reach behind each card (px).
+    pub ao_size: f32,
+    /// Ambient-occlusion strength (0 = off).
+    pub ao_strength: f32,
+    /// Saturating side-cover depth push-back (px).
+    pub depth_max: f32,
+    /// Sigmoid width of the depth ramp.
+    pub depth_width: f32,
+    /// Perspective focal length (px).
+    pub focal: f32,
+    /// Free-inertia velocity damping (1/s).
+    pub friction: f32,
+    /// Detent spring stiffness (1/s²).
+    pub spring_stiffness: f32,
+    /// Detent spring damping (1/s).
+    pub spring_damping: f32,
+    /// Below this |velocity| inertia hands over to the detent spring.
+    pub snap_velocity: f32,
+    /// Scroll pixels per album step.
+    pub wheel_px_per_album: f32,
+}
+
+impl Default for HomeTokens {
+    fn default() -> Self {
+        Self {
+            cover_frac: 0.48,
+            cover_min: 180.0,
+            cover_max: 340.0,
+            center_y_frac: 0.46,
+            side_step_frac: 0.16,
+            center_bulge_frac: 0.52,
+            bulge_width: 0.6,
+            angle_max_deg: 62.0,
+            angle_width: 0.55,
+            corner_bevel_frac: 0.045,
+            ao_size: 26.0,
+            ao_strength: 0.55,
+            depth_max: 90.0,
+            depth_width: 0.9,
+            focal: 900.0,
+            friction: 4.2,
+            spring_stiffness: 64.0,
+            spring_damping: 15.0,
+            snap_velocity: 0.9,
+            wheel_px_per_album: 60.0,
+        }
+    }
+}
+
+impl HomeTokens {
+    pub fn normalize(&mut self) {
+        self.cover_frac = self.cover_frac.clamp(0.15, 0.85);
+        self.cover_min = self.cover_min.clamp(60.0, 500.0);
+        self.cover_max = self.cover_max.max(self.cover_min);
+        self.center_y_frac = self.center_y_frac.clamp(0.2, 0.75);
+        self.side_step_frac = self.side_step_frac.clamp(0.02, 0.8);
+        self.center_bulge_frac = self.center_bulge_frac.clamp(0.0, 1.5);
+        self.bulge_width = self.bulge_width.clamp(0.1, 3.0);
+        self.angle_max_deg = self.angle_max_deg.clamp(-85.0, 85.0);
+        self.angle_width = self.angle_width.clamp(0.1, 3.0);
+        self.corner_bevel_frac = self.corner_bevel_frac.clamp(0.0, 0.2);
+        self.ao_size = self.ao_size.clamp(0.0, 120.0);
+        self.ao_strength = self.ao_strength.clamp(0.0, 1.0);
+        self.depth_max = self.depth_max.clamp(0.0, 600.0);
+        self.depth_width = self.depth_width.clamp(0.1, 4.0);
+        self.focal = self.focal.clamp(200.0, 4000.0);
+        self.friction = self.friction.clamp(0.2, 20.0);
+        self.spring_stiffness = self.spring_stiffness.clamp(4.0, 400.0);
+        self.spring_damping = self.spring_damping.clamp(1.0, 60.0);
+        self.snap_velocity = self.snap_velocity.clamp(0.05, 5.0);
+        self.wheel_px_per_album = self.wheel_px_per_album.clamp(10.0, 400.0);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        fn round3(value: &mut f32) {
+            *value = (*value * 1_000.0).round() / 1_000.0;
+        }
+        for value in [
+            &mut self.cover_frac,
+            &mut self.cover_min,
+            &mut self.cover_max,
+            &mut self.center_y_frac,
+            &mut self.side_step_frac,
+            &mut self.center_bulge_frac,
+            &mut self.bulge_width,
+            &mut self.angle_max_deg,
+            &mut self.angle_width,
+            &mut self.corner_bevel_frac,
+            &mut self.ao_size,
+            &mut self.ao_strength,
+            &mut self.depth_max,
+            &mut self.depth_width,
+            &mut self.focal,
+            &mut self.friction,
+            &mut self.spring_stiffness,
+            &mut self.spring_damping,
+            &mut self.snap_velocity,
+            &mut self.wheel_px_per_album,
+        ] {
+            round3(value);
         }
     }
 }
@@ -49,6 +183,30 @@ pub struct DockTokens {
     pub close_delay: f32,
     pub left_margin: f32,
     pub bottom_margin: f32,
+    /// Gap between stacked open popovers.
+    pub stack_gap: f32,
+    /// Distance from the icon strip toward the canvas for the partition line.
+    pub partition_gap: f32,
+    /// How far the partition extends past the icon strip (along its axis).
+    pub partition_extend: f32,
+    /// Stroke thickness at the partition midpoint.
+    pub partition_max_thickness: f32,
+    /// Stroke thickness at the partition ends.
+    pub partition_min_thickness: f32,
+    pub partition_opacity: f32,
+    pub tracer_width: f32,
+    pub tracer_opacity: f32,
+    pub tracer_corner_radius: f32,
+    /// Hover hit band around a popover border that reveals the tracer.
+    pub tracer_border_hit: f32,
+    /// Seconds before a Dashboard hover chip expands to show `description`.
+    pub dashboard_describe_delay: f32,
+    /// Seconds to fade Dashboard description in the label chip.
+    pub describe_fade_duration: f32,
+    /// Seconds for hover preview / pinned panel ease-in.
+    pub panel_open_duration: f32,
+    /// Gap between icon top and label chip / preview anchor.
+    pub hover_chip_gap: f32,
     pub light: DockThemeTokens,
     pub dark: DockThemeTokens,
 }
@@ -74,6 +232,20 @@ impl Default for DockTokens {
             close_delay: 0.2,
             left_margin: 10.0,
             bottom_margin: 14.0,
+            stack_gap: 8.0,
+            partition_gap: 8.0,
+            partition_extend: 48.0,
+            partition_max_thickness: 2.4,
+            partition_min_thickness: 0.4,
+            partition_opacity: 0.45,
+            tracer_width: 1.4,
+            tracer_opacity: 0.55,
+            tracer_corner_radius: 8.0,
+            tracer_border_hit: 10.0,
+            dashboard_describe_delay: 0.55,
+            describe_fade_duration: 0.28,
+            panel_open_duration: 0.18,
+            hover_chip_gap: 6.0,
             light: DockThemeTokens::light(),
             dark: DockThemeTokens::dark(),
         }
@@ -91,6 +263,22 @@ impl DockTokens {
         self.popover_corner_radius = self.popover_corner_radius.max(0.0);
         self.shadow_opacity = self.shadow_opacity.clamp(0.0, 1.0);
         self.close_delay = self.close_delay.clamp(0.0, 2.0);
+        self.stack_gap = self.stack_gap.max(0.0);
+        self.partition_gap = self.partition_gap.max(0.0);
+        self.partition_extend = self.partition_extend.max(0.0);
+        self.partition_max_thickness = self.partition_max_thickness.max(0.0);
+        self.partition_min_thickness = self
+            .partition_min_thickness
+            .clamp(0.0, self.partition_max_thickness);
+        self.partition_opacity = self.partition_opacity.clamp(0.0, 1.0);
+        self.tracer_width = self.tracer_width.max(0.0);
+        self.tracer_opacity = self.tracer_opacity.clamp(0.0, 1.0);
+        self.tracer_corner_radius = self.tracer_corner_radius.max(0.0);
+        self.tracer_border_hit = self.tracer_border_hit.max(2.0);
+        self.dashboard_describe_delay = self.dashboard_describe_delay.clamp(0.0, 2.0);
+        self.describe_fade_duration = self.describe_fade_duration.clamp(0.05, 1.0);
+        self.panel_open_duration = self.panel_open_duration.clamp(0.05, 0.8);
+        self.hover_chip_gap = self.hover_chip_gap.clamp(2.0, 24.0);
     }
 
     pub fn round_for_storage(&mut self) {
@@ -116,6 +304,20 @@ impl DockTokens {
             &mut self.close_delay,
             &mut self.left_margin,
             &mut self.bottom_margin,
+            &mut self.stack_gap,
+            &mut self.partition_gap,
+            &mut self.partition_extend,
+            &mut self.partition_max_thickness,
+            &mut self.partition_min_thickness,
+            &mut self.partition_opacity,
+            &mut self.tracer_width,
+            &mut self.tracer_opacity,
+            &mut self.tracer_corner_radius,
+            &mut self.tracer_border_hit,
+            &mut self.dashboard_describe_delay,
+            &mut self.describe_fade_duration,
+            &mut self.panel_open_duration,
+            &mut self.hover_chip_gap,
         ] {
             round3(value);
         }
@@ -544,6 +746,7 @@ fn parse_embedded() -> UiTokens {
     });
     tokens.topbar.normalize();
     tokens.dock.normalize();
+    tokens.home.normalize();
     tokens
 }
 
@@ -561,6 +764,7 @@ pub fn current() -> UiTokens {
 pub fn replace(mut tokens: UiTokens) {
     tokens.topbar.normalize();
     tokens.dock.normalize();
+    tokens.home.normalize();
     *store().write().expect("UI token lock poisoned") = tokens;
 }
 

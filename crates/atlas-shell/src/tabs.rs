@@ -11,8 +11,8 @@ use crate::theme::Palette;
 use crate::tokens::TopBarTokens;
 use crate::widgets::trunc;
 use eframe::egui::{
-    self, Align, Align2, Color32, CursorIcon, FontId, Layout, Pos2, Rect, Sense,
-    Shape, Stroke, Ui, Vec2,
+    self, Align, Align2, Color32, CursorIcon, FontId, Layout, Pos2, Rect, Sense, Shape, Stroke, Ui,
+    Vec2,
 };
 
 #[derive(Clone, Copy)]
@@ -210,11 +210,7 @@ fn paint_active_tab(
     );
 }
 
-fn paint_inactive_dividers(
-    painter: &egui::Painter,
-    slots: &[TabSlot],
-    colors: TabChromeColors,
-) {
+fn paint_inactive_dividers(painter: &egui::Painter, slots: &[TabSlot], colors: TabChromeColors) {
     for pair in slots.windows(2) {
         if pair[0].active || pair[1].active {
             continue;

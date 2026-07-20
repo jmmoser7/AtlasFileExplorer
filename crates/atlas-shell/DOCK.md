@@ -1,76 +1,102 @@
-# Floating canvas dock contract
+# Floating canvas docks
 
-File Atlas and Slate use floating squircle icon docks for canvas tools
-instead of permanent rails or framed toolbars. There is exactly **one dock
-per app**; never render a second toolbar system alongside it.
-
-| App | Placement | Contents |
-|-----|-----------|----------|
-| File Atlas | Left edge, vertically centered | Filters, Display, Workflow, AI |
-| Slate | Bottom edge, horizontally centered | Board tools (Board view), grid/snap/align, Tags, Selection, View, Lens (Lens view) |
-
-Contextual overlays (Slate frame toolbar, 3D viewport tools) stay attached to
-their objects and are not dock content.
+Both File Atlas and Slate host a **single floating dock** of squircle icons
+over the canvas. Dock chrome (shape, placement, hover/pin, multi-panel stack,
+partition line, tracers) lives in `atlas-shell::dock`; apps supply items and
+panel bodies only.
 
 ## Ownership split
 
-The shell (`crates/atlas-shell/src/dock.rs`) owns **all chrome**:
+| Concern | Owner |
+|---------|-------|
+| Squircle geometry, icon painting, popover frame, stack layout, partition, tracers | `crates/atlas-shell/src/dock.rs` |
+| Soft AA partition ribbon | `crates/atlas-shell/src/taper.rs` — see `PAINT.md` |
+| Adjustable sizes/colors | `[dock]` in `ui-tokens.toml` |
+| Which icons exist, labels, descriptions, icons, panel contents | Each app's `ui/tools.rs` |
+| Dock edge preference (left vs bottom) | Preferences menu → `ChromePrefs` |
 
-- squircle shape (true superellipse, tunable exponent), fills, borders;
-- icon layout, spacing, grouping gaps, and flyout-direction markers;
-- hover-open, click-pin, Escape/outside-click close, hover grace period;
-- popover frame, header (item label + pinned indicator), scroll bounds;
-- anchoring: popovers open **upward** from bottom docks and **rightward**
-  from left docks, aligned to the hovered icon.
+## Placement (user preference)
 
-Apps own only **data and panel bodies**:
+Preferences → **Dock · left edge** / **Dock · bottom edge**. Persisted per app
+as `{app}-chrome.json` next to the index DB (`atlas_shell::prefs::ChromePrefs`).
 
-```rust
-DockItem {
-    id: "tool.frame",          // stable id: click result + body dispatch
-    label: "Frame",            // popover header / tooltip — rename here
-    icon: DockIcon::Custom(icon_frame), // or a built-in DockIcon variant
-    kind: DockItemKind::Panel, // Panel = popover; Action = click-only
-    active: tool == BoardTool::Frame,
-    visible: board,            // hide per view / per state
-    gap_before: false,         // visual grouping
-}
-```
+| Default | App |
+|---------|-----|
+| Left edge, vertically centered | File Atlas |
+| Bottom edge, horizontally centered | Slate |
 
-`floating_dock(...)` returns the clicked item id (Panel items report clicks
-too, so a click can both activate a tool and pin its flyout).
+Popovers open **rightward** from a left dock and **upward** from a bottom dock.
 
-## Adding / renaming tools
+## Icon kinds
 
-1. Add (or edit) a `DockItem` in the app's `ui/tools.rs` dock function.
-2. Panel items: add an arm in the body callback rendering the panel content.
-3. Action items: add an arm in the click match.
-4. Custom icons: a `fn(&Painter, Rect, Color32)` painter passed via
-   `DockIcon::Custom` — Slate bridges `board_icons::paint_tool_icon` this
-   way. Shared/general icons go into the shell's `DockIcon` enum.
+| Kind | Role | Hover | Click |
+|------|------|-------|-------|
+| **Tool** | Sub-tool flyouts (shapes, curves…) | Preview panel anchored on the icon; ease-in | Pin → joins centered stack |
+| **Dashboard** | Settings bodies (tags, filters…) | Label chip above icon; description fades in; preview on icon | Pin → joins centered stack |
+| **Action** | Toggles (grid, text tool…) | Same label chip as Dashboard (short name only) | Fires the action; no pin |
 
-Subcategories (flyouts) are ordinary popover bodies — Slate's Frame flyout
-lists presets plus "Custom…"; rename or extend rows there.
+### Grouping rule (no visible separator)
+
+List icons so **Tools are neighbors** and **Dashboards are neighbors**. Do
+**not** draw a divider between groups — order alone carries the grouping.
+`gap_before` exists for rare spacing needs; prefer contiguous kind blocks.
+
+Recommended order in a mixed dock: Tools → Actions → Dashboards.
+
+### Critical hover split
+
+- **Hover previews never join the centered stack** — only **pinned** panels do.
+- **Label chips** never reshuffle pinned panels; they sit above the hovered icon.
+- **Action** and **Dashboard** share one chip implementation (no legacy tooltips).
 
 ## Interaction rules
 
-- Hover an icon → its popover opens (Panel items). Hovering a sibling
-  switches the popover. Leaving unpinned content closes after `close_delay`.
-- Click → pins the popover (click again to close), and reports the id so
-  tools activate immediately.
-- Action items show a tooltip instead of a popover; Panel items never show
-  a tooltip (the popover header carries the label).
-- Docks float over the canvas and must never reserve layout space or
-  intercept input outside their own icon/popover rects.
+- Click a Tool / Dashboard icon → toggle pin; click again to unpin.
+- Multiple pinned panels stay open together (centered stack).
+- Escape clears all open state (pins + hovers). Outside click clears hover
+  first, then pins.
+- Docks float over the canvas and must never reserve layout space.
+
+## Multi-panel stacking
+
+Only **pinned** ids participate. Open panels pack along the dock's secondary
+axis, then the group is translated so it stays **centered** on that canvas edge.
+Panel open uses a short ease-out (`panel_open_duration`).
+
+## Partition line
+
+A soft anti-aliased tapered ribbon sits between the icon strip and the canvas
+(`taper::paint_tapered_ribbon` — see `PAINT.md`). Tunable under **Dock · Partition & tracers**.
+
+## Hover tracers
+
+Hovering the **border** of a **pinned** popover paints a faint orthogonal tracer
+back to the initiating icon.
 
 ## Tokens and tuning
 
 All geometry/colors live under `[dock]` in `crates/atlas-shell/ui-tokens.toml`
-and in the `ui-tuner` dashboard: icon size/gap, squircle exponent, margins,
-popover width/height/padding/radius/shadow, close delay, light/dark colors.
+and in the `ui-tuner` dashboard. Key motion tokens: `describe_fade_duration`,
+`panel_open_duration`, `hover_chip_gap`, `dashboard_describe_delay`.
 
-Dev harness: set `ATLAS_DOCK_OPEN=<item id>` to force a panel open (used for
-screenshot verification).
+Dev harness: set `ATLAS_DOCK_OPEN=<item id>` to force a panel open.
+
+## Extension
+
+```rust
+DockItem {
+    id: "my.tool",
+    label: "My tool",
+    description: "Shown after prolonged Dashboard hover (faded in).",
+    icon: DockIcon::Custom(icon_frame),
+    kind: DockItemKind::Tool,
+    active: false,
+    visible: true,
+    gap_before: false,
+}
+```
+
+Adding a tool = one `DockItem` + one arm in the app's body/click match.
 
 ## Verification
 
@@ -78,6 +104,3 @@ screenshot verification).
 cargo test -p atlas-shell
 cargo build --release -p native-file-atlas -p slate
 ```
-
-Capture both apps (`ATLAS_SHOT` / `SLATE_SHOT`) with and without
-`ATLAS_DOCK_OPEN` after dock changes, in light and dark mode.

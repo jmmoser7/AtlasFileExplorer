@@ -78,6 +78,11 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Workbook",
+        name: "Home",
+        binding: "Icon portal → File → Home",
+    },
+    CommandEntry {
+        category: "Workbook",
         name: "New workbook tab",
         binding: "Ctrl + T",
     },

@@ -7,6 +7,7 @@
 use crate::types::FileEntry;
 use eframe::egui::{Pos2, Rect, Vec2};
 use std::collections::HashMap;
+use std::path::Path;
 
 // Geometry constants (world units) — same numbers as the web app.
 pub const COL_W: f32 = 340.0; // depth step, v orientation
@@ -87,7 +88,8 @@ pub struct DirNode {
     /// modes skip subtrees entirely; their stale coordinates must never
     /// swallow hover or clicks.
     pub placed: bool,
-    /// First 9 sample file ids for the portal mosaic.
+    /// Up to 9 sample file ids for the portal mosaic (direct media first,
+    /// then nested files borrowed from child folders).
     pub portal_samples: Vec<u32>,
 }
 
@@ -157,9 +159,13 @@ impl Tree {
             .unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::splat(1.0)))
     }
 
-    pub fn build(entries: &[FileEntry], root_name: &str, cfg: LayoutConfig) -> Tree {
+    pub fn build(entries: &[FileEntry], root: &Path, cfg: LayoutConfig) -> Tree {
         let cfg = cfg.normalized();
-        let mut dirs: Vec<DirNode> = vec![DirNode::new(root_name.to_string(), String::new(), 0)];
+        let root_name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| root.to_string_lossy().into_owned());
+        let mut dirs: Vec<DirNode> = vec![DirNode::new(root_name, String::new(), 0)];
         let mut by_rel: HashMap<String, u32> = HashMap::new();
         by_rel.insert(String::new(), 0);
 
@@ -255,11 +261,15 @@ impl Tree {
             };
             self.dirs[i].desc_files = files;
             self.dirs[i].desc_bytes = bytes;
-            // Portal mosaic samples: first media-ish files, then anything.
-            let d = &self.dirs[i];
+            // Portal mosaic: prefer direct media, then other direct files, then
+            // borrow from child folders. Children are already filled (reverse
+            // pass), so Desktop-style trees — folders of folders — still get a
+            // preview instead of an empty 3×3.
+            let direct = self.dirs[i].files.clone();
+            let child_dirs = self.dirs[i].child_dirs.clone();
             let mut media: Vec<u32> = Vec::new();
             let mut rest: Vec<u32> = Vec::new();
-            for &f in &d.files {
+            for &f in &direct {
                 let e = &entries[f as usize];
                 if crate::types::wants_thumb(e.family) {
                     media.push(f);
@@ -272,6 +282,22 @@ impl Tree {
             }
             media.extend(rest);
             media.truncate(9);
+            if media.len() < 9 {
+                for &c in &child_dirs {
+                    for &f in &self.dirs[c as usize].portal_samples {
+                        if media.contains(&f) {
+                            continue;
+                        }
+                        media.push(f);
+                        if media.len() >= 9 {
+                            break;
+                        }
+                    }
+                    if media.len() >= 9 {
+                        break;
+                    }
+                }
+            }
             self.dirs[i].portal_samples = media;
         }
     }
@@ -753,7 +779,7 @@ mod tests {
             entry(r"sub\deep\c.jpg"),
             entry(r"other\d.txt"),
         ];
-        let mut t = Tree::build(&entries, "fake", LayoutConfig::default());
+        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
         assert_eq!(t.dirs.len(), 4); // root, sub, sub\deep, other
         assert_eq!(t.dirs[0].desc_files, 4);
         let sub = t.dirs.iter().position(|d| d.rel == "sub").unwrap();
@@ -789,7 +815,7 @@ mod tests {
         for i in 0..25 {
             entries.push(entry(&format!(r"pics\img_{i:02}.png")));
         }
-        let mut t = Tree::build(&entries, "fake", LayoutConfig::default());
+        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
         for d in t.dirs.iter_mut() {
             d.collapsed = false;
         }
@@ -820,7 +846,7 @@ mod tests {
             align_groups_to_lowest: true,
             ..LayoutConfig::default()
         };
-        let mut t = Tree::build(&entries, "fake", cfg);
+        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), cfg);
         for d in t.dirs.iter_mut() {
             d.collapsed = false;
         }
@@ -855,12 +881,39 @@ mod tests {
     }
 
     #[test]
+    fn portal_samples_include_nested_media() {
+        // Typical Desktop layout: a fat folder of subfolders, media only nested.
+        let mut entries: Vec<FileEntry> = Vec::new();
+        for i in 0..110 {
+            entries.push(entry(&format!(r"big\sub_{i:03}\photo.jpg")));
+        }
+        let t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
+        let big = t.dirs.iter().position(|d| d.rel == "big").unwrap();
+        assert!(
+            t.dirs[big].files.is_empty(),
+            "fixture has no direct files under big"
+        );
+        assert!(
+            t.dirs[big].portal_samples.len() >= 9,
+            "portal should borrow nested media for its mosaic, got {:?}",
+            t.dirs[big].portal_samples
+        );
+        for &f in &t.dirs[big].portal_samples {
+            assert!(
+                entries[f as usize].rel.contains("photo.jpg"),
+                "sample should be nested media, got {}",
+                entries[f as usize].rel
+            );
+        }
+    }
+
+    #[test]
     fn structure_only_uses_pill_not_portal_card() {
         let mut entries: Vec<FileEntry> = Vec::new();
         for i in 0..150 {
             entries.push(entry(&format!(r"p\portal_{i:03}.png")));
         }
-        let mut t = Tree::build(&entries, "fake", LayoutConfig::default());
+        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
         let p = t.dirs.iter().position(|d| d.rel == "p").unwrap();
         t.dirs[p].collapsed = true;
         let all_match = vec![true; entries.len()];
@@ -880,7 +933,7 @@ mod tests {
     fn structure_only_keeps_dirs_hides_files() {
         let entries: Vec<FileEntry> =
             vec![entry(r"a\x.jpg"), entry(r"a\b\y.jpg"), entry(r"c\z.png")];
-        let mut t = Tree::build(&entries, "fake", LayoutConfig::default());
+        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
         for d in t.dirs.iter_mut() {
             d.collapsed = false;
         }
@@ -920,7 +973,7 @@ mod tests {
             row_spacing: 40,
             ..LayoutConfig::default()
         };
-        let mut t = Tree::build(&entries, "fake", cfg);
+        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), cfg);
         for d in t.dirs.iter_mut() {
             d.collapsed = false;
         }
@@ -971,7 +1024,7 @@ mod tests {
     #[test]
     fn default_collapse_depth() {
         let entries: Vec<FileEntry> = vec![entry(r"a\b\c\deep.jpg"), entry(r"a\top.jpg")];
-        let t = Tree::build(&entries, "fake", LayoutConfig::default());
+        let t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
         let ab = t.dirs.iter().find(|d| d.rel == r"a\b").unwrap();
         assert!(ab.collapsed); // depth 2
         let a = t.dirs.iter().find(|d| d.rel == "a").unwrap();

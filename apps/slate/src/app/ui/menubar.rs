@@ -4,21 +4,30 @@
 
 use super::super::SlateApp;
 use crate::app::chrome::ToolPanel;
+use atlas_shell::dock::DockSide;
 use atlas_shell::menubar::{self, AppIcon, MenuItem, MenuSpec, UnifiedTopBarModel};
+use atlas_shell::prefs::ChromePrefs;
 use atlas_shell::tabs::{TabAction, TabSpec};
 use eframe::egui;
 use slate_doc::ViewKind;
 
 pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
     let palette = app.palette();
-    let view = app.doc().view.active_view;
-    let chrome = &app.tab().chrome;
+    let view = app
+        .tabs
+        .get(app.active_tab)
+        .map(|t| t.doc.view.active_view)
+        .unwrap_or(ViewKind::Grid);
+    let chrome = app.chrome();
 
     let menus = [
         MenuSpec {
             title: "File",
             items: vec![
-                MenuItem::new("file.new", "New workbook").shortcut("Ctrl+T"),
+                MenuItem::new("file.home", "Home"),
+                MenuItem::new("file.new", "New workbook")
+                    .shortcut("Ctrl+T")
+                    .separated(),
                 MenuItem::new("file.open", "Open workbook…").shortcut("Ctrl+O"),
                 MenuItem::new("file.save", "Save")
                     .shortcut("Ctrl+S")
@@ -54,46 +63,62 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
             title: "Preferences",
             items: vec![
                 MenuItem::new("view.dark", "Dark mode").checked(app.dark_mode),
+                MenuItem::new("dock.left", "Dock · left edge")
+                    .checked(app.dock_side == DockSide::LeftCenter)
+                    .separated(),
+                MenuItem::new("dock.bottom", "Dock · bottom edge")
+                    .checked(app.dock_side == DockSide::BottomCenter),
                 MenuItem::new("ai.launch", "Launch Cursor").separated(),
                 MenuItem::new("ai.workspace", "Set AI workspace…"),
                 MenuItem::new("tools.tags", "Show Tags dock")
-                    .checked(app.tab().chrome.tool(ToolPanel::Tags))
+                    .checked(chrome.tool(ToolPanel::Tags))
                     .separated(),
                 MenuItem::new("tools.selection", "Show Selection dock")
-                    .checked(app.tab().chrome.tool(ToolPanel::Selection)),
+                    .checked(chrome.tool(ToolPanel::Selection)),
                 MenuItem::new("tools.view", "Show View dock")
-                    .checked(app.tab().chrome.tool(ToolPanel::Display)),
+                    .checked(chrome.tool(ToolPanel::Display)),
                 MenuItem::new("tools.lens", "Show Lens dock")
-                    .checked(app.tab().chrome.tool(ToolPanel::Lens)),
+                    .checked(chrome.tool(ToolPanel::Lens)),
                 MenuItem::new("view.advanced", "Advanced settings…").separated(),
             ],
         },
     ];
 
-    let specs: Vec<TabSpec> = app
+    // Home is orthogonal to work tabs — none selected while the shelf is up.
+    // Virgin launch: hide blank tabs until the user opens one from + / New.
+    let on_home = app.at_home;
+    let visible_indices: Vec<usize> = app
         .tabs
         .iter()
         .enumerate()
-        .map(|(i, tab)| {
-            let active = i == app.active_tab;
+        .filter(|(_, tab)| !(on_home && tab.is_blank()))
+        .map(|(i, _)| i)
+        .collect();
+    let specs: Vec<TabSpec> = visible_indices
+        .iter()
+        .map(|&i| {
+            let tab = &app.tabs[i];
             let blank = tab.is_blank();
-            let title = if blank && active {
-                "New workbook".to_string()
-            } else {
-                tab.title()
-            };
             let tooltip = match &tab.path {
                 Some(p) => p.to_string_lossy().into_owned(),
                 None => "Unsaved workbook — Ctrl+S to save".to_string(),
             };
             TabSpec {
-                title,
+                title: tab.title(),
                 tooltip,
                 closable: app.tabs.len() > 1 || !blank,
                 is_empty: blank,
             }
         })
         .collect();
+    let active_tab = if on_home {
+        usize::MAX
+    } else {
+        visible_indices
+            .iter()
+            .position(|&i| i == app.active_tab)
+            .unwrap_or(usize::MAX)
+    };
 
     let result = menubar::unified_top_bar(
         ctx,
@@ -104,58 +129,95 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
             menus: &menus,
             busy: app.picker_rx.is_some(),
             tabs: &specs,
-            active_tab: app.active_tab,
+            active_tab,
         },
     );
 
     match result.menu_clicked {
-        Some("file.new") => app.new_tab(),
+        Some("file.home") => app.go_home(),
+        Some("file.new") => app.home_new_workspace(),
         Some("file.open") => app.open_doc_dialog(),
         Some("file.save") => app.save_doc(),
         Some("file.save_as") => app.save_doc_as_dialog(),
         Some("file.export") => app.export_artifact_dialog(),
         Some("file.add_files") => app.add_files_dialog(),
         Some("file.close_tab") => {
-            let i = app.active_tab;
-            app.close_tab(i);
+            if !app.tabs.is_empty() {
+                let i = app.active_tab;
+                app.close_tab(i);
+            }
         }
         Some("file.exit") => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-        Some("view.grid") => app.doc_mut().view.active_view = ViewKind::Grid,
-        Some("view.venn") => app.doc_mut().view.active_view = ViewKind::Venn,
-        Some("view.board") => app.doc_mut().view.active_view = ViewKind::Board,
-        Some("view.lens") => app.doc_mut().view.active_view = ViewKind::Lens,
+        Some("view.grid") => {
+            app.ensure_work_tab();
+            app.doc_mut().view.active_view = ViewKind::Grid;
+        }
+        Some("view.venn") => {
+            app.ensure_work_tab();
+            app.doc_mut().view.active_view = ViewKind::Venn;
+        }
+        Some("view.board") => {
+            app.ensure_work_tab();
+            app.doc_mut().view.active_view = ViewKind::Board;
+        }
+        Some("view.lens") => {
+            app.ensure_work_tab();
+            app.doc_mut().view.active_view = ViewKind::Lens;
+        }
         Some("view.present") => app.start_present(None),
         Some("view.fullscreen") => app.toggle_canvas_fullscreen(),
         Some("view.dark") => {
             app.dark_mode = !app.dark_mode;
             app.apply_theme(ctx);
         }
+        Some("dock.left") => {
+            app.dock_side = DockSide::LeftCenter;
+            ChromePrefs {
+                dock_side: app.dock_side,
+            }
+            .save("slate");
+        }
+        Some("dock.bottom") => {
+            app.dock_side = DockSide::BottomCenter;
+            ChromePrefs {
+                dock_side: app.dock_side,
+            }
+            .save("slate");
+        }
         Some("ai.launch") => app.ai.launch_cursor(),
         Some("ai.workspace") => app.ai.pick_workspace(),
         Some("tools.tags") => {
-            let on = !app.tab().chrome.tool(ToolPanel::Tags);
-            app.tab_mut().chrome.set_tool(ToolPanel::Tags, on);
+            let on = !app.chrome().tool(ToolPanel::Tags);
+            app.chrome_mut().set_tool(ToolPanel::Tags, on);
         }
         Some("tools.selection") => {
-            let on = !app.tab().chrome.tool(ToolPanel::Selection);
-            app.tab_mut().chrome.set_tool(ToolPanel::Selection, on);
+            let on = !app.chrome().tool(ToolPanel::Selection);
+            app.chrome_mut().set_tool(ToolPanel::Selection, on);
         }
         Some("tools.view") => {
-            let on = !app.tab().chrome.tool(ToolPanel::Display);
-            app.tab_mut().chrome.set_tool(ToolPanel::Display, on);
+            let on = !app.chrome().tool(ToolPanel::Display);
+            app.chrome_mut().set_tool(ToolPanel::Display, on);
         }
         Some("tools.lens") => {
-            let on = !app.tab().chrome.tool(ToolPanel::Lens);
-            app.tab_mut().chrome.set_tool(ToolPanel::Lens, on);
+            let on = !app.chrome().tool(ToolPanel::Lens);
+            app.chrome_mut().set_tool(ToolPanel::Lens, on);
         }
-        Some("view.advanced") => app.tab_mut().chrome.advanced_open = true,
+        Some("view.advanced") => app.chrome_mut().advanced_open = true,
         _ => {}
     }
 
     match result.tab_action {
-        Some(TabAction::Switch(i)) => app.switch_tab(i),
-        Some(TabAction::Close(i)) => app.close_tab(i),
-        Some(TabAction::New) => app.new_tab(),
+        Some(TabAction::Switch(i)) => {
+            if let Some(&tab_i) = visible_indices.get(i) {
+                app.switch_tab(tab_i);
+            }
+        }
+        Some(TabAction::Close(i)) => {
+            if let Some(&tab_i) = visible_indices.get(i) {
+                app.close_tab(tab_i);
+            }
+        }
+        Some(TabAction::New) => app.home_new_workspace(),
         Some(TabAction::ActivateEmpty) => app.open_doc_dialog(),
         None => {}
     }

@@ -488,6 +488,90 @@ impl FileEntry {
     }
 }
 
+/// Longest common ancestor directory of `paths`.
+///
+/// Returns `None` when `paths` is empty or the entries live on different
+/// volume roots (e.g. `C:\…` and `D:\…`).
+pub fn common_ancestor(paths: &[PathBuf]) -> Option<PathBuf> {
+    let mut iter = paths.iter();
+    let mut ancestor = iter.next()?.clone();
+    for p in iter {
+        ancestor = common_path_prefix(&ancestor, p)?;
+    }
+    Some(ancestor)
+}
+
+fn common_path_prefix(a: &Path, b: &Path) -> Option<PathBuf> {
+    let ac: Vec<_> = a.components().collect();
+    let bc: Vec<_> = b.components().collect();
+    let mut i = 0;
+    while i < ac.len() && i < bc.len() && ac[i] == bc[i] {
+        i += 1;
+    }
+    if i == 0 {
+        return None;
+    }
+    let mut out = PathBuf::new();
+    for c in ac.iter().take(i) {
+        out.push(c.as_os_str());
+    }
+    Some(out)
+}
+
+/// Deduplicate folder picks, drop folders nested under another pick, and
+/// sort for stable titles / index keys.
+pub fn normalize_folder_selection(folders: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = folders
+        .into_iter()
+        .filter(|p| p.as_os_str().len() > 0)
+        .collect();
+    folders.sort();
+    folders.dedup();
+    let mut kept: Vec<PathBuf> = Vec::new();
+    for p in folders {
+        if kept.iter().any(|k| p.starts_with(k)) {
+            continue;
+        }
+        kept.retain(|k| !k.starts_with(&p));
+        kept.push(p);
+    }
+    kept.sort();
+    kept
+}
+
+/// Parent folders from the volume root down to (but not including) `path`.
+///
+/// Used to draw a visual upstream chain into the selected map root
+/// (e.g. `C:\Users\jmoser\Projects` → `[C:\, Users, jmoser]`).
+pub fn upstream_folders(path: &Path) -> Vec<(String, PathBuf)> {
+    use std::path::Component;
+    let mut stack = Vec::new();
+    let mut cur = path.parent();
+    while let Some(p) = cur {
+        let name = if let Some(n) = p.file_name() {
+            n.to_string_lossy().into_owned()
+        } else {
+            p.components()
+                .find_map(|c| match c {
+                    Component::Prefix(pre) => {
+                        Some(pre.as_os_str().to_string_lossy().replace('\\', ""))
+                    }
+                    _ => None,
+                })
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| p.to_string_lossy().into_owned())
+        };
+        stack.push((name, p.to_path_buf()));
+        let parent = p.parent();
+        if parent == Some(p) || parent == cur {
+            break;
+        }
+        cur = parent;
+    }
+    stack.reverse();
+    stack
+}
+
 pub const SECS_PER_DAY: i64 = 86_400;
 pub const SECS_PER_HOUR: i64 = 3_600;
 pub const SECS_PER_MINUTE: i64 = 60;
@@ -665,5 +749,35 @@ mod tests {
             "12:15"
         );
         assert_eq!(timeline_tick_label(noon, 365 * SECS_PER_DAY), "1970");
+    }
+
+    #[test]
+    fn common_ancestor_finds_shared_parent() {
+        let master = PathBuf::from("Master");
+        let a = master.join("A");
+        let b = master.join("B");
+        let c = master.join("C").join("nested");
+        assert_eq!(common_ancestor(&[a, b, c]), Some(master));
+    }
+
+    #[test]
+    fn normalize_folder_selection_drops_nested_picks() {
+        let master = PathBuf::from("Master");
+        let got = normalize_folder_selection(vec![
+            master.join("A"),
+            master.join("A").join("sub"),
+            master.join("B"),
+        ]);
+        assert_eq!(got, vec![master.join("A"), master.join("B")]);
+    }
+
+    #[test]
+    fn upstream_folders_lists_parents_only() {
+        let path = PathBuf::from("Users").join("jmoser").join("Projects");
+        let up = upstream_folders(&path);
+        assert_eq!(up.len(), 2);
+        assert_eq!(up[0].0, "Users");
+        assert_eq!(up[1].0, "jmoser");
+        assert!(!up.iter().any(|(n, _)| n == "Projects"));
     }
 }

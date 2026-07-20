@@ -113,7 +113,12 @@ pub const ENTRIES: &[CommandEntry] = &[
     },
     CommandEntry {
         category: "Workflow",
-        name: "Open folder",
+        name: "Home",
+        binding: "Icon portal → File → Home",
+    },
+    CommandEntry {
+        category: "Workflow",
+        name: "Open folders",
         binding: "Ctrl + O",
     },
     CommandEntry {

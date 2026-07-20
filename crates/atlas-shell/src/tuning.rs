@@ -23,7 +23,7 @@ pub(crate) fn dock_preview_panel() -> Option<&'static str> {
 #[cfg(feature = "ui-tuner")]
 mod enabled {
     use crate::tokens::{
-        self, DockThemeTokens, DockTokens, PortalMenuThemeTokens, PortalMenuTokens,
+        self, DockThemeTokens, DockTokens, HomeTokens, PortalMenuThemeTokens, PortalMenuTokens,
         TopBarThemeTokens, TopBarTokens, UiTokens,
     };
     use eframe::egui::{self, Color32, RichText, Slider};
@@ -68,6 +68,8 @@ mod enabled {
         stored.topbar.round_for_storage();
         stored.dock.normalize();
         stored.dock.round_for_storage();
+        stored.home.normalize();
+        stored.home.round_for_storage();
         let body = toml::to_string_pretty(&stored).map_err(|error| error.to_string())?;
         let header = concat!(
             "# Canonical shared-chrome design tokens.\n",
@@ -226,7 +228,7 @@ mod enabled {
 
     fn portal_editor(ui: &mut egui::Ui, portal: &mut PortalMenuTokens) {
         egui::CollapsingHeader::new("Portal menu · Geometry and type")
-            .default_open(true)
+            .default_open(false)
             .show(ui, |ui| {
                 portal_preview_controls(ui);
                 scalar(ui, "Panel width", &mut portal.width, 150.0..=420.0);
@@ -305,9 +307,75 @@ mod enabled {
             });
     }
 
+    fn dock_partition_tracer_editor(ui: &mut egui::Ui, dock: &mut DockTokens) {
+        egui::CollapsingHeader::new("Dock · Partition & tracers")
+            .default_open(true)
+            .show(ui, |ui| {
+                dock_preview_controls(ui);
+                ui.label(RichText::new("Partition line").strong());
+                scalar(ui, "Gap from icons", &mut dock.partition_gap, 0.0..=36.0);
+                scalar(
+                    ui,
+                    "Extend past strip",
+                    &mut dock.partition_extend,
+                    0.0..=120.0,
+                );
+                scalar(
+                    ui,
+                    "Max thickness (center)",
+                    &mut dock.partition_max_thickness,
+                    0.0..=8.0,
+                );
+                scalar(
+                    ui,
+                    "Min thickness (ends)",
+                    &mut dock.partition_min_thickness,
+                    0.0..=4.0,
+                );
+                scalar(ui, "Opacity", &mut dock.partition_opacity, 0.0..=1.0);
+                ui.separator();
+                ui.label(RichText::new("Hover tracer (panel border → icon)").strong());
+                scalar(ui, "Stroke width", &mut dock.tracer_width, 0.0..=4.0);
+                scalar(ui, "Opacity", &mut dock.tracer_opacity, 0.0..=1.0);
+                scalar(
+                    ui,
+                    "Corner radius",
+                    &mut dock.tracer_corner_radius,
+                    0.0..=24.0,
+                );
+                scalar(
+                    ui,
+                    "Border hit band",
+                    &mut dock.tracer_border_hit,
+                    2.0..=24.0,
+                );
+                ui.separator();
+                scalar(ui, "Panel stack gap", &mut dock.stack_gap, 0.0..=32.0);
+                scalar(
+                    ui,
+                    "Dashboard describe delay",
+                    &mut dock.dashboard_describe_delay,
+                    0.0..=2.0,
+                );
+                scalar(
+                    ui,
+                    "Description fade",
+                    &mut dock.describe_fade_duration,
+                    0.05..=1.0,
+                );
+                scalar(
+                    ui,
+                    "Panel ease-in",
+                    &mut dock.panel_open_duration,
+                    0.05..=0.8,
+                );
+                scalar(ui, "Label chip gap", &mut dock.hover_chip_gap, 2.0..=24.0);
+            });
+    }
+
     fn dock_editor(ui: &mut egui::Ui, dock: &mut DockTokens) {
         egui::CollapsingHeader::new("Floating docks · Geometry")
-            .default_open(true)
+            .default_open(false)
             .show(ui, |ui| {
                 dock_preview_controls(ui);
                 scalar(ui, "Icon size", &mut dock.icon_size, 20.0..=64.0);
@@ -378,7 +446,7 @@ mod enabled {
 
     fn geometry_editor(ui: &mut egui::Ui, t: &mut TopBarTokens) {
         egui::CollapsingHeader::new("Geometry")
-            .default_open(true)
+            .default_open(false)
             .show(ui, |ui| {
                 scalar(ui, "Bar height", &mut t.height, 20.0..=56.0);
                 scalar(ui, "Tab top inset", &mut t.tab_top_inset, 0.0..=16.0);
@@ -418,7 +486,7 @@ mod enabled {
 
     fn typography_editor(ui: &mut egui::Ui, t: &mut TopBarTokens) {
         egui::CollapsingHeader::new("Typography and menus")
-            .default_open(true)
+            .default_open(false)
             .show(ui, |ui| {
                 scalar(ui, "Tab text size", &mut t.tab_text_size, 8.0..=24.0);
                 integer(ui, "Title character limit", &mut t.tab_title_chars, 8..=80);
@@ -428,7 +496,7 @@ mod enabled {
 
     fn effects_editor(ui: &mut egui::Ui, t: &mut TopBarTokens) {
         egui::CollapsingHeader::new("Active-tab glow and emboss")
-            .default_open(true)
+            .default_open(false)
             .show(ui, |ui| {
                 scalar(
                     ui,
@@ -461,6 +529,92 @@ mod enabled {
                     "Inner emboss opacity",
                     &mut t.inner_highlight_opacity,
                     0.0..=1.0,
+                );
+            });
+    }
+
+    fn home_editor(ui: &mut egui::Ui, home: &mut HomeTokens) {
+        egui::CollapsingHeader::new("Home · Cover Flow")
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.label(RichText::new("Cards (square)").strong());
+                scalar(
+                    ui,
+                    "Size · canvas fraction",
+                    &mut home.cover_frac,
+                    0.15..=0.85,
+                );
+                scalar(ui, "Size · min px", &mut home.cover_min, 60.0..=500.0);
+                scalar(ui, "Size · max px", &mut home.cover_max, 120.0..=900.0);
+                scalar(ui, "Vertical center", &mut home.center_y_frac, 0.2..=0.75);
+                ui.separator();
+                ui.label(RichText::new("Spacing & falloff").strong());
+                scalar(
+                    ui,
+                    "Side packing (× card)",
+                    &mut home.side_step_frac,
+                    0.02..=0.8,
+                );
+                scalar(
+                    ui,
+                    "Center gap (× card)",
+                    &mut home.center_bulge_frac,
+                    0.0..=1.5,
+                );
+                scalar(
+                    ui,
+                    "Falloff sharpness (smaller = sharper)",
+                    &mut home.bulge_width,
+                    0.1..=3.0,
+                );
+                ui.separator();
+                ui.label(RichText::new("Rotation & depth").strong());
+                scalar(
+                    ui,
+                    "Max rotation (°)",
+                    &mut home.angle_max_deg,
+                    -85.0..=85.0,
+                );
+                scalar(
+                    ui,
+                    "Rotation ramp (smaller = flips sooner)",
+                    &mut home.angle_width,
+                    0.1..=3.0,
+                );
+                scalar(ui, "Depth push-back", &mut home.depth_max, 0.0..=600.0);
+                scalar(ui, "Depth ramp", &mut home.depth_width, 0.1..=4.0);
+                scalar(ui, "Focal length", &mut home.focal, 200.0..=4000.0);
+                ui.separator();
+                ui.label(RichText::new("Card finish").strong());
+                scalar(
+                    ui,
+                    "Corner fillet (× card)",
+                    &mut home.corner_bevel_frac,
+                    0.0..=0.2,
+                );
+                scalar(ui, "AO reach (px)", &mut home.ao_size, 0.0..=120.0);
+                scalar(ui, "AO strength", &mut home.ao_strength, 0.0..=1.0);
+                ui.separator();
+                ui.label(RichText::new("Motion feel").strong());
+                scalar(ui, "Inertia friction", &mut home.friction, 0.2..=20.0);
+                scalar(
+                    ui,
+                    "Snap stiffness",
+                    &mut home.spring_stiffness,
+                    4.0..=400.0,
+                );
+                scalar(ui, "Snap damping", &mut home.spring_damping, 1.0..=60.0);
+                scalar(
+                    ui,
+                    "Snap handover velocity",
+                    &mut home.snap_velocity,
+                    0.05..=5.0,
+                );
+                scalar(
+                    ui,
+                    "Wheel px per album",
+                    &mut home.wheel_px_per_album,
+                    10.0..=400.0,
                 );
             });
     }
@@ -515,36 +669,51 @@ mod enabled {
                 ui.label(RichText::new(&state.status).small());
                 ui.separator();
 
-                geometry_editor(ui, &mut state.draft.topbar);
-                typography_editor(ui, &mut state.draft.topbar);
-                effects_editor(ui, &mut state.draft.topbar);
-                portal_editor(ui, &mut state.draft.topbar.portal);
-                portal_theme_editor(
-                    ui,
-                    "Portal menu · Light colors",
-                    &mut state.draft.topbar.portal.light,
-                );
-                portal_theme_editor(
-                    ui,
-                    "Portal menu · Dark colors",
-                    &mut state.draft.topbar.portal.dark,
-                );
-                dock_editor(ui, &mut state.draft.dock);
-                dock_theme_editor(
-                    ui,
-                    "Floating docks · Light colors",
-                    &mut state.draft.dock.light,
-                );
-                dock_theme_editor(
-                    ui,
-                    "Floating docks · Dark colors",
-                    &mut state.draft.dock.dark,
-                );
-                theme_editor(ui, "Light-mode colors", &mut state.draft.topbar.light);
-                theme_editor(ui, "Dark-mode colors", &mut state.draft.topbar.dark);
+                // Newest work first for quick access.
+                home_editor(ui, &mut state.draft.home);
+
+                dock_partition_tracer_editor(ui, &mut state.draft.dock);
+
+                egui::CollapsingHeader::new("Dock · Geometry, shadow & colors")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        dock_editor(ui, &mut state.draft.dock);
+                        dock_theme_editor(
+                            ui,
+                            "Floating docks · Light colors",
+                            &mut state.draft.dock.light,
+                        );
+                        dock_theme_editor(
+                            ui,
+                            "Floating docks · Dark colors",
+                            &mut state.draft.dock.dark,
+                        );
+                    });
+
+                egui::CollapsingHeader::new("Top bar & portal (older)")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        geometry_editor(ui, &mut state.draft.topbar);
+                        typography_editor(ui, &mut state.draft.topbar);
+                        effects_editor(ui, &mut state.draft.topbar);
+                        portal_editor(ui, &mut state.draft.topbar.portal);
+                        portal_theme_editor(
+                            ui,
+                            "Portal menu · Light colors",
+                            &mut state.draft.topbar.portal.light,
+                        );
+                        portal_theme_editor(
+                            ui,
+                            "Portal menu · Dark colors",
+                            &mut state.draft.topbar.portal.dark,
+                        );
+                        theme_editor(ui, "Light-mode colors", &mut state.draft.topbar.light);
+                        theme_editor(ui, "Dark-mode colors", &mut state.draft.topbar.dark);
+                    });
 
                 normalize(&mut state.draft);
                 state.draft.dock.normalize();
+                state.draft.home.normalize();
                 tokens::replace(state.draft.clone());
                 ctx.request_repaint();
             });

@@ -434,7 +434,9 @@ version = "0.1.0"
 dependencies = [
  "atlas-core",
  "eframe",
+ "image",
  "serde",
+ "serde_json",
  "toml 0.8.23",
 ]
 

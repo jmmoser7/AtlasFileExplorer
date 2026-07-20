@@ -1,0 +1,34 @@
+---
+description: Floating canvas dock — hover chips, previews, pin stack, motion
+globs:
+  - crates/atlas-shell/src/dock.rs
+  - crates/atlas-shell/DOCK.md
+  - apps/*/src/app/ui/tools.rs
+---
+
+# Floating dock chrome
+
+All dock interaction and painting live in `atlas-shell::dock` (see `DOCK.md`).
+Apps only supply `DockItem` lists and panel bodies.
+
+## Hover (unified)
+
+- **Label chip** (Action + Dashboard): always **above** the spawning icon on
+  bottom docks (`icon_popover_anchor` + `Align2::CENTER_BOTTOM`). Never use
+  egui `on_hover_text` for dock icons — it is inconsistent and draws below.
+- **Dashboard description**: fade in over `describe_fade_duration` after
+  `dashboard_describe_delay` — no hard show/hide layout jumps.
+- **Tool / Dashboard body preview**: opens **on-icon** while hovering (not in
+  the centered stack). Ease-in via `panel_open_duration` + `ease_out_cubic`.
+- **Pinned panels only** join the centered stack layout.
+
+## Motion
+
+Opening, pinning, and stack repositioning must use short ease-out motion
+(tokens: `panel_open_duration`, optional future slide). Avoid instant pop or
+layout snaps unless the user toggles a preference.
+
+## Extension
+
+New dock capabilities belong in `atlas-shell` so File Atlas and Slate stay
+identical. Tune via `[dock]` in `ui-tokens.toml` / UI tuner.

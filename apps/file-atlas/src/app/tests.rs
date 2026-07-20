@@ -73,16 +73,17 @@ impl Harness {
 /// per-entry parallel vectors in lockstep, and no id anywhere pointing past
 /// the entries vec.
 fn assert_workspace_invariants(app: &AtlasApp) {
-    assert!(
-        !app.tabs.is_empty(),
-        "there must always be at least one tab"
-    );
-    assert!(
-        app.active_tab < app.tabs.len(),
-        "active_tab {} out of bounds ({} tabs)",
-        app.active_tab,
-        app.tabs.len()
-    );
+    if app.at_home && app.tabs.is_empty() {
+        return;
+    }
+    if !app.tabs.is_empty() {
+        assert!(
+            app.active_tab < app.tabs.len(),
+            "active_tab {} out of bounds ({} tabs)",
+            app.active_tab,
+            app.tabs.len()
+        );
+    }
     assert_eq!(app.entries.len(), app.thumb_state.len());
     assert_eq!(app.entries.len(), app.avg_color.len());
     assert!(app.file_match.len() <= app.entries.len());
@@ -231,9 +232,9 @@ fn ten_plus_tabs_switch_and_close_stress() {
         h.app.close_tab(0);
         h.frame();
     }
-    h.app.close_tab(0); // closing the last tab resets it to empty
+    h.app.close_tab(0); // last tab → home, no tabs in the strip
     h.pump_until_idle();
-    assert_eq!(h.app.tabs.len(), 1);
+    assert!(h.app.tabs.is_empty());
     assert!(h.app.root.is_none());
 }
 
@@ -318,7 +319,7 @@ fn picker_result_lands_on_the_tab_that_asked() {
     h.pump_until_idle();
 
     // The pick arrives late: it must bind to tab 1, not the active tab 0.
-    tx.send(Some(root_b.clone())).unwrap();
+    tx.send(Some(vec![root_b.clone()])).unwrap();
     h.frame();
     assert_eq!(h.app.root.as_ref(), Some(&root_a), "active tab untouched");
     assert_eq!(h.app.tabs[1].root.as_ref(), Some(&root_b));
@@ -347,7 +348,7 @@ fn picker_result_for_a_closed_tab_is_dropped() {
     // Close the requesting tab before the dialog resolves.
     h.app.close_tab(1);
     h.pump_until_idle();
-    tx.send(Some(root_b)).unwrap();
+    tx.send(Some(vec![root_b])).unwrap();
     h.frame();
     assert_eq!(h.app.tabs.len(), 1);
     assert_eq!(h.app.root.as_ref(), Some(&root_a), "pick must be dropped");
@@ -437,4 +438,31 @@ fn pointer_torture_across_tab_switches() {
         }
     }
     h.pump_until_idle();
+}
+
+#[test]
+fn multi_folder_open_shares_one_canvas() {
+    let mut h = Harness::new("multi_folder");
+    let master = h._base.join("Master");
+    let a = make_tree(&master.join("A"), 3);
+    let b = make_tree(&master.join("B"), 4);
+    let _c = make_tree(&master.join("C"), 5); // unselected sibling
+
+    h.app.set_roots(vec![a.clone(), b.clone()]);
+    h.pump_until_idle();
+
+    assert_eq!(h.app.root.as_ref(), Some(&master));
+    assert_eq!(h.app.scan_seeds, vec![a, b]);
+    assert_eq!(h.app.entries.len(), 7, "only A + B files");
+    assert!(h.app.entries.iter().all(|e| {
+        e.rel.starts_with("A\\")
+            || e.rel.starts_with("B\\")
+            || e.rel.starts_with("A/")
+            || e.rel.starts_with("B/")
+    }));
+    assert!(
+        !h.app.upstream.is_empty(),
+        "mapped root should show parent chain"
+    );
+    assert_eq!(h.app.tabs[0].title(), "A +1");
 }

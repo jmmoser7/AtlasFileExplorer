@@ -191,6 +191,20 @@ shadow_opacity = 0.25999999046325684
 close_delay = 0.20000000298023224
 left_margin = 15.0
 bottom_margin = 13.0
+stack_gap = 8.0
+partition_gap = 8.0
+partition_extend = 120.0
+partition_max_thickness = 0.5
+partition_min_thickness = 0.0
+partition_opacity = 0.20000000298023224
+tracer_width = 1.399999976158142
+tracer_opacity = 0.550000011920929
+tracer_corner_radius = 8.0
+tracer_border_hit = 10.0
+dashboard_describe_delay = 1.2000000476837158
+describe_fade_duration = 0.2800000011920929
+panel_open_duration = 0.18000000715255737
+hover_chip_gap = 6.0
 
 [dock.light]
 icon_fill = [
@@ -279,3 +293,25 @@ muted_text = [
     156,
     255,
 ]
+
+[home]
+cover_frac = 0.550000011920929
+cover_min = 350.0
+cover_max = 470.0
+center_y_frac = 0.550000011920929
+side_step_frac = 0.33000001311302185
+center_bulge_frac = 0.75
+bulge_width = 0.6000000238418579
+angle_max_deg = -80.0
+angle_width = 1.7000000476837158
+corner_bevel_frac = 0.03500000014901161
+ao_size = 118.0
+ao_strength = 0.10000000149011612
+depth_max = 210.0
+depth_width = 2.0
+focal = 1250.0
+friction = 0.20000000298023224
+spring_stiffness = 60.0
+spring_damping = 15.0
+snap_velocity = 5.0
+wheel_px_per_album = 40.0

@@ -493,35 +493,42 @@ impl SlateApp {
         }
     }
 
+    /// Cover Flow home — recent workbooks (same shared `HomeScreen` as Atlas).
+    pub(crate) fn home_screen(&mut self, ui: &mut egui::Ui) {
+        let palette = self.palette();
+        match self.home.show(ui, &palette, &self.recents) {
+            Some(atlas_shell::home::HomeScreenAction::New) => self.home_new_workspace(),
+            Some(atlas_shell::home::HomeScreenAction::Open(path)) => {
+                if path.is_file() {
+                    self.open_doc_at(path);
+                } else if atlas_shell::home::is_synthetic_cover_path(&path) {
+                    self.home_new_workspace();
+                } else {
+                    self.toast("That workbook is no longer available");
+                    self.recents.remove_missing();
+                    self.recents.save("slate");
+                }
+            }
+            None => {}
+        }
+    }
+
     fn welcome(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let palette = self.palette();
         ui.allocate_new_ui(egui::UiBuilder::new().max_rect(rect), |ui| {
             ui.vertical_centered(|ui| {
-                ui.add_space(rect.height() * 0.3);
-                ui.label(
-                    egui::RichText::new("An empty slate")
-                        .size(22.0)
-                        .color(palette.ink),
-                );
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new(
-                        "Create tag groups in the Tags panel, then add files — drop them \
-                         here, use Workbook → Add files…, or open File Atlas and tag \
-                         or drag thumbnails across.",
+                ui.add_space(rect.height() * 0.38);
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Open project…").size(16.0).color(palette.ink),
+                        )
+                        .min_size(egui::vec2(200.0, 40.0)),
                     )
-                    .color(palette.sub),
-                );
-                ui.add_space(14.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(rect.width() * 0.5 - 150.0);
-                    if ui.button("Add files…").clicked() {
-                        self.add_files_dialog();
-                    }
-                    if ui.button("Open File Atlas…").clicked() {
-                        self.open_atlas(ui.ctx());
-                    }
-                });
+                    .clicked()
+                {
+                    self.open_doc_dialog();
+                }
             });
         });
     }

@@ -13,6 +13,11 @@ right. All painting lives in `atlas-shell` (`menubar::unified_top_bar`,
 adapts `AtlasApp` state to `UnifiedTopBarModel` / `MenuSpec` / `TabSpec` and
 applies the returned actions.
 
+**Home:** Orthogonal to work tabs (no tab selected while home is up). With no
+folder mapped, the central panel is the shared Cover Flow (`atlas_shell::home`)
+— recent folders, or template placeholders until templates ship. Re-open via
+**File → Home**. Opening is the shelf; **New** starts a folder pick.
+
 - The top bar is registered first so it remains outermost and spans the full
   viewport width; side and bottom panels begin below it.
 - **Full-screen canvas** (`ChromeConfig::canvas_fullscreen`, toggled by F11,
@@ -45,12 +50,14 @@ these rules load-bearing — breaking any of them is an
 index-out-of-bounds crash the moment another tab's entries load:
 
 1. **Every root change goes through `reset_workspace()`** (called by
-   `set_root` / `clear_root`). It clears the entries vec, every parallel
-   vector (`thumb_state`, `avg_color`, `file_match`), and *all* interaction
-   state that carries entry ids: `selection`, `hovered_file`/`hovered_dir`,
-   `last_selected_file`, `detail`, `menu_at`, `drag_chip`, `rubber_origin`,
-   `pending_cam`, `pending_view`. New per-root state must be reset there,
-   not in the callers.
+   `set_roots` / `set_root` / `clear_root`). It clears the entries vec, every
+   parallel vector (`thumb_state`, `avg_color`, `file_match`), and *all*
+   interaction state that carries entry ids: `selection`,
+   `hovered_file`/`hovered_dir`, `last_selected_file`, `detail`, `menu_at`,
+   `drag_chip`, `rubber_origin`, `pending_cam`, `pending_view`. Multi-folder
+   opens share one canvas under a common ancestor (`root`) with
+   `scan_seeds` listing the picked folders. New per-root state must be reset
+   there, not in the callers.
 2. **Async results are tagged and checked on arrival.** Scan batches and
    thumbnails carry a `generation`; the index load carries its `root`; the
    folder picker carries the requesting tab's `id`. A late result for a

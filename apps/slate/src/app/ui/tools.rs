@@ -1,22 +1,18 @@
 //! Slate's unified bottom dock — one centered row of floating squircle icons
-//! over the canvas. Board creation tools (Board view only), grid/snap/align,
-//! and the Tags / Selection / View / Lens panels all live here; the dock
-//! chrome itself is painted by `atlas_shell::dock`.
+//! over the canvas. Board creation tools (Board view only), grid/snap toggles,
+//! and the Tags dashboard; dock chrome is painted by `atlas_shell::dock`.
 //!
-//! To add a tool: add a `DockItem` in [`floating_tools_dock`], an arm in the
-//! panel-body match (for Panel items), and an arm in the click match (for
-//! Action items). Renaming a tool = changing its `label`.
+//! Ordering: Tools → Actions → Dashboards (see `crates/atlas-shell/DOCK.md`).
 
-use super::super::board::{BoardAlign, BoardTool, DistributeAxis, FrameCustomDraft, FramePreset};
+use super::super::board::{BoardTool, FrameCustomDraft, FramePreset};
 use super::super::board_icons::{self, ToolIcon};
 use super::super::chrome::ToolPanel;
 use super::super::SlateApp;
-use atlas_shell::dock::{floating_dock, DockIcon, DockItem, DockItemKind, DockSide};
+use atlas_shell::dock::{floating_dock, DockIcon, DockItem, DockItemKind};
 use atlas_shell::sidebar::{sidebar_subtle_divider, SidebarTheme, SidebarTokens};
 use eframe::egui::{self, Color32, Rect, RichText};
 use slate_doc::{GroupId, TagId, ViewKind};
 
-// Custom dock-icon painters bridging the shared dock to Slate's board icons.
 macro_rules! board_dock_icon {
     ($name:ident, $icon:expr) => {
         fn $name(p: &egui::Painter, r: Rect, c: Color32) {
@@ -24,50 +20,27 @@ macro_rules! board_dock_icon {
         }
     };
 }
-board_dock_icon!(icon_select, ToolIcon::Select);
-board_dock_icon!(icon_pan, ToolIcon::Pan);
 board_dock_icon!(icon_frame, ToolIcon::Frame);
 board_dock_icon!(icon_shapes, ToolIcon::Shapes);
 board_dock_icon!(icon_curve, ToolIcon::Curve);
 board_dock_icon!(icon_text, ToolIcon::Text);
 board_dock_icon!(icon_grid, ToolIcon::Grid);
 board_dock_icon!(icon_snap, ToolIcon::Snap);
-board_dock_icon!(icon_align, ToolIcon::Align);
 
-/// The single floating toolbar: board tools + panel launchers, one dock.
+/// The single floating toolbar: simplified board tools + tags + grid/snap.
 pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
     let theme = app.palette().sidebar_theme();
-    let chrome = app.tab().chrome.clone();
     let view = app.doc().view.active_view;
     let board = view == ViewKind::Board;
-
-    // Keep the combined nav button in sync with hotkey switches (V / H).
-    if matches!(app.board_tool, BoardTool::Select | BoardTool::Pan) {
-        app.board_nav_tool = app.board_tool;
-    }
     let tool = app.board_tool;
-    let nav_tool = app.board_nav_tool;
 
     let items = [
-        // ----- board creation tools (Board view only) -----
-        DockItem {
-            id: "tool.nav",
-            label: "Select / Pan",
-            icon: DockIcon::Custom(if nav_tool == BoardTool::Pan {
-                icon_pan
-            } else {
-                icon_select
-            }),
-            kind: DockItemKind::Panel,
-            active: matches!(tool, BoardTool::Select | BoardTool::Pan),
-            visible: board,
-            gap_before: false,
-        },
         DockItem {
             id: "tool.frame",
             label: "Frame",
+            description: "",
             icon: DockIcon::Custom(icon_frame),
-            kind: DockItemKind::Panel,
+            kind: DockItemKind::Tool,
             active: tool == BoardTool::Frame,
             visible: board,
             gap_before: false,
@@ -75,8 +48,9 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         DockItem {
             id: "tool.shapes",
             label: "Shapes",
+            description: "",
             icon: DockIcon::Custom(icon_shapes),
-            kind: DockItemKind::Panel,
+            kind: DockItemKind::Tool,
             active: matches!(tool, BoardTool::RectShape | BoardTool::Ellipse),
             visible: board,
             gap_before: false,
@@ -84,8 +58,9 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         DockItem {
             id: "tool.curve",
             label: "Curve",
+            description: "",
             icon: DockIcon::Custom(icon_curve),
-            kind: DockItemKind::Panel,
+            kind: DockItemKind::Tool,
             active: matches!(
                 tool,
                 BoardTool::Line | BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan
@@ -95,26 +70,28 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         },
         DockItem {
             id: "tool.text",
-            label: "Text (T)",
+            label: "Text",
+            description: "",
             icon: DockIcon::Custom(icon_text),
             kind: DockItemKind::Action,
             active: tool == BoardTool::Text,
             visible: board,
             gap_before: false,
         },
-        // ----- board view options -----
         DockItem {
             id: "board.grid",
-            label: "Board grid",
+            label: "Grid",
+            description: "",
             icon: DockIcon::Custom(icon_grid),
             kind: DockItemKind::Action,
             active: app.board_show_grid,
             visible: board,
-            gap_before: true,
+            gap_before: false,
         },
         DockItem {
             id: "board.snap",
-            label: "Snap to grid",
+            label: "Snap",
+            description: "",
             icon: DockIcon::Custom(icon_snap),
             kind: DockItemKind::Action,
             active: app.board_snap_grid,
@@ -122,49 +99,13 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             gap_before: false,
         },
         DockItem {
-            id: "board.align",
-            label: "Align",
-            icon: DockIcon::Custom(icon_align),
-            kind: DockItemKind::Panel,
-            active: false,
-            visible: board && app.board_sel.len() >= 2,
-            gap_before: false,
-        },
-        // ----- workspace panels (all views) -----
-        DockItem {
             id: "tags",
             label: "Tags",
+            description: "Faceted tag groups for this workbook.",
             icon: DockIcon::Tags,
-            kind: DockItemKind::Panel,
+            kind: DockItemKind::Dashboard,
             active: false,
-            visible: chrome.tool(ToolPanel::Tags),
-            gap_before: board,
-        },
-        DockItem {
-            id: "selection",
-            label: "Selection",
-            icon: DockIcon::Selection,
-            kind: DockItemKind::Panel,
-            active: !app.board_sel.is_empty(),
-            visible: chrome.tool(ToolPanel::Selection),
-            gap_before: false,
-        },
-        DockItem {
-            id: "view",
-            label: "View",
-            icon: DockIcon::View,
-            kind: DockItemKind::Panel,
-            active: false,
-            visible: chrome.tool(ToolPanel::Display),
-            gap_before: false,
-        },
-        DockItem {
-            id: "lens",
-            label: "Lens",
-            icon: DockIcon::Lens,
-            kind: DockItemKind::Panel,
-            active: view == ViewKind::Lens,
-            visible: chrome.tool(ToolPanel::Lens) && view == ViewKind::Lens,
+            visible: app.chrome().tool(ToolPanel::Tags),
             gap_before: false,
         },
     ];
@@ -176,33 +117,18 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         "slate_tools",
         canvas,
         &palette,
-        DockSide::BottomCenter,
+        app.dock_side,
         &items,
         |ui, id| match id {
-            "tool.nav" => nav_flyout(app, ui, theme),
             "tool.frame" => frame_flyout(app, ui, theme),
             "tool.shapes" => shapes_flyout(app, ui, theme),
             "tool.curve" => curve_flyout(app, ui, theme),
-            "board.align" => align_flyout(app, ui),
             "tags" => tags_body(app, ui, theme),
-            "selection" => super::inspector::selection_body(app, ui, theme),
-            "view" => display_body(app, ui),
-            "lens" => app.lens_sidebar(ui, theme),
             _ => {}
         },
     );
 
-    // Icon clicks: tool activation and toggles.
     match clicked {
-        Some("tool.nav") => {
-            let other = if nav_tool == BoardTool::Select {
-                BoardTool::Pan
-            } else {
-                BoardTool::Select
-            };
-            app.board_tool = if tool == nav_tool { other } else { nav_tool };
-            app.board_nav_tool = app.board_tool;
-        }
         Some("tool.frame") => app.board_tool = BoardTool::Frame,
         Some("tool.shapes") => app.board_tool = BoardTool::RectShape,
         Some("tool.curve") => app.board_tool = BoardTool::Line,
@@ -210,27 +136,6 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         Some("board.grid") => app.board_show_grid = !app.board_show_grid,
         Some("board.snap") => app.board_snap_grid = !app.board_snap_grid,
         _ => {}
-    }
-}
-
-// ----- board tool flyouts -------------------------------------------------------
-
-fn nav_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    for nav in [BoardTool::Select, BoardTool::Pan] {
-        if board_icons::tool_menu_row(
-            ui,
-            nav.tool_icon(),
-            nav.label(),
-            Some(nav.hotkey()),
-            app.board_tool == nav,
-            theme.ink,
-            theme.sub,
-        )
-        .clicked()
-        {
-            app.board_tool = nav;
-            app.board_nav_tool = nav;
-        }
     }
 }
 
@@ -328,32 +233,6 @@ fn curve_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     }
 }
 
-fn align_flyout(app: &mut SlateApp, ui: &mut egui::Ui) {
-    for (label, align) in [
-        ("Left", BoardAlign::Left),
-        ("Center", BoardAlign::CenterH),
-        ("Right", BoardAlign::Right),
-        ("Top", BoardAlign::Top),
-        ("Middle", BoardAlign::CenterV),
-        ("Bottom", BoardAlign::Bottom),
-    ] {
-        if ui.button(label).clicked() {
-            app.align_board_selection(align);
-        }
-    }
-    if app.board_sel.len() >= 3 {
-        ui.separator();
-        if ui.button("Distribute horizontally").clicked() {
-            app.distribute_board_selection(DistributeAxis::Horizontal);
-        }
-        if ui.button("Distribute vertically").clicked() {
-            app.distribute_board_selection(DistributeAxis::Vertical);
-        }
-    }
-}
-
-// ----- Tags panel body ----------------------------------------------------------
-
 fn tags_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     let groups: Vec<(GroupId, String)> = app
         .doc()
@@ -382,7 +261,6 @@ fn tags_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         sidebar_subtle_divider(ui, theme);
     }
 
-    // "+ Add group" — the top-level sub-sub-menu creator.
     if let Some((None, buf)) = &mut app.new_tag_edit {
         let resp = ui.add(
             egui::TextEdit::singleline(buf)
@@ -422,7 +300,6 @@ fn group_rows(
     group_name: &str,
     structure_changed: &mut bool,
 ) {
-    // Group header with rename/delete context menu.
     let header =
         ui.horizontal(|ui| ui.label(RichText::new(group_name).small().strong().color(theme.ink)));
     header.inner.context_menu(|ui| {
@@ -479,7 +356,6 @@ fn group_rows(
         });
     }
 
-    // Inline "+" for a new mutually exclusive tag inside this group.
     if let Some((Some(g), buf)) = &mut app.new_tag_edit {
         if *g == group_id {
             let resp = ui.add(
@@ -509,9 +385,6 @@ fn group_rows(
     }
 }
 
-/// Focus toggling: an empty focus set means "all tags shown"; clicking a tag
-/// in that state focuses everything *except* nothing — i.e. materializes the
-/// full set first, then toggles the clicked tag.
 fn toggle_focus(app: &mut SlateApp, siblings: &[(TagId, String, [u8; 3], usize)], tag: TagId) {
     let all: Vec<TagId> = app
         .doc()
@@ -528,59 +401,3 @@ fn toggle_focus(app: &mut SlateApp, siblings: &[(TagId, String, [u8; 3], usize)]
         focus.insert(tag);
     }
 }
-
-// ----- Presentation Mode panel --------------------------------------------------
-
-fn view_kind_label(kind: ViewKind) -> &'static str {
-    match kind.normalized() {
-        ViewKind::Board | ViewKind::Branch => "Board",
-        ViewKind::Grid | ViewKind::Unknown => "Grid",
-        ViewKind::Venn => "Venn",
-        ViewKind::Lens => "Lens",
-    }
-}
-
-fn display_body(app: &mut SlateApp, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = SidebarTokens::OPTION_GAP;
-        ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
-
-        let mut dark = app.dark_mode;
-        let theme_label = if dark { "Dark" } else { "Light" };
-        if ui.checkbox(&mut dark, theme_label).changed() {
-            app.dark_mode = dark;
-            app.apply_theme(ui.ctx());
-            if let Some(sess) = &app.atlas {
-                if let Ok(mut s) = sess.shared.lock() {
-                    s.dark_mode = dark;
-                }
-            }
-        }
-
-        let current = match app.doc().view.active_view.normalized() {
-            ViewKind::Branch => ViewKind::Board,
-            other => other,
-        };
-        egui::ComboBox::from_id_salt("slate_presentation_view")
-            .selected_text(view_kind_label(current))
-            .width(ui.available_width())
-            .show_ui(ui, |ui| {
-                for kind in [
-                    ViewKind::Board,
-                    ViewKind::Grid,
-                    ViewKind::Venn,
-                    ViewKind::Lens,
-                ] {
-                    if ui
-                        .selectable_label(current == kind, view_kind_label(kind))
-                        .clicked()
-                    {
-                        app.doc_mut().view.active_view = kind;
-                    }
-                }
-            });
-    });
-}
-
-// Workbook file operations and the File Atlas link now live in the app-icon
-// portal (File menu); AI/Cursor lives in Preferences. See `ui/menubar.rs`.

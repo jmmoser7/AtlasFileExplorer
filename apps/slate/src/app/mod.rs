@@ -158,6 +158,17 @@ pub struct SlateApp {
     pub tabs: Vec<SlateTab>,
     pub active_tab: usize,
     pub dark_mode: bool,
+    /// Cover Flow home (recent workbooks) — default launch surface.
+    pub at_home: bool,
+    /// Chrome prefs while at home with no work tabs (dock, advanced, etc.).
+    home_chrome: chrome::ChromeConfig,
+    /// Read-only stand-in when `at_home` and the tab list is empty (frame pump).
+    fallback_tab: SlateTab,
+    pub recents: atlas_shell::recent::RecentList,
+    /// Shared home surface (shelf focus + cover textures) from `atlas-shell`.
+    pub home: atlas_shell::home::HomeScreen,
+    /// Floating tools dock placement (Preferences → Dock location).
+    pub dock_side: atlas_shell::dock::DockSide,
 
     pub selection: HashSet<ItemId>,
     pub canvas_rect: Rect,
@@ -281,9 +292,26 @@ impl SlateApp {
         Self::install_fonts(egui_ctx);
         let mut app = SlateApp {
             thumbs: ThumbPool::new(),
-            tabs: vec![SlateTab::empty()],
+            tabs: vec![],
             active_tab: 0,
             dark_mode: true,
+            at_home: initial_doc.is_none(),
+            home_chrome: chrome::default_chrome(),
+            fallback_tab: SlateTab::empty(),
+            recents: {
+                let mut r = atlas_shell::recent::RecentList::load("slate");
+                r.remove_missing();
+                r
+            },
+            home: atlas_shell::home::HomeScreen::new(
+                "slate",
+                atlas_shell::home::HomeShelfKind::Workbooks,
+            ),
+            dock_side: atlas_shell::prefs::ChromePrefs::load(
+                "slate",
+                atlas_shell::dock::DockSide::BottomCenter,
+            )
+            .dock_side,
             selection: HashSet::new(),
             canvas_rect: Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1440.0, 900.0)),
             turbo_pan: commands::TurboPanState::default(),
@@ -337,9 +365,60 @@ impl SlateApp {
         app.thumbs.retain_generation(THUMB_GENERATION);
         app.thumbs.ensure_workers(4);
         if let Some(path) = initial_doc {
+            app.at_home = false;
+            app.ensure_work_tab();
             app.open_doc_at(path);
         }
         app
+    }
+
+    pub(crate) fn go_home(&mut self) {
+        self.at_home = true;
+    }
+
+    pub(crate) fn leave_home(&mut self) {
+        self.at_home = false;
+    }
+
+    fn record_recent_workbook(&mut self, path: &PathBuf, doc: &slate_doc::SlateDoc) {
+        let title = path
+            .file_stem()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into_owned());
+        self.recents.record(path.clone(), title);
+        // Prefer first image item as the cover hero.
+        let hero = doc.items.iter().find_map(|it| {
+            let ext = it
+                .path
+                .extension()
+                .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            let fam = atlas_core::types::Family::from_ext(&ext);
+            if atlas_core::types::wants_thumb(fam)
+                && matches!(fam, atlas_core::types::Family::Image)
+            {
+                Some(it.path.clone())
+            } else {
+                None
+            }
+        });
+        let key = path.clone();
+        if let Some(image) = hero {
+            std::thread::spawn(move || {
+                let _ = atlas_shell::covers::bake_image_cover(&key, &image);
+            });
+        } else {
+            std::thread::spawn(move || {
+                let _ = atlas_shell::covers::bake_placeholder_cover(&key);
+            });
+        }
+        for e in &mut self.recents.entries {
+            let cover = atlas_shell::recent::cover_cache_path(&e.path);
+            if cover.is_file() {
+                e.cover = Some(cover);
+            }
+        }
+        self.recents.save("slate");
     }
 
     /// Register the bundled serif face so text nodes get a real serif preview
@@ -367,8 +446,8 @@ impl SlateApp {
     /// Full-screen canvas: hide the tools rail and readout bar (View menu,
     /// the canvas mini menu ⛶, or F11).
     pub fn toggle_canvas_fullscreen(&mut self) {
-        let on = !self.tab().chrome.canvas_fullscreen;
-        self.tab_mut().chrome.canvas_fullscreen = on;
+        let on = !self.chrome().canvas_fullscreen;
+        self.chrome_mut().canvas_fullscreen = on;
     }
 
     pub fn apply_theme(&self, ctx: &egui::Context) {
@@ -385,11 +464,54 @@ impl SlateApp {
     }
 
     pub fn tab(&self) -> &SlateTab {
-        &self.tabs[self.active_tab]
+        if self.tabs.is_empty() {
+            return &self.fallback_tab;
+        }
+        &self.tabs[self.active_tab.min(self.tabs.len() - 1)]
     }
 
     pub fn tab_mut(&mut self) -> &mut SlateTab {
-        &mut self.tabs[self.active_tab]
+        if self.tabs.is_empty() {
+            self.ensure_work_tab();
+        }
+        let i = self.active_tab.min(self.tabs.len() - 1);
+        &mut self.tabs[i]
+    }
+
+    pub(crate) fn chrome(&self) -> &chrome::ChromeConfig {
+        if self.tabs.is_empty() {
+            &self.home_chrome
+        } else {
+            &self.tab().chrome
+        }
+    }
+
+    pub(crate) fn chrome_mut(&mut self) -> &mut chrome::ChromeConfig {
+        if self.tabs.is_empty() {
+            &mut self.home_chrome
+        } else {
+            &mut self.tab_mut().chrome
+        }
+    }
+
+    /// Ensure a blank work tab exists (after leaving home or opening a doc).
+    pub(crate) fn ensure_work_tab(&mut self) {
+        if self.tabs.is_empty() {
+            let mut tab = SlateTab::empty();
+            tab.chrome = self.home_chrome.clone();
+            self.tabs.push(tab);
+            self.active_tab = 0;
+            self.fallback_tab.chrome = self.home_chrome.clone();
+        }
+    }
+
+    pub(crate) fn home_new_workspace(&mut self) {
+        self.leave_home();
+        if self.tabs.is_empty() {
+            self.ensure_work_tab();
+        } else if !self.tab().is_blank() {
+            self.new_tab();
+        }
     }
 
     pub fn doc(&self) -> &SlateDoc {
@@ -417,19 +539,25 @@ impl SlateApp {
     // ----- tabs -------------------------------------------------------------
 
     pub fn new_tab(&mut self) {
-        self.tabs.push(SlateTab::empty());
+        let mut tab = SlateTab::empty();
+        tab.chrome = self.chrome().clone();
+        self.tabs.push(tab);
         self.active_tab = self.tabs.len() - 1;
         self.selection.clear();
     }
 
     pub fn switch_tab(&mut self, i: usize) {
-        if i < self.tabs.len() && i != self.active_tab {
-            // Live 3D viewports are keyed by node id, which is per-document:
-            // freeze them before another doc's ids can collide.
-            self.lock_all_models();
-            self.active_tab = i;
-            self.selection.clear();
-            self.publish_session_tags();
+        if i < self.tabs.len() {
+            if i != self.active_tab {
+                // Live 3D viewports are keyed by node id, which is per-document:
+                // freeze them before another doc's ids can collide.
+                self.lock_all_models();
+                self.active_tab = i;
+                self.selection.clear();
+                self.publish_session_tags();
+            }
+            // Leaving the Cover Flow home for a workbook tab.
+            self.leave_home();
         }
     }
 
@@ -446,9 +574,9 @@ impl SlateApp {
         }
         self.tabs.remove(i);
         if self.tabs.is_empty() {
-            self.tabs.push(SlateTab::empty());
-        }
-        if self.active_tab >= self.tabs.len() {
+            self.at_home = true;
+            self.active_tab = 0;
+        } else if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
         }
         self.selection.clear();
@@ -524,20 +652,24 @@ impl SlateApp {
             .position(|t| t.path.as_deref().map(&canon) == Some(target.clone()))
         {
             self.switch_tab(i);
+            self.leave_home();
             self.toast("Workbook is already open — switched to its tab");
             return;
         }
         match SlateDoc::load_from(&path) {
             Ok(doc) => {
-                // Reuse the current tab when blank, else open a new one.
-                if !self.tab().is_blank() {
+                if self.tabs.is_empty() {
+                    self.ensure_work_tab();
+                } else if !self.tab().is_blank() {
                     self.new_tab();
                 }
+                self.record_recent_workbook(&path, &doc);
                 let tab = self.tab_mut();
                 tab.doc = doc;
                 tab.path = Some(path);
                 tab.dirty = false;
                 self.selection.clear();
+                self.leave_home();
                 self.publish_session_tags();
             }
             Err(e) => self.toast(format!("Could not open workbook: {e}")),
@@ -1010,6 +1142,10 @@ impl SlateApp {
                 .collect()
         });
         if !dropped.is_empty() {
+            if self.at_home {
+                self.leave_home();
+                self.ensure_work_tab();
+            }
             let items = self.add_paths(&dropped);
             if self.doc().view.active_view == ViewKind::Board && !items.is_empty() {
                 let at = ctx
@@ -1028,7 +1164,7 @@ impl SlateApp {
         // always spans the full viewport width. Side/bottom chrome is then
         // constrained to the workspace below it.
         self.draw_top_bar(ctx);
-        let fullscreen = self.tab().chrome.canvas_fullscreen;
+        let fullscreen = self.chrome().canvas_fullscreen;
         if !fullscreen {
             self.draw_readout_bar(ctx);
         }
@@ -1036,10 +1172,14 @@ impl SlateApp {
         atlas_shell::tuning::show(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.canvas(ui);
+            if self.at_home {
+                self.home_screen(ui);
+            } else {
+                self.canvas(ui);
+            }
         });
 
-        if self.presenting.is_none() {
+        if self.presenting.is_none() && !self.at_home {
             self.draw_tools_rail(ctx);
         }
         self.draw_toasts(ctx);
@@ -1097,32 +1237,32 @@ impl SlateApp {
     /// Maintain the AI live-link beacon: which workbook is open, what's
     /// selected, which files it links to. Self-throttled inside `AiPanel`.
     fn ai_context_frame(&mut self) {
-        let tab = &self.tabs[self.active_tab.min(self.tabs.len() - 1)];
-        let selection = &self.selection;
-        self.ai.update_context(|| {
-            let doc = &tab.doc;
-            let selection_paths = doc
-                .items
-                .iter()
-                .filter(|it| selection.contains(&it.id))
-                .map(|it| it.path.clone())
-                .collect();
-            let truncated = doc.items.len() > atlas_ai::context::MAX_FILES;
-            let files = doc
-                .items
-                .iter()
-                .take(atlas_ai::context::MAX_FILES)
-                .map(|it| it.path.clone())
-                .collect();
-            atlas_ai::AiAppContext {
-                app: "slate",
-                title: doc.name.clone(),
-                root: tab.path.clone(),
-                selection: selection_paths,
-                files,
-                files_truncated: truncated,
-                generated_at: 0,
-            }
+        let tab = self.tab();
+        let selection = self.selection.clone();
+        let doc = &tab.doc;
+        let selection_paths: Vec<PathBuf> = doc
+            .items
+            .iter()
+            .filter(|it| selection.contains(&it.id))
+            .map(|it| it.path.clone())
+            .collect();
+        let truncated = doc.items.len() > atlas_ai::context::MAX_FILES;
+        let files: Vec<PathBuf> = doc
+            .items
+            .iter()
+            .take(atlas_ai::context::MAX_FILES)
+            .map(|it| it.path.clone())
+            .collect();
+        let title = doc.name.clone();
+        let root = tab.path.clone();
+        self.ai.update_context(move || atlas_ai::AiAppContext {
+            app: "slate",
+            title,
+            root,
+            selection: selection_paths,
+            files,
+            files_truncated: truncated,
+            generated_at: 0,
         });
     }
 
