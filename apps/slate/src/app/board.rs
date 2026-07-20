@@ -21,11 +21,14 @@
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 
-use super::{board_crop, board_handles, board_icons, board_snap, model3d, SlateApp, ThumbState};
+use super::{
+    board_crop, board_handles, board_icons, board_path, board_snap, model3d, SlateApp, ThumbState,
+};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
     Corner, Crop, Dash, FontChoice, FrameNode, ImageAdjust, ImageNode, Node, NodeKind, Rgba,
-    SceneCmd, ShapeKind, ShapeNode, TextAlign, TextNode, WorldRect,
+    SceneCmd, ShapeKind, ShapeNode, StrokeCap, StrokeJoin, TextAlign, TextNode, WidthProfile,
+    WorldRect,
 };
 use slate_doc::{ItemId, NodeId};
 use std::collections::BTreeMap;
@@ -36,8 +39,7 @@ type TagRows = Vec<(slate_doc::TagId, String, [u8; 3])>;
 
 const ZOOM_MIN: f32 = 0.05;
 const ZOOM_MAX: f32 = 3.5;
-/// Minimum node size (world units) accepted from a draw gesture.
-const MIN_DRAW: f32 = 8.0;
+pub(crate) const MIN_DRAW: f32 = 8.0;
 /// Coalescing window for continuous inspector edits (one undo step).
 const COALESCE: Duration = Duration::from_millis(1500);
 
@@ -104,6 +106,7 @@ pub enum BoardTool {
     Arc,
     Polyline,
     BezierSpan,
+    Pen,
     Text,
 }
 
@@ -119,6 +122,7 @@ impl BoardTool {
             BoardTool::Arc => "Arc",
             BoardTool::Polyline => "Polyline",
             BoardTool::BezierSpan => "Bezier",
+            BoardTool::Pen => "Pen",
             BoardTool::Text => "Text",
         }
     }
@@ -134,6 +138,7 @@ impl BoardTool {
             BoardTool::Arc => board_icons::ToolIcon::Arc,
             BoardTool::Polyline => board_icons::ToolIcon::Polyline,
             BoardTool::BezierSpan => board_icons::ToolIcon::Bezier,
+            BoardTool::Pen => board_icons::ToolIcon::Pen,
             BoardTool::Text => board_icons::ToolIcon::Text,
         }
     }
@@ -146,15 +151,20 @@ impl BoardTool {
             BoardTool::RectShape => "R",
             BoardTool::Ellipse => "O",
             BoardTool::Line => "L",
+            BoardTool::Pen => "P",
             BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => "L",
             BoardTool::Text => "T",
         }
     }
 
     pub fn is_implemented(self) -> bool {
-        !matches!(
+        true
+    }
+
+    pub fn is_path_tool(self) -> bool {
+        matches!(
             self,
-            BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan
+            BoardTool::Polyline | BoardTool::Arc | BoardTool::BezierSpan | BoardTool::Pen
         )
     }
 }
@@ -212,6 +222,10 @@ pub enum BoardDrag {
     },
     /// Rubber-band drawing a new node (not yet in the scene).
     Draw { start_world: Pos2, tool: BoardTool },
+    /// Freehand pen stroke (world-space samples).
+    FreehandPen { points: Vec<Pos2>, last: Pos2 },
+    /// Bezier tool: dragging the out-handle for a new anchor.
+    BezierAnchor { press: Pos2 },
     /// Rubber-band selection.
     Marquee { start_screen: Pos2 },
     /// Orbit/pan inside an unlocked 3D model viewport (Shift = pan). The
@@ -252,7 +266,7 @@ pub fn wr(r: Rect) -> WorldRect {
     WorldRect::new(r.min.x, r.min.y, r.width(), r.height())
 }
 
-fn rgba32(c: Rgba) -> Color32 {
+pub(crate) fn rgba32(c: Rgba) -> Color32 {
     Color32::from_rgba_unmultiplied(c.0[0], c.0[1], c.0[2], c.0[3])
 }
 
@@ -1281,6 +1295,9 @@ impl SlateApp {
                         width: 1.0,
                         color: to_rgba(palette.border_strong),
                         dash: Dash::Solid,
+                        cap: StrokeCap::Butt,
+                        join: StrokeJoin::Miter,
+                        profile: WidthProfile::Uniform,
                     },
                     z,
                 );
@@ -1495,6 +1512,11 @@ impl SlateApp {
                         }
                     }
                 }
+                ShapeKind::Path => {
+                    if let Some(ref path) = s.path {
+                        board_path::paint_path_shape(self, painter, xf, node, s, path, &fade);
+                    }
+                }
             },
             NodeKind::Text(t) => {
                 if self
@@ -1669,7 +1691,7 @@ impl SlateApp {
         self.turbo_pan.acknowledge_context_menu();
         if secondary {
             if let (Some(p), Some(w)) = (pointer, wp) {
-                if let Some(id) = self.doc().scene.node_at(w.x, w.y) {
+                if let Some(id) = self.board_pick_node(w.x, w.y) {
                     self.board_menu = Some((id, p));
                 }
             }
@@ -1887,6 +1909,15 @@ impl SlateApp {
                         egui::StrokeKind::Inside,
                     );
                 }
+            }
+        }
+
+        if let Some(draft) = &self.board_path_draft {
+            board_path::paint_path_draft(&painter, &xf, draft, wp, palette.accent);
+        }
+        if let (Some(BoardDrag::FreehandPen { points, .. }), Some(w)) = (&self.board_drag, wp) {
+            if !points.is_empty() {
+                board_path::paint_polyline_preview(&painter, &xf, points, w, palette.accent);
             }
         }
 
@@ -2689,7 +2720,7 @@ impl SlateApp {
                         });
                     }
                 }
-                match self.doc().scene.node_at(world.x, world.y) {
+                match self.board_pick_node(world.x, world.y) {
                     Some(hit) => {
                         if !self.board_sel.contains(&hit) {
                             self.board_sel.clear();
@@ -2743,24 +2774,35 @@ impl SlateApp {
             }
             BoardTool::Text => None, // created on click, not drag
             BoardTool::Pan => None,  // drag pans the canvas
-            tool => {
-                if !tool.is_implemented() {
-                    self.toast(format!(
-                        "{} is not available yet — use Line for now.",
-                        tool.label()
-                    ));
-                    None
-                } else {
-                    Some(BoardDrag::Draw {
-                        start_world: world,
-                        tool,
-                    })
-                }
-            }
+            BoardTool::Pen => Some(BoardDrag::FreehandPen {
+                points: vec![world],
+                last: world,
+            }),
+            BoardTool::BezierSpan => Some(BoardDrag::BezierAnchor { press: world }),
+            BoardTool::Polyline | BoardTool::Arc => None,
+            tool => Some(BoardDrag::Draw {
+                start_world: world,
+                tool,
+            }),
         }
     }
 
+    fn board_pick_node(&self, x: f32, y: f32) -> Option<NodeId> {
+        board_path::board_pick_node(&self.doc().scene, x, y, self.tab().cam.z)
+    }
+
     fn update_gesture(&mut self, world: Pos2, mods: egui::Modifiers) {
+        if let Some(BoardDrag::FreehandPen { points, last }) = &mut self.board_drag {
+            if (world - *last).length() > 1.5 {
+                points.push(world);
+                *last = world;
+            }
+            return;
+        }
+        if let Some(BoardDrag::BezierAnchor { press }) = &self.board_drag {
+            self.bezier_anchor_move(*press, world);
+            return;
+        }
         match &self.board_drag {
             Some(BoardDrag::Move {
                 ids,
@@ -3130,6 +3172,12 @@ impl SlateApp {
                     self.finish_draw(start_world, world, tool, mods);
                 }
             }
+            Some(BoardDrag::FreehandPen { points, .. }) => {
+                self.finish_freehand_pen(points);
+            }
+            Some(BoardDrag::BezierAnchor { press }) => {
+                self.bezier_anchor_release(press, world);
+            }
             // Camera poses journal on lock, not per orbit gesture.
             Some(BoardDrag::ModelOrbit { .. }) => {}
             Some(BoardDrag::ModelMeasure { id, .. }) => {
@@ -3237,14 +3285,6 @@ impl SlateApp {
     }
 
     fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
-        if !tool.is_implemented() {
-            self.toast(format!(
-                "{} is not available yet — use Line for now.",
-                tool.label()
-            ));
-            self.board_tool = BoardTool::Select;
-            return;
-        }
         let raw = WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
         let flip = tool == BoardTool::Line && (raw.w < 0.0) != (raw.h < 0.0);
         let r = if tool == BoardTool::Frame && !mods.shift {
@@ -3278,9 +3318,13 @@ impl SlateApp {
                     width: 2.0,
                     color: accent,
                     dash: Dash::Solid,
+                    cap: StrokeCap::Butt,
+                    join: StrokeJoin::Miter,
+                    profile: WidthProfile::Uniform,
                 },
                 corner: Corner::Square,
                 flip: false,
+                path: None,
             }),
             BoardTool::Ellipse => NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Ellipse,
@@ -3289,9 +3333,13 @@ impl SlateApp {
                     width: 2.0,
                     color: accent,
                     dash: Dash::Solid,
+                    cap: StrokeCap::Butt,
+                    join: StrokeJoin::Miter,
+                    profile: WidthProfile::Uniform,
                 },
                 corner: Corner::Square,
                 flip: false,
+                path: None,
             }),
             BoardTool::Line => NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Line,
@@ -3300,9 +3348,13 @@ impl SlateApp {
                     width: 2.0,
                     color: accent,
                     dash: Dash::Solid,
+                    cap: StrokeCap::Butt,
+                    join: StrokeJoin::Miter,
+                    profile: WidthProfile::Uniform,
                 },
                 corner: Corner::Square,
                 flip,
+                path: None,
             }),
             _ => {
                 self.board_tool = BoardTool::Select;
@@ -3354,7 +3406,11 @@ impl SlateApp {
             self.board_tool = BoardTool::Select;
             return;
         }
-        match self.doc().scene.node_at(world.x, world.y) {
+        if matches!(self.board_tool, BoardTool::Polyline | BoardTool::Arc) {
+            self.path_tool_click(world);
+            return;
+        }
+        match self.board_pick_node(world.x, world.y) {
             Some(id) => {
                 if ctrl {
                     if !self.board_sel.remove(&id) {
@@ -3370,7 +3426,10 @@ impl SlateApp {
     }
 
     fn board_double_click(&mut self, world: Pos2) {
-        let Some(id) = self.doc().scene.node_at(world.x, world.y) else {
+        if self.board_tool.is_path_tool() && self.path_tool_try_finish() {
+            return;
+        }
+        let Some(id) = self.board_pick_node(world.x, world.y) else {
             return;
         };
         let Some(node) = self.doc().scene.node(id).cloned() else {

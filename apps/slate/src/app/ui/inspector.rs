@@ -84,7 +84,10 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
 
     match &primary.kind {
         NodeKind::Shape(s) => {
-            let is_line = s.shape == slate_doc::scene::ShapeKind::Line;
+            let is_line = matches!(
+                s.shape,
+                slate_doc::scene::ShapeKind::Line | slate_doc::scene::ShapeKind::Path
+            );
             if !is_line {
                 sidebar_collapsible_region(ui, tool_group, Id::new("fill"), "Fill", theme, |ui| {
                     fill_controls(app, ui, theme, &ids, &primary)

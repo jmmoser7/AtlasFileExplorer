@@ -90,8 +90,9 @@ mod tests {
 
     use super::*;
     use slate_doc::scene::{
-        Corner, Crop, Dash, FrameNode, ImageAdjust, ImageNode, NodeId, NodeKind, Rgba, Scene,
-        SceneCmd, Stroke, TextNode, WorldRect,
+        Corner, Crop, Dash, FrameNode, ImageAdjust, ImageNode, NodeId, NodeKind, PathData, PathSeg,
+        Rgba, Scene, SceneCmd, ShapeKind, ShapeNode, Stroke, StrokeCap, TextNode, WidthProfile,
+        WorldRect,
     };
     use slate_doc::{ItemId, SlateDoc};
 
@@ -244,6 +245,7 @@ mod tests {
                 width: 2.0,
                 color: Rgba::BLACK,
                 dash: Dash::Dashed,
+                ..Default::default()
             },
             ImageAdjust::default(),
         );
@@ -578,6 +580,124 @@ mod tests {
         assert!(!html.contains("<video"));
         assert!(html.contains("<span class=\"badge\">MOV</span>"));
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn path_shape_uniform_open_stroke() {
+        let mut doc = SlateDoc::new("PathOpen");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+        let node = doc.scene.build_node(
+            WorldRect::new(10.0, 10.0, 100.0, 80.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke: Stroke {
+                    width: 3.0,
+                    color: Rgba::opaque(10, 20, 30),
+                    dash: Dash::Solid,
+                    cap: StrokeCap::Round,
+                    ..Default::default()
+                },
+                corner: Corner::Square,
+                flip: false,
+                path: Some(PathData {
+                    start: [0.0, 0.0],
+                    segs: vec![
+                        PathSeg::Line { to: [0.5, 0.5] },
+                        PathSeg::Line { to: [1.0, 1.0] },
+                    ],
+                    closed: false,
+                }),
+            }),
+        );
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(html.contains("<path"), "path element:\n{html}");
+        assert!(html.contains("d=\"M"), "moveto in d:\n{html}");
+        assert!(html.contains("stroke-linecap=\"round\""));
+        assert!(html.contains("fill=\"none\""));
+        assert!(!html.contains("fill:none"));
+    }
+
+    #[test]
+    fn path_shape_closed_fill_and_stroke() {
+        let fill = Rgba::opaque(200, 100, 50);
+        let mut doc = SlateDoc::new("PathClosed");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+        let node = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 100.0, 100.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: Some(fill),
+                stroke: Stroke {
+                    width: 2.0,
+                    color: Rgba::BLACK,
+                    dash: Dash::Solid,
+                    ..Default::default()
+                },
+                corner: Corner::Square,
+                flip: false,
+                path: Some(PathData {
+                    start: [0.0, 0.0],
+                    segs: vec![
+                        PathSeg::Line { to: [1.0, 0.0] },
+                        PathSeg::Line { to: [1.0, 1.0] },
+                        PathSeg::Line { to: [0.0, 1.0] },
+                    ],
+                    closed: true,
+                }),
+            }),
+        );
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(html.contains("Z\""), "close path:\n{html}");
+        assert!(html.contains(&fill.css()));
+        assert!(html.contains("stroke-width=\"2.0\""));
+    }
+
+    #[test]
+    fn path_shape_taper_stroke_as_fill_outline() {
+        let stroke_color = Rgba::opaque(0, 120, 200);
+        let mut doc = SlateDoc::new("PathTaper");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+        let node = doc.scene.build_node(
+            WorldRect::new(20.0, 20.0, 120.0, 60.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke: Stroke {
+                    width: 4.0,
+                    color: stroke_color,
+                    dash: Dash::Solid,
+                    profile: WidthProfile::Taper {
+                        start: 1.0,
+                        end: 0.2,
+                    },
+                    ..Default::default()
+                },
+                corner: Corner::Square,
+                flip: false,
+                path: Some(PathData {
+                    start: [0.0, 0.5],
+                    segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
+                    closed: false,
+                }),
+            }),
+        );
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(
+            html.contains(&format!("fill=\"{}\"", stroke_color.css())),
+            "outline filled with stroke color:\n{html}"
+        );
+        assert!(html.contains("stroke=\"none\""));
+        assert!(!html.contains("stroke-linecap"));
     }
 
     #[test]

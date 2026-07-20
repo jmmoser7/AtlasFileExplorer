@@ -268,6 +268,21 @@ pub const ENTRIES: &[CommandEntry] = &[
         binding: "Scroll inside an unlocked viewport",
     },
     CommandEntry {
+        category: "Board",
+        name: "Pen tool (freehand path)",
+        binding: "P (Board view)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Finish path",
+        binding: "Enter or double-click (Polyline / Bezier tools)",
+    },
+    CommandEntry {
+        category: "Board",
+        name: "Cancel path",
+        binding: "Escape while drawing a path",
+    },
+    CommandEntry {
         category: "Presentation",
         name: "Present frames as slides",
         binding: "F5, or View → Present",

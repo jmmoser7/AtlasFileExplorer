@@ -18,6 +18,7 @@ slate-artifact = { workspace = true }
 circle-pack = { workspace = true }
 code-lens = { workspace = true }
 rhino-mesh = { workspace = true }
+vector-ink = { workspace = true }
 native-file-atlas = { workspace = true }
 eframe = { workspace = true }
 crossbeam-channel = { workspace = true }

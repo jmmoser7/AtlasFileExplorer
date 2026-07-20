@@ -63,7 +63,11 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             kind: DockItemKind::Tool,
             active: matches!(
                 tool,
-                BoardTool::Line | BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan
+                BoardTool::Line
+                    | BoardTool::Arc
+                    | BoardTool::Polyline
+                    | BoardTool::BezierSpan
+                    | BoardTool::Pen
             ),
             visible: board,
             gap_before: false,
@@ -201,11 +205,16 @@ fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
 fn curve_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     for curve in [
         BoardTool::Line,
+        BoardTool::Pen,
         BoardTool::Arc,
         BoardTool::Polyline,
         BoardTool::BezierSpan,
     ] {
-        let hotkey = (curve == BoardTool::Line).then_some(curve.hotkey());
+        let hotkey = match curve {
+            BoardTool::Line => Some(curve.hotkey()),
+            BoardTool::Pen => Some("P"),
+            _ => None,
+        };
         let resp = board_icons::tool_menu_row(
             ui,
             curve.tool_icon(),
@@ -215,20 +224,8 @@ fn curve_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             theme.ink,
             theme.sub,
         );
-        let resp = if curve.is_implemented() {
-            resp
-        } else {
-            resp.on_hover_text("Coming soon")
-        };
         if resp.clicked() {
-            if curve.is_implemented() {
-                app.board_tool = curve;
-            } else {
-                app.toast(format!(
-                    "{} is not available yet — use Line for now.",
-                    curve.label()
-                ));
-            }
+            app.board_tool = curve;
         }
     }
 }

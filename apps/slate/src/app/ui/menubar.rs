@@ -77,8 +77,7 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
                     .checked(chrome.tool(ToolPanel::Selection)),
                 MenuItem::new("tools.view", "Show View dock")
                     .checked(chrome.tool(ToolPanel::Display)),
-                MenuItem::new("tools.lens", "Show Lens dock")
-                    .checked(chrome.tool(ToolPanel::Lens)),
+                MenuItem::new("tools.lens", "Show Lens dock").checked(chrome.tool(ToolPanel::Lens)),
                 MenuItem::new("view.advanced", "Advanced settings…").separated(),
             ],
         },

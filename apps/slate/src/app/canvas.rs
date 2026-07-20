@@ -521,7 +521,9 @@ impl SlateApp {
                 if ui
                     .add(
                         egui::Button::new(
-                            egui::RichText::new("Open project…").size(16.0).color(palette.ink),
+                            egui::RichText::new("Open project…")
+                                .size(16.0)
+                                .color(palette.ink),
                         )
                         .min_size(egui::vec2(200.0, 40.0)),
                     )

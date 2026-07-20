@@ -18,6 +18,7 @@ pub enum ToolIcon {
     Arc,
     Polyline,
     Bezier,
+    Pen,
     Text,
     Ruler,
     ChevronRight,
@@ -41,6 +42,7 @@ impl ToolIcon {
             ToolIcon::Arc => "Arc",
             ToolIcon::Polyline => "Polyline",
             ToolIcon::Bezier => "Bezier",
+            ToolIcon::Pen => "Pen",
             ToolIcon::Text => "Text",
             ToolIcon::Ruler => "Measure",
             ToolIcon::ChevronRight => "Expand",
@@ -157,6 +159,19 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
                     Color32::TRANSPARENT,
                     s,
                 ),
+            ));
+        }
+        ToolIcon::Pen => {
+            painter.add(egui::Shape::line(
+                vec![
+                    pt(r, 0.14, 0.78),
+                    pt(r, 0.30, 0.62),
+                    pt(r, 0.42, 0.70),
+                    pt(r, 0.58, 0.40),
+                    pt(r, 0.78, 0.52),
+                    pt(r, 0.88, 0.30),
+                ],
+                s,
             ));
         }
         ToolIcon::Text => {

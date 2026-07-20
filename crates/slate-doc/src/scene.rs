@@ -1,10 +1,10 @@
 //! The board scene graph — the authored, open-world canvas of a workbook.
 //!
 //! Design rule (load-bearing): every node and every style property here must
-//! map 1:1 onto an HTML element with CSS. The egui board painter and the
+//! be expressible as SVG (including CSS). The egui board painter and the
 //! `slate-artifact` HTML writer are two interpreters of this one model, so
 //! what you see on the board is what the exported artifact shows *by
-//! construction*. Do not add style properties that CSS cannot express.
+//! construction*. Do not add style properties outside that ceiling.
 //!
 //! Structure:
 //! - [`Scene`] — flat node list; vector order is z-order (later = on top).
@@ -102,7 +102,7 @@ impl WorldRect {
     }
 }
 
-// ---------- style vocabulary (CSS-expressible only) ----------
+// ---------- style vocabulary (SVG-expressible, including CSS) ----------
 
 /// RGBA color; maps to CSS `rgba()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,12 +133,44 @@ pub enum Dash {
     Dotted,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum StrokeCap {
+    #[default]
+    Butt,
+    Round,
+    Square,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum StrokeJoin {
+    #[default]
+    Miter,
+    Round,
+    Bevel,
+}
+
+/// Stroke width profile. Non-uniform profiles are SVG-expressible as
+/// filled outline paths (the artifact writer handles that serialization).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub enum WidthProfile {
+    #[default]
+    Uniform,
+    /// Width multipliers at path start / end, interpolated over arc length.
+    Taper { start: f32, end: f32 },
+}
+
 /// Outline stroke. `width == 0` means no stroke.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Stroke {
     pub width: f32,
     pub color: Rgba,
     pub dash: Dash,
+    #[serde(default)]
+    pub cap: StrokeCap,
+    #[serde(default)]
+    pub join: StrokeJoin,
+    #[serde(default)]
+    pub profile: WidthProfile,
 }
 
 impl Default for Stroke {
@@ -147,6 +179,9 @@ impl Default for Stroke {
             width: 0.0,
             color: Rgba::BLACK,
             dash: Dash::Solid,
+            cap: StrokeCap::default(),
+            join: StrokeJoin::default(),
+            profile: WidthProfile::default(),
         }
     }
 }
@@ -494,12 +529,61 @@ impl ImageNode {
     }
 }
 
+/// A path segment. All points are NORMALIZED to the node rect:
+/// (0,0) = rect.min, (1,1) = rect.max. This makes move/resize of the node
+/// work through the existing rect machinery with no special cases.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum PathSeg {
+    Line {
+        to: [f32; 2],
+    },
+    Quad {
+        ctrl: [f32; 2],
+        to: [f32; 2],
+    },
+    Cubic {
+        c1: [f32; 2],
+        c2: [f32; 2],
+        to: [f32; 2],
+    },
+}
+
+/// Vector path payload for `ShapeKind::Path` nodes. SVG-expressible by
+/// construction (maps 1:1 to an SVG <path> d attribute).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PathData {
+    pub start: [f32; 2],
+    #[serde(default)]
+    pub segs: Vec<PathSeg>,
+    #[serde(default)]
+    pub closed: bool,
+}
+
+impl PathData {
+    pub fn is_empty(&self) -> bool {
+        self.segs.is_empty()
+    }
+
+    pub fn point_count(&self) -> usize {
+        let mut n = 1;
+        for seg in &self.segs {
+            n += match seg {
+                PathSeg::Line { .. } => 1,
+                PathSeg::Quad { .. } => 2,
+                PathSeg::Cubic { .. } => 3,
+            };
+        }
+        n
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShapeKind {
     Rect,
     Ellipse,
     Line,
+    Path,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -513,6 +597,8 @@ pub struct ShapeNode {
     /// Lines only: false = ↘ diagonal (min→max), true = ↗ diagonal.
     #[serde(default)]
     pub flip: bool,
+    #[serde(default)]
+    pub path: Option<PathData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -761,25 +847,45 @@ impl Scene {
     }
 }
 
+/// Who committed a journal group. Art. VI: every mutation is attributed.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum CmdAuthor {
+    #[default]
+    Human,
+    /// A named agent acting through the (future) MCP surface.
+    Agent(String),
+}
+
+#[derive(Debug, Clone)]
+struct CommitGroup {
+    cmds: Vec<SceneCmd>,
+    author: CmdAuthor,
+}
+
 /// Session-local undo/redo stack of command groups (one group = one user
 /// gesture). Not serialized with the document.
 #[derive(Debug, Default)]
 pub struct SceneJournal {
-    done: Vec<Vec<SceneCmd>>,
-    undone: Vec<Vec<SceneCmd>>,
+    done: Vec<CommitGroup>,
+    undone: Vec<CommitGroup>,
 }
 
 impl SceneJournal {
     /// Applies a command group to the scene and records it. Returns whether
     /// the group applied cleanly.
     pub fn commit(&mut self, scene: &mut Scene, cmds: Vec<SceneCmd>) -> bool {
+        self.commit_as(scene, cmds, CmdAuthor::Human)
+    }
+
+    /// Like [`Self::commit`], with an explicit author.
+    pub fn commit_as(&mut self, scene: &mut Scene, cmds: Vec<SceneCmd>, author: CmdAuthor) -> bool {
         if cmds.is_empty() {
             return false;
         }
         if !scene.apply_all(&cmds) {
             return false;
         }
-        self.done.push(cmds);
+        self.done.push(CommitGroup { cmds, author });
         self.undone.clear();
         true
     }
@@ -788,11 +894,21 @@ impl SceneJournal {
     /// (live gestures — drag-move, inspector slider scrubs — mutate the scene
     /// continuously and journal the net effect once, on release).
     pub fn record(&mut self, cmds: Vec<SceneCmd>) {
+        self.record_as(cmds, CmdAuthor::Human);
+    }
+
+    /// Like [`Self::record`], with an explicit author.
+    pub fn record_as(&mut self, cmds: Vec<SceneCmd>, author: CmdAuthor) {
         if cmds.is_empty() {
             return;
         }
-        self.done.push(cmds);
+        self.done.push(CommitGroup { cmds, author });
         self.undone.clear();
+    }
+
+    /// Author of the most recent committed (done) group, if any.
+    pub fn last_author(&self) -> Option<&CmdAuthor> {
+        self.done.last().map(|g| &g.author)
     }
 
     /// Coalesces continuous edits: when the newest journal entry is a single
@@ -801,8 +917,8 @@ impl SceneJournal {
     /// when the top entry doesn't match (caller should `record` instead).
     pub fn amend_last_patch(&mut self, after: &Node) -> bool {
         if let Some(group) = self.done.last_mut() {
-            if group.len() == 1 {
-                if let SceneCmd::Patch { after: a, .. } = &mut group[0] {
+            if group.cmds.len() == 1 {
+                if let SceneCmd::Patch { after: a, .. } = &mut group.cmds[0] {
                     if a.id == after.id {
                         **a = after.clone();
                         return true;
@@ -817,7 +933,7 @@ impl SceneJournal {
         let Some(group) = self.done.pop() else {
             return false;
         };
-        let ok = scene.revert_all(&group);
+        let ok = scene.revert_all(&group.cmds);
         self.undone.push(group);
         ok
     }
@@ -826,7 +942,7 @@ impl SceneJournal {
         let Some(group) = self.undone.pop() else {
             return false;
         };
-        let ok = scene.apply_all(&group);
+        let ok = scene.apply_all(&group.cmds);
         self.done.push(group);
         ok
     }
@@ -1091,5 +1207,169 @@ mod tests {
         assert!(c.x + c.w <= 1.0 + f32::EPSILON);
         assert!(c.y >= 0.0);
         assert!(c.h <= 1.0);
+    }
+
+    #[test]
+    fn path_shape_node_serde_round_trip() {
+        let shape = ShapeNode {
+            shape: ShapeKind::Path,
+            fill: Some(Rgba::opaque(10, 20, 30)),
+            stroke: Stroke {
+                width: 2.0,
+                color: Rgba::BLACK,
+                dash: Dash::Solid,
+                cap: StrokeCap::Round,
+                join: StrokeJoin::Bevel,
+                profile: WidthProfile::Taper {
+                    start: 1.0,
+                    end: 0.25,
+                },
+            },
+            corner: Corner::Square,
+            flip: false,
+            path: Some(PathData {
+                start: [0.1, 0.2],
+                segs: vec![
+                    PathSeg::Line { to: [0.5, 0.5] },
+                    PathSeg::Quad {
+                        ctrl: [0.7, 0.2],
+                        to: [0.9, 0.8],
+                    },
+                    PathSeg::Cubic {
+                        c1: [0.3, 0.9],
+                        c2: [0.1, 0.7],
+                        to: [0.0, 0.4],
+                    },
+                ],
+                closed: true,
+            }),
+        };
+        let json = serde_json::to_string(&shape).unwrap();
+        let back: ShapeNode = serde_json::from_str(&json).unwrap();
+        assert_eq!(shape, back);
+        assert_eq!(back.path.as_ref().unwrap().point_count(), 7);
+        assert!(!back.path.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn shape_node_without_path_fields_deserializes() {
+        // Pre-path documents: a Rect shape with no `path` field and a stroke
+        // without cap/join/profile must default cleanly.
+        let json = r#"{"shape":"rect","fill":null,"stroke":{"width":0.0,"color":[0,0,0,255],"dash":"solid"},"corner":"square","flip":false}"#;
+        let shape: ShapeNode = serde_json::from_str(json).unwrap();
+        assert_eq!(shape.shape, ShapeKind::Rect);
+        assert!(shape.path.is_none());
+        assert_eq!(shape.stroke.cap, StrokeCap::Butt);
+        assert_eq!(shape.stroke.join, StrokeJoin::Miter);
+        assert_eq!(shape.stroke.profile, WidthProfile::Uniform);
+    }
+
+    #[test]
+    fn journal_commit_as_records_author() {
+        let (mut scene, _, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+
+        let before = scene.node(img_id).unwrap().clone();
+        let mut after = before.clone();
+        after.opacity = 0.25;
+        assert!(journal.commit_as(
+            &mut scene,
+            vec![SceneCmd::Patch {
+                before: Box::new(before),
+                after: Box::new(after),
+            }],
+            CmdAuthor::Agent("test-bot".into()),
+        ));
+        assert_eq!(
+            journal.last_author(),
+            Some(&CmdAuthor::Agent("test-bot".into()))
+        );
+
+        assert!(journal.undo(&mut scene));
+        assert!(journal.last_author().is_none());
+
+        assert!(journal.redo(&mut scene));
+        assert_eq!(
+            journal.last_author(),
+            Some(&CmdAuthor::Agent("test-bot".into()))
+        );
+
+        let before2 = scene.node(img_id).unwrap().clone();
+        let mut after2 = before2.clone();
+        after2.opacity = 0.75;
+        assert!(journal.commit(
+            &mut scene,
+            vec![SceneCmd::Patch {
+                before: Box::new(before2),
+                after: Box::new(after2),
+            }],
+        ));
+        assert_eq!(journal.last_author(), Some(&CmdAuthor::Human));
+    }
+
+    #[test]
+    fn path_node_patch_undoes_through_journal() {
+        let mut scene = Scene::default();
+        let path_node = scene.build_node(
+            WorldRect::new(10.0, 10.0, 100.0, 80.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke: Stroke {
+                    width: 1.0,
+                    color: Rgba::BLACK,
+                    dash: Dash::Solid,
+                    ..Stroke::default()
+                },
+                corner: Corner::Square,
+                flip: false,
+                path: Some(PathData {
+                    start: [0.0, 0.5],
+                    segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
+                    closed: false,
+                }),
+            }),
+        );
+        let id = path_node.id;
+        assert!(scene.apply(&SceneCmd::Add {
+            index: 0,
+            node: path_node,
+        }));
+
+        let before = scene.node(id).unwrap().clone();
+        let mut after = before.clone();
+        if let NodeKind::Shape(ref mut s) = after.kind {
+            if let Some(ref mut p) = s.path {
+                if let PathSeg::Line { ref mut to } = p.segs[0] {
+                    to[0] = 0.75;
+                }
+            }
+        }
+
+        let mut journal = SceneJournal::default();
+        assert!(journal.commit(
+            &mut scene,
+            vec![SceneCmd::Patch {
+                before: Box::new(before),
+                after: Box::new(after.clone()),
+            }],
+        ));
+
+        if let NodeKind::Shape(s) = &scene.node(id).unwrap().kind {
+            if let PathSeg::Line { to } = s.path.as_ref().unwrap().segs[0] {
+                assert!((to[0] - 0.75).abs() < f32::EPSILON);
+            } else {
+                panic!("expected line seg");
+            }
+        }
+
+        assert!(journal.undo(&mut scene));
+        if let NodeKind::Shape(s) = &scene.node(id).unwrap().kind {
+            if let PathSeg::Line { to } = s.path.as_ref().unwrap().segs[0] {
+                assert!((to[0] - 1.0).abs() < f32::EPSILON);
+            } else {
+                panic!("expected line seg");
+            }
+        }
     }
 }

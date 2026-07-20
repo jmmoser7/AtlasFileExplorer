@@ -1,0 +1,13 @@
+[package]
+name = "vector-ink"
+version.workspace = true
+edition.workspace = true
+description = "Renderer-agnostic vector stroke tessellation and path geometry (Draw / Phase 2)"
+license = "MIT"
+
+[lib]
+name = "vector_ink"
+path = "src/lib.rs"
+
+[dependencies]
+kurbo = { workspace = true }

@@ -8,6 +8,7 @@ members = [
     "crates/slate-doc",
     "crates/slate-artifact",
     "crates/circle-pack",
+    "crates/vector-ink",
     "crates/code-lens",
     "crates/rhino-mesh",
     "apps/file-atlas",
@@ -36,6 +37,7 @@ dirs = "6"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 pdfium-render = { version = "0.8", features = ["thread_safe"] }
 flate2 = "1"
+kurbo = "0.13.1"
 
 # Workspace crates.
 atlas-core = { path = "crates/atlas-core" }
@@ -45,6 +47,7 @@ atlas-ai = { path = "crates/atlas-ai" }
 slate-doc = { path = "crates/slate-doc" }
 slate-artifact = { path = "crates/slate-artifact" }
 circle-pack = { path = "crates/circle-pack" }
+vector-ink = { path = "crates/vector-ink" }
 code-lens = { path = "crates/code-lens" }
 rhino-mesh = { path = "crates/rhino-mesh" }
 native-file-atlas = { path = "apps/file-atlas" }

@@ -23,6 +23,7 @@ pub mod board;
 pub mod board_crop;
 mod board_handles;
 pub mod board_icons;
+mod board_path;
 mod board_snap;
 pub mod canvas;
 pub mod chrome;
@@ -264,6 +265,10 @@ pub struct SlateApp {
     pub board_snap_grid: bool,
     /// Hover target on the current single selection (handles / rotate zones).
     pub board_hover_hit: Option<board_handles::BoardHitTarget>,
+    /// Multi-click path tools (polyline, arc, bezier).
+    pub board_path_draft: Option<board_path::BoardPathDraft>,
+    /// Cached tessellated path strokes (Article II).
+    pub path_mesh_cache: board_path::PathMeshCache,
 
     /// `.slate` files encountered in add/drop flows this frame. Workbooks
     /// never become items — they open as tabs at a safe point in the frame
@@ -358,6 +363,8 @@ impl SlateApp {
             board_show_grid: true,
             board_snap_grid: false,
             board_hover_hit: None,
+            board_path_draft: None,
+            path_mesh_cache: board_path::PathMeshCache::default(),
             pending_workbooks: Vec::new(),
             pdf_page_counts: HashMap::new(),
             frame_no: 0,
@@ -1042,8 +1049,12 @@ impl SlateApp {
             }
             if board && !wants_kb && !editing && !i.modifiers.ctrl {
                 // Enter finishes crop mode (Escape does too, below).
-                if i.key_pressed(egui::Key::Enter) && self.board_crop.is_some() {
-                    self.board_crop = None;
+                if i.key_pressed(egui::Key::Enter) {
+                    if self.board_crop.is_some() {
+                        self.board_crop = None;
+                    } else if self.path_tool_try_finish() {
+                        // path tools finished
+                    }
                 }
                 // Tool keys (match the board toolbar hints).
                 if i.key_pressed(egui::Key::V) {
@@ -1063,6 +1074,9 @@ impl SlateApp {
                 }
                 if i.key_pressed(egui::Key::L) {
                     self.board_tool = board::BoardTool::Line;
+                }
+                if i.key_pressed(egui::Key::P) {
+                    self.board_tool = board::BoardTool::Pen;
                 }
                 if i.key_pressed(egui::Key::T) {
                     self.board_tool = board::BoardTool::Text;
@@ -1103,6 +1117,8 @@ impl SlateApp {
                     // First Escape only exits crop mode; the node stays
                     // selected (press again to clear the selection).
                     self.board_crop = None;
+                } else if self.board_path_draft.is_some() {
+                    self.cancel_path_draft();
                 } else {
                     self.selection.clear();
                     self.new_tag_edit = None;

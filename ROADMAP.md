@@ -25,6 +25,14 @@ Establish the law. **Status: done (2026-07-19).**
 
 ## Phase 2 — Draw (the geometry engine, annotation-first)
 
+**Status: core landed (2026-07-19)** — `vector-ink` crate, scene `Path`
+model with caps/joins/width profiles, journal authorship, board tools
+(Polyline / Arc / Bezier / Pen) with cached mesh painting, and SVG artifact
+serialization. Still open: taper/cap/join inspector UI, the intent-ink
+layer, and blend modes (deferred under Art. IV — epaint has no per-shape
+blend pipeline yet, so the model may not carry what only one interpreter
+can express; revisit with the GPU renderer in Phase 6).
+
 The board learns real vector geometry. The first mandate is the
 **architect's red pen** — markup and redlining over drawings, PDFs, and
 images — because that is the daily-driver drawing act. Illustration

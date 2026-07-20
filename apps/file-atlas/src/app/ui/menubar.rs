@@ -66,8 +66,7 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
                     .checked(chrome.tool(ToolPanel::DisplaySettings)),
                 MenuItem::new("tools.workflow", "Show Workflow dock")
                     .checked(chrome.tool(ToolPanel::Workflow)),
-                MenuItem::new("tools.ai", "Show AI dock")
-                    .checked(chrome.tool(ToolPanel::Ai)),
+                MenuItem::new("tools.ai", "Show AI dock").checked(chrome.tool(ToolPanel::Ai)),
                 MenuItem::new("view.advanced", "Advanced settings…"),
             ],
         },

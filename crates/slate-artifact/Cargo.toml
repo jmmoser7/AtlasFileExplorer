@@ -6,3 +6,4 @@ description = "HTML artifact writer for Slate boards: frames become slides, styl
 
 [dependencies]
 slate-doc = { workspace = true }
+vector-ink = { workspace = true }

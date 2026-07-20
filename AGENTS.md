@@ -32,9 +32,10 @@ shared crates:
 | `crates/atlas-shell` | **Shared window chrome**: theme/Palette, tab strip, sidebar primitives, widgets, panel registry, command reference | Yes — but see the chrome rule below |
 | `crates/atlas-session` | In-process bridge for linked Slate⇄Atlas sessions | Yes |
 | `crates/atlas-ai` | AI / Cursor integration: shared AI-workspace config, Cursor launcher, live-link context beacon, the sidebar AI panel body | Yes |
-| `crates/slate-doc` | `.slate` document model: faceted tag system + the board scene graph (`scene.rs`: nodes, CSS-constrained styles, invertible `SceneCmd` journal) | Yes |
+| `crates/slate-doc` | `.slate` document model: faceted tag system + the board scene graph (`scene.rs`: nodes, SVG-ceiling styles, invertible + authored `SceneCmd` journal) | Yes |
 | `crates/slate-artifact` | HTML artifact writer: scene → slides, styles → CSS, embedded JS slide runtime. Export is serialization, not conversion | Yes |
 | `crates/circle-pack` | Pure geometry: circle packing + Venn layout | Yes |
+| `crates/vector-ink` | Pure vector geometry engine (kurbo): path flattening, variable-width stroking to feathered AA meshes, stroke outlines for SVG export, hit-testing, freehand fitting. No renderer deps (Constitution Art. I) | Yes |
 | `crates/code-lens` | UI-free codebase analysis for Slate's Lens view: cargo workspace + Rust source extraction to a code graph, semantic-zoom layout, agent overlay/beacon contract | Yes |
 | `crates/rhino-mesh` | Pure-Rust reader for cached render meshes in Rhino `.3dm` files (Slate's 3D board viewports) | Yes |
 | `apps/file-atlas` | Atlas app: canvas + app state (`src/app/mod.rs` is the integration point) | Coordinate on `mod.rs` |

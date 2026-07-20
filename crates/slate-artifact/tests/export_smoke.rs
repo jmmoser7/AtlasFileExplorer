@@ -46,6 +46,7 @@ fn smoke_full_feature_export() {
                 width: 3.0,
                 color: Rgba::opaque(20, 20, 20),
                 dash: Dash::Solid,
+                ..Default::default()
             },
             adjust: ImageAdjust {
                 brightness: 1.1,
@@ -76,9 +77,11 @@ fn smoke_full_feature_export() {
                 width: 2.0,
                 color: Rgba::opaque(0, 90, 200),
                 dash: Dash::Dashed,
+                ..Default::default()
             },
             corner: Corner::Chamfer { cut: 20.0 },
             flip: false,
+            path: None,
         }),
     );
     for n in [image, text, shape] {

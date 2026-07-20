@@ -82,7 +82,10 @@ fn assert_invariants(app: &SlateApp) {
     if app.at_home && app.tabs.is_empty() {
         return;
     }
-    assert!(!app.tabs.is_empty(), "work tabs must exist when not at home");
+    assert!(
+        !app.tabs.is_empty(),
+        "work tabs must exist when not at home"
+    );
     assert!(app.active_tab < app.tabs.len(), "active tab in bounds");
     for id in &app.selection {
         assert!(
@@ -675,4 +678,34 @@ fn lens_view_pumps_without_panic() {
     for _ in 0..3 {
         h.frame();
     }
+}
+
+#[test]
+fn path_node_add_undo_via_journal() {
+    use slate_doc::scene::{PathData, PathSeg, ShapeKind, ShapeNode};
+    let mut h = Harness::new("path_journal");
+    h.seed();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let rect = slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0);
+    let node = h.app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: Some(PathData {
+                start: [0.0, 0.5],
+                segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
+                closed: false,
+            }),
+        }),
+    );
+    let id = node.id;
+    h.app.add_nodes(vec![node]);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    h.app.board_undo();
+    assert!(h.app.doc().scene.node(id).is_none());
+    h.frame();
 }

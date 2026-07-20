@@ -1,4 +1,4 @@
-﻿//! Shared floating canvas docks: spaced squircle icons floating directly on
+//! Shared floating canvas docks: spaced squircle icons floating directly on
 //! the canvas, with popover panels that can stack when several are open.
 //!
 //! Apps provide data ([`DockItem`]s) and panel bodies (a per-frame callback);
@@ -543,8 +543,7 @@ pub fn floating_dock(
     }
     if let Some(hover) = state.label_hover {
         if !visible.iter().any(|item| {
-            item.id == hover
-                && matches!(item.kind, DockItemKind::Action | DockItemKind::Dashboard)
+            item.id == hover && matches!(item.kind, DockItemKind::Action | DockItemKind::Dashboard)
         }) {
             state.label_hover = None;
             state.label_hover_since = 0.0;
@@ -705,8 +704,12 @@ pub fn floating_dock(
             } else {
                 0.0
             };
-            state.describe_blend =
-                lerp_toward(state.describe_blend, target, dt, tokens.describe_fade_duration);
+            state.describe_blend = lerp_toward(
+                state.describe_blend,
+                target,
+                dt,
+                tokens.describe_fade_duration,
+            );
         }
     } else {
         state.describe_blend = 0.0;
@@ -748,15 +751,9 @@ pub fn floating_dock(
     if let Some(label_id) = state.label_hover {
         if let Some(&icon) = icon_rects.get(&label_id) {
             if let Some(item) = visible.iter().find(|item| item.id == label_id) {
-                let (chip_pos, chip_pivot) =
-                    icon_popover_anchor(side, icon, tokens.hover_chip_gap);
-                let chip_alpha = ease_out_cubic(
-                    state
-                        .panel_open
-                        .get(&label_id)
-                        .copied()
-                        .unwrap_or(1.0),
-                );
+                let (chip_pos, chip_pivot) = icon_popover_anchor(side, icon, tokens.hover_chip_gap);
+                let chip_alpha =
+                    ease_out_cubic(state.panel_open.get(&label_id).copied().unwrap_or(1.0));
                 let chip = egui::Area::new(state_id.with("label_chip"))
                     .order(egui::Order::Foreground)
                     .pivot(chip_pivot)
@@ -777,14 +774,9 @@ pub fn floating_dock(
                                     && state.describe_blend > 0.001
                                 {
                                     ui.add_space(2.0);
-                                    ui.label(
-                                        RichText::new(item.description)
-                                            .small()
-                                            .color(
-                                                th.muted_text_color()
-                                                    .gamma_multiply(state.describe_blend),
-                                            ),
-                                    );
+                                    ui.label(RichText::new(item.description).small().color(
+                                        th.muted_text_color().gamma_multiply(state.describe_blend),
+                                    ));
                                 }
                             });
                     });
@@ -814,13 +806,8 @@ pub fn floating_dock(
                     .min((canvas.height() - 60.0).max(120.0));
                 let gap = tokens.popover_gap + tokens.hover_chip_gap;
                 let (origin, pivot) = icon_popover_anchor(side, icon, gap);
-                let open = ease_out_cubic(
-                    state
-                        .panel_open
-                        .get(&preview_id)
-                        .copied()
-                        .unwrap_or(0.0),
-                );
+                let open =
+                    ease_out_cubic(state.panel_open.get(&preview_id).copied().unwrap_or(0.0));
                 let panel_area = egui::Area::new(state_id.with(("preview", preview_id)))
                     .order(egui::Order::Foreground)
                     .pivot(pivot)
@@ -829,7 +816,9 @@ pub fn floating_dock(
                 let response = panel_area.show(ctx, |ui| {
                     ui.set_opacity(open);
                     popover_frame(&tokens, th).show(ui, |ui| {
-                        ui.set_width((tokens.popover_width - tokens.popover_padding * 2.0).max(1.0));
+                        ui.set_width(
+                            (tokens.popover_width - tokens.popover_padding * 2.0).max(1.0),
+                        );
                         ui.label(RichText::new(label).small().strong().color(th.text_color()));
                         ui.separator();
                         ScrollArea::vertical()
@@ -886,13 +875,7 @@ pub fn floating_dock(
                 .fixed_pos(origin)
                 .constrain_to(ctx.screen_rect()),
         };
-        let open_anim = ease_out_cubic(
-            state
-                .panel_open
-                .get(oid)
-                .copied()
-                .unwrap_or(1.0),
-        );
+        let open_anim = ease_out_cubic(state.panel_open.get(oid).copied().unwrap_or(1.0));
         let response = panel_area.show(ctx, |ui| {
             ui.set_opacity(open_anim);
             popover_frame(&tokens, th).show(ui, |ui| {

@@ -1,8 +1,11 @@
 use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
-    Corner, Dash, Node, NodeId, NodeKind, Rgba, Scene, ShapeKind, TextAlign, WorldRect,
+    Corner, Dash, Node, NodeId, NodeKind, PathData, PathSeg, Rgba, Scene, ShapeKind, StrokeCap,
+    StrokeJoin, TextAlign, WidthProfile, WorldRect,
 };
 use slate_doc::SlateDoc;
+use vector_ink::kurbo::{BezPath, PathEl, Point};
+use vector_ink::{Cap, Join, StrokeStyle};
 
 use crate::assets::{mime_for_path, AssetMap};
 
@@ -478,6 +481,7 @@ fn render_shape(
         ShapeKind::Line => render_line(html, node, shape, rel),
         ShapeKind::Rect => render_rect_shape(html, node, shape, rel, false),
         ShapeKind::Ellipse => render_rect_shape(html, node, shape, rel, true),
+        ShapeKind::Path => render_path(html, node, shape, rel),
     }
 }
 
@@ -566,6 +570,266 @@ fn render_line(
         html.push_str(" stroke-linecap=\"round\"");
     }
     html.push_str("></line></svg></div>\n");
+}
+
+fn render_path(
+    html: &mut String,
+    node: &Node,
+    shape: &slate_doc::scene::ShapeNode,
+    rel: WorldRect,
+) {
+    let path = match shape.path.as_ref() {
+        Some(p) if !p.is_empty() => p,
+        _ => return,
+    };
+
+    let w = rel.w;
+    let h = rel.h;
+    let d = path_data_d(path, w, h);
+    let fill_css = shape
+        .fill
+        .map(|f| f.css())
+        .unwrap_or_else(|| "none".to_string());
+
+    let mut wrap = geometry_style(rel, node.rotation_deg);
+    append_opacity(&mut wrap, node.opacity);
+    wrap.push_str("overflow:visible;background:transparent;");
+
+    html.push_str("<div class=\"node\" style=\"");
+    html.push_str(&wrap);
+    html.push_str("\"><svg width=\"");
+    html.push_str(&fmt_px(w));
+    html.push_str("\" height=\"");
+    html.push_str(&fmt_px(h));
+    html.push_str("\" viewBox=\"0 0 ");
+    html.push_str(&fmt_px(w));
+    html.push(' ');
+    html.push_str(&fmt_px(h));
+    html.push_str("\" style=\"display:block;overflow:visible\">");
+
+    match shape.stroke.profile {
+        WidthProfile::Uniform => {
+            push_path_open(html, &d, &fill_css);
+            if shape.stroke.is_none() {
+                html.push_str(" stroke=\"none\"");
+            } else {
+                html.push_str(" stroke=\"");
+                html.push_str(&shape.stroke.color.css());
+                html.push_str("\" stroke-width=\"");
+                html.push_str(&fmt_px(shape.stroke.width));
+                html.push_str("\" stroke-linecap=\"");
+                html.push_str(stroke_cap_css(shape.stroke.cap));
+                html.push_str("\" stroke-linejoin=\"");
+                html.push_str(stroke_join_css(shape.stroke.join));
+                html.push('"');
+                if let Some(dash) = line_dash_attrs(&shape.stroke) {
+                    html.push_str(" stroke-dasharray=\"");
+                    html.push_str(dash);
+                    html.push('"');
+                }
+                if shape.stroke.dash == Dash::Dotted {
+                    html.push_str(" stroke-linecap=\"round\"");
+                }
+            }
+            html.push_str("></path>");
+        }
+        WidthProfile::Taper { start, end } => {
+            if shape.fill.is_some() && path.closed {
+                push_path_open(html, &d, &fill_css);
+                html.push_str(" stroke=\"none\"></path>");
+            }
+            if !shape.stroke.is_none() {
+                let bez = path_data_to_bez(path, w, h);
+                let style = StrokeStyle {
+                    width: shape.stroke.width,
+                    cap: ink_cap(shape.stroke.cap),
+                    join: ink_join(shape.stroke.join),
+                    taper: Some((start, end)),
+                    dash: stroke_dash_ink(&shape.stroke),
+                };
+                let outline = vector_ink::stroke_outline(&bez, &style, 0.25);
+                let outline_d = bezpath_to_d(&outline);
+                if !outline_d.is_empty() {
+                    push_path_open(html, &outline_d, &shape.stroke.color.css());
+                    html.push_str(" stroke=\"none\"></path>");
+                }
+            }
+        }
+    }
+
+    html.push_str("</svg></div>\n");
+}
+
+fn push_path_open(html: &mut String, d: &str, fill: &str) {
+    html.push_str("<path d=\"");
+    html.push_str(d);
+    html.push_str("\" fill=\"");
+    html.push_str(fill);
+    html.push('"');
+}
+
+fn denorm_pt(p: [f32; 2], w: f32, h: f32) -> (f32, f32) {
+    (p[0] * w, p[1] * h)
+}
+
+fn path_data_d(path: &PathData, w: f32, h: f32) -> String {
+    let mut d = String::new();
+    let (x, y) = denorm_pt(path.start, w, h);
+    d.push_str("M ");
+    d.push_str(&fmt_px(x));
+    d.push(' ');
+    d.push_str(&fmt_px(y));
+    for seg in &path.segs {
+        match seg {
+            PathSeg::Line { to } => {
+                let (x, y) = denorm_pt(*to, w, h);
+                d.push_str(" L ");
+                d.push_str(&fmt_px(x));
+                d.push(' ');
+                d.push_str(&fmt_px(y));
+            }
+            PathSeg::Quad { ctrl, to } => {
+                let (cx, cy) = denorm_pt(*ctrl, w, h);
+                let (x, y) = denorm_pt(*to, w, h);
+                d.push_str(" Q ");
+                d.push_str(&fmt_px(cx));
+                d.push(' ');
+                d.push_str(&fmt_px(cy));
+                d.push(' ');
+                d.push_str(&fmt_px(x));
+                d.push(' ');
+                d.push_str(&fmt_px(y));
+            }
+            PathSeg::Cubic { c1, c2, to } => {
+                let (c1x, c1y) = denorm_pt(*c1, w, h);
+                let (c2x, c2y) = denorm_pt(*c2, w, h);
+                let (x, y) = denorm_pt(*to, w, h);
+                d.push_str(" C ");
+                d.push_str(&fmt_px(c1x));
+                d.push(' ');
+                d.push_str(&fmt_px(c1y));
+                d.push(' ');
+                d.push_str(&fmt_px(c2x));
+                d.push(' ');
+                d.push_str(&fmt_px(c2y));
+                d.push(' ');
+                d.push_str(&fmt_px(x));
+                d.push(' ');
+                d.push_str(&fmt_px(y));
+            }
+        }
+    }
+    if path.closed {
+        d.push_str(" Z");
+    }
+    d
+}
+
+fn path_data_to_bez(path: &PathData, w: f32, h: f32) -> BezPath {
+    let mut bez = BezPath::new();
+    let dn = |p: [f32; 2]| {
+        let (x, y) = denorm_pt(p, w, h);
+        Point::new(x as f64, y as f64)
+    };
+    bez.move_to(dn(path.start));
+    for seg in &path.segs {
+        match seg {
+            PathSeg::Line { to } => bez.line_to(dn(*to)),
+            PathSeg::Quad { ctrl, to } => bez.quad_to(dn(*ctrl), dn(*to)),
+            PathSeg::Cubic { c1, c2, to } => bez.curve_to(dn(*c1), dn(*c2), dn(*to)),
+        }
+    }
+    if path.closed {
+        bez.close_path();
+    }
+    bez
+}
+
+fn bezpath_to_d(bez: &BezPath) -> String {
+    let mut d = String::new();
+    for el in bez.elements() {
+        match el {
+            PathEl::MoveTo(p) => {
+                d.push_str("M ");
+                d.push_str(&fmt_px(p.x as f32));
+                d.push(' ');
+                d.push_str(&fmt_px(p.y as f32));
+            }
+            PathEl::LineTo(p) => {
+                d.push_str(" L ");
+                d.push_str(&fmt_px(p.x as f32));
+                d.push(' ');
+                d.push_str(&fmt_px(p.y as f32));
+            }
+            PathEl::QuadTo(p1, p2) => {
+                d.push_str(" Q ");
+                d.push_str(&fmt_px(p1.x as f32));
+                d.push(' ');
+                d.push_str(&fmt_px(p1.y as f32));
+                d.push(' ');
+                d.push_str(&fmt_px(p2.x as f32));
+                d.push(' ');
+                d.push_str(&fmt_px(p2.y as f32));
+            }
+            PathEl::CurveTo(p1, p2, p3) => {
+                d.push_str(" C ");
+                d.push_str(&fmt_px(p1.x as f32));
+                d.push(' ');
+                d.push_str(&fmt_px(p1.y as f32));
+                d.push(' ');
+                d.push_str(&fmt_px(p2.x as f32));
+                d.push(' ');
+                d.push_str(&fmt_px(p2.y as f32));
+                d.push(' ');
+                d.push_str(&fmt_px(p3.x as f32));
+                d.push(' ');
+                d.push_str(&fmt_px(p3.y as f32));
+            }
+            PathEl::ClosePath => d.push_str(" Z"),
+        }
+    }
+    d
+}
+
+fn stroke_cap_css(cap: StrokeCap) -> &'static str {
+    match cap {
+        StrokeCap::Butt => "butt",
+        StrokeCap::Round => "round",
+        StrokeCap::Square => "square",
+    }
+}
+
+fn stroke_join_css(join: StrokeJoin) -> &'static str {
+    match join {
+        StrokeJoin::Miter => "miter",
+        StrokeJoin::Round => "round",
+        StrokeJoin::Bevel => "bevel",
+    }
+}
+
+fn ink_cap(cap: StrokeCap) -> Cap {
+    match cap {
+        StrokeCap::Butt => Cap::Butt,
+        StrokeCap::Round => Cap::Round,
+        StrokeCap::Square => Cap::Square,
+    }
+}
+
+fn ink_join(join: StrokeJoin) -> Join {
+    match join {
+        StrokeJoin::Miter => Join::Miter,
+        StrokeJoin::Round => Join::Round,
+        StrokeJoin::Bevel => Join::Bevel,
+    }
+}
+
+/// Dash pattern for `vector_ink` — same on/off lengths as `line_dash_attrs`.
+fn stroke_dash_ink(stroke: &slate_doc::scene::Stroke) -> Option<(Vec<f32>, f32)> {
+    match stroke.dash {
+        Dash::Solid => None,
+        Dash::Dashed => Some((vec![12.0, 8.0], 0.0)),
+        Dash::Dotted => Some((vec![2.0, 6.0], 0.0)),
+    }
 }
 
 fn render_text(html: &mut String, node: &Node, text: &slate_doc::scene::TextNode, rel: WorldRect) {

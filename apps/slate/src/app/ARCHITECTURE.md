@@ -104,17 +104,22 @@ through `paint_board_node` at fullscreen sizes.
 The board's scene model lives in `slate-doc::scene` and is serialized inside
 the workbook. Two invariants carry the whole design:
 
-1. **CSS-expressible styling only.** Every node property (stroke/dash,
-   rounded or chamfered corners, crop, opacity, the CSS-filter adjustment
-   set, font choices) maps 1:1 onto HTML+CSS. The egui board painter
-   (`board.rs`) and the HTML writer (`crates/slate-artifact`) are two
-   interpreters of one model, so the exported artifact shows exactly what
-   the board shows. `imagefx.rs` implements the same filter math on pixels
-   for the live preview. Do not add board styling that CSS cannot express.
-2. **Every mutation is an invertible `SceneCmd`.** Gestures mutate the scene
-   live but journal their net effect on release (`SceneJournal`); inspector
-   scrubs coalesce into single undo steps. This command layer is the same
-   surface a future MCP agent will drive.
+1. **SVG-expressible styling only** (Constitution Art. IV; supersedes the
+   original CSS-only ceiling). Every node property (stroke/dash/cap/join,
+   vector paths, width profiles, rounded or chamfered corners, crop,
+   opacity, the CSS-filter adjustment set, font choices) maps 1:1 onto
+   HTML+CSS+SVG. The egui board painter (`board.rs`, path tessellation via
+   `crates/vector-ink`) and the HTML writer (`crates/slate-artifact`) are
+   two interpreters of one model, so the exported artifact shows exactly
+   what the board shows: uniform strokes as native SVG stroke attributes,
+   tapered strokes as filled outline paths. `imagefx.rs` implements the
+   same filter math on pixels for the live preview. Do not add board
+   styling that no web standard can express.
+2. **Every mutation is an invertible, authored `SceneCmd`.** Gestures mutate
+   the scene live but journal their net effect on release (`SceneJournal`);
+   inspector scrubs coalesce into single undo steps. Every commit carries a
+   `CmdAuthor` (human or named agent — Constitution Art. VI). This command
+   layer is the same surface a future MCP agent will drive.
 
 Other board rules:
 
