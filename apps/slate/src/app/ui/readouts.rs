@@ -41,6 +41,35 @@ pub fn status_bar(app: &mut SlateApp, ctx: &egui::Context) {
                             .color(palette.staged),
                     );
                 }
+                // Hidden/locked state is never invisible: small chips with a
+                // click-through to show/unlock all (scene-flags spec).
+                if app.doc().view.active_view == slate_doc::ViewKind::Board {
+                    let (hidden, locked) = app.hidden_locked_counts();
+                    if hidden > 0
+                        && ui
+                            .link(RichText::new(format!("· {hidden} hidden")).color(palette.sub))
+                            .on_hover_text("Show all hidden (Ctrl+Shift+H)")
+                            .clicked()
+                    {
+                        app.dispatch(
+                            ctx,
+                            atlas_commands::CommandId("board.show_all"),
+                            Some("readout".into()),
+                        );
+                    }
+                    if locked > 0
+                        && ui
+                            .link(RichText::new(format!("· {locked} locked")).color(palette.sub))
+                            .on_hover_text("Unlock all (Ctrl+Shift+L)")
+                            .clicked()
+                    {
+                        app.dispatch(
+                            ctx,
+                            atlas_commands::CommandId("board.unlock_all"),
+                            Some("readout".into()),
+                        );
+                    }
+                }
             }
 
             if app.tab().chrome.readout(ReadoutPanel::LinkHealth) {

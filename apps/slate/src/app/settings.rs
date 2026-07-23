@@ -36,10 +36,41 @@ impl Default for PreviewSettings {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+/// Default / bounds for the brush and eraser widths (world units).
+pub const BRUSH_WIDTH_DEFAULT: f32 = 4.0;
+pub const ERASER_WIDTH_DEFAULT: f32 = 24.0;
+pub const STROKE_WIDTH_MIN: f32 = 0.5;
+pub const STROKE_WIDTH_MAX: f32 = 400.0;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SlateSettings {
     pub preview: PreviewSettings,
+    /// Board ortho constraint toggle (F8). The toggle + readout land now;
+    /// the 45° gesture math arrives with the board-tools wave.
+    pub board_ortho: bool,
+    /// Board foreground color (brush strokes, wires). `None` = theme
+    /// default ink, resolved at startup / on `D` (reset defaults).
+    pub board_fg: Option<[u8; 4]>,
+    /// Board background color (eyedropper Alt-target). `None` = theme paper.
+    pub board_bg: Option<[u8; 4]>,
+    /// Brush stroke width in world units (`[`/`]` step it).
+    pub brush_width: f32,
+    /// Eraser pick-circle width in world units.
+    pub eraser_width: f32,
+}
+
+impl Default for SlateSettings {
+    fn default() -> Self {
+        SlateSettings {
+            preview: PreviewSettings::default(),
+            board_ortho: false,
+            board_fg: None,
+            board_bg: None,
+            brush_width: BRUSH_WIDTH_DEFAULT,
+            eraser_width: ERASER_WIDTH_DEFAULT,
+        }
+    }
 }
 
 fn settings_path() -> PathBuf {
@@ -69,6 +100,14 @@ impl SlateSettings {
     fn clamped(mut self) -> SlateSettings {
         self.preview.max_px = self.preview.max_px.clamp(MAX_PX_MIN, MAX_PX_MAX);
         self.preview.budget_mb = self.preview.budget_mb.clamp(BUDGET_MB_MIN, BUDGET_MB_MAX);
+        if !self.brush_width.is_finite() {
+            self.brush_width = BRUSH_WIDTH_DEFAULT;
+        }
+        if !self.eraser_width.is_finite() {
+            self.eraser_width = ERASER_WIDTH_DEFAULT;
+        }
+        self.brush_width = self.brush_width.clamp(STROKE_WIDTH_MIN, STROKE_WIDTH_MAX);
+        self.eraser_width = self.eraser_width.clamp(STROKE_WIDTH_MIN, STROKE_WIDTH_MAX);
         self
     }
 }
@@ -96,6 +135,7 @@ mod tests {
                 max_px: 999_999,
                 budget_mb: 1,
             },
+            ..Default::default()
         }
         .clamped();
         assert_eq!(s.preview.max_px, MAX_PX_MAX);
@@ -110,6 +150,8 @@ mod tests {
                 max_px: 1024,
                 budget_mb: 512,
             },
+            board_ortho: true,
+            ..Default::default()
         };
         let json = serde_json::to_string(&s).unwrap();
         let back: SlateSettings = serde_json::from_str(&json).unwrap();

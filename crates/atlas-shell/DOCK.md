@@ -53,8 +53,18 @@ Recommended order in a mixed dock: Tools → Actions → Dashboards.
 
 - Click a Tool / Dashboard icon → toggle pin; click again to unpin.
 - Multiple pinned panels stay open together (centered stack).
-- Escape clears all open state (pins + hovers). Outside click clears hover
-  first, then pins.
+- **Pinned panels are persistent palettes.** Canvas clicks and Escape never
+  dismiss them — unpinning is only by re-clicking the icon. Escape / outside
+  clicks clear transient hover state only.
+- **Pins persist across sessions**: apps pass saved ids into `floating_dock`
+  (`restore_pins`) and read the live set back with `dock::pinned_ids` to
+  save into `ChromePrefs.pinned_panels`. Pins on currently-hidden icons
+  (e.g. board tools while in another view) survive and re-appear with the
+  icon.
+- **Hover previews survive the trip to the panel**: leaving the icon does
+  not close the preview — it stays alive while the pointer is inside it and
+  retires only after `close_delay` once abandoned (or instantly when another
+  icon is hovered).
 - Docks float over the canvas and must never reserve layout space.
 
 ## Multi-panel stacking

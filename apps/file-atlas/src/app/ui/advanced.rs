@@ -112,6 +112,22 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(6.0);
+            // Command history (Atlas keeps F2 = Assign; history lives here).
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Command history").small().strong());
+                ui.label(
+                    egui::RichText::new(format!("{} recorded", app.cmd_history.len()))
+                        .small()
+                        .color(palette.sub),
+                );
+                if ui
+                    .small_button(if app.history_open { "Hide" } else { "Show" })
+                    .clicked()
+                {
+                    app.history_open = !app.history_open;
+                }
+            });
+            ui.add_space(6.0);
             commands::shortcuts_reference_ui(ui);
         });
     if !open {

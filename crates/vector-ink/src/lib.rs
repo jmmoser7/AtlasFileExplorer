@@ -5,6 +5,7 @@
 //! See `DESIGN.md`.
 
 mod dash;
+mod edit;
 mod fit;
 mod flatten;
 mod geom;
@@ -60,6 +61,10 @@ pub struct InkVertex {
     pub alpha: f32,
 }
 
+pub use edit::{
+    anchor_hit, anchors_from_bezpath, bezpath_from_anchors, join_endpoints, move_anchor,
+    move_handle, segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
+};
 pub use fit::fit_polyline;
 pub use flatten::flatten;
 pub use hit::hit_stroke;

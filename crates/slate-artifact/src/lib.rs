@@ -90,9 +90,9 @@ mod tests {
 
     use super::*;
     use slate_doc::scene::{
-        Corner, Crop, Dash, FrameNode, ImageAdjust, ImageNode, NodeId, NodeKind, PathData, PathSeg,
-        Rgba, Scene, SceneCmd, ShapeKind, ShapeNode, Stroke, StrokeCap, TextNode, WidthProfile,
-        WorldRect,
+        ConnectorEnd, ConnectorNode, Corner, Crop, Dash, FrameNode, ImageAdjust, ImageNode, NodeId,
+        NodeKind, PathData, PathSeg, Rgba, Scene, SceneCmd, ShapeKind, ShapeNode, Side, Stroke,
+        StrokeCap, TextNode, WidthProfile, WireDisplay, WorldRect,
     };
     use slate_doc::{ItemId, SlateDoc};
 
@@ -160,6 +160,7 @@ mod tests {
                 size: 24.0,
                 color: Rgba::BLACK,
                 align: Default::default(),
+                fill: None,
             }),
         );
         let index = scene.nodes.len();
@@ -306,6 +307,7 @@ mod tests {
                 size: 16.0,
                 color: Rgba::BLACK,
                 align: Default::default(),
+                fill: None,
             }),
         );
         doc.scene.apply(&SceneCmd::Add { index: 0, node });
@@ -436,6 +438,185 @@ mod tests {
         assert!(html.contains("filter:brightness(1.200)"));
         assert!(html.contains("class=\"ovl\""));
         assert!(html.contains("rgba(255,0,0,1.000)"));
+    }
+
+    #[test]
+    fn image_invert_lands_in_filter_chain() {
+        let mut doc = SlateDoc::new("Invert");
+        let path = PathBuf::from("/tmp/slate-artifact-invert.png");
+        let item = doc.add_item(path.clone(), "i.png", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 300.0, 200.0));
+        add_image(
+            &mut doc.scene,
+            WorldRect::new(0.0, 0.0, 100.0, 100.0),
+            item,
+            Crop::full(),
+            Corner::Square,
+            Stroke::none(),
+            ImageAdjust {
+                brightness: 1.2,
+                invert: true,
+                ..ImageAdjust::default()
+            },
+        );
+
+        let mut assets = AssetMap::default();
+        assets.insert(path, "assets/i.png".into());
+        let html = render_html(&doc, &assets);
+        // Invert appends after the rest of the mirrored CSS filter chain.
+        assert!(
+            html.contains("filter:brightness(1.200) invert(1);"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn text_fill_renders_as_background() {
+        let mut doc = SlateDoc::new("Sticky");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 400.0, 300.0));
+        let node = doc.scene.build_node(
+            WorldRect::new(20.0, 20.0, 200.0, 200.0),
+            NodeKind::Text(TextNode {
+                text: "sticky".into(),
+                family: Default::default(),
+                size: 18.0,
+                color: Rgba::BLACK,
+                align: Default::default(),
+                fill: Some(Rgba::opaque(255, 235, 130)),
+            }),
+        );
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(
+            html.contains("background:rgba(255,235,130,1.000);"),
+            "{html}"
+        );
+    }
+
+    fn wire(a: ConnectorEnd, b: ConnectorEnd, display: WireDisplay) -> NodeKind {
+        NodeKind::Connector(ConnectorNode {
+            a,
+            b,
+            stroke: Stroke {
+                width: 2.0,
+                color: Rgba::opaque(30, 30, 30),
+                dash: Dash::Solid,
+                ..Default::default()
+            },
+            arrow_a: false,
+            arrow_b: true,
+            label: Some("flows".into()),
+            display,
+        })
+    }
+
+    #[test]
+    fn connector_exports_svg_path_arrow_and_label() {
+        let mut doc = SlateDoc::new("Wire");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        let anchor = doc.scene.build_node(
+            WorldRect::new(100.0, 100.0, 120.0, 80.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Rect,
+                fill: Some(Rgba::WHITE),
+                stroke: Stroke::none(),
+                corner: Corner::Square,
+                flip: false,
+                path: None,
+            }),
+        );
+        let anchor_id = anchor.id;
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add {
+            index,
+            node: anchor,
+        });
+
+        let conn = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 1.0, 1.0),
+            wire(
+                ConnectorEnd::Anchored {
+                    node: anchor_id,
+                    side: Side::Right,
+                    t: 0.5,
+                },
+                ConnectorEnd::Free {
+                    point: [500.0, 300.0],
+                },
+                WireDisplay::Default,
+            ),
+        );
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node: conn });
+
+        let html = render_html(&doc, &AssetMap::default());
+        // The wire is one cubic bezier path stroked per its Stroke.
+        assert!(html.contains("<path d=\"M"), "path element:\n{html}");
+        assert!(html.contains(" C "), "cubic bezier:\n{html}");
+        assert!(html.contains("stroke=\"rgba(30,30,30,1.000)\""));
+        assert!(html.contains("stroke-width=\"2.0\""));
+        // Arrowhead at b: a small filled triangle (closed path, no stroke).
+        assert!(
+            html.contains(&format!(
+                " Z\" fill=\"{}\" stroke=\"none\"",
+                Rgba::opaque(30, 30, 30).css()
+            )),
+            "arrow triangle:\n{html}"
+        );
+        // Label centered at the curve midpoint.
+        assert!(html.contains("text-anchor=\"middle\""));
+        assert!(html.contains(">flows</text>"));
+    }
+
+    #[test]
+    fn faint_connector_gets_dimmed_opacity() {
+        let mut doc = SlateDoc::new("FaintWire");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        let conn = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 1.0, 1.0),
+            wire(
+                ConnectorEnd::Free {
+                    point: [50.0, 50.0],
+                },
+                ConnectorEnd::Free {
+                    point: [300.0, 200.0],
+                },
+                WireDisplay::Faint,
+            ),
+        );
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node: conn });
+
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(
+            html.contains("opacity:0.400"),
+            "faint = 0.4 opacity:\n{html}"
+        );
+    }
+
+    #[test]
+    fn hidden_nodes_are_excluded_from_export() {
+        let mut doc = SlateDoc::new("Hidden");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 400.0, 300.0));
+        let mut node = doc.scene.build_node(
+            WorldRect::new(10.0, 10.0, 100.0, 50.0),
+            NodeKind::Text(TextNode {
+                text: "ghost".into(),
+                family: Default::default(),
+                size: 14.0,
+                color: Rgba::BLACK,
+                align: Default::default(),
+                fill: None,
+            }),
+        );
+        node.hidden = true;
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(!html.contains("ghost"), "hidden node exported:\n{html}");
     }
 
     fn add_media(scene: &mut Scene, rect: WorldRect, item: ItemId) -> NodeId {

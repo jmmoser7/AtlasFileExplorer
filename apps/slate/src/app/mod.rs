@@ -20,17 +20,24 @@ use std::time::Instant;
 
 pub mod association;
 pub mod board;
+mod board_color;
 pub mod board_crop;
+mod board_direct;
+mod board_flags;
 mod board_handles;
 pub mod board_icons;
 mod board_path;
 mod board_snap;
+mod board_wire;
 pub mod canvas;
 pub mod chrome;
+mod clipboard;
 pub mod commands;
+mod dispatch;
 pub mod imagefx;
 pub mod lens;
 pub mod model3d;
+mod overlays;
 pub mod pdf;
 pub mod present;
 pub mod preview;
@@ -170,6 +177,8 @@ pub struct SlateApp {
     pub home: atlas_shell::home::HomeScreen,
     /// Floating tools dock placement (Preferences → Dock location).
     pub dock_side: atlas_shell::dock::DockSide,
+    /// Dock panels pinned as persistent palettes (restored across sessions).
+    pub dock_pins: Vec<String>,
 
     pub selection: HashSet<ItemId>,
     pub canvas_rect: Rect,
@@ -279,6 +288,77 @@ pub struct SlateApp {
     pdf_page_counts: std::collections::HashMap<String, u16>,
 
     frame_no: u64,
+    /// `ctx.input.time` snapshot for this frame (camera fades, repeat taps).
+    pub(crate) frame_time: f64,
+
+    // ----- command registry (keymap wave 2a) -----
+    /// The command registry over `commands::SPECS` — keyboard, palette,
+    /// menus, and docks all dispatch through it (Constitution Art. VII).
+    pub(crate) registry: atlas_commands::Registry,
+    /// Execution history: the F2 window's data and the Space/Enter repeat
+    /// source. Intent log, distinct from the scene journal (Art. VI).
+    pub(crate) cmd_history: atlas_commands::History,
+    /// Space-tap repeat tracking (tap = repeat, hold+drag = pan).
+    pub(crate) space_tap: dispatch::SpaceTap,
+    /// F2 command-history window visibility.
+    pub history_open: bool,
+    /// Minimap overlay pinned on (M); persisted in chrome prefs.
+    pub minimap_on: bool,
+    pub(crate) minimap_state: atlas_shell::minimap::MinimapState,
+    /// Canvas palette (double-click empty board) + its current query results.
+    pub(crate) palette_state: atlas_shell::palette::PaletteState,
+    pub(crate) palette_items: Vec<atlas_commands::PaletteItem>,
+    /// Ctrl+F board search overlay (paint-time dimming, never journaled).
+    pub(crate) search: overlays::SearchState,
+    /// Board ortho constraint toggle (F8; persisted in settings). Wave 2b
+    /// binds the 45° gesture math to it.
+    pub board_ortho: bool,
+    /// Ctrl+U image-adjust popover visibility (anchored to the selection).
+    pub(crate) adjust_popover_open: bool,
+    /// App-internal board clipboard (mirrored to the OS clipboard as JSON).
+    pub(crate) board_clipboard: Vec<slate_doc::scene::Node>,
+    /// OS clipboard text delivered by this frame's platform Paste event;
+    /// consumed by the `board.paste` dispatch arm.
+    pub(crate) pending_paste_text: Option<String>,
+    /// Successive Ctrl+V pastes of one payload step +24,+24 each.
+    pub(crate) board_paste_count: u32,
+    /// Cheap content generation: bumped on journal commits / undo / redo /
+    /// tab switches. Keys the minimap texture cache and search recompute.
+    pub(crate) scene_gen: u64,
+
+    // ----- board tools (keymap wave 2b) -----
+    /// Shared fg/bg color pair (Brush strokes, wires, eyedropper targets).
+    /// Persisted in `SlateSettings`; `D` resets to theme defaults, `X` swaps.
+    pub board_colors: board_color::BoardColors,
+    /// Brush stroke width, world units (persisted; `[`/`]` step it).
+    pub brush_width: f32,
+    /// Eraser pick-circle width, world units (persisted; `[`/`]` while E).
+    pub eraser_width: f32,
+    /// Last brush stroke end — Shift+click chains a straight segment from
+    /// it; cleared whenever the Brush tool re-arms or changes.
+    pub(crate) brush_chain: Option<egui::Pos2>,
+    /// Direct-selection (A) state: target path node + selected anchors.
+    pub(crate) direct: board_direct::DirectState,
+    /// Per-frame connector grip hover (Select tool near a node edge).
+    pub(crate) wire_grips: Option<board_wire::GripHover>,
+    /// Wire released on empty canvas: the palette placement auto-connects.
+    pub(crate) wire_pending: Option<board_wire::PendingWire>,
+    /// Inline connector label editor: (connector node, live buffer).
+    pub(crate) wire_label_edit: Option<(NodeId, String)>,
+    /// Right-click on empty board: "show/unlock all" menu position.
+    pub(crate) board_empty_menu: Option<egui::Pos2>,
+    /// Just-hidden nodes fading out (Ctrl+H's 150 ms ghost feedback).
+    pub(crate) hide_ghosts: Vec<(slate_doc::scene::Node, Instant)>,
+    /// Scene generation the connector AABBs were last synced for.
+    pub(crate) connector_sync_gen: u64,
+    /// Live ortho-constrained drag: (world origin, snapped axis) for the
+    /// hash-tick feedback; cleared every frame.
+    pub(crate) ortho_feedback: Option<(egui::Pos2, egui::Vec2)>,
+    /// Z zoom tool: transient app-level mode over Board/Grid/Venn (camera
+    /// only, never journaled). The underlying tool re-arms on disarm.
+    pub(crate) zoom_armed: bool,
+    /// Screen-space origin of a live zoom-window marquee.
+    pub(crate) zoom_marquee: Option<egui::Pos2>,
 }
 
 impl SlateApp {
@@ -295,6 +375,10 @@ impl SlateApp {
         egui_ctx.set_theme(egui::ThemePreference::Dark);
         egui_ctx.set_visuals(dark_visuals());
         Self::install_fonts(egui_ctx);
+        let chrome_prefs = atlas_shell::prefs::ChromePrefs::load(
+            "slate",
+            atlas_shell::dock::DockSide::BottomCenter,
+        );
         let mut app = SlateApp {
             thumbs: ThumbPool::new(),
             tabs: vec![],
@@ -312,11 +396,8 @@ impl SlateApp {
                 "slate",
                 atlas_shell::home::HomeShelfKind::Workbooks,
             ),
-            dock_side: atlas_shell::prefs::ChromePrefs::load(
-                "slate",
-                atlas_shell::dock::DockSide::BottomCenter,
-            )
-            .dock_side,
+            dock_side: chrome_prefs.dock_side,
+            dock_pins: chrome_prefs.pinned_panels,
             selection: HashSet::new(),
             canvas_rect: Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1440.0, 900.0)),
             turbo_pan: commands::TurboPanState::default(),
@@ -368,7 +449,46 @@ impl SlateApp {
             pending_workbooks: Vec::new(),
             pdf_page_counts: HashMap::new(),
             frame_no: 0,
+            frame_time: 0.0,
+            registry: commands::registry(),
+            cmd_history: atlas_commands::History::new(),
+            space_tap: dispatch::SpaceTap::default(),
+            history_open: false,
+            minimap_on: chrome_prefs.minimap,
+            minimap_state: atlas_shell::minimap::MinimapState::default(),
+            palette_state: atlas_shell::palette::PaletteState::default(),
+            palette_items: Vec::new(),
+            search: overlays::SearchState::default(),
+            board_ortho: false,
+            adjust_popover_open: false,
+            board_clipboard: Vec::new(),
+            pending_paste_text: None,
+            board_paste_count: 0,
+            scene_gen: 0,
+            board_colors: board_color::BoardColors::theme_default(true),
+            brush_width: settings::BRUSH_WIDTH_DEFAULT,
+            eraser_width: settings::ERASER_WIDTH_DEFAULT,
+            brush_chain: None,
+            direct: board_direct::DirectState::default(),
+            wire_grips: None,
+            wire_pending: None,
+            wire_label_edit: None,
+            board_empty_menu: None,
+            hide_ghosts: Vec::new(),
+            connector_sync_gen: 0,
+            ortho_feedback: None,
+            zoom_armed: false,
+            zoom_marquee: None,
         };
+        app.board_ortho = app.settings.board_ortho;
+        app.board_colors = board_color::BoardColors::from_settings(&app.settings, app.dark_mode);
+        app.brush_width = app.settings.brush_width;
+        app.eraser_width = app.settings.eraser_width;
+        debug_assert!(
+            app.registry.validate().is_ok(),
+            "SPECS table inconsistent: {:?}",
+            app.registry.validate()
+        );
         app.thumbs.retain_generation(THUMB_GENERATION);
         app.thumbs.ensure_workers(4);
         if let Some(path) = initial_doc {
@@ -376,6 +496,7 @@ impl SlateApp {
             app.ensure_work_tab();
             app.open_doc_at(path);
         }
+        app.ensure_home_cover_bakes();
         app
     }
 
@@ -393,30 +514,11 @@ impl SlateApp {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.to_string_lossy().into_owned());
         self.recents.record(path.clone(), title);
-        // Prefer first image item as the cover hero.
-        let hero = doc.items.iter().find_map(|it| {
-            let ext = it
-                .path
-                .extension()
-                .map(|e| e.to_string_lossy().to_ascii_lowercase())
-                .unwrap_or_default();
-            let fam = atlas_core::types::Family::from_ext(&ext);
-            if atlas_core::types::wants_thumb(fam)
-                && matches!(fam, atlas_core::types::Family::Image)
-            {
-                Some(it.path.clone())
-            } else {
-                None
-            }
-        });
+        let media = sample_workbook_cover_media(doc, 9);
         let key = path.clone();
-        if let Some(image) = hero {
+        if atlas_shell::covers::schedule_cover_bake(&key) {
             std::thread::spawn(move || {
-                let _ = atlas_shell::covers::bake_image_cover(&key, &image);
-            });
-        } else {
-            std::thread::spawn(move || {
-                let _ = atlas_shell::covers::bake_placeholder_cover(&key);
+                let _ = atlas_shell::covers::bake_workbook_cover(&key, &media);
             });
         }
         for e in &mut self.recents.entries {
@@ -561,6 +663,7 @@ impl SlateApp {
                 self.lock_all_models();
                 self.active_tab = i;
                 self.selection.clear();
+                self.note_scene_change();
                 self.publish_session_tags();
             }
             // Leaving the Cover Flow home for a workbook tab.
@@ -676,6 +779,7 @@ impl SlateApp {
                 tab.path = Some(path);
                 tab.dirty = false;
                 self.selection.clear();
+                self.note_scene_change();
                 self.leave_home();
                 self.publish_session_tags();
             }
@@ -992,143 +1096,10 @@ impl SlateApp {
         }
     }
 
-    fn hotkeys(&mut self, ctx: &egui::Context) {
-        // Presentation mode owns the keyboard (handled in present_frame).
-        if self.presenting.is_some() {
-            return;
-        }
-        let wants_kb = ctx.wants_keyboard_input();
-        let board = self.doc().view.active_view == ViewKind::Board;
-        let editing = self.text_edit.is_some();
-        ctx.input(|i| {
-            if i.modifiers.ctrl && !wants_kb {
-                if i.key_pressed(egui::Key::O) {
-                    self.open_doc_dialog();
-                }
-                if i.key_pressed(egui::Key::S) {
-                    if i.modifiers.shift {
-                        self.save_doc_as_dialog();
-                    } else {
-                        self.save_doc();
-                    }
-                }
-                if i.key_pressed(egui::Key::T) {
-                    self.new_tab();
-                }
-                if i.key_pressed(egui::Key::E) {
-                    self.export_artifact_dialog();
-                }
-                if i.key_pressed(egui::Key::Z) {
-                    if i.modifiers.shift {
-                        self.board_redo();
-                    } else {
-                        self.board_undo();
-                    }
-                }
-                if i.key_pressed(egui::Key::Y) {
-                    self.board_redo();
-                }
-                if i.key_pressed(egui::Key::A) {
-                    if board {
-                        self.board_sel = self.doc().scene.nodes.iter().map(|n| n.id).collect();
-                    } else {
-                        let all: Vec<ItemId> = self.doc().items.iter().map(|it| it.id).collect();
-                        self.selection = all.into_iter().collect();
-                    }
-                }
-                if i.key_pressed(egui::Key::D) && board && !self.board_sel.is_empty() {
-                    let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
-                    self.duplicate_board_nodes(&ids, 24.0, 24.0);
-                }
-            }
-            if i.key_pressed(egui::Key::F5) {
-                self.start_present(None);
-            }
-            if i.key_pressed(egui::Key::F11) {
-                self.toggle_canvas_fullscreen();
-            }
-            if board && !wants_kb && !editing && !i.modifiers.ctrl {
-                // Enter finishes crop mode (Escape does too, below).
-                if i.key_pressed(egui::Key::Enter) {
-                    if self.board_crop.is_some() {
-                        self.board_crop = None;
-                    } else if self.path_tool_try_finish() {
-                        // path tools finished
-                    }
-                }
-                // Tool keys (match the board toolbar hints).
-                if i.key_pressed(egui::Key::V) {
-                    self.board_tool = board::BoardTool::Select;
-                }
-                if i.key_pressed(egui::Key::H) {
-                    self.board_tool = board::BoardTool::Pan;
-                }
-                if i.key_pressed(egui::Key::F) {
-                    self.board_tool = board::BoardTool::Frame;
-                }
-                if i.key_pressed(egui::Key::R) {
-                    self.board_tool = board::BoardTool::RectShape;
-                }
-                if i.key_pressed(egui::Key::O) {
-                    self.board_tool = board::BoardTool::Ellipse;
-                }
-                if i.key_pressed(egui::Key::L) {
-                    self.board_tool = board::BoardTool::Line;
-                }
-                if i.key_pressed(egui::Key::P) {
-                    self.board_tool = board::BoardTool::Pen;
-                }
-                if i.key_pressed(egui::Key::T) {
-                    self.board_tool = board::BoardTool::Text;
-                }
-                if i.key_pressed(egui::Key::Home) {
-                    self.fit_board();
-                }
-                if (i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
-                    && !self.board_sel.is_empty()
-                {
-                    let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
-                    self.delete_board_nodes(&ids);
-                }
-                // Arrow nudge (Shift = 10 world units).
-                let step = if i.modifiers.shift { 10.0 } else { 1.0 };
-                let (mut dx, mut dy) = (0.0f32, 0.0f32);
-                if i.key_pressed(egui::Key::ArrowLeft) {
-                    dx -= step;
-                }
-                if i.key_pressed(egui::Key::ArrowRight) {
-                    dx += step;
-                }
-                if i.key_pressed(egui::Key::ArrowUp) {
-                    dy -= step;
-                }
-                if i.key_pressed(egui::Key::ArrowDown) {
-                    dy += step;
-                }
-                if (dx != 0.0 || dy != 0.0) && !self.board_sel.is_empty() {
-                    let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
-                    self.patch_nodes(&ids, |n| n.rect = n.rect.translated(dx, dy));
-                }
-            }
-            if i.key_pressed(egui::Key::Escape) {
-                if self.doc().view.active_view == ViewKind::Lens && self.lens.focus.is_some() {
-                    self.lens.focus = None;
-                } else if self.board_crop.is_some() {
-                    // First Escape only exits crop mode; the node stays
-                    // selected (press again to clear the selection).
-                    self.board_crop = None;
-                } else if self.board_path_draft.is_some() {
-                    self.cancel_path_draft();
-                } else {
-                    self.selection.clear();
-                    self.new_tag_edit = None;
-                    self.board_sel.clear();
-                    self.board_menu = None;
-                    self.board_tool = board::BoardTool::Select;
-                }
-            }
-        });
-    }
+    // `hotkeys` lives in `dispatch.rs`: key input is routed through the
+    // command registry (`commands::SPECS`) and `dispatch`, preserving the
+    // pre-registry suppression gates. The old ad-hoc Escape cascade became
+    // the `atlas_commands::cancel_target` stack.
 
     /// One full UI frame (split out for testability, mirroring Atlas).
     pub fn update_app(&mut self, ctx: &egui::Context) {
@@ -1137,6 +1108,7 @@ impl SlateApp {
         self.preview_reqs_this_frame = 0;
         self.alt_down = ctx.input(|i| i.modifiers.alt);
         self.shift_down = ctx.input(|i| i.modifiers.shift);
+        self.frame_time = ctx.input(|i| i.time);
         self.drain_pickers();
         self.drain_thumbs(ctx);
         self.drain_previews(ctx);
@@ -1197,6 +1169,16 @@ impl SlateApp {
 
         if self.presenting.is_none() && !self.at_home {
             self.draw_tools_rail(ctx);
+        }
+        // Registry-fed overlays above the canvas (zero cost while closed;
+        // presentation mode owns the whole surface).
+        if !self.at_home && self.presenting.is_none() {
+            self.palette_frame(ctx);
+            self.search_frame(ctx);
+            self.adjust_popover_frame(ctx);
+        }
+        if self.presenting.is_none() {
+            self.history_frame(ctx);
         }
         self.draw_toasts(ctx);
         // Presentation overlay paints above everything, last.
@@ -1301,6 +1283,54 @@ impl SlateApp {
             });
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
+
+    pub(crate) fn ensure_home_cover_bakes(&mut self) {
+        for e in self.recents.entries.clone() {
+            let path = e.path.clone();
+            if !path.is_file() {
+                continue;
+            }
+            if atlas_shell::recent::cover_cache_path(&path).is_file() {
+                continue;
+            }
+            if !atlas_shell::covers::schedule_cover_bake(&path) {
+                continue;
+            }
+            std::thread::spawn(move || {
+                if let Ok(doc) = SlateDoc::load_from(&path) {
+                    let media = sample_workbook_cover_media(&doc, 9);
+                    let _ = atlas_shell::covers::bake_workbook_cover(&path, &media);
+                }
+            });
+        }
+    }
+}
+
+fn sample_workbook_cover_media(doc: &slate_doc::SlateDoc, limit: usize) -> Vec<PathBuf> {
+    doc.items
+        .iter()
+        .filter_map(|it| {
+            let ext = it
+                .path
+                .extension()
+                .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            let fam = atlas_core::types::Family::from_ext(&ext);
+            if atlas_core::types::wants_thumb(fam)
+                && matches!(
+                    fam,
+                    atlas_core::types::Family::Image
+                        | atlas_core::types::Family::Video
+                        | atlas_core::types::Family::Design
+                )
+            {
+                Some(it.path.clone())
+            } else {
+                None
+            }
+        })
+        .take(limit)
+        .collect()
 }
 
 impl eframe::App for SlateApp {

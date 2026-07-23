@@ -144,6 +144,14 @@ pub fn adjusted(src: &ColorImage, adjust: &ImageAdjust) -> ColorImage {
         let (mut r, mut g, mut b) =
             matrix.transform(scale * r + offset, scale * g + offset, scale * b + offset);
 
+        // CSS filters apply in list order and `css_filter()` appends
+        // invert(1) last, after the hue/sat/brightness pipeline.
+        if adjust.invert {
+            r = 1.0 - clamp01(r);
+            g = 1.0 - clamp01(g);
+            b = 1.0 - clamp01(b);
+        }
+
         if let Some((oc_r, oc_g, oc_b, oa, inv_oa)) = overlay {
             r = r * inv_oa + oc_r * oa;
             g = g * inv_oa + oc_g * oa;
@@ -285,10 +293,42 @@ mod tests {
             grayscale: 0.3,
             sepia: 0.4,
             hue_deg: 45.0,
+            invert: true,
             overlay: Some(Rgba([10, 20, 30, 64])),
         };
         let [_, _, _, a] = pixel(&adjusted(&src, &adjust));
         assert_eq!(a, 77);
+    }
+
+    #[test]
+    fn invert_flips_channels() {
+        let src = solid([40, 100, 220, 255]);
+        let adjust = ImageAdjust {
+            invert: true,
+            ..ImageAdjust::default()
+        };
+        let [r, g, b, a] = pixel(&adjusted(&src, &adjust));
+        approx_eq(r, 215, 1);
+        approx_eq(g, 155, 1);
+        approx_eq(b, 35, 1);
+        assert_eq!(a, 255);
+    }
+
+    #[test]
+    fn invert_applies_after_brightness() {
+        // brightness(2) then invert: 100/255 → 200/255 → 55/255. The
+        // reverse order would give 255 − 100 = 155 → 255 (clipped), so this
+        // pins the CSS list order (invert appended last).
+        let src = solid([100, 100, 100, 255]);
+        let adjust = ImageAdjust {
+            brightness: 2.0,
+            invert: true,
+            ..ImageAdjust::default()
+        };
+        let [r, g, b, _] = pixel(&adjusted(&src, &adjust));
+        approx_eq(r, 55, 1);
+        approx_eq(g, 55, 1);
+        approx_eq(b, 55, 1);
     }
 
     #[test]

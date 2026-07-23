@@ -108,6 +108,16 @@ pub enum BoardTool {
     BezierSpan,
     Pen,
     Text,
+    /// Expressive freehand ink in the foreground color (B). Sticky tool.
+    Brush,
+    /// Whole-stroke vector erase (E).
+    Eraser,
+    /// Sample node colors into fg (Alt: bg) (I).
+    Eyedropper,
+    /// Sticky-note placement (N) — a Text-node preset.
+    Sticky,
+    /// Direct Selection: anchor/segment/handle editing on paths (A).
+    DirectSelect,
 }
 
 impl BoardTool {
@@ -124,6 +134,11 @@ impl BoardTool {
             BoardTool::BezierSpan => "Bezier",
             BoardTool::Pen => "Pen",
             BoardTool::Text => "Text",
+            BoardTool::Brush => "Brush",
+            BoardTool::Eraser => "Eraser",
+            BoardTool::Eyedropper => "Eyedropper",
+            BoardTool::Sticky => "Sticky note",
+            BoardTool::DirectSelect => "Direct select",
         }
     }
 
@@ -140,6 +155,11 @@ impl BoardTool {
             BoardTool::BezierSpan => board_icons::ToolIcon::Bezier,
             BoardTool::Pen => board_icons::ToolIcon::Pen,
             BoardTool::Text => board_icons::ToolIcon::Text,
+            BoardTool::Brush => board_icons::ToolIcon::Brush,
+            BoardTool::Eraser => board_icons::ToolIcon::Eraser,
+            BoardTool::Eyedropper => board_icons::ToolIcon::Eyedropper,
+            BoardTool::Sticky => board_icons::ToolIcon::Sticky,
+            BoardTool::DirectSelect => board_icons::ToolIcon::DirectSelect,
         }
     }
 
@@ -154,6 +174,11 @@ impl BoardTool {
             BoardTool::Pen => "P",
             BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => "L",
             BoardTool::Text => "T",
+            BoardTool::Brush => "B",
+            BoardTool::Eraser => "E",
+            BoardTool::Eyedropper => "I",
+            BoardTool::Sticky => "N",
+            BoardTool::DirectSelect => "A",
         }
     }
 
@@ -224,6 +249,15 @@ pub enum BoardDrag {
     Draw { start_world: Pos2, tool: BoardTool },
     /// Freehand pen stroke (world-space samples).
     FreehandPen { points: Vec<Pos2>, last: Pos2 },
+    /// Freehand brush stroke (fg color / brush width; tool stays armed).
+    FreehandBrush { points: Vec<Pos2>, last: Pos2 },
+    /// Eraser scrub: strokes touched so far render at 30% and are removed
+    /// as one journal group on release (Esc cancels).
+    Erase { touched: Vec<NodeId> },
+    /// Connector wire gesture (add / detach / move-all) — see `board_wire`.
+    Wire(super::board_wire::WireDrag),
+    /// Direct-selection drag (anchors / segment / handle / anchor marquee).
+    Direct(super::board_direct::DirectDrag),
     /// Bezier tool: dragging the out-handle for a new anchor.
     BezierAnchor { press: Pos2 },
     /// Rubber-band selection.
@@ -323,7 +357,25 @@ impl SlateApp {
         cam.offset = bounds.center().to_vec2();
     }
 
+    /// Switch the board tool through one place: the brush chain breaks on
+    /// every re-arm, and direct-selection state clears when leaving A.
+    pub(crate) fn set_board_tool(&mut self, tool: BoardTool) {
+        self.brush_chain = None;
+        if tool != BoardTool::DirectSelect {
+            self.direct.node = None;
+            self.direct.anchors.clear();
+        }
+        self.board_tool = tool;
+    }
+
     // ----- journaled mutations -------------------------------------------------
+
+    /// Bump the cheap scene-content generation. Call at every journal
+    /// commit/record/undo/redo site (and on tab switches) — it keys the
+    /// minimap's cached texture and the search-match recompute.
+    pub(crate) fn note_scene_change(&mut self) {
+        self.scene_gen = self.scene_gen.wrapping_add(1);
+    }
 
     /// Applies an edit to several nodes and journals one coalescible patch
     /// group (continuous slider scrubs collapse into a single undo step).
@@ -371,6 +423,7 @@ impl SlateApp {
             tab.journal.record(cmds);
         }
         self.last_board_edit = Some((first, Instant::now()));
+        self.note_scene_change();
     }
 
     /// Insert new nodes as one undo group. Returns their ids.
@@ -396,6 +449,44 @@ impl SlateApp {
     }
 
     pub fn delete_board_nodes(&mut self, ids: &[NodeId]) {
+        let deleted: std::collections::HashSet<NodeId> = ids.iter().copied().collect();
+        // Surviving connectors anchored to a deleted node degrade to `Free`
+        // at their last world position — same command group, so undo
+        // restores the anchor (connectors spec).
+        let mut cmds: Vec<SceneCmd> = Vec::new();
+        for n in &self.doc().scene.nodes {
+            if deleted.contains(&n.id) {
+                continue;
+            }
+            let NodeKind::Connector(_) = &n.kind else {
+                continue;
+            };
+            let mut after = n.clone();
+            let NodeKind::Connector(ca) = &mut after.kind else {
+                unreachable!();
+            };
+            let mut changed = false;
+            for end in [&mut ca.a, &mut ca.b] {
+                if let slate_doc::scene::ConnectorEnd::Anchored { node, side, t } = *end {
+                    if deleted.contains(&node) {
+                        let p = self
+                            .doc()
+                            .scene
+                            .node(node)
+                            .map(|nn| slate_doc::scene::connector_anchor_point(nn.rect, side, t))
+                            .unwrap_or([0.0, 0.0]);
+                        *end = slate_doc::scene::ConnectorEnd::Free { point: p };
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                cmds.push(SceneCmd::Patch {
+                    before: Box::new(n.clone()),
+                    after: Box::new(after),
+                });
+            }
+        }
         // Remove in descending index order so recorded indices stay valid on
         // revert (revert_all replays in reverse).
         let mut idx: Vec<(usize, Node)> = ids
@@ -409,10 +500,10 @@ impl SlateApp {
         if idx.is_empty() {
             return;
         }
-        let cmds: Vec<SceneCmd> = idx
-            .into_iter()
-            .map(|(index, node)| SceneCmd::Remove { index, node })
-            .collect();
+        cmds.extend(
+            idx.into_iter()
+                .map(|(index, node)| SceneCmd::Remove { index, node }),
+        );
         self.commit_scene(cmds);
         for id in ids {
             self.board_sel.remove(id);
@@ -424,7 +515,9 @@ impl SlateApp {
         let tab = self.tab_mut();
         tab.dirty = true;
         let doc = &mut tab.doc;
-        tab.journal.commit(&mut doc.scene, cmds)
+        let ok = tab.journal.commit(&mut doc.scene, cmds);
+        self.note_scene_change();
+        ok
     }
 
     pub fn board_undo(&mut self) {
@@ -433,6 +526,7 @@ impl SlateApp {
             tab.dirty = true;
         }
         self.last_board_edit = None;
+        self.note_scene_change();
     }
 
     pub fn board_redo(&mut self) {
@@ -441,6 +535,7 @@ impl SlateApp {
             tab.dirty = true;
         }
         self.last_board_edit = None;
+        self.note_scene_change();
     }
 
     /// Duplicate nodes in place with a small offset; selects the copies.
@@ -454,10 +549,13 @@ impl SlateApp {
         }
         let dups: Vec<Node> = {
             let scene = &mut self.doc_mut().scene;
-            sources
+            let mut dups: Vec<Node> = sources
                 .iter()
                 .map(|n| scene.build_duplicate(n, dx, dy))
-                .collect()
+                .collect();
+            // Copies form their own groups (scene-flags spec).
+            super::board_flags::remap_dup_group_keys(scene, &mut dups);
+            dups
         };
         let new_ids = self.add_nodes(dups);
         if !new_ids.is_empty() {
@@ -554,13 +652,19 @@ impl SlateApp {
         self.publish_session_tags();
     }
 
-    /// Selection expanded so selected frames carry their members.
+    /// Selection expanded so selected frames carry their members. Hidden and
+    /// locked members stay put, and connectors never ride along (their
+    /// geometry is derived from their endpoints — frame membership does not
+    /// apply to them).
     fn expand_with_members(&self, ids: &[NodeId]) -> Vec<NodeId> {
         let mut out: Vec<NodeId> = ids.to_vec();
         for id in ids {
             if self.doc().scene.node(*id).map(|n| n.is_frame()) == Some(true) {
                 for m in self.doc().scene.members_of(*id) {
-                    if !out.contains(&m) {
+                    let skip = self.doc().scene.node(m).is_none_or(|n| {
+                        n.hidden || n.locked || matches!(n.kind, NodeKind::Connector(_))
+                    });
+                    if !skip && !out.contains(&m) {
                         out.push(m);
                     }
                 }
@@ -1519,6 +1623,15 @@ impl SlateApp {
                 }
             },
             NodeKind::Text(t) => {
+                // Background fill (sticky notes are a Text preset with a
+                // fill) — mirrors the artifact's `background` on the node.
+                if let Some(fill) = t.fill {
+                    painter.add(egui::Shape::convex_polygon(
+                        outline_s.clone(),
+                        fade(rgba32(fill)),
+                        EStroke::NONE,
+                    ));
+                }
                 if self
                     .text_edit
                     .as_ref()
@@ -1544,6 +1657,12 @@ impl SlateApp {
                     Color32::WHITE,
                 );
             }
+            NodeKind::Connector(conn) => {
+                // Derived bezier through the path-mesh cache; Faint = 40%,
+                // arrowheads + label match the artifact (see board_wire.rs).
+                let conn = conn.clone();
+                self.paint_connector(painter, xf, node, &conn);
+            }
         }
     }
 
@@ -1551,7 +1670,11 @@ impl SlateApp {
 
     pub fn board_canvas(&mut self, ui: &mut egui::Ui, rect: Rect) {
         self.board_snap_guides.clear();
+        self.ortho_feedback = None;
         self.sync_crop_mode();
+        // Connector AABBs follow their endpoints; synced once per scene
+        // generation (journal commits / undo / redo), never per frame.
+        self.sync_connector_rects();
         let palette = self.palette();
         let painter = ui.painter_at(rect);
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
@@ -1621,15 +1744,35 @@ impl SlateApp {
             self.bump_grid_fade(now);
         }
 
+        // Z zoom tool: while armed, the primary button belongs to the tool
+        // (click = step, drag = zoom window); pans keep their buttons.
+        let zoom_tool = self.zoom_tool_frame(ui, &resp, rect, space || panning || hand_pan);
+
+        // Connector grips: Select tool, idle pointer near a node edge.
+        if self.board_tool == BoardTool::Select
+            && self.board_drag.is_none()
+            && !panning
+            && !zoom_tool
+            && !editing_text
+            && self.board_crop.is_none()
+            && resp.hovered()
+        {
+            self.update_wire_grips(pointer, &xf);
+        } else if !matches!(self.board_drag, Some(BoardDrag::Wire(_))) {
+            // Keep the source grips visible during a wire drag only.
+            self.wire_grips = None;
+        }
+
         // --- gesture start ---
         // Hit-test at the pointer *press origin*: by the time egui's drag
         // threshold fires, a fast drag has often already left the tiny
         // handle, which used to degrade corner scaling into a node move.
-        if resp.drag_started_by(egui::PointerButton::Primary) && !space && !panning {
+        if resp.drag_started_by(egui::PointerButton::Primary) && !space && !panning && !zoom_tool {
             if !model_toolbar_captures {
                 let origin = ui.input(|i| i.pointer.press_origin()).or(pointer);
                 if let Some(p) = origin {
-                    self.board_drag = self.begin_gesture(p, xf.s2w(p));
+                    let mods = ui.input(|i| i.modifiers);
+                    self.board_drag = self.begin_gesture(p, xf.s2w(p), mods);
                 }
             }
         }
@@ -1657,8 +1800,8 @@ impl SlateApp {
             }
         }
 
-        // --- clicks ---
-        if resp.clicked() {
+        // --- clicks (the armed zoom tool owns the primary button) ---
+        if resp.clicked() && !zoom_tool {
             if editing_text {
                 // Click-off commits the in-flight text edit (same path as
                 // Escape / lost focus), then still performs selection.
@@ -1675,14 +1818,16 @@ impl SlateApp {
                 if outside {
                     self.commit_text_edit();
                     if let Some(w) = wp {
-                        self.board_click(w, ui.input(|i| i.modifiers.ctrl));
+                        let mods = ui.input(|i| i.modifiers);
+                        self.board_click(w, mods);
                     }
                 }
             } else if let Some(w) = wp {
-                self.board_click(w, ui.input(|i| i.modifiers.ctrl));
+                let mods = ui.input(|i| i.modifiers);
+                self.board_click(w, mods);
             }
         }
-        if resp.double_clicked() {
+        if resp.double_clicked() && !zoom_tool {
             if let Some(w) = wp {
                 self.board_double_click(w);
             }
@@ -1693,6 +1838,13 @@ impl SlateApp {
             if let (Some(p), Some(w)) = (pointer, wp) {
                 if let Some(id) = self.board_pick_node(w.x, w.y) {
                     self.board_menu = Some((id, p));
+                } else {
+                    // Empty canvas: show/unlock-all discoverability menu
+                    // (only when there is something to reveal).
+                    let (hidden, locked) = self.hidden_locked_counts();
+                    if hidden > 0 || locked > 0 {
+                        self.board_empty_menu = Some(p);
+                    }
                 }
             }
         }
@@ -1739,6 +1891,7 @@ impl SlateApp {
         self.board_hover_hit = None;
         if resp.hovered()
             && !panning
+            && !zoom_tool
             && !editing_text
             && self.board_tool == BoardTool::Select
             && !self.board_sel.is_empty()
@@ -1751,6 +1904,9 @@ impl SlateApp {
                     self.doc()
                         .scene
                         .node(id)
+                        // Connectors have no rect handles — endpoint dots
+                        // (detach) are their only affordance.
+                        .filter(|n| !matches!(n.kind, NodeKind::Connector(_)))
                         .map(|n| board_handles::selection_geom(&xf, n.rect, n.rotation_deg))
                 } else {
                     self.board_group_bounds()
@@ -1778,27 +1934,79 @@ impl SlateApp {
         }
 
         // --- paint scene ---
-        let nodes: Vec<Node> = self.doc().scene.nodes.clone();
+        // Hidden nodes are skipped everywhere (paint, hit-test, marquee,
+        // cycling, present, export) — scene-flags semantics matrix.
+        let mut nodes: Vec<Node> = self
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter(|n| !n.hidden)
+            .cloned()
+            .collect();
+        // Ctrl+F: dim non-matching nodes to ~35% at paint time only — the
+        // opacity tweak lives on this per-frame clone, never in the scene
+        // and never in the journal.
+        if let Some(matches) = self.search_node_matches() {
+            for n in &mut nodes {
+                if !matches.contains(&n.id) {
+                    n.opacity *= 0.35;
+                }
+            }
+        }
+        // Eraser scrub feedback: touched strokes render at 30% until release.
+        if let Some(BoardDrag::Erase { touched }) = &self.board_drag {
+            for n in &mut nodes {
+                if touched.contains(&n.id) {
+                    n.opacity *= 0.3;
+                }
+            }
+        }
         for n in nodes.iter().filter(|n| n.is_frame()) {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
         for n in nodes.iter().filter(|n| !n.is_frame()) {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
+        // Ctrl+H feedback: just-hidden nodes ghost out over 150 ms.
+        self.paint_hide_ghosts(ui, &painter, &xf);
+        // The search hit the camera last flew to gets a select-tint ring.
+        if let Some(super::overlays::SearchHit::Node(hit)) = self.search_current_hit() {
+            if let Some(n) = self.doc().scene.node(hit) {
+                let outline = self.node_screen_outline(&xf, n);
+                painter.add(egui::Shape::closed_line(
+                    outline,
+                    EStroke::new(2.0, palette.select),
+                ));
+            }
+        }
 
         // Selection adornment: 8 handles + rotate zones on a single node, or
         // per-node outlines plus the same geometry on the group box with 2+.
         // The crop-mode node draws its own adornment (below) instead.
+        // Locked nodes force-selected via Ctrl+Shift+click show grayed
+        // handles (the one-off escape hatch of the scene-flags spec).
+        let select_tint = if self.selection_has_locked() {
+            palette.select.gamma_multiply(0.45)
+        } else {
+            palette.select
+        };
         if self.board_sel.len() == 1 && self.board_crop != self.board_sel.iter().next().copied() {
             if let Some(id) = self.board_sel.iter().next() {
-                if let Some(n) = self.doc().scene.node(*id) {
-                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-                    board_handles::paint_selection(
-                        &painter,
-                        &geom,
-                        palette.select,
-                        self.board_hover_hit,
-                    );
+                if let Some(n) = self.doc().scene.node(*id).cloned() {
+                    if matches!(n.kind, NodeKind::Connector(_)) {
+                        // Connectors adorn as a curve highlight + endpoint
+                        // dots (draggable = detach), never rect handles.
+                        self.paint_connector_selection(&painter, &xf, &n);
+                    } else {
+                        let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+                        board_handles::paint_selection(
+                            &painter,
+                            &geom,
+                            select_tint,
+                            self.board_hover_hit,
+                        );
+                    }
                 }
             }
         } else {
@@ -1807,7 +2015,7 @@ impl SlateApp {
                     let outline = self.node_screen_outline(&xf, n);
                     painter.add(egui::Shape::closed_line(
                         outline,
-                        EStroke::new(1.5, palette.select),
+                        EStroke::new(1.5, select_tint),
                     ));
                 }
             }
@@ -1817,12 +2025,14 @@ impl SlateApp {
                     board_handles::paint_selection(
                         &painter,
                         &geom,
-                        palette.select,
+                        select_tint,
                         self.board_hover_hit,
                     );
                 }
             }
         }
+        // Connector grips on the hovered node (Select tool).
+        self.paint_wire_grips(&painter, &xf);
 
         // Crop-mode overlay: ghosted full image, scrim, crop border +
         // handles, content grabber.
@@ -1913,17 +2123,70 @@ impl SlateApp {
         }
 
         if let Some(draft) = &self.board_path_draft {
-            board_path::paint_path_draft(&painter, &xf, draft, wp, palette.accent);
+            // Ortho preview: the pending polyline segment snaps to 45°.
+            let mut cursor = wp;
+            if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
+                if let (board_path::BoardPathDraft::Polyline { points }, Some(w)) = (draft, wp) {
+                    if let Some(last) = points.last() {
+                        cursor = Some(board_snap::ortho_snap_point(*last, w));
+                    }
+                }
+            }
+            board_path::paint_path_draft(&painter, &xf, draft, cursor, palette.accent);
         }
         if let (Some(BoardDrag::FreehandPen { points, .. }), Some(w)) = (&self.board_drag, wp) {
             if !points.is_empty() {
                 board_path::paint_polyline_preview(&painter, &xf, points, w, palette.accent);
             }
         }
+        // Brush stroke preview in the foreground color.
+        if let (Some(BoardDrag::FreehandBrush { points, .. }), Some(w)) = (&self.board_drag, wp) {
+            if !points.is_empty() {
+                let fg = rgba32(self.board_colors.fg);
+                board_path::paint_polyline_preview(&painter, &xf, points, w, fg);
+            }
+        }
+        // Wire drag preview (rubber-band bezier, snap ring, modifier glyph).
+        if let Some(BoardDrag::Wire(wd)) = &self.board_drag {
+            let mods = ui.input(|i| i.modifiers);
+            self.paint_wire_drag(&painter, &xf, wd, mods);
+        }
+        // Direct-selection anchor adornment (A tool).
+        if self.board_tool == BoardTool::DirectSelect {
+            self.paint_direct_overlay(&painter, &xf);
+        }
 
-        // Marquee preview.
-        if let (Some(BoardDrag::Marquee { start_screen }), Some(p)) = (&self.board_drag, pointer) {
-            let r = Rect::from_two_pos(*start_screen, p);
+        // Ortho feedback: subtle hash ticks through the drag origin along
+        // the snapped axis while an ortho-constrained drag is live.
+        if let Some((origin, axis)) = self.ortho_feedback {
+            let o = xf.w2s(origin);
+            let a = axis.normalized();
+            let dir = egui::Vec2::new(a.x, a.y);
+            let perp = egui::Vec2::new(-dir.y, dir.x);
+            let tint = palette.accent.gamma_multiply(0.6);
+            painter.add(egui::Shape::dashed_line(
+                &[o - dir * 72.0, o + dir * 72.0],
+                EStroke::new(1.0, tint),
+                6.0,
+                6.0,
+            ));
+            for k in [-48.0f32, -24.0, 0.0, 24.0, 48.0] {
+                let c = o + dir * k;
+                painter.line_segment([c - perp * 3.5, c + perp * 3.5], EStroke::new(1.0, tint));
+            }
+        }
+
+        // Marquee preview (node marquee and the A-tool anchor marquee).
+        let marquee_start = match &self.board_drag {
+            Some(BoardDrag::Marquee { start_screen }) => Some(*start_screen),
+            Some(BoardDrag::Direct(super::board_direct::DirectDrag::Marquee {
+                start_screen,
+                ..
+            })) => Some(*start_screen),
+            _ => None,
+        };
+        if let (Some(start_screen), Some(p)) = (marquee_start, pointer) {
+            let r = Rect::from_two_pos(start_screen, p);
             painter.rect_filled(r, 0.0, palette.select.gamma_multiply(0.12));
             painter.rect_stroke(
                 r,
@@ -1931,6 +2194,18 @@ impl SlateApp {
                 EStroke::new(1.0, palette.select),
                 egui::StrokeKind::Inside,
             );
+        }
+
+        // Tool cursors: width circle for Brush/Eraser, sampling ring for the
+        // eyedropper (also spring-loaded via Alt while Brush is armed).
+        if resp.hovered() && !panning && !zoom_tool {
+            if let (Some(p), Some(w)) = (pointer, wp) {
+                if self.eyedropper_active() {
+                    self.paint_eyedropper_cursor(&painter, p, w);
+                } else if matches!(self.board_tool, BoardTool::Brush | BoardTool::Eraser) {
+                    self.paint_width_cursor(&painter, p);
+                }
+            }
         }
 
         // 3D viewport padlocks (hover to reveal; always shown while live).
@@ -1962,12 +2237,23 @@ impl SlateApp {
             );
         }
 
+        // Shared minimap overlay (M): board model = node rects by kind.
+        if let Some(model) = self
+            .minimap_on
+            .then(|| self.board_minimap_model())
+            .flatten()
+        {
+            self.show_minimap(ui, rect, model);
+        }
+
         // Overlays. (The create toolbar now lives in the shared bottom dock —
         // see `ui/tools.rs::floating_tools_dock`.)
         self.frame_custom_dialog(ui.ctx(), rect);
         self.frame_toolbar(ui.ctx(), &xf);
         self.text_edit_overlay(ui.ctx(), &xf);
+        self.wire_label_overlay(ui.ctx(), &xf);
         self.board_action_menu(ui.ctx());
+        self.board_empty_canvas_menu(ui.ctx());
 
         if self
             .textures
@@ -1987,6 +2273,10 @@ impl SlateApp {
         let pointer = ui.ctx().pointer_latest_pos();
         let palette = self.palette();
         for info in self.model_nodes() {
+            // Hidden nodes show no chrome either.
+            if self.doc().scene.node(info.node).is_none_or(|n| n.hidden) {
+                continue;
+            }
             let srect = xf.rect_w2s(info.rect);
             if !srect.intersects(self.canvas_rect) {
                 continue;
@@ -2393,11 +2683,15 @@ impl SlateApp {
         board_snap::SNAP_SCREEN_PX / self.tab().cam.z
     }
 
+    /// Smart-guide snap sources: hidden nodes are out, **locked nodes stay
+    /// in** (Rhino: locked still snaps), and connectors' derived AABBs never
+    /// act as alignment targets.
     fn board_node_rects(&self) -> Vec<(NodeId, WorldRect)> {
         self.doc()
             .scene
             .nodes
             .iter()
+            .filter(|n| !n.hidden && !matches!(n.kind, NodeKind::Connector(_)))
             .map(|n| (n.id, n.rect))
             .collect()
     }
@@ -2598,7 +2892,12 @@ impl SlateApp {
 
     // ----- gesture handling ------------------------------------------------------
 
-    fn begin_gesture(&mut self, screen: Pos2, world: Pos2) -> Option<BoardDrag> {
+    fn begin_gesture(
+        &mut self,
+        screen: Pos2,
+        world: Pos2,
+        mods: egui::Modifiers,
+    ) -> Option<BoardDrag> {
         match self.board_tool {
             BoardTool::Select => {
                 // Crop mode intercepts everything on its node: handles move
@@ -2689,6 +2988,11 @@ impl SlateApp {
                         }
                     }
                 }
+                // Connector wires: endpoint dots on a selected connector,
+                // then edge grips (add / Ctrl detach / Ctrl+Shift move-all).
+                if let Some(wd) = self.try_begin_wire_drag(screen, world, mods) {
+                    return Some(BoardDrag::Wire(wd));
+                }
                 // Dragging inside an unlocked 3D viewport orbits its camera
                 // instead of moving the node (Alt still duplicates, so the
                 // node itself can be grabbed by locking or Alt-dragging).
@@ -2720,11 +3024,30 @@ impl SlateApp {
                         });
                     }
                 }
-                match self.board_pick_node(world.x, world.y) {
+                // Locked nodes are unpickable, except one already force-
+                // selected via Ctrl+Shift+click (the one-off edit hatch).
+                let mut picked = self.board_pick_node(world.x, world.y);
+                if picked.is_none() {
+                    let forced = board_path::board_pick_node_ex(
+                        &self.doc().scene,
+                        world.x,
+                        world.y,
+                        self.tab().cam.z,
+                        true,
+                    );
+                    if let Some(f) = forced {
+                        if self.board_sel.contains(&f) {
+                            picked = Some(f);
+                        }
+                    }
+                }
+                match picked {
                     Some(hit) => {
                         if !self.board_sel.contains(&hit) {
                             self.board_sel.clear();
                             self.board_sel.insert(hit);
+                            // Click any group member → the whole group moves.
+                            self.expand_board_selection();
                         }
                         let sel: Vec<NodeId> = self.board_sel.iter().copied().collect();
                         if self.alt_down {
@@ -2738,8 +3061,13 @@ impl SlateApp {
                             let mut before = Vec::new();
                             {
                                 let scene = &mut self.doc_mut().scene;
-                                for s in &sources {
-                                    let d = scene.build_duplicate(s, 0.0, 0.0);
+                                let mut dups: Vec<Node> = sources
+                                    .iter()
+                                    .map(|s| scene.build_duplicate(s, 0.0, 0.0))
+                                    .collect();
+                                // Copies form their own groups.
+                                super::board_flags::remap_dup_group_keys(scene, &mut dups);
+                                for d in dups {
                                     ids.push(d.id);
                                     before.push(d.clone());
                                     scene.nodes.push(d);
@@ -2778,7 +3106,39 @@ impl SlateApp {
                 points: vec![world],
                 last: world,
             }),
-            BoardTool::BezierSpan => Some(BoardDrag::BezierAnchor { press: world }),
+            BoardTool::Brush => {
+                if self.alt_down {
+                    // Spring-loaded eyedropper: the click samples, no stroke.
+                    None
+                } else {
+                    Some(BoardDrag::FreehandBrush {
+                        points: vec![world],
+                        last: world,
+                    })
+                }
+            }
+            BoardTool::Eraser => Some(BoardDrag::Erase {
+                touched: Vec::new(),
+            }),
+            BoardTool::Eyedropper | BoardTool::Sticky => None, // click tools
+            BoardTool::DirectSelect => self
+                .begin_direct_drag(screen, world, mods)
+                .map(BoardDrag::Direct),
+            BoardTool::BezierSpan => {
+                // Ortho: the new anchor snaps to 45° from the previous one.
+                let press = if board_snap::effective_ortho(self.board_ortho, mods.shift) {
+                    match &self.board_path_draft {
+                        Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => anchors
+                            .last()
+                            .map(|(a, _)| board_snap::ortho_snap_point(*a, world))
+                            .unwrap_or(world),
+                        _ => world,
+                    }
+                } else {
+                    world
+                };
+                Some(BoardDrag::BezierAnchor { press })
+            }
             BoardTool::Polyline | BoardTool::Arc => None,
             tool => Some(BoardDrag::Draw {
                 start_world: world,
@@ -2792,7 +3152,10 @@ impl SlateApp {
     }
 
     fn update_gesture(&mut self, world: Pos2, mods: egui::Modifiers) {
-        if let Some(BoardDrag::FreehandPen { points, last }) = &mut self.board_drag {
+        if let Some(
+            BoardDrag::FreehandPen { points, last } | BoardDrag::FreehandBrush { points, last },
+        ) = &mut self.board_drag
+        {
             if (world - *last).length() > 1.5 {
                 points.push(world);
                 *last = world;
@@ -2803,6 +3166,31 @@ impl SlateApp {
             self.bezier_anchor_move(*press, world);
             return;
         }
+        // Eraser scrub: accumulate strokes under the circle (removed on
+        // release; Esc cancels with no journal).
+        if matches!(self.board_drag, Some(BoardDrag::Erase { .. })) {
+            let hits = self.eraser_hits_at(world);
+            if let Some(BoardDrag::Erase { touched }) = &mut self.board_drag {
+                for h in hits {
+                    if !touched.contains(&h) {
+                        touched.push(h);
+                    }
+                }
+            }
+            return;
+        }
+        if matches!(self.board_drag, Some(BoardDrag::Wire(_))) {
+            let Some(BoardDrag::Wire(mut wd)) = self.board_drag.take() else {
+                unreachable!();
+            };
+            self.wire_drag_update(&mut wd, world, mods.shift);
+            self.board_drag = Some(BoardDrag::Wire(wd));
+            return;
+        }
+        if matches!(self.board_drag, Some(BoardDrag::Direct(_))) {
+            self.update_direct_drag(world, mods);
+            return;
+        }
         match &self.board_drag {
             Some(BoardDrag::Move {
                 ids,
@@ -2811,7 +3199,19 @@ impl SlateApp {
                 dup,
                 ..
             }) => {
-                let d = world - *start_world;
+                let ids = ids.clone();
+                let before = before.clone();
+                let start = *start_world;
+                let dup = *dup;
+                let mut d = world - start;
+                // Ortho (F8, Shift inverts): the drag vector snaps to 45°
+                // steps from the gesture origin.
+                let ortho = board_snap::effective_ortho(self.board_ortho, mods.shift);
+                let ortho_axis = board_snap::ortho_axis(d);
+                if ortho {
+                    d = board_snap::ortho_snap_vec(d);
+                    self.ortho_feedback = Some((start, ortho_axis));
+                }
                 let mut pairs: Vec<(NodeId, WorldRect)> = ids
                     .iter()
                     .zip(before.iter())
@@ -2819,15 +3219,22 @@ impl SlateApp {
                     .collect();
 
                 // Smart guides: align to other objects (on by default; Alt bypasses).
-                let snap_off = mods.alt || *dup;
+                let snap_off = mods.alt || dup;
                 if !snap_off {
                     let rects: Vec<WorldRect> = pairs.iter().map(|(_, r)| *r).collect();
                     if let Some(union) = board_snap::union_rect(&rects) {
                         let all = self.board_node_rects();
                         let (snapped, guides) =
-                            board_snap::snap_bbox(union, ids, &all, self.board_snap_threshold());
-                        let ax = snapped.x - union.x;
-                        let ay = snapped.y - union.y;
+                            board_snap::snap_bbox(union, &ids, &all, self.board_snap_threshold());
+                        let mut ax = snapped.x - union.x;
+                        let mut ay = snapped.y - union.y;
+                        if ortho {
+                            // DominantOrtho: guide snap projects onto the
+                            // ortho line instead of derailing it.
+                            let along = ax * ortho_axis.x + ay * ortho_axis.y;
+                            ax = ortho_axis.x * along;
+                            ay = ortho_axis.y * along;
+                        }
                         if ax != 0.0 || ay != 0.0 {
                             for (_, r) in pairs.iter_mut() {
                                 r.x += ax;
@@ -2837,15 +3244,31 @@ impl SlateApp {
                         self.board_snap_guides = guides;
                     }
                 }
-                if self.board_snap_grid && !snap_off {
+                // Grid snap would pull the origin off the constrained axis,
+                // so ortho suspends it for the drag.
+                if self.board_snap_grid && !snap_off && !ortho {
                     for (_, r) in pairs.iter_mut() {
                         *r = board_snap::snap_rect_origin(*r, true);
                     }
                 }
 
                 let scene = &mut self.doc_mut().scene;
-                for (id, r) in pairs {
+                for ((id, r), b) in pairs.into_iter().zip(before.iter()) {
                     if let Some(n) = scene.node_mut(id) {
+                        // Free connector endpoints travel with the drag
+                        // (anchored ends stay glued — geometry is derived).
+                        if let (NodeKind::Connector(c), NodeKind::Connector(cb)) =
+                            (&mut n.kind, &b.kind)
+                        {
+                            let dd = Vec2::new(r.x - b.rect.x, r.y - b.rect.y);
+                            for (end, end_b) in [(&mut c.a, &cb.a), (&mut c.b, &cb.b)] {
+                                if let slate_doc::scene::ConnectorEnd::Free { point } = end_b {
+                                    *end = slate_doc::scene::ConnectorEnd::Free {
+                                        point: [point[0] + dd.x, point[1] + dd.y],
+                                    };
+                                }
+                            }
+                        }
                         n.rect = r;
                     }
                 }
@@ -3070,15 +3493,20 @@ impl SlateApp {
     }
 
     fn end_gesture(&mut self, world: Pos2, pointer: Option<Pos2>, mods: egui::Modifiers) {
+        // Any gesture may have journaled; one generation bump per gesture
+        // end keeps the minimap/search caches fresh without per-frame cost.
+        self.note_scene_change();
         let drag = self.board_drag.take();
         match drag {
             Some(BoardDrag::Move {
                 ids, before, dup, ..
             }) => {
+                // Whole-node compare: a connector move also translates its
+                // Free endpoints (kind change), not just the rect.
                 let moved = ids
                     .iter()
                     .zip(before.iter())
-                    .any(|(id, b)| self.doc().scene.node(*id).map(|n| n.rect) != Some(b.rect));
+                    .any(|(id, b)| self.doc().scene.node(*id) != Some(b));
                 if dup {
                     // Journal the inserts at their final position.
                     let cmds: Vec<SceneCmd> = ids
@@ -3091,13 +3519,17 @@ impl SlateApp {
                         .collect();
                     self.tab_mut().journal.record(cmds);
                     self.tab_mut().dirty = true;
+                    self.push_history(
+                        atlas_commands::CommandId("board.duplicate"),
+                        Some(format!("{} node(s), Alt-drag", ids.len())),
+                    );
                 } else if moved {
                     let cmds: Vec<SceneCmd> = ids
                         .iter()
                         .zip(before)
                         .filter_map(|(id, b)| {
                             let after = self.doc().scene.node(*id)?.clone();
-                            (after.rect != b.rect).then(|| SceneCmd::Patch {
+                            (after != b).then(|| SceneCmd::Patch {
                                 before: Box::new(b),
                                 after: Box::new(after),
                             })
@@ -3175,6 +3607,18 @@ impl SlateApp {
             Some(BoardDrag::FreehandPen { points, .. }) => {
                 self.finish_freehand_pen(points);
             }
+            Some(BoardDrag::FreehandBrush { points, .. }) => {
+                self.finish_freehand_brush(points);
+            }
+            Some(BoardDrag::Erase { touched }) => {
+                self.finish_erase(touched);
+            }
+            Some(BoardDrag::Wire(wd)) => {
+                self.finish_wire_drag(wd);
+            }
+            Some(BoardDrag::Direct(d)) => {
+                self.finish_direct_drag(d, pointer);
+            }
             Some(BoardDrag::BezierAnchor { press }) => {
                 self.bezier_anchor_release(press, world);
             }
@@ -3193,18 +3637,29 @@ impl SlateApp {
                 if let Some(p) = pointer {
                     let xf = self.board_xf();
                     let r = wr(Rect::from_two_pos(xf.s2w(start_screen), xf.s2w(p)));
+                    // AABB fully inside the marquee (simplest conforming
+                    // rule for the derived-geometry connectors).
+                    let aabb_inside = |n: &Node| {
+                        n.rect.x >= r.x
+                            && n.rect.y >= r.y
+                            && n.rect.x + n.rect.w <= r.x + r.w
+                            && n.rect.y + n.rect.h <= r.y + r.h
+                    };
                     let hits: Vec<NodeId> = self
                         .doc()
                         .scene
                         .nodes
                         .iter()
-                        .filter(|n| !n.is_frame())
-                        .filter(|n| {
-                            board_snap::marquee_intersects_rotated(r, n.rect, n.rotation_deg)
+                        .filter(|n| !n.is_frame() && !n.hidden && !n.locked)
+                        .filter(|n| match &n.kind {
+                            NodeKind::Connector(_) => aabb_inside(n),
+                            _ => board_snap::marquee_intersects_rotated(r, n.rect, n.rotation_deg),
                         })
                         .map(|n| n.id)
                         .collect();
                     self.board_sel = hits.into_iter().collect();
+                    // A member inside the rect selects its whole group.
+                    self.expand_board_selection();
                 }
             }
             None => {}
@@ -3269,7 +3724,9 @@ impl SlateApp {
         xf.rect_w2s(world)
     }
 
-    fn place_frame_at(&mut self, center: Pos2) {
+    /// Click-to-place default frame (Frame tool click, or the canvas
+    /// palette placing at its invocation point).
+    pub(crate) fn place_frame_at(&mut self, center: Pos2) {
         let (w, h) = self.board_frame_preset.size();
         let rect = WorldRect::new(center.x - w * 0.5, center.y - h * 0.5, w, h);
         let kind = NodeKind::Frame(FrameNode {
@@ -3282,6 +3739,43 @@ impl SlateApp {
         let ids = self.add_nodes(vec![node]);
         self.board_sel = ids.into_iter().collect();
         self.board_tool = BoardTool::Select;
+        self.push_history(
+            atlas_commands::CommandId("board.tool.frame"),
+            Some("placed".into()),
+        );
+    }
+
+    /// Click-to-create text at a world point (Text tool click / palette).
+    /// Dark text on frames, light on the void; opens the inline editor.
+    pub(crate) fn place_text_at(&mut self, world: Pos2) {
+        let on_frame = self.doc().scene.frame_at(world.x, world.y).is_some();
+        let color = if on_frame {
+            Rgba::opaque(20, 22, 26)
+        } else {
+            Rgba::opaque(228, 230, 235)
+        };
+        let rect = WorldRect::new(world.x, world.y - 16.0, 280.0, 48.0);
+        let node = self.doc_mut().scene.build_node(
+            rect,
+            NodeKind::Text(TextNode {
+                text: "Text".into(),
+                family: FontChoice::Sans,
+                size: 24.0,
+                color,
+                align: TextAlign::Left,
+                fill: None,
+            }),
+        );
+        let id = node.id;
+        self.add_nodes(vec![node]);
+        self.board_sel.clear();
+        self.board_sel.insert(id);
+        self.text_edit = Some((id, "Text".into()));
+        self.board_tool = BoardTool::Select;
+        self.push_history(
+            atlas_commands::CommandId("board.tool.text"),
+            Some("placed".into()),
+        );
     }
 
     fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
@@ -3364,10 +3858,20 @@ impl SlateApp {
         let node = self.doc_mut().scene.build_node(r, kind);
         let ids = self.add_nodes(vec![node]);
         self.board_sel = ids.into_iter().collect();
+        let tool_id = match tool {
+            BoardTool::Frame => "board.tool.frame",
+            BoardTool::RectShape => "board.tool.rect",
+            BoardTool::Ellipse => "board.tool.ellipse",
+            BoardTool::Line => "board.tool.line",
+            _ => "",
+        };
+        if !tool_id.is_empty() {
+            self.push_history(atlas_commands::CommandId(tool_id), Some("drawn".into()));
+        }
         self.board_tool = BoardTool::Select;
     }
 
-    fn board_click(&mut self, world: Pos2, ctrl: bool) {
+    fn board_click(&mut self, world: Pos2, mods: egui::Modifiers) {
         // Crop mode: clicking outside the node finishes the crop and the
         // click passes through to normal selection; clicks inside are the
         // pan gesture's territory and change nothing.
@@ -3379,46 +3883,77 @@ impl SlateApp {
             }
             self.board_crop = None;
         }
-        if self.board_tool == BoardTool::Text {
-            // Click-to-create text; dark text on frames, light on the void.
-            let on_frame = self.doc().scene.frame_at(world.x, world.y).is_some();
-            let color = if on_frame {
-                Rgba::opaque(20, 22, 26)
-            } else {
-                Rgba::opaque(228, 230, 235)
-            };
-            let rect = WorldRect::new(world.x, world.y - 16.0, 280.0, 48.0);
-            let node = self.doc_mut().scene.build_node(
-                rect,
-                NodeKind::Text(TextNode {
-                    text: "Text".into(),
-                    family: FontChoice::Sans,
-                    size: 24.0,
-                    color,
-                    align: TextAlign::Left,
-                }),
-            );
-            let id = node.id;
-            self.add_nodes(vec![node]);
-            self.board_sel.clear();
-            self.board_sel.insert(id);
-            self.text_edit = Some((id, "Text".into()));
-            self.board_tool = BoardTool::Select;
-            return;
+        match self.board_tool {
+            BoardTool::Text => {
+                self.place_text_at(world);
+                return;
+            }
+            BoardTool::Sticky => {
+                self.place_sticky_at(world);
+                return;
+            }
+            BoardTool::Polyline | BoardTool::Arc => {
+                self.path_tool_click(world);
+                return;
+            }
+            BoardTool::Brush => {
+                if mods.alt {
+                    // Spring-loaded eyedropper (samples into fg).
+                    self.eyedropper_click(world, false);
+                } else if mods.shift {
+                    // Straight segment chained from the last stroke end.
+                    self.brush_straight_click(world);
+                } else {
+                    // Plain click seeds the straight-segment chain.
+                    self.brush_chain = Some(world);
+                }
+                return;
+            }
+            BoardTool::Eyedropper => {
+                self.eyedropper_click(world, mods.alt);
+                return;
+            }
+            BoardTool::DirectSelect => {
+                let screen = self.board_xf().w2s(world);
+                self.direct_click(screen, world, mods.shift);
+                return;
+            }
+            _ => {}
         }
-        if matches!(self.board_tool, BoardTool::Polyline | BoardTool::Arc) {
-            self.path_tool_click(world);
+        // Ctrl+Shift+click: sub-object select — a single group member, or a
+        // locked node (force-selected for one-off edits). No expansion.
+        if mods.ctrl && mods.shift {
+            let hit = board_path::board_pick_node_ex(
+                &self.doc().scene,
+                world.x,
+                world.y,
+                self.tab().cam.z,
+                true,
+            );
+            match hit {
+                Some(id) => {
+                    self.board_sel.clear();
+                    self.board_sel.insert(id);
+                }
+                None => self.board_sel.clear(),
+            }
             return;
         }
         match self.board_pick_node(world.x, world.y) {
             Some(id) => {
-                if ctrl {
-                    if !self.board_sel.remove(&id) {
-                        self.board_sel.insert(id);
+                let group_ids =
+                    super::board_flags::expand_selection_to_groups(&self.doc().scene, &[id]);
+                if mods.ctrl {
+                    // Toggle the whole group in the selection.
+                    if self.board_sel.contains(&id) {
+                        for g in group_ids {
+                            self.board_sel.remove(&g);
+                        }
+                    } else {
+                        self.board_sel.extend(group_ids);
                     }
                 } else {
-                    self.board_sel.clear();
-                    self.board_sel.insert(id);
+                    self.board_sel = group_ids.into_iter().collect();
                 }
             }
             None => self.board_sel.clear(),
@@ -3429,7 +3964,24 @@ impl SlateApp {
         if self.board_tool.is_path_tool() && self.path_tool_try_finish() {
             return;
         }
+        // Direct selection: double-click an anchor toggles corner ↔ smooth.
+        if self.board_tool == BoardTool::DirectSelect {
+            let screen = self.board_xf().w2s(world);
+            if self.direct_double_click(screen) {
+                return;
+            }
+        }
         let Some(id) = self.board_pick_node(world.x, world.y) else {
+            // Double-click on empty board = the canvas palette (Grasshopper
+            // gesture): search + place/execute at this point. Navigation
+            // tools only — draw tools keep their double-click semantics.
+            if matches!(self.board_tool, BoardTool::Select | BoardTool::Pan)
+                && self.board_crop.is_none()
+                && self.text_edit.is_none()
+            {
+                let screen = self.board_xf().w2s(world);
+                self.open_board_palette(screen, world);
+            }
             return;
         };
         let Some(node) = self.doc().scene.node(id).cloned() else {
@@ -3438,6 +3990,12 @@ impl SlateApp {
         match &node.kind {
             NodeKind::Text(t) => {
                 self.text_edit = Some((id, t.text.clone()));
+            }
+            NodeKind::Connector(_) => {
+                // Double-click a wire = edit its label at the midpoint.
+                self.board_sel.clear();
+                self.board_sel.insert(id);
+                self.open_wire_label_edit(id);
             }
             NodeKind::Image(img) => {
                 if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {
@@ -3745,6 +4303,18 @@ impl SlateApp {
             self.text_edit = None;
             return;
         };
+        // Sticky Tab-spawn: Tab while editing a sticky commits this note and
+        // spawns an adjacent sibling (Shift+Tab = to the left), moving the
+        // caret there — object Tab-cycling stays suppressed while editing.
+        if t.fill.is_some() {
+            let (tab, shift) = ctx.input(|i| (i.key_pressed(egui::Key::Tab), i.modifiers.shift));
+            if tab {
+                self.text_edit = Some((id, buf.clone()));
+                self.commit_text_edit();
+                self.spawn_adjacent_sticky(id, if shift { -1.0 } else { 1.0 });
+                return;
+            }
+        }
         let sr = xf.rect_w2s(node.rect);
         let box_w = sr.width().max(8.0);
         let box_h = sr.height().max(8.0);
@@ -3831,15 +4401,133 @@ impl SlateApp {
                     ui.separator();
                     if ui.button("Duplicate  (Ctrl+D)").clicked() {
                         self.duplicate_board_nodes(&targets, 24.0, 24.0);
+                        self.push_history(
+                            atlas_commands::CommandId("board.duplicate"),
+                            Some(format!("{} node(s)", targets.len())),
+                        );
                         close = true;
                     }
                     if ui.button("Bring to front").clicked() {
                         self.reorder_nodes(&targets, true);
+                        self.push_history(
+                            atlas_commands::CommandId("board.to_front"),
+                            Some(format!("{} node(s)", targets.len())),
+                        );
                         close = true;
                     }
                     if ui.button("Send to back").clicked() {
                         self.reorder_nodes(&targets, false);
+                        self.push_history(
+                            atlas_commands::CommandId("board.to_back"),
+                            Some(format!("{} node(s)", targets.len())),
+                        );
                         close = true;
+                    }
+                    // Scene flags (groups / lock / hide — wave 2b).
+                    ui.separator();
+                    let any_grouped = targets.iter().any(|id| {
+                        self.doc()
+                            .scene
+                            .node(*id)
+                            .is_some_and(|n| n.group.is_some())
+                    });
+                    if targets.len() >= 2 && ui.button("Group  (Ctrl+G)").clicked() {
+                        self.board_sel = targets.iter().copied().collect();
+                        let n = self.cmd_group_selection();
+                        if n > 0 {
+                            self.push_history(
+                                atlas_commands::CommandId("board.group"),
+                                Some(format!("{n} node(s)")),
+                            );
+                        }
+                        close = true;
+                    }
+                    if any_grouped && ui.button("Ungroup  (Ctrl+Shift+G)").clicked() {
+                        self.board_sel = targets.iter().copied().collect();
+                        let n = self.cmd_ungroup_selection();
+                        if n > 0 {
+                            self.push_history(
+                                atlas_commands::CommandId("board.ungroup"),
+                                Some(format!("{n} node(s)")),
+                            );
+                        }
+                        close = true;
+                    }
+                    if ui.button("Lock  (Ctrl+L)").clicked() {
+                        self.board_sel = targets.iter().copied().collect();
+                        let n = self.cmd_lock_selection();
+                        if n > 0 {
+                            self.push_history(
+                                atlas_commands::CommandId("board.lock"),
+                                Some(format!("{n} node(s)")),
+                            );
+                        }
+                        close = true;
+                    }
+                    if ui.button("Hide  (Ctrl+H)").clicked() {
+                        self.board_sel = targets.iter().copied().collect();
+                        let n = self.cmd_hide_selection();
+                        if n > 0 {
+                            self.push_history(
+                                atlas_commands::CommandId("board.hide"),
+                                Some(format!("{n} node(s)")),
+                            );
+                        }
+                        close = true;
+                    }
+                    // Wire rows (single right-clicked connector).
+                    if let Some(NodeKind::Connector(conn)) =
+                        self.doc().scene.node(node_id).map(|n| n.kind.clone())
+                    {
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new("Wire")
+                                .small()
+                                .strong()
+                                .color(palette.ink),
+                        );
+                        if ui
+                            .selectable_label(conn.arrow_a, "Arrowhead at start")
+                            .clicked()
+                        {
+                            let v = !conn.arrow_a;
+                            self.patch_nodes(&[node_id], move |n| {
+                                if let NodeKind::Connector(c) = &mut n.kind {
+                                    c.arrow_a = v;
+                                }
+                            });
+                            self.last_board_edit = None;
+                        }
+                        if ui
+                            .selectable_label(conn.arrow_b, "Arrowhead at end")
+                            .clicked()
+                        {
+                            let v = !conn.arrow_b;
+                            self.patch_nodes(&[node_id], move |n| {
+                                if let NodeKind::Connector(c) = &mut n.kind {
+                                    c.arrow_b = v;
+                                }
+                            });
+                            self.last_board_edit = None;
+                        }
+                        let faint = conn.display == slate_doc::scene::WireDisplay::Faint;
+                        if ui.selectable_label(faint, "Faint").clicked() {
+                            let v = if faint {
+                                slate_doc::scene::WireDisplay::Default
+                            } else {
+                                slate_doc::scene::WireDisplay::Faint
+                            };
+                            self.patch_nodes(&[node_id], move |n| {
+                                if let NodeKind::Connector(c) = &mut n.kind {
+                                    c.display = v;
+                                }
+                            });
+                            self.last_board_edit = None;
+                        }
+                        if ui.button("Edit label…").clicked() {
+                            self.open_wire_label_edit(node_id);
+                            close = true;
+                        }
                     }
                     // Single-image actions: on-canvas crop mode (also enter
                     // via double-click) and opening the source file (the old
@@ -3923,6 +4611,10 @@ impl SlateApp {
                     ui.separator();
                     if ui.button("Delete  (Del)").clicked() {
                         self.delete_board_nodes(&targets);
+                        self.push_history(
+                            atlas_commands::CommandId("board.delete"),
+                            Some(format!("{} node(s)", targets.len())),
+                        );
                         close = true;
                     }
                     if ui.button("Done").clicked() {
@@ -3979,6 +4671,7 @@ impl SlateApp {
         if !cmds.is_empty() {
             self.tab_mut().journal.record(cmds);
             self.tab_mut().dirty = true;
+            self.note_scene_change();
         }
     }
 

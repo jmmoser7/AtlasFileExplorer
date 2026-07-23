@@ -4,7 +4,7 @@
 //! objects, InDesign Smart Guides): edge/center alignment and equal spacing
 //! are on by default; hold Ctrl while dragging to temporarily disable snapping.
 
-use eframe::egui::Pos2;
+use eframe::egui::{Pos2, Vec2};
 use slate_doc::scene::WorldRect;
 use slate_doc::NodeId;
 
@@ -692,6 +692,39 @@ pub fn marquee_intersects_rotated(marquee: WorldRect, rect: WorldRect, rotation_
     false
 }
 
+// ---------- ortho (F8 + one-shot Shift) — constraints spec §1 ----------
+
+/// The one constraint-layer predicate: Shift *inverts* the persistent F8
+/// ortho state while held (Rhino semantics).
+pub fn effective_ortho(ortho: bool, shift_down: bool) -> bool {
+    ortho ^ shift_down
+}
+
+/// The unit 45°-step axis nearest to `d` (undefined input → +x).
+pub fn ortho_axis(d: Vec2) -> Vec2 {
+    if d.length_sq() <= f32::EPSILON {
+        return Vec2::new(1.0, 0.0);
+    }
+    let step = std::f32::consts::FRAC_PI_4;
+    let snapped = (d.y.atan2(d.x) / step).round() * step;
+    Vec2::new(snapped.cos(), snapped.sin())
+}
+
+/// Snap a drag vector onto the nearest 45°-step axis: the result points
+/// along the axis with magnitude = the projection of `d` onto it.
+pub fn ortho_snap_vec(d: Vec2) -> Vec2 {
+    if d.length_sq() <= f32::EPSILON {
+        return d;
+    }
+    let axis = ortho_axis(d);
+    axis * d.dot(axis)
+}
+
+/// Snap a point onto a 45° ray from `origin` (draft segments, wire drags).
+pub fn ortho_snap_point(origin: Pos2, p: Pos2) -> Pos2 {
+    origin + ortho_snap_vec(p - origin)
+}
+
 /// Shift-constrain a rubber-band draw rect (square for shapes/frames).
 pub fn constrain_draw_rect(raw: WorldRect, tool_square: bool, shift: bool) -> WorldRect {
     if !shift || !tool_square {
@@ -749,6 +782,30 @@ mod tests {
         let marquee = WorldRect::new(80.0, 40.0, 40.0, 20.0);
         assert!(!marquee_intersects_rotated(marquee, node, 0.0));
         assert!(marquee_intersects_rotated(marquee, node, 90.0));
+    }
+
+    #[test]
+    fn effective_ortho_truth_table() {
+        assert!(!effective_ortho(false, false));
+        assert!(effective_ortho(false, true)); // one-shot Shift
+        assert!(effective_ortho(true, false)); // persistent F8
+        assert!(!effective_ortho(true, true)); // Shift inverts (Rhino)
+    }
+
+    #[test]
+    fn ortho_snaps_to_45_degree_steps() {
+        // Near-horizontal snaps to the x axis, keeping the projection.
+        let v = ortho_snap_vec(Vec2::new(10.0, 1.0));
+        assert!((v.y).abs() < 1e-5 && (v.x - 10.0).abs() < 0.2, "{v:?}");
+        // Exact diagonal is a fixed point.
+        let v = ortho_snap_vec(Vec2::new(5.0, 5.0));
+        assert!((v.x - 5.0).abs() < 1e-4 && (v.y - 5.0).abs() < 1e-4);
+        // Near-vertical snaps to the y axis.
+        let v = ortho_snap_vec(Vec2::new(-1.0, 10.0));
+        assert!((v.x).abs() < 1e-5 && (v.y - 10.0).abs() < 0.2, "{v:?}");
+        // Point form pivots about the origin.
+        let p = ortho_snap_point(Pos2::new(100.0, 100.0), Pos2::new(112.0, 101.0));
+        assert!((p.y - 100.0).abs() < 1e-4);
     }
 
     #[test]

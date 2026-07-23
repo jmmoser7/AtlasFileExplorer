@@ -180,6 +180,9 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                 frame_controls(app, ui, theme, &ids, &primary)
             });
         }
+        // wave-2: connector inspector section (arrowheads, faint/default,
+        // label) lands with the board interaction work.
+        NodeKind::Connector(_) => {}
     }
 
     sidebar_subtle_divider(ui, theme);
@@ -545,7 +548,75 @@ fn crop_controls(
     }
 }
 
-fn adjust_controls(
+impl SlateApp {
+    /// Ctrl+U: the ImageAdjust controls as a popover anchored beside the
+    /// selected image(s) — the same widgets the inspector's Adjust section
+    /// renders, targeting the same journaled `patch_nodes` path.
+    pub(crate) fn adjust_popover_frame(&mut self, ctx: &egui::Context) {
+        if !self.adjust_popover_open {
+            return;
+        }
+        if self.doc().view.active_view != ViewKind::Board {
+            self.adjust_popover_open = false;
+            return;
+        }
+        let images = self.selected_image_nodes();
+        let Some(primary) = images
+            .first()
+            .and_then(|id| self.doc().scene.node(*id).cloned())
+        else {
+            self.adjust_popover_open = false;
+            return;
+        };
+        let srect = self.board_xf().rect_w2s(primary.rect);
+        let canvas = self.canvas_rect;
+        let pos = egui::Pos2::new(
+            (srect.right() + 12.0).clamp(canvas.left(), canvas.right() - 240.0),
+            srect.top().clamp(canvas.top(), canvas.bottom() - 320.0),
+        );
+        let theme = self.palette().sidebar_theme();
+        let mut close = false;
+        let area = egui::Area::new(egui::Id::new("slate_adjust_popover"))
+            .fixed_pos(pos)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_min_width(220.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("Adjust — {} image(s)", images.len()))
+                                .small()
+                                .strong(),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .small_button("✕")
+                                .on_hover_text("Close (Ctrl+U)")
+                                .clicked()
+                            {
+                                close = true;
+                            }
+                        });
+                    });
+                    adjust_controls(self, ui, theme, &images, &primary);
+                });
+            });
+        // Click-away closes (presses outside the popover panel).
+        let clicked_outside = ctx.input(|i| {
+            i.pointer.any_pressed()
+                && i.pointer
+                    .interact_pos()
+                    .is_some_and(|p| !area.response.rect.expand(4.0).contains(p))
+        });
+        if close || clicked_outside {
+            self.adjust_popover_open = false;
+        }
+    }
+}
+
+/// Image adjustment sliders (CSS-filter math). Shared by the inspector's
+/// Adjust section and the Ctrl+U popover ([`SlateApp::adjust_popover_frame`]).
+pub(crate) fn adjust_controls(
     app: &mut SlateApp,
     ui: &mut egui::Ui,
     theme: SidebarTheme,
@@ -595,6 +666,17 @@ fn adjust_controls(
             theme.sub,
         ) {
             a.hue_deg = hue as f32;
+            changed = true;
+        }
+    });
+    ui.horizontal(|ui| {
+        let mut inv = a.invert;
+        if ui
+            .checkbox(&mut inv, RichText::new("Invert").small())
+            .on_hover_text("CSS invert(1) — also on Ctrl+I")
+            .changed()
+        {
+            a.invert = inv;
             changed = true;
         }
     });

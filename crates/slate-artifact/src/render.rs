@@ -1,7 +1,7 @@
 use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
-    Corner, Dash, Node, NodeId, NodeKind, PathData, PathSeg, Rgba, Scene, ShapeKind, StrokeCap,
-    StrokeJoin, TextAlign, WidthProfile, WorldRect,
+    connector_bezier, ConnectorNode, Corner, Dash, Node, NodeId, NodeKind, PathData, PathSeg, Rgba,
+    Scene, ShapeKind, StrokeCap, StrokeJoin, TextAlign, WidthProfile, WireDisplay, WorldRect,
 };
 use slate_doc::SlateDoc;
 use vector_ink::kurbo::{BezPath, PathEl, Point};
@@ -239,11 +239,19 @@ fn render_node(
     origin_x: f32,
     origin_y: f32,
 ) {
+    // Export honesty (Art. IV): hidden nodes are not part of what the board
+    // shows, so they never reach the artifact.
+    if node.hidden {
+        return;
+    }
     let rel = node.rect.translated(-origin_x, -origin_y);
     match &node.kind {
         NodeKind::Image(img) => render_image(html, doc, assets, node, img, rel),
         NodeKind::Shape(shape) => render_shape(html, node, shape, rel),
         NodeKind::Text(text) => render_text(html, node, text, rel),
+        NodeKind::Connector(conn) => {
+            render_connector(html, &doc.scene, node, conn, origin_x, origin_y)
+        }
         NodeKind::Frame(_) => {}
     }
 }
@@ -832,9 +840,155 @@ fn stroke_dash_ink(stroke: &slate_doc::scene::Stroke) -> Option<(Vec<f32>, f32)>
     }
 }
 
+/// Faint wires render at 40% opacity in both interpreters.
+const FAINT_OPACITY: f32 = 0.4;
+/// Connector label font size (world units) — labels have no size in the
+/// model yet, so both interpreters pin the same constant.
+const CONNECTOR_LABEL_SIZE: f32 = 14.0;
+
+fn render_connector(
+    html: &mut String,
+    scene: &Scene,
+    node: &Node,
+    conn: &ConnectorNode,
+    origin_x: f32,
+    origin_y: f32,
+) {
+    // Geometry is derived from the *current* rects of anchored nodes.
+    // Hidden anchor nodes resolve to nothing: the wire is skipped until the
+    // node is shown again (simplest per the scene-flags spec).
+    let rect_of = |id| scene.node(id).filter(|n| !n.hidden).map(|n: &Node| n.rect);
+    let Some(bez) = connector_bezier(&conn.a, &conn.b, rect_of) else {
+        return;
+    };
+
+    // Position the wrapper at the curve AABB, padded so stroke width and
+    // arrowheads survive even a degenerate (straight axis-aligned) box.
+    let pad = conn.stroke.width.max(1.0) * 0.5 + arrow_len(conn) + 2.0;
+    let aabb = bez.aabb();
+    let boxed = WorldRect::new(
+        aabb.x - pad,
+        aabb.y - pad,
+        aabb.w + pad * 2.0,
+        aabb.h + pad * 2.0,
+    );
+    let rel = boxed.translated(-origin_x, -origin_y);
+    let local = |p: [f32; 2]| (p[0] - boxed.x, p[1] - boxed.y);
+
+    let mut wrap = geometry_style(rel, node.rotation_deg);
+    let opacity = match conn.display {
+        WireDisplay::Faint => node.opacity * FAINT_OPACITY,
+        WireDisplay::Default => node.opacity,
+    };
+    append_opacity(&mut wrap, opacity);
+    wrap.push_str("overflow:visible;background:transparent;");
+
+    html.push_str("<div class=\"node\" style=\"");
+    html.push_str(&wrap);
+    html.push_str("\"><svg width=\"");
+    html.push_str(&fmt_px(rel.w));
+    html.push_str("\" height=\"");
+    html.push_str(&fmt_px(rel.h));
+    html.push_str("\" viewBox=\"0 0 ");
+    html.push_str(&fmt_px(rel.w));
+    html.push(' ');
+    html.push_str(&fmt_px(rel.h));
+    html.push_str("\" style=\"display:block;overflow:visible\">");
+
+    // The wire itself.
+    let (p0x, p0y) = local(bez.p0);
+    let (c1x, c1y) = local(bez.c1);
+    let (c2x, c2y) = local(bez.c2);
+    let (p3x, p3y) = local(bez.p3);
+    let d = format!(
+        "M {} {} C {} {} {} {} {} {}",
+        fmt_px(p0x),
+        fmt_px(p0y),
+        fmt_px(c1x),
+        fmt_px(c1y),
+        fmt_px(c2x),
+        fmt_px(c2y),
+        fmt_px(p3x),
+        fmt_px(p3y),
+    );
+    push_path_open(html, &d, "none");
+    html.push_str(" stroke=\"");
+    html.push_str(&conn.stroke.color.css());
+    html.push_str("\" stroke-width=\"");
+    html.push_str(&fmt_px(conn.stroke.width));
+    html.push_str("\" stroke-linecap=\"");
+    html.push_str(stroke_cap_css(conn.stroke.cap));
+    html.push('"');
+    if let Some(dash) = line_dash_attrs(&conn.stroke) {
+        html.push_str(" stroke-dasharray=\"");
+        html.push_str(dash);
+        html.push('"');
+    }
+    html.push_str("></path>");
+
+    // Arrowheads: small filled triangles oriented to the end tangents,
+    // computed inline (the writer builds elements directly).
+    if conn.arrow_a {
+        push_arrow_head(html, conn, local(bez.p0), bez.start_dir());
+    }
+    if conn.arrow_b {
+        push_arrow_head(html, conn, local(bez.p3), bez.end_dir());
+    }
+
+    if let Some(label) = conn.label.as_deref().filter(|l| !l.is_empty()) {
+        let (mx, my) = local(bez.midpoint());
+        html.push_str("<text x=\"");
+        html.push_str(&fmt_px(mx));
+        html.push_str("\" y=\"");
+        html.push_str(&fmt_px(my));
+        html.push_str("\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"");
+        html.push_str(&conn.stroke.color.css());
+        html.push_str("\" style=\"font:");
+        html.push_str(&fmt_px(CONNECTOR_LABEL_SIZE));
+        html.push_str("px ");
+        html.push_str(slate_doc::scene::FontChoice::Sans.css_stack());
+        html.push_str("\">");
+        html.push_str(&escape_html(label));
+        html.push_str("</text>");
+    }
+
+    html.push_str("</svg></div>\n");
+}
+
+fn arrow_len(conn: &ConnectorNode) -> f32 {
+    (conn.stroke.width * 4.0).max(10.0)
+}
+
+/// One filled triangle: tip at the endpoint, base back along `into_curve`
+/// (the unit tangent pointing from the endpoint into the curve).
+fn push_arrow_head(html: &mut String, conn: &ConnectorNode, tip: (f32, f32), into_curve: [f32; 2]) {
+    let len = arrow_len(conn);
+    let half_w = len * 0.4;
+    let base = (tip.0 + into_curve[0] * len, tip.1 + into_curve[1] * len);
+    let perp = [-into_curve[1], into_curve[0]];
+    let b1 = (base.0 + perp[0] * half_w, base.1 + perp[1] * half_w);
+    let b2 = (base.0 - perp[0] * half_w, base.1 - perp[1] * half_w);
+    let d = format!(
+        "M {} {} L {} {} L {} {} Z",
+        fmt_px(tip.0),
+        fmt_px(tip.1),
+        fmt_px(b1.0),
+        fmt_px(b1.1),
+        fmt_px(b2.0),
+        fmt_px(b2.1),
+    );
+    push_path_open(html, &d, &conn.stroke.color.css());
+    html.push_str(" stroke=\"none\"></path>");
+}
+
 fn render_text(html: &mut String, node: &Node, text: &slate_doc::scene::TextNode, rel: WorldRect) {
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
+    if let Some(fill) = text.fill {
+        style.push_str("background:");
+        style.push_str(&fill.css());
+        style.push(';');
+    }
     style.push_str("font-family:");
     style.push_str(text.family.css_stack());
     style.push_str(";font-size:");

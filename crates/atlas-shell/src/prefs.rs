@@ -11,11 +11,20 @@ use std::path::PathBuf;
 #[serde(default)]
 pub struct ChromePrefs {
     pub dock_side: DockSide,
+    /// Dock panels pinned as persistent tool palettes (e.g. Tags), restored
+    /// on launch via `floating_dock`'s `restore_pins`.
+    pub pinned_panels: Vec<String>,
+    /// Canvas minimap pinned open (toggled by `M`; shared overlay chrome).
+    pub minimap: bool,
 }
 
 impl ChromePrefs {
     pub fn default_for(side: DockSide) -> Self {
-        Self { dock_side: side }
+        Self {
+            dock_side: side,
+            pinned_panels: Vec::new(),
+            minimap: false,
+        }
     }
 
     fn path(app_key: &str) -> PathBuf {
@@ -44,6 +53,31 @@ impl Default for ChromePrefs {
     fn default() -> Self {
         Self {
             dock_side: DockSide::LeftCenter,
+            pinned_panels: Vec::new(),
+            minimap: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_prefs_without_pins_still_load() {
+        let prefs: ChromePrefs = serde_json::from_str(r#"{"dock_side":"bottom_center"}"#).unwrap();
+        assert_eq!(prefs.dock_side, DockSide::BottomCenter);
+        assert!(prefs.pinned_panels.is_empty());
+    }
+
+    #[test]
+    fn pins_round_trip() {
+        let prefs = ChromePrefs {
+            dock_side: DockSide::LeftCenter,
+            pinned_panels: vec!["tags".into(), "tool.curve".into()],
+            minimap: true,
+        };
+        let json = serde_json::to_string(&prefs).unwrap();
+        assert_eq!(serde_json::from_str::<ChromePrefs>(&json).unwrap(), prefs);
     }
 }

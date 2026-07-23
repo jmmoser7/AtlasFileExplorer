@@ -17,6 +17,8 @@ pub struct UiTokens {
     pub topbar: TopBarTokens,
     pub dock: DockTokens,
     pub home: HomeTokens,
+    pub minimap: MinimapTokens,
+    pub palette: PaletteTokens,
 }
 
 impl Default for UiTokens {
@@ -26,6 +28,111 @@ impl Default for UiTokens {
             topbar: TopBarTokens::default(),
             dock: DockTokens::default(),
             home: HomeTokens::default(),
+            minimap: MinimapTokens::default(),
+            palette: PaletteTokens::default(),
+        }
+    }
+}
+
+/// Canvas minimap overlay geometry (see `minimap.rs`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MinimapTokens {
+    /// Panel width (px); height follows the content aspect ratio.
+    pub width: f32,
+    /// Height clamp so extreme aspect ratios stay usable (px).
+    pub min_height: f32,
+    pub max_height: f32,
+    /// Inset from the canvas' lower-right corner (px).
+    pub margin: f32,
+    /// Superellipse exponent of the panel outline (higher = squarer).
+    pub squircle_exponent: f32,
+}
+
+impl Default for MinimapTokens {
+    fn default() -> Self {
+        Self {
+            width: 220.0,
+            min_height: 90.0,
+            max_height: 260.0,
+            margin: 14.0,
+            squircle_exponent: 6.0,
+        }
+    }
+}
+
+impl MinimapTokens {
+    pub fn normalize(&mut self) {
+        self.width = self.width.clamp(120.0, 480.0);
+        self.min_height = self.min_height.clamp(48.0, 400.0);
+        self.max_height = self.max_height.max(self.min_height);
+        self.margin = self.margin.clamp(0.0, 80.0);
+        self.squircle_exponent = self.squircle_exponent.clamp(2.0, 12.0);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        fn round3(value: &mut f32) {
+            *value = (*value * 1_000.0).round() / 1_000.0;
+        }
+        for value in [
+            &mut self.width,
+            &mut self.min_height,
+            &mut self.max_height,
+            &mut self.margin,
+            &mut self.squircle_exponent,
+        ] {
+            round3(value);
+        }
+    }
+}
+
+/// Canvas command-palette popup geometry (see `palette.rs`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PaletteTokens {
+    /// Popup width (px).
+    pub width: f32,
+    pub corner_radius: f32,
+    /// Height of each result row (px).
+    pub row_height: f32,
+    /// Maximum result rows shown at once.
+    pub max_rows: usize,
+    /// Row label / query text size (pt).
+    pub text_size: f32,
+}
+
+impl Default for PaletteTokens {
+    fn default() -> Self {
+        Self {
+            width: 300.0,
+            corner_radius: 10.0,
+            row_height: 26.0,
+            max_rows: 8,
+            text_size: 12.5,
+        }
+    }
+}
+
+impl PaletteTokens {
+    pub fn normalize(&mut self) {
+        self.width = self.width.clamp(180.0, 600.0);
+        self.corner_radius = self.corner_radius.clamp(0.0, 24.0);
+        self.row_height = self.row_height.clamp(18.0, 48.0);
+        self.max_rows = self.max_rows.clamp(3, 16);
+        self.text_size = self.text_size.clamp(9.0, 18.0);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        fn round3(value: &mut f32) {
+            *value = (*value * 1_000.0).round() / 1_000.0;
+        }
+        for value in [
+            &mut self.width,
+            &mut self.corner_radius,
+            &mut self.row_height,
+            &mut self.text_size,
+        ] {
+            round3(value);
         }
     }
 }
@@ -229,7 +336,9 @@ impl Default for DockTokens {
             shadow_blur: 20.0,
             shadow_spread: 1.0,
             shadow_opacity: 0.26,
-            close_delay: 0.2,
+            // Grace window for the pointer to travel icon → preview panel
+            // (and across brief canvas excursions) before hovers retire.
+            close_delay: 0.45,
             left_margin: 10.0,
             bottom_margin: 14.0,
             stack_gap: 8.0,
@@ -747,6 +856,8 @@ fn parse_embedded() -> UiTokens {
     tokens.topbar.normalize();
     tokens.dock.normalize();
     tokens.home.normalize();
+    tokens.minimap.normalize();
+    tokens.palette.normalize();
     tokens
 }
 
@@ -765,6 +876,8 @@ pub fn replace(mut tokens: UiTokens) {
     tokens.topbar.normalize();
     tokens.dock.normalize();
     tokens.home.normalize();
+    tokens.minimap.normalize();
+    tokens.palette.normalize();
     *store().write().expect("UI token lock poisoned") = tokens;
 }
 

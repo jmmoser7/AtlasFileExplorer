@@ -229,6 +229,9 @@ pub struct ImageAdjust {
     pub sepia: f32,
     /// CSS `hue-rotate()`, degrees.
     pub hue_deg: f32,
+    /// CSS `invert(1)`, appended after the other filters.
+    #[serde(skip_serializing_if = "is_false")]
+    pub invert: bool,
     /// Flat color overlay layer (color + alpha), drawn over the image.
     pub overlay: Option<Rgba>,
 }
@@ -242,6 +245,7 @@ impl Default for ImageAdjust {
             grayscale: 0.0,
             sepia: 0.0,
             hue_deg: 0.0,
+            invert: false,
             overlay: None,
         }
     }
@@ -262,6 +266,7 @@ impl ImageAdjust {
         self.grayscale.to_bits().hash(&mut h);
         self.sepia.to_bits().hash(&mut h);
         self.hue_deg.to_bits().hash(&mut h);
+        self.invert.hash(&mut h);
         self.overlay.map(|c| c.0).hash(&mut h);
         h.finish()
     }
@@ -287,6 +292,11 @@ impl ImageAdjust {
         }
         if self.hue_deg != 0.0 {
             parts.push(format!("hue-rotate({:.1}deg)", self.hue_deg));
+        }
+        // Invert goes last: CSS filters apply in list order, and the pixel
+        // mirror in the app applies invert after the color-matrix pipeline.
+        if self.invert {
+            parts.push("invert(1)".to_string());
         }
         parts.join(" ")
     }
@@ -610,6 +620,260 @@ pub struct TextNode {
     pub color: Rgba,
     #[serde(default)]
     pub align: TextAlign,
+    /// Background fill behind the text (sticky notes are a Text preset
+    /// with a fill). `None` = transparent, the classic text node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<Rgba>,
+}
+
+// ---------- connectors (wires) ----------
+
+/// A rect side a connector end can anchor to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Side {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+impl Side {
+    /// Outward unit normal of this side on an axis-aligned rect
+    /// (screen-style axes: +y is down, so `Top` points to −y).
+    pub fn normal(self) -> [f32; 2] {
+        match self {
+            Side::Top => [0.0, -1.0],
+            Side::Right => [1.0, 0.0],
+            Side::Bottom => [0.0, 1.0],
+            Side::Left => [-1.0, 0.0],
+        }
+    }
+}
+
+/// One end of a connector.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectorEnd {
+    /// Anchored to a node's edge: the point on `side` at fraction `t`
+    /// (0..=1 along the side; 0.5 = midpoint).
+    Anchored { node: NodeId, side: Side, t: f32 },
+    /// Dangling end at a fixed world point (a legal state).
+    Free { point: [f32; 2] },
+}
+
+/// Connector rendering emphasis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WireDisplay {
+    #[default]
+    Default,
+    /// De-emphasized: 40% opacity in both interpreters.
+    Faint,
+}
+
+/// A wire between two endpoints. Geometry is derived, never stored — the
+/// curve is recomputed from the current rects of anchored nodes at
+/// paint/export time (see [`connector_bezier`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorNode {
+    pub a: ConnectorEnd,
+    pub b: ConnectorEnd,
+    pub stroke: Stroke,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub arrow_a: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub arrow_b: bool,
+    /// Optional text centered at the curve midpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub display: WireDisplay,
+}
+
+// ---------- derived connector geometry ----------
+//
+// Geometry is derived, never stored: both interpreters (the egui board
+// painter and the artifact writer) call these pure functions with the
+// *current* rects of anchored nodes, so the wire follows its endpoints by
+// construction.
+
+/// Handle length = clamp(0.35 × chord distance, 24, 160) world units.
+pub const CONNECTOR_HANDLE_FRACTION: f32 = 0.35;
+pub const CONNECTOR_HANDLE_MIN: f32 = 24.0;
+pub const CONNECTOR_HANDLE_MAX: f32 = 160.0;
+
+/// World point on `side` of an axis-aligned `rect` at fraction `t` (0..=1,
+/// measured left→right on horizontal sides, top→bottom on vertical sides).
+/// Node rotation is deliberately ignored — rects are axis-aligned in the
+/// model.
+pub fn connector_anchor_point(rect: WorldRect, side: Side, t: f32) -> [f32; 2] {
+    let t = t.clamp(0.0, 1.0);
+    match side {
+        Side::Top => [rect.x + rect.w * t, rect.y],
+        Side::Right => [rect.x + rect.w, rect.y + rect.h * t],
+        Side::Bottom => [rect.x + rect.w * t, rect.y + rect.h],
+        Side::Left => [rect.x, rect.y + rect.h * t],
+    }
+}
+
+/// A resolved connector curve: one cubic bezier in world space.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ConnectorBezier {
+    pub p0: [f32; 2],
+    pub c1: [f32; 2],
+    pub c2: [f32; 2],
+    pub p3: [f32; 2],
+}
+
+impl ConnectorBezier {
+    /// Point on the curve at parameter `t` (0..=1).
+    pub fn point_at(&self, t: f32) -> [f32; 2] {
+        let u = 1.0 - t;
+        let (b0, b1, b2, b3) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+        [
+            b0 * self.p0[0] + b1 * self.c1[0] + b2 * self.c2[0] + b3 * self.p3[0],
+            b0 * self.p0[1] + b1 * self.c1[1] + b2 * self.c2[1] + b3 * self.p3[1],
+        ]
+    }
+
+    /// Curve midpoint (label anchor in both interpreters).
+    pub fn midpoint(&self) -> [f32; 2] {
+        self.point_at(0.5)
+    }
+
+    /// Unit tangent pointing *into* the curve at the start (from p0 toward
+    /// the interior). Falls back along the chord for degenerate handles.
+    pub fn start_dir(&self) -> [f32; 2] {
+        normalize_or(
+            [self.c1[0] - self.p0[0], self.c1[1] - self.p0[1]],
+            [self.p3[0] - self.p0[0], self.p3[1] - self.p0[1]],
+        )
+    }
+
+    /// Unit tangent pointing *into* the curve at the end (from p3 toward
+    /// the interior). Arrowheads at `b` point along the negation of this.
+    pub fn end_dir(&self) -> [f32; 2] {
+        normalize_or(
+            [self.c2[0] - self.p3[0], self.c2[1] - self.p3[1]],
+            [self.p0[0] - self.p3[0], self.p0[1] - self.p3[1]],
+        )
+    }
+
+    /// Exact axis-aligned bounding box of the curve (derivative roots per
+    /// axis, not just the control hull).
+    pub fn aabb(&self) -> WorldRect {
+        let (min_x, max_x) = cubic_axis_bounds(self.p0[0], self.c1[0], self.c2[0], self.p3[0]);
+        let (min_y, max_y) = cubic_axis_bounds(self.p0[1], self.c1[1], self.c2[1], self.p3[1]);
+        WorldRect::new(min_x, min_y, max_x - min_x, max_y - min_y)
+    }
+}
+
+fn normalize_or(v: [f32; 2], fallback: [f32; 2]) -> [f32; 2] {
+    let len = (v[0] * v[0] + v[1] * v[1]).sqrt();
+    if len > 1e-6 {
+        return [v[0] / len, v[1] / len];
+    }
+    let flen = (fallback[0] * fallback[0] + fallback[1] * fallback[1]).sqrt();
+    if flen > 1e-6 {
+        [fallback[0] / flen, fallback[1] / flen]
+    } else {
+        [0.0, 0.0]
+    }
+}
+
+/// Min/max of one cubic bezier component over t ∈ 0..=1.
+fn cubic_axis_bounds(p0: f32, c1: f32, c2: f32, p3: f32) -> (f32, f32) {
+    let mut min = p0.min(p3);
+    let mut max = p0.max(p3);
+    // dB/dt = 3(1−t)²(c1−p0) + 6(1−t)t(c2−c1) + 3t²(p3−c2) — a quadratic
+    // a·t² + b·t + c in the coefficients below.
+    let a = 3.0 * (p3 - 3.0 * c2 + 3.0 * c1 - p0);
+    let b = 6.0 * (c2 - 2.0 * c1 + p0);
+    let c = 3.0 * (c1 - p0);
+    let mut consider = |t: f32| {
+        if t > 0.0 && t < 1.0 {
+            let u = 1.0 - t;
+            let v = u * u * u * p0 + 3.0 * u * u * t * c1 + 3.0 * u * t * t * c2 + t * t * t * p3;
+            min = min.min(v);
+            max = max.max(v);
+        }
+    };
+    if a.abs() < 1e-6 {
+        if b.abs() > 1e-6 {
+            consider(-c / b);
+        }
+    } else {
+        let disc = b * b - 4.0 * a * c;
+        if disc >= 0.0 {
+            let sq = disc.sqrt();
+            consider((-b + sq) / (2.0 * a));
+            consider((-b - sq) / (2.0 * a));
+        }
+    }
+    (min, max)
+}
+
+/// Resolves one end to `(world point, outward direction if anchored)`.
+/// `None` when an anchored node is missing from the lookup.
+fn resolve_end(
+    end: &ConnectorEnd,
+    rect_of: &impl Fn(NodeId) -> Option<WorldRect>,
+) -> Option<([f32; 2], Option<Side>)> {
+    match end {
+        ConnectorEnd::Anchored { node, side, t } => {
+            let rect = rect_of(*node)?;
+            Some((connector_anchor_point(rect, *side, *t), Some(*side)))
+        }
+        ConnectorEnd::Free { point } => Some((*point, None)),
+    }
+}
+
+/// Derives the connector curve from its two ends and the current node rects.
+///
+/// - An anchored end leaves its rect **perpendicular to its side** (handle
+///   along the side's outward normal).
+/// - A free end aims at the other endpoint (handle along the chord).
+/// - Handle length is `clamp(0.35 × chord, 24, 160)` world units.
+///
+/// Returns `None` when an anchored node is missing from `rect_of` (the
+/// interpreters skip such connectors).
+pub fn connector_bezier(
+    a: &ConnectorEnd,
+    b: &ConnectorEnd,
+    rect_of: impl Fn(NodeId) -> Option<WorldRect>,
+) -> Option<ConnectorBezier> {
+    let (p0, side_a) = resolve_end(a, &rect_of)?;
+    let (p3, side_b) = resolve_end(b, &rect_of)?;
+
+    let chord = [p3[0] - p0[0], p3[1] - p0[1]];
+    let dist = (chord[0] * chord[0] + chord[1] * chord[1]).sqrt();
+    let len = (CONNECTOR_HANDLE_FRACTION * dist).clamp(CONNECTOR_HANDLE_MIN, CONNECTOR_HANDLE_MAX);
+
+    let dir_a = match side_a {
+        Some(side) => side.normal(),
+        None => normalize_or(chord, [0.0, 0.0]),
+    };
+    let dir_b = match side_b {
+        Some(side) => side.normal(),
+        None => normalize_or([-chord[0], -chord[1]], [0.0, 0.0]),
+    };
+
+    Some(ConnectorBezier {
+        p0,
+        c1: [p0[0] + dir_a[0] * len, p0[1] + dir_a[1] * len],
+        c2: [p3[0] + dir_b[0] * len, p3[1] + dir_b[1] * len],
+        p3,
+    })
+}
+
+/// AABB of the derived curve — the connector node's `rect` is kept equal to
+/// this so marquee/hit systems keep working. `None` when unresolvable.
+pub fn connector_aabb(
+    conn: &ConnectorNode,
+    rect_of: impl Fn(NodeId) -> Option<WorldRect>,
+) -> Option<WorldRect> {
+    connector_bezier(&conn.a, &conn.b, rect_of).map(|bez| bez.aabb())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -619,6 +883,7 @@ pub enum NodeKind {
     Image(ImageNode),
     Shape(ShapeNode),
     Text(TextNode),
+    Connector(ConnectorNode),
 }
 
 impl NodeKind {
@@ -628,9 +893,15 @@ impl NodeKind {
             NodeKind::Image(_) => "image",
             NodeKind::Shape(_) => "shape",
             NodeKind::Text(_) => "text",
+            NodeKind::Connector(_) => "connector",
         }
     }
 }
+
+/// Flat group membership key. Allocated per scene like [`NodeId`]; groups
+/// never nest and have no node of their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct GroupKey(pub u64);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Node {
@@ -642,11 +913,24 @@ pub struct Node {
     /// Whole-node opacity 0..=1; maps to CSS `opacity`.
     #[serde(default = "one")]
     pub opacity: f32,
+    /// Excluded from selection and edits (still painted, still snapped to).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub locked: bool,
+    /// Skipped by paint, hit-testing, present mode, and the artifact writer.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+    /// Flat group membership; selecting any member selects the whole group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<GroupKey>,
     pub kind: NodeKind,
 }
 
 fn one() -> f32 {
     1.0
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 impl Node {
@@ -663,6 +947,8 @@ impl Node {
 pub struct Scene {
     pub nodes: Vec<Node>,
     next_node_id: u64,
+    #[serde(default)]
+    next_group_key: u64,
 }
 
 impl Scene {
@@ -675,6 +961,19 @@ impl Scene {
         NodeId(self.next_node_id)
     }
 
+    /// Allocates a fresh group key (grouping a selection, duplicating a
+    /// group). Stays ahead of any key already present in the scene.
+    pub fn alloc_group_key(&mut self) -> GroupKey {
+        let in_use = self
+            .nodes
+            .iter()
+            .filter_map(|n| n.group.map(|g| g.0))
+            .max()
+            .unwrap_or(0);
+        self.next_group_key = self.next_group_key.max(in_use) + 1;
+        GroupKey(self.next_group_key)
+    }
+
     /// Builds (but does not insert) a node with a fresh id. Pair with
     /// [`SceneCmd::Add`] so creation goes through the command journal.
     pub fn build_node(&mut self, rect: WorldRect, kind: NodeKind) -> Node {
@@ -683,6 +982,9 @@ impl Scene {
             rect: rect.normalized(),
             rotation_deg: 0.0,
             opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
             kind,
         }
     }
@@ -1127,6 +1429,27 @@ mod tests {
     }
 
     #[test]
+    fn css_filter_appends_invert_last() {
+        let adj = ImageAdjust {
+            brightness: 1.5,
+            invert: true,
+            ..ImageAdjust::default()
+        };
+        assert_eq!(adj.css_filter(), "brightness(1.500) invert(1)");
+        assert!(!adj.is_identity());
+
+        let only_invert = ImageAdjust {
+            invert: true,
+            ..ImageAdjust::default()
+        };
+        assert_eq!(only_invert.css_filter(), "invert(1)");
+        assert_ne!(
+            only_invert.cache_hash(),
+            ImageAdjust::default().cache_hash()
+        );
+    }
+
+    #[test]
     fn scene_serde_round_trip_inside_json() {
         let (scene, _, _) = scene_with_frame_and_image();
         let json = serde_json::to_string(&scene).unwrap();
@@ -1262,6 +1585,280 @@ mod tests {
         assert_eq!(shape.stroke.cap, StrokeCap::Butt);
         assert_eq!(shape.stroke.join, StrokeJoin::Miter);
         assert_eq!(shape.stroke.profile, WidthProfile::Uniform);
+    }
+
+    #[test]
+    fn node_without_flag_fields_deserializes_with_defaults() {
+        // Pre-flags documents omit locked/hidden/group (and TextNode.fill,
+        // ImageAdjust.invert) entirely; all must default cleanly.
+        let json = r#"{
+            "id": 3,
+            "rect": {"x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0},
+            "kind": {"text": {
+                "text": "hello",
+                "size": 18.0,
+                "color": [0, 0, 0, 255]
+            }}
+        }"#;
+        let node: Node = serde_json::from_str(json).unwrap();
+        assert!(!node.locked);
+        assert!(!node.hidden);
+        assert_eq!(node.group, None);
+        match &node.kind {
+            NodeKind::Text(t) => assert_eq!(t.fill, None),
+            _ => panic!("expected text node"),
+        }
+
+        let adj: ImageAdjust = serde_json::from_str("{}").unwrap();
+        assert!(!adj.invert);
+
+        // Default-valued flags stay out of the serialized form.
+        let out = serde_json::to_string(&node).unwrap();
+        assert!(!out.contains("locked"));
+        assert!(!out.contains("hidden"));
+        assert!(!out.contains("group"));
+        assert!(!out.contains("fill"));
+    }
+
+    #[test]
+    fn flag_patches_invert_cleanly_through_journal() {
+        let (mut scene, _, img_id) = scene_with_frame_and_image();
+        let mut journal = SceneJournal::default();
+        let key = scene.alloc_group_key();
+
+        let before = scene.node(img_id).unwrap().clone();
+        let mut after = before.clone();
+        after.locked = true;
+        after.hidden = true;
+        after.group = Some(key);
+        assert!(journal.commit(
+            &mut scene,
+            vec![SceneCmd::Patch {
+                before: Box::new(before),
+                after: Box::new(after),
+            }],
+        ));
+        let n = scene.node(img_id).unwrap();
+        assert!(n.locked && n.hidden);
+        assert_eq!(n.group, Some(key));
+
+        assert!(journal.undo(&mut scene));
+        let n = scene.node(img_id).unwrap();
+        assert!(!n.locked && !n.hidden);
+        assert_eq!(n.group, None);
+
+        assert!(journal.redo(&mut scene));
+        let n = scene.node(img_id).unwrap();
+        assert!(n.locked && n.hidden);
+        assert_eq!(n.group, Some(key));
+    }
+
+    #[test]
+    fn group_keys_are_fresh_even_after_load() {
+        let mut scene = Scene::default();
+        let a = scene.alloc_group_key();
+        let b = scene.alloc_group_key();
+        assert_ne!(a, b);
+
+        // A scene loaded from a document whose nodes already carry keys
+        // (but whose counter was never persisted) must not reuse them.
+        let mut node = scene.build_node(
+            WorldRect::new(0.0, 0.0, 10.0, 10.0),
+            NodeKind::Text(TextNode {
+                text: "x".into(),
+                family: Default::default(),
+                size: 12.0,
+                color: Rgba::BLACK,
+                align: Default::default(),
+                fill: None,
+            }),
+        );
+        node.group = Some(GroupKey(41));
+        scene.apply(&SceneCmd::Add { index: 0, node });
+        let mut fresh = Scene {
+            nodes: scene.nodes.clone(),
+            ..Scene::default()
+        };
+        assert!(fresh.alloc_group_key().0 > 41);
+    }
+
+    fn test_connector(a: ConnectorEnd, b: ConnectorEnd) -> ConnectorNode {
+        ConnectorNode {
+            a,
+            b,
+            stroke: Stroke {
+                width: 2.0,
+                color: Rgba::BLACK,
+                dash: Dash::Solid,
+                ..Stroke::default()
+            },
+            arrow_a: false,
+            arrow_b: true,
+            label: Some("relates".into()),
+            display: WireDisplay::Faint,
+        }
+    }
+
+    #[test]
+    fn connector_serde_round_trip() {
+        let conn = test_connector(
+            ConnectorEnd::Anchored {
+                node: NodeId(1),
+                side: Side::Right,
+                t: 0.5,
+            },
+            ConnectorEnd::Free {
+                point: [300.0, 120.0],
+            },
+        );
+        let mut scene = Scene::default();
+        let node = scene.build_node(
+            WorldRect::new(0.0, 0.0, 1.0, 1.0),
+            NodeKind::Connector(conn),
+        );
+        let json = serde_json::to_string(&node).unwrap();
+        let back: Node = serde_json::from_str(&json).unwrap();
+        assert_eq!(node, back);
+
+        // Defaulted connector fields (arrows off, no label, Default display)
+        // deserialize when omitted.
+        let minimal = r#"{
+            "a": {"free": {"point": [0.0, 0.0]}},
+            "b": {"free": {"point": [10.0, 0.0]}},
+            "stroke": {"width": 1.0, "color": [0,0,0,255], "dash": "solid"}
+        }"#;
+        let conn: ConnectorNode = serde_json::from_str(minimal).unwrap();
+        assert!(!conn.arrow_a && !conn.arrow_b);
+        assert_eq!(conn.label, None);
+        assert_eq!(conn.display, WireDisplay::Default);
+    }
+
+    #[test]
+    fn connector_anchor_points_sit_on_rect_sides() {
+        let rect = WorldRect::new(10.0, 20.0, 100.0, 50.0);
+        assert_eq!(connector_anchor_point(rect, Side::Top, 0.5), [60.0, 20.0]);
+        assert_eq!(
+            connector_anchor_point(rect, Side::Bottom, 0.0),
+            [10.0, 70.0]
+        );
+        assert_eq!(connector_anchor_point(rect, Side::Left, 1.0), [10.0, 70.0]);
+        assert_eq!(
+            connector_anchor_point(rect, Side::Right, 0.5),
+            [110.0, 45.0]
+        );
+        // t clamps into 0..=1.
+        assert_eq!(connector_anchor_point(rect, Side::Top, 7.0), [110.0, 20.0]);
+    }
+
+    #[test]
+    fn connector_bezier_is_deterministic_and_side_perpendicular() {
+        let rect_a = WorldRect::new(0.0, 0.0, 100.0, 60.0);
+        let rect_b = WorldRect::new(300.0, 200.0, 80.0, 80.0);
+        let rects = |id: NodeId| match id.0 {
+            1 => Some(rect_a),
+            2 => Some(rect_b),
+            _ => None,
+        };
+        let a = ConnectorEnd::Anchored {
+            node: NodeId(1),
+            side: Side::Right,
+            t: 0.5,
+        };
+        let b = ConnectorEnd::Anchored {
+            node: NodeId(2),
+            side: Side::Top,
+            t: 0.25,
+        };
+
+        let bez = connector_bezier(&a, &b, rects).unwrap();
+        // Determinism: identical inputs, identical output.
+        assert_eq!(bez, connector_bezier(&a, &b, rects).unwrap());
+
+        // Ends sit on the anchor points.
+        assert_eq!(bez.p0, [100.0, 30.0]);
+        assert_eq!(bez.p3, [320.0, 200.0]);
+
+        // Perpendicular departure: the first handle runs along Right's
+        // outward normal (+x, no y drift)...
+        assert!(bez.c1[0] > bez.p0[0]);
+        assert_eq!(bez.c1[1], bez.p0[1]);
+        // ...and the second along Top's outward normal (−y, no x drift).
+        assert_eq!(bez.c2[0], bez.p3[0]);
+        assert!(bez.c2[1] < bez.p3[1]);
+
+        // Handle length obeys clamp(0.35·chord, 24, 160).
+        let chord = ((320.0f32 - 100.0).powi(2) + (200.0f32 - 30.0).powi(2)).sqrt();
+        let expect = (0.35 * chord).clamp(24.0, 160.0);
+        let got = bez.c1[0] - bez.p0[0];
+        assert!((got - expect).abs() < 1e-3, "handle {got} vs {expect}");
+
+        // Unit tangents match the side normals.
+        assert_eq!(bez.start_dir(), [1.0, 0.0]);
+        assert_eq!(bez.end_dir(), [0.0, -1.0]);
+    }
+
+    #[test]
+    fn connector_free_end_aims_along_chord() {
+        let a = ConnectorEnd::Free { point: [0.0, 0.0] };
+        let b = ConnectorEnd::Free {
+            point: [100.0, 0.0],
+        };
+        let bez = connector_bezier(&a, &b, |_| None).unwrap();
+        // Both handles lie on the chord (a straight-looking wire).
+        assert_eq!(bez.c1[1], 0.0);
+        assert_eq!(bez.c2[1], 0.0);
+        assert!(bez.c1[0] > 0.0);
+        assert!(bez.c2[0] < 100.0);
+        // 0.35 * 100 = 35 world units each way.
+        assert!((bez.c1[0] - 35.0).abs() < 1e-3);
+        assert!((bez.c2[0] - 65.0).abs() < 1e-3);
+
+        // Short chords clamp the handle to the minimum.
+        let near = ConnectorEnd::Free { point: [10.0, 0.0] };
+        let bez = connector_bezier(&a, &near, |_| None).unwrap();
+        assert!((bez.c1[0] - CONNECTOR_HANDLE_MIN).abs() < 1e-3);
+    }
+
+    #[test]
+    fn connector_missing_anchor_node_is_unresolvable() {
+        let a = ConnectorEnd::Anchored {
+            node: NodeId(99),
+            side: Side::Left,
+            t: 0.5,
+        };
+        let b = ConnectorEnd::Free { point: [5.0, 5.0] };
+        assert!(connector_bezier(&a, &b, |_| None).is_none());
+        assert!(connector_aabb(&test_connector(a, b), |_| None).is_none());
+    }
+
+    #[test]
+    fn connector_aabb_contains_curve() {
+        let rect_a = WorldRect::new(0.0, 0.0, 50.0, 50.0);
+        let rects = move |id: NodeId| (id.0 == 1).then_some(rect_a);
+        let conn = test_connector(
+            ConnectorEnd::Anchored {
+                node: NodeId(1),
+                side: Side::Bottom,
+                t: 0.5,
+            },
+            ConnectorEnd::Free {
+                point: [200.0, 10.0],
+            },
+        );
+        let bez = connector_bezier(&conn.a, &conn.b, rects).unwrap();
+        let aabb = connector_aabb(&conn, rects).unwrap();
+        for i in 0..=32 {
+            let [x, y] = bez.point_at(i as f32 / 32.0);
+            assert!(
+                aabb.contains(x, y),
+                "curve point ({x},{y}) outside {aabb:?}"
+            );
+        }
+        // Endpoints are on the boundary; the box is not degenerate.
+        assert!(aabb.w > 0.0 && aabb.h > 0.0);
+        // The bulge below the Bottom anchor is included (curve leaves
+        // downward, +y, before turning toward the free end).
+        assert!(aabb.y + aabb.h > 50.0);
     }
 
     #[test]

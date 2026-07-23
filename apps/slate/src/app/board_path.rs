@@ -15,7 +15,7 @@ use vector_ink::{flatten, hit_stroke, stroke_mesh, Cap, InkMesh, Join, StrokeSty
 use super::board::{rgba32, to_rgba, BoardXf};
 use super::SlateApp;
 
-const FEATHER_PX: f32 = 1.25;
+pub(crate) const FEATHER_PX: f32 = 1.25;
 const MIN_PATH_BOUNDS: f32 = 8.0;
 const CACHE_CAP: usize = 256;
 
@@ -36,7 +36,7 @@ pub enum BoardPathDraft {
 }
 
 #[derive(Clone, Default)]
-struct CachedInkMesh {
+pub(crate) struct CachedInkMesh {
     vertices: Vec<[f32; 2]>,
     alphas: Vec<f32>,
     indices: Vec<u32>,
@@ -48,7 +48,7 @@ pub struct PathMeshCache {
 }
 
 impl PathMeshCache {
-    fn get_or_tessellate(
+    pub(crate) fn get_or_tessellate(
         &mut self,
         node_id: NodeId,
         key: u64,
@@ -311,7 +311,7 @@ fn path_content_hash(path: &PathData, stroke: &Stroke, rect: WorldRect, bucket: 
     h.finish()
 }
 
-fn ink_mesh_to_epaint(
+pub(crate) fn ink_mesh_to_epaint(
     cached: &CachedInkMesh,
     xf: &BoardXf,
     base_color: Color32,
@@ -381,23 +381,54 @@ pub fn board_pick_node(
     wy: f32,
     zoom: f32,
 ) -> Option<NodeId> {
+    board_pick_node_ex(scene, wx, wy, zoom, false)
+}
+
+/// Point pick honoring the scene flags: hidden nodes are never hit; locked
+/// nodes only when `include_locked` (the Ctrl+Shift+click escape hatch and
+/// eyedropper sampling). Connectors hit on their stroke (8 px pick width),
+/// never on their AABB.
+pub fn board_pick_node_ex(
+    scene: &slate_doc::scene::Scene,
+    wx: f32,
+    wy: f32,
+    zoom: f32,
+    include_locked: bool,
+) -> Option<NodeId> {
     for n in scene.nodes.iter().rev() {
+        if n.hidden || (n.locked && !include_locked) {
+            continue;
+        }
         if n.is_frame() {
             continue;
         }
-        if let NodeKind::Shape(s) = &n.kind {
-            if s.shape == ShapeKind::Path {
+        match &n.kind {
+            NodeKind::Connector(c) => {
+                if super::board_wire::hit_connector(scene, c, wx, wy, zoom) {
+                    return Some(n.id);
+                }
+                continue;
+            }
+            NodeKind::Shape(s) if s.shape == ShapeKind::Path => {
                 if hit_path_node(n, s, wx, wy, zoom) {
                     return Some(n.id);
                 }
                 continue;
             }
+            _ => {}
         }
         if n.rect.contains_rotated(wx, wy, n.rotation_deg) {
             return Some(n.id);
         }
     }
-    scene.frame_at(wx, wy)
+    scene
+        .nodes
+        .iter()
+        .rev()
+        .find(|n| {
+            n.is_frame() && !n.hidden && (include_locked || !n.locked) && n.rect.contains(wx, wy)
+        })
+        .map(|n| n.id)
 }
 
 pub fn default_draw_stroke(accent: Rgba) -> Stroke {
@@ -702,6 +733,18 @@ impl SlateApp {
     }
 
     pub(crate) fn path_tool_click(&mut self, world: Pos2) {
+        // Ortho (F8, Shift inverts): draft segments snap to 45° from the
+        // last anchor (constraints spec §1).
+        let world = if super::board_snap::effective_ortho(self.board_ortho, self.shift_down) {
+            match &self.board_path_draft {
+                Some(BoardPathDraft::Polyline { points }) if !points.is_empty() => {
+                    super::board_snap::ortho_snap_point(*points.last().unwrap(), world)
+                }
+                _ => world,
+            }
+        } else {
+            world
+        };
         match self.board_tool {
             super::board::BoardTool::Polyline => {
                 if let Some(BoardPathDraft::Polyline { points }) = &mut self.board_path_draft {
@@ -838,6 +881,9 @@ mod tests {
             rect,
             rotation_deg: 0.0,
             opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
             kind: NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Path,
                 fill: None,

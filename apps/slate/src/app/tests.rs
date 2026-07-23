@@ -709,3 +709,216 @@ fn path_node_add_undo_via_journal() {
     assert!(h.app.doc().scene.node(id).is_none());
     h.frame();
 }
+
+// ---------- keymap wave 2b ----------
+
+/// A horizontal open path stroke at (x, y)..(x+100, y).
+fn add_stroke(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
+    use slate_doc::scene::{PathData, PathSeg, ShapeKind, ShapeNode};
+    let rect = slate_doc::scene::WorldRect::new(x, y, 100.0, 1.0);
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: Some(PathData {
+                start: [0.0, 0.5],
+                segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
+                closed: false,
+            }),
+        }),
+    );
+    let ids = app.add_nodes(vec![node]);
+    ids[0]
+}
+
+fn add_rect(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
+    use slate_doc::scene::{ShapeKind, ShapeNode};
+    let rect = slate_doc::scene::WorldRect::new(x, y, 80.0, 60.0);
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Rect,
+            fill: Some(slate_doc::scene::Rgba::WHITE),
+            stroke: slate_doc::scene::Stroke::none(),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: None,
+        }),
+    );
+    let ids = app.add_nodes(vec![node]);
+    ids[0]
+}
+
+/// Eraser: three touched strokes are removed as one journal group — one
+/// undo restores all of them.
+#[test]
+fn eraser_release_is_one_undo_group() {
+    let mut h = Harness::new("eraser");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let ids: Vec<NodeId> = (0..3)
+        .map(|i| add_stroke(&mut h.app, 0.0, i as f32 * 50.0))
+        .collect();
+
+    // The eraser circle over the middle of the first stroke hits it.
+    let hits = h.app.eraser_hits_at(Pos2::new(50.0, 0.5));
+    assert_eq!(hits, vec![ids[0]]);
+
+    h.app.finish_erase(ids.clone());
+    assert!(h.app.doc().scene.nodes.is_empty());
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 3, "one undo restores all");
+    h.frame();
+}
+
+/// Hidden and locked semantics: hit-testing, select-all, and the escape
+/// hatches (show all / unlock all / force pick).
+#[test]
+fn hidden_and_locked_leave_selection_paths() {
+    let mut h = Harness::new("flags");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 200.0, 0.0);
+
+    h.app.board_sel = [a].into_iter().collect();
+    assert_eq!(h.app.cmd_hide_selection(), 1);
+    assert!(h.app.board_sel.is_empty(), "hide clears the selection");
+    assert!(board_path::board_pick_node(&h.app.doc().scene, 40.0, 30.0, 1.0).is_none());
+
+    h.app.board_sel = [b].into_iter().collect();
+    assert_eq!(h.app.cmd_lock_selection(), 1);
+    assert!(board_path::board_pick_node(&h.app.doc().scene, 240.0, 30.0, 1.0).is_none());
+    // The Ctrl+Shift+click escape hatch still reaches it.
+    assert_eq!(
+        board_path::board_pick_node_ex(&h.app.doc().scene, 240.0, 30.0, 1.0, true),
+        Some(b)
+    );
+
+    assert_eq!(h.app.hidden_locked_counts(), (1, 1));
+    assert_eq!(h.app.cmd_show_all_hidden(), 1);
+    assert_eq!(h.app.cmd_unlock_all(), 1);
+    assert_eq!(h.app.hidden_locked_counts(), (0, 0));
+    // Both journaled: two undos restore the flags.
+    h.app.board_undo();
+    h.app.board_undo();
+    assert_eq!(h.app.hidden_locked_counts(), (1, 1));
+    h.frame();
+}
+
+/// Deleting a node degrades wires anchored to it to Free ends in the same
+/// undo group; undo restores the anchor.
+#[test]
+fn delete_degrades_connector_ends_to_free() {
+    use slate_doc::scene::{ConnectorEnd, NodeKind, Side};
+    let mut h = Harness::new("wire_degrade");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 300.0, 0.0);
+    let wire = h
+        .app
+        .add_connector(
+            ConnectorEnd::Anchored {
+                node: a,
+                side: Side::Right,
+                t: 0.5,
+            },
+            ConnectorEnd::Anchored {
+                node: b,
+                side: Side::Left,
+                t: 0.5,
+            },
+        )
+        .expect("wire added");
+
+    h.app.delete_board_nodes(&[b]);
+    let conn = match &h.app.doc().scene.node(wire).unwrap().kind {
+        NodeKind::Connector(c) => c.clone(),
+        _ => panic!("connector"),
+    };
+    assert!(matches!(conn.a, ConnectorEnd::Anchored { node, .. } if node == a));
+    match conn.b {
+        ConnectorEnd::Free { point } => assert_eq!(point, [300.0, 30.0]),
+        other => panic!("must degrade to Free, got {other:?}"),
+    }
+
+    h.app.board_undo();
+    let conn = match &h.app.doc().scene.node(wire).unwrap().kind {
+        NodeKind::Connector(c) => c.clone(),
+        _ => panic!("connector"),
+    };
+    assert!(matches!(conn.b, ConnectorEnd::Anchored { node, .. } if node == b));
+    h.frame();
+}
+
+/// Ctrl+J over two open paths joins nearest endpoints into one node that
+/// keeps the first path's style — one Remove+Add group (one undo).
+#[test]
+fn join_two_open_paths_keeps_first_style() {
+    use slate_doc::scene::{NodeKind, ShapeKind};
+    let mut h = Harness::new("join");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let a = add_stroke(&mut h.app, 0.0, 0.0);
+    let b = add_stroke(&mut h.app, 150.0, 0.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+
+    assert!(h.app.cmd_join());
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let joined = &h.app.doc().scene.nodes[0];
+    match &joined.kind {
+        NodeKind::Shape(s) => {
+            assert_eq!(s.shape, ShapeKind::Path);
+            let p = s.path.as_ref().unwrap();
+            assert!(!p.closed);
+            assert_eq!(p.point_count(), 4, "two 2-anchor paths bridged");
+        }
+        _ => panic!("joined node must be a path shape"),
+    }
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 2, "one undo splits back");
+    h.frame();
+}
+
+/// Sticky Tab-spawn: the sibling lands one note-width + gap to the right,
+/// keeps the fill preset, and takes the caret.
+#[test]
+fn sticky_tab_spawn_offsets_right() {
+    use slate_doc::scene::NodeKind;
+    let mut h = Harness::new("sticky");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+
+    h.app.place_sticky_at(Pos2::new(0.0, 0.0));
+    let first = *h.app.board_sel.iter().next().expect("sticky selected");
+    assert!(h.app.text_edit.as_ref().is_some_and(|(id, _)| *id == first));
+    let r0 = h.app.doc().scene.node(first).unwrap().rect;
+    assert_eq!((r0.w, r0.h), (200.0, 200.0));
+
+    h.app.spawn_adjacent_sticky(first, 1.0);
+    let second = *h.app.board_sel.iter().next().expect("sibling selected");
+    assert_ne!(second, first);
+    let n = h.app.doc().scene.node(second).unwrap();
+    assert_eq!(n.rect.x, r0.x + r0.w + 24.0);
+    assert_eq!(n.rect.y, r0.y);
+    match &n.kind {
+        NodeKind::Text(t) => assert_eq!(t.fill, Some(board_color::STICKY_FILL)),
+        _ => panic!("sticky is a text node"),
+    }
+    assert!(h
+        .app
+        .text_edit
+        .as_ref()
+        .is_some_and(|(id, _)| *id == second));
+    h.frame();
+}

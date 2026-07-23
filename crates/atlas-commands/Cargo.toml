@@ -1,0 +1,12 @@
+[package]
+name = "atlas-commands"
+version.workspace = true
+edition.workspace = true
+description = "Pure command-surface contracts: registry, history/repeat, cancel stack, palette query (Keymap / Stage 2)"
+license = "MIT"
+
+[lib]
+name = "atlas_commands"
+path = "src/lib.rs"
+
+[dependencies]

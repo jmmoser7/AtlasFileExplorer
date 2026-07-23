@@ -6,7 +6,6 @@ use super::super::SlateApp;
 use crate::app::chrome::ToolPanel;
 use atlas_shell::dock::DockSide;
 use atlas_shell::menubar::{self, AppIcon, MenuItem, MenuSpec, UnifiedTopBarModel};
-use atlas_shell::prefs::ChromePrefs;
 use atlas_shell::tabs::{TabAction, TabSpec};
 use eframe::egui;
 use slate_doc::ViewKind;
@@ -132,14 +131,34 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
         },
     );
 
+    // Menu items dispatch through the command registry where a command id
+    // exists, so menu clicks land in the F2 history like key presses do.
+    use atlas_commands::CommandId;
     match result.menu_clicked {
-        Some("file.home") => app.go_home(),
-        Some("file.new") => app.home_new_workspace(),
-        Some("file.open") => app.open_doc_dialog(),
-        Some("file.save") => app.save_doc(),
-        Some("file.save_as") => app.save_doc_as_dialog(),
-        Some("file.export") => app.export_artifact_dialog(),
-        Some("file.add_files") => app.add_files_dialog(),
+        Some("file.home") => {
+            app.dispatch(ctx, CommandId("app.home"), Some("menu".into()));
+        }
+        Some("file.new") => {
+            // Menu "New workbook" reuses the home/new-workspace flow (not a
+            // bare tab append); recorded under the same command id.
+            app.home_new_workspace();
+            app.push_history(CommandId("app.new_tab"), Some("menu".into()));
+        }
+        Some("file.open") => {
+            app.dispatch(ctx, CommandId("app.open"), Some("menu".into()));
+        }
+        Some("file.save") => {
+            app.dispatch(ctx, CommandId("app.save"), Some("menu".into()));
+        }
+        Some("file.save_as") => {
+            app.dispatch(ctx, CommandId("app.save_as"), Some("menu".into()));
+        }
+        Some("file.export") => {
+            app.dispatch(ctx, CommandId("app.export"), Some("menu".into()));
+        }
+        Some("file.add_files") => {
+            app.dispatch(ctx, CommandId("app.add_files"), Some("menu".into()));
+        }
         Some("file.close_tab") => {
             if !app.tabs.is_empty() {
                 let i = app.active_tab;
@@ -163,25 +182,23 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
             app.ensure_work_tab();
             app.doc_mut().view.active_view = ViewKind::Lens;
         }
-        Some("view.present") => app.start_present(None),
-        Some("view.fullscreen") => app.toggle_canvas_fullscreen(),
+        Some("view.present") => {
+            app.dispatch(ctx, CommandId("app.present"), Some("menu".into()));
+        }
+        Some("view.fullscreen") => {
+            app.dispatch(ctx, CommandId("app.fullscreen"), Some("menu".into()));
+        }
         Some("view.dark") => {
             app.dark_mode = !app.dark_mode;
             app.apply_theme(ctx);
         }
         Some("dock.left") => {
             app.dock_side = DockSide::LeftCenter;
-            ChromePrefs {
-                dock_side: app.dock_side,
-            }
-            .save("slate");
+            app.save_chrome_prefs();
         }
         Some("dock.bottom") => {
             app.dock_side = DockSide::BottomCenter;
-            ChromePrefs {
-                dock_side: app.dock_side,
-            }
-            .save("slate");
+            app.save_chrome_prefs();
         }
         Some("ai.launch") => app.ai.launch_cursor(),
         Some("ai.workspace") => app.ai.pick_workspace(),
@@ -201,7 +218,9 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
             let on = !app.chrome().tool(ToolPanel::Lens);
             app.chrome_mut().set_tool(ToolPanel::Lens, on);
         }
-        Some("view.advanced") => app.chrome_mut().advanced_open = true,
+        Some("view.advanced") => {
+            app.dispatch(ctx, CommandId("app.preferences"), Some("menu".into()));
+        }
         _ => {}
     }
 

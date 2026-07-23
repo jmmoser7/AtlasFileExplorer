@@ -16,6 +16,33 @@ Feather width is passed explicitly (callers divide desired pixel feather by zoom
 The solid core spans inward from `half_width - feather/2` (clamped); the fringe
 extends to `half_width + feather/2`.
 
+## Edit module (Direct Selection / Join geometry)
+
+`edit.rs` is the pure-geometry home for Slate's Direct Selection tool (A) and
+Join (Ctrl+J) — the board only routes input and paints. The contract is an
+**anchor model** over a single-subpath cubic `kurbo::BezPath`:
+
+- `Anchor { point, handle_in, handle_out, kind: Corner | Smooth }` with
+  absolute handle positions; `anchors_from_bezpath` ⇄ `bezpath_from_anchors`
+  roundtrip losslessly for line+cubic paths (quads are degree-elevated to
+  cubics; a duplicated closed-path seam anchor is merged into anchor 0).
+- Ops mutate a `&mut Vec<Anchor>`: `move_anchor` (handles ride along),
+  `move_handle` (smooth anchors keep the opposite handle collinear unless the
+  Alt symmetry break converts to corner-with-handles), `translate_segment`
+  (straight → both endpoints translate; curved → Illustrator "constrain path
+  dragging": handle **angles** preserved, only lengths change), and
+  `toggle_anchor_kind` (corner ⇄ smooth, ⅓-of-neighbor-distance chord
+  handles).
+- `join_endpoints` covers the three Ctrl+J cases: coincident-within-radius
+  endpoint merge (average position, path closes), far-apart close with a
+  straight seam, and two-list bridge across the nearest endpoint pair (first
+  list's order/style wins). Join anchors are Corner, per Illustrator.
+- Picking: `anchor_hit` (nearest anchor within radius) and `segment_hit`
+  (nearest `BezPath` segment; indices align with anchor segment order).
+
+Callers convert app path storage (e.g. `slate-doc` `PathData`) to `BezPath`
+at the boundary; this crate never sees the document model.
+
 ## Lineage
 
 The feathered cross-section generalizes the straight-segment ribbon in

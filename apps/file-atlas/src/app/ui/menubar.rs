@@ -6,7 +6,6 @@ use super::super::{AtlasApp, ViewCmd};
 use crate::app::chrome::ToolPanel;
 use atlas_shell::dock::DockSide;
 use atlas_shell::menubar::{self, AppIcon, MenuItem, MenuSpec, UnifiedTopBarModel};
-use atlas_shell::prefs::ChromePrefs;
 use atlas_shell::tabs::{TabAction, TabSpec};
 use eframe::egui;
 
@@ -116,13 +115,22 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
         },
     );
 
+    // Menu items are adapters onto the same command surface as the keyboard
+    // (Art. VIII): they record intent-log entries with the registry ids.
     match result.menu_clicked {
-        Some("file.home") => app.go_home(),
+        Some("file.home") => {
+            app.go_home();
+            app.push_history("app.home", None);
+        }
         Some("file.open_folder") => {
             app.home_new_workspace();
             app.open_folder_dialog();
+            app.push_history("app.open", None);
         }
-        Some("file.new_tab") => app.home_new_workspace(),
+        Some("file.new_tab") => {
+            app.home_new_workspace();
+            app.push_history("app.new_tab", None);
+        }
         Some("file.close_tab") => {
             if !app.tabs.is_empty() {
                 let i = app.active_tab;
@@ -130,33 +138,35 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
             }
         }
         Some("file.exit") => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-        Some("view.fit") => app.pending_view = Some(ViewCmd::Fit),
+        Some("view.fit") => {
+            app.pending_view = Some(ViewCmd::Fit);
+            app.push_history("canvas.fit", None);
+        }
         Some("view.zoom_in") => {
             let center = app.canvas_rect.center();
             app.zoom_at(center, 1.3);
+            app.push_history("canvas.zoom_in", None);
         }
         Some("view.zoom_out") => {
             let center = app.canvas_rect.center();
             app.zoom_at(center, 1.0 / 1.3);
+            app.push_history("canvas.zoom_out", None);
         }
-        Some("view.fullscreen") => app.toggle_canvas_fullscreen(),
+        Some("view.fullscreen") => {
+            app.toggle_canvas_fullscreen();
+            app.push_history("app.fullscreen", None);
+        }
         Some("view.dark") => {
             app.dark_mode = !app.dark_mode;
             app.apply_theme(ctx);
         }
         Some("dock.left") => {
             app.dock_side = DockSide::LeftCenter;
-            ChromePrefs {
-                dock_side: app.dock_side,
-            }
-            .save("file-atlas");
+            app.save_chrome_prefs();
         }
         Some("dock.bottom") => {
             app.dock_side = DockSide::BottomCenter;
-            ChromePrefs {
-                dock_side: app.dock_side,
-            }
-            .save("file-atlas");
+            app.save_chrome_prefs();
         }
         Some("tools.filters") => {
             let on = !app.active_chrome().tool(ToolPanel::BasicFilters);
@@ -176,7 +186,10 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
             let on = !app.active_chrome().tool(ToolPanel::Ai);
             app.active_chrome_mut().set_tool(ToolPanel::Ai, on);
         }
-        Some("view.advanced") => app.active_chrome_mut().advanced_open = true,
+        Some("view.advanced") => {
+            app.active_chrome_mut().advanced_open = true;
+            app.push_history("app.preferences", None);
+        }
         _ => {}
     }
 

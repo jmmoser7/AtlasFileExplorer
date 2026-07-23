@@ -100,9 +100,14 @@ impl DockSide {
 
 #[derive(Clone, Default)]
 struct DockState {
-    /// Click-pinned dashboards and tools, in icon order.
+    /// Click-pinned dashboards and tools, in icon order. Pins are persistent:
+    /// outside clicks never clear them (only re-clicking the icon unpins),
+    /// and apps may persist them across sessions via [`seed_pinned`] /
+    /// [`pinned_ids`] + `ChromePrefs`.
     pinned: Vec<&'static str>,
-    /// Transient Tool/Dashboard body while hovering (anchored above the icon; not in the stack).
+    /// Transient Tool/Dashboard body while hovering (anchored above the icon;
+    /// not in the stack). Survives the pointer's travel from icon to panel:
+    /// only replaced by another hover or retired by the close-delay grace.
     body_preview: Option<&'static str>,
     /// Short label chip for Action + Dashboard hovers (always above the spawning icon).
     label_hover: Option<&'static str>,
@@ -114,6 +119,8 @@ struct DockState {
     last_inside_time: f64,
     /// Last-frame measured popover sizes for stack centering.
     panel_sizes: HashMap<&'static str, Vec2>,
+    /// Whether persisted pins were already restored this session.
+    seeded: bool,
 }
 
 fn ease_out_cubic(t: f32) -> f32 {
@@ -166,7 +173,7 @@ fn theme<'a>(palette: &Palette, tokens: &'a DockTokens) -> &'a DockThemeTokens {
 
 // ---------- squircle + icon painting ----------
 
-fn squircle_points(rect: Rect, exponent: f32, samples: usize) -> Vec<Pos2> {
+pub(crate) fn squircle_points(rect: Rect, exponent: f32, samples: usize) -> Vec<Pos2> {
     let c = rect.center();
     let a = rect.width() * 0.5;
     let b = rect.height() * 0.5;
@@ -182,7 +189,13 @@ fn squircle_points(rect: Rect, exponent: f32, samples: usize) -> Vec<Pos2> {
         .collect()
 }
 
-fn paint_squircle(painter: &egui::Painter, rect: Rect, fill: Color32, stroke: Stroke, n: f32) {
+pub(crate) fn paint_squircle(
+    painter: &egui::Painter,
+    rect: Rect,
+    fill: Color32,
+    stroke: Stroke,
+    n: f32,
+) {
     painter.add(Shape::convex_polygon(
         squircle_points(rect, n, 32),
         fill,
@@ -395,6 +408,16 @@ fn paint_partition(
     }
 }
 
+/// Currently pinned panel ids, in icon order — for persisting to prefs.
+/// `None` until the dock has rendered at least once this session (callers
+/// must not treat "no state yet" as "no pins" or they will wipe saved pins).
+pub fn pinned_ids(ctx: &egui::Context, id: impl std::hash::Hash) -> Option<Vec<String>> {
+    let state_id = egui::Id::new(("floating_dock", &id));
+    ctx.data_mut(|d| d.get_temp::<DockState>(state_id))
+        .filter(|s| s.seeded)
+        .map(|s| s.pinned.iter().map(|p| (*p).to_owned()).collect())
+}
+
 fn forced_open() -> Option<&'static str> {
     use std::sync::OnceLock;
     static FORCED: OnceLock<Option<&'static str>> = OnceLock::new();
@@ -503,6 +526,12 @@ fn layout_panel_origins(
 
 /// Render a floating dock. Returns the id of a clicked icon, if any
 /// (both Panel and Action items report clicks so apps can react).
+///
+/// `restore_pins`: panel ids to restore as pinned on the dock's first
+/// rendered frame (persisted palettes, e.g. from `ChromePrefs`). Ids are
+/// matched against `items`, so stale entries are ignored harmlessly. Read
+/// the live set back with [`pinned_ids`] to persist changes.
+#[allow(clippy::too_many_arguments)]
 pub fn floating_dock(
     ctx: &egui::Context,
     id: impl std::hash::Hash,
@@ -510,6 +539,7 @@ pub fn floating_dock(
     palette: &Palette,
     side: DockSide,
     items: &[DockItem<'_>],
+    restore_pins: &[String],
     mut panel_body: impl FnMut(&mut egui::Ui, &'static str),
 ) -> Option<&'static str> {
     let mut tokens = crate::tokens::current().dock;
@@ -525,14 +555,28 @@ pub fn floating_dock(
         return None;
     }
 
+    // Restore persisted pins once per session. Matched against the full item
+    // set so pins on currently-hidden icons survive until their icon returns.
+    if !state.seeded {
+        state.seeded = true;
+        for sid in restore_pins {
+            if let Some(item) = items
+                .iter()
+                .find(|item| item.id == sid && item.kind.opens_body())
+            {
+                if !state.pinned.contains(&item.id) {
+                    state.pinned.push(item.id);
+                    state.panel_open.insert(item.id, 0.0);
+                }
+            }
+        }
+    }
+
     let dt = ctx.input(|i| i.stable_dt).clamp(1.0 / 240.0, 1.0 / 20.0);
 
-    // Drop pinned/hover entries whose icons disappeared.
-    state.pinned.retain(|pid| {
-        visible
-            .iter()
-            .any(|item| item.id == *pid && item.kind.opens_body())
-    });
+    // Pins survive icon invisibility (e.g. board tools while in another view):
+    // they simply stop rendering until the icon returns. Only hover state is
+    // validated against the current item set.
     if let Some(hover) = state.body_preview {
         if !visible
             .iter()
@@ -595,6 +639,7 @@ pub fn floating_dock(
     let mut icon_rects: HashMap<&'static str, Rect> = HashMap::new();
     let mut body_preview_candidate: Option<&'static str> = None;
     let mut label_hover_candidate: Option<&'static str> = None;
+    let mut hovered_icon: Option<&'static str> = None;
     let bar_response = bar_area.show(ctx, |ui| {
         let mut draw_items = |ui: &mut egui::Ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(tokens.icon_gap);
@@ -627,6 +672,7 @@ pub fn floating_dock(
 
                 if hovered {
                     state.last_inside_time = now;
+                    hovered_icon = Some(item.id);
                     if !state.pinned.contains(&item.id) {
                         match item.kind {
                             DockItemKind::Tool | DockItemKind::Dashboard => {
@@ -676,22 +722,23 @@ pub fn floating_dock(
     });
     let bar_rect = bar_response.response.rect;
 
+    // A new icon hover replaces the preview; leaving the icon does NOT clear
+    // it — the preview must survive the pointer's travel across the gap into
+    // the panel. The close-delay grace below retires abandoned previews.
+    // Hovering a different icon (of any kind) is an explicit new target.
     if let Some(id) = body_preview_candidate {
         if !state.pinned.contains(&id) {
             state.body_preview = Some(id);
         }
-    } else {
+    } else if hovered_icon.is_some() && hovered_icon != state.body_preview {
         state.body_preview = None;
     }
-    match label_hover_candidate {
-        Some(id) => {
-            if state.label_hover != Some(id) {
-                state.label_hover = Some(id);
-                state.label_hover_since = now;
-                state.describe_blend = 0.0;
-            }
+    if let Some(id) = label_hover_candidate {
+        if state.label_hover != Some(id) {
+            state.label_hover = Some(id);
+            state.label_hover_since = now;
+            state.describe_blend = 0.0;
         }
-        None => {}
     }
 
     if let Some(label_id) = state.label_hover {
@@ -891,7 +938,7 @@ pub fn floating_dock(
                 ui.separator();
                 ScrollArea::vertical()
                     .max_height(max_h)
-                    .show(ui, |ui| panel_body(ui, *oid));
+                    .show(ui, |ui| panel_body(ui, oid));
             });
         });
         let panel_rect = response.response.rect;
@@ -938,6 +985,11 @@ pub fn floating_dock(
     }
 
     // ---- close behavior ----
+    //
+    // Pinned panels are persistent tool palettes: canvas clicks and Escape
+    // never dismiss them — only re-clicking the icon unpins. Transient hover
+    // state (preview + label chip) survives the pointer's travel between icon
+    // and panel and retires after a close-delay grace once abandoned.
     let pointer_inside = pointer.is_some_and(|p| {
         bar_rect.expand(4.0).contains(p)
             || (union_panels != Rect::NOTHING && union_panels.expand(2.0).contains(p))
@@ -957,18 +1009,11 @@ pub fn floating_dock(
 
     let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
     let outside_click = ctx.input(|i| i.pointer.any_click()) && !pointer_inside;
-    if escape {
-        state = DockState::default();
-    } else if outside_click {
-        if state.body_preview.is_some() || state.label_hover.is_some() {
-            state.body_preview = None;
-            state.label_hover = None;
-            state.label_hover_since = 0.0;
-            state.describe_blend = 0.0;
-        } else {
-            state.pinned.clear();
-            state.panel_open.clear();
-        }
+    if escape || outside_click {
+        state.body_preview = None;
+        state.label_hover = None;
+        state.label_hover_since = 0.0;
+        state.describe_blend = 0.0;
     }
 
     if !state.pinned.is_empty()

@@ -66,6 +66,7 @@ fn smoke_full_feature_export() {
             size: 36.0,
             color: Rgba::opaque(10, 10, 40),
             align: TextAlign::Center,
+            fill: None,
         }),
     );
     let shape = doc.scene.build_node(

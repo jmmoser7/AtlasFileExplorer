@@ -7,6 +7,9 @@
 //! - `ui/advanced` — floating advanced settings
 //! - `chrome` — panel registry for tools/readouts gear menus
 
+use atlas_commands::{
+    cancel_target, CancelLayer, CmdAuthor, CommandId, History as CommandHistory, HistoryEntry,
+};
 use atlas_core::export::{self, ExportItem, ExportMsg};
 use atlas_core::index::{AssignState, Db, DbCmd, LoadedRoot};
 use atlas_core::journal::{Action, AssignVal, Journal, JournalEntry};
@@ -20,6 +23,7 @@ use atlas_core::types::{
     upstream_folders, ExtGroup, Family, FileEntry, FAMILIES,
 };
 use atlas_core::watcher::{self, FsChange, FsWatch};
+use atlas_shell::minimap::{minimap_ui, MinimapAction, MinimapModel, MinimapState};
 use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{
@@ -27,7 +31,7 @@ use eframe::egui::{
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 mod chrome;
 mod commands;
@@ -395,6 +399,8 @@ pub struct AtlasApp {
     dark_mode: bool,
     /// Floating tools dock placement (Preferences → Dock location).
     pub dock_side: atlas_shell::dock::DockSide,
+    /// Dock panels pinned as persistent palettes (restored across sessions).
+    pub dock_pins: Vec<String>,
     filter_mode: FilterMode,
     grid_cols: usize,
     portal_threshold: usize,
@@ -483,6 +489,37 @@ pub struct AtlasApp {
     /// Live pre-warm run (Some while active) — drives the temporary bottom
     /// dashboard and is dropped on completion or cancel.
     prewarm: Option<PrewarmJob>,
+
+    // command surface: execution history (intent log) + Space/Enter repeat.
+    // The registry itself is the const `commands::REGISTRY`.
+    cmd_history: CommandHistory,
+    /// Shared history overlay (atlas_shell::history_ui), opened from Advanced.
+    history_open: bool,
+    /// Space-tap repeat bookkeeping: press instant + whether any pointer
+    /// button went down while Space was held (that cancels the tap).
+    space_press: Option<(Instant, bool)>,
+
+    // minimap (M)
+    minimap_on: bool,
+    minimap_state: MinimapState,
+    /// Cached minimap model; rebuilt only when `minimap_generation` moves
+    /// (Art. II — no per-frame model allocation). Viewport is updated live.
+    minimap_model: Option<MinimapModel>,
+    /// Bumped on layout rebuild / root change / collapse toggle.
+    minimap_generation: u64,
+
+    // zoom tool (Z): transient mode — click steps, drag = zoom window.
+    zoom_armed: bool,
+    zoom_marquee: Option<Pos2>, // screen-space drag origin while marqueeing
+
+    // Ctrl+F search focus plumbing.
+    /// One-shot: the next rendered search field grabs keyboard focus.
+    focus_search_field: bool,
+    /// Fallback floating search popover (used when the Filters dock panel
+    /// isn't open — the dock has no programmatic-open API).
+    search_popup_open: bool,
+    /// Frame stamp of the last frame the Filters-dock search field rendered.
+    search_field_frame: u64,
 
     // selection & interaction
     selection: HashSet<u32>,
@@ -635,12 +672,20 @@ impl AtlasApp {
     /// Used by `new` and by the headless test harness (isolated DB, no
     /// eframe window).
     fn with_db(egui_ctx: &egui::Context, db: Db, initial_root: Option<PathBuf>) -> Self {
+        #[cfg(debug_assertions)]
+        if let Err(e) = commands::REGISTRY.validate() {
+            panic!("command spec table invalid: {e}");
+        }
         egui_ctx.set_theme(egui::ThemePreference::Dark);
         egui_ctx.set_visuals(dark_visuals());
         // Dev harness: ATLAS_FAM=none starts with every family unchecked
         // (structure-only screenshot testing).
         let fam_default = !matches!(std::env::var("ATLAS_FAM").as_deref(), Ok("none"));
         let (scan_tx, scan_rx) = unbounded();
+        let chrome_prefs = atlas_shell::prefs::ChromePrefs::load(
+            "file-atlas",
+            atlas_shell::dock::DockSide::LeftCenter,
+        );
         let mut app = AtlasApp {
             db,
             thumbs: ThumbPool::new(),
@@ -649,6 +694,9 @@ impl AtlasApp {
             recents: {
                 let mut r = atlas_shell::recent::RecentList::load("file-atlas");
                 r.remove_missing();
+                atlas_shell::covers::spawn_missing_folder_covers(
+                    r.entries.iter().map(|e| e.path.clone()),
+                );
                 r
             },
             home: atlas_shell::home::HomeScreen::new(
@@ -667,11 +715,8 @@ impl AtlasApp {
             tree_build_rx: None,
             orient: Orient::H,
             dark_mode: true,
-            dock_side: atlas_shell::prefs::ChromePrefs::load(
-                "file-atlas",
-                atlas_shell::dock::DockSide::LeftCenter,
-            )
-            .dock_side,
+            dock_side: chrome_prefs.dock_side,
+            dock_pins: chrome_prefs.pinned_panels,
             filter_mode: FilterMode::Hide,
             grid_cols: 10,
             portal_threshold: 100,
@@ -730,6 +775,18 @@ impl AtlasApp {
             prewarm_picker_rx: None,
             prewarm_portal_mode: PrewarmPortalMode::Defer,
             prewarm: None,
+            cmd_history: CommandHistory::new(),
+            history_open: false,
+            space_press: None,
+            minimap_on: chrome_prefs.minimap,
+            minimap_state: MinimapState::default(),
+            minimap_model: None,
+            minimap_generation: 0,
+            zoom_armed: false,
+            zoom_marquee: None,
+            focus_search_field: false,
+            search_popup_open: false,
+            search_field_frame: 0,
             selection: HashSet::new(),
             rubber_origin: None,
             turbo_pan: commands::TurboPanState::default(),
@@ -1500,6 +1557,7 @@ impl AtlasApp {
         self.tree_dirty = false;
         self.last_tree_build = Instant::now();
         self.filter_dirty = true;
+        self.bump_minimap();
         if first {
             if let Some(cam) = self.pending_cam.take() {
                 // Returning to a tab: restore exactly where the user was.
@@ -1526,6 +1584,7 @@ impl AtlasApp {
                 self.structure_only,
             );
         }
+        self.bump_minimap();
     }
 
     fn save_snapshot(&self) {
@@ -2244,6 +2303,7 @@ impl AtlasApp {
                 self.structure_only,
             );
         }
+        self.bump_minimap();
         self.filter_dirty = false;
     }
 
@@ -2364,7 +2424,8 @@ impl AtlasApp {
         }
         let action = Action::Assign { changes };
         self.apply_action(&action, true);
-        self.push_journal(label, action);
+        self.push_journal(label.clone(), action);
+        self.push_history("atlas.assign", Some(label));
     }
 
     fn apply_action(&mut self, action: &Action, forward: bool) {
@@ -2417,6 +2478,7 @@ impl AtlasApp {
             self.apply_action(&action, false);
             self.persist_journal();
             self.toast(format!("Undid: {label}"));
+            self.push_history("app.undo", Some(label));
         }
     }
 
@@ -2427,6 +2489,7 @@ impl AtlasApp {
             self.apply_action(&action, true);
             self.persist_journal();
             self.toast(format!("Redid: {label}"));
+            self.push_history("app.redo", Some(label));
         }
     }
 
@@ -2489,6 +2552,7 @@ impl AtlasApp {
             total,
             current: String::new(),
         });
+        self.push_history("atlas.export", Some(format!("{total} file(s)")));
     }
 }
 
@@ -2566,6 +2630,8 @@ impl AtlasApp {
             self.bottom_tray(ctx);
         }
         self.draw_advanced_window(ctx);
+        self.draw_history_window(ctx);
+        self.search_popup(ctx);
         atlas_shell::tuning::show(ctx);
 
         let palette = self.palette();
@@ -2689,74 +2755,444 @@ impl AtlasApp {
         }
     }
 
+    /// Keyboard dispatch: every chord resolves through `commands::REGISTRY`
+    /// (one table for dispatch, reference UI, and repeat — Art. VII), then
+    /// runs the same handler bodies as before the migration. Escape goes
+    /// through the formal cancel stack; Space/Enter drive repeat-last;
+    /// arrows pan per-frame.
     fn hotkeys(&mut self, ctx: &egui::Context) {
         let wants_kb = ctx.wants_keyboard_input();
-        let (undo_k, redo_k, select_all, esc, open_k) = ctx.input_mut(|i| {
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.handle_escape(ctx);
+        }
+        self.repeat_keys(ctx, wants_kb);
+        self.arrow_pan(ctx, wants_kb);
+
+        // --- registry chord dispatch ---
+        let mut avail = atlas_commands::Availability::ATLAS | atlas_commands::Availability::GLOBAL;
+        if !self.selection.is_empty() {
+            avail |= atlas_commands::Availability::NEEDS_SELECTION;
+        }
+        let mut fired: Vec<CommandId> = Vec::new();
+        ctx.input_mut(|i| {
+            i.events.retain(|e| {
+                let egui::Event::Key {
+                    key,
+                    pressed: true,
+                    modifiers,
+                    repeat,
+                    ..
+                } = e
+                else {
+                    return true;
+                };
+                let Some(k) = commands::map_key(*key) else {
+                    return true;
+                };
+                let mut chord = atlas_commands::Chord {
+                    key: k,
+                    ctrl: modifiers.command,
+                    shift: modifiers.shift,
+                    alt: modifiers.alt,
+                };
+                // "+" often arrives as Shift+= — zoom chords ignore Shift.
+                if matches!(k, atlas_commands::Key::Plus | atlas_commands::Key::Minus) {
+                    chord.shift = false;
+                }
+                // Ctrl+Shift+Z is the documented redo alias of Ctrl+Y.
+                if chord.key == atlas_commands::Key::Z && chord.ctrl && chord.shift && !chord.alt {
+                    chord = atlas_commands::Chord::ctrl(atlas_commands::Key::Y);
+                }
+                let Some(spec) = commands::REGISTRY.by_chord(chord, avail) else {
+                    return true;
+                };
+                // Typing gate: bare keys and clipboard/selection chords stay
+                // with the focused text field (same gates as before the
+                // migration; undo/redo/open/F11 keep firing while typing).
+                if wants_kb && !command_allowed_while_typing(spec.id.0) {
+                    return true;
+                }
+                // Held-key auto-repeat must not flutter the toggles.
+                if *repeat && matches!(spec.id.0, "canvas.minimap" | "canvas.tool.zoom") {
+                    return false;
+                }
+                fired.push(spec.id);
+                false
+            });
+        });
+        for id in fired {
+            self.dispatch_command(ctx, id);
+        }
+    }
+
+    /// One Esc pops exactly one layer. The search field and the hand-rolled
+    /// context menu swallow Esc before the stack (the menu is today's first
+    /// cascade step); everything else resolves through
+    /// `atlas_commands::cancel_target` with Atlas's layer mapping.
+    fn handle_escape(&mut self, ctx: &egui::Context) {
+        // Search field focused: return focus to the canvas, keep the query.
+        let dock_field = egui::Id::new("atlas_filters_search");
+        let popup_field = egui::Id::new("atlas_search_popup_field");
+        let search_focused = ctx.memory(|m| m.has_focus(dock_field) || m.has_focus(popup_field));
+        if search_focused {
+            ctx.memory_mut(|m| {
+                m.surrender_focus(dock_field);
+                m.surrender_focus(popup_field);
+            });
+            self.search_popup_open = false;
+            return;
+        }
+        if self.search_popup_open {
+            self.search_popup_open = false;
+            return;
+        }
+        if self.menu_at.is_some() {
+            self.menu_at = None;
+            return;
+        }
+        let mut live: Vec<CancelLayer> = Vec::new();
+        if self.zoom_marquee.is_some() {
+            live.push(CancelLayer::ActiveOperation);
+        }
+        if self.edit_open || self.detail.is_some() {
+            live.push(CancelLayer::Draft);
+        }
+        if self.zoom_armed {
+            live.push(CancelLayer::Mode);
+        }
+        if !self.selection.is_empty() {
+            live.push(CancelLayer::Selection);
+        }
+        match cancel_target(&live) {
+            Some(CancelLayer::ActiveOperation) => self.zoom_marquee = None,
+            Some(CancelLayer::Draft) => {
+                // Today's order within the draft layer: edit panel, then detail.
+                if self.edit_open {
+                    self.edit_open = false;
+                } else {
+                    self.detail = None;
+                }
+            }
+            Some(CancelLayer::Mode) => self.zoom_armed = false,
+            Some(CancelLayer::Selection) => self.selection.clear(),
+            Some(CancelLayer::Chrome) | None => {}
+        }
+    }
+
+    /// Space TAP (release < ~250 ms, no pointer press while held, not typing)
+    /// and Enter (idle, not typing, no draft) dispatch the last repeatable
+    /// history entry.
+    fn repeat_keys(&mut self, ctx: &egui::Context, wants_kb: bool) {
+        let (space_pressed, space_released, pointer_down, enter) = ctx.input(|i| {
             (
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y)
-                    || i.consume_key(
-                        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-                        egui::Key::Z,
-                    ),
-                !wants_kb && i.consume_key(egui::Modifiers::COMMAND, egui::Key::A),
-                i.key_pressed(egui::Key::Escape),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::O),
+                i.key_pressed(egui::Key::Space),
+                i.key_released(egui::Key::Space),
+                i.pointer.any_down(),
+                i.key_pressed(egui::Key::Enter),
             )
         });
-        if undo_k {
-            self.undo();
+        if space_pressed && !wants_kb && self.space_press.is_none() {
+            self.space_press = Some((Instant::now(), false));
         }
-        if redo_k {
-            self.redo();
-        }
-        if select_all {
-            self.selection = self
-                .file_match
-                .iter()
-                .enumerate()
-                .filter(|(_, &m)| m)
-                .map(|(i, _)| i as u32)
-                .collect();
-        }
-        if esc {
-            if self.menu_at.is_some() {
-                self.menu_at = None;
-            } else if self.edit_open {
-                self.edit_open = false;
-            } else if self.detail.is_some() {
-                self.detail = None;
-            } else {
-                self.selection.clear();
+        if let Some((_, dragged)) = &mut self.space_press {
+            if pointer_down {
+                *dragged = true;
             }
         }
-        if open_k {
-            self.open_folder_dialog();
+        if space_released {
+            if let Some((t0, dragged)) = self.space_press.take() {
+                if !dragged && !wants_kb && t0.elapsed() < Duration::from_millis(250) {
+                    self.repeat_last(ctx);
+                }
+            }
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::F11)) {
-            self.toggle_canvas_fullscreen();
+        if enter && !wants_kb && !self.edit_open && self.menu_at.is_none() {
+            self.repeat_last(ctx);
         }
+    }
 
-        if !wants_kb {
-            let (fit, zin, zout, f2) = ctx.input(|i| {
-                (
-                    i.key_pressed(egui::Key::F),
-                    i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals),
-                    i.key_pressed(egui::Key::Minus),
-                    i.key_pressed(egui::Key::F2),
-                )
-            });
-            if fit {
-                self.pending_view = Some(ViewCmd::Fit);
+    fn repeat_last(&mut self, ctx: &egui::Context) {
+        if let Some(id) = self.cmd_history.last_repeatable(&commands::REGISTRY) {
+            self.dispatch_command(ctx, id);
+        }
+    }
+
+    /// Arrows always pan in Atlas (no nudge semantics); Shift = ×4 speed.
+    fn arrow_pan(&mut self, ctx: &egui::Context, wants_kb: bool) {
+        if wants_kb || self.root.is_none() {
+            return;
+        }
+        let (l, r, u, d, shift, dt) = ctx.input(|i| {
+            (
+                i.key_down(egui::Key::ArrowLeft),
+                i.key_down(egui::Key::ArrowRight),
+                i.key_down(egui::Key::ArrowUp),
+                i.key_down(egui::Key::ArrowDown),
+                i.modifiers.shift,
+                i.stable_dt,
+            )
+        });
+        if !(l || r || u || d) {
+            return;
+        }
+        let step = 900.0 * dt.clamp(0.0, 0.05) * if shift { 4.0 } else { 1.0 };
+        let mut delta = Vec2::ZERO;
+        if l {
+            delta.x += step;
+        }
+        if r {
+            delta.x -= step;
+        }
+        if u {
+            delta.y += step;
+        }
+        if d {
+            delta.y -= step;
+        }
+        self.anim = None;
+        self.cam.offset += delta;
+        self.grid_fade_armed = true;
+        ctx.request_repaint();
+    }
+
+    /// Execute a registered command by id — the single dispatch surface for
+    /// chords, repeat, and menu adapters. Pushes a history entry unless the
+    /// handler body records its own (undo/redo/assign) or the command is a
+    /// pure navigation step.
+    fn dispatch_command(&mut self, ctx: &egui::Context, id: CommandId) {
+        let mut detail: Option<String> = None;
+        match id.0 {
+            "app.undo" => {
+                self.undo();
+                return;
             }
-            if zin {
-                self.zoom_at(self.canvas_rect.center(), 1.3);
+            "app.redo" => {
+                self.redo();
+                return;
             }
-            if zout {
-                self.zoom_at(self.canvas_rect.center(), 1.0 / 1.3);
+            "app.select_all" => {
+                self.selection = self
+                    .file_match
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &m)| m)
+                    .map(|(i, _)| i as u32)
+                    .collect();
+                detail = Some(format!("{} file(s)", self.selection.len()));
             }
-            if f2 && !self.selection.is_empty() {
+            "app.cancel" => {
+                self.handle_escape(ctx);
+                return;
+            }
+            "app.open" => self.open_folder_dialog(),
+            "app.new_tab" => self.home_new_workspace(),
+            "app.fullscreen" => self.toggle_canvas_fullscreen(),
+            "app.help" | "app.preferences" => {
+                self.active_chrome_mut().advanced_open = true;
+            }
+            "app.history" => self.history_open = !self.history_open,
+            "canvas.fit" => self.pending_view = Some(ViewCmd::Fit),
+            "canvas.zoom_in" => self.zoom_at(self.canvas_rect.center(), 1.3),
+            "canvas.zoom_out" => self.zoom_at(self.canvas_rect.center(), 1.0 / 1.3),
+            "canvas.minimap" => {
+                self.minimap_on = !self.minimap_on;
+                self.save_chrome_prefs();
+                detail = Some(if self.minimap_on { "on" } else { "off" }.into());
+            }
+            "canvas.search" => {
+                self.focus_search();
+                return;
+            }
+            "canvas.cycle_next" => {
+                self.cycle_match(1);
+                return;
+            }
+            "canvas.cycle_prev" => {
+                self.cycle_match(-1);
+                return;
+            }
+            "canvas.tool.zoom" => {
+                self.zoom_armed = !self.zoom_armed;
+                if !self.zoom_armed {
+                    self.zoom_marquee = None;
+                }
+                detail = Some(if self.zoom_armed { "armed" } else { "off" }.into());
+            }
+            "atlas.assign" => {
+                if self.selection.is_empty() {
+                    return;
+                }
+                // open_edit_panel records the history entry (menu path too).
                 self.open_edit_panel();
+                return;
+            }
+            "atlas.copy_paths" => {
+                let Some(n) = self.copy_selection_paths(ctx) else {
+                    return;
+                };
+                detail = Some(format!("{n} path(s)"));
+            }
+            "app.properties" => {
+                if !self.toggle_detail_for_selection() {
+                    return;
+                }
+            }
+            "atlas.open_selected" => {
+                let Some(name) = self.open_single_selected() else {
+                    return;
+                };
+                detail = Some(name);
+            }
+            "app.repeat_last" => {
+                self.repeat_last(ctx);
+                return;
+            }
+            _ => return,
+        }
+        self.push_history(id.0, detail);
+    }
+
+    /// Persist the shared chrome prefs (dock side, pinned panels, minimap).
+    pub(crate) fn save_chrome_prefs(&self) {
+        atlas_shell::prefs::ChromePrefs {
+            dock_side: self.dock_side,
+            pinned_panels: self.dock_pins.clone(),
+            minimap: self.minimap_on,
+        }
+        .save("file-atlas");
+    }
+
+    /// Record an executed command in the intent log (Art. VI: authored).
+    fn push_history(&mut self, id: &'static str, detail: Option<String>) {
+        let Some(spec) = commands::REGISTRY.by_id(CommandId(id)) else {
+            debug_assert!(false, "history push for unregistered command `{id}`");
+            return;
+        };
+        self.cmd_history.push(HistoryEntry {
+            id: spec.id,
+            name: spec.name,
+            author: CmdAuthor::Human,
+            detail,
+            at: SystemTime::now(),
+        });
+    }
+
+    /// Ctrl+C: newline-separated absolute paths of the selection.
+    fn copy_selection_paths(&mut self, ctx: &egui::Context) -> Option<usize> {
+        let mut ids: Vec<u32> = self.selection.iter().copied().collect();
+        ids.sort_unstable();
+        let paths: Vec<String> = ids
+            .iter()
+            .filter_map(|&i| self.entries.get(i as usize))
+            .filter(|e| !e.dead)
+            .map(|e| e.path.to_string_lossy().into_owned())
+            .collect();
+        if paths.is_empty() {
+            return None;
+        }
+        let n = paths.len();
+        ctx.copy_text(paths.join("\n"));
+        self.toast(format!("Copied {n} path(s)"));
+        Some(n)
+    }
+
+    /// F3: toggle the Details window for the single selected file.
+    fn toggle_detail_for_selection(&mut self) -> bool {
+        if self.selection.len() != 1 {
+            return false;
+        }
+        let f = *self.selection.iter().next().unwrap();
+        if self.detail == Some(f) {
+            self.detail = None;
+            return true;
+        }
+        if self
+            .entries
+            .get(f as usize)
+            .map(|e| !e.dead)
+            .unwrap_or(false)
+        {
+            self.detail = Some(f);
+            return true;
+        }
+        false
+    }
+
+    /// Repeat target for "Open host document": opens the single selected file.
+    fn open_single_selected(&mut self) -> Option<String> {
+        if self.selection.len() != 1 {
+            return None;
+        }
+        let f = *self.selection.iter().next().unwrap();
+        let e = self.entries.get(f as usize).filter(|e| !e.dead)?;
+        Self::open_path(&e.path);
+        Some(e.name.clone())
+    }
+
+    /// Ctrl+F: caret into the Filters-dock search field. If that panel isn't
+    /// open (the dock exposes no programmatic-open API), a small floating
+    /// search popover bound to the same query appears instead.
+    fn focus_search(&mut self) {
+        if self.at_home {
+            return;
+        }
+        self.active_chrome_mut()
+            .set_tool(chrome::ToolPanel::BasicFilters, true);
+        if self.search_field_frame + 1 < self.frame_no {
+            self.search_popup_open = true;
+        }
+        self.focus_search_field = true;
+    }
+
+    /// Tab / Shift+Tab: cycle the filtered `file_match` set in index order.
+    /// Selection is replaced; the camera pans (at the current zoom) only
+    /// when the file is outside the comfortable view.
+    fn cycle_match(&mut self, step: i32) {
+        let matched: Vec<u32> = self
+            .file_match
+            .iter()
+            .enumerate()
+            .filter(|&(i, &m)| m && self.entries.get(i).map(|e| !e.dead).unwrap_or(false))
+            .map(|(i, _)| i as u32)
+            .collect();
+        if matched.is_empty() {
+            return;
+        }
+        let cur = self
+            .last_selected_file
+            .filter(|f| self.selection.contains(f));
+        let next = match cur.and_then(|f| matched.binary_search(&f).ok()) {
+            Some(p) => {
+                let n = matched.len() as i32;
+                matched[(((p as i32 + step) % n + n) % n) as usize]
+            }
+            None if step >= 0 => matched[0],
+            None => matched[matched.len() - 1],
+        };
+        self.selection.clear();
+        self.selection.insert(next);
+        self.last_selected_file = Some(next);
+
+        if let Some(t) = &self.tree {
+            if let Some(fp) = t.file_pos.get(next as usize) {
+                if fp.place != FilePlace::Hidden {
+                    let world = fp.rect();
+                    let screen = self.w2s_rect(world);
+                    let margin = 60.0f32
+                        .min(self.canvas_rect.width() * 0.25)
+                        .min(self.canvas_rect.height() * 0.25);
+                    let comfortable = self.canvas_rect.shrink(margin);
+                    if !comfortable.contains_rect(screen) {
+                        let z = self.cam.z;
+                        let c = world.center();
+                        let center = self.canvas_rect.center();
+                        self.fly_to(Camera {
+                            offset: Vec2::new(center.x - c.x * z, center.y - c.y * z),
+                            z,
+                        });
+                    }
+                }
             }
         }
     }
@@ -2764,6 +3200,7 @@ impl AtlasApp {
     fn open_edit_panel(&mut self) {
         self.edit_open = true;
         let rels = self.selection_rels();
+        self.push_history("atlas.assign", Some(format!("{} file(s)", rels.len())));
         let dests: BTreeSet<String> = rels
             .iter()
             .filter_map(|r| self.assign_state.assigns.get(r).map(|(d, _)| d.clone()))
@@ -3114,6 +3551,9 @@ impl AtlasApp {
         let shift = ui.input(|i| i.modifiers.shift);
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
+        // Zoom tool (Z): while armed, the primary button belongs to the tool
+        // (click = step, drag = zoom window); the secondary button still pans.
+        let zoom_tool = self.zoom_armed;
 
         // --- input: zoom (wheel & pinch) ---
         if resp.hovered() {
@@ -3139,7 +3579,9 @@ impl AtlasApp {
         // on a thumbnail (right-drag = pan anywhere, left-drag on a
         // thumbnail = carry to Slate during a linked session).
         if resp.drag_started_by(egui::PointerButton::Primary) {
-            if shift {
+            if zoom_tool {
+                self.zoom_marquee = pointer;
+            } else if shift {
                 self.rubber_origin = pointer;
             } else if self.session.is_some() {
                 // Linked session: click-hold-drag on a thumbnail carries the
@@ -3170,8 +3612,10 @@ impl AtlasApp {
         }
         if resp.dragged()
             && self.rubber_origin.is_none()
+            && self.zoom_marquee.is_none()
             && !turbo_pan_active
             && self.session_drag.is_none()
+            && !(zoom_tool && resp.dragged_by(egui::PointerButton::Primary))
         {
             self.cam.offset += resp.drag_delta();
             canvas_nav = true;
@@ -3291,10 +3735,35 @@ impl AtlasApp {
             );
         }
 
+        // --- zoom-window marquee ---
+        if let (Some(a), Some(p)) = (self.zoom_marquee, pointer) {
+            let r = Rect::from_two_pos(a, p);
+            painter.rect_filled(
+                r,
+                CornerRadius::ZERO,
+                Color32::from_rgba_unmultiplied(0x4f, 0x9c, 0xf0, 18),
+            );
+            painter.rect_stroke(
+                r,
+                CornerRadius::ZERO,
+                Stroke::new(1.0_f32, palette.select),
+                StrokeKind::Inside,
+            );
+        }
+
         // --- clicks ---
         let mut deferred: Vec<Box<dyn FnOnce(&mut AtlasApp)>> = Vec::new();
 
         if resp.drag_stopped() {
+            if let (Some(a), Some(p)) = (self.zoom_marquee, pointer) {
+                let r = Rect::from_two_pos(a, p);
+                if r.width() > 8.0 && r.height() > 8.0 {
+                    let world = Rect::from_min_max(self.s2w(r.min), self.s2w(r.max));
+                    let to = self.cam_for_bounds(world, ZOOM_MAX);
+                    self.fly_to(to);
+                }
+                self.zoom_marquee = None;
+            }
             if let (Some(a), Some(p)) = (self.rubber_origin, pointer) {
                 let world = Rect::from_min_max(self.s2w(a.min(p)), self.s2w(a.max(p)));
                 let additive = ui.input(|i| i.modifiers.ctrl);
@@ -3321,7 +3790,14 @@ impl AtlasApp {
             self.rubber_origin = None;
         }
 
-        if resp.clicked() {
+        if resp.clicked() && zoom_tool {
+            // Armed zoom tool: click steps in, Alt+click steps out.
+            if let Some(p) = pointer {
+                let alt = ui.input(|i| i.modifiers.alt);
+                self.zoom_at(p, if alt { 1.0 / 1.5 } else { 1.5 });
+            }
+        }
+        if resp.clicked() && !zoom_tool {
             let (ctrl, shift) = ui.input(|i| (i.modifiers.ctrl, i.modifiers.shift));
             match (self.hovered_file, self.hovered_dir) {
                 (Some(f), _) => {
@@ -3354,11 +3830,15 @@ impl AtlasApp {
                 }
             }
         }
-        if resp.double_clicked() {
+        if resp.double_clicked() && !zoom_tool {
             match self.hovered_file {
                 Some(f) => {
-                    if let Some(e) = self.entries.get(f as usize) {
+                    let opened = self.entries.get(f as usize).map(|e| {
                         Self::open_path(&e.path);
+                        e.name.clone()
+                    });
+                    if let Some(name) = opened {
+                        self.push_history("atlas.open_selected", Some(name));
                     }
                 }
                 None => {
@@ -3420,9 +3900,32 @@ impl AtlasApp {
         // Zoom controls overlay (bottom-right of canvas).
         self.zoom_controls(ui, rect);
 
+        // Shared minimap overlay (lower-right, M toggles).
+        self.draw_minimap(ui, rect);
+
+        // Armed zoom tool: mode hint chip near the mini menu (lower-left).
+        if self.zoom_armed {
+            egui::Area::new(egui::Id::new("atlas_zoom_tool_chip"))
+                .fixed_pos(rect.left_bottom() + Vec2::new(14.0, -66.0))
+                .order(egui::Order::Foreground)
+                .interactable(false)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(
+                                "Zoom (Z) — click in · Alt+click out · drag window",
+                            )
+                            .small(),
+                        );
+                    });
+                });
+        }
+
         // Cursor feedback.
         if turbo_pan_active {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if self.zoom_armed {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         } else if self.hovered_file.is_some() || self.hovered_dir.is_some() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         } else if resp.dragged() && self.rubber_origin.is_none() {
@@ -3630,7 +4133,107 @@ impl AtlasApp {
             let after = Pos2::new(t.dirs[di].x, t.dirs[di].y);
             self.cam.offset += (before - after) * self.cam.z;
         }
+        self.bump_minimap();
         self.filter_dirty = true; // match counts move around
+    }
+
+    // ---------- minimap ----------
+
+    /// Invalidate the cached minimap model (layout rebuilt, root changed,
+    /// or a folder collapse toggled).
+    fn bump_minimap(&mut self) {
+        self.minimap_generation = self.minimap_generation.wrapping_add(1);
+        self.minimap_model = None;
+    }
+
+    /// Simplified world-space picture of the tree for the shared minimap:
+    /// dir node rects + grid boxes with a neutral tint, plus individual file
+    /// cells with their far-zoom average-color tint. Rebuilt only on
+    /// generation change (Art. II).
+    fn build_minimap_model(&self, t: &Tree) -> MinimapModel {
+        let palette = self.palette();
+        let dir_color = palette.sub.gamma_multiply(0.45);
+        let grid_color = palette.sub.gamma_multiply(0.18);
+        let file_fallback = palette.sub.gamma_multiply(0.7);
+        let hide = self.filter_mode == FilterMode::Hide && self.any_filter;
+        let mut blocks: Vec<(Rect, Color32)> = Vec::new();
+        for d in &t.dirs {
+            if !d.placed {
+                continue;
+            }
+            if hide && !self.structure_only && d.desc_matches == 0 {
+                continue;
+            }
+            blocks.push((d.rect(), dir_color));
+            if let Some(g) = d.grid_bounds {
+                blocks.push((g, grid_color));
+            }
+        }
+        // Individual file cells stay affordable up to tens of thousands;
+        // beyond that the dir/grid blocks already carry the shape.
+        if !self.structure_only && self.shown_count <= 30_000 {
+            for (i, fp) in t.file_pos.iter().enumerate() {
+                if fp.place == FilePlace::Hidden {
+                    continue;
+                }
+                if !self.file_match.get(i).copied().unwrap_or(false) {
+                    continue;
+                }
+                let color = self
+                    .avg_color
+                    .get(i)
+                    .copied()
+                    .flatten()
+                    .map(|[r, g, b]| Color32::from_rgb(r, g, b))
+                    .unwrap_or(file_fallback);
+                blocks.push((fp.rect(), color));
+            }
+        }
+        MinimapModel {
+            bounds: self.map_bounds(t),
+            blocks,
+            viewport: Rect::NOTHING,
+            generation: self.minimap_generation,
+        }
+    }
+
+    /// Lower-right shared minimap overlay (M toggles; pinned flag persisted).
+    fn draw_minimap(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        // Tree gone (tab switching / reload): never paint a stale model.
+        if !self.minimap_on || self.tree.is_none() {
+            return;
+        }
+        if self.minimap_model.is_none() {
+            let t = self.tree.take().unwrap();
+            self.minimap_model = Some(self.build_minimap_model(&t));
+            self.tree = Some(t);
+        }
+        let world_view = Rect::from_min_max(self.s2w(rect.min), self.s2w(rect.max));
+        if let Some(model) = &mut self.minimap_model {
+            model.viewport = world_view;
+        }
+        let action = minimap_ui(
+            ui,
+            rect,
+            self.minimap_model.as_ref().unwrap(),
+            &mut self.minimap_state,
+        );
+        match action {
+            MinimapAction::JumpTo(p) | MinimapAction::DragTo(p) => {
+                self.anim = None;
+                let z = self.cam.z;
+                self.cam.offset = Vec2::new(rect.center().x - p.x * z, rect.center().y - p.y * z);
+                self.grid_fade_armed = true;
+            }
+            MinimapAction::Zoom {
+                world_point,
+                factor,
+            } => {
+                let screen = self.w2s(world_point);
+                self.zoom_at(screen, factor);
+            }
+            MinimapAction::None => {}
+        }
     }
 
     /// Lower-left canvas mini menu (shared chrome): ⛶ full-screen toggle +
@@ -4099,26 +4702,33 @@ impl AtlasApp {
                     p.sub,
                 );
             }
-            // Wire to the next card (or the map root).
-            let (nx, ny) = if i + 1 < self.upstream.len() {
+            // Wire to the next card (or the map root) — same leader rules as
+            // the scanned tree (orthogonal / bezier via [`Self::route_edge`]).
+            let stroke_w = (1.3 * z).max(1.0);
+            let (port, tgt) = if i + 1 < self.upstream.len() {
                 let depth_n = ((i + 1) as f32) - n;
-                if v {
+                let (nx, ny) = if v {
                     (depth_n * step, root.y)
                 } else {
                     (root.x, depth_n * step + root.h / 2.0)
+                };
+                if v {
+                    (Pos2::new(x + DIR_W, y), Pos2::new(nx, ny))
+                } else {
+                    (
+                        Pos2::new(x + DIR_W / 2.0, y + DIR_H / 2.0),
+                        Pos2::new(nx + DIR_W / 2.0, ny - DIR_H / 2.0),
+                    )
                 }
             } else if v {
-                (root.x, root.y)
+                (Pos2::new(x + DIR_W, y), Pos2::new(root.x, root.y))
             } else {
-                (root.x, root.y)
+                (
+                    Pos2::new(x + DIR_W / 2.0, y + DIR_H / 2.0),
+                    Pos2::new(root.x + root.w / 2.0, root.y - root.h / 2.0),
+                )
             };
-            let from = self.w2s(Pos2::new(x + DIR_W, y));
-            let to = if v {
-                self.w2s(Pos2::new(nx, ny))
-            } else {
-                self.w2s(Pos2::new(nx + DIR_W / 2.0, ny - DIR_H / 2.0))
-            };
-            painter.line_segment([from, to], Stroke::new((1.2 * z).max(1.0), p.line));
+            self.route_edge(painter, port, tgt, None, v, stroke_w);
         }
     }
 
@@ -4515,8 +5125,12 @@ impl AtlasApp {
                     ui.separator();
                     if n == 1 {
                         if ui.button("Open").clicked() {
-                            if let Some(e) = self.entry_by_rel(&rels[0]) {
+                            let opened = self.entry_by_rel(&rels[0]).map(|e| {
                                 Self::open_path(&e.path);
+                                e.name.clone()
+                            });
+                            if let Some(name) = opened {
+                                self.push_history("atlas.open_selected", Some(name));
                             }
                             close = true;
                         }
@@ -4528,6 +5142,7 @@ impl AtlasApp {
                         }
                         if ui.button("Details").clicked() {
                             self.detail = Some(id);
+                            self.push_history("app.properties", None);
                             close = true;
                         }
                     }
@@ -4947,6 +5562,75 @@ impl AtlasApp {
         }
     }
 
+    /// Fallback Ctrl+F surface: a small floating search field bound to the
+    /// same filter query, shown when the Filters dock panel isn't open.
+    fn search_popup(&mut self, ctx: &egui::Context) {
+        if !self.search_popup_open {
+            return;
+        }
+        let field_id = egui::Id::new("atlas_search_popup_field");
+        let anchor = self.canvas_rect.center_top() + Vec2::new(0.0, 14.0);
+        let mut close = false;
+        egui::Area::new(egui::Id::new("atlas_search_popup"))
+            .pivot(Align2::CENTER_TOP)
+            .fixed_pos(anchor)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Search").small());
+                        let resp = ui.add(
+                            egui::TextEdit::singleline(&mut self.search)
+                                .id(field_id)
+                                .hint_text("Search names…")
+                                .desired_width(220.0),
+                        );
+                        if resp.changed() {
+                            self.filter_dirty = true;
+                        }
+                        if self.focus_search_field {
+                            resp.request_focus();
+                            self.focus_search_field = false;
+                        } else if resp.lost_focus() {
+                            close = true;
+                        }
+                        if ui.small_button("✕").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            });
+        if close {
+            self.search_popup_open = false;
+        }
+    }
+
+    /// Shared command-history overlay (atlas_shell::history_ui), reachable
+    /// from Advanced — Atlas keeps F2 = Assign, so there is no key for it.
+    fn draw_history_window(&mut self, ctx: &egui::Context) {
+        if !self.history_open {
+            return;
+        }
+        let mut rows: Vec<atlas_shell::history_ui::HistoryRow> = self
+            .cmd_history
+            .iter()
+            .map(|e| atlas_shell::history_ui::HistoryRow {
+                name: e.name.to_string(),
+                detail: e.detail.clone().unwrap_or_default(),
+                author: match &e.author {
+                    CmdAuthor::Human => String::new(),
+                    CmdAuthor::Agent(name) => name.clone(),
+                },
+                ago: ago_string(e.at),
+            })
+            .collect();
+        // History iterates oldest-first; the window wants newest-first.
+        rows.reverse();
+        let mut open = self.history_open;
+        atlas_shell::history_ui::history_window(ctx, &mut open, &rows);
+        self.history_open = open;
+    }
+
     fn draw_toasts(&mut self, ctx: &egui::Context) {
         self.toasts.retain(|(_, t)| t.elapsed().as_secs_f32() < 4.0);
         if self.toasts.is_empty() {
@@ -4989,6 +5673,38 @@ impl AtlasApp {
 }
 
 /// UV rect that crops a `tex_size` texture to cover `cell` (aspect-fill).
+/// Chords that keep firing while a text field has focus — matching the
+/// pre-migration gates (undo/redo/open/F11 were never typing-gated) plus the
+/// global window commands. Everything else (bare keys, Ctrl+A, Ctrl+C) stays
+/// with the focused widget.
+fn command_allowed_while_typing(id: &str) -> bool {
+    matches!(
+        id,
+        "app.undo"
+            | "app.redo"
+            | "app.open"
+            | "app.fullscreen"
+            | "app.new_tab"
+            | "app.help"
+            | "app.preferences"
+            | "canvas.search"
+    )
+}
+
+/// Relative-time label for the history overlay.
+fn ago_string(at: SystemTime) -> String {
+    let secs = at.elapsed().map(|d| d.as_secs()).unwrap_or(0);
+    if secs < 5 {
+        "just now".into()
+    } else if secs < 60 {
+        format!("{secs} s ago")
+    } else if secs < 3600 {
+        format!("{} m ago", secs / 60)
+    } else {
+        format!("{} h ago", secs / 3600)
+    }
+}
+
 fn cover_uv(tex_size: Vec2, cell: Vec2) -> Rect {
     if tex_size.x <= 0.0 || tex_size.y <= 0.0 || cell.x <= 0.0 || cell.y <= 0.0 {
         return Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));

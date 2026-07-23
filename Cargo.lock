@@ -408,6 +408,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-commands"
+version = "0.1.0"
+
+[[package]]
 name = "atlas-core"
 version = "0.1.0"
 dependencies = [
@@ -2176,6 +2180,7 @@ name = "native-file-atlas"
 version = "0.1.0"
 dependencies = [
  "atlas-ai",
+ "atlas-commands",
  "atlas-core",
  "atlas-session",
  "atlas-shell",
@@ -3269,6 +3274,7 @@ name = "slate"
 version = "0.1.0"
 dependencies = [
  "atlas-ai",
+ "atlas-commands",
  "atlas-core",
  "atlas-session",
  "atlas-shell",

@@ -77,6 +77,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
     let palette = app.palette();
     let theme = sidebar_theme(app);
     let canvas = app.canvas_rect;
+    let restore = app.dock_pins.clone();
     floating_dock(
         ctx,
         "file_atlas_tools",
@@ -84,6 +85,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         &palette,
         app.dock_side,
         &items,
+        &restore,
         |ui, id| match id {
             "filters" => basic_filters_body(app, ui, theme),
             "display" => display_settings_body(app, ui, ctx, theme),
@@ -92,14 +94,32 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
             _ => {}
         },
     );
+
+    // Persist pinned palettes across sessions.
+    if let Some(pins) = atlas_shell::dock::pinned_ids(ctx, "file_atlas_tools") {
+        if pins != app.dock_pins {
+            app.dock_pins = pins;
+            app.save_chrome_prefs();
+        }
+    }
 }
 
 fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    // Stable id: Ctrl+F (`canvas.search`) targets this field; Esc while it
+    // has focus hands focus back to the canvas (see `hotkeys`).
     let search = egui::TextEdit::singleline(&mut app.search)
+        .id(Id::new("atlas_filters_search"))
         .hint_text("Search names…")
         .desired_width(ui.available_width());
-    if ui.add(search).changed() {
+    let resp = ui.add(search);
+    if resp.changed() {
         app.filter_dirty = true;
+    }
+    app.search_field_frame = app.frame_no;
+    if app.focus_search_field {
+        resp.request_focus();
+        app.focus_search_field = false;
+        app.search_popup_open = false;
     }
     ui.add_space(4.0);
 

@@ -9,7 +9,7 @@ use super::super::board_icons::{self, ToolIcon};
 use super::super::chrome::ToolPanel;
 use super::super::SlateApp;
 use atlas_shell::dock::{floating_dock, DockIcon, DockItem, DockItemKind};
-use atlas_shell::sidebar::{sidebar_subtle_divider, SidebarTheme, SidebarTokens};
+use atlas_shell::sidebar::{sidebar_subtle_divider, SidebarTheme};
 use eframe::egui::{self, Color32, Rect, RichText};
 use slate_doc::{GroupId, TagId, ViewKind};
 
@@ -26,6 +26,7 @@ board_dock_icon!(icon_curve, ToolIcon::Curve);
 board_dock_icon!(icon_text, ToolIcon::Text);
 board_dock_icon!(icon_grid, ToolIcon::Grid);
 board_dock_icon!(icon_snap, ToolIcon::Snap);
+board_dock_icon!(icon_colors, ToolIcon::Colors);
 
 /// The single floating toolbar: simplified board tools + tags + grid/snap.
 pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
@@ -68,7 +69,19 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
                     | BoardTool::Polyline
                     | BoardTool::BezierSpan
                     | BoardTool::Pen
+                    | BoardTool::Brush
+                    | BoardTool::Eraser
             ),
+            visible: board,
+            gap_before: false,
+        },
+        DockItem {
+            id: "tool.colors",
+            label: "Colors",
+            description: "",
+            icon: DockIcon::Custom(icon_colors),
+            kind: DockItemKind::Tool,
+            active: false,
             visible: board,
             gap_before: false,
         },
@@ -116,6 +129,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
 
     let palette = app.palette();
     let canvas = app.canvas_rect;
+    let restore = app.dock_pins.clone();
     let clicked = floating_dock(
         ctx,
         "slate_tools",
@@ -123,22 +137,48 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         &palette,
         app.dock_side,
         &items,
+        &restore,
         |ui, id| match id {
             "tool.frame" => frame_flyout(app, ui, theme),
             "tool.shapes" => shapes_flyout(app, ui, theme),
             "tool.curve" => curve_flyout(app, ui, theme),
+            "tool.colors" => colors_body(app, ui, theme),
             "tags" => tags_body(app, ui, theme),
             _ => {}
         },
     );
 
+    // Persist pinned palettes (e.g. Tags) across sessions.
+    if let Some(pins) = atlas_shell::dock::pinned_ids(ctx, "slate_tools") {
+        if pins != app.dock_pins {
+            app.dock_pins = pins;
+            app.save_chrome_prefs();
+        }
+    }
+
+    // Dock buttons dispatch the same registry commands the keyboard uses
+    // (one command surface — Art. VIII), so each click lands in the F2
+    // history and feeds Space/Enter repeat.
+    use atlas_commands::CommandId;
     match clicked {
-        Some("tool.frame") => app.board_tool = BoardTool::Frame,
-        Some("tool.shapes") => app.board_tool = BoardTool::RectShape,
-        Some("tool.curve") => app.board_tool = BoardTool::Line,
-        Some("tool.text") => app.board_tool = BoardTool::Text,
-        Some("board.grid") => app.board_show_grid = !app.board_show_grid,
-        Some("board.snap") => app.board_snap_grid = !app.board_snap_grid,
+        Some("tool.frame") => {
+            app.dispatch(ctx, CommandId("board.tool.frame"), Some("dock".into()));
+        }
+        Some("tool.shapes") => {
+            app.dispatch(ctx, CommandId("board.tool.rect"), Some("dock".into()));
+        }
+        Some("tool.curve") => {
+            app.dispatch(ctx, CommandId("board.tool.line"), Some("dock".into()));
+        }
+        Some("tool.text") => {
+            app.dispatch(ctx, CommandId("board.tool.text"), Some("dock".into()));
+        }
+        Some("board.grid") => {
+            app.dispatch(ctx, CommandId("board.grid"), Some("dock".into()));
+        }
+        Some("board.snap") => {
+            app.dispatch(ctx, CommandId("board.snap_grid"), Some("dock".into()));
+        }
         _ => {}
     }
 }
@@ -161,7 +201,7 @@ fn frame_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         .clicked()
         {
             app.board_frame_preset = preset;
-            app.board_tool = BoardTool::Frame;
+            app.set_board_tool(BoardTool::Frame);
         }
     }
     if board_icons::tool_menu_row(
@@ -175,7 +215,7 @@ fn frame_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     )
     .clicked()
     {
-        app.board_tool = BoardTool::Frame;
+        app.set_board_tool(BoardTool::Frame);
         app.board_frame_custom
             .get_or_insert_with(|| FrameCustomDraft {
                 w: "612".into(),
@@ -197,7 +237,7 @@ fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         )
         .clicked()
         {
-            app.board_tool = shape;
+            app.set_board_tool(shape);
         }
     }
 }
@@ -206,6 +246,8 @@ fn curve_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     for curve in [
         BoardTool::Line,
         BoardTool::Pen,
+        BoardTool::Brush,
+        BoardTool::Eraser,
         BoardTool::Arc,
         BoardTool::Polyline,
         BoardTool::BezierSpan,
@@ -213,6 +255,8 @@ fn curve_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         let hotkey = match curve {
             BoardTool::Line => Some(curve.hotkey()),
             BoardTool::Pen => Some("P"),
+            BoardTool::Brush => Some("B"),
+            BoardTool::Eraser => Some("E"),
             _ => None,
         };
         let resp = board_icons::tool_menu_row(
@@ -225,9 +269,63 @@ fn curve_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             theme.sub,
         );
         if resp.clicked() {
-            app.board_tool = curve;
+            app.set_board_tool(curve);
         }
     }
+}
+
+/// Colors panel: the fg/bg chip pair (click a chip = the standard color
+/// picker), swap (X) and reset (D) — same commands the keyboard drives.
+fn colors_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    use super::super::board::{rgba32, to_rgba};
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Ink").small().color(theme.sub));
+        let mut fg = rgba32(app.board_colors.fg);
+        if ui.color_edit_button_srgba(&mut fg).changed() {
+            app.board_colors.fg = to_rgba(fg);
+            app.save_board_colors();
+        }
+        ui.label(RichText::new("Paper").small().color(theme.sub));
+        let mut bg = rgba32(app.board_colors.bg);
+        if ui.color_edit_button_srgba(&mut bg).changed() {
+            app.board_colors.bg = to_rgba(bg);
+            app.save_board_colors();
+        }
+    });
+    ui.horizontal(|ui| {
+        if ui
+            .small_button("Swap")
+            .on_hover_text("Swap foreground ⇄ background (X)")
+            .clicked()
+        {
+            let ctx = ui.ctx().clone();
+            app.dispatch(
+                &ctx,
+                atlas_commands::CommandId("board.colors.swap"),
+                Some("dock".into()),
+            );
+        }
+        if ui
+            .small_button("Reset")
+            .on_hover_text("Reset to the theme ink/paper (D)")
+            .clicked()
+        {
+            let ctx = ui.ctx().clone();
+            app.dispatch(
+                &ctx,
+                atlas_commands::CommandId("board.colors.default"),
+                Some("dock".into()),
+            );
+        }
+    });
+    ui.label(
+        RichText::new(format!(
+            "Brush {:.1}u · Eraser {:.1}u — [ and ] step widths",
+            app.brush_width, app.eraser_width
+        ))
+        .small()
+        .color(theme.sub),
+    );
 }
 
 fn tags_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {

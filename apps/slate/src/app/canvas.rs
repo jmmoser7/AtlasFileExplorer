@@ -258,6 +258,37 @@ impl SlateApp {
         }
     }
 
+    /// The active Grid/Venn layout, recomputed on demand (cheap, and only
+    /// runs on key events — search fly-to, Tab cycling, palette fit).
+    fn layout_now(&self) -> Option<Layout> {
+        match self.doc().view.active_view {
+            ViewKind::Grid => Some(self.grid_layout()),
+            ViewKind::Venn => Some(self.venn_layout_now()),
+            _ => None,
+        }
+    }
+
+    /// World rect of one item in the current Grid/Venn layout.
+    pub(crate) fn layout_rect_of_item(&self, id: ItemId) -> Option<Rect> {
+        self.layout_now()?
+            .placed
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.rect)
+    }
+
+    /// Items in layout (reading) order for Tab cycling.
+    pub(crate) fn layout_item_order(&self) -> Vec<ItemId> {
+        self.layout_now()
+            .map(|l| l.placed.iter().map(|p| p.id).collect())
+            .unwrap_or_default()
+    }
+
+    /// Bounds of the current Grid/Venn layout (palette `canvas.fit`).
+    pub(crate) fn layout_bounds_now(&self) -> Option<Rect> {
+        self.layout_now().map(|l| l.bounds)
+    }
+
     // ----- interaction ----------------------------------------------------------
 
     pub(crate) fn fit_view(&mut self, bounds: Rect) {
@@ -283,6 +314,100 @@ impl SlateApp {
 
     pub(crate) fn bump_grid_fade(&mut self, time: f64) {
         self.tab_mut().grid_fade.bump(time);
+    }
+
+    /// Whether the Z zoom tool is live for the active view (Board / Grid /
+    /// Venn — Lens keeps its own camera keys and ignores Z).
+    pub(crate) fn zoom_tool_active(&self) -> bool {
+        self.zoom_armed
+            && matches!(
+                self.doc().view.active_view,
+                ViewKind::Board | ViewKind::Grid | ViewKind::Venn
+            )
+    }
+
+    /// Z zoom tool frame step, shared by the Board and Grid/Venn canvases:
+    /// while armed, the primary button belongs to the tool — click = ×1.5 at
+    /// the pointer, Alt+click = ÷1.5, drag = zoom-window marquee (release
+    /// fits that world rect through the existing fit plumbing). Right-drag
+    /// still pans. Camera-only, never journaled. Returns whether the tool is
+    /// live (callers then skip their own primary-button semantics).
+    /// `suppress` blocks new marquees while another gesture owns the primary
+    /// button (Space pan, hand pan).
+    pub(crate) fn zoom_tool_frame(
+        &mut self,
+        ui: &egui::Ui,
+        resp: &egui::Response,
+        rect: Rect,
+        suppress: bool,
+    ) -> bool {
+        if !self.zoom_tool_active() {
+            return false;
+        }
+        let pointer = ui.ctx().pointer_latest_pos();
+        let now = ui.input(|i| i.time);
+
+        if resp.drag_started_by(egui::PointerButton::Primary) && !suppress {
+            self.zoom_marquee = ui.input(|i| i.pointer.press_origin()).or(pointer);
+        }
+        // Release fits the dragged world rect (tiny drags do nothing).
+        if resp.drag_stopped_by(egui::PointerButton::Primary) {
+            if let (Some(a), Some(p)) = (self.zoom_marquee.take(), pointer) {
+                let r = Rect::from_two_pos(a, p);
+                if r.width() > 8.0 && r.height() > 8.0 {
+                    let world = Rect::from_min_max(
+                        self.screen_to_world(r.min),
+                        self.screen_to_world(r.max),
+                    );
+                    self.fit_view(world);
+                    self.bump_grid_fade(now);
+                }
+            }
+        }
+        // Click steps the zoom at the pointer; Alt inverts.
+        if resp.clicked() {
+            if let Some(p) = pointer {
+                let alt = ui.input(|i| i.modifiers.alt);
+                self.zoom_at(p, if alt { 1.0 / 1.5 } else { 1.5 });
+                self.bump_grid_fade(now);
+            }
+        }
+
+        // Marquee preview on the foreground layer (above canvas content).
+        let palette = self.palette();
+        let fg = ui.ctx().layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("slate_zoom_tool"),
+        ));
+        if let (Some(a), Some(p)) = (self.zoom_marquee, pointer) {
+            let r = Rect::from_two_pos(a, p);
+            fg.rect_filled(r, 0.0, palette.select.gamma_multiply(0.10));
+            fg.rect_stroke(
+                r,
+                0.0,
+                egui::Stroke::new(1.0, palette.select),
+                egui::StrokeKind::Inside,
+            );
+        }
+        if resp.hovered() || self.zoom_marquee.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        // Mode hint chip (lower-left, like Atlas).
+        egui::Area::new(egui::Id::new("slate_zoom_tool_chip"))
+            .fixed_pos(rect.left_bottom() + egui::Vec2::new(14.0, -66.0))
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(
+                            "Zoom (Z) — click in · Alt+click out · drag window · Esc exits",
+                        )
+                        .small(),
+                    );
+                });
+            });
+        true
     }
 
     pub(crate) fn flush_grid_fade_armed(&mut self, time: f64) {
@@ -346,6 +471,10 @@ impl SlateApp {
         let now = ui.ctx().input(|i| i.time);
         let mut canvas_nav = false;
 
+        // Z zoom tool: while armed, the primary button belongs to the tool
+        // (click = step, drag = zoom window); right-drag still pans below.
+        let zoom_tool = self.zoom_tool_frame(ui, &resp, rect, false);
+
         // --- camera: zoom / pan / turbo pan ---
         if resp.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.raw_scroll_delta.y);
@@ -360,7 +489,13 @@ impl SlateApp {
                 }
             }
         }
+        // Typing gate: the Ctrl+F search field (and inline tag editor) must
+        // not trigger fit/zoom while the user types letters into them.
+        let wants_kb = ui.ctx().wants_keyboard_input();
         ui.input(|i| {
+            if wants_kb {
+                return;
+            }
             if i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals) {
                 self.zoom_at(rect.center(), 1.2);
             }
@@ -385,7 +520,7 @@ impl SlateApp {
             // canvas center, so convert and invert.
             self.tab_mut().cam.offset = old - (cam_offset_tmp - old) / z;
             canvas_nav = true;
-        } else if resp.dragged_by(egui::PointerButton::Primary)
+        } else if (resp.dragged_by(egui::PointerButton::Primary) && !zoom_tool)
             || resp.dragged_by(egui::PointerButton::Secondary)
         {
             let delta = resp.drag_delta();
@@ -413,8 +548,8 @@ impl SlateApp {
                 .map(|pl| pl.id)
         });
 
-        // --- clicks ---
-        if resp.clicked() {
+        // --- clicks (the armed zoom tool owns the primary button) ---
+        if resp.clicked() && !zoom_tool {
             match hovered_item {
                 Some(id) => {
                     let ctrl = ui.input(|i| i.modifiers.ctrl);
@@ -430,7 +565,7 @@ impl SlateApp {
                 None => self.selection.clear(),
             }
         }
-        if resp.double_clicked() {
+        if resp.double_clicked() && !zoom_tool {
             if let Some(id) = hovered_item {
                 if let Some(path) = self.doc().item(id).map(|it| it.path.clone()) {
                     self.open_item_path(&path);
@@ -459,8 +594,46 @@ impl SlateApp {
             }
         }
 
+        // Shared minimap overlay (M): Grid/Venn model = the layout rects.
+        if self.minimap_on {
+            let model = self.grid_minimap_model(&layout, &palette);
+            self.show_minimap(ui, rect, model);
+        }
+
         self.mini_menu(ui.ctx(), rect, Some(layout.bounds));
         self.action_menu(ui.ctx(), &palette);
+    }
+
+    /// Minimap model over an already-computed Grid/Venn layout. The
+    /// generation folds every rect so tag/layout changes rebuild the cached
+    /// texture (the fold is cheap; rasterizing is what's gated).
+    fn grid_minimap_model(
+        &self,
+        layout: &Layout,
+        palette: &atlas_shell::theme::Palette,
+    ) -> atlas_shell::minimap::MinimapModel {
+        let mut generation: u64 = layout.placed.len() as u64;
+        let mut blocks = Vec::with_capacity(layout.placed.len() + layout.venn_sets.len());
+        for (_, _, color, c) in &layout.venn_sets {
+            let accent = Color32::from_rgb(color[0], color[1], color[2]);
+            blocks.push((
+                Rect::from_center_size(Pos2::new(c.x, c.y), Vec2::splat(c.r * 2.0)),
+                accent.gamma_multiply(0.25),
+            ));
+        }
+        for pl in &layout.placed {
+            blocks.push((pl.rect, palette.portal.gamma_multiply(0.85)));
+            generation = generation
+                .rotate_left(7)
+                .wrapping_add(pl.rect.min.x.to_bits() as u64)
+                .wrapping_add((pl.rect.min.y.to_bits() as u64) << 1);
+        }
+        atlas_shell::minimap::MinimapModel {
+            bounds: layout.bounds,
+            blocks,
+            viewport: self.camera_world_rect(),
+            generation: generation.wrapping_add(self.tab().id),
+        }
     }
 
     /// Lower-left canvas mini menu (shared chrome): ⛶ full-screen toggle +
@@ -495,6 +668,7 @@ impl SlateApp {
 
     /// Cover Flow home — recent workbooks (same shared `HomeScreen` as Atlas).
     pub(crate) fn home_screen(&mut self, ui: &mut egui::Ui) {
+        self.ensure_home_cover_bakes();
         let palette = self.palette();
         match self.home.show(ui, &palette, &self.recents) {
             Some(atlas_shell::home::HomeScreenAction::New) => self.home_new_workspace(),
@@ -628,6 +802,9 @@ impl SlateApp {
         let z = self.tab().cam.z;
         let visible = self.canvas_rect.expand(80.0);
         let ppp = ui.ctx().pixels_per_point();
+        // Ctrl+F: non-matching thumbnails dim to ~35% — a paint-time tint
+        // only, mirroring the board's transient match set.
+        let search_dim = self.search_item_matches().cloned();
 
         for pl in &layout.placed {
             let srect = self.world_rect_to_screen(pl.rect);
@@ -637,6 +814,10 @@ impl SlateApp {
             let Some(item) = self.doc().item(pl.id) else {
                 continue;
             };
+            let dim = search_dim
+                .as_ref()
+                .is_some_and(|matches| !matches.contains(&pl.id));
+            let fade = if dim { 0.35 } else { 1.0 };
             let name = item.file_name.clone();
             let missing = link_status(item) == LinkStatus::Missing;
             let selected = self.selection.contains(&pl.id);
@@ -652,9 +833,11 @@ impl SlateApp {
                     let center = srect.center();
                     let r = r_world * z;
                     match &tex {
-                        Some(t) => circle_image(painter, t, center, r),
+                        Some(t) => {
+                            circle_image(painter, t, center, r, Color32::WHITE.gamma_multiply(fade))
+                        }
                         None => {
-                            painter.circle_filled(center, r, palette.thumb_bg);
+                            painter.circle_filled(center, r, palette.thumb_bg.gamma_multiply(fade));
                         }
                     }
                     let ring = if selected {
@@ -662,7 +845,7 @@ impl SlateApp {
                     } else if is_hovered {
                         Stroke::new(1.5, palette.ink.gamma_multiply(0.7))
                     } else {
-                        Stroke::new(1.0, palette.border_strong)
+                        Stroke::new(1.0, palette.border_strong.gamma_multiply(fade))
                     };
                     painter.circle_stroke(center, r, ring);
                     if missing {
@@ -679,7 +862,7 @@ impl SlateApp {
                     } else {
                         palette.card
                     };
-                    painter.rect_filled(srect, CornerRadius::same(4), fill);
+                    painter.rect_filled(srect, CornerRadius::same(4), fill.gamma_multiply(fade));
                     let stroke = if selected {
                         Stroke::new(2.0, palette.select)
                     } else {
@@ -703,14 +886,14 @@ impl SlateApp {
                                 t.id(),
                                 draw,
                                 Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                                Color32::WHITE,
+                                Color32::WHITE.gamma_multiply(fade),
                             );
                         }
                         None => {
                             painter.rect_filled(
                                 thumb_rect,
                                 CornerRadius::same(3),
-                                palette.thumb_bg,
+                                palette.thumb_bg.gamma_multiply(fade),
                             );
                             let ext = std::path::Path::new(&name)
                                 .extension()
@@ -886,8 +1069,15 @@ impl SlateApp {
 }
 
 /// Paint a texture cropped to a circle (triangle-fan mesh with circular UVs).
-/// Non-square thumbnails are center-cropped.
-fn circle_image(painter: &egui::Painter, tex: &egui::TextureHandle, center: Pos2, r: f32) {
+/// Non-square thumbnails are center-cropped. `tint` is the vertex color
+/// (white = unmodified; search dimming fades it).
+fn circle_image(
+    painter: &egui::Painter,
+    tex: &egui::TextureHandle,
+    center: Pos2,
+    r: f32,
+    tint: Color32,
+) {
     let size = tex.size_vec2();
     let (uv_rx, uv_ry) = if size.x >= size.y {
         (0.5 * size.y / size.x, 0.5)
@@ -899,7 +1089,7 @@ fn circle_image(painter: &egui::Painter, tex: &egui::TextureHandle, center: Pos2
     mesh.vertices.push(egui::epaint::Vertex {
         pos: center,
         uv: Pos2::new(0.5, 0.5),
-        color: Color32::WHITE,
+        color: tint,
     });
     for i in 0..=n {
         let a = i as f32 / n as f32 * std::f32::consts::TAU;
@@ -907,7 +1097,7 @@ fn circle_image(painter: &egui::Painter, tex: &egui::TextureHandle, center: Pos2
         mesh.vertices.push(egui::epaint::Vertex {
             pos: center + Vec2::new(cos * r, sin * r),
             uv: Pos2::new(0.5 + cos * uv_rx, 0.5 + sin * uv_ry),
-            color: Color32::WHITE,
+            color: tint,
         });
     }
     for i in 1..=n {

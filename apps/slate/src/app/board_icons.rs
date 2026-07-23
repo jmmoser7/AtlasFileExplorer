@@ -26,6 +26,12 @@ pub enum ToolIcon {
     Grid,
     Snap,
     Align,
+    Brush,
+    Eraser,
+    Eyedropper,
+    Sticky,
+    DirectSelect,
+    Colors,
 }
 
 impl ToolIcon {
@@ -50,6 +56,12 @@ impl ToolIcon {
             ToolIcon::Grid => "Grid",
             ToolIcon::Snap => "Snap to grid",
             ToolIcon::Align => "Align",
+            ToolIcon::Brush => "Brush",
+            ToolIcon::Eraser => "Eraser",
+            ToolIcon::Eyedropper => "Eyedropper",
+            ToolIcon::Sticky => "Sticky note",
+            ToolIcon::DirectSelect => "Direct select",
+            ToolIcon::Colors => "Colors",
         }
     }
 }
@@ -245,6 +257,76 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
             let bottom = Rect::from_min_max(pt(r, 0.30, 0.58), pt(r, 0.64, 0.76));
             painter.rect_stroke(top, 1.0, s, egui::StrokeKind::Inside);
             painter.rect_stroke(bottom, 1.0, s, egui::StrokeKind::Inside);
+        }
+        ToolIcon::Brush => {
+            // Handle + ferrule + expressive tip stroke.
+            painter.line_segment([pt(r, 0.72, 0.14), pt(r, 0.44, 0.50)], s);
+            painter.line_segment([pt(r, 0.80, 0.22), pt(r, 0.52, 0.58)], s);
+            painter.line_segment([pt(r, 0.44, 0.50), pt(r, 0.52, 0.58)], s);
+            painter.add(egui::Shape::convex_polygon(
+                vec![pt(r, 0.44, 0.50), pt(r, 0.52, 0.58), pt(r, 0.24, 0.82)],
+                color,
+                Stroke::NONE,
+            ));
+        }
+        ToolIcon::Eraser => {
+            // Tilted eraser block over a swept line.
+            let a = pt(r, 0.34, 0.24);
+            let b = pt(r, 0.62, 0.16);
+            let c = pt(r, 0.82, 0.48);
+            let d = pt(r, 0.54, 0.58);
+            painter.add(egui::Shape::closed_line(vec![a, b, c, d], s));
+            painter.line_segment([pt(r, 0.42, 0.40), pt(r, 0.66, 0.32)], s);
+            painter.line_segment([pt(r, 0.16, 0.80), pt(r, 0.70, 0.80)], s);
+        }
+        ToolIcon::Eyedropper => {
+            // Dropper body + tip + sample drop.
+            painter.line_segment([pt(r, 0.74, 0.16), pt(r, 0.36, 0.58)], s);
+            painter.line_segment([pt(r, 0.66, 0.10), pt(r, 0.86, 0.30)], s);
+            painter.add(egui::Shape::convex_polygon(
+                vec![pt(r, 0.36, 0.58), pt(r, 0.44, 0.66), pt(r, 0.20, 0.84)],
+                color,
+                Stroke::NONE,
+            ));
+        }
+        ToolIcon::Sticky => {
+            // Square note with a dog-eared corner.
+            painter.add(egui::Shape::line(
+                vec![
+                    pt(r, 0.18, 0.18),
+                    pt(r, 0.82, 0.18),
+                    pt(r, 0.82, 0.60),
+                    pt(r, 0.60, 0.82),
+                    pt(r, 0.18, 0.82),
+                    pt(r, 0.18, 0.18),
+                ],
+                s,
+            ));
+            painter.line_segment([pt(r, 0.82, 0.60), pt(r, 0.60, 0.60)], s);
+            painter.line_segment([pt(r, 0.60, 0.60), pt(r, 0.60, 0.82)], s);
+        }
+        ToolIcon::DirectSelect => {
+            // Hollow pointer (the white-arrow convention).
+            let tip = pt(r, 0.30, 0.14);
+            painter.add(egui::Shape::closed_line(
+                vec![
+                    tip,
+                    pt(r, 0.30, 0.70),
+                    pt(r, 0.44, 0.56),
+                    pt(r, 0.56, 0.82),
+                    pt(r, 0.64, 0.76),
+                    pt(r, 0.52, 0.52),
+                    pt(r, 0.70, 0.52),
+                ],
+                s,
+            ));
+        }
+        ToolIcon::Colors => {
+            // Overlapping fg/bg swatches.
+            let back = Rect::from_min_max(pt(r, 0.38, 0.38), pt(r, 0.84, 0.84));
+            painter.rect_stroke(back, 1.5, s, egui::StrokeKind::Inside);
+            let front = Rect::from_min_max(pt(r, 0.16, 0.16), pt(r, 0.62, 0.62));
+            painter.rect_filled(front, 1.5, color);
         }
     }
 }

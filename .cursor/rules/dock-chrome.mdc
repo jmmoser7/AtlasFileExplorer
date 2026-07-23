@@ -20,7 +20,15 @@ Apps only supply `DockItem` lists and panel bodies.
   `dashboard_describe_delay` — no hard show/hide layout jumps.
 - **Tool / Dashboard body preview**: opens **on-icon** while hovering (not in
   the centered stack). Ease-in via `panel_open_duration` + `ease_out_cubic`.
+  Previews survive the pointer's travel into the panel; they retire after
+  `close_delay` once abandoned, never mid-flight.
 - **Pinned panels only** join the centered stack layout.
+
+## Persistence
+
+Pinned panels are persistent palettes: outside clicks / Escape never unpin
+(only re-clicking the icon does), and pins persist across sessions via
+`floating_dock`'s `restore_pins` + `dock::pinned_ids` + `ChromePrefs`.
 
 ## Motion
 

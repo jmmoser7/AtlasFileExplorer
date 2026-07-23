@@ -11,6 +11,7 @@ ui-tuner = ["atlas-shell/ui-tuner"]
 [dependencies]
 atlas-core = { workspace = true }
 atlas-shell = { workspace = true }
+atlas-commands = { workspace = true }
 atlas-session = { workspace = true }
 atlas-ai = { workspace = true }
 slate-doc = { workspace = true }

@@ -33,7 +33,13 @@ fn fit_xf(frame: WorldRect, screen: Rect) -> BoardXf {
 impl SlateApp {
     /// Enter presentation mode, optionally starting at a specific frame.
     pub fn start_present(&mut self, from_frame: Option<NodeId>) {
-        let frames = self.doc().scene.frames_in_order();
+        let frames: Vec<_> = self
+            .doc()
+            .scene
+            .frames_in_order()
+            .into_iter()
+            .filter(|f| !f.hidden)
+            .collect();
         if frames.is_empty() {
             self.toast("No frames to present — draw one with the Frame tool (F)");
             return;
@@ -54,7 +60,13 @@ impl SlateApp {
     }
 
     fn present_switch(&mut self, new_idx: usize) {
-        let frames = self.doc().scene.frames_in_order();
+        let frames: Vec<_> = self
+            .doc()
+            .scene
+            .frames_in_order()
+            .into_iter()
+            .filter(|f| !f.hidden)
+            .collect();
         let Some(p) = &self.presenting else { return };
         if new_idx == p.idx || new_idx >= frames.len() {
             return;
@@ -72,11 +84,13 @@ impl SlateApp {
         if self.presenting.is_none() {
             return;
         }
+        // Hidden frames are not slides (scene-flags semantics matrix).
         let frames: Vec<(NodeId, WorldRect)> = self
             .doc()
             .scene
             .frames_in_order()
             .iter()
+            .filter(|f| !f.hidden)
             .map(|f| (f.id, f.rect))
             .collect();
         if frames.is_empty() {
@@ -161,6 +175,8 @@ impl SlateApp {
         painter.rect_filled(screen, 0.0, Color32::from_rgb(0x11, 0x11, 0x13));
 
         let frame_node = self.doc().scene.node(frame_id).cloned();
+        // Hidden members are excluded; connectors never join slides (they
+        // ignore frame membership — connectors spec).
         let members: Vec<slate_doc::Node> = {
             let member_ids = self.doc().scene.members_of(frame_id);
             self.doc()
@@ -168,6 +184,9 @@ impl SlateApp {
                 .nodes
                 .iter()
                 .filter(|n| member_ids.contains(&n.id))
+                .filter(|n| {
+                    !n.hidden && !matches!(n.kind, slate_doc::scene::NodeKind::Connector(_))
+                })
                 .cloned()
                 .collect()
         };

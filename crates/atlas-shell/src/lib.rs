@@ -18,6 +18,9 @@
 //! - [`commands`] — command-reference table + shared canvas navigation.
 //! - [`home`] — Cover Flow launch / home surface (recent folders & workbooks).
 //! - [`recent`] — persisted MRU lists for the home surface.
+//! - [`minimap`] — cached-texture canvas minimap overlay.
+//! - [`palette`] — floating canvas command palette popup.
+//! - [`history_ui`] — read-only journal-history overlay.
 //!
 //! **Rule:** apps may decide *which* panels and commands they expose, but the
 //! rendering of chrome (colors, spacing, tab shapes, section cards) lives
@@ -28,8 +31,11 @@ pub mod commands;
 pub mod covers;
 pub mod dock;
 pub mod grid_fade;
+pub mod history_ui;
 pub mod home;
 pub mod menubar;
+pub mod minimap;
+pub mod palette;
 pub mod prefs;
 pub mod recent;
 pub mod sidebar;
