@@ -5,6 +5,88 @@ bound and why) and `ARCHITECTURE.md` (how it is built); per-app binding
 tables live in each app's `commands.rs` (`SPECS`) and render in
 **Advanced → Commands & shortcuts**.
 
+## 2026-07-23 — Tool interaction contracts (method, not code)
+
+- New project skill **`.cursor/skills/tool-contract`**: the codified
+  communication method for pinning a tool's interaction and feel before
+  building. Flow: one-line user prompt → agent research → **behavior
+  matrix** in chat (best-guess defaults, row IDs, sources) → terse
+  corrections by row ID → contract doc → golden-path tests.
+- New catalog **`docs/keymap/contracts/`**:
+  - `DIMENSIONS.md` — the **permanent matrix**: an append-only registry
+    of every behavior dimension ever used (`D01`–`D15` seeded from the
+    Line request). Stable IDs, never renumbered; per-tool matrices must
+    account for every dimension (answer, pattern reference, or `n/a`).
+    New axes discovered during any tool request are appended and persist
+    for all future requests.
+  - `PATTERNS.md` — hierarchical pattern vocabulary (L0 universal →
+    L1 object-class → L2 archetypes → L3 tool-specific) with the
+    promotion rule: a rule appearing in two contracts moves up, never
+    duplicates down.
+  - `TEMPLATE.md` — the contract template; matrix rows come from
+    `DIMENSIONS.md` in registry order.
+  - `line.md` — first worked contract (Rhino Line, status: draft).
+    Flags the gap: today's Line is a drag-only bbox shape; the contract
+    specifies a parametric two-point line with endpoint grips under the
+    new `P2.RhinoDraft` archetype.
+- **Volatile matrix canvas** — per tool request, the matrix now renders
+  as an interactive Cursor canvas beside the chat
+  (`<tool>-tool-contract.canvas.tsx`): Accept / Alter / Reject per
+  dimension, option pills for open questions, a "propose new dimension"
+  input feeding the permanent registry. Decisions persist to the canvas
+  data sidecar, which the agent reads back to update the contract.
+  First instance: `line-tool-contract`.
+- **Decisions database** — `decisions.json`: every tool × dimension
+  decision (behavior, source, confidence, verdict, date). Approved rows
+  are **precedent**: a future overlapping tool (e.g. bezier after line)
+  seeds its matrix from them at 85–95% confidence instead of re-guessing.
+  Rows flip `proposed → approved` as completion bookkeeping, alongside
+  appending user-added dimensions to `DIMENSIONS.md`.
+- **Confidence column** — every matrix row (canvas, contract, database)
+  carries a score: 100 stated by the user · 85–95 approved precedent ·
+  75–90 cataloged pattern · 60–80 source-app research · <60 guess. Open
+  questions are drawn from the lowest-confidence rows.
+- **Line contract agreed** (same day): the user accepted all 15 matrix
+  rows as proposed and resolved all four open questions (dock readouts ·
+  45° ortho · length-only numeric entry · legacy bbox lines convert to
+  parametric on load). `line.md` → Status: agreed; all 15 `decisions.json`
+  rows → approved (now precedent for arc/polyline/bezier); no new
+  dimensions proposed, so `DIMENSIONS.md` is unchanged at D01–D15.
+  `KEYMAP.md` gains the **L** binding (🟢 adopt) and the Tab
+  direction-lock note. Next step: implementation to contract (golden
+  paths GP1–GP6 become headless input-script tests).
+- **Line tool shipped to contract** (same day): new
+  `apps/slate/src/app/board_line.rs` — draft state machine (both
+  grammars, `draft.drag_threshold` disambiguation), Tab direction lock,
+  typed-length numeric entry (digits/Backspace mid-gesture, Enter
+  commits), F8 ortho (Shift inverts) + F9 grid + endpoint object snap,
+  dock length/angle readout, crosshair + lock glyph, fg-color commit as
+  one journaled Add. Committed lines are open single-segment **Path**
+  nodes, so Direct Selection, Ctrl+J join, and stroke picking work
+  unchanged (D14); selected lines show endpoint grips instead of a
+  resize bbox (D13), grip drags journal one point-edit Patch. Legacy
+  bbox lines (`ShapeKind::Line` + `flip`) migrate to parametric paths
+  on load (`Scene::migrate_legacy_lines`). Feel constants pinned in
+  `board_line::draft_tokens` (P0.6). Golden paths GP1–GP6 are headless
+  tests (`line_gp1`–`line_gp6`); GP3's expected point corrected to
+  (97,0) — the board's ortho projection convention, not a rotation.
+  `line.md` + `decisions.json` → Status: shipped; `KEYMAP.md` L row →
+  ✅ exists. Palette alias "segment" registered in SPECS.
+- **Tool-contract skill hardened** (same day): the volatile canvas's
+  "Send decisions to agent" button now dispatches `openAgent` at the
+  building conversation (focuses the working agent on the taskbar —
+  never `newComposerChat`, which lost context in a fresh chat), and
+  step 7 (Implement + pin) is explicitly not optional: a contract
+  flipping to agreed triggers implementation in the same task unless
+  the user defers it.
+- **Line contract amendments** (2026-07-24): Square end caps on draft
+  curves (`default_curve_stroke`, distinct from round expressive ink);
+  **P1.curve.create-style** — last single-node edit seeds stroke +
+  opacity on the next Line commit (`board_style.rs`); D13 extended to
+  multi-select (endpoint grips on every simple line, no per-line or
+  group bbox). Golden paths GP7–GP8; registry gains **D16** (create-style
+  inheritance).
+
 ## 2026-07-22 — P1 delivery
 
 ### New crate

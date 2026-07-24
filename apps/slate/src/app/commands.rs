@@ -375,7 +375,7 @@ pub static SPECS: &[CommandSpec] = &[
         Some(Chord::bare(Key::L)),
         Repeat::Repeatable,
         BOARD,
-        &[],
+        &["segment"],
     ),
     spec(
         "board.tool.text",

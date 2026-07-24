@@ -22,7 +22,8 @@
 //!   gesture start).
 
 use super::{
-    board_crop, board_handles, board_icons, board_path, board_snap, model3d, SlateApp, ThumbState,
+    board_crop, board_handles, board_icons, board_line, board_path, board_snap, model3d, SlateApp,
+    ThumbState,
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
@@ -247,6 +248,12 @@ pub enum BoardDrag {
     },
     /// Rubber-band drawing a new node (not yet in the scene).
     Draw { start_world: Pos2, tool: BoardTool },
+    /// Line tool press (contracts/line.md). `started` = this press placed
+    /// the first point — release applies the click-vs-drag rule (D04).
+    LineDraw { started: bool },
+    /// Dragging an endpoint grip of a selected simple line (0 = start,
+    /// 1 = end). Journals one point-edit Patch on release (D13/D14).
+    LineGrip { id: NodeId, before: Node, end: u8 },
     /// Freehand pen stroke (world-space samples).
     FreehandPen { points: Vec<Pos2>, last: Pos2 },
     /// Freehand brush stroke (fg color / brush width; tool stays armed).
@@ -365,6 +372,8 @@ impl SlateApp {
             self.direct.node = None;
             self.direct.anchors.clear();
         }
+        // Any tool switch (including re-arming L) restarts the line draft.
+        self.line_draft = None;
         self.board_tool = tool;
     }
 
@@ -424,6 +433,9 @@ impl SlateApp {
         }
         self.last_board_edit = Some((first, Instant::now()));
         self.note_scene_change();
+        if afters.len() == 1 {
+            self.note_last_style(&afters[0]);
+        }
     }
 
     /// Insert new nodes as one undo group. Returns their ids.
@@ -1763,12 +1775,45 @@ impl SlateApp {
             self.wire_grips = None;
         }
 
+        // --- Line tool pointer path (D03/D04) ---
+        // Click-move-click never becomes an egui drag, so press/release must
+        // not wait for drag_started/drag_stopped. Travel on the *first*
+        // press only disambiguates click vs drag grammar.
+        let line_pointer = self.board_tool == BoardTool::Line
+            && !space
+            && !panning
+            && !zoom_tool
+            && !model_toolbar_captures
+            && resp.hovered();
+        if line_pointer {
+            let mods = ui.input(|i| i.modifiers);
+            if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {
+                if let Some(w) = wp {
+                    let started = self.line_begin(w, mods.shift);
+                    self.board_drag = Some(BoardDrag::LineDraw { started });
+                }
+            }
+            if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
+                if let Some(w) = wp {
+                    self.line_hover(w, mods.shift);
+                }
+            }
+            if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+                if let Some(w) = wp {
+                    if let Some(BoardDrag::LineDraw { started }) = self.board_drag.take() {
+                        self.line_release(w, started, mods.shift);
+                        self.note_scene_change();
+                    }
+                }
+            }
+        }
+
         // --- gesture start ---
         // Hit-test at the pointer *press origin*: by the time egui's drag
         // threshold fires, a fast drag has often already left the tiny
         // handle, which used to degrade corner scaling into a node move.
         if resp.drag_started_by(egui::PointerButton::Primary) && !space && !panning && !zoom_tool {
-            if !model_toolbar_captures {
+            if !model_toolbar_captures && self.board_tool != BoardTool::Line {
                 let origin = ui.input(|i| i.pointer.press_origin()).or(pointer);
                 if let Some(p) = origin {
                     let mods = ui.input(|i| i.modifiers);
@@ -1793,7 +1838,8 @@ impl SlateApp {
         }
 
         // --- gesture end ---
-        if resp.drag_stopped_by(egui::PointerButton::Primary) {
+        if resp.drag_stopped_by(egui::PointerButton::Primary) && self.board_tool != BoardTool::Line
+        {
             if let Some(w) = wp {
                 let mods = ui.input(|i| i.modifiers);
                 self.end_gesture(w, pointer, mods);
@@ -1830,6 +1876,19 @@ impl SlateApp {
         if resp.double_clicked() && !zoom_tool {
             if let Some(w) = wp {
                 self.board_double_click(w);
+            }
+        }
+
+        // Line tool: crosshair while armed (D10) and the constraint-resolved
+        // rubber-band cursor on plain hover (a live press updates through
+        // update_gesture instead).
+        if self.board_tool == BoardTool::Line && resp.hovered() && !panning && !zoom_tool {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+            if self.board_drag.is_none() {
+                if let Some(w) = wp {
+                    let shift = ui.input(|i| i.modifiers.shift);
+                    self.line_hover(w, shift);
+                }
             }
         }
         let secondary = resp.secondary_clicked() && !self.turbo_pan.should_suppress_context_menu();
@@ -1905,9 +1964,15 @@ impl SlateApp {
                         .scene
                         .node(id)
                         // Connectors have no rect handles — endpoint dots
-                        // (detach) are their only affordance.
-                        .filter(|n| !matches!(n.kind, NodeKind::Connector(_)))
+                        // (detach) are their only affordance. Simple lines
+                        // expose endpoint grips instead of a bbox (D13).
+                        .filter(|n| {
+                            !matches!(n.kind, NodeKind::Connector(_))
+                                && !Self::node_uses_curve_grips(n)
+                        })
                         .map(|n| board_handles::selection_geom(&xf, n.rect, n.rotation_deg))
+                } else if self.selection_all_simple_lines() {
+                    None
                 } else {
                     self.board_group_bounds()
                         .map(|gb| board_handles::selection_geom(&xf, gb, 0.0))
@@ -1998,6 +2063,10 @@ impl SlateApp {
                         // Connectors adorn as a curve highlight + endpoint
                         // dots (draggable = detach), never rect handles.
                         self.paint_connector_selection(&painter, &xf, &n);
+                    } else if Self::node_uses_curve_grips(&n) {
+                        // Simple lines: endpoint grips only — no resize
+                        // bbox (P1.curve.grips, contract D13).
+                        self.paint_line_grips(&painter, &xf, &n, select_tint);
                     } else {
                         let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
                         board_handles::paint_selection(
@@ -2010,16 +2079,21 @@ impl SlateApp {
                 }
             }
         } else {
+            let all_simple_lines = self.selection_all_simple_lines();
             for id in self.board_sel.clone() {
                 if let Some(n) = self.doc().scene.node(id) {
-                    let outline = self.node_screen_outline(&xf, n);
-                    painter.add(egui::Shape::closed_line(
-                        outline,
-                        EStroke::new(1.5, select_tint),
-                    ));
+                    if Self::node_uses_curve_grips(n) {
+                        self.paint_line_grips(&painter, &xf, n, select_tint);
+                    } else if !matches!(n.kind, NodeKind::Connector(_)) {
+                        let outline = self.node_screen_outline(&xf, n);
+                        painter.add(egui::Shape::closed_line(
+                            outline,
+                            EStroke::new(1.5, select_tint),
+                        ));
+                    }
                 }
             }
-            if self.board_sel.len() >= 2 {
+            if self.board_sel.len() >= 2 && !all_simple_lines {
                 if let Some(gb) = self.board_group_bounds() {
                     let geom = board_handles::selection_geom(&xf, gb, 0.0);
                     board_handles::paint_selection(
@@ -2096,11 +2170,6 @@ impl SlateApp {
             let mods = ui.input(|i| i.modifiers);
             let accent = palette.accent;
             match tool {
-                BoardTool::Line => {
-                    let a = xf.w2s(*start_world);
-                    let b = xf.w2s(w);
-                    painter.line_segment([a, b], EStroke::new(1.5, accent));
-                }
                 BoardTool::Ellipse => {
                     let preview = self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
                     painter.add(egui::epaint::EllipseShape {
@@ -2133,6 +2202,16 @@ impl SlateApp {
                 }
             }
             board_path::paint_path_draft(&painter, &xf, draft, cursor, palette.accent);
+        }
+        // Line draft: rubber band in the fg color the committed stroke will
+        // use (D09) + the Tab-lock padlock beside the pointer (D10).
+        if self.board_tool == BoardTool::Line && self.line_draft.is_some() {
+            self.paint_line_draft(&painter, &xf);
+            if let Some(p) = pointer {
+                if resp.hovered() {
+                    self.paint_line_lock_glyph(&painter, p);
+                }
+            }
         }
         if let (Some(BoardDrag::FreehandPen { points, .. }), Some(w)) = (&self.board_drag, wp) {
             if !points.is_empty() {
@@ -2924,10 +3003,29 @@ impl SlateApp {
                     }
                     self.board_crop = None;
                 }
+                // Endpoint grips on a selected simple line — these replace
+                // the resize bbox entirely (P1.curve.grips, contract D13).
+                if self.board_sel.len() == 1 {
+                    let id = *self.board_sel.iter().next().unwrap();
+                    if let Some(n) = self.doc().scene.node(id).cloned() {
+                        if Self::node_uses_curve_grips(&n) {
+                            let xf = self.board_xf();
+                            if let Some(end) = self.line_grip_at(id, screen, &xf) {
+                                return Some(BoardDrag::LineGrip { id, before: n, end });
+                            }
+                        }
+                    }
+                }
                 // Resize handle on the single selection?
                 if self.board_sel.len() == 1 {
                     let id = *self.board_sel.iter().next().unwrap();
-                    if let Some(n) = self.doc().scene.node(id) {
+                    if let Some(n) = self
+                        .doc()
+                        .scene
+                        .node(id)
+                        // Simple lines have grips, never a resize bbox.
+                        .filter(|n| !Self::node_uses_curve_grips(n))
+                    {
                         let geom =
                             board_handles::selection_geom(&self.board_xf(), n.rect, n.rotation_deg);
                         if let Some(hit) = board_handles::hit_test_selection(screen, &geom) {
@@ -2953,8 +3051,9 @@ impl SlateApp {
                         }
                     }
                 }
-                // Group handles on the multi-selection bounding box.
-                if self.board_sel.len() >= 2 {
+                // Group handles on the multi-selection bounding box (never
+                // for homogeneous simple-line selections — P1.curve.grips).
+                if self.board_sel.len() >= 2 && !self.selection_all_simple_lines() {
                     if let Some(gb) = self.board_group_bounds() {
                         let geom = board_handles::selection_geom(&self.board_xf(), gb, 0.0);
                         if let Some(hit) = board_handles::hit_test_selection(screen, &geom) {
@@ -3139,7 +3238,7 @@ impl SlateApp {
                 };
                 Some(BoardDrag::BezierAnchor { press })
             }
-            BoardTool::Polyline | BoardTool::Arc => None,
+            BoardTool::Polyline | BoardTool::Arc | BoardTool::Line => None,
             tool => Some(BoardDrag::Draw {
                 start_world: world,
                 tool,
@@ -3164,6 +3263,15 @@ impl SlateApp {
         }
         if let Some(BoardDrag::BezierAnchor { press }) = &self.board_drag {
             self.bezier_anchor_move(*press, world);
+            return;
+        }
+        if matches!(self.board_drag, Some(BoardDrag::LineDraw { .. })) {
+            self.line_hover(world, mods.shift);
+            return;
+        }
+        if let Some(BoardDrag::LineGrip { id, end, .. }) = &self.board_drag {
+            let (id, end) = (*id, *end);
+            self.line_grip_update(id, end, world, mods.shift);
             return;
         }
         // Eraser scrub: accumulate strokes under the circle (removed on
@@ -3622,6 +3730,12 @@ impl SlateApp {
             Some(BoardDrag::BezierAnchor { press }) => {
                 self.bezier_anchor_release(press, world);
             }
+            Some(BoardDrag::LineDraw { started }) => {
+                self.line_release(world, started, mods.shift);
+            }
+            Some(BoardDrag::LineGrip { id, before, .. }) => {
+                self.line_grip_record(id, before);
+            }
             // Camera poses journal on lock, not per orbit gesture.
             Some(BoardDrag::ModelOrbit { .. }) => {}
             Some(BoardDrag::ModelMeasure { id, .. }) => {
@@ -3780,7 +3894,6 @@ impl SlateApp {
 
     fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
         let raw = WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
-        let flip = tool == BoardTool::Line && (raw.w < 0.0) != (raw.h < 0.0);
         let r = if tool == BoardTool::Frame && !mods.shift {
             self.frame_drag_rect(a, b)
         } else {
@@ -3835,21 +3948,6 @@ impl SlateApp {
                 flip: false,
                 path: None,
             }),
-            BoardTool::Line => NodeKind::Shape(ShapeNode {
-                shape: ShapeKind::Line,
-                fill: None,
-                stroke: slate_doc::scene::Stroke {
-                    width: 2.0,
-                    color: accent,
-                    dash: Dash::Solid,
-                    cap: StrokeCap::Butt,
-                    join: StrokeJoin::Miter,
-                    profile: WidthProfile::Uniform,
-                },
-                corner: Corner::Square,
-                flip,
-                path: None,
-            }),
             _ => {
                 self.board_tool = BoardTool::Select;
                 return;
@@ -3862,7 +3960,6 @@ impl SlateApp {
             BoardTool::Frame => "board.tool.frame",
             BoardTool::RectShape => "board.tool.rect",
             BoardTool::Ellipse => "board.tool.ellipse",
-            BoardTool::Line => "board.tool.line",
             _ => "",
         };
         if !tool_id.is_empty() {
@@ -3894,6 +3991,12 @@ impl SlateApp {
             }
             BoardTool::Polyline | BoardTool::Arc => {
                 self.path_tool_click(world);
+                return;
+            }
+            BoardTool::Line => {
+                // The whole grammar lives in the gesture path (press /
+                // release); the click event must not fall through to
+                // selection.
                 return;
             }
             BoardTool::Brush => {

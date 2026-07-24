@@ -1,0 +1,127 @@
+{
+  "_about": "Approved-decision database for tool interaction contracts. One entry per tool x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new tool (same archetype / object class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<tool>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
+  "updated": "2026-07-24",
+  "tools": {
+    "line": {
+      "status": "shipped",
+      "shipped": "2026-07-23",
+      "reference": "Rhino Line",
+      "inherits": ["P0.*", "P1.node", "P1.curve", "P2.RhinoDraft"],
+      "canvas": "line-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "L key; palette: type 'line' + Enter; tools-rail icon; Space/Enter re-arms when Line was the last command (P0.4/P0.7).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D02": {
+          "behavior": "One-shot: commit returns to Select (P2.RhinoDraft.oneshot).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D03": {
+          "behavior": "Armed -> FirstPoint -> SecondPoint -> Commit. Both grammars commit identically: click-move-click and press-drag-release (P2.RhinoDraft.gesture).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D04": {
+          "behavior": "Cursor travel > draft.drag_threshold (4 px) before release = drag grammar; otherwise click grammar.",
+          "source": "research",
+          "confidence": 75,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D05": {
+          "behavior": "Held Shift inverts the F8 ortho state for the pending segment, 45-degree steps (P2.RhinoDraft.ortho).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D06": {
+          "behavior": "F8 ortho + F9 grid snap apply to both endpoints; endpoint object-snap to node edges/anchors within draft.osnap_radius.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D07": {
+          "behavior": "Tab locks the segment direction at its current angle; movement then only changes length; Tab again unlocks; Shift/ortho ignored while locked.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D08": {
+          "behavior": "After the first point, typed digits set length; Enter or the committing click places the end point at that distance along the current cursor direction. Backspace edits (P2.RhinoDraft.numeric).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D09": {
+          "behavior": "Rubber band from first point (constraint-resolved); dock readout shows live length + angle; numeric entry echoes next to the readout.",
+          "source": "guess",
+          "confidence": 50,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D10": {
+          "behavior": "Crosshair while armed; small lock glyph appended while Tab-locked.",
+          "source": "guess",
+          "confidence": 60,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D11": {
+          "behavior": "A parametric 2-point line node; stroke from P1.curve.create-style when the last single-node edit exists, else default_curve_stroke(fg) (Square end caps, Miter joins, 2 px); opacity from last edit or 1.0; journal cmd board.tool.line; one gesture = one undo (P0.2/P0.3).",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-07-24"
+        },
+        "D12": {
+          "behavior": "Esc during numeric entry clears the entry; next Esc removes the first point (back to Armed); next disarms to Select (P2.RhinoDraft.esc, P0.1).",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D13": {
+          "behavior": "Endpoint grips only, no resize bbox (P1.curve.grips), single or multi-select. Homogeneous multi-line: grips on every line, no per-line outline, no group bbox handles. Grip drag moves that endpoint; ortho/snap apply.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-07-24"
+        },
+        "D14": {
+          "behavior": "Grip drag re-journals as a point edit; Direct Selection (A) sees the same two anchors; Ctrl+J joins endpoints with other curves (P1.curve.style).",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D15": {
+          "behavior": "Cut (Art. III): Rhino BothSides/Normal/Angled command options; length<angle typed syntax; chaining (that's the Polyline tool).",
+          "source": "guess",
+          "confidence": 70,
+          "verdict": "approved",
+          "decided": "2026-07-23"
+        },
+        "D16": {
+          "behavior": "Yes — last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-07-24"
+        }
+      }
+    }
+  }
+}

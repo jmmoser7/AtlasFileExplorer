@@ -335,6 +335,9 @@ impl SlateDoc {
         // Older documents upgrade in place: the next save writes CURRENT.
         doc.format_version = Self::CURRENT;
         doc.view.active_view = doc.view.active_view.normalized();
+        // Legacy bbox lines convert to parametric two-point paths
+        // (contracts/line.md migration decision).
+        doc.scene.migrate_legacy_lines();
         Ok(doc)
     }
 

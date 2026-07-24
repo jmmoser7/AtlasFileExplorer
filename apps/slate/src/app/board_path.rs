@@ -442,6 +442,19 @@ pub fn default_draw_stroke(accent: Rgba) -> Stroke {
     }
 }
 
+/// Draft-curve default (Line, arc, polyline, …): square end caps, miter
+/// joins — distinct from expressive ink (`default_draw_stroke`, round).
+pub fn default_curve_stroke(color: Rgba) -> Stroke {
+    Stroke {
+        width: 2.0,
+        color,
+        dash: Dash::Solid,
+        cap: StrokeCap::Square,
+        join: StrokeJoin::Miter,
+        profile: WidthProfile::Uniform,
+    }
+}
+
 pub fn arc_through_three_points(p0: Pos2, p1: Pos2, p2: Pos2) -> BezPath {
     let mut path = BezPath::new();
     let a = to_k(p0);

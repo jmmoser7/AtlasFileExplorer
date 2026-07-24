@@ -989,6 +989,35 @@ impl Scene {
         }
     }
 
+    /// Legacy bbox-diagonal lines (`ShapeKind::Line` + `flip`) become
+    /// parametric two-point Path nodes — the Line contract's on-load
+    /// migration decision (docs/keymap/contracts/line.md, resolved
+    /// 2026-07-23). The world geometry is unchanged: the rect stays, the
+    /// diagonal becomes an explicit single-segment path.
+    pub fn migrate_legacy_lines(&mut self) {
+        for n in &mut self.nodes {
+            let NodeKind::Shape(s) = &mut n.kind else {
+                continue;
+            };
+            if s.shape != ShapeKind::Line {
+                continue;
+            }
+            let (start, to) = if s.flip {
+                ([0.0, 1.0], [1.0, 0.0])
+            } else {
+                ([0.0, 0.0], [1.0, 1.0])
+            };
+            s.shape = ShapeKind::Path;
+            s.flip = false;
+            s.fill = None;
+            s.path = Some(PathData {
+                start,
+                segs: vec![PathSeg::Line { to }],
+                closed: false,
+            });
+        }
+    }
+
     /// Builds an un-inserted copy of `node` with a fresh id, offset by
     /// (dx, dy). Used by duplicate (Ctrl+D / Alt-drag).
     pub fn build_duplicate(&mut self, node: &Node, dx: f32, dy: f32) -> Node {
@@ -1585,6 +1614,55 @@ mod tests {
         assert_eq!(shape.stroke.cap, StrokeCap::Butt);
         assert_eq!(shape.stroke.join, StrokeJoin::Miter);
         assert_eq!(shape.stroke.profile, WidthProfile::Uniform);
+    }
+
+    #[test]
+    fn legacy_bbox_lines_migrate_to_parametric_paths() {
+        // contracts/line.md migration decision: ShapeKind::Line + flip
+        // becomes an open single-segment Path on the same rect diagonal.
+        let mut scene = Scene::default();
+        let stroke = Stroke {
+            width: 2.0,
+            color: Rgba::BLACK,
+            dash: Dash::Solid,
+            cap: StrokeCap::Butt,
+            join: StrokeJoin::Miter,
+            profile: WidthProfile::Uniform,
+        };
+        for flip in [false, true] {
+            let n = scene.build_node(
+                WorldRect::new(10.0, 20.0, 100.0, 50.0),
+                NodeKind::Shape(ShapeNode {
+                    shape: ShapeKind::Line,
+                    fill: None,
+                    stroke: stroke.clone(),
+                    corner: Corner::Square,
+                    flip,
+                    path: None,
+                }),
+            );
+            scene.nodes.push(n);
+        }
+        scene.migrate_legacy_lines();
+        for (i, n) in scene.nodes.iter().enumerate() {
+            let NodeKind::Shape(s) = &n.kind else {
+                panic!("shape expected");
+            };
+            assert_eq!(s.shape, ShapeKind::Path, "node {i} migrated");
+            assert!(!s.flip);
+            let path = s.path.as_ref().expect("path data");
+            assert!(!path.closed);
+            assert_eq!(path.segs.len(), 1);
+            let expected = if i == 0 {
+                ([0.0, 0.0], [1.0, 1.0])
+            } else {
+                ([0.0, 1.0], [1.0, 0.0])
+            };
+            assert_eq!(path.start, expected.0);
+            assert_eq!(path.segs[0], PathSeg::Line { to: expected.1 });
+            // The node rect (world geometry) is untouched.
+            assert_eq!(n.rect, WorldRect::new(10.0, 20.0, 100.0, 50.0));
+        }
     }
 
     #[test]

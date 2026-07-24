@@ -62,6 +62,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | G | Miro | **Toggle board grid** | Board | ✅ exists | Grid toggle exists in dock; this adds the key. `F7` = alias (Rhino muscle memory). |
 | H | Miro | **Hand tool** | Board | ✅ exists | Atlas needs no hand mode — every drag already pans (⛔ for Atlas, no-op value). |
 | I | Photoshop | **Eyedropper** — sample color under cursor into foreground | Board | ✅ exists | Samples node fill/stroke/text color; image-pixel sampling 🟡 P2. Alt+click samples into background. |
+| L | Rhino | **Line** — parametric two-point line (click-move-click or press-drag-release) | Board | ✅ exists | Contract shipped 2026-07-23: `contracts/line.md` (P2.RhinoDraft grammar — Tab direction lock, typed length, one-shot; endpoint grips, no bbox). Replaced the bbox drag line; legacy `.slate` bbox lines convert on load. Also in the `P` precise-family flyout. |
 | M | Miro | **Minimap toggle** | **Both** | ✅ exists | Shared `atlas-shell` overlay widget (Art. X). Click/drag to navigate; viewport rectangle indicator. Atlas trees are huge — both apps win. |
 | N | Miro | **Sticky note** | Board | ✅ exists | *Not* a new node kind: a Text-node preset (fill, padding, autosize) under the SVG ceiling. Color cycling via brush/palette state. |
 | O | Miro | **Ellipse tool** | Board | ✅ exists | |
@@ -79,7 +80,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Space (tap) | Rhino | **Repeat last command** | Both | 🔵 adapt | Tap = repeat; **hold+drag remains pan** (Miro). Repeat draws from the registry history and honors a never-repeat list (undo/redo/repeat/save…). |
 | Enter | Rhino | **Repeat last command** (idle only) | Both | 🔵 adapt | Only when no draft/crop/edit is active — Enter keeps finishing paths, crops, text. |
 | Esc | Rhino | **Cancel stack** | Both | ✅/🔵 | Already layered ad-hoc; formalized as an explicit cancel stack in the registry (tool op → draft → crop → selection → menus → tool=Select). |
-| Tab / Shift+Tab | Miro | **Cycle selection through objects** | Board + Atlas | ✅ exists | Board: reading-order traversal with camera nudge; groups count as one stop. Atlas: cycles filtered file matches. |
+| Tab / Shift+Tab | Miro | **Cycle selection through objects** | Board + Atlas | ✅ exists | Board: reading-order traversal with camera nudge; groups count as one stop. Atlas: cycles filtered file matches. During a P2.RhinoDraft gesture, Tab instead locks the pending segment's direction (`contracts/line.md` D07). |
 | Delete | Rhino | **Delete object** | Board | ✅ exists | ⛔ for Atlas: Atlas never deletes real files (its mutations are assign/export only). |
 | Arrows | Miro | **Nudge selection / pan canvas** | Both | 🔵 adapt | Board nudge exists (Shift = ×10). New: with nothing selected, arrows pan the canvas — and this is the Atlas behavior. |
 | [ / ] | Photoshop | **Brush width − / +** | Board | ✅ exists | Live width-circle cursor preview while stepping. Also steps the eraser while E is armed. |

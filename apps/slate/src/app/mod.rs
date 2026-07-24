@@ -26,8 +26,10 @@ mod board_direct;
 mod board_flags;
 mod board_handles;
 pub mod board_icons;
+mod board_line;
 mod board_path;
 mod board_snap;
+mod board_style;
 mod board_wire;
 pub mod canvas;
 pub mod chrome;
@@ -276,6 +278,9 @@ pub struct SlateApp {
     pub board_hover_hit: Option<board_handles::BoardHitTarget>,
     /// Multi-click path tools (polyline, arc, bezier).
     pub board_path_draft: Option<board_path::BoardPathDraft>,
+    /// Line tool draft (contracts/line.md): first point placed, rubber band
+    /// live. `None` = the tool is merely armed.
+    pub line_draft: Option<board_line::LineDraft>,
     /// Cached tessellated path strokes (Article II).
     pub path_mesh_cache: board_path::PathMeshCache,
 
@@ -330,6 +335,9 @@ pub struct SlateApp {
     /// Shared fg/bg color pair (Brush strokes, wires, eyedropper targets).
     /// Persisted in `SlateSettings`; `D` resets to theme defaults, `X` swaps.
     pub board_colors: board_color::BoardColors,
+    /// Last single-node style edit — seeds the next compatible create
+    /// (P1.curve.create-style / P1.shape.create-style).
+    pub(crate) board_last_style: board_style::BoardLastStyle,
     /// Brush stroke width, world units (persisted; `[`/`]` step it).
     pub brush_width: f32,
     /// Eraser pick-circle width, world units (persisted; `[`/`]` while E).
@@ -445,6 +453,7 @@ impl SlateApp {
             board_snap_grid: false,
             board_hover_hit: None,
             board_path_draft: None,
+            line_draft: None,
             path_mesh_cache: board_path::PathMeshCache::default(),
             pending_workbooks: Vec::new(),
             pdf_page_counts: HashMap::new(),
@@ -466,6 +475,7 @@ impl SlateApp {
             board_paste_count: 0,
             scene_gen: 0,
             board_colors: board_color::BoardColors::theme_default(true),
+            board_last_style: board_style::BoardLastStyle::default(),
             brush_width: settings::BRUSH_WIDTH_DEFAULT,
             eraser_width: settings::ERASER_WIDTH_DEFAULT,
             brush_chain: None,

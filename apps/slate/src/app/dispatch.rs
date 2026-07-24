@@ -533,7 +533,11 @@ impl SlateApp {
         let direct_live = board
             && self.board_tool == board::BoardTool::DirectSelect
             && (!self.direct.anchors.is_empty() || self.direct.node.is_some());
-        if self.board_crop.is_some() || self.board_path_draft.is_some() || direct_live {
+        if self.board_crop.is_some()
+            || self.board_path_draft.is_some()
+            || self.line_draft.is_some()
+            || direct_live
+        {
             live.push(CancelLayer::Draft);
         }
         if self.zoom_tool_active() || (board && self.board_tool != board::BoardTool::Select) {
@@ -579,6 +583,11 @@ impl SlateApp {
                     // First Escape only exits crop mode; the node stays
                     // selected (press again to clear the selection).
                     self.board_crop = None;
+                } else if self.line_draft.is_some() {
+                    // Line draft Esc layering (contract D12): a live numeric
+                    // entry clears first, the next press removes the first
+                    // point; the Mode layer below then disarms to Select.
+                    self.line_cancel_step();
                 } else if self.board_path_draft.is_some() {
                     self.cancel_path_draft();
                 } else if !self.direct.anchors.is_empty() {
@@ -775,10 +784,14 @@ impl SlateApp {
             }
         }
 
-        // --- Enter: crop / path drafts first (as before), else idle repeat ---
+        // --- Enter: crop / line / path drafts first (as before), else idle repeat ---
         if keys.enter && !wants_kb && !editing && !palette_open {
             if board && self.board_crop.is_some() {
                 self.board_crop = None;
+            } else if board && self.line_draft.is_some() {
+                // Typed length places the end point along the current
+                // direction; plain Enter commits at the cursor (D08).
+                self.line_enter_commit();
             } else if board && self.board_path_draft.is_some() {
                 self.path_tool_try_finish();
             } else {
@@ -796,9 +809,57 @@ impl SlateApp {
         }
         self.pending_paste_text = None;
 
+        // --- line draft numeric entry (typed digits set length — D08) ---
+        if board && self.line_draft.is_some() && !wants_kb && !editing && !palette_open {
+            let (typed, backspaces) = ctx.input(|i| {
+                let mut typed = String::new();
+                let mut backspaces = 0u32;
+                for e in &i.events {
+                    let egui::Event::Key {
+                        key, pressed: true, ..
+                    } = e
+                    else {
+                        continue;
+                    };
+                    let c = match key {
+                        egui::Key::Num0 => Some('0'),
+                        egui::Key::Num1 => Some('1'),
+                        egui::Key::Num2 => Some('2'),
+                        egui::Key::Num3 => Some('3'),
+                        egui::Key::Num4 => Some('4'),
+                        egui::Key::Num5 => Some('5'),
+                        egui::Key::Num6 => Some('6'),
+                        egui::Key::Num7 => Some('7'),
+                        egui::Key::Num8 => Some('8'),
+                        egui::Key::Num9 => Some('9'),
+                        egui::Key::Period => Some('.'),
+                        egui::Key::Backspace => {
+                            backspaces += 1;
+                            None
+                        }
+                        _ => None,
+                    };
+                    if let Some(c) = c {
+                        typed.push(c);
+                    }
+                }
+                (typed, backspaces)
+            });
+            for _ in 0..backspaces {
+                self.line_pop_digit();
+            }
+            for c in typed.chars() {
+                self.line_push_digit(c);
+            }
+        }
+
         // --- Tab cycling (suppressed while typing/presenting/crop) ---
         if let Some(dir) = keys.tab {
-            if self.board_crop.is_none() {
+            if board && self.line_draft.is_some() {
+                // Mid-draft Tab locks the segment direction instead of
+                // cycling the selection (contract D07; KEYMAP Tab note).
+                self.line_toggle_lock();
+            } else if self.board_crop.is_none() {
                 self.cycle_objects(dir);
                 self.push_history(
                     CommandId("canvas.cycle_next"),

@@ -922,3 +922,256 @@ fn sticky_tab_spawn_offsets_right() {
         .is_some_and(|(id, _)| *id == second));
     h.frame();
 }
+
+// ---------- Line tool golden paths (contracts/line.md GP1–GP6) ----------
+
+fn line_board(tag: &str) -> Harness {
+    let mut h = Harness::new(tag);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.set_board_tool(board::BoardTool::Line);
+    h
+}
+
+fn assert_endpoints(app: &SlateApp, a: Pos2, b: Pos2) -> NodeId {
+    assert_eq!(app.doc().scene.nodes.len(), 1, "exactly one node committed");
+    let node = &app.doc().scene.nodes[0];
+    let (pa, pb) = board_line::line_endpoints(node).expect("a simple line node");
+    for (got, want) in [(pa, a), (pb, b)] {
+        assert!(
+            (got - want).length() < 0.05,
+            "endpoint {got:?} != expected {want:?}"
+        );
+    }
+    node.id
+}
+
+/// GP1 — click grammar: L · click (100,100) · move · click (200,100) →
+/// one parametric line in the fg color, tool back to Select, one undo.
+#[test]
+fn line_gp1_click_grammar() {
+    let mut h = line_board("line_gp1");
+    let started = h.app.line_begin(Pos2::new(100.0, 100.0), false);
+    assert!(started, "first press places the first point");
+    h.app.line_release(Pos2::new(100.0, 100.0), true, false);
+    assert!(h.app.line_draft.is_some(), "click keeps the draft live");
+    assert!(h.app.doc().scene.nodes.is_empty());
+
+    h.app.line_hover(Pos2::new(200.0, 100.0), false);
+    assert!(!h.app.line_begin(Pos2::new(200.0, 100.0), false));
+    h.app.line_release(Pos2::new(200.0, 100.0), false, false);
+
+    let id = assert_endpoints(&h.app, Pos2::new(100.0, 100.0), Pos2::new(200.0, 100.0));
+    assert_eq!(h.app.board_tool, board::BoardTool::Select, "one-shot (D02)");
+    assert!(h.app.line_draft.is_none());
+    match &h.app.doc().scene.node(id).unwrap().kind {
+        slate_doc::scene::NodeKind::Shape(s) => {
+            assert_eq!(s.stroke.color, h.app.board_colors.fg, "stroke = fg (D11)");
+            assert_eq!(
+                s.stroke.cap,
+                slate_doc::scene::StrokeCap::Square,
+                "draft curves use square end caps (D11)"
+            );
+            assert!(s.fill.is_none());
+        }
+        _ => panic!("line commits as a shape node"),
+    }
+    h.app.board_undo();
+    assert!(
+        h.app.doc().scene.nodes.is_empty(),
+        "one gesture = one undo (D11)"
+    );
+    h.frame();
+}
+
+/// GP2 — drag grammar: press (0,0) · drag · release (50,80) → identical
+/// node shape to GP1's grammar.
+#[test]
+fn line_gp2_drag_grammar() {
+    let mut h = line_board("line_gp2");
+    let started = h.app.line_begin(Pos2::new(0.0, 0.0), false);
+    h.app.line_hover(Pos2::new(50.0, 80.0), false);
+    h.app.line_release(Pos2::new(50.0, 80.0), started, false);
+    assert_endpoints(&h.app, Pos2::new(0.0, 0.0), Pos2::new(50.0, 80.0));
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+    h.frame();
+}
+
+/// GP3 — ortho one-shot: F8 off, first point (0,0), Shift held, cursor at
+/// (97,4) → the end point projects onto the nearest 45° axis: (97,0)
+/// (DominantOrtho projection, constraints spec §1).
+#[test]
+fn line_gp3_shift_inverts_ortho() {
+    let mut h = line_board("line_gp3");
+    assert!(!h.app.board_ortho, "F8 persistent state off");
+    h.app.line_begin(Pos2::new(0.0, 0.0), false);
+    h.app.line_release(Pos2::new(0.0, 0.0), true, false);
+    h.app.line_hover(Pos2::new(97.0, 4.0), true);
+    h.app.line_begin(Pos2::new(97.0, 4.0), true);
+    h.app.line_release(Pos2::new(97.0, 4.0), false, true);
+    assert_endpoints(&h.app, Pos2::new(0.0, 0.0), Pos2::new(97.0, 0.0));
+    h.frame();
+}
+
+/// GP4 — Tab direction lock + typed length: first point (0,0), cursor
+/// (30,40), Tab, move anywhere, type 100, Enter → end (60,80).
+#[test]
+fn line_gp4_tab_lock_and_numeric_entry() {
+    let mut h = line_board("line_gp4");
+    h.app.line_begin(Pos2::new(0.0, 0.0), false);
+    h.app.line_release(Pos2::new(0.0, 0.0), true, false);
+    h.app.line_hover(Pos2::new(30.0, 40.0), false);
+    h.app.line_toggle_lock();
+    assert!(h.app.line_draft.as_ref().unwrap().dir_lock.is_some());
+    // Movement now only changes length (D07): far off-axis cursor stays on
+    // the locked ray.
+    h.app.line_hover(Pos2::new(500.0, -20.0), false);
+    for c in ['1', '0', '0'] {
+        h.app.line_push_digit(c);
+    }
+    assert_eq!(h.app.line_draft.as_ref().unwrap().entry, "100");
+    assert!(h.app.line_enter_commit());
+    assert_endpoints(&h.app, Pos2::new(0.0, 0.0), Pos2::new(60.0, 80.0));
+    h.frame();
+}
+
+/// GP5 — Esc layering (D12): entry clears → first point removed → tool
+/// disarms to Select. Nothing is journaled.
+#[test]
+fn line_gp5_escape_layering() {
+    let mut h = line_board("line_gp5");
+    h.app.line_begin(Pos2::new(10.0, 10.0), false);
+    h.app.line_release(Pos2::new(10.0, 10.0), true, false);
+    h.app.line_push_digit('5');
+
+    let ctx = h.ctx.clone();
+    assert!(h
+        .app
+        .dispatch(&ctx, atlas_commands::CommandId("app.cancel"), None));
+    let d = h
+        .app
+        .line_draft
+        .as_ref()
+        .expect("draft survives entry clear");
+    assert!(d.entry.is_empty(), "first Esc clears the numeric entry");
+
+    assert!(h
+        .app
+        .dispatch(&ctx, atlas_commands::CommandId("app.cancel"), None));
+    assert!(
+        h.app.line_draft.is_none(),
+        "second Esc removes the first point"
+    );
+    assert_eq!(h.app.board_tool, board::BoardTool::Line, "still armed");
+
+    assert!(h
+        .app
+        .dispatch(&ctx, atlas_commands::CommandId("app.cancel"), None));
+    assert_eq!(
+        h.app.board_tool,
+        board::BoardTool::Select,
+        "third Esc disarms"
+    );
+    assert!(h.app.doc().scene.nodes.is_empty(), "nothing journaled");
+    h.frame();
+}
+
+/// GP6 — endpoint grip edit with F9 grid snap: dragging the end grip of a
+/// committed line to (143,7) lands on the 20-unit grid at (140,0); one
+/// undo restores the original endpoint.
+#[test]
+fn line_gp6_grip_edit_snaps_and_journals_once() {
+    let mut h = line_board("line_gp6");
+    let id = h
+        .app
+        .commit_line(Pos2::new(0.0, 0.0), Pos2::new(100.0, 0.0))
+        .expect("committed line");
+    h.app.board_sel = [id].into_iter().collect();
+    h.app.board_snap_grid = true;
+
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    h.app.line_grip_update(id, 1, Pos2::new(143.0, 7.0), false);
+    h.app.line_grip_record(id, before);
+
+    let node = h.app.doc().scene.node(id).unwrap();
+    let (a, b) = board_line::line_endpoints(node).expect("still a simple line");
+    assert!((a - Pos2::new(0.0, 0.0)).length() < 0.05, "start untouched");
+    assert!(
+        (b - Pos2::new(140.0, 0.0)).length() < 0.05,
+        "end snapped to the 20u grid, got {b:?}"
+    );
+
+    h.app.board_undo();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let (_, b) = board_line::line_endpoints(node).unwrap();
+    assert!(
+        (b - Pos2::new(100.0, 0.0)).length() < 0.05,
+        "one undo restores the endpoint"
+    );
+    h.frame();
+}
+
+/// P1.curve.create-style — inspector edit on one line seeds the next commit.
+#[test]
+fn line_create_matches_last_edited_style() {
+    let mut h = line_board("line_last_style");
+    let id = h
+        .app
+        .commit_line(Pos2::new(0.0, 0.0), Pos2::new(50.0, 0.0))
+        .expect("first line");
+    let custom = slate_doc::scene::Stroke {
+        width: 7.0,
+        color: slate_doc::scene::Rgba([10, 20, 30, 255]),
+        dash: slate_doc::scene::Dash::Dashed,
+        cap: slate_doc::scene::StrokeCap::Butt,
+        join: slate_doc::scene::StrokeJoin::Bevel,
+        profile: slate_doc::scene::WidthProfile::Uniform,
+    };
+    h.app.patch_nodes(&[id], |n| {
+        n.opacity = 0.5;
+        if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
+            s.stroke = custom;
+        }
+    });
+
+    h.app.set_board_tool(board::BoardTool::Line);
+    h.app.line_begin(Pos2::new(0.0, 10.0), false);
+    h.app.line_release(Pos2::new(0.0, 10.0), true, false);
+    h.app.line_hover(Pos2::new(80.0, 10.0), false);
+    h.app.line_release(Pos2::new(80.0, 10.0), false, false);
+
+    let node = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .find(|n| n.id != id)
+        .expect("second line");
+    assert!((node.opacity - 0.5).abs() < f32::EPSILON);
+    if let slate_doc::scene::NodeKind::Shape(s) = &node.kind {
+        assert_eq!(s.stroke, custom);
+    } else {
+        panic!("expected shape");
+    }
+    h.frame();
+}
+
+/// P1.curve.grips — homogeneous multi-line selection is grip-only (no group
+/// bbox resize affordance).
+#[test]
+fn line_multi_select_all_simple_lines() {
+    let mut h = line_board("line_multi");
+    let a = h
+        .app
+        .commit_line(Pos2::new(0.0, 0.0), Pos2::new(100.0, 0.0))
+        .unwrap();
+    let b = h
+        .app
+        .commit_line(Pos2::new(0.0, 50.0), Pos2::new(100.0, 50.0))
+        .unwrap();
+    h.app.board_sel = [a, b].into_iter().collect();
+    assert!(h.app.selection_all_simple_lines());
+    h.frame();
+}

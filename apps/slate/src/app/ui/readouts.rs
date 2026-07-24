@@ -25,6 +25,20 @@ pub fn status_bar(app: &mut SlateApp, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             readouts_gear(app, ui);
 
+            // Live line-draft readout: length + angle, with the numeric
+            // entry echoed beside it (contract D09 — dock readouts).
+            if app.doc().view.active_view == slate_doc::ViewKind::Board {
+                if let Some((len, ang, entry)) = app.line_readout() {
+                    let tint = palette
+                        .accent
+                        .gamma_multiply(super::super::board_line::draft_tokens::READOUT_ALPHA);
+                    ui.label(RichText::new(format!("L {len:.1} · {ang:.0}°")).color(tint));
+                    if !entry.is_empty() {
+                        ui.label(RichText::new(format!("type {entry}")).strong().color(tint));
+                    }
+                }
+            }
+
             if app.tab().chrome.readout(ReadoutPanel::Metrics) {
                 let doc = app.doc();
                 let total = doc.items.len();
