@@ -6,7 +6,8 @@ contract the same day, golden paths GP1–GP6 green as headless tests)
 Reference: Rhino `Line`
 Command: `board.tool.line` · Key: **L** · Palette: "line" (aliases: segment)
 Inherits: P0.* (all), P1.node, P1.curve, **P2.RhinoDraft** — deviations
-flagged below. Commit stroke/opacity follow **P1.curve.create-style**.
+flagged below. Commit stroke/opacity follow **P1.curve.create-style**;
+selection follows **P1.curve.pick**.
 
 > Implementation: `apps/slate/src/app/board_line.rs` (draft state machine,
 > constraint resolution, grips, painting) with gesture/key routing in
@@ -44,6 +45,7 @@ below is approved in `decisions.json` and is precedent for future tools.
 | D14 | Post-edit | Grip drag re-journals as a point edit; Direct Selection (A) sees the same two anchors; Ctrl+J can join endpoints with other curves (P1.curve.style) | pattern | 80 |
 | D15 | Non-goals | Rhino `BothSides`/`Normal`/`Angled` command options; length<angle typed syntax; polyline chaining (that's the Polyline tool) — Art. III | guess | 70 |
 | D16 | Create-style inheritance | **Yes** — last single-node edit seeds stroke + opacity (`P1.curve.create-style`); default stroke = `default_curve_stroke(fg)` (Square cap, 2 px) when none | pattern | 85 |
+| D17 | Hit-testing & pick | **Stroke-precise** click + marquee (`P1.curve.pick`): `hit_stroke` + `pick.slop` (4 screen px); never the node AABB alone. Legacy `ShapeKind::Line` included | pattern | 85 |
 
 ## Feel constants
 
@@ -53,6 +55,7 @@ below is approved in `decisions.json` and is precedent for future tools.
 | `draft.grip_radius` | endpoint grip hit radius (screen px) | 6.0 |
 | `draft.readout_alpha` | length/angle readout opacity | 0.85 |
 | `draft.osnap_radius` | endpoint object-snap radius (screen px, D06) | 8.0 |
+| `pick.slop` | stroke pick tolerance beyond half-width (screen px, D17) | 4.0 |
 
 Pinned as the named-constants block `board_line::draft_tokens` (P0.6 allows
 `ui-tokens.toml` *or* a named constants block; these are board-tool feel
@@ -82,6 +85,8 @@ values, not shared chrome, so they live app-side).
   50%, custom color · draw another line → second line matches those properties.
 - **GP8 (multi-select grips):** select two simple lines → endpoint grips on
   both, no per-line bbox, no group bbox handles.
+- **GP9 (stroke pick):** diagonal line (0,0)→(100,100) · click (50,50) →
+  selects · click (50,10) (inside AABB, off stroke) → no selection.
 
 ## Open questions
 

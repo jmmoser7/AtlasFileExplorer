@@ -86,6 +86,11 @@ tables live in each app's `commands.rs` (`SPECS`) and render in
   multi-select (endpoint grips on every simple line, no per-line or
   group bbox). Golden paths GP7–GP8; registry gains **D16** (create-style
   inheritance).
+- **Line stroke-precise pick** (2026-07-24): open curves (including simple
+  lines and legacy `ShapeKind::Line`) click- and marquee-select on stroke
+  geometry via `board_path::hit_shape_stroke` / `marquee_hits_node` — never
+  the node AABB alone (**P1.curve.pick**, D17). Registry + template updated;
+  GP9 / `line_pick_stroke_not_bbox` test.
 
 ## 2026-07-22 — P1 delivery
 

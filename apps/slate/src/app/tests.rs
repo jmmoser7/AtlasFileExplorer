@@ -1175,3 +1175,23 @@ fn line_multi_select_all_simple_lines() {
     assert!(h.app.selection_all_simple_lines());
     h.frame();
 }
+
+/// P1.curve.pick — click inside the node AABB but off the stroke misses.
+#[test]
+fn line_pick_stroke_not_bbox() {
+    let mut h = line_board("line_pick");
+    let id = h
+        .app
+        .commit_line(Pos2::new(0.0, 0.0), Pos2::new(100.0, 100.0))
+        .unwrap();
+    let scene = &h.app.doc().scene;
+    assert_eq!(
+        board_path::board_pick_node(scene, 50.0, 50.0, 1.0),
+        Some(id)
+    );
+    assert!(
+        board_path::board_pick_node(scene, 50.0, 10.0, 1.0).is_none(),
+        "interior bbox point off the diagonal must not select"
+    );
+    h.frame();
+}

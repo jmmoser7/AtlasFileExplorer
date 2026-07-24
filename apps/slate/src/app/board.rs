@@ -3751,23 +3751,14 @@ impl SlateApp {
                 if let Some(p) = pointer {
                     let xf = self.board_xf();
                     let r = wr(Rect::from_two_pos(xf.s2w(start_screen), xf.s2w(p)));
-                    // AABB fully inside the marquee (simplest conforming
-                    // rule for the derived-geometry connectors).
-                    let aabb_inside = |n: &Node| {
-                        n.rect.x >= r.x
-                            && n.rect.y >= r.y
-                            && n.rect.x + n.rect.w <= r.x + r.w
-                            && n.rect.y + n.rect.h <= r.y + r.h
-                    };
                     let hits: Vec<NodeId> = self
                         .doc()
                         .scene
                         .nodes
                         .iter()
                         .filter(|n| !n.is_frame() && !n.hidden && !n.locked)
-                        .filter(|n| match &n.kind {
-                            NodeKind::Connector(_) => aabb_inside(n),
-                            _ => board_snap::marquee_intersects_rotated(r, n.rect, n.rotation_deg),
+                        .filter(|n| {
+                            board_path::marquee_hits_node(n, r, self.tab().cam.z)
                         })
                         .map(|n| n.id)
                         .collect();

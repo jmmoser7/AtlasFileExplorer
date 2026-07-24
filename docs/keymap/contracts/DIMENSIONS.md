@@ -40,3 +40,4 @@ Rules:
 | D14 | Post-edit | How is the result re-edited later (grips, Direct Selection, joins)? | line |
 | D15 | Non-goals | What source-app behavior is deliberately cut (Art. III), so it's a decision, not an omission? | line |
 | D16 | Create-style inheritance | Does the tool consume the last single-node style edit (stroke, fill, opacity, …)? What are the defaults when none exists? | line |
+| D17 | Hit-testing & pick | Click and marquee select on stroke geometry (width + `pick.slop`), never the node AABB alone for open curves (P1.curve.pick) | line |

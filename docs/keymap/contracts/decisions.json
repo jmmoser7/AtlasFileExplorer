@@ -120,6 +120,13 @@
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-07-24"
+        },
+        "D17": {
+          "behavior": "Stroke-precise click + marquee (P1.curve.pick): hit_stroke + pick.slop (4 screen px); never the node AABB alone. Legacy ShapeKind::Line included.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-07-24"
         }
       }
     }

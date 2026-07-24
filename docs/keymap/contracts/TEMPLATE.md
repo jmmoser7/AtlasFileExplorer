@@ -10,6 +10,9 @@ are appended to `DIMENSIONS.md` first (next `D##`), then answered here.
 Keep cells concrete: key names, state names, numbers, token names.
 "Intuitive", "natural", and "smooth" are banned words.
 
+Open-curve tools must inherit **P1.curve.pick** (or answer **D17**): stroke
+hit-testing for click and marquee — never the node AABB alone.
+
 ---
 
 ```markdown

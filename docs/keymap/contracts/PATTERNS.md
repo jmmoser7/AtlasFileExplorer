@@ -85,6 +85,12 @@ is searchable.
   one line is selected; homogeneous multi-line selections skip group bbox
   handles. Direct Selection (A) additionally exposes tangent handles and
   segments.
+- **P1.curve.pick** click and marquee selection hit the **stroke** (via
+  `vector_ink::hit_stroke` + `pick.slop` ≈ 4 screen px), never the node's
+  axis-aligned rect alone. Legacy `ShapeKind::Line` included. Marquee: the
+  stroke centerline intersects the marquee, or a stroke hit at the marquee
+  center. Implementation: `board_path::hit_shape_stroke`,
+  `board_path::marquee_hits_node`.
 
 ### P1.text / P1.image
 

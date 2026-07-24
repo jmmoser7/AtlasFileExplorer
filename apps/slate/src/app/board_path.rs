@@ -16,6 +16,8 @@ use super::board::{rgba32, to_rgba, BoardXf};
 use super::SlateApp;
 
 pub(crate) const FEATHER_PX: f32 = 1.25;
+/// Screen-px pick slop beyond half the stroke width (D17 / P1.curve.pick).
+pub(crate) const PICK_SLOP_PX: f32 = 4.0;
 const MIN_PATH_BOUNDS: f32 = 8.0;
 const CACHE_CAP: usize = 256;
 
@@ -349,7 +351,85 @@ fn point_in_polygon(x: f32, y: f32, poly: &[[f32; 2]]) -> bool {
     inside
 }
 
+/// Screen-consistent pick slop in world units (~4 px at the current zoom).
+pub fn pick_slop_world(zoom: f32) -> f32 {
+    PICK_SLOP_PX / zoom.max(0.05)
+}
+
+/// World endpoints of a legacy bbox line (`ShapeKind::Line` + `flip`) or a
+/// parametric two-point path (delegates to `board_line::line_endpoints`).
+pub fn open_curve_endpoints(node: &Node, shape: &ShapeNode) -> Option<(Pos2, Pos2)> {
+    if let Some(ep) = super::board_line::line_endpoints(node) {
+        return Some(ep);
+    }
+    if shape.shape != ShapeKind::Line {
+        return None;
+    }
+    let (a, b) = if shape.flip {
+        (
+            Pos2::new(node.rect.x, node.rect.y + node.rect.h),
+            Pos2::new(node.rect.x + node.rect.w, node.rect.y),
+        )
+    } else {
+        (
+            Pos2::new(node.rect.x, node.rect.y),
+            Pos2::new(node.rect.x + node.rect.w, node.rect.y + node.rect.h),
+        )
+    };
+    Some((
+        rotate_world(a, node.rect, node.rotation_deg),
+        rotate_world(b, node.rect, node.rotation_deg),
+    ))
+}
+
+/// Open curves (simple lines, legacy lines, open paths) pick on the stroke
+/// only — never on the node AABB (P1.curve.pick).
+pub fn shape_uses_stroke_pick(node: &Node, shape: &ShapeNode) -> bool {
+    if open_curve_endpoints(node, shape).is_some() {
+        return true;
+    }
+    if shape.shape == ShapeKind::Path {
+        if let Some(path) = &shape.path {
+            return !path.closed && !path.is_empty();
+        }
+    }
+    false
+}
+
+fn bez_from_open_curve(node: &Node, shape: &ShapeNode) -> Option<BezPath> {
+    if let Some(path) = shape.path.as_ref() {
+        if !path.is_empty() {
+            return Some(path_data_to_world_bez(path, node.rect, node.rotation_deg));
+        }
+    }
+    let (a, b) = open_curve_endpoints(node, shape)?;
+    let mut bez = BezPath::new();
+    bez.move_to(to_k(a));
+    bez.line_to(to_k(b));
+    Some(bez)
+}
+
+/// Stroke-precise point pick for any shape node (open or closed path).
+pub fn hit_shape_stroke(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
+    let Some(bez) = bez_from_open_curve(node, shape).or_else(|| {
+        shape.path.as_ref().and_then(|path| {
+            (!path.is_empty()).then(|| path_data_to_world_bez(path, node.rect, node.rotation_deg))
+        })
+    }) else {
+        return false;
+    };
+    let style = stroke_style_world(&shape.stroke, zoom);
+    let slop = pick_slop_world(zoom);
+    if !shape.stroke.is_none() && hit_stroke(&bez, &style, [wx, wy], slop) {
+        return true;
+    }
+    false
+}
+
 pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32) -> bool {
+    if shape_uses_stroke_pick(node, shape) {
+        return hit_shape_stroke(node, shape, wx, wy, zoom);
+    }
     let Some(path) = shape.path.as_ref() else {
         return node.rect.contains_rotated(wx, wy, node.rotation_deg);
     };
@@ -358,7 +438,7 @@ pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32
     }
     let bez = path_data_to_world_bez(path, node.rect, node.rotation_deg);
     let style = stroke_style_world(&shape.stroke, zoom);
-    let slop = 4.0 / zoom.max(0.05);
+    let slop = pick_slop_world(zoom);
     if !shape.stroke.is_none() && hit_stroke(&bez, &style, [wx, wy], slop) {
         return true;
     }
@@ -373,6 +453,79 @@ pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32
         }
     }
     false
+}
+
+fn segment_intersects_rect(a: Pos2, b: Pos2, r: WorldRect) -> bool {
+    if r.contains(a.x, a.y) || r.contains(b.x, b.y) {
+        return true;
+    }
+    let edges = [
+        (
+            (r.x, r.y),
+            (r.x + r.w, r.y),
+        ),
+        (
+            (r.x + r.w, r.y),
+            (r.x + r.w, r.y + r.h),
+        ),
+        (
+            (r.x + r.w, r.y + r.h),
+            (r.x, r.y + r.h),
+        ),
+        (
+            (r.x, r.y + r.h),
+            (r.x, r.y),
+        ),
+    ];
+    edges
+        .iter()
+        .any(|(p1, p2)| super::board_snap::segments_intersect(
+            (a.x, a.y),
+            (b.x, b.y),
+            *p1,
+            *p2,
+        ))
+}
+
+/// Marquee selection for board nodes. Open curves intersect on stroke
+/// geometry (centerline vs rect), never the node AABB alone (P1.curve.pick).
+pub fn marquee_hits_node(node: &Node, marquee: WorldRect, zoom: f32) -> bool {
+    match &node.kind {
+        NodeKind::Connector(_) => {
+            node.rect.x >= marquee.x
+                && node.rect.y >= marquee.y
+                && node.rect.x + node.rect.w <= marquee.x + marquee.w
+                && node.rect.y + node.rect.h <= marquee.y + marquee.h
+        }
+        NodeKind::Shape(s) => {
+            if shape_uses_stroke_pick(node, s) {
+                if let Some((a, b)) = open_curve_endpoints(node, s) {
+                    if segment_intersects_rect(a, b, marquee) {
+                        return true;
+                    }
+                }
+                if let Some(bez) = bez_from_open_curve(node, s) {
+                    let flat = flatten(&bez, 0.25);
+                    for w in flat.windows(2) {
+                        let a = Pos2::new(w[0][0] as f32, w[0][1] as f32);
+                        let b = Pos2::new(w[1][0] as f32, w[1][1] as f32);
+                        if segment_intersects_rect(a, b, marquee) {
+                            return true;
+                        }
+                    }
+                }
+                let cx = marquee.x + marquee.w * 0.5;
+                let cy = marquee.y + marquee.h * 0.5;
+                return hit_shape_stroke(node, s, cx, cy, zoom);
+            }
+            if hit_path_node(node, s, marquee.x + marquee.w * 0.5, marquee.y + marquee.h * 0.5, zoom)
+            {
+                return true;
+            }
+            super::board_snap::marquee_intersects_rotated(marquee, node.rect, node.rotation_deg)
+        }
+        _ => super::board_snap::marquee_intersects_rotated(marquee, node.rect, node.rotation_deg),
+    }
 }
 
 pub fn board_pick_node(
@@ -409,11 +562,19 @@ pub fn board_pick_node_ex(
                 }
                 continue;
             }
-            NodeKind::Shape(s) if s.shape == ShapeKind::Path => {
-                if hit_path_node(n, s, wx, wy, zoom) {
-                    return Some(n.id);
+            NodeKind::Shape(s) => {
+                if shape_uses_stroke_pick(n, s) {
+                    if hit_shape_stroke(n, s, wx, wy, zoom) {
+                        return Some(n.id);
+                    }
+                    continue;
                 }
-                continue;
+                if s.shape == ShapeKind::Path {
+                    if hit_path_node(n, s, wx, wy, zoom) {
+                        return Some(n.id);
+                    }
+                    continue;
+                }
             }
             _ => {}
         }
@@ -912,5 +1073,75 @@ mod tests {
         };
         assert!(hit_path_node(&node, shape, 100.0, 0.0, 1.0));
         assert!(!hit_path_node(&node, shape, 100.0, 50.0, 1.0));
+    }
+
+    #[test]
+    fn diagonal_line_picks_stroke_not_bbox_interior() {
+        let pts = vec![Pos2::new(0.0, 0.0), Pos2::new(100.0, 100.0)];
+        let (rect, data) = points_to_path_data(&pts, false);
+        let node = Node {
+            id: NodeId(2),
+            rect,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            kind: NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke: default_curve_stroke(Rgba::BLACK),
+                corner: slate_doc::scene::Corner::Square,
+                flip: false,
+                path: Some(data),
+            }),
+        };
+        let shape = match &node.kind {
+            NodeKind::Shape(s) => s,
+            _ => unreachable!(),
+        };
+        assert!(hit_path_node(&node, shape, 50.0, 50.0, 1.0));
+        assert!(
+            !hit_path_node(&node, shape, 50.0, 10.0, 1.0),
+            "bbox interior off the stroke must not hit"
+        );
+        assert!(
+            !node.rect.contains(50.0, 10.0) || !hit_path_node(&node, shape, 50.0, 10.0, 1.0)
+        );
+        let marquee = WorldRect::new(40.0, 5.0, 20.0, 10.0);
+        assert!(
+            !marquee_hits_node(&node, marquee, 1.0),
+            "marquee wholly off stroke must not select"
+        );
+        let stroke_marquee = WorldRect::new(45.0, 45.0, 10.0, 10.0);
+        assert!(marquee_hits_node(&node, stroke_marquee, 1.0));
+    }
+
+    #[test]
+    fn legacy_line_shape_uses_stroke_pick() {
+        let node = Node {
+            id: NodeId(3),
+            rect: WorldRect::new(0.0, 0.0, 100.0, 100.0),
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            kind: NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Line,
+                fill: None,
+                stroke: default_curve_stroke(Rgba::BLACK),
+                corner: slate_doc::scene::Corner::Square,
+                flip: false,
+                path: None,
+            }),
+        };
+        let shape = match &node.kind {
+            NodeKind::Shape(s) => s,
+            _ => unreachable!(),
+        };
+        assert!(shape_uses_stroke_pick(&node, shape));
+        assert!(hit_shape_stroke(&node, shape, 50.0, 50.0, 1.0));
+        assert!(!hit_shape_stroke(&node, shape, 50.0, 10.0, 1.0));
     }
 }
