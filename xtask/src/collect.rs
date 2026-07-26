@@ -82,6 +82,11 @@ impl Member {
     }
 }
 
+fn read_manifest(path: &Path) -> Result<toml::Value, MetricsError> {
+    let text = std::fs::read_to_string(path).map_err(|e| MetricsError::io(path, e))?;
+    toml::from_str(&text).map_err(|e| MetricsError::manifest(path, e.to_string()))
+}
+
 fn workspace_members(root: &Path) -> Result<Vec<Member>, MetricsError> {
     let manifest_path = root.join("Cargo.toml");
     let manifest = read_manifest(&manifest_path)?;
