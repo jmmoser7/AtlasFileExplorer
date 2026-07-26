@@ -23,7 +23,7 @@ Rules:
 | DV-07 | IV.1 | No golden test asserts board-vs-artifact parity; parity is structural only (two interpreters, one model) and would not catch a divergence | open | 2026-07-25 (survey) | T3.1 | — |
 | DV-08 | II.3 | `SceneJournal` is unbounded — no capacity limit on `done`/`undone`; a long session with large nodes grows without bound | open | 2026-07-25 (survey) | WI-2 | — |
 | DV-09 | X | `Palette`'s fourteen semantic slots are hardcoded Rust constructors while `ui-tokens.toml` (which has a schema version and a live tuner) carries no colours; egui `Visuals` are set beside the palette rather than derived from it, so the two colour systems are hand-synchronised | open | 2026-07-25 (audit №2 R2) | T0.7 | — |
-| DV-10 | II | `Scene.nodes` has no spatial index: every hit-test, marquee, and paint cull is a linear scan. Survivable at 10³ nodes, unusable at 10⁴ | open | 2026-07-25 (audit №2 R6) | T0.8 | — |
+| DV-10 | II | `Scene.nodes` has no spatial index: every hit-test, marquee, and paint cull is a linear scan. Survivable at 10³ nodes, unusable at 10⁴ | closed | 2026-07-25 (audit №2 R6) | T0.8 | 41ef2bb |
 | DV-11 | IV | Two wire routers for one concept: `lens.rs::lens_orthogonal_route` in the app and `connector_bezier` in `slate-doc`. One model, two implementations, no shared seam | open | 2026-07-25 (audit №2 R3) | Wave 3 (WI-4) | — |
 
 ## Deviation counts by article (maintained by the metrics tool)
