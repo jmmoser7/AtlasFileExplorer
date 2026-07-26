@@ -102,8 +102,8 @@ rather than a synchronisation system.)*
 > interpreter remains prohibited pending the named script amendment.
 
 *(Renumbered: the audit's VII.5 "agent nodes" clause is held back, so memory
-segregation takes VII.5. Reserve VII.8 for agent nodes when Mode 2 is
-scheduled.)*
+segregation takes VII.5. **Agent nodes take VII.9 when Mode 2 is scheduled** —
+VII.8 is taken by Amendment F's extension ladder.)*
 
 ### Amendment E — Articles I, V (membership and platform)
 
@@ -172,19 +172,20 @@ Added after the flexibility stress test; the reasoning is in
 Append to the **Amendment log** in `CONSTITUTION.md`:
 
 ```markdown
-- **2026-07-25 — Audit №1 and №2 amendments (A, B, C, E, F).** Ratifies relative-first
-  locators and tri-state link health (IX.2–IX.3); convergent journal commands
-  (VI.2), ephemeral presence (VIII.5), and sealed snapshots (IX.4); the provider
-  hedge (I.2) and the agent surface's memory, proposal, and skill boundaries
-  (VII.5–VII.7); the Windows reference platform with a Linux verification floor
-  (I.3); and derived, announced frame membership (V.2). Supersedes the audit's
-  draft A.3 (version discipline, dropped with the Tier-2 platform work) and
-  holds back its agent-node and control-surface clauses pending implementation.
-  From audit №2: local-first with a self-hosted relay (I.4), portal authority
-  and serialization classes (V.3), derived state and the bake rule (VI.3), the
-  extension ladder (VII.8), and explicit human-only write-back (IX.5). Revises
-  the draft sealed-snapshot clause into packages-are-forks (IX.4) and rejects
-  the proposed "portals are deterministic functions" generalization.
+- **2026-07-25 — Audit №1 and №2 amendments (A, B, C, E, F).** Ratifies
+  relative-first locators and tri-state link health (IX.2–IX.3); convergent
+  journal commands (VI.2), ephemeral presence (VIII.5), and packages-are-forks
+  (IX.4); the provider hedge (I.2) and the agent surface's memory, proposal, and
+  skill boundaries (VII.5–VII.7); the Windows reference platform with a Linux
+  verification floor (I.3); and derived, announced frame membership (V.2). From
+  audit №2: local-first with a self-hosted relay (I.4), portal authority and
+  serialization classes (V.3), derived state and the bake rule (VI.3), the
+  extension ladder (VII.8), and explicit human-only write-back (IX.5).
+  Supersedes the audit's draft A.3 (version discipline, dropped with the Tier-2
+  platform work) and its sealed-snapshot draft, which becomes IX.4's package
+  model. Rejects the proposed "portals are deterministic functions"
+  generalization. Holds back the agent-node clause (reserved as VII.9) and the
+  control-surface clauses pending implementation.
 ```
 
 ---
