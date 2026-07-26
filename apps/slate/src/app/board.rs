@@ -389,6 +389,9 @@ impl SlateApp {
     /// Applies an edit to several nodes and journals one coalescible patch
     /// group (continuous slider scrubs collapse into a single undo step).
     pub fn patch_nodes(&mut self, ids: &[NodeId], f: impl Fn(&mut Node)) {
+        if self.refuse_read_only_edit() {
+            return;
+        }
         let mut befores = Vec::new();
         let mut afters = Vec::new();
         for id in ids {
@@ -440,6 +443,9 @@ impl SlateApp {
 
     /// Insert new nodes as one undo group. Returns their ids.
     pub fn add_nodes(&mut self, nodes: Vec<Node>) -> Vec<NodeId> {
+        if self.refuse_read_only_edit() {
+            return Vec::new();
+        }
         if nodes.is_empty() {
             return Vec::new();
         }
@@ -461,6 +467,9 @@ impl SlateApp {
     }
 
     pub fn delete_board_nodes(&mut self, ids: &[NodeId]) {
+        if self.refuse_read_only_edit() {
+            return;
+        }
         let deleted: std::collections::HashSet<NodeId> = ids.iter().copied().collect();
         // Surviving connectors anchored to a deleted node degrade to `Free`
         // at their last world position — same command group, so undo
@@ -524,6 +533,9 @@ impl SlateApp {
 
     /// Commit a prepared command group through the tab journal.
     pub fn commit_scene(&mut self, cmds: Vec<SceneCmd>) -> bool {
+        if self.refuse_read_only_edit() {
+            return false;
+        }
         let tab = self.tab_mut();
         tab.dirty = true;
         let doc = &mut tab.doc;
@@ -533,6 +545,9 @@ impl SlateApp {
     }
 
     pub fn board_undo(&mut self) {
+        if self.refuse_read_only_edit() {
+            return;
+        }
         let tab = self.tab_mut();
         if tab.journal.undo(&mut tab.doc.scene) {
             tab.dirty = true;
@@ -542,6 +557,9 @@ impl SlateApp {
     }
 
     pub fn board_redo(&mut self) {
+        if self.refuse_read_only_edit() {
+            return;
+        }
         let tab = self.tab_mut();
         if tab.journal.redo(&mut tab.doc.scene) {
             tab.dirty = true;
