@@ -13,10 +13,13 @@ use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
 use crossbeam_channel::{unbounded, Receiver};
 use eframe::egui::{self, Rect, TextureHandle, Vec2};
 use slate_doc::scene::SceneJournal;
-use slate_doc::{GroupId, ItemId, NodeId, SlateDoc, TagId, ViewKind, SLATE_EXTENSION};
+use slate_doc::{
+    GroupId, ItemId, Lease, LeaseInfo, LeaseState, NodeId, SlateDoc, TagId, ViewKind,
+    SLATE_EXTENSION,
+};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub mod association;
 pub mod board;
@@ -90,6 +93,12 @@ pub struct SlateTab {
     pub path: Option<PathBuf>,
     pub doc: SlateDoc,
     pub dirty: bool,
+    /// Write lease for `path`, when this process owns it.
+    pub lease: Option<Lease>,
+    /// True when another process holds a live lease (view / present / export only).
+    pub read_only: bool,
+    /// Holder named in the lock file when [`Self::read_only`] (for the readout).
+    pub lease_holder: Option<LeaseInfo>,
     pub chrome: ChromeConfig,
     pub cam: Camera,
     pub grid_fade: atlas_shell::grid_fade::GridFade,
@@ -108,6 +117,9 @@ impl SlateTab {
             path: None,
             doc: SlateDoc::new("Untitled"),
             dirty: false,
+            lease: None,
+            read_only: false,
+            lease_holder: None,
             chrome: chrome::default_chrome(),
             cam: Camera::default(),
             grid_fade: atlas_shell::grid_fade::GridFade::default(),
@@ -125,11 +137,14 @@ impl SlateTab {
                 .unwrap_or_else(|| self.doc.name.clone()),
             None => self.doc.name.clone(),
         };
-        if self.dirty {
-            format!("{base} •")
-        } else {
-            base
+        let mut title = base;
+        if self.read_only {
+            title.push_str(" (read-only)");
         }
+        if self.dirty {
+            title.push_str(" •");
+        }
+        title
     }
 
     pub fn is_blank(&self) -> bool {
@@ -215,6 +230,8 @@ pub struct SlateApp {
 
     pub picker_rx: Option<Receiver<PickerMsg>>,
     pub toasts: Vec<(String, Instant)>,
+    /// Rate-limit for the read-only edit refusal toast (one per second).
+    last_read_only_toast: Option<Instant>,
 
     /// Inline "new tag" editor state: (group, buffer). `None` group = new group name.
     pub new_tag_edit: Option<(Option<GroupId>, String)>,
@@ -424,6 +441,7 @@ impl SlateApp {
             settings: settings::SlateSettings::load(),
             picker_rx: None,
             toasts: Vec::new(),
+            last_read_only_toast: None,
             new_tag_edit: None,
             tag_color_cursor: 0,
             atlas: None,
@@ -640,6 +658,12 @@ impl SlateApp {
     /// Mutable doc access; marks the workbook dirty (all edits go through
     /// this or set `dirty` themselves).
     pub fn doc_mut(&mut self) -> &mut SlateDoc {
+        if self.refuse_read_only_edit() {
+            // Still hand back the real doc so existing call sites compile;
+            // board mutation helpers early-return before writing, and we
+            // skip the dirty mark so a read-only tab can still close.
+            return &mut self.tab_mut().doc;
+        }
         let tab = self.tab_mut();
         tab.dirty = true;
         &mut tab.doc
@@ -647,6 +671,23 @@ impl SlateApp {
 
     pub fn toast(&mut self, msg: impl Into<String>) {
         self.toasts.push((msg.into(), Instant::now()));
+    }
+
+    /// When the active tab is read-only, rate-limited toast and `true`
+    /// (caller must not mutate). Writable tabs return `false`.
+    pub(crate) fn refuse_read_only_edit(&mut self) -> bool {
+        if !self.tab().read_only {
+            return false;
+        }
+        let due = self
+            .last_read_only_toast
+            .map(|t| t.elapsed() >= Duration::from_secs(1))
+            .unwrap_or(true);
+        if due {
+            self.toast("Workbook is read-only — use Save a copy… to edit");
+            self.last_read_only_toast = Some(Instant::now());
+        }
+        true
     }
 
     pub fn next_tag_color(&mut self) -> [u8; 3] {
@@ -692,6 +733,9 @@ impl SlateApp {
         if i == self.active_tab {
             self.lock_all_models();
         }
+        if let Some(lease) = self.tabs[i].lease.take() {
+            lease.release();
+        }
         self.tabs.remove(i);
         if self.tabs.is_empty() {
             self.at_home = true;
@@ -701,6 +745,16 @@ impl SlateApp {
         }
         self.selection.clear();
         self.publish_session_tags();
+    }
+
+    /// Drop every tab's write lease (app exit). Best-effort; `Lease::Drop` is
+    /// the backstop if this is skipped.
+    fn release_all_leases(&mut self) {
+        for tab in &mut self.tabs {
+            if let Some(lease) = tab.lease.take() {
+                lease.release();
+            }
+        }
     }
 
     // ----- document I/O ------------------------------------------------------
@@ -720,6 +774,10 @@ impl SlateApp {
     }
 
     pub fn save_doc(&mut self) {
+        if self.tab().read_only {
+            self.toast("Workbook is read-only — use Save a copy…");
+            return;
+        }
         let tab_id = self.tab().id;
         match self.tab().path.clone() {
             Some(path) => self.save_doc_to(tab_id, path),
@@ -784,14 +842,40 @@ impl SlateApp {
                     self.new_tab();
                 }
                 self.record_recent_workbook(&path, &doc);
-                let tab = self.tab_mut();
-                tab.doc = doc;
-                tab.path = Some(path);
-                tab.dirty = false;
+                let (lease, read_only, holder, held_toast) = match Lease::acquire(&path) {
+                    Ok(LeaseState::Acquired(lease)) => (Some(lease), false, None, None),
+                    Ok(LeaseState::Held(info)) => {
+                        let msg = format!(
+                            "Opened read-only — {} has this workbook open",
+                            info.describe()
+                        );
+                        (None, true, Some(info), Some(msg))
+                    }
+                    Err(e) => {
+                        let msg = format!("Opened read-only — could not take write lease ({e})");
+                        (None, true, Some(LeaseInfo::unknown()), Some(msg))
+                    }
+                };
+                {
+                    let tab = self.tab_mut();
+                    // Replacing a blank tab: drop any prior lease (untitled has none).
+                    if let Some(old) = tab.lease.take() {
+                        old.release();
+                    }
+                    tab.doc = doc;
+                    tab.path = Some(path);
+                    tab.dirty = false;
+                    tab.lease = lease;
+                    tab.read_only = read_only;
+                    tab.lease_holder = holder;
+                }
                 self.selection.clear();
                 self.note_scene_change();
                 self.leave_home();
                 self.publish_session_tags();
+                if let Some(msg) = held_toast {
+                    self.toast(msg);
+                }
             }
             Err(e) => self.toast(format!("Could not open workbook: {e}")),
         }
@@ -801,20 +885,65 @@ impl SlateApp {
         if path.extension().is_none() {
             path.set_extension(SLATE_EXTENSION);
         }
-        let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
+        let Some(tab_idx) = self.tabs.iter().position(|t| t.id == tab_id) else {
             return;
         };
         // Derive the workbook name from the file name on first save.
         if let Some(stem) = path.file_stem() {
-            tab.doc.name = stem.to_string_lossy().into_owned();
+            self.tabs[tab_idx].doc.name = stem.to_string_lossy().into_owned();
         }
-        match tab.doc.save_to(&path) {
-            Ok(()) => {
-                tab.path = Some(path);
-                tab.dirty = false;
-                self.toast("Workbook saved");
+        if let Err(e) = self.tabs[tab_idx].doc.save_to(&path) {
+            self.toast(format!("Save failed: {e}"));
+            return;
+        }
+        let path_changed = self.tabs[tab_idx].path.as_ref() != Some(&path);
+        let need_lease = path_changed || self.tabs[tab_idx].lease.is_none();
+        self.tabs[tab_idx].path = Some(path.clone());
+        self.tabs[tab_idx].dirty = false;
+        // Save-as (or first save of an untitled): take the lease on the new
+        // path and clear read-only. Same-path save keeps the lease we hold.
+        if !need_lease {
+            self.toast("Workbook saved");
+            return;
+        }
+        if let Some(old) = self.tabs[tab_idx].lease.take() {
+            old.release();
+        }
+        let toast = match Lease::acquire(&path) {
+            Ok(LeaseState::Acquired(lease)) => {
+                let tab = &mut self.tabs[tab_idx];
+                tab.lease = Some(lease);
+                tab.read_only = false;
+                tab.lease_holder = None;
+                "Workbook saved".to_string()
             }
-            Err(e) => self.toast(format!("Save failed: {e}")),
+            Ok(LeaseState::Held(info)) => {
+                let tab = &mut self.tabs[tab_idx];
+                tab.read_only = true;
+                tab.lease_holder = Some(info.clone());
+                format!(
+                    "Saved, but open read-only — {} has it open",
+                    info.describe()
+                )
+            }
+            Err(e) => {
+                let tab = &mut self.tabs[tab_idx];
+                tab.read_only = true;
+                tab.lease_holder = Some(LeaseInfo::unknown());
+                format!("Saved, but could not take write lease ({e})")
+            }
+        };
+        self.toast(toast);
+    }
+
+    fn heartbeat_active_lease(&mut self) {
+        if self.at_home {
+            return;
+        }
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            if let Some(lease) = tab.lease.as_mut() {
+                let _ = lease.heartbeat();
+            }
         }
     }
 
@@ -1120,6 +1249,7 @@ impl SlateApp {
         self.shift_down = ctx.input(|i| i.modifiers.shift);
         self.frame_time = ctx.input(|i| i.time);
         self.drain_pickers();
+        self.heartbeat_active_lease();
         self.drain_thumbs(ctx);
         self.drain_previews(ctx);
         self.model3d_frame(ctx);
@@ -1346,5 +1476,9 @@ fn sample_workbook_cover_media(doc: &slate_doc::SlateDoc, limit: usize) -> Vec<P
 impl eframe::App for SlateApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_app(ctx);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.release_all_leases();
     }
 }
