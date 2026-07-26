@@ -49,6 +49,18 @@ pub fn status_bar(app: &mut SlateApp, ctx: &egui::Context) {
                     group_digits((total - uncategorized) as u64),
                     group_digits(uncategorized as u64),
                 ));
+                if app.tab().read_only {
+                    let holder = app
+                        .tab()
+                        .lease_holder
+                        .as_ref()
+                        .map(|h| h.describe())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    ui.label(RichText::new(format!("· read-only ({holder})")).color(palette.sub))
+                        .on_hover_text(
+                            "Another session holds the write lease. Use Save a copy… to edit.",
+                        );
+                }
                 if !app.selection.is_empty() {
                     ui.label(
                         RichText::new(format!("· {} selected", app.selection.len()))

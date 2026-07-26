@@ -240,5 +240,12 @@ thumbnail cache (`atlas_core::thumbs`), which both apps read.
 4. `selection` only holds live `ItemId`s; tag/group removal strips
    assignments inside `slate-doc`, and dead ids are dropped on use.
 5. Saves are atomic (temp file + rename in `slate-doc`).
+6. Opening a path acquires a cooperative write lease (`slate_doc::Lease`,
+   lock file beside the workbook). If another session holds a live lease the
+   tab opens **read-only**: view / present / export still work; saves and
+   board mutations refuse with a toast. Read-only is shown as a
+   ` (read-only)` tab-title suffix and the holder's name in the bottom
+   readout — never a new chrome banner. The active tab's lease is
+   heartbeated each frame; `close_tab` and app exit release it.
 
 `tests.rs` drives the real frame loop headlessly over these invariants.
