@@ -1,0 +1,10 @@
+[package]
+name = "collage"
+version.workspace = true
+edition.workspace = true
+description = "Pure deterministic collage layout: justified rows, grid, and masonry over aspect ratios"
+license = "MIT"
+
+[lib]
+name = "collage"
+path = "src/lib.rs"

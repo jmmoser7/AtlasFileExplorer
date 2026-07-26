@@ -9,6 +9,7 @@ members = [
     "crates/slate-doc",
     "crates/slate-artifact",
     "crates/circle-pack",
+    "crates/collage",
     "crates/vector-ink",
     "crates/code-lens",
     "crates/rhino-mesh",
