@@ -34,7 +34,7 @@ sorts by path, so two runs on an unchanged tree produce byte-identical output.
 
 | Metric | 2026-07-25 |
 |---|---|
-| commit | 182f9e3 |
+| commit | 53ef7cc |
 | lines_total | 64615 |
 | lines_code | 55209 |
 | pure_lines_code | 13982 |
