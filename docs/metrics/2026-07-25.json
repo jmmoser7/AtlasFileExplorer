@@ -1,0 +1,222 @@
+{
+  "date": "2026-07-25",
+  "commit": "182f9e3",
+  "totals": {
+    "lines_total": 64615,
+    "lines_code": 55209,
+    "pure_lines_code": 13982,
+    "renderer_lines_code": 41227,
+    "pure_ratio": 0.253,
+    "crates": 14,
+    "tests": 421,
+    "unsafe_blocks": 13,
+    "direct_dependencies": 18
+  },
+  "crates": [
+    {
+      "name": "atlas-ai",
+      "kind": "lib",
+      "renderer": true,
+      "lines_total": 586,
+      "lines_code": 459,
+      "tests": 4,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/ui.rs",
+        "lines": 227
+      }
+    },
+    {
+      "name": "atlas-commands",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 925,
+      "lines_code": 667,
+      "tests": 18,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/spec.rs",
+        "lines": 264
+      }
+    },
+    {
+      "name": "atlas-core",
+      "kind": "lib",
+      "renderer": true,
+      "lines_total": 4995,
+      "lines_code": 4196,
+      "tests": 41,
+      "unsafe_blocks": 6,
+      "longest_file": {
+        "path": "src/tree.rs",
+        "lines": 1033
+      }
+    },
+    {
+      "name": "atlas-session",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 120,
+      "lines_code": 69,
+      "tests": 0,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/lib.rs",
+        "lines": 120
+      }
+    },
+    {
+      "name": "atlas-shell",
+      "kind": "lib",
+      "renderer": true,
+      "lines_total": 7967,
+      "lines_code": 6794,
+      "tests": 26,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/home.rs",
+        "lines": 1198
+      }
+    },
+    {
+      "name": "circle-pack",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 1185,
+      "lines_code": 987,
+      "tests": 14,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/venn.rs",
+        "lines": 641
+      }
+    },
+    {
+      "name": "code-lens",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 3947,
+      "lines_code": 3544,
+      "tests": 37,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/layout.rs",
+        "lines": 1150
+      }
+    },
+    {
+      "name": "native-file-atlas",
+      "kind": "bin",
+      "renderer": true,
+      "lines_total": 8789,
+      "lines_code": 7681,
+      "tests": 24,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/app/mod.rs",
+        "lines": 6078
+      }
+    },
+    {
+      "name": "rhino-mesh",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 1551,
+      "lines_code": 1136,
+      "tests": 29,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/lib.rs",
+        "lines": 431
+      }
+    },
+    {
+      "name": "slate",
+      "kind": "bin",
+      "renderer": true,
+      "lines_total": 25492,
+      "lines_code": 22097,
+      "tests": 113,
+      "unsafe_blocks": 7,
+      "longest_file": {
+        "path": "src/app/board.rs",
+        "lines": 4848
+      }
+    },
+    {
+      "name": "slate-artifact",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 2574,
+      "lines_code": 2258,
+      "tests": 32,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/render.rs",
+        "lines": 1145
+      }
+    },
+    {
+      "name": "slate-doc",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 3067,
+      "lines_code": 2446,
+      "tests": 44,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/scene.rs",
+        "lines": 2050
+      }
+    },
+    {
+      "name": "vector-ink",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 2077,
+      "lines_code": 1762,
+      "tests": 29,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/edit.rs",
+        "lines": 763
+      }
+    },
+    {
+      "name": "xtask",
+      "kind": "bin",
+      "renderer": false,
+      "lines_total": 1340,
+      "lines_code": 1113,
+      "tests": 10,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/collect.rs",
+        "lines": 397
+      }
+    }
+  ],
+  "model": {
+    "format_version": 2,
+    "node_kinds": 5,
+    "node_kind_names": [
+      "frame",
+      "image",
+      "shape",
+      "text",
+      "connector"
+    ],
+    "edge_roles": 0,
+    "edge_role_names": [],
+    "scene_cmd_variants": 3
+  },
+  "commands": {
+    "slate": 112,
+    "file-atlas": 40
+  },
+  "deviations": {
+    "open": 11,
+    "accepted": 0,
+    "closed": 0
+  }
+}
