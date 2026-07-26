@@ -1,0 +1,21 @@
+{
+  "format_version": 99,
+  "groups": [],
+  "items": [],
+  "lens_root": null,
+  "name": "From The Future",
+  "next_group_id": 1,
+  "next_item_id": 1,
+  "next_tag_id": 1,
+  "scene": {
+    "next_group_key": 0,
+    "next_node_id": 0,
+    "nodes": []
+  },
+  "view": {
+    "active_view": "board",
+    "cam_x": 0.0,
+    "cam_y": 0.0,
+    "zoom": 1.0
+  }
+}
