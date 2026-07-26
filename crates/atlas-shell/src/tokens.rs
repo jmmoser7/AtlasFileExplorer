@@ -5,7 +5,8 @@
 //! values while the app runs and save them back to the TOML file.
 
 use eframe::egui::Color32;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
 use std::sync::{OnceLock, RwLock};
 
 const EMBEDDED_TOKENS: &str = include_str!("../ui-tokens.toml");
@@ -19,17 +20,19 @@ pub struct UiTokens {
     pub home: HomeTokens,
     pub minimap: MinimapTokens,
     pub palette: PaletteTokens,
+    pub theme: ThemeTokens,
 }
 
 impl Default for UiTokens {
     fn default() -> Self {
         Self {
-            schema_version: 2,
+            schema_version: 3,
             topbar: TopBarTokens::default(),
             dock: DockTokens::default(),
             home: HomeTokens::default(),
             minimap: MinimapTokens::default(),
             palette: PaletteTokens::default(),
+            theme: ThemeTokens::default(),
         }
     }
 }
@@ -848,6 +851,236 @@ impl Default for TopBarThemeTokens {
     }
 }
 
+/// A colour token, written as `"#rrggbb"` (or `"#rrggbbaa"`) in TOML.
+///
+/// Stored unpacked rather than as a `String` because [`current`] clones the
+/// whole token set on every frame; a colour token must not allocate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hex(Color32);
+
+impl Hex {
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self(Color32::from_rgb(r, g, b))
+    }
+
+    pub fn color(self) -> Color32 {
+        self.0
+    }
+
+    /// Parses `#rrggbb` / `#rrggbbaa`, with or without the leading `#`.
+    pub fn parse(text: &str) -> Option<Self> {
+        let body = text.strip_prefix('#').unwrap_or(text);
+        if !body.is_ascii() {
+            return None;
+        }
+        let byte = |at: usize| u8::from_str_radix(&body[at..at + 2], 16).ok();
+        match body.len() {
+            6 => Some(Self(Color32::from_rgb(byte(0)?, byte(2)?, byte(4)?))),
+            8 => Some(Self(Color32::from_rgba_unmultiplied(
+                byte(0)?,
+                byte(2)?,
+                byte(4)?,
+                byte(6)?,
+            ))),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for Hex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let [r, g, b, a] = self.0.to_srgba_unmultiplied();
+        if a == u8::MAX {
+            write!(f, "#{r:02x}{g:02x}{b:02x}")
+        } else {
+            write!(f, "#{r:02x}{g:02x}{b:02x}{a:02x}")
+        }
+    }
+}
+
+impl Serialize for Hex {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for Hex {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::parse(&text)
+            .ok_or_else(|| serde::de::Error::custom(format!("expected #rrggbb, got {text:?}")))
+    }
+}
+
+/// The built-in themes. Named `theme` rather than `palette` because
+/// `[palette]` already carries the command-palette popup's geometry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThemeTokens {
+    pub light: ThemeSlots,
+    pub dark: ThemeSlots,
+}
+
+impl Default for ThemeTokens {
+    fn default() -> Self {
+        Self {
+            light: ThemeSlots::light(),
+            dark: ThemeSlots::dark(),
+        }
+    }
+}
+
+/// One theme's semantic colour slots — the data behind
+/// [`crate::theme::Palette`].
+///
+/// The first fourteen are the slots both apps paint chrome and canvas with.
+/// The last five are the surfaces egui fills itself, held here so that
+/// `Visuals` can be *derived* from a theme instead of being hand-synchronised
+/// beside it; without them a theme could only ever be half-applied.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThemeSlots {
+    /// Paint these slots over egui's dark widget base rather than its light one.
+    pub dark_base: bool,
+    pub bg: Hex,
+    pub grid_dot: Hex,
+    pub card: Hex,
+    pub card_hover: Hex,
+    pub border: Hex,
+    pub border_strong: Hex,
+    pub ink: Hex,
+    pub sub: Hex,
+    pub line: Hex,
+    pub accent: Hex,
+    pub portal: Hex,
+    pub thumb_bg: Hex,
+    pub select: Hex,
+    pub staged: Hex,
+    /// `Visuals::panel_fill`.
+    pub panel: Hex,
+    /// `Visuals::window_fill`.
+    pub window: Hex,
+    /// `Visuals::extreme_bg_color`.
+    pub extreme_bg: Hex,
+    /// `Visuals::selection.bg_fill` — egui's own selection highlight, which is
+    /// not the canvas selection colour [`ThemeSlots::select`].
+    pub select_fill: Hex,
+    /// `Visuals::selection.stroke.color`.
+    pub select_stroke: Hex,
+}
+
+impl ThemeSlots {
+    /// Every colour slot name, in declaration order. Kept in step with
+    /// [`ThemeSlots::slot_mut`] by `slot_names_all_resolve`.
+    pub const SLOTS: &'static [&'static str] = &[
+        "bg",
+        "grid_dot",
+        "card",
+        "card_hover",
+        "border",
+        "border_strong",
+        "ink",
+        "sub",
+        "line",
+        "accent",
+        "portal",
+        "thumb_bg",
+        "select",
+        "staged",
+        "panel",
+        "window",
+        "extreme_bg",
+        "select_fill",
+        "select_stroke",
+    ];
+
+    pub fn light() -> Self {
+        Self {
+            dark_base: false,
+            bg: Hex::rgb(0xf6, 0xf7, 0xf8),
+            grid_dot: Hex::rgb(0xdf, 0xe3, 0xe7),
+            card: Hex::rgb(0xff, 0xff, 0xff),
+            card_hover: Hex::rgb(0xfb, 0xfc, 0xfd),
+            border: Hex::rgb(0xdf, 0xe3, 0xe8),
+            border_strong: Hex::rgb(0xc7, 0xcd, 0xd4),
+            ink: Hex::rgb(0x1b, 0x1e, 0x22),
+            sub: Hex::rgb(0x87, 0x8e, 0x96),
+            line: Hex::rgb(0xcb, 0xd1, 0xd8),
+            accent: Hex::rgb(0x0f, 0x76, 0x6e),
+            portal: Hex::rgb(0x8b, 0x5c, 0xf6),
+            thumb_bg: Hex::rgb(0xee, 0xf0, 0xf2),
+            select: Hex::rgb(0x1f, 0x6f, 0xb2),
+            staged: Hex::rgb(0xc4, 0x84, 0x1d),
+            panel: Hex::rgb(0xf8, 0xf9, 0xfb),
+            window: Hex::rgb(0xff, 0xff, 0xff),
+            extreme_bg: Hex::rgb(0xee, 0xf0, 0xf2),
+            select_fill: Hex::rgb(0xd7, 0xe8, 0xff),
+            select_stroke: Hex::rgb(0x1f, 0x6f, 0xb2),
+        }
+    }
+
+    pub fn dark() -> Self {
+        Self {
+            dark_base: true,
+            bg: Hex::rgb(0x0e, 0x10, 0x13),
+            grid_dot: Hex::rgb(0x23, 0x27, 0x2d),
+            card: Hex::rgb(0x1c, 0x20, 0x26),
+            card_hover: Hex::rgb(0x24, 0x29, 0x31),
+            border: Hex::rgb(0x33, 0x39, 0x41),
+            border_strong: Hex::rgb(0x4a, 0x52, 0x5c),
+            ink: Hex::rgb(0xdd, 0xe2, 0xe8),
+            sub: Hex::rgb(0x87, 0x8e, 0x96),
+            line: Hex::rgb(0x3a, 0x41, 0x4a),
+            accent: Hex::rgb(0x2d, 0xd4, 0xbf),
+            portal: Hex::rgb(0xa7, 0x8b, 0xfa),
+            thumb_bg: Hex::rgb(0x15, 0x18, 0x1c),
+            select: Hex::rgb(0x6f, 0xb7, 0xff),
+            staged: Hex::rgb(0xe0, 0xa8, 0x3c),
+            panel: Hex::rgb(0x14, 0x16, 0x1a),
+            window: Hex::rgb(0x1a, 0x1d, 0x23),
+            extreme_bg: Hex::rgb(0x0e, 0x10, 0x13),
+            select_fill: Hex::rgb(0x2b, 0x5c, 0x8a),
+            // egui's own dark default, which `dark_visuals` used to inherit
+            // silently while the light theme overrode it.
+            select_stroke: Hex::rgb(0xc0, 0xde, 0xff),
+        }
+    }
+
+    /// The slot named `key`, for loaders that read themes as loose tables.
+    pub fn slot_mut(&mut self, key: &str) -> Option<&mut Hex> {
+        Some(match key {
+            "bg" => &mut self.bg,
+            "grid_dot" => &mut self.grid_dot,
+            "card" => &mut self.card,
+            "card_hover" => &mut self.card_hover,
+            "border" => &mut self.border,
+            "border_strong" => &mut self.border_strong,
+            "ink" => &mut self.ink,
+            "sub" => &mut self.sub,
+            "line" => &mut self.line,
+            "accent" => &mut self.accent,
+            "portal" => &mut self.portal,
+            "thumb_bg" => &mut self.thumb_bg,
+            "select" => &mut self.select,
+            "staged" => &mut self.staged,
+            "panel" => &mut self.panel,
+            "window" => &mut self.window,
+            "extreme_bg" => &mut self.extreme_bg,
+            "select_fill" => &mut self.select_fill,
+            "select_stroke" => &mut self.select_stroke,
+            _ => return None,
+        })
+    }
+}
+
+impl Default for ThemeSlots {
+    /// Dark, so that a partial user theme falls back to a legible surface
+    /// rather than to whatever egui would otherwise leave behind.
+    fn default() -> Self {
+        Self::dark()
+    }
+}
+
 fn parse_embedded() -> UiTokens {
     let mut tokens = toml::from_str(EMBEDDED_TOKENS).unwrap_or_else(|error| {
         eprintln!("invalid atlas-shell/ui-tokens.toml ({error}); using factory defaults");
@@ -896,5 +1129,47 @@ mod tests {
         assert!(tokens.topbar.height > 0.0);
         assert!(tokens.topbar.tab_max_width >= tokens.topbar.tab_min_width);
         assert!(tokens.dock.popover_width > 0.0);
+        assert!(tokens.theme.dark.dark_base);
+        assert!(!tokens.theme.light.dark_base);
+    }
+
+    #[test]
+    fn slot_names_all_resolve() {
+        let mut slots = ThemeSlots::light();
+        for name in ThemeSlots::SLOTS {
+            assert!(slots.slot_mut(name).is_some(), "{name} has no slot");
+        }
+        assert!(slots.slot_mut("dark_base").is_none());
+        assert!(slots.slot_mut("not_a_slot").is_none());
+    }
+
+    #[test]
+    fn hex_round_trips_through_toml() {
+        let slots = ThemeSlots::dark();
+        let text = toml::to_string(&slots).unwrap();
+        assert!(text.contains("bg = \"#0e1013\""), "{text}");
+        assert_eq!(toml::from_str::<ThemeSlots>(&text).unwrap(), slots);
+    }
+
+    #[test]
+    fn hex_accepts_alpha_and_rejects_nonsense() {
+        assert_eq!(Hex::parse("#0e1013"), Some(Hex::rgb(0x0e, 0x10, 0x13)));
+        assert_eq!(Hex::parse("0e1013"), Some(Hex::rgb(0x0e, 0x10, 0x13)));
+        assert_eq!(
+            Hex::parse("#0e101380").map(Hex::color),
+            Some(Color32::from_rgba_unmultiplied(0x0e, 0x10, 0x13, 0x80))
+        );
+        // "éé1013" is eight *bytes*, so it reaches the fixed-width slicing.
+        for bad in [
+            "",
+            "#",
+            "#fff",
+            "#gggggg",
+            "#0e1013ff00",
+            "rebeccapurple",
+            "#éé1013",
+        ] {
+            assert!(Hex::parse(bad).is_none(), "{bad} parsed");
+        }
     }
 }

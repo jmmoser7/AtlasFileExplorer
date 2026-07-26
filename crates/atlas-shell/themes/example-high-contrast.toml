@@ -1,0 +1,26 @@
+# Example user theme. Copy this file into the theme directory reported by
+# `atlas_shell::theme::user_theme_dir()` — `<data dir>/themes/` — and both apps
+# pick it up on next launch. A theme named `light` or `dark` shadows the
+# built-in of that name. Omitted slots fall back to the built-in dark values.
+
+[theme.high-contrast]
+dark_base = true
+bg = "#000000"
+grid_dot = "#3a3a3a"
+card = "#101010"
+card_hover = "#1c1c1c"
+border = "#6a6a6a"
+border_strong = "#b4b4b4"
+ink = "#ffffff"
+sub = "#c8c8c8"
+line = "#8c8c8c"
+accent = "#00e5ff"
+portal = "#d08bff"
+thumb_bg = "#0a0a0a"
+select = "#ffd400"
+staged = "#ff8a00"
+panel = "#000000"
+window = "#0a0a0a"
+extreme_bg = "#000000"
+select_fill = "#004a66"
+select_stroke = "#ffd400"
