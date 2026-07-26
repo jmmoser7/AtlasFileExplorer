@@ -1,0 +1,100 @@
+{
+  "format_version": 1,
+  "groups": [
+    {
+      "id": 1,
+      "name": "Discipline",
+      "tags": [
+        {
+          "color": [
+            90,
+            140,
+            220
+          ],
+          "id": 1,
+          "name": "Architecture"
+        },
+        {
+          "color": [
+            220,
+            150,
+            70
+          ],
+          "id": 2,
+          "name": "Structure"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Status",
+      "tags": [
+        {
+          "color": [
+            150,
+            150,
+            150
+          ],
+          "id": 3,
+          "name": "Draft"
+        },
+        {
+          "color": [
+            80,
+            180,
+            120
+          ],
+          "id": 4,
+          "name": "Issued"
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "assignments": {
+        "1": 1,
+        "2": 4
+      },
+      "cache_key": "site-plan-1",
+      "file_name": "site-plan.pdf",
+      "id": 1,
+      "mtime": 1752000000,
+      "path": "/projects/harbour/site-plan.pdf",
+      "size": 482133
+    },
+    {
+      "assignments": {
+        "1": 1,
+        "2": 3
+      },
+      "cache_key": "elevation-north-1",
+      "file_name": "elevation-north.png",
+      "id": 2,
+      "mtime": 1752010000,
+      "path": "/projects/harbour/elevation-north.png",
+      "size": 2310442
+    },
+    {
+      "assignments": {
+        "1": 2
+      },
+      "cache_key": "beam-schedule-1",
+      "file_name": "beam-schedule.xlsx",
+      "id": 3,
+      "mtime": 1752020000,
+      "path": "/projects/harbour/beam-schedule.xlsx",
+      "size": 64120
+    }
+  ],
+  "name": "Field Survey",
+  "next_group_id": 3,
+  "next_item_id": 4,
+  "next_tag_id": 5,
+  "view": {
+    "active_view": "venn",
+    "cam_x": -120.0,
+    "cam_y": 48.0,
+    "zoom": 1.5
+  }
+}

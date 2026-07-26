@@ -1,0 +1,308 @@
+{
+  "format_version": 2,
+  "name": "Harbour Deck",
+  "groups": [
+    {
+      "id": 1,
+      "name": "Chapter",
+      "tags": [
+        {
+          "id": 1,
+          "name": "Intro",
+          "color": [
+            90,
+            140,
+            220
+          ]
+        },
+        {
+          "id": 2,
+          "name": "Detail",
+          "color": [
+            220,
+            150,
+            70
+          ]
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "id": 1,
+      "path": "/decks/harbour/hero.jpg",
+      "file_name": "hero.jpg",
+      "size": 1204880,
+      "mtime": 1752100000,
+      "cache_key": "hero-1",
+      "pdf_page": 0,
+      "assignments": {}
+    },
+    {
+      "id": 2,
+      "path": "/decks/harbour/report.pdf",
+      "file_name": "report.pdf — page 4",
+      "size": 982004,
+      "mtime": 1752200000,
+      "cache_key": "report-3",
+      "pdf_page": 3,
+      "assignments": {
+        "1": 2
+      }
+    }
+  ],
+  "view": {
+    "active_view": "board",
+    "cam_x": 240.0,
+    "cam_y": -80.0,
+    "zoom": 0.75
+  },
+  "scene": {
+    "nodes": [
+      {
+        "id": 1,
+        "rect": {
+          "x": 0.0,
+          "y": 0.0,
+          "w": 1280.0,
+          "h": 720.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Cover",
+            "order": 2,
+            "fill": [
+              246,
+              246,
+              244,
+              255
+            ],
+            "assignments": {
+              "1": 1
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "rect": {
+          "x": 80.0,
+          "y": 120.0,
+          "w": 480.0,
+          "h": 320.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 0.8,
+        "locked": true,
+        "kind": {
+          "image": {
+            "item": 1,
+            "crop": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "stroke": {
+              "width": 0.0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "adjust": {
+              "brightness": 1.0,
+              "contrast": 1.0,
+              "saturate": 1.0,
+              "grayscale": 0.0,
+              "sepia": 0.0,
+              "hue_deg": 0.0,
+              "overlay": null
+            },
+            "video": {
+              "start": 0.0,
+              "end": null,
+              "autoplay": true,
+              "looped": true,
+              "muted": true,
+              "controls": false
+            },
+            "model": {
+              "target": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "yaw": -0.7853982,
+              "pitch": 0.5,
+              "distance": 0.0
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "rect": {
+          "x": 640.0,
+          "y": 120.0,
+          "w": 420.0,
+          "h": 300.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "group": 1,
+        "kind": {
+          "shape": {
+            "shape": "path",
+            "fill": null,
+            "stroke": {
+              "width": 3.0,
+              "color": [
+                30,
+                30,
+                30,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "corner": "square",
+            "flip": false,
+            "path": {
+              "start": [
+                0.0,
+                0.0
+              ],
+              "segs": [
+                {
+                  "Line": {
+                    "to": [
+                      1.0,
+                      0.4
+                    ]
+                  }
+                },
+                {
+                  "Cubic": {
+                    "c1": [
+                      0.75,
+                      0.7
+                    ],
+                    "c2": [
+                      0.25,
+                      0.9
+                    ],
+                    "to": [
+                      0.0,
+                      1.0
+                    ]
+                  }
+                }
+              ],
+              "closed": false
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "rect": {
+          "x": 640.0,
+          "y": 460.0,
+          "w": 420.0,
+          "h": 120.0
+        },
+        "rotation_deg": -6.0,
+        "opacity": 1.0,
+        "hidden": true,
+        "group": 1,
+        "kind": {
+          "text": {
+            "text": "Harbour frontage — draft",
+            "family": "serif",
+            "size": 34.0,
+            "color": [
+              20,
+              20,
+              40,
+              255
+            ],
+            "align": "center",
+            "fill": [
+              255,
+              244,
+              200,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 5,
+        "rect": {
+          "x": 560.0,
+          "y": 195.0,
+          "w": 80.0,
+          "h": 85.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "connector": {
+            "a": {
+              "anchored": {
+                "node": 2,
+                "side": "right",
+                "t": 0.5
+              }
+            },
+            "b": {
+              "anchored": {
+                "node": 3,
+                "side": "left",
+                "t": 0.25
+              }
+            },
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                120,
+                120,
+                130,
+                255
+              ],
+              "dash": "dashed",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "arrow_b": true,
+            "label": "informs",
+            "display": "faint"
+          }
+        }
+      }
+    ],
+    "next_node_id": 5,
+    "next_group_key": 1
+  },
+  "lens_root": "/repos/atlas",
+  "next_group_id": 2,
+  "next_tag_id": 3,
+  "next_item_id": 3
+}
