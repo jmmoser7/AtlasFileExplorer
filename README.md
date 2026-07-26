@@ -3,6 +3,10 @@
 A native Windows tool for visually organizing tens of thousands of files.
 Rust + egui, GPU-rendered, fully non-destructive.
 
+Have an idea for it? [`EXTENDING.md`](EXTENDING.md) triages a proposal against
+the project's [constitution](CONSTITUTION.md) in about ten minutes — weekend or
+rewrite, and where in the tree it lands.
+
 ## What it does
 
 - **Instant scans.** A parallel native directory walker streams results into the
