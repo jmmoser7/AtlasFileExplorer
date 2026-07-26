@@ -1,14 +1,14 @@
 {
   "date": "2026-07-25",
-  "commit": "53ef7cc",
+  "commit": "4d40a33",
   "totals": {
-    "lines_total": 64615,
-    "lines_code": 55209,
-    "pure_lines_code": 13982,
-    "renderer_lines_code": 41227,
-    "pure_ratio": 0.253,
-    "crates": 14,
-    "tests": 421,
+    "lines_total": 67962,
+    "lines_code": 57920,
+    "pure_lines_code": 16084,
+    "renderer_lines_code": 41836,
+    "pure_ratio": 0.278,
+    "crates": 15,
+    "tests": 470,
     "unsafe_blocks": 13,
     "direct_dependencies": 18
   },
@@ -69,9 +69,9 @@
       "name": "atlas-shell",
       "kind": "lib",
       "renderer": true,
-      "lines_total": 7967,
-      "lines_code": 6794,
-      "tests": 26,
+      "lines_total": 8536,
+      "lines_code": 7257,
+      "tests": 35,
       "unsafe_blocks": 0,
       "longest_file": {
         "path": "src/home.rs",
@@ -105,6 +105,19 @@
       }
     },
     {
+      "name": "collage",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 1010,
+      "lines_code": 803,
+      "tests": 17,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "tests/layout.rs",
+        "lines": 597
+      }
+    },
+    {
       "name": "native-file-atlas",
       "kind": "bin",
       "renderer": true,
@@ -134,22 +147,22 @@
       "name": "slate",
       "kind": "bin",
       "renderer": true,
-      "lines_total": 25492,
-      "lines_code": 22097,
+      "lines_total": 25656,
+      "lines_code": 22243,
       "tests": 113,
       "unsafe_blocks": 7,
       "longest_file": {
         "path": "src/app/board.rs",
-        "lines": 4848
+        "lines": 4866
       }
     },
     {
       "name": "slate-artifact",
       "kind": "lib",
       "renderer": false,
-      "lines_total": 2574,
-      "lines_code": 2258,
-      "tests": 32,
+      "lines_total": 2648,
+      "lines_code": 2321,
+      "tests": 33,
       "unsafe_blocks": 0,
       "longest_file": {
         "path": "src/render.rs",
@@ -160,13 +173,13 @@
       "name": "slate-doc",
       "kind": "lib",
       "renderer": false,
-      "lines_total": 3067,
-      "lines_code": 2446,
-      "tests": 44,
+      "lines_total": 4585,
+      "lines_code": 3672,
+      "tests": 66,
       "unsafe_blocks": 0,
       "longest_file": {
         "path": "src/scene.rs",
-        "lines": 2050
+        "lines": 2254
       }
     },
     {
@@ -186,8 +199,8 @@
       "name": "xtask",
       "kind": "bin",
       "renderer": false,
-      "lines_total": 1340,
-      "lines_code": 1113,
+      "lines_total": 1352,
+      "lines_code": 1123,
       "tests": 10,
       "unsafe_blocks": 0,
       "longest_file": {
@@ -215,8 +228,8 @@
     "file-atlas": 40
   },
   "deviations": {
-    "open": 11,
+    "open": 7,
     "accepted": 0,
-    "closed": 0
+    "closed": 4
   }
 }

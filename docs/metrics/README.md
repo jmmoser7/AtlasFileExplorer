@@ -34,14 +34,14 @@ sorts by path, so two runs on an unchanged tree produce byte-identical output.
 
 | Metric | 2026-07-25 |
 |---|---|
-| commit | 53ef7cc |
-| lines_total | 64615 |
-| lines_code | 55209 |
-| pure_lines_code | 13982 |
-| renderer_lines_code | 41227 |
-| pure_ratio | 0.253 |
-| crates | 14 |
-| tests | 421 |
+| commit | 4d40a33 |
+| lines_total | 67962 |
+| lines_code | 57920 |
+| pure_lines_code | 16084 |
+| renderer_lines_code | 41836 |
+| pure_ratio | 0.278 |
+| crates | 15 |
+| tests | 470 |
 | unsafe_blocks | 13 |
 | direct_dependencies | 18 |
 | format_version | 2 |
@@ -50,9 +50,9 @@ sorts by path, so two runs on an unchanged tree produce byte-identical output.
 | scene_cmd_variants | 3 |
 | commands · slate | 112 |
 | commands · file-atlas | 40 |
-| deviations · open | 11 |
+| deviations · open | 7 |
 | deviations · accepted | 0 |
-| deviations · closed | 0 |
+| deviations · closed | 4 |
 
 ## Lines of code per crate
 
@@ -62,13 +62,14 @@ sorts by path, so two runs on an unchanged tree produce byte-identical output.
 | atlas-commands | 667 |
 | atlas-core | 4196 |
 | atlas-session | 69 |
-| atlas-shell | 6794 |
+| atlas-shell | 7257 |
 | circle-pack | 987 |
 | code-lens | 3544 |
+| collage | 803 |
 | native-file-atlas | 7681 |
 | rhino-mesh | 1136 |
-| slate | 22097 |
-| slate-artifact | 2258 |
-| slate-doc | 2446 |
+| slate | 22243 |
+| slate-artifact | 2321 |
+| slate-doc | 3672 |
 | vector-ink | 1762 |
-| xtask | 1113 |
+| xtask | 1123 |

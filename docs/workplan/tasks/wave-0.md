@@ -153,7 +153,9 @@ output — assert this in a test.
 - [ ] Test `metrics_snapshot_is_deterministic` runs the collector twice on the
       repo and asserts identical JSON.
 - [ ] Test `deviation_counts_match_ledger` parses `docs/audit/deviations.md` and
-      asserts 11 open rows (the seeded ledger).
+      asserts that every `DV-` row is classified as open, accepted, or closed.
+      **Do not assert a fixed open count** — every card that closes a row would
+      break it, which is a test that fails on success.
 - [ ] The committed baseline's per-crate LOC is within ±5% of audit §2.1's
       table; explain in the PR body any crate that is not (a different counting
       rule is a fine explanation; a missing crate is not).
