@@ -4,11 +4,40 @@ Read this in full before touching the repository. It applies to every task card
 in `docs/workplan/tasks/`. Your card overrides this brief only where it says so
 explicitly.
 
-You are one agent in a swarm working the same repository in parallel. Most of
-these rules exist because of that: work that would be harmless from a single
-contributor is destructive from twelve.
+You are one agent in a swarm working the same repository. Most of these rules
+exist because of that: work that would be harmless from a single contributor is
+destructive from twelve.
 
 ---
+
+## 0. Execution model — learned the hard way
+
+The first Wave 0 dispatch assumed each agent would get an isolated git worktree.
+**It did not.** Eight agents ran in one shared working tree, none committed, and
+the result was a single undifferentiated pile of changes that had to be split
+apart by hand afterwards. Nothing was lost, but nothing was reviewable either.
+
+Until isolation is demonstrably working, these rules bind:
+
+1. **Assume you are sharing the working tree with the human and possibly another
+   agent.** You are not alone in a sandbox.
+2. **Check out your branch first and confirm it**, before your first edit:
+   `git rev-parse --abbrev-ref HEAD`. If you are on `main`, or on another card's
+   branch, stop and escalate rather than guessing.
+3. **Commit early and commit often.** An uncommitted change is invisible to
+   everyone and is destroyed by the next branch switch. Commit as soon as a
+   coherent piece works, not once at the end. If you are interrupted, whatever
+   you committed survives and whatever you did not is gone.
+4. **Never switch branches** except onto your own, and never `git stash`,
+   `git checkout -- .`, `git reset --hard`, or `git clean`. Another agent's
+   uncommitted work may be sitting in the tree beside yours, and those commands
+   destroy it without warning.
+5. **Never run `cargo fmt --all`.** The baseline is not formatted, so it
+   reformats files no card owns and buries your real change in noise. Format
+   only the files your card owns: `cargo fmt -p <your-crate>` or `rustfmt` on
+   specific paths.
+6. If the tree contains modifications to files your card does not own when you
+   start, **leave them completely alone** and say so in your report.
 
 ## 1. Scope discipline — the most important section
 
