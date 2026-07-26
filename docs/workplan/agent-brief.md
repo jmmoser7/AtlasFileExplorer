@@ -39,6 +39,26 @@ Until isolation is demonstrably working, these rules bind:
 6. If the tree contains modifications to files your card does not own when you
    start, **leave them completely alone** and say so in your report.
 
+### Building on this machine
+
+A bare PowerShell has no MSVC environment, so `cargo test` fails while linking
+with `LINK : fatal error LNK1104: cannot open file 'msvcrt.lib'`. That error
+means the environment is wrong; it never means the code is wrong. The VS 2022
+install on this machine is incomplete (no desktop x64 libs); the VS 2019 Build
+Tools are intact. **Prefix every cargo command:**
+
+```
+cmd /c 'call "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1 && cargo test -p <crate> 2>&1'
+```
+
+Note the single quotes: PowerShell passes the string to `cmd` literally, and
+`cmd` needs `call` before the batch file. Allow a 30-second overhead per command
+for environment setup, and set generous timeouts — a cold workspace build takes
+minutes.
+
+`cargo` also rewrites `Cargo.lock` on some runs. That is normal and is not
+yours to revert unless your card owns the file; report it and leave it.
+
 ## 1. Scope discipline — the most important section
 
 **Execute exactly one card. Change nothing your card does not name.**
