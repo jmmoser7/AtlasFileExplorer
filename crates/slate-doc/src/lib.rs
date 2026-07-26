@@ -10,6 +10,7 @@ mod item;
 mod link;
 pub mod media;
 pub mod scene;
+mod spatial;
 mod tags;
 mod view;
 

@@ -18,9 +18,11 @@
 //!   this same command language.
 
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use crate::ids::{GroupId, ItemId, TagId};
+use crate::spatial::SpatialIndex;
 
 // ---------- geometry ----------
 
@@ -44,6 +46,13 @@ impl WorldRect {
 
     pub fn contains(&self, px: f32, py: f32) -> bool {
         px >= self.x && px <= self.x + self.w && py >= self.y && py <= self.y + self.h
+    }
+
+    /// Inclusive AABB overlap (touching edges count).
+    pub fn intersects(&self, other: &WorldRect) -> bool {
+        let a = self.normalized();
+        let b = other.normalized();
+        a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y
     }
 
     pub fn translated(&self, dx: f32, dy: f32) -> Self {
@@ -943,17 +952,63 @@ impl Node {
 
 /// Flat scene graph. `nodes` order is z-order for content (later = on top);
 /// frames paint behind all content regardless of position in the vec.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+///
+/// [`Scene::scene_gen`] and the spatial index are derived — skipped on
+/// serde and ignored by [`PartialEq`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Scene {
     pub nodes: Vec<Node>,
     next_node_id: u64,
     #[serde(default)]
     next_group_key: u64,
+    /// Bumped on every mutation that may change bounds or z-order. Spatial
+    /// index caches key off this (Constitution Art. II / derived state).
+    #[serde(skip)]
+    scene_gen: u64,
+    #[serde(skip)]
+    spatial: RefCell<SpatialIndex>,
+}
+
+impl PartialEq for Scene {
+    fn eq(&self, other: &Self) -> bool {
+        self.nodes == other.nodes
+            && self.next_node_id == other.next_node_id
+            && self.next_group_key == other.next_group_key
+    }
 }
 
 impl Scene {
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
+    }
+
+    /// Generation counter for derived caches (spatial index). Not serialized.
+    pub fn scene_gen(&self) -> u64 {
+        self.scene_gen
+    }
+
+    fn bump_gen(&mut self) {
+        self.scene_gen = self.scene_gen.wrapping_add(1);
+    }
+
+    fn ensure_spatial(&self) {
+        let mut idx = self.spatial.borrow_mut();
+        if idx.is_current(self.scene_gen) {
+            return;
+        }
+        idx.rebuild(&self.nodes, self.scene_gen);
+    }
+
+    /// Broad-phase: node ids whose AABB intersects `rect`, ascending z-order.
+    pub fn query_rect(&self, rect: WorldRect) -> Vec<NodeId> {
+        self.ensure_spatial();
+        self.spatial.borrow().query_rect(rect)
+    }
+
+    /// Broad-phase: node ids whose AABB contains `(x, y)`, ascending z-order.
+    pub fn query_point(&self, x: f32, y: f32) -> Vec<NodeId> {
+        self.ensure_spatial();
+        self.spatial.borrow().query_point(x, y)
     }
 
     fn alloc_id(&mut self) -> NodeId {
@@ -995,6 +1050,7 @@ impl Scene {
     /// 2026-07-23). The world geometry is unchanged: the rect stays, the
     /// diagonal becomes an explicit single-segment path.
     pub fn migrate_legacy_lines(&mut self) {
+        let mut changed = false;
         for n in &mut self.nodes {
             let NodeKind::Shape(s) = &mut n.kind else {
                 continue;
@@ -1015,6 +1071,10 @@ impl Scene {
                 segs: vec![PathSeg::Line { to }],
                 closed: false,
             });
+            changed = true;
+        }
+        if changed {
+            self.bump_gen();
         }
     }
 
@@ -1032,7 +1092,11 @@ impl Scene {
     }
 
     pub fn node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
-        self.nodes.iter_mut().find(|n| n.id == id)
+        // In-place edits (drag preview) bypass [`SceneCmd`]; invalidate the
+        // spatial cache so the next query rebuilds from live rects.
+        let idx = self.nodes.iter().position(|n| n.id == id)?;
+        self.bump_gen();
+        Some(&mut self.nodes[idx])
     }
 
     pub fn index_of(&self, id: NodeId) -> Option<usize> {
@@ -1096,21 +1160,28 @@ impl Scene {
 
     /// Topmost frame under a point.
     pub fn frame_at(&self, x: f32, y: f32) -> Option<NodeId> {
-        self.nodes
-            .iter()
-            .rev()
-            .find(|n| n.is_frame() && n.rect.contains(x, y))
-            .map(|n| n.id)
+        for id in self.query_point(x, y).into_iter().rev() {
+            let Some(n) = self.node(id) else {
+                continue;
+            };
+            if n.is_frame() && n.rect.contains(x, y) {
+                return Some(id);
+            }
+        }
+        None
     }
 
     /// Topmost node under a point; content wins over frames.
     pub fn node_at(&self, x: f32, y: f32) -> Option<NodeId> {
-        self.nodes
-            .iter()
-            .rev()
-            .find(|n| !n.is_frame() && n.rect.contains_rotated(x, y, n.rotation_deg))
-            .map(|n| n.id)
-            .or_else(|| self.frame_at(x, y))
+        for id in self.query_point(x, y).into_iter().rev() {
+            let Some(n) = self.node(id) else {
+                continue;
+            };
+            if !n.is_frame() && n.rect.contains_rotated(x, y, n.rotation_deg) {
+                return Some(id);
+            }
+        }
+        self.frame_at(x, y)
     }
 }
 
@@ -1153,7 +1224,7 @@ impl Scene {
     /// Applies one command. Returns `false` (and does nothing) when the
     /// command no longer matches the scene (stale index/id).
     pub fn apply(&mut self, cmd: &SceneCmd) -> bool {
-        match cmd {
+        let ok = match cmd {
             SceneCmd::Add { index, node } => {
                 if self.index_of(node.id).is_some() || *index > self.nodes.len() {
                     return false;
@@ -1174,13 +1245,19 @@ impl Scene {
                 if before.id != after.id {
                     return false;
                 }
-                let Some(n) = self.node_mut(before.id) else {
+                // Patch must not go through [`Self::node_mut`] — that bumps
+                // gen on lookup; we bump once below on success.
+                let Some(n) = self.nodes.iter_mut().find(|n| n.id == before.id) else {
                     return false;
                 };
                 *n = (**after).clone();
                 true
             }
+        };
+        if ok {
+            self.bump_gen();
         }
+        ok
     }
 
     /// Applies a group of commands, stopping at the first failure.
@@ -1344,6 +1421,19 @@ mod tests {
         // Frame area with no content on top.
         assert_eq!(scene.node_at(700.0, 400.0), Some(frame_id));
         assert_eq!(scene.node_at(-50.0, -50.0), None);
+    }
+
+    /// T0.8 checklist: spatial broad-phase must not change hit-test semantics
+    /// (topmost wins, frames behind content). Existing assertions above stay
+    /// untouched; this re-states them under the index path.
+    #[test]
+    fn hit_test_is_unchanged_for_existing_scenes() {
+        let (scene, frame_id, img_id) = scene_with_frame_and_image();
+        assert_eq!(scene.node_at(150.0, 150.0), Some(img_id));
+        assert_eq!(scene.node_at(700.0, 400.0), Some(frame_id));
+        assert_eq!(scene.frame_at(150.0, 150.0), Some(frame_id));
+        assert_eq!(scene.node_at(-50.0, -50.0), None);
+        assert_eq!(scene.frame_at(-50.0, -50.0), None);
     }
 
     #[test]
