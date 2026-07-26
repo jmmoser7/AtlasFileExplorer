@@ -18,8 +18,12 @@ ratifies amendments, by explicit edit to `CONSTITUTION.md`.
 The articles, in one line each:
 
 1. **Minimal core** — core = canvas paradigm (camera, tabs, journal, chrome,
-   command registry); all else is a capability; no document model, geometry,
-   or capability logic may depend on egui or any renderer.
+ command registry); all else is a capability; no document model, geometry,
+ or capability logic may depend on egui or any renderer, nor on any model
+ provider or protocol revision. Windows is the reference platform; pure
+ crates must still build and test on Linux. Local-first: a relay for live
+ collaboration is permitted only if the user can run it themselves, and no
+ capability may require an account with anyone, including this project.
 2. **Performance is a feature** — 60fps canvas; no per-frame allocation or
    tessellation in paint paths (tessellate once, cache); heavy work async
    and generation-tagged.
@@ -29,20 +33,32 @@ The articles, in one line each:
    never hallucinated; the board's styling ceiling is **SVG-expressible**
    (supersedes CSS-only), held identically by the egui painter and the
    artifact writer.
-5. **One universe, portals** — the board is the only universe; generated
-   views (Grid/Venn/Lens/…) are portal nodes: journaled frames,
-   deterministically regenerated contents.
+5. **One universe, portals** — the board is the only universe; a portal is a
+ journaled frame whose contents come from elsewhere. Three classes, each
+ declaring its mutation authority and what it exports as: *generated*
+ (deterministic, owns nothing), *document* (the child's journal owns it),
+ *host* (owns nothing, exports as a poster plus a pointer). Determinism
+ binds generated portals only. Frame membership is derived geometry — the
+ topmost containing frame, exactly one — never a stored relation.
 6. **Journal-only mutation** — every mutation is a named, invertible,
-   journaled command carrying its author (human | named agent). Never mutate
-   documents outside a journaled path.
+ journaled command carrying its author (human | named agent), addressing
+ nodes by stable identity and scoped to the smallest changed property.
+ Never mutate documents outside a journaled path. Derived state (portal
+ contents, simulation, playheads, trails, presence) is never journaled;
+ promoting it to authored content is an explicit bake command.
 7. **Command parity** — humans and agents drive the same command surface;
-   agents extend the workspace with data (declarative assets), never code;
-   script execution requires a future ratified amendment.
+ agents extend the workspace with data (declarative assets), then
+ out-of-process servers, never native in-process binaries; agent mutations
+ stage for human acceptance by default; script execution requires a future
+ ratified amendment.
 8. **Bandwidth** — the canvas is the prompt (selection/viewport/ink are
    agent context); every input modality compiles to commands; the human is
    never blocked synchronously on an agent.
 9. **Slate is a linker, never a database** — links resolve through the
-   `Source` abstraction.
+ `Source` abstraction, store a relative locator first, and report health as
+ `Ok`/`Missing`/`Unknown` without blocking. Packaging copies assets and is a
+ permanent fork that names its origins. Write-back to a source is per
+ action, human-directed, journaled, and never available to an agent.
 10. **No chrome divergence** — see `.cursor/rules/shared-chrome.mdc`.
 11. **Agent conduct** — pushback mandate; amendments only by user-ratified
     edits to `CONSTITUTION.md`.

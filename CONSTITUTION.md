@@ -46,13 +46,32 @@ surfaces — is a **capability** layered on the core. Capabilities may not
 reach into each other; they compose through the core's contracts (facets,
 portals, commands, sources).
 
-**The renderer-agnostic rule (the substrate hedge):** no document model,
+**I.1 — The renderer-agnostic rule (the substrate hedge).** No document model,
 geometry, or capability logic may depend on `egui` or any renderer. Pure
 crates (`slate-doc`, `circle-pack`, `code-lens`, `rhino-mesh`, and their
 successors) hold the durable logic; apps are thin interpreters that paint
 pure models and forward input as commands. This is what makes the rendering
 substrate (egui today; GPU vector rendering such as Vello later; other
 platforms someday) swappable by port rather than rewrite.
+
+**I.2 — The provider hedge.** The renderer-agnostic rule extends to model
+providers and agent protocols. No document model, command, or memory record
+may depend on a specific model provider, vendor application, or protocol
+revision. Protocol adapters are leaf crates.
+
+**I.3 — The reference platform.** Windows is the reference platform and the
+only supported build target. Platform-specific capability (shell thumbnails,
+file association, OS integration) is permitted in app and capability crates
+only. Every pure crate must build and test on Linux so that continuous
+integration and remote agents can verify the durable models; a change that
+breaks the Linux check is a regression regardless of its Windows behaviour.
+
+**I.4 — Local-first, with a relay the user runs.** Slate is a local
+application: it opens, edits, and exports without a network. Live
+collaboration is a first-class capability and may require a rendezvous
+service, which must be a small binary the user or their organisation can run
+themselves. No capability may require an account with, or a subscription to,
+any party — including this project.
 
 *Rationale:* two-year-plus horizon, vibe-coded. The durable assets are the
 models, the contracts, and this document — not the paint code.
@@ -107,14 +126,32 @@ Every model in this system tells the truth:
 The board is the only universe. Authored content and generated views share
 one scene graph:
 
+**V.1 — Portals.**
+
 - A **portal** is a scene node whose *frame* (position, size, source, query)
-  is ordinary journaled data, but whose *contents* are regenerated
-  deterministically from `(source, query)` and are therefore not journaled.
+  is ordinary journaled data, but whose *contents* come from elsewhere and
+  are therefore not journaled.
 - Grid, Venn, Lens, and future generated views are portals. Multiple portals
   may point at the same source with different queries (five lenses on one
   repository, each filtering a different structure).
 - Tab-level view kinds are a legacy form; they retire as portal parity is
   reached.
+
+**V.2 — Membership is derived and announced.** Frame membership is a pure,
+deterministic function of geometry, not a stored relation: a node belongs to
+the topmost frame whose rect contains its centre, and to exactly one such
+frame. No parent pointers, no membership edges. Because membership is derived,
+one participant's move can change another's deck; in a shared session such a
+change is announced with its author, never applied silently.
+
+**V.3 — Portals declare authority and serialization.** Every portal declares
+two things: which journal owns mutations made inside it, and what it becomes
+in an exported artifact. *Generated* portals regenerate their contents
+deterministically and own no mutations; *document* portals delegate mutations
+to the child document's own journal; *host* portals present a foreign
+application's surface, own no mutations at all, and export as a poster and a
+pointer that says what it is. Determinism is required of generated portals —
+Article IV.2 depends on it — and is not required of the other two.
 
 *Rationale:* one camera, one hit-test world, one tool model — and dashboards
 of live views become ordinary board content that humans and agents compose
@@ -122,12 +159,26 @@ with the same commands.
 
 ## Article VI — Journal-only mutation
 
-Every mutation of a document is a **named, invertible command** committed
-through its journal. UI code never mutates a document directly.
+**VI.1 — Journal-only mutation.** Every mutation of a document is a **named,
+invertible command** committed through its journal. UI code never mutates a
+document directly.
 
 Every journal commit carries its **author** — the human, or a named agent.
 Authorship is not optional metadata; it is the audit surface for agent work
 today and the foundation for multiplayer synchronization later.
+
+**VI.2 — Convergent commands.** Journal commands address nodes by stable
+identity, never by position; ordering is carried by an order key, not by list
+index; and mutations are scoped to the smallest property that changed. A
+command that cannot be applied is surfaced, never silently dropped.
+
+**VI.3 — Derived state is not a mutation.** Journaled state is authored
+intent. State reproducible from authored intent plus elapsed time — portal
+contents, simulated transforms, playheads, trails, presence — is derived, and
+is never journaled. Turning derived state into authored content is an explicit
+*bake* command, which is journaled like any other mutation. Where derived
+state is shared between participants it must be deterministic, so that peers
+reproduce it from the journal rather than receiving it over a wire.
 
 *Rationale:* generalizes the board's `SceneCmd` rule app-wide. Undo/redo,
 agent accountability, and the eventual collaboration story are all the same
@@ -150,6 +201,25 @@ command surface**:
    a mature command surface and an explicit amendment to this article. Until
    that amendment is ratified, agents proposing script execution must be
    refused under Article XI.
+5. **Memory segregation.** Agent memory distinguishes *pinned* records,
+   authored by the human and never written by an agent, from *learned*
+   records, authored by an agent and always prunable by the human. All memory
+   is human-readable and deletable. Memory that cannot be read or deleted is
+   prohibited.
+6. **Proposal by default.** Agent mutations enter a staging layer and require
+   human acceptance unless the agent has been explicitly granted autonomy for
+   that workspace. Staged changes are visible, attributed, and rejectable as
+   a unit.
+7. **Skills are recipes.** A skill is a declarative sequence of registered
+   commands with parameters. Skills contain no user-authored control flow.
+   This is the boundary that keeps clause 4 meaningful; anything requiring an
+   interpreter remains prohibited pending the named script amendment.
+8. **The extension ladder.** The workspace is extended, in order of
+   preference: by declarative assets (clause 3); by out-of-process servers
+   speaking the command surface, which the operating system sandboxes and the
+   user permits; and, subject to the amendment named in clause 4, by sandboxed
+   in-process code. Native in-process binary extensions are prohibited at
+   every stage: an extension may not be able to corrupt the core.
 
 ## Article VIII — Bandwidth
 
@@ -169,14 +239,41 @@ canvas — and between the user and their agents. Binding rules:
 4. Ephemeral **intent ink** (marks made to communicate, not to author) is a
    distinct layer: it feeds context, it is not content, and it never
    pollutes the document.
+5. **Presence is not content.** Cursors, viewports, selections, and session
+   membership are ephemeral: they are broadcast, never journaled, never
+   exported, and never restored. This extends the intent-ink principle of
+   clause 4 to multi-participant sessions, human or agent.
 
 ## Article IX — Slate is a linker, never a database
 
-Workbooks link to material; they do not become a store of record. All links
-resolve through a **`Source` abstraction** — local paths today; git
-repositories, cloud drives, and URLs later — each resolving to content,
-facets, and thumbnails. Slate may point at other databases; it must not
-quietly become one.
+**IX.1 — Link, do not absorb.** Workbooks link to material; they do not become
+a store of record. All links resolve through a **`Source` abstraction** —
+local paths today; git repositories, cloud drives, and URLs later — each
+resolving to content, facets, and thumbnails. Slate may point at other
+databases; it must not quietly become one.
+
+**IX.2 — Locators are relative first.** Every link stores a locator relative
+to a detected source root wherever one exists, alongside its absolute form.
+Resolution prefers the relative form. A workbook must be openable on a machine
+that mounts the same material at a different absolute location.
+
+**IX.3 — Latency is a source property, not an error.** Link health is
+tri-state (`Ok` / `Missing` / `Unknown`). No user-facing operation blocks on a
+source round trip.
+
+**IX.4 — Packages are forks.** A workbook may be *packaged*: its linked
+material is copied beside it and its locators rewritten to point at the
+copies. A package is a permanent fork, not a synchronised mirror — nothing
+re-merges, nothing diffs against the origin, and the packaged workbook is an
+ordinary workbook that owns its assets. A package records where each asset
+came from, so that a human can always find the original. A package that
+cannot name its origins is prohibited.
+
+**IX.5 — Write-back is explicit and never default.** Edits made on the canvas
+do not touch source material. A user may explicitly direct a specific edit to
+be written back to a specific source; that direction is per action, names the
+file it will change, and is journaled. Write-back is never implicit, never a
+setting that applies to future actions, and never available to an agent.
 
 ## Article X — No chrome divergence
 
@@ -214,6 +311,23 @@ apps look and feel identical, always.
 
 ## Amendment log
 
+- **2026-07-25 — Audit №1 and №2 amendments (A, B, C, E, F).** Ratifies
+  relative-first locators and tri-state link health (IX.2–IX.3); convergent
+  journal commands (VI.2), ephemeral presence (VIII.5), and packages-are-forks
+  (IX.4); the provider hedge (I.2) and the agent surface's memory, proposal,
+  and skill boundaries (VII.5–VII.7); the Windows reference platform with a
+  Linux verification floor (I.3); and derived, announced frame membership
+  (V.2). From audit №2: local-first with a self-hosted relay (I.4), portal
+  authority and serialization classes (V.3), derived state and the bake rule
+  (VI.3), the extension ladder (VII.8), and explicit human-only write-back
+  (IX.5). Supersedes the audit's draft A.3 (version discipline, dropped with
+  the Tier-2 platform work) and its sealed-snapshot draft, which becomes IX.4's
+  package model. Rejects the proposed "portals are deterministic functions"
+  generalization: determinism binds generated portals only. Holds back the
+  agent-node clause (reserved as VII.9) and the control-surface clauses
+  pending implementation. Numbers the previously unnumbered clauses of
+  Articles I, V, VI, and IX so the new clauses can be cited; no existing rule
+  changed meaning.
 - **2026-07-19 — Founding.** Articles I–XI ratified. Supersedes the board's
   CSS-only styling ceiling with the SVG ceiling (Article IV). Ratifies
   portals (Article V), journal authorship (Article VI), command parity with
