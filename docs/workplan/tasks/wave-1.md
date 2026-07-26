@@ -366,3 +366,39 @@ named use yet. The point of this card is the seam, not the traffic.
 Changing what the panel looks like. Adding a model provider. Adding an async
 runtime. Touching `context.rs`'s beacon format — `atlas-mcp` (T2.4) and the Lens
 contract both read it, and changing it here would break them silently.
+
+---
+
+## T1.3 — Put the app on the spatial index {#t13}
+
+**Owns:** the marquee and pick paths in `apps/slate/src/app/board.rs`.
+**Depends on:** T0.8 merged. **Size:** S.
+**Why:** T0.8 built the index in `slate-doc` and converted `node_at` and
+`frame_at`, but its card deliberately forbade touching the app crate. So the
+`slate` marquee still scans `scene.nodes` linearly, which is the exact call site
+whose growth the index was rushed in to prevent. The measured win in the pure
+crate was 254µs → 30µs on a ten-thousand-node marquee; the app currently gets
+none of it.
+
+### Do
+
+- Use `Scene::query_rect` as the broad phase for the board marquee, then run the
+  existing narrow-phase predicate (`board_path::marquee_hits_node`) on the
+  candidates only. The narrow phase is stroke-precise and must not change.
+- Do the same for `board_pick_node` via `query_point`.
+- Leave paint culling alone until someone measures it; that is a separate card
+  with a separate risk profile.
+
+### Accept
+
+- [ ] Selection behaviour is byte-identical: every existing board selection test
+      passes unmodified, including the stroke-precise line picking from
+      `bb1acfc`.
+- [ ] A ten-thousand-node marquee in the app is timed before and after, in the
+      PR body.
+- [ ] No change to `slate-doc`.
+
+### Forbidden
+
+Changing hit-test semantics. Converting paint culling. Editing an existing test
+to make it pass — if one fails, behaviour changed and the card has failed.
