@@ -1061,21 +1061,37 @@ impl Scene {
             .unwrap_or(0)
     }
 
-    /// Content nodes whose center lies inside the frame (geometric membership).
+    /// Content nodes this frame owns, in z-order (ascending) — every node
+    /// whose [`Scene::frame_of`] is `frame_id`. Where frames overlap the
+    /// members are partitioned, never shared, so a node is exported onto
+    /// exactly one slide.
     pub fn members_of(&self, frame_id: NodeId) -> Vec<NodeId> {
-        let Some(frame) = self.node(frame_id) else {
-            return Vec::new();
-        };
-        let rect = frame.rect;
         self.nodes
             .iter()
-            .filter(|n| !n.is_frame() && n.id != frame_id)
-            .filter(|n| {
-                let (cx, cy) = n.rect.center();
-                rect.contains(cx, cy)
-            })
+            .filter(|n| self.owner_of(n) == Some(frame_id))
             .map(|n| n.id)
             .collect()
+    }
+
+    /// The frame that owns `node` — the topmost frame whose rect contains the
+    /// node's centre, matching [`Scene::frame_at`]'s pick order. A node
+    /// belongs to exactly one frame, or to none. Membership is derived, never
+    /// stored (decision D3).
+    pub fn frame_of(&self, node: NodeId) -> Option<NodeId> {
+        self.owner_of(self.node(node)?)
+    }
+
+    /// The single ownership rule behind [`Scene::frame_of`] and
+    /// [`Scene::members_of`]: it defers to [`Scene::frame_at`] so that the
+    /// frame an image is tagged with when it lands is the frame that later
+    /// presents it. Frames are slides, never each other's members, so frame
+    /// nesting is not modeled.
+    fn owner_of(&self, node: &Node) -> Option<NodeId> {
+        if node.is_frame() {
+            return None;
+        }
+        let (cx, cy) = node.rect.center();
+        self.frame_at(cx, cy)
     }
 
     /// Topmost frame under a point.
@@ -1341,6 +1357,104 @@ mod tests {
             after: Box::new(after),
         }));
         assert!(scene.members_of(frame_id).is_empty());
+    }
+
+    fn push_frame(scene: &mut Scene, rect: WorldRect, order: u32) -> NodeId {
+        let node = scene.build_node(
+            rect,
+            NodeKind::Frame(FrameNode {
+                title: format!("Slide {order}"),
+                order,
+                fill: Rgba::WHITE,
+                assignments: BTreeMap::new(),
+            }),
+        );
+        let id = node.id;
+        let index = scene.nodes.len();
+        scene.apply(&SceneCmd::Add { index, node });
+        id
+    }
+
+    fn push_image(scene: &mut Scene, rect: WorldRect) -> NodeId {
+        let node = scene.build_node(rect, NodeKind::Image(ImageNode::new(ItemId(1))));
+        let id = node.id;
+        let index = scene.nodes.len();
+        scene.apply(&SceneCmd::Add { index, node });
+        id
+    }
+
+    #[test]
+    fn members_of_excludes_nodes_owned_by_an_overlapping_frame() {
+        let mut scene = Scene::default();
+        let under = push_frame(&mut scene, WorldRect::new(0.0, 0.0, 400.0, 400.0), 0);
+        let over = push_frame(&mut scene, WorldRect::new(200.0, 0.0, 400.0, 400.0), 1);
+        // Centre (300, 200) is inside both frames; the topmost one owns it.
+        let shared = push_image(&mut scene, WorldRect::new(250.0, 150.0, 100.0, 100.0));
+        let only_under = push_image(&mut scene, WorldRect::new(50.0, 150.0, 100.0, 100.0));
+
+        assert_eq!(scene.members_of(under), vec![only_under]);
+        assert_eq!(scene.members_of(over), vec![shared]);
+        assert_eq!(scene.frame_of(shared), Some(over));
+        // Frames are slides, never each other's members.
+        assert_eq!(scene.frame_of(under), None);
+    }
+
+    #[test]
+    fn frame_of_matches_frame_at_for_node_centres() {
+        let mut scene = Scene::default();
+        push_frame(&mut scene, WorldRect::new(0.0, 0.0, 400.0, 400.0), 0);
+        push_frame(&mut scene, WorldRect::new(200.0, 200.0, 400.0, 400.0), 1);
+        push_frame(&mut scene, WorldRect::new(300.0, 100.0, 100.0, 600.0), 2);
+
+        let mut ids = Vec::new();
+        for (x, y) in [
+            (50.0, 50.0),   // first frame only
+            (250.0, 250.0), // first ∩ second
+            (350.0, 250.0), // all three
+            (350.0, 650.0), // third only
+            (900.0, 900.0), // none
+            (400.0, 200.0), // on a shared edge
+        ] {
+            ids.push(push_image(
+                &mut scene,
+                WorldRect::new(x - 20.0, y - 20.0, 40.0, 40.0),
+            ));
+        }
+
+        for id in ids {
+            let (cx, cy) = scene.node(id).unwrap().rect.center();
+            assert_eq!(
+                scene.frame_of(id),
+                scene.frame_at(cx, cy),
+                "node {id:?} at ({cx}, {cy})"
+            );
+        }
+    }
+
+    #[test]
+    fn frame_of_is_none_for_nodes_outside_every_frame() {
+        let mut scene = Scene::default();
+        push_frame(&mut scene, WorldRect::new(0.0, 0.0, 400.0, 400.0), 0);
+        let outside = push_image(&mut scene, WorldRect::new(800.0, 800.0, 100.0, 100.0));
+        // Overlapping the frame is not enough — the centre decides.
+        let overhanging = push_image(&mut scene, WorldRect::new(380.0, 100.0, 100.0, 100.0));
+
+        assert_eq!(scene.frame_of(outside), None);
+        assert_eq!(scene.frame_of(overhanging), None);
+        assert_eq!(scene.frame_of(NodeId(9999)), None);
+    }
+
+    #[test]
+    fn members_of_is_unchanged_for_non_overlapping_frames() {
+        let mut scene = Scene::default();
+        let left = push_frame(&mut scene, WorldRect::new(0.0, 0.0, 400.0, 400.0), 0);
+        let right = push_frame(&mut scene, WorldRect::new(500.0, 0.0, 400.0, 400.0), 1);
+        let a = push_image(&mut scene, WorldRect::new(20.0, 20.0, 100.0, 100.0));
+        let b = push_image(&mut scene, WorldRect::new(550.0, 20.0, 100.0, 100.0));
+        let c = push_image(&mut scene, WorldRect::new(200.0, 200.0, 100.0, 100.0));
+
+        assert_eq!(scene.members_of(left), vec![a, c]);
+        assert_eq!(scene.members_of(right), vec![b]);
     }
 
     #[test]
