@@ -2,7 +2,7 @@
 # Edit directly, or run either app with `--features ui-tuner` for live editing.
 # Saved tuner values are embedded by the next build.
 
-schema_version = 2
+schema_version = 3
 
 [topbar]
 height = 31.0
@@ -329,3 +329,51 @@ corner_radius = 10.0
 row_height = 26.0
 max_rows = 8
 text_size = 12.5
+
+# The two built-in themes. `theme.rs` reads these into `Palette`, and egui's
+# `Visuals` are derived from that palette — a colour changed here moves both.
+# A user theme is a `[theme.<name>]` table of the same shape; see TOPBAR.md.
+
+[theme.light]
+dark_base = false
+bg = "#f6f7f8"
+grid_dot = "#dfe3e7"
+card = "#ffffff"
+card_hover = "#fbfcfd"
+border = "#dfe3e8"
+border_strong = "#c7cdd4"
+ink = "#1b1e22"
+sub = "#878e96"
+line = "#cbd1d8"
+accent = "#0f766e"
+portal = "#8b5cf6"
+thumb_bg = "#eef0f2"
+select = "#1f6fb2"
+staged = "#c4841d"
+panel = "#f8f9fb"
+window = "#ffffff"
+extreme_bg = "#eef0f2"
+select_fill = "#d7e8ff"
+select_stroke = "#1f6fb2"
+
+[theme.dark]
+dark_base = true
+bg = "#0e1013"
+grid_dot = "#23272d"
+card = "#1c2026"
+card_hover = "#242931"
+border = "#333941"
+border_strong = "#4a525c"
+ink = "#dde2e8"
+sub = "#878e96"
+line = "#3a414a"
+accent = "#2dd4bf"
+portal = "#a78bfa"
+thumb_bg = "#15181c"
+select = "#6fb7ff"
+staged = "#e0a83c"
+panel = "#14161a"
+window = "#1a1d23"
+extreme_bg = "#0e1013"
+select_fill = "#2b5c8a"
+select_stroke = "#c0deff"
