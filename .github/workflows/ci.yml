@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: fmt + test (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # eframe/winit and rfd's xdg-portal backend need these to link on Linux.
+      # The Cursor cloud image already carries them, which is why
+      # .cursor/environment.json installs only the toolchain.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libssl-dev
+
+      # Mirrors .cursor/environment.json so local, cloud, and CI agree.
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-check-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-check-
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Tests
+        run: cargo test --workspace
+
+  lint:
+    name: clippy (linux)
+    runs-on: ubuntu-latest
+    # The tree was already clippy-dirty when this workflow landed (T0.1 was
+    # forbidden from fixing it). Clippy reports here without blocking; a future
+    # card clears the backlog and deletes this line to make the job blocking.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libssl-dev
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-lint-
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  windows:
+    name: check (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-windows-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-windows-
+
+      - name: Check
+        run: cargo check --workspace
