@@ -17,21 +17,34 @@ The first Wave 0 dispatch assumed each agent would get an isolated git worktree.
 the result was a single undifferentiated pile of changes that had to be split
 apart by hand afterwards. Nothing was lost, but nothing was reviewable either.
 
-Until isolation is demonstrably working, these rules bind:
+These rules bind:
 
-1. **Assume you are sharing the working tree with the human and possibly another
-   agent.** You are not alone in a sandbox.
-2. **Check out your branch first and confirm it**, before your first edit:
-   `git rev-parse --abbrev-ref HEAD`. If you are on `main`, or on another card's
-   branch, stop and escalate rather than guessing.
+1. **Make your own worktree before your first edit.** This is what keeps the
+   swarm parallel. From the main checkout:
+
+   ```
+   git worktree add ../atlas-<card-id> feature/<your-branch>
+   ```
+
+   then do everything in `../atlas-<card-id>`. The human works in the main
+   checkout and must never find it modified or on an unexpected branch. Leave
+   the worktree in place when you finish; the orchestrator removes it after the
+   branch merges.
+
+   Note that a build in a fresh worktree starts with a cold `target/`, so the
+   first `cargo test` takes minutes rather than seconds. That is expected.
+2. **Confirm where you are** before your first edit: `git rev-parse
+   --abbrev-ref HEAD` and `git rev-parse --show-toplevel`. If you are on `main`,
+   or in the main checkout, stop and escalate rather than guessing.
 3. **Commit early and commit often.** An uncommitted change is invisible to
    everyone and is destroyed by the next branch switch. Commit as soon as a
    coherent piece works, not once at the end. If you are interrupted, whatever
    you committed survives and whatever you did not is gone.
 4. **Never switch branches** except onto your own, and never `git stash`,
    `git checkout -- .`, `git reset --hard`, or `git clean`. Another agent's
-   uncommitted work may be sitting in the tree beside yours, and those commands
-   destroy it without warning.
+   uncommitted work may be sitting in a tree beside yours, and those commands
+   destroy it without warning. The one exception is `git checkout -- Cargo.lock`,
+   which is generated and safe to discard.
 5. **Never run `cargo fmt --all`.** The baseline is not formatted, so it
    reformats files no card owns and buries your real change in noise. Format
    only the files your card owns: `cargo fmt -p <your-crate>` or `rustfmt` on
