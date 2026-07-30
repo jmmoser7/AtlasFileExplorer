@@ -219,6 +219,20 @@ struct PrewarmWalkOpts {
     portal_threshold: usize,
 }
 
+/// A canvas click handler that runs after the paint pass, once the borrows the
+/// hit-test held on the tree are released.
+type DeferredClick = Box<dyn FnOnce(&mut AtlasApp)>;
+
+/// The shared progress counters a pre-warm walk writes into, plus the flag it
+/// polls to stop early. The dashboard reads the same atomics through
+/// [`PrewarmJob`], which is what makes progress visible mid-walk.
+struct PrewarmTally<'a> {
+    queued: &'a std::sync::atomic::AtomicUsize,
+    bytes_queued: &'a std::sync::atomic::AtomicU64,
+    repos: &'a std::sync::atomic::AtomicUsize,
+    cancel: &'a std::sync::atomic::AtomicBool,
+}
+
 /// Discovery walk behind `start_prewarm`, extracted so repository creation
 /// is testable. Descends from `dir`, queueing every thumbnail-able file via
 /// `queue`. Portal-sized folders follow [`PrewarmWalkOpts::portal_mode`]:
@@ -233,10 +247,7 @@ fn prewarm_walk(
     queue: &dyn Fn(ThumbRequest),
     queue_deferred: &dyn Fn(ThumbRequest),
     opts: PrewarmWalkOpts,
-    queued: &std::sync::atomic::AtomicUsize,
-    bytes_queued: &std::sync::atomic::AtomicU64,
-    repos: &std::sync::atomic::AtomicUsize,
-    cancel: &std::sync::atomic::AtomicBool,
+    tally: PrewarmTally<'_>,
 ) {
     use std::sync::atomic::Ordering::Relaxed;
     // Per-subtree cache context: (key base, shared repository).
@@ -244,7 +255,7 @@ fn prewarm_walk(
     // Picked folder inside (or at) a project root: walk up.
     let root_ctx: Ctx = match atlas_core::thumbs::discover_project_cache(&dir) {
         Some(pc) if atlas_core::thumbs::create_shared_repo(&pc.shared_dir) => {
-            repos.fetch_add(1, Relaxed);
+            tally.repos.fetch_add(1, Relaxed);
             (
                 std::sync::Arc::new(pc.project_root),
                 Some(std::sync::Arc::new(pc.shared_dir)),
@@ -254,7 +265,7 @@ fn prewarm_walk(
     };
     let mut stack: Vec<(PathBuf, Ctx)> = vec![(dir, root_ctx)];
     while let Some((d, mut ctx)) = stack.pop() {
-        if cancel.load(Relaxed) {
+        if tally.cancel.load(Relaxed) {
             break;
         }
         let Ok(rd) = std::fs::read_dir(&d) else {
@@ -287,7 +298,7 @@ fn prewarm_walk(
         if ctx.1.is_none() {
             if let Some(shared) = atlas_core::thumbs::project_anchor_under(&d) {
                 if atlas_core::thumbs::create_shared_repo(&shared) {
-                    repos.fetch_add(1, Relaxed);
+                    tally.repos.fetch_add(1, Relaxed);
                     ctx = (
                         std::sync::Arc::new(d.clone()),
                         Some(std::sync::Arc::new(shared)),
@@ -306,7 +317,7 @@ fn prewarm_walk(
             continue;
         }
         for entry in files {
-            if cancel.load(Relaxed) {
+            if tally.cancel.load(Relaxed) {
                 break;
             }
             let Ok(md) = entry.metadata() else { continue };
@@ -336,8 +347,8 @@ fn prewarm_walk(
             } else {
                 queue(req);
             }
-            queued.fetch_add(1, Relaxed);
-            bytes_queued.fetch_add(fe.size, Relaxed);
+            tally.queued.fetch_add(1, Relaxed);
+            tally.bytes_queued.fetch_add(fe.size, Relaxed);
         }
         for sd in subdirs {
             stack.push((sd, ctx.clone()));
@@ -958,10 +969,12 @@ impl AtlasApp {
                     portal_mode,
                     portal_threshold,
                 },
-                &queued,
-                &bytes_queued,
-                &repos,
-                &cancel,
+                PrewarmTally {
+                    queued: &queued,
+                    bytes_queued: &bytes_queued,
+                    repos: &repos,
+                    cancel: &cancel,
+                },
             );
             walk_done.store(true, std::sync::atomic::Ordering::Release);
         });
@@ -3560,7 +3573,7 @@ impl AtlasApp {
             let (scroll, zoom_delta) = ui.input(|i| (i.raw_scroll_delta, i.zoom_delta()));
             if let Some(p) = pointer {
                 if scroll.y.abs() > 0.0 && !shift {
-                    self.zoom_at(p, (scroll.y as f32 * 0.0021).exp());
+                    self.zoom_at(p, (scroll.y * 0.0021).exp());
                     canvas_nav = true;
                 } else if shift && (scroll.y.abs() > 0.0 || scroll.x.abs() > 0.0) {
                     self.cam.offset.x -= scroll.y + scroll.x;
@@ -3752,7 +3765,7 @@ impl AtlasApp {
         }
 
         // --- clicks ---
-        let mut deferred: Vec<Box<dyn FnOnce(&mut AtlasApp)>> = Vec::new();
+        let mut deferred: Vec<DeferredClick> = Vec::new();
 
         if resp.drag_stopped() {
             if let (Some(a), Some(p)) = (self.zoom_marquee, pointer) {
@@ -4074,7 +4087,7 @@ impl AtlasApp {
                     DirGrip::Incremental => screen.distance(inc),
                     DirGrip::Full => screen.distance(full),
                 };
-                if best.map_or(true, |(bd, _, _)| dist < bd) {
+                if best.is_none_or(|(bd, _, _)| dist < bd) {
                     best = Some((dist, di as u32, grip));
                 }
             }
@@ -4412,27 +4425,25 @@ impl AtlasApp {
             }
 
             if let Some(gb) = d.grid_bounds {
-                if gb.expand(40.0).intersects(view) {
-                    if lod > 0 {
-                        // Dashed group outline.
-                        let sr = self.w2s_rect(gb);
-                        let dash = 7.0 * z.max(0.15);
-                        let gap = 6.0 * z.max(0.15);
-                        let pts = [
-                            sr.min,
-                            Pos2::new(sr.max.x, sr.min.y),
-                            sr.max,
-                            Pos2::new(sr.min.x, sr.max.y),
-                            sr.min,
-                        ];
-                        for w in pts.windows(2) {
-                            painter.add(egui::Shape::dashed_line(
-                                w,
-                                Stroke::new(1.0_f32, p.border_strong),
-                                dash,
-                                gap,
-                            ));
-                        }
+                if gb.expand(40.0).intersects(view) && lod > 0 {
+                    // Dashed group outline.
+                    let sr = self.w2s_rect(gb);
+                    let dash = 7.0 * z.max(0.15);
+                    let gap = 6.0 * z.max(0.15);
+                    let pts = [
+                        sr.min,
+                        Pos2::new(sr.max.x, sr.min.y),
+                        sr.max,
+                        Pos2::new(sr.min.x, sr.max.y),
+                        sr.min,
+                    ];
+                    for w in pts.windows(2) {
+                        painter.add(egui::Shape::dashed_line(
+                            w,
+                            Stroke::new(1.0_f32, p.border_strong),
+                            dash,
+                            gap,
+                        ));
                     }
                 }
             }
@@ -4818,14 +4829,14 @@ impl AtlasApp {
                         group_digits((d.child_dirs.len() + d.files.len()) as u64),
                         human_size(d.desc_bytes)
                     ),
-                    FontId::proportional((10.5 * z).min(12.0).max(6.0)),
+                    FontId::proportional((10.5 * z).clamp(6.0, 12.0)),
                     p.sub,
                 );
                 painter.text(
                     Pos2::new(sr.max.x - pad - 2.0 * z, sr.max.y - 18.0 * z),
                     Align2::RIGHT_CENTER,
                     "Enter â¤¢",
-                    FontId::proportional((10.5 * z).min(12.0).max(6.0)),
+                    FontId::proportional((10.5 * z).clamp(6.0, 12.0)),
                     p.portal,
                 );
             }
@@ -4864,21 +4875,19 @@ impl AtlasApp {
                     pdf_page: None,
                 });
             }
-            ThumbState::Loaded => {
-                if !self.textures.contains_key(&f) {
-                    // Evicted â€” ask again (disk cache makes this cheap).
-                    self.thumb_state[i] = ThumbState::AskedFull;
-                    requests.push(ThumbRequest {
-                        id: f,
-                        generation: self.generation,
-                        path: e.path.clone(),
-                        key,
-                        color_only: false,
-                        shared_dir: self.shared_cache.clone(),
-                        src_bytes: e.size,
-                        pdf_page: None,
-                    });
-                }
+            ThumbState::Loaded if !self.textures.contains_key(&f) => {
+                // Evicted â€” ask again (disk cache makes this cheap).
+                self.thumb_state[i] = ThumbState::AskedFull;
+                requests.push(ThumbRequest {
+                    id: f,
+                    generation: self.generation,
+                    path: e.path.clone(),
+                    key,
+                    color_only: false,
+                    shared_dir: self.shared_cache.clone(),
+                    src_bytes: e.size,
+                    pdf_page: None,
+                });
             }
             _ => {}
         }
@@ -5789,7 +5798,7 @@ fn group_digits(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -5855,10 +5864,12 @@ mod prewarm_tests {
             &|r| reqs.lock().unwrap().push(r),
             &|r| reqs.lock().unwrap().push(r),
             opts,
-            &queued,
-            &bytes,
-            &repos,
-            &cancel,
+            PrewarmTally {
+                queued: &queued,
+                bytes_queued: &bytes,
+                repos: &repos,
+                cancel: &cancel,
+            },
         );
         (
             reqs.into_inner().unwrap(),
@@ -5883,10 +5894,12 @@ mod prewarm_tests {
             &|r| normal.lock().unwrap().push(r),
             &|r| deferred.lock().unwrap().push(r),
             opts,
-            &queued,
-            &bytes,
-            &repos,
-            &cancel,
+            PrewarmTally {
+                queued: &queued,
+                bytes_queued: &bytes,
+                repos: &repos,
+                cancel: &cancel,
+            },
         );
         (
             normal.into_inner().unwrap(),
@@ -5997,10 +6010,12 @@ mod prewarm_tests {
                 portal_mode: PrewarmPortalMode::Normal,
                 portal_threshold: 100,
             },
-            &queued,
-            &bytes,
-            &repos,
-            &cancel,
+            PrewarmTally {
+                queued: &queued,
+                bytes_queued: &bytes,
+                repos: &repos,
+                cancel: &cancel,
+            },
         );
         assert_eq!(queued.load(Ordering::Relaxed), 0);
         assert!(reqs.into_inner().unwrap().is_empty());

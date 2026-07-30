@@ -185,15 +185,12 @@ impl CodeGraph {
         };
         let mut cyclic = HashSet::new();
         for node in &self.nodes {
-            match node.kind {
-                NodeKind::Package { .. } => {
-                    if let Some(cycle) = self.package_cycle_containing(node.id) {
-                        for id in cycle.iter().take(cycle.len().saturating_sub(1)) {
-                            cyclic.insert(*id);
-                        }
+            if let NodeKind::Package { .. } = node.kind {
+                if let Some(cycle) = self.package_cycle_containing(node.id) {
+                    for id in cycle.iter().take(cycle.len().saturating_sub(1)) {
+                        cyclic.insert(*id);
                     }
                 }
-                _ => {}
             }
             // edge counts below
         }

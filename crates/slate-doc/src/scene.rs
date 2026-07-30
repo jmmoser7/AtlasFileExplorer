@@ -1839,7 +1839,7 @@ mod tests {
                 NodeKind::Shape(ShapeNode {
                     shape: ShapeKind::Line,
                     fill: None,
-                    stroke: stroke.clone(),
+                    stroke,
                     corner: Corner::Square,
                     flip,
                     path: None,

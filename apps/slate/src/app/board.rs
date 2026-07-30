@@ -1829,13 +1829,17 @@ impl SlateApp {
         // Hit-test at the pointer *press origin*: by the time egui's drag
         // threshold fires, a fast drag has often already left the tiny
         // handle, which used to degrade corner scaling into a node move.
-        if resp.drag_started_by(egui::PointerButton::Primary) && !space && !panning && !zoom_tool {
-            if !model_toolbar_captures && self.board_tool != BoardTool::Line {
-                let origin = ui.input(|i| i.pointer.press_origin()).or(pointer);
-                if let Some(p) = origin {
-                    let mods = ui.input(|i| i.modifiers);
-                    self.board_drag = self.begin_gesture(p, xf.s2w(p), mods);
-                }
+        if resp.drag_started_by(egui::PointerButton::Primary)
+            && !space
+            && !panning
+            && !zoom_tool
+            && !model_toolbar_captures
+            && self.board_tool != BoardTool::Line
+        {
+            let origin = ui.input(|i| i.pointer.press_origin()).or(pointer);
+            if let Some(p) = origin {
+                let mods = ui.input(|i| i.modifiers);
+                self.board_drag = self.begin_gesture(p, xf.s2w(p), mods);
             }
         }
 

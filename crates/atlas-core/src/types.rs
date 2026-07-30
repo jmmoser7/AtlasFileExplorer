@@ -523,7 +523,7 @@ fn common_path_prefix(a: &Path, b: &Path) -> Option<PathBuf> {
 pub fn normalize_folder_selection(folders: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = folders
         .into_iter()
-        .filter(|p| p.as_os_str().len() > 0)
+        .filter(|p| !p.as_os_str().is_empty())
         .collect();
     folders.sort();
     folders.dedup();

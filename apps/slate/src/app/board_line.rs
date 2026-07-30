@@ -129,7 +129,7 @@ impl SlateApp {
             }
             for c in cands {
                 let d = (c - p).length();
-                if d <= radius && best.map_or(true, |(bd, _)| d < bd) {
+                if d <= radius && best.is_none_or(|(bd, _)| d < bd) {
                     best = Some((d, c));
                 }
             }

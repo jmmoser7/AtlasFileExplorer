@@ -490,8 +490,8 @@ pub fn marquee_hits_node(node: &Node, marquee: WorldRect, zoom: f32) -> bool {
                 if let Some(bez) = bez_from_open_curve(node, s) {
                     let flat = flatten(&bez, 0.25);
                     for w in flat.windows(2) {
-                        let a = Pos2::new(w[0][0] as f32, w[0][1] as f32);
-                        let b = Pos2::new(w[1][0] as f32, w[1][1] as f32);
+                        let a = Pos2::new(w[0][0], w[0][1]);
+                        let b = Pos2::new(w[1][0], w[1][1]);
                         if segment_intersects_rect(a, b, marquee) {
                             return true;
                         }
