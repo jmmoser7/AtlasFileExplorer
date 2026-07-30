@@ -1,12 +1,14 @@
-//! Workspace automation. Today it collects one thing: the metrics snapshot the
-//! next audit diffs against, so the second audit argues about numbers instead
-//! of impressions.
+//! Workspace automation. It collects two things: the metrics snapshot the next
+//! audit diffs against, so the second audit argues about numbers instead of
+//! impressions, and the interaction-contract audit, so the dimension registry,
+//! the contracts, and the decisions database cannot drift apart unnoticed.
 //!
 //! The collector is deliberately split from the writer — [`collect`] reads the
 //! tree and returns a [`Snapshot`], [`write_artifacts`] puts it on disk — so a
 //! test can run the collector twice and compare without touching `docs/`.
 
 pub mod collect;
+pub mod contracts;
 pub mod ledger;
 pub mod model;
 pub mod report;
@@ -17,6 +19,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub use collect::collect;
+pub use contracts::{audit as audit_contracts, render as render_contract_audit};
 pub use ledger::{parse_deviations, rewrite_deviation_block};
 pub use model::{
     CommandCounts, CrateKind, CrateMetrics, DeviationCounts, LongestFile, ModelMetrics, Snapshot,
@@ -24,14 +27,16 @@ pub use model::{
 };
 pub use report::{load_history, render_readme, snapshot_json};
 
-/// Everything that can stop a metrics run. Every variant carries the file it
-/// came from: a metric that silently reads zero is worse than no metric.
+/// Everything that can stop an xtask run. Every variant carries the file it
+/// came from: a metric that silently reads zero is worse than no metric, and
+/// the same is true of a contract check that silently reads nothing.
 #[derive(Debug)]
 pub enum MetricsError {
     Io { path: PathBuf, source: io::Error },
     Manifest { path: PathBuf, message: String },
     Syntax { path: PathBuf, message: String },
     Ledger { path: PathBuf, message: String },
+    Contract { path: PathBuf, message: String },
     NotWorkspaceRoot(PathBuf),
 }
 
@@ -63,6 +68,13 @@ impl MetricsError {
             message: message.into(),
         }
     }
+
+    pub(crate) fn contract(path: impl Into<PathBuf>, message: impl Into<String>) -> Self {
+        MetricsError::Contract {
+            path: path.into(),
+            message: message.into(),
+        }
+    }
 }
 
 impl fmt::Display for MetricsError {
@@ -78,6 +90,9 @@ impl fmt::Display for MetricsError {
                 write!(f, "{}: {message}", path.display())
             }
             MetricsError::Ledger { path, message } => {
+                write!(f, "{}: {message}", path.display())
+            }
+            MetricsError::Contract { path, message } => {
                 write!(f, "{}: {message}", path.display())
             }
             MetricsError::NotWorkspaceRoot(path) => write!(

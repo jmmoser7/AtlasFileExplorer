@@ -5,6 +5,40 @@ bound and why) and `ARCHITECTURE.md` (how it is built); per-app binding
 tables live in each app's `commands.rs` (`SPECS`) and render in
 **Advanced → Commands & shortcuts**.
 
+## 2026-07-30 — The contract system covers portals (first portal contract)
+
+- **`portal-lens-repository.md`** — the first contract for something that is
+  not a canvas tool: a **generated** portal (Art. V.3 / decision D7) of type
+  **lens**, subtype **repository**, drawing one git repository's branching,
+  merging, and forking over time. Status: **draft** — all 31 rows are
+  `proposed` in `decisions.json` and four open questions are live (time-axis
+  default, fork-surface scope, placement binding, extraction backend).
+- **Two constitutional refusals recorded in the contract, not silently
+  complied with** (Art. XI): the source is a local git worktree, never a
+  hosted account (Art. I.4), and the fork surface drawn is the one a clone can
+  prove — configured remotes — with hosted fork networks left to an optional
+  out-of-process enrichment rather than inferred (Art. IV.2, false-affordance
+  register row 4).
+- **`DIMENSIONS.md` grows a Scope column and D18–D31.** Dimensions now declare
+  which contract families must answer them (`tool` / `portal` / `any`), so a
+  gesture tool is not made to write `n/a` about export serialization and a
+  portal is not made to invent a numeric-entry story. The fourteen new axes
+  are the portal questions: class and authority, source binding, query,
+  regeneration, contents interaction, level of detail, export, bake,
+  collaboration, agent surface, determinism, performance envelope, failure
+  states, and view-state ownership.
+- **`PATTERNS.md` gains `P1.portal`** as a named but empty class: with one
+  portal contract, its rules stay L3 by the promotion rule.
+- **`docs/keymap/research/git-history.md`** — source research: GitKraken and
+  the GitLens commit graph, GitHub's network graph, `git log --graph`'s
+  first-parent lane rule, and what those tools do that this portal will not.
+- **`cargo xtask contracts`** — the framework's rule ("silence is not an
+  answer") becomes machine-checked: every contract answers every dimension its
+  family is scoped to, every matrix row is mirrored in `decisions.json`, and a
+  contract may claim `agreed`/`shipped` only when no row is proposed and no
+  open question remains. Runs in `cargo test --workspace`; contracts now carry
+  a `Family:` header line that the check reads.
+
 ## 2026-07-23 — Tool interaction contracts (method, not code)
 
 - New project skill **`.cursor/skills/tool-contract`**: the codified

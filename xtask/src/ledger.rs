@@ -94,15 +94,15 @@ pub fn deviation_block(counts: &DeviationCounts) -> String {
     )
 }
 
-fn is_row(line: &str) -> bool {
+pub(crate) fn is_row(line: &str) -> bool {
     line.trim_start().starts_with('|')
 }
 
-fn is_separator(cell: &str) -> bool {
+pub(crate) fn is_separator(cell: &str) -> bool {
     !cell.is_empty() && cell.chars().all(|c| c == '-' || c == ':')
 }
 
-fn columns(line: &str) -> Vec<String> {
+pub(crate) fn columns(line: &str) -> Vec<String> {
     let trimmed = line.trim();
     let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let inner = inner.strip_suffix('|').unwrap_or(inner);

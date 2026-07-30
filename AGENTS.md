@@ -68,6 +68,12 @@ Read the app's `COMMANDS.md` before adding keyboard or mouse bindings. Every
 user-facing command must be registered in that app's `commands.rs` (`ENTRIES`)
 so it appears in **Advanced → Commands & shortcuts**.
 
+Interaction contracts for canvas tools and portal subtypes live in
+`docs/keymap/contracts/` (registry, patterns, decisions database, one file per
+contract) and are governed by the `.cursor/skills/tool-contract` skill.
+`cargo xtask contracts` checks that the three artifacts agree — it also runs
+inside `cargo test --workspace`.
+
 ## Build & test (Windows — primary target)
 
 ```powershell

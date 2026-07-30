@@ -97,6 +97,16 @@ is searchable.
 Exist (edit-in-place, crop/adjust); patterns promote here when a second
 text- or image-producing tool appears.
 
+### P1.portal — portal nodes (generated / document / host)
+
+Exists as a class (Constitution Art. V.3, decision D7), with no rules promoted
+into it yet: `portal-lens-repository` is the first portal contract, so its
+rules stay L3 by the promotion rule. When the second portal contract lands —
+the code Lens folding into a portal is the likely candidate — the shared rules
+(frame is journaled, contents are derived; click selects the frame and
+double-click enters the contents; the source-health tri-state; export marks)
+promote here and both contracts replace their copy with a reference.
+
 ## L2 — Tool-family archetypes
 
 ### P2.RhinoDraft — precision draft tools (line, arc, polyline, bezier span)
