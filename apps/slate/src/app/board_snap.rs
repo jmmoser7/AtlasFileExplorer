@@ -450,17 +450,6 @@ pub fn union_rect(rects: &[WorldRect]) -> Option<WorldRect> {
     Some(WorldRect::new(min_x, min_y, max_x - min_x, max_y - min_y))
 }
 
-/// Snap a point to the board grid.
-pub fn snap_point_to_grid(p: Pos2, enabled: bool) -> Pos2 {
-    if !enabled {
-        return p;
-    }
-    Pos2::new(
-        (p.x / GRID_WORLD).round() * GRID_WORLD,
-        (p.y / GRID_WORLD).round() * GRID_WORLD,
-    )
-}
-
 /// Snap a rect's origin to the board grid (size unchanged).
 pub fn snap_rect_origin(mut r: WorldRect, enabled: bool) -> WorldRect {
     if !enabled {

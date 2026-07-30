@@ -35,6 +35,7 @@ struct LensPaintStyle<'a> {
     z: f32,
 }
 
+#[allow(dead_code)]
 struct LensFocusInfo {
     name: String,
     kind: &'static str,
@@ -66,6 +67,8 @@ struct LensNodeDrag {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LensWireStyle {
+    /// Only the unwired Lens dock selects this one.
+    #[allow(dead_code)]
     Bezier,
     Orthogonal,
 }
@@ -318,6 +321,10 @@ impl SlateApp {
         self.lens.layout_dirty = true;
     }
 
+    /// Unwired (DV-12): "Show Lens dock" toggles `ToolPanel::Lens`, but no
+    /// dock item renders this body. Kept — with its helpers below — until
+    /// that item lands.
+    #[allow(dead_code)]
     pub(crate) fn lens_sidebar(&mut self, ui: &mut Ui, theme: atlas_shell::sidebar::SidebarTheme) {
         use atlas_shell::sidebar::{
             sidebar_region, sidebar_subtle_divider, sidebar_toolbar_row, SidebarTokens,
@@ -543,6 +550,7 @@ impl SlateApp {
         }
     }
 
+    #[allow(dead_code)]
     fn lens_workspace_pressure(
         &mut self,
         ui: &mut Ui,
@@ -586,6 +594,7 @@ impl SlateApp {
         });
     }
 
+    #[allow(dead_code)]
     fn lens_pressure_rows(
         &mut self,
         ui: &mut Ui,
@@ -623,6 +632,7 @@ impl SlateApp {
         }
     }
 
+    #[allow(dead_code)]
     fn lens_wire_legend(&mut self, ui: &mut Ui, theme: atlas_shell::sidebar::SidebarTheme) {
         use atlas_shell::sidebar::{sidebar_option_group, sidebar_region};
 
@@ -695,6 +705,7 @@ impl SlateApp {
         self.lens.harness_focus_applied = true;
     }
 
+    #[allow(dead_code)]
     fn lens_status_line(&self) -> String {
         match &self.lens.status {
             LensStatus::Idle => "Idle".into(),
@@ -1347,6 +1358,7 @@ fn degree_counts(graph: &CodeGraph, id: NodeId) -> (usize, usize) {
     (in_deg, out_deg)
 }
 
+#[allow(dead_code)]
 fn edge_stats_by_kind(graph: &CodeGraph, id: NodeId) -> [(&'static str, EdgeStats); 3] {
     [
         (
@@ -1361,6 +1373,7 @@ fn edge_stats_by_kind(graph: &CodeGraph, id: NodeId) -> [(&'static str, EdgeStat
     ]
 }
 
+#[allow(dead_code)]
 fn edge_stats_line(label: &str, stats: EdgeStats) -> String {
     let weighted = stats.incoming_weight != stats.incoming_edges as u32
         || stats.outgoing_weight != stats.outgoing_edges as u32;
@@ -1388,6 +1401,7 @@ fn wire_kind_style(kind: EdgeKind, palette: &atlas_shell::theme::Palette) -> (Co
     }
 }
 
+#[allow(dead_code)]
 fn paint_wire_legend_swatch(
     painter: &egui::Painter,
     rect: Rect,

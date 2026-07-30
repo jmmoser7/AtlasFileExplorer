@@ -25,11 +25,12 @@ Rules:
 | DV-09 | X | `Palette`'s fourteen semantic slots are hardcoded Rust constructors while `ui-tokens.toml` (which has a schema version and a live tuner) carries no colours; egui `Visuals` are set beside the palette rather than derived from it, so the two colour systems are hand-synchronised | closed | 2026-07-25 (audit №2 R2) | T0.7 | 96f2b03 |
 | DV-10 | II | `Scene.nodes` has no spatial index: every hit-test, marquee, and paint cull is a linear scan. Survivable at 10³ nodes, unusable at 10⁴ | closed | 2026-07-25 (audit №2 R6) | T0.8 | 41ef2bb |
 | DV-11 | IV | Two wire routers for one concept: `lens.rs::lens_orthogonal_route` in the app and `connector_bezier` in `slate-doc`. One model, two implementations, no shared seam | open | 2026-07-25 (audit №2 R3) | Wave 3 (WI-4) | — |
+| DV-12 | VII.1 | Two Slate panels toggle but never draw: `ToolPanel::Selection` (F3 / `app.properties`, plus the View menu) has no dock item rendering `ui::inspector::selection_body`, and "Show Lens dock" (`ToolPanel::Lens`) has none rendering `lens_sidebar`. Both bodies survive the floating-dock chrome as dead code (`#[allow(dead_code)]`, ~1.3k lines). Same shape as DV-05: an advertised affordance that does nothing | open | 2026-07-30 (clippy backlog sweep) | Wave 2 chrome pass | — |
 
 ## Deviation counts by article (maintained by the metrics tool)
 
 Do not hand-edit; `cargo xtask metrics` rewrites the block below.
 
 <!-- metrics:deviations:begin -->
-open: 7 · accepted: 0 · closed: 4
+open: 8 · accepted: 0 · closed: 4
 <!-- metrics:deviations:end -->

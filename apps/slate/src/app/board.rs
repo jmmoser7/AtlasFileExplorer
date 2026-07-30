@@ -832,6 +832,9 @@ impl SlateApp {
             .to_vec()
     }
 
+    /// Unwired (DV-05): `board.align` is a registered command with no dispatch
+    /// arm and no dock menu, so nothing reaches this yet.
+    #[allow(dead_code)]
     pub(crate) fn align_board_selection(&mut self, align: BoardAlign) {
         let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
         if ids.len() < 2 {
@@ -854,6 +857,8 @@ impl SlateApp {
         });
     }
 
+    /// Unwired for the same reason as [`SlateApp::align_board_selection`].
+    #[allow(dead_code)]
     pub(crate) fn distribute_board_selection(&mut self, axis: DistributeAxis) {
         let mut ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
         if ids.len() < 3 {

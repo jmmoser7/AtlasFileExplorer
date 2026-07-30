@@ -4,6 +4,12 @@
 //! Every edit funnels through `SlateApp::patch_nodes`, so inspector changes
 //! are invertible commands: continuous slider scrubs coalesce into single
 //! undo steps, and the same command surface will later back the MCP agent.
+//!
+//! Unwired (DV-12): `ToolPanel::Selection` still toggles from the menubar and
+//! the command registry, but no dock item renders [`selection_body`], so the
+//! panel never appears. The module-wide allow below keeps the code compiling
+//! (and the gap honest) until the dock item lands.
+#![allow(dead_code)]
 
 use super::super::board::to_rgba;
 use super::super::SlateApp;
