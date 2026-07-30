@@ -170,7 +170,7 @@ impl SlateApp {
         painter.rect_stroke(
             strip_rect,
             CornerRadius::same(6),
-            Stroke::new(1.0, palette.border_strong),
+            Stroke::new(1.0_f32, palette.border_strong),
             StrokeKind::Inside,
         );
         painter.text(
@@ -225,14 +225,14 @@ impl SlateApp {
                 painter.rect_stroke(
                     cell,
                     CornerRadius::same(3),
-                    Stroke::new(2.0, palette.select),
+                    Stroke::new(2.0_f32, palette.select),
                     StrokeKind::Inside,
                 );
             } else {
                 painter.rect_stroke(
                     cell,
                     CornerRadius::same(3),
-                    Stroke::new(1.0, palette.border),
+                    Stroke::new(1.0_f32, palette.border),
                     StrokeKind::Inside,
                 );
             }

@@ -50,7 +50,10 @@ fn deviation_counts_match_ledger() {
         rows,
         "every DV row must be classified as open, accepted, or closed"
     );
-    assert!(rows >= 11, "the seeded ledger's eleven rows are never deleted");
+    assert!(
+        rows >= 11,
+        "the seeded ledger's eleven rows are never deleted"
+    );
 }
 
 #[test]

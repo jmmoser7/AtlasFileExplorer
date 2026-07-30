@@ -192,7 +192,7 @@ fn count_pdf_pages(pdfium: &Pdfium, path: &Path) -> Option<u16> {
     if n == 0 {
         return None;
     }
-    u16::try_from(n).ok()
+    Some(n)
 }
 
 fn render_pdf(
@@ -206,7 +206,7 @@ fn render_pdf(
     if doc.pages().is_empty() {
         return None;
     }
-    let page = doc.pages().get(page_index as u16).ok()?;
+    let page = doc.pages().get(page_index).ok()?;
     let config = PdfRenderConfig::new()
         .set_target_width(target_px)
         .set_maximum_height(target_px * 2)

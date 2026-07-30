@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 env:
@@ -48,10 +49,6 @@ jobs:
   lint:
     name: clippy (linux)
     runs-on: ubuntu-latest
-    # The tree was already clippy-dirty when this workflow landed (T0.1 was
-    # forbidden from fixing it). Clippy reports here without blocking; a future
-    # card clears the backlog and deletes this line to make the job blocking.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 

@@ -364,7 +364,7 @@ pub fn project_model_point(
     let ndc_x = clip[0] / clip[3];
     let ndc_y = clip[1] / clip[3];
     let ndc_z = clip[2] / clip[3];
-    if ndc_z < -1.0 || ndc_z > 1.0 {
+    if !(-1.0..=1.0).contains(&ndc_z) {
         return None;
     }
     Some(((ndc_x + 1.0) * 0.5, (1.0 - ndc_y) * 0.5))

@@ -218,7 +218,7 @@ fn immediate_subdir_names(root: &Path, limit: usize) -> Vec<String> {
             Some(name)
         })
         .collect();
-    names.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()));
+    names.sort_by_key(|a| a.to_ascii_lowercase());
     names.truncate(limit);
     names
 }

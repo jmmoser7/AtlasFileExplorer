@@ -460,31 +460,14 @@ fn segment_intersects_rect(a: Pos2, b: Pos2, r: WorldRect) -> bool {
         return true;
     }
     let edges = [
-        (
-            (r.x, r.y),
-            (r.x + r.w, r.y),
-        ),
-        (
-            (r.x + r.w, r.y),
-            (r.x + r.w, r.y + r.h),
-        ),
-        (
-            (r.x + r.w, r.y + r.h),
-            (r.x, r.y + r.h),
-        ),
-        (
-            (r.x, r.y + r.h),
-            (r.x, r.y),
-        ),
+        ((r.x, r.y), (r.x + r.w, r.y)),
+        ((r.x + r.w, r.y), (r.x + r.w, r.y + r.h)),
+        ((r.x + r.w, r.y + r.h), (r.x, r.y + r.h)),
+        ((r.x, r.y + r.h), (r.x, r.y)),
     ];
     edges
         .iter()
-        .any(|(p1, p2)| super::board_snap::segments_intersect(
-            (a.x, a.y),
-            (b.x, b.y),
-            *p1,
-            *p2,
-        ))
+        .any(|(p1, p2)| super::board_snap::segments_intersect((a.x, a.y), (b.x, b.y), *p1, *p2))
 }
 
 /// Marquee selection for board nodes. Open curves intersect on stroke
@@ -507,8 +490,8 @@ pub fn marquee_hits_node(node: &Node, marquee: WorldRect, zoom: f32) -> bool {
                 if let Some(bez) = bez_from_open_curve(node, s) {
                     let flat = flatten(&bez, 0.25);
                     for w in flat.windows(2) {
-                        let a = Pos2::new(w[0][0] as f32, w[0][1] as f32);
-                        let b = Pos2::new(w[1][0] as f32, w[1][1] as f32);
+                        let a = Pos2::new(w[0][0], w[0][1]);
+                        let b = Pos2::new(w[1][0], w[1][1]);
                         if segment_intersects_rect(a, b, marquee) {
                             return true;
                         }
@@ -518,8 +501,13 @@ pub fn marquee_hits_node(node: &Node, marquee: WorldRect, zoom: f32) -> bool {
                 let cy = marquee.y + marquee.h * 0.5;
                 return hit_shape_stroke(node, s, cx, cy, zoom);
             }
-            if hit_path_node(node, s, marquee.x + marquee.w * 0.5, marquee.y + marquee.h * 0.5, zoom)
-            {
+            if hit_path_node(
+                node,
+                s,
+                marquee.x + marquee.w * 0.5,
+                marquee.y + marquee.h * 0.5,
+                zoom,
+            ) {
                 return true;
             }
             super::board_snap::marquee_intersects_rotated(marquee, node.rect, node.rotation_deg)
@@ -1105,9 +1093,7 @@ mod tests {
             !hit_path_node(&node, shape, 50.0, 10.0, 1.0),
             "bbox interior off the stroke must not hit"
         );
-        assert!(
-            !node.rect.contains(50.0, 10.0) || !hit_path_node(&node, shape, 50.0, 10.0, 1.0)
-        );
+        assert!(!node.rect.contains(50.0, 10.0) || !hit_path_node(&node, shape, 50.0, 10.0, 1.0));
         let marquee = WorldRect::new(40.0, 5.0, 20.0, 10.0);
         assert!(
             !marquee_hits_node(&node, marquee, 1.0),

@@ -54,6 +54,11 @@ Run `cargo clippy --workspace --all-targets -- -D warnings` **first**.
 Same rule for `cargo fmt --all -- --check` and for the Linux test run: if the
 baseline is already red, report it precisely rather than repairing it.
 
+**Backlog cleared 2026-07-30.** `cargo clippy --workspace --all-targets --
+-D warnings` is green and `continue-on-error` is gone, so `lint` blocks like
+the other two jobs. The sweep also opened DV-12. `push` now only triggers on
+`main`; pull requests run the suite once instead of twice.
+
 ### Accept
 
 - [ ] A pull request against `main` runs all three jobs.

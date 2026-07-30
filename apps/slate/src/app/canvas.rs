@@ -385,7 +385,7 @@ impl SlateApp {
             fg.rect_stroke(
                 r,
                 0.0,
-                egui::Stroke::new(1.0, palette.select),
+                egui::Stroke::new(1.0_f32, palette.select),
                 egui::StrokeKind::Inside,
             );
         }
@@ -754,7 +754,7 @@ impl SlateApp {
             let r = c.r * z;
             let accent = Color32::from_rgb(color[0], color[1], color[2]);
             painter.circle_filled(center, r, accent.gamma_multiply(0.055));
-            painter.circle_stroke(center, r, Stroke::new(2.0, accent.gamma_multiply(0.8)));
+            painter.circle_stroke(center, r, Stroke::new(2.0_f32, accent.gamma_multiply(0.8)));
             painter.text(
                 center - Vec2::new(0.0, r + 12.0),
                 Align2::CENTER_BOTTOM,
@@ -841,11 +841,11 @@ impl SlateApp {
                         }
                     }
                     let ring = if selected {
-                        Stroke::new(2.5, palette.select)
+                        Stroke::new(2.5_f32, palette.select)
                     } else if is_hovered {
-                        Stroke::new(1.5, palette.ink.gamma_multiply(0.7))
+                        Stroke::new(1.5_f32, palette.ink.gamma_multiply(0.7))
                     } else {
-                        Stroke::new(1.0, palette.border_strong.gamma_multiply(fade))
+                        Stroke::new(1.0_f32, palette.border_strong.gamma_multiply(fade))
                     };
                     painter.circle_stroke(center, r, ring);
                     if missing {
@@ -864,9 +864,9 @@ impl SlateApp {
                     };
                     painter.rect_filled(srect, CornerRadius::same(4), fill.gamma_multiply(fade));
                     let stroke = if selected {
-                        Stroke::new(2.0, palette.select)
+                        Stroke::new(2.0_f32, palette.select)
                     } else {
-                        Stroke::new(1.0, palette.border)
+                        Stroke::new(1.0_f32, palette.border)
                     };
                     painter.rect_stroke(srect, CornerRadius::same(4), stroke, StrokeKind::Inside);
 

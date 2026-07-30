@@ -18,7 +18,7 @@ use slate_doc::{
     SLATE_EXTENSION,
 };
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 pub mod association;
@@ -536,14 +536,14 @@ impl SlateApp {
         self.at_home = false;
     }
 
-    fn record_recent_workbook(&mut self, path: &PathBuf, doc: &slate_doc::SlateDoc) {
+    fn record_recent_workbook(&mut self, path: &Path, doc: &slate_doc::SlateDoc) {
         let title = path
             .file_stem()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.to_string_lossy().into_owned());
-        self.recents.record(path.clone(), title);
+        self.recents.record(path.to_path_buf(), title);
         let media = sample_workbook_cover_media(doc, 9);
-        let key = path.clone();
+        let key = path.to_path_buf();
         if atlas_shell::covers::schedule_cover_bake(&key) {
             std::thread::spawn(move || {
                 let _ = atlas_shell::covers::bake_workbook_cover(&key, &media);

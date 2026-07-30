@@ -450,17 +450,6 @@ pub fn union_rect(rects: &[WorldRect]) -> Option<WorldRect> {
     Some(WorldRect::new(min_x, min_y, max_x - min_x, max_y - min_y))
 }
 
-/// Snap a point to the board grid.
-pub fn snap_point_to_grid(p: Pos2, enabled: bool) -> Pos2 {
-    if !enabled {
-        return p;
-    }
-    Pos2::new(
-        (p.x / GRID_WORLD).round() * GRID_WORLD,
-        (p.y / GRID_WORLD).round() * GRID_WORLD,
-    )
-}
-
 /// Snap a rect's origin to the board grid (size unchanged).
 pub fn snap_rect_origin(mut r: WorldRect, enabled: bool) -> WorldRect {
     if !enabled {
@@ -531,7 +520,6 @@ pub fn resize_from_handle(
     }
 
     let is_corner = matches!(handle, 0 | 2 | 4 | 6);
-    let mut r = before;
 
     match handle {
         0 => {
@@ -546,17 +534,16 @@ pub fn resize_from_handle(
                     w = h * aspect;
                 }
             }
-            r = WorldRect::new(ax - w, ay - h, w, h);
+            WorldRect::new(ax - w, ay - h, w, h)
         }
         1 => {
             let bottom = before.y + before.h;
-            let mut h = (bottom - local.y).max(min_size);
-            let mut w = before.w;
+            let h = (bottom - local.y).max(min_size);
             if lock_aspect {
-                w = (h * aspect).max(min_size);
-                r = WorldRect::new(before.x + (before.w - w) * 0.5, bottom - h, w, h);
+                let w = (h * aspect).max(min_size);
+                WorldRect::new(before.x + (before.w - w) * 0.5, bottom - h, w, h)
             } else {
-                r = WorldRect::new(before.x, bottom - h, before.w, h);
+                WorldRect::new(before.x, bottom - h, before.w, h)
             }
         }
         2 => {
@@ -571,16 +558,15 @@ pub fn resize_from_handle(
                     w = h * aspect;
                 }
             }
-            r = WorldRect::new(ax, ay - h, w, h);
+            WorldRect::new(ax, ay - h, w, h)
         }
         3 => {
-            let mut w = (local.x - before.x).max(min_size);
-            let mut h = before.h;
+            let w = (local.x - before.x).max(min_size);
             if lock_aspect {
-                h = (w / aspect).max(min_size);
-                r = WorldRect::new(before.x, before.y + (before.h - h) * 0.5, w, h);
+                let h = (w / aspect).max(min_size);
+                WorldRect::new(before.x, before.y + (before.h - h) * 0.5, w, h)
             } else {
-                r = WorldRect::new(before.x, before.y, w, before.h);
+                WorldRect::new(before.x, before.y, w, before.h)
             }
         }
         4 => {
@@ -595,16 +581,15 @@ pub fn resize_from_handle(
                     w = h * aspect;
                 }
             }
-            r = WorldRect::new(ax, ay, w, h);
+            WorldRect::new(ax, ay, w, h)
         }
         5 => {
-            let mut h = (local.y - before.y).max(min_size);
-            let mut w = before.w;
+            let h = (local.y - before.y).max(min_size);
             if lock_aspect {
-                w = (h * aspect).max(min_size);
-                r = WorldRect::new(before.x + (before.w - w) * 0.5, before.y, w, h);
+                let w = (h * aspect).max(min_size);
+                WorldRect::new(before.x + (before.w - w) * 0.5, before.y, w, h)
             } else {
-                r = WorldRect::new(before.x, before.y, before.w, h);
+                WorldRect::new(before.x, before.y, before.w, h)
             }
         }
         6 => {
@@ -619,22 +604,19 @@ pub fn resize_from_handle(
                     w = h * aspect;
                 }
             }
-            r = WorldRect::new(ax - w, ay, w, h);
+            WorldRect::new(ax - w, ay, w, h)
         }
         _ => {
             let ax = before.x + before.w;
-            let mut w = (ax - local.x).max(min_size);
-            let mut h = before.h;
+            let w = (ax - local.x).max(min_size);
             if lock_aspect {
-                h = (w / aspect).max(min_size);
-                r = WorldRect::new(ax - w, before.y + (before.h - h) * 0.5, w, h);
+                let h = (w / aspect).max(min_size);
+                WorldRect::new(ax - w, before.y + (before.h - h) * 0.5, w, h)
             } else {
-                r = WorldRect::new(ax - w, before.y, w, before.h);
+                WorldRect::new(ax - w, before.y, w, before.h)
             }
         }
     }
-
-    r
 }
 
 /// Rotate `p` about `center` by `delta_deg` (clockwise in y-down world
@@ -650,7 +632,12 @@ pub fn orbit_point(center: (f32, f32), p: (f32, f32), delta_deg: f32) -> (f32, f
     )
 }
 
-pub(crate) fn segments_intersect(a1: (f32, f32), a2: (f32, f32), b1: (f32, f32), b2: (f32, f32)) -> bool {
+pub(crate) fn segments_intersect(
+    a1: (f32, f32),
+    a2: (f32, f32),
+    b1: (f32, f32),
+    b2: (f32, f32),
+) -> bool {
     fn orient(p: (f32, f32), q: (f32, f32), r: (f32, f32)) -> f32 {
         (q.0 - p.0) * (r.1 - p.1) - (q.1 - p.1) * (r.0 - p.0)
     }

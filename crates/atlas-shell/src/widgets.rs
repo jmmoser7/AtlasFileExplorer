@@ -299,7 +299,7 @@ pub fn sidebar_date_timeline(
         }
     }
 
-    let stroke = Stroke::new(1.5, theme.border.gamma_multiply(0.9));
+    let stroke = Stroke::new(1.5_f32, theme.border.gamma_multiply(0.9));
     let painter = ui.painter_at(block);
 
     // selection fill
@@ -514,7 +514,7 @@ fn draw_timeline_scale(
     let baseline = scale_top + 4.0;
     let label_y = scale_top + 10.0;
     let tick_color = theme.sub.gamma_multiply(0.85);
-    let major = Stroke::new(1.0, tick_color);
+    let major = Stroke::new(1.0_f32, tick_color);
 
     let min_label_gap = label_min_spacing(step);
     let first = align_tick_start(view_lo, step);

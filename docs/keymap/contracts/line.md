@@ -3,6 +3,7 @@
 Status: **shipped** (matrix approved 2026-07-23 via the `line-tool-contract`
 canvas — all 15 rows accepted, all 4 open questions resolved; built to
 contract the same day, golden paths GP1–GP6 green as headless tests)
+Family: tool
 Reference: Rhino `Line`
 Command: `board.tool.line` · Key: **L** · Palette: "line" (aliases: segment)
 Inherits: P0.* (all), P1.node, P1.curve, **P2.RhinoDraft** — deviations

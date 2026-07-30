@@ -70,6 +70,15 @@ in Phase 3.
       taxonomy and either confirmed or challenged with reasons.
 - [ ] No implementation, no migration, no `NodeKind` change in this spike.
 
+### Input that already exists
+
+`docs/keymap/contracts/portal-lens-repository.md` (draft, 2026-07-30) answers
+these six questions for **one generated subtype** — a repository history lens
+— at row granularity, and its registry axes D18–D31 are the six questions
+decomposed. Read it as evidence of what the generated class needs, not as the
+taxonomy: it is deliberately one subtype, and where the two disagree S1 wins
+and the subtype contract is amended.
+
 ---
 
 ## S2 — The canvas clock and the dynamics layer {#s2}
