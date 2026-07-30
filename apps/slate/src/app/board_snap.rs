@@ -650,7 +650,12 @@ pub fn orbit_point(center: (f32, f32), p: (f32, f32), delta_deg: f32) -> (f32, f
     )
 }
 
-pub(crate) fn segments_intersect(a1: (f32, f32), a2: (f32, f32), b1: (f32, f32), b2: (f32, f32)) -> bool {
+pub(crate) fn segments_intersect(
+    a1: (f32, f32),
+    a2: (f32, f32),
+    b1: (f32, f32),
+    b2: (f32, f32),
+) -> bool {
     fn orient(p: (f32, f32), q: (f32, f32), r: (f32, f32)) -> f32 {
         (q.0 - p.0) * (r.1 - p.1) - (q.1 - p.1) * (r.0 - p.0)
     }

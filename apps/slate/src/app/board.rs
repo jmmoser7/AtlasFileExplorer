@@ -3775,9 +3775,7 @@ impl SlateApp {
                         .nodes
                         .iter()
                         .filter(|n| !n.is_frame() && !n.hidden && !n.locked)
-                        .filter(|n| {
-                            board_path::marquee_hits_node(n, r, self.tab().cam.z)
-                        })
+                        .filter(|n| board_path::marquee_hits_node(n, r, self.tab().cam.z))
                         .map(|n| n.id)
                         .collect();
                     self.board_sel = hits.into_iter().collect();
