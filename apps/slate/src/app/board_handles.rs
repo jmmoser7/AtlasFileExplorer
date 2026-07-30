@@ -194,9 +194,9 @@ pub fn paint_rotate_cursor(painter: &egui::Painter, pos: Pos2, color: Color32) {
     // Halo first, for contrast over arbitrary board content.
     painter.add(egui::Shape::line(
         pts.clone(),
-        EStroke::new(3.5, Color32::from_black_alpha(120)),
+        EStroke::new(3.5_f32, Color32::from_black_alpha(120)),
     ));
-    painter.add(egui::Shape::line(pts.clone(), EStroke::new(1.8, color)));
+    painter.add(egui::Shape::line(pts.clone(), EStroke::new(1.8_f32, color)));
     let end = *pts.last().unwrap();
     let end_angle = start + sweep;
     let tangent = Vec2::angled(end_angle + std::f32::consts::FRAC_PI_2);
@@ -222,7 +222,7 @@ pub fn paint_selection(
     let outline: Vec<Pos2> = geom.corners.to_vec();
     painter.add(egui::Shape::closed_line(
         outline.clone(),
-        EStroke::new(1.5, color),
+        EStroke::new(1.5_f32, color),
     ));
 
     for (handle, rect) in handle_rects(geom) {
@@ -263,7 +263,7 @@ pub fn paint_rotate_affordance(
         .collect();
     painter.add(egui::Shape::dashed_line(
         &pts,
-        EStroke::new(1.5, color),
+        EStroke::new(1.5_f32, color),
         4.0,
         3.0,
     ));

@@ -49,7 +49,7 @@ pub fn sidebar_section(
     Frame::new()
         .fill(theme.card)
         .corner_radius(CornerRadius::same(SidebarTokens::CORNER_RADIUS))
-        .stroke(Stroke::new(1.0, theme.border))
+        .stroke(Stroke::new(1.0_f32, theme.border))
         .inner_margin(Margin::symmetric(
             SidebarTokens::INNER_MARGIN_X as i8,
             SidebarTokens::INNER_MARGIN_Y as i8,
@@ -238,7 +238,7 @@ pub fn sidebar_subtle_divider(ui: &mut Ui, theme: SidebarTheme) {
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 8.0), Sense::hover());
     let stroke = Stroke::new(
-        1.0,
+        1.0_f32,
         theme
             .border
             .gamma_multiply(if ui.visuals().dark_mode { 0.55 } else { 0.85 }),

@@ -653,7 +653,7 @@ impl SlateApp {
                 .collect();
             painter.add(egui::Shape::line(
                 pts,
-                EStroke::new(1.0, palette.select.gamma_multiply(0.6)),
+                EStroke::new(1.0_f32, palette.select.gamma_multiply(0.6)),
             ));
         }
         // Handles of selected smooth/handled anchors first (under squares).
@@ -662,7 +662,7 @@ impl SlateApp {
             let ap = xf.w2s(from_point(a.point));
             for h in [a.handle_in, a.handle_out].into_iter().flatten() {
                 let hp = xf.w2s(from_point(h));
-                painter.line_segment([ap, hp], EStroke::new(1.0, palette.accent));
+                painter.line_segment([ap, hp], EStroke::new(1.0_f32, palette.accent));
                 painter.circle_filled(hp, 3.0, palette.accent);
             }
         }
@@ -677,13 +677,13 @@ impl SlateApp {
                 painter.rect_stroke(
                     r,
                     0.0,
-                    EStroke::new(1.2, palette.select),
+                    EStroke::new(1.2_f32, palette.select),
                     egui::StrokeKind::Inside,
                 );
             }
             // Smooth anchors read as slightly rounded (kind hint).
             if a.kind == AnchorKind::Smooth && !selected {
-                painter.circle_stroke(p, ANCHOR_PX + 2.5, EStroke::new(0.6, palette.sub));
+                painter.circle_stroke(p, ANCHOR_PX + 2.5, EStroke::new(0.6_f32, palette.sub));
             }
         }
     }

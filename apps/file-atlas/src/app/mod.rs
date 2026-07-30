@@ -3730,7 +3730,7 @@ impl AtlasApp {
             painter.rect_stroke(
                 r,
                 CornerRadius::ZERO,
-                Stroke::new(1.0, palette.select),
+                Stroke::new(1.0_f32, palette.select),
                 StrokeKind::Inside,
             );
         }
@@ -4428,7 +4428,7 @@ impl AtlasApp {
                         for w in pts.windows(2) {
                             painter.add(egui::Shape::dashed_line(
                                 w,
-                                Stroke::new(1.0, p.border_strong),
+                                Stroke::new(1.0_f32, p.border_strong),
                                 dash,
                                 gap,
                             ));
@@ -4553,7 +4553,7 @@ impl AtlasApp {
             sr,
             cr,
             Stroke::new(
-                if hovered { 1.6 } else { 1.1 },
+                if hovered { 1.6_f32 } else { 1.1_f32 },
                 if hovered { p.border_strong } else { p.border },
             ),
             StrokeKind::Inside,
@@ -4585,7 +4585,7 @@ impl AtlasApp {
                 full,
                 grip_r + if full_hover { 2.0 } else { 0.0 },
                 Stroke::new(
-                    1.5,
+                    1.5_f32,
                     if full_hover {
                         p.portal
                     } else {
@@ -4597,7 +4597,7 @@ impl AtlasApp {
                 full,
                 (grip_r * 0.55).max(2.0),
                 Stroke::new(
-                    1.2,
+                    1.2_f32,
                     if full_hover {
                         p.portal
                     } else {
@@ -4684,7 +4684,7 @@ impl AtlasApp {
             painter.rect_stroke(
                 sr,
                 cr,
-                Stroke::new(1.0, p.border.gamma_multiply(0.9)),
+                Stroke::new(1.0_f32, p.border.gamma_multiply(0.9)),
                 StrokeKind::Inside,
             );
             let ring_c = self.w2s(Pos2::new(x + 20.0, y));
@@ -4750,7 +4750,7 @@ impl AtlasApp {
         painter.rect_stroke(
             sr,
             cr,
-            Stroke::new(if hovered { 1.8 } else { 1.4 }, p.portal),
+            Stroke::new(if hovered { 1.8_f32 } else { 1.4_f32 }, p.portal),
             StrokeKind::Inside,
         );
 
@@ -4948,7 +4948,7 @@ impl AtlasApp {
                 painter.rect_stroke(
                     sr,
                     CornerRadius::ZERO,
-                    Stroke::new(1.0, p.select),
+                    Stroke::new(1.0_f32, p.select),
                     StrokeKind::Inside,
                 );
             }
@@ -4963,13 +4963,13 @@ impl AtlasApp {
         };
         painter.rect_filled(sr, cr, card_fill.gamma_multiply(alpha));
         let border = if selected {
-            Stroke::new(2.0, p.select)
+            Stroke::new(2.0_f32, p.select)
         } else if matched && dimming {
-            Stroke::new(1.2, p.accent.gamma_multiply(0.65))
+            Stroke::new(1.2_f32, p.accent.gamma_multiply(0.65))
         } else if hovered {
-            Stroke::new(1.4, p.border_strong)
+            Stroke::new(1.4_f32, p.border_strong)
         } else {
-            Stroke::new(1.0, p.border.gamma_multiply(alpha))
+            Stroke::new(1.0_f32, p.border.gamma_multiply(alpha))
         };
         painter.rect_stroke(sr, cr, border, StrokeKind::Inside);
 

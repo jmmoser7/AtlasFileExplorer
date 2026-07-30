@@ -250,7 +250,7 @@ impl SlateApp {
             painter.circle_stroke(
                 g,
                 r,
-                EStroke::new(if hovered { 2.0 } else { 1.4 }, palette.accent),
+                EStroke::new(if hovered { 2.0_f32 } else { 1.4_f32 }, palette.accent),
             );
         }
     }
@@ -674,7 +674,7 @@ impl SlateApp {
                         pts,
                         false,
                         Color32::TRANSPARENT,
-                        EStroke::new(2.0, color),
+                        EStroke::new(2.0_f32, color),
                     ),
                 ));
             }
@@ -684,7 +684,7 @@ impl SlateApp {
             if let Some(n) = self.doc().scene.node(node) {
                 let p = connector_anchor_point(n.rect, side, t);
                 let s = xf.w2s(Pos2::new(p[0], p[1]));
-                painter.circle_stroke(s, 8.0, EStroke::new(2.0, palette.accent));
+                painter.circle_stroke(s, 8.0, EStroke::new(2.0_f32, palette.accent));
             }
         }
         // Modifier glyph near the pointer.
@@ -817,12 +817,12 @@ impl SlateApp {
                 pts,
                 false,
                 Color32::TRANSPARENT,
-                EStroke::new(1.5, palette.select),
+                EStroke::new(1.5_f32, palette.select),
             ),
         ));
         for p in [pts[0], pts[3]] {
             painter.circle_filled(p, 4.5, palette.bg);
-            painter.circle_stroke(p, 4.5, EStroke::new(2.0, palette.select));
+            painter.circle_stroke(p, 4.5, EStroke::new(2.0_f32, palette.select));
         }
     }
 

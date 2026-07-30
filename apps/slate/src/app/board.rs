@@ -22,8 +22,7 @@
 //!   gesture start).
 
 use super::{
-    board_crop, board_handles, board_icons, board_line, board_path, board_snap, model3d, SlateApp,
-    ThumbState,
+    board_crop, board_handles, board_icons, board_path, board_snap, model3d, SlateApp, ThumbState,
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
@@ -1378,7 +1377,7 @@ impl SlateApp {
             painter.rect_stroke(
                 srect.shrink(0.5),
                 0.0,
-                EStroke::new(1.5, palette.accent),
+                EStroke::new(1.5_f32, palette.accent),
                 egui::StrokeKind::Inside,
             );
         }
@@ -2059,7 +2058,7 @@ impl SlateApp {
                 let outline = self.node_screen_outline(&xf, n);
                 painter.add(egui::Shape::closed_line(
                     outline,
-                    EStroke::new(2.0, palette.select),
+                    EStroke::new(2.0_f32, palette.select),
                 ));
             }
         }
@@ -2106,7 +2105,7 @@ impl SlateApp {
                         let outline = self.node_screen_outline(&xf, n);
                         painter.add(egui::Shape::closed_line(
                             outline,
-                            EStroke::new(1.5, select_tint),
+                            EStroke::new(1.5_f32, select_tint),
                         ));
                     }
                 }
@@ -2194,7 +2193,7 @@ impl SlateApp {
                         center: preview.center(),
                         radius: preview.size() * 0.5,
                         fill: Color32::TRANSPARENT,
-                        stroke: EStroke::new(1.5, accent),
+                        stroke: EStroke::new(1.5_f32, accent),
                     });
                 }
                 _ => {
@@ -2202,7 +2201,7 @@ impl SlateApp {
                     painter.rect_stroke(
                         preview,
                         0.0,
-                        EStroke::new(1.5, accent),
+                        EStroke::new(1.5_f32, accent),
                         egui::StrokeKind::Inside,
                     );
                 }
@@ -2263,13 +2262,16 @@ impl SlateApp {
             let tint = palette.accent.gamma_multiply(0.6);
             painter.add(egui::Shape::dashed_line(
                 &[o - dir * 72.0, o + dir * 72.0],
-                EStroke::new(1.0, tint),
+                EStroke::new(1.0_f32, tint),
                 6.0,
                 6.0,
             ));
             for k in [-48.0f32, -24.0, 0.0, 24.0, 48.0] {
                 let c = o + dir * k;
-                painter.line_segment([c - perp * 3.5, c + perp * 3.5], EStroke::new(1.0, tint));
+                painter.line_segment(
+                    [c - perp * 3.5, c + perp * 3.5],
+                    EStroke::new(1.0_f32, tint),
+                );
             }
         }
 
@@ -2288,7 +2290,7 @@ impl SlateApp {
             painter.rect_stroke(
                 r,
                 0.0,
-                EStroke::new(1.0, palette.select),
+                EStroke::new(1.0_f32, palette.select),
                 egui::StrokeKind::Inside,
             );
         }
@@ -2710,7 +2712,7 @@ impl SlateApp {
                 let Some(sb) = to_screen(b) else {
                     return;
                 };
-                painter.line_segment([sa, sb], EStroke::new(2.0, accent));
+                painter.line_segment([sa, sb], EStroke::new(2.0_f32, accent));
                 painter.circle_filled(sa, 4.0, accent);
                 painter.circle_filled(sb, 4.0, accent);
                 let mid = sa.lerp(sb, 0.5);
@@ -2940,7 +2942,7 @@ impl SlateApp {
         let geom = board_handles::selection_geom(xf, node.rect, rot);
         painter.add(egui::Shape::closed_line(
             geom.corners.to_vec(),
-            EStroke::new(2.0, accent),
+            EStroke::new(2.0_f32, accent),
         ));
         let hovered = ui
             .ctx()
@@ -2974,8 +2976,12 @@ impl SlateApp {
 
         // Content grabber: donut ring at the crop-window center.
         let center = geom.corners[0] + (geom.corners[2] - geom.corners[0]) * 0.5;
-        painter.circle_stroke(center, 11.0, EStroke::new(2.0, accent));
-        painter.circle_stroke(center, 6.0, EStroke::new(2.0, accent.gamma_multiply(0.8)));
+        painter.circle_stroke(center, 11.0, EStroke::new(2.0_f32, accent));
+        painter.circle_stroke(
+            center,
+            6.0,
+            EStroke::new(2.0_f32, accent.gamma_multiply(0.8)),
+        );
 
         // Readable hint under the window.
         painter.text(

@@ -405,11 +405,11 @@ impl SlateApp {
         } else {
             super::board::rgba32(self.board_colors.fg)
         };
-        painter.circle_stroke(pointer, r, EStroke::new(1.4, ink));
+        painter.circle_stroke(pointer, r, EStroke::new(1.4_f32, ink));
         painter.circle_stroke(
             pointer,
             r + 2.0,
-            EStroke::new(1.0, ink.gamma_multiply(0.35)),
+            EStroke::new(1.0_f32, ink.gamma_multiply(0.35)),
         );
     }
 
@@ -424,15 +424,23 @@ impl SlateApp {
         let candidate = self.eyedropper_sample_at(world);
         let fg = super::board::rgba32(self.board_colors.fg);
         if let Some(c) = candidate {
-            painter.circle_stroke(pointer, 11.0, EStroke::new(4.0, super::board::rgba32(c)));
+            painter.circle_stroke(
+                pointer,
+                11.0,
+                EStroke::new(4.0_f32, super::board::rgba32(c)),
+            );
         } else {
-            painter.circle_stroke(pointer, 11.0, EStroke::new(1.2, Color32::from_gray(150)));
+            painter.circle_stroke(
+                pointer,
+                11.0,
+                EStroke::new(1.2_f32, Color32::from_gray(150)),
+            );
         }
         painter.circle_filled(pointer, 5.0, fg);
         painter.circle_stroke(
             pointer,
             5.5,
-            EStroke::new(1.0, Color32::from_black_alpha(90)),
+            EStroke::new(1.0_f32, Color32::from_black_alpha(90)),
         );
     }
 }

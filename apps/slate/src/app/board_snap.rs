@@ -550,7 +550,7 @@ pub fn resize_from_handle(
         }
         1 => {
             let bottom = before.y + before.h;
-            let mut h = (bottom - local.y).max(min_size);
+            let h = (bottom - local.y).max(min_size);
             let mut w = before.w;
             if lock_aspect {
                 w = (h * aspect).max(min_size);
@@ -574,7 +574,7 @@ pub fn resize_from_handle(
             r = WorldRect::new(ax, ay - h, w, h);
         }
         3 => {
-            let mut w = (local.x - before.x).max(min_size);
+            let w = (local.x - before.x).max(min_size);
             let mut h = before.h;
             if lock_aspect {
                 h = (w / aspect).max(min_size);
@@ -598,7 +598,7 @@ pub fn resize_from_handle(
             r = WorldRect::new(ax, ay, w, h);
         }
         5 => {
-            let mut h = (local.y - before.y).max(min_size);
+            let h = (local.y - before.y).max(min_size);
             let mut w = before.w;
             if lock_aspect {
                 w = (h * aspect).max(min_size);
@@ -623,7 +623,7 @@ pub fn resize_from_handle(
         }
         _ => {
             let ax = before.x + before.w;
-            let mut w = (ax - local.x).max(min_size);
+            let w = (ax - local.x).max(min_size);
             let mut h = before.h;
             if lock_aspect {
                 h = (w / aspect).max(min_size);

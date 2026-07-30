@@ -1530,11 +1530,11 @@ fn subtree_ids(graph: &CodeGraph, root: NodeId) -> HashSet<NodeId> {
 
 fn interaction_stroke(style: &LensPaintStyle<'_>) -> Option<Stroke> {
     if style.focused {
-        Some(Stroke::new(2.5, style.palette.select))
+        Some(Stroke::new(2.5_f32, style.palette.select))
     } else if style.hovered {
-        Some(Stroke::new(1.5, style.palette.border_strong))
+        Some(Stroke::new(1.5_f32, style.palette.border_strong))
     } else if style.search_hit {
-        Some(Stroke::new(2.0, style.palette.staged))
+        Some(Stroke::new(2.0_f32, style.palette.staged))
     } else {
         None
     }
