@@ -1,334 +1,350 @@
-# Tool kits — declarative tools and toolbars
+# User-authored tools — the contract loop
 
-**Status: proposal, not adopted.** Written in response to the question "can a
-tool be a file, the way a workbook is a file?" Nothing here is built. The
-constitution is not amended by this document; §11 drafts the one clause that
-would need ratifying, for the user to accept or reject.
-
----
-
-## 1. The short version
-
-A user-defined tool is possible today as **pure declarative data**, with no
-amendment to Article VII's script prohibition and no new rung on the extension
-ladder — provided one boundary holds:
-
-> A kit tool may not define **how a gesture behaves**. It may only define
-> **what an existing gesture produces** and **how the tool presents itself**.
-
-Everything the proposal wants — architect kits, designer kits, shared toolbars,
-rapid personal experiments — fits inside that boundary. The things that do not
-fit (a constraint solver, a parametric node graph, a genuinely new gesture) do
-not fit *because they need an interpreter*, and that is exactly the line
-Article VII.4 already draws.
-
-The enabling change is not a plugin system. It is a **refactor that separates
-gesture grammar from result recipe**, which the board code is already asking
-for on its own merits (§4).
+**Status: proposal, not adopted.** Nothing here is built. The constitution is
+not amended by this document; §13 drafts the one clause that would need
+ratifying, for the user to accept or reject.
 
 ---
 
-## 2. What this builds on
+## 1. The thesis
 
-Three pieces of prior work converge here, and two of them are already decided.
+The product is not a file format. It is a **loop**:
 
-| Prior decision | Status | Relation to this proposal |
+> Right-click a tool in the dock → the contract opens on the canvas, pre-filled
+> from that tool → change what you care about → **Create** → an agent compiles
+> it → the tool is in your bar, in every future session.
+
+The file format is what the loop writes down. It matters, but it is substrate.
+The loop is the thing that makes tool creation democratic, and every design
+decision below is judged by whether it keeps the loop honest and fast.
+
+Two properties make this more than a macro recorder:
+
+- **The entry point pre-constrains the answer.** Right-clicking the *Curve*
+  group means the gesture grammar is already decided, so the contract opens
+  with most of its rows answered and the result is nearly always something the
+  core can actually build. You are not filling in a blank form; you are
+  editing a working tool's description.
+- **Every Create produces something honest.** Either a live tool, or a
+  well-formed request for a capability the core does not have — never a broken
+  tool and never a lie. §3 is how.
+
+---
+
+## 2. The loop, end to end
+
+| Step | What happens | Where it lands |
 |---|---|---|
-| **D14 — extension model** (`docs/audit/2026-07-25-decisions-flexibility.md`) | decided v1, unbuilt; scheduled Wave 3+ as "the extension package format" | Kits *are* that package format. D14's asset list — themes, keymaps, skills, brushes, palettes, board templates, portal definitions — does not name tools. This proposal argues it should. |
-| **Amendment D — control surfaces / `PanelSpec`** (audit §7.5) | proposed, **unratified**; explicitly not planned before ratification | Amendment D makes toolbars, flyouts and tabs one thing: `Slot × Trigger × Content`. Kits supply *content*; they must not pre-empt the slot model. §10 keeps them independent. |
-| **Tool contracts** (`docs/keymap/contracts/`, the `tool-contract` skill) | shipped for one tool (`line.md`), 31 dimensions registered | The behavior matrix is already a formal tool description. §9 shows that 8 of its 17 tool-scoped dimensions are exactly the fields a kit file needs, and the other 9 are answered by the grammar or the node kind. |
+| 1 | Right-click a dock icon or a flyout entry | new shared-chrome capability (§10) |
+| 2 | Choose *New tool from this…* or *Edit this tool…* | — |
+| 3 | The **contract** opens, pre-filled from the source tool | a form over 17 typed rows (§4) |
+| 4 | User accepts, alters, or rejects rows; the panel says continuously whether this is buildable (§3) | — |
+| 5 | **Create** | writes `<tools>/contracts/<id>.md` + a decisions record |
+| 6 | An agent compiles the contract | writes `<tools>/<id>.slatekit` |
+| 7 | The tool appears in the bar, **staged** (Art. VII.6) — try it, accept or discard | `data_dir()/tools/` (§7) |
 
-## 3. The gap in the extension ladder
+Step 6 is where the constitution does real work, and step 4 is where the
+interface earns its keep.
 
-`EXTENDING.md` §4 lists four rungs. Read them for where a *tool* lands:
+## 3. The routing rule
 
-| Rung | Example given | Status |
-|---|---|---|
-| Declarative assets | themes, keymaps, brushes, palettes, board templates, portal definitions | intended v1, unbuilt |
-| MCP servers | out-of-process command-surface clients | intended v1, unbuilt |
-| In-process WASM | "a real third-party canvas tool **with its own interaction**" | deferred, needs the VII.4 amendment |
-| Native binaries | — | never |
+This is the heart of the design and the thing that makes "anyone can make a
+tool" a truthful claim rather than a marketing one.
 
-Rung 1 stops at brushes. Rung 3 begins at "a tool with its own interaction."
-Between them sits an unnamed rung that is where nearly all real tools live:
+A filled contract is either **expressible** or it is not:
 
-> **A tool with no interaction of its own.** It borrows a gesture grammar the
-> core already implements and tested, and varies only what that gesture
-> produces, what it is called, what it looks like, and when it is available.
+- **Expressible** — every answer fits the kit vocabulary: an existing gesture
+  grammar, an existing node kind, an existing style property. The agent emits
+  a `.slatekit` file. The tool is live immediately, with no rebuild, because it
+  is data (Art. VII.3).
+- **Not expressible** — the contract asks for a gesture the core does not
+  implement, a node kind that does not exist, or a style property outside the
+  SVG ceiling. No amount of data will produce it. The agent writes the contract
+  document and a proposal for the maintainer, and says plainly that this needs
+  core work.
 
-A north arrow stamp, a redline pen, a 1:100 dimension tool, a door symbol, a
-title block, a preset portal — none of these needs a new interaction. They need
-a *click* or a *drag* the core already knows how to do. Placing them on rung 3
-overprices them by an amendment and a WASM host; leaving them off the ladder
-entirely is why every one of them currently costs an enum variant and six edit
-sites.
+**The panel must show which branch you are on while you fill it in, not after
+you press Create.** If row D03 is set outside the nine known grammars, the
+Create button changes to *Propose*, and the panel says why. A user who wants a
+constraint-solving tool should learn that in the form, from the form, in the
+same breath as asking for it.
 
-This unnamed rung is rung 1. It requires no new machinery beyond a file format
-and a loader, because it is data.
+This is Article IV applied to an authoring interface: the tool builder does not
+pretend to a capability it lacks. It is also what protects the loop's
+reputation — the first time Create yields a tool that silently does nothing,
+nobody uses it again.
 
-## 4. The refactor: grammar × recipe
+## 4. What the contract actually edits
 
-`BoardTool` has seventeen variants. It looks like seventeen tools. It is
-actually a **product of a small closed set and a large open set**, and the code
-says so in the clearest possible way. From `finish_draw` in
-`apps/slate/src/app/board.rs`:
+The contract interface edits **17 typed rows**, not free text.
+
+The dimension registry (`docs/keymap/contracts/DIMENSIONS.md`) defines D01–D17
+as the tool-scoped set — verified by `cargo xtask contracts`, which reports
+"17 shared". Each row carries a proposal, a source (`stated` / `precedent` /
+`pattern` / `research` / `guess`), a confidence score, and a verdict. That is
+already a `ControlSurface` in the audit's §7.5 sense: a named set of typed
+parameters with a layout hint.
+
+**The markdown file is the serialization, not the source of truth.** This
+matters practically: there is no markdown renderer or parser anywhere in the
+dependency tree, and adding a round-trip markdown editor would mean the
+contract slowly corrodes as the parser and the writer disagree. The existing
+system already solved this — `decisions.json` holds the rows, `<tool>.md` holds
+the human document, and `xtask` enforces that they agree. The portal writes
+both, exactly as the skill does today. Article IV.1: exports are
+serializations.
+
+**Nobody fills in 17 rows.** With inherit-from-existing-tool (§5), nearly all
+of them arrive answered at high confidence, and the ones worth a user's
+attention are the low-confidence guesses — which the skill already surfaces as
+"open questions". The real interaction is *"here are 17 answers, three are
+guesses, change what you like"*, and that is the difference between a feature
+people use and a form people abandon.
+
+**A useful deletion:** the `tool-contract` skill currently produces a volatile
+`.canvas.tsx` matrix, disposable after agreement, with a "send decisions to
+agent" button. The contract portal replaces it. One less artifact, one less
+handoff, and the skill's step 3 collapses into the app.
+
+## 5. Inheritance is a fork that names its origin
+
+"Right-click an existing tool to inherit its attributes" is the best idea in
+the proposal, and it needs one decision: is the derived tool **linked** to its
+parent, or a **snapshot**?
+
+Snapshot. Article IX.4 already settles the analogous question for packages —
+"a package is a permanent fork, not a synchronised mirror… a package records
+where each asset came from, so that a human can always find the original." The
+same reasoning applies with more force here: live inheritance chains among
+user-authored tools would make a shared kit non-self-contained and would turn
+"why did my tool change?" into an unanswerable question.
+
+So a derived tool records `derived_from = "core:line"` and copies the rest.
+The contract document records the same in its provenance line, which makes the
+lineage of a user's toolbar readable.
+
+## 6. Editing a built-in: shadow, never mutate
+
+"All tools can be edited or overwritten in this way" should include the ones
+that ship with the app — and it can, without the app ever writing to its own
+install.
+
+If the default toolbar is itself a kit compiled in with `include_str!` (the way
+`ui-tokens.toml` already is), then "edit the Line tool" forks the built-in
+entry into a user kit that **shadows** it by id. The built-in file is never
+touched. Three things follow for free: *revert to default* always works, an app
+update can ship a fix to the built-in without clobbering user edits, and the
+set of things a user has changed is exactly the list of files in their tools
+folder.
+
+This also makes the kit format honest by construction: the defaults are
+expressed in the same vocabulary users get, so there is no privileged path a
+user tool cannot reach.
+
+## 7. Where the files live
+
+Not the install directory. On Windows that is `Program Files`, which is not
+user-writable without elevation, is shared across accounts, and is subject to
+being replaced wholesale by an installer. Tools written there would need
+elevation to create and would vanish on update.
+
+The repository already has the right convention, with twelve consumers:
+`atlas_core::index::data_dir()` → `%LOCALAPPDATA%\NativeFileAtlas\`. Themes are
+the exact precedent — `atlas_shell::theme::user_theme_dir()` is
+`data_dir()/themes`, and dropping a `.toml` in it is how a user adds a theme
+today.
+
+```
+%LOCALAPPDATA%\NativeFileAtlas\
+    tools\
+        contracts\
+            my-north-arrow.md          <- the contract, human-readable
+            my-north-arrow.json        <- the decision rows, machine-readable
+        my-north-arrow.slatekit        <- the compiled tool
+        stamps\
+            north-arrow.nodes.json     <- assets, relative locators (Art. IX.2)
+```
+
+The intent behind "root directory" is right and worth keeping: **one well-known
+folder the user can open, read, back up, and mail.** That deserves an *Open
+tools folder* command so it is discoverable rather than folklore.
+
+## 8. Precedent becomes two-tiered
+
+A consequence worth designing for rather than discovering.
+
+`decisions.json` today accumulates the maintainer's approved decisions, and the
+skill seeds new tools from them at 85–95 confidence. In this loop, **every end
+user starts accumulating their own precedent** — and their fifth tool is much
+faster to author than their first, because their own accepted rows pre-fill it.
+That compounding is one of the strongest arguments for the whole design.
+
+It only works if the two tiers stay separate. Repo precedent is shipped and
+reviewed; local precedent is yours. Local rows seed local proposals at high
+confidence and must never silently merge upward into the repository's shared
+database. The skill's source vocabulary already distinguishes `precedent` from
+`guess`, so this is a scoping rule rather than new machinery.
+
+## 9. The substrate the loop needs
+
+The loop cannot pre-fill a contract from an existing tool, or compile one into
+data, unless tools are made of parts that can be copied and written down. Today
+they are not: `BoardTool` is a seventeen-variant enum in the app crate, and the
+defaults are hardcoded inline. From `finish_draw` in `board.rs`:
 
 ```rust
 BoardTool::RectShape => NodeKind::Shape(ShapeNode {
     shape: ShapeKind::Rect,
     fill: Some(Rgba([accent.0[0], accent.0[1], accent.0[2], 60])),
-    stroke: Stroke { width: 2.0, color: accent, dash: Dash::Solid, /* … */ },
+    stroke: Stroke { width: 2.0, color: accent, /* … */ },
     corner: Corner::Square, flip: false, path: None,
 }),
 BoardTool::Ellipse => NodeKind::Shape(ShapeNode {
     shape: ShapeKind::Ellipse,
     fill: Some(Rgba([accent.0[0], accent.0[1], accent.0[2], 60])),
-    stroke: Stroke { width: 2.0, color: accent, dash: Dash::Solid, /* … */ },
+    stroke: Stroke { width: 2.0, color: accent, /* … */ },
     corner: Corner::Square, flip: false, path: None,
 }),
 ```
 
-Two arms, identical but for one enum field and a pile of hardcoded style
-constants. `Frame` is a third arm of the same drag. The gesture — press, drag a
-rectangle, constrain with Shift, release — is written once and shared. What
-differs between "rect tool" and "ellipse tool" is *a literal struct*.
+Two arms, identical but for one enum field, sharing one press-drag-release
+gesture. There is nothing here to inherit *from* — "inherit the Rect tool's
+attributes" would mean transcribing a match arm by hand, seventeen times.
 
-That struct is the recipe, and it is already data in everything but storage.
-
-So:
+So the enabling refactor is to split what is currently fused:
 
 ```
-tool = grammar (code, closed, ~8 members)
-     × recipe (data, open, unbounded)
+tool = grammar (code, closed, 9 members)
+     × recipe (data: what the gesture produces)
      × presentation (data: name, icon, key, aliases)
-     × availability (data: view / facet / selection predicate)
+     × availability (data: view / facet / selection)
 ```
 
-The closed grammar set covers all seventeen of today's tools:
+Nine grammars cover all seventeen of today's tools: `Select`, `DirectSelect`,
+`DragRect` (Frame, Rect, Ellipse), `TwoPoint` (Line — click-move-click or drag,
+direction lock, typed length), `MultiPoint` (Polyline, Arc, Bezier),
+`Freehand` (Pen, Brush), `PlacePoint` (Text, Sticky), `Sweep` (Eraser), and
+`Sample` (Eyedropper). `Pan` is a camera mode, not a creation grammar.
 
-| Grammar | Gesture | Today's tools |
+Recipes come in three kinds: **`shape`** (a node of an existing kind with a
+style block), **`stamp`** (a saved group of nodes placed by the gesture — north
+arrows, scale bars, title blocks, door symbols; the highest-value kind and the
+one to ship first), and **`portal`** (a preset source and query; blocked on
+Phase 3, but reserve it in the format).
+
+This refactor also collapses the tool match in `begin_gesture` from seventeen
+arms to nine, in a 4,900-line file. It is worth doing on its own merits.
+
+**Article III is relocated, not repealed.** The 10% rule binds the grammar set
+absolutely — a tenth grammar must name its real recurring use like anything
+else. Kits are governed differently because an unused kit tool is not loaded,
+not painted, and costs nothing.
+
+### What a kit may never do
+
+The non-goals are the specification, and they are what let an agent compile a
+stranger's contract without risk. A kit may not: define a new gesture grammar;
+contain control flow, expressions, or arithmetic (Art. VII.7); define a new
+`NodeKind` or style property (Art. IV — a kit cannot teach `slate-artifact`
+anything); mutate a document outside the journal; run at load time or do
+anything without a human gesture; or touch the network.
+
+The load-bearing consequence: **a kit tool produces only ordinary scene nodes.**
+A missing kit costs you the ability to make more of them and costs the document
+nothing. A `.slate` file must never become unrenderable because a third-party
+file is absent.
+
+## 10. Staging, authorship, and the dock
+
+**Staging.** Article VII.6 already requires that agent mutations enter a staging
+layer and await human acceptance. A compiled tool should therefore arrive
+*staged*: visible in the bar, marked as proposed, tryable, acceptable or
+discardable as a unit. That is exactly the right UX for step 7, and it is
+already the law rather than a new invention. `crates/atlas-stage` is the
+planned home (workplan T2.3).
+
+**Authorship.** Two distinct authors must not be confused. The *kit file* is
+authored by an agent from the user's decisions, and records that. The *scene
+commits the tool later makes* are authored by the human wielding it, not by the
+agent that wrote the tool. Article VI's author field is per-commit, so this
+falls out correctly as long as nobody is tempted to attribute node creation to
+the tool.
+
+**The dock.** Right-click does not exist on dock icons today —
+`floating_dock` returns `Option<&'static str>` for clicks and `DOCK.md`
+specifies only hover and click semantics for the Tool, Dashboard, and Action
+kinds. Adding a context menu is a shared-chrome change (Art. X: a dedicated
+task, not mixed into app work) and needs a line in `DOCK.md`. Group flyouts —
+Frame, Shapes, Curve, Colors — are hardcoded arrays in
+`apps/slate/src/app/ui/tools.rs` and become data under the kit format anyway.
+
+## 11. Sequencing, and one risk worth naming
+
+The proposal puts the contract on the canvas as a portal. That is coherent
+under Article V and it is genuinely the *right* long-term home — a document
+portal over a contract file is arguably the cleanest possible pilot for Phase
+3's document-portal class, since it is small, structured, and self-contained.
+
+But it front-loads two unbuilt things onto a feature whose value lives entirely
+in the loop: **portals are Phase 3**, and the control-surface model is
+**Amendment D, unratified and explicitly unplanned before ratification**.
+Making the contract interface a portal means the authoring loop cannot ship
+until both land.
+
+The loop does not need either. Recommended split:
+
+| | Ships as | Depends on |
 |---|---|---|
-| `Select` | pick, marquee, handles, grips | Select |
-| `DirectSelect` | anchor / handle editing | DirectSelect |
-| `DragRect` | press-drag-release bounding box | Frame, Rect, Ellipse |
-| `TwoPoint` | click-move-click *or* drag; direction lock, typed length (`P2.RhinoDraft`) | Line |
-| `MultiPoint` | repeated clicks, Enter or double-click to finish | Polyline, Arc, BezierSpan |
-| `Freehand` | sampled stroke, fitted or variable-width | Pen, Brush |
-| `PlacePoint` | single click places a thing | Text, Sticky |
-| `Sweep` | continuous hit-test along a drag | Eraser |
-| `Sample` | read a property from what is under the cursor | Eyedropper |
+| **The loop** | a floating window over the canvas, using existing chrome | the §9 refactor only |
+| **The presentation** | promoted to a canvas portal | Phase 3, Amendment D |
 
-Nine grammars, and `Pan` is a camera mode rather than a creation grammar.
+Same rows, same file, same agent, same result. Promote the surface when the
+substrate exists. This costs nothing later because the rows are the durable
+model and the window is one interpreter of them — which is the same
+one-model-several-interpreters move Articles IV and V already ratify.
 
-The refactor is: `begin_gesture`/`end_gesture` match on **grammar**, not on
-tool; the active tool carries its recipe alongside. Seventeen arms become nine,
-in a 4,900-line file where the tool match is roughly 270 lines. This is worth
-doing whether or not kits ever ship — it is Article III applied to the core's
-own tool code, and it is the same "one model, several interpreters" move
-Articles IV and V already ratify.
+### Order of work
 
-**The 10% rule does not get repealed by this; it gets relocated.** Article III
-binds the grammar set absolutely — a tenth grammar must name its real recurring
-use like anything else. Kits are governed differently because an unused kit
-tool is not loaded, not painted, and costs nothing.
+1. **Grammar/recipe refactor** (§9) — smaller tool match; recipes become
+   inspectable, copyable structs. Prerequisite for everything.
+2. **`crates/atlas-kit`** — pure model, loader, resolver, `cargo xtask kits`.
+3. **Built-in toolbar as an embedded kit** — proves the format; no privileged
+   path.
+4. **Dynamic command tier + dock ownership changes** (§12) — kit tools reach
+   the palette, keyboard, and reference window.
+5. **Contract window + Create** — the loop, minus the agent.
+6. **Agent compilation + the routing rule** (§3) — the loop, complete.
+7. **Right-click entry points and inheritance** (§5) — the loop, fast.
+8. **`stamp` recipes** — symbol libraries, the profession-shaped payload.
+9. **Contract as a canvas portal** — after Phase 3.
 
-## 5. Recipe kinds
+Steps 1–3 commit to nothing: abandoned there, the core is simpler than it
+started.
 
-A recipe says what a completed gesture produces. Three kinds cover the space:
+## 12. Honest cost
 
-- **`shape`** — a scene node of an existing `NodeKind`, with a style block.
-  Serves every pen, marker, redline, dimension-line and shape variant.
-- **`stamp`** — a saved group of scene nodes, placed by the gesture, optionally
-  scaled to the drawn rect. Serves north arrows, scale bars, title blocks, door
-  and window symbols, logo lockups, annotation callouts.
-- **`portal`** — a portal node with a preset source and query. Serves preset
-  dashboards. Blocked on Phase 3; the format should reserve it now.
+1. **The command registry must become dynamic.** `Registry` holds
+   `&'static [CommandSpec]`, and `CommandSpec` is `Copy` with `&'static str`
+   fields throughout. Kit tools must be registered commands (Art. VII.1), so
+   the registry needs an owned runtime tier beside the static table. This is
+   the single largest change — and Wave 2's `atlas-mcp` needs it regardless.
+2. **`DockItem.id` is `&'static str`** and `DockIcon::Custom` takes a Rust `fn`
+   pointer; both need owned, data-driven forms. Icons: start with a named
+   built-in glyph library, then SVG path data through `vector-ink`, which costs
+   no new dependency since the SVG ceiling is already law.
+3. **Hotkey and id collision** between user tools needs a deterministic
+   resolution order and a visible conflict state in the Advanced window.
+   Namespace kit commands as `kit.<kit-id>.<tool-id>`.
+4. **Dock right-click** (§10), as a dedicated shared-chrome task.
+5. **The agent compiler** needs a schema strict enough to validate against and
+   a refusal path (§3). This is prompt-and-schema work, not model work.
 
-**`stamp` is the highest-value kind and should ship first.** It needs zero new
-grammar (`PlacePoint` and `DragRect` both exist), zero new node kinds, and it
-is what actually differentiates one profession's toolbar from another's. A
-firm's symbol library is a stamp kit.
+## 13. Constitutional position
 
-Stamps want text substitution (a title block with a sheet number). Bound it
-hard: **named field substitution into `Text` node content only, from a fixed
-vocabulary plus user-supplied literals — no expressions, no arithmetic, no
-conditionals.** `{{title}}` yes; `{{title | upper}}` no. That is the VII.7
-boundary, and it is worth stating in the format rather than discovering later.
-
-## 6. The file
-
-One extension, not two. A kit holds tools and, optionally, bar layouts; a kit
-with one tool and no bar *is* a single shared tool. Fewer registered
-extensions, fewer concepts, and sharing stays "send the file."
-
-Suggested `.slatekit`, TOML — matching the user-theme precedent
-(`atlas_shell::theme::user_theme_dir`), which is the closest existing thing to
-a hand-droppable user asset, and diffs legibly at import review.
-
-```toml
-format_version = 1
-id     = "arch-redline"
-name   = "Architect's redline"
-author = "hp"
-requires = { grammars = ["place_point", "freehand", "two_point"] }
-
-[[tool]]
-id      = "north-arrow"
-name    = "North arrow"
-grammar = "place_point"
-icon    = "compass"
-key     = "Alt+N"
-aliases = ["north", "compass"]
-sticky  = false
-recipe  = { kind = "stamp", nodes = "stamps/north-arrow.nodes.json" }
-
-[[tool]]
-id      = "redline"
-name    = "Redline pen"
-grammar = "freehand"
-icon    = "pen"
-key     = "Alt+R"
-sticky  = true
-snap    = { grid = false, ortho = false }
-[tool.recipe]
-kind         = "shape"
-node         = "path"
-stroke       = { color = "#e8443a", width = 2.0, cap = "round", join = "round", profile = "taper" }
-create_style = "pinned"     # D16: ignore last-used style, always redline red
-
-[[bar]]
-id    = "redline"
-name  = "Redline"
-items = ["north-arrow", "redline", "core:text"]
-```
-
-Bars reference tools by id, including tools from other kits (`core:text`). A
-tool may appear in several bars; a personal "favourites" bar can draw from five
-installed kits. Bars are layout; tools are content; keep them separable or you
-get duplication immediately.
-
-Asset paths inside a kit are **relative locators** (Art. IX.2), resolved
-against the kit file, so a kit folder can be zipped and mailed.
-
-## 7. Where kits live, and what happens when one is missing
-
-Three scopes, all legitimate, and the proposal as stated only named the second:
-
-| Scope | Meaning | Stored in |
-|---|---|---|
-| **User** | "I always want my kit, everywhere" | `data_dir()/kits/` — same pattern as `themes/` |
-| **Workbook** | "this competition board uses these tools" | a `kits: Vec<KitLink>` field on `SlateDoc` |
-| **Session** | "let me try this without committing" | nothing on disk |
-
-Workbook kits are **links, not copies** (Art. IX.1), stored relative-first
-(IX.2), with tri-state health (IX.3): `Ok` / `Missing` / `Unknown`. `package`
-copies kits beside the workbook and records their origin (IX.4).
-
-**The load-bearing rule, and the one that makes the whole scheme safe:**
-
-> A kit tool produces only ordinary scene nodes. A missing kit costs you the
-> ability to make more of them; it costs the document nothing.
-
-No custom node kinds, ever. A `.slate` file must never become unopenable, or
-partially unrenderable, because a third-party file is absent. A missing kit
-greys its bar entries and says so. This is a stronger guarantee than a plugin
-system can normally make, and it comes free from the data-not-code boundary.
-
-Version tolerance follows `ViewKind::Unknown` rather than
-`SlateDoc::load_from`: an unknown *grammar* marks that one tool `Unsupported`
-and the rest of the kit still loads. Whole-file rejection is right for a
-document and wrong for a toolbar.
-
-## 8. What a kit may not do
-
-The non-goals are the specification. A kit may not:
-
-1. define a new gesture grammar (needs an interpreter → VII.4);
-2. contain control flow, expressions, or arithmetic (VII.7);
-3. define a new `NodeKind` or a new style property (Art. IV — a style property
-   lands in both interpreters or neither, and a kit cannot teach
-   `slate-artifact` anything);
-4. mutate a document outside the journal (structurally impossible: its only
-   output is a node stamp committed through `SceneCmd`);
-5. run at load time, or do anything at all without a human gesture;
-6. touch the network, or the filesystem outside its declared relative assets.
-
-A kit is inert until a human arms one of its tools.
-
-**Provenance.** Data-not-code makes the blast radius small but not zero: a
-shared kit binds hotkeys and, once portals land, source queries. A portal
-recipe pointing at `~/` is a privacy leak, not a code exploit. Import should
-show the kit's origin and its bindings, leave portal source bindings for the
-user to re-point rather than trusting them, and never fetch anything.
-
-## 9. The contract becomes machine-checkable
-
-This is the part that pays off most for the stated motivation ("create tools
-quickly, see if they work, iterate").
-
-The tool-contract skill already makes you answer 17 dimensions before building.
-Sorted by who can answer them:
-
-| Answered by | Dimensions |
-|---|---|
-| **Kit data** | D01 initiation, D02 stickiness, D05 modifiers (from a fixed effect vocabulary), D06 snapping defaults, D08 which parameters accept typed entry, D09 readout fields, D10 cursor, D16 create-style |
-| **The grammar** | D03 gesture grammar, D04 click-vs-drag, D07 direction locks, D11 commit, D12 cancel |
-| **The node kind** | D13 selected presentation, D14 post-edit grips, D17 hit-test and pick |
-| **Prose only** | D15 non-goals |
-
-So the kit file *is* the behavior matrix, in machine form. Two consequences:
-
-- `cargo xtask contracts` can validate kits the way it validates markdown
-  today — every referenced grammar and icon exists, every kit tool has a
-  contract row, no duplicate hotkeys.
-- The skill's step 7 ("implement") collapses to "write the kit" whenever an
-  existing grammar fits, and escalates to Rust only when it does not. That is
-  the difference between a tool idea costing a compile cycle and costing a
-  sentence.
-
-Golden-path testing gets cheap too: the grammar is tested once, so a kit tool's
-test is a snapshot of the nodes it produces at a given input.
-
-## 10. Why this is the right axis for different professions
-
-The proposal's premise is that architects, engineers and designers need
-different tools. True, but the useful version is sharper. All three want lines,
-rectangles, curves and text. What differs is **where precision comes from**:
-
-| | Precision comes from | Consequences for the tool |
-|---|---|---|
-| **Architect** (Rhino, AutoCAD, Revit) | **typed magnitude** — the mouse sets direction, the keyboard sets distance | sticky modal commands, Enter/Space repeats, ortho and object snaps as persistent *world* state rather than per-tool options, real-world units and drawing scale, layers as discipline codes, annotation-heavy output |
-| **Engineer, mechanical** (SolidWorks, Grasshopper) | **relationships that survive editing** — constraints drive geometry, dimensions are inputs not readouts | under-constrained is a first-class UI state; the *definition* is the artifact and geometry is its output; history-based edit |
-| **Engineer, software** | **extraction** — the source is text or a graph, the layout is computed | deterministic, diffable, regenerated rather than drawn |
-| **Designer** (Illustrator, Figma) | **the trained eye**, assisted | nudge and align rather than type; named shared styles and components as reusable objects; pathfinder booleans, masks, blend modes; artboards as pages |
-
-Now read that against what a kit can carry:
-
-- Typed magnitude is a **grammar** (`TwoPoint` already implements it — the Line
-  tool's typed length and Tab direction lock are the architect's grammar,
-  already shipped and already contracted). Kits reuse it freely. ✅
-- Units, scale, snap defaults, readout vocabulary, style sources, symbol
-  libraries: **all data**. ✅
-- Extraction is **portals** — already the plan, already Phase 3. ✅
-- Constraints are **core work, not data**. A solver cannot be a declarative
-  asset. `docs/keymap/specs/constraints.md` already speaks to this. ❌
-
-So kits serve the architect and the designer almost completely, serve the
-software engineer through portals, and serve the mechanical engineer only
-partially. Worth saying plainly rather than promising everything: **the
-constraint intuition is the one profession-shaped hole kits cannot fill.**
-
-The resolution of the stated anxiety follows directly: you no longer need any
-*tool* to be universal. You need the **grammars** to be universal — nine of
-them, each one a real interaction contract worth getting right — and every tool
-above that line is allowed to be parochial, personal, or wrong.
-
-## 11. Constitutional position
-
-Nothing here needs the VII.4 script amendment, because nothing here is
-interpreted. One clarifying amendment is worth ratifying, because VII.3's list
-of permitted declarative assets is the clause the whole scheme stands on and it
-does not currently name tools:
+Nothing in the loop is interpreted, so nothing here needs the Article VII.4
+script amendment. One clarification is worth ratifying, because VII.3's list of
+permitted declarative assets is the clause the whole design stands on and it
+does not name tools:
 
 > **Draft amendment — Article VII.3.** Agents extend the user's workspace with
 > **data, not code**: brushes, palettes, dashboards, templates, **and tools**
@@ -337,80 +353,34 @@ does not currently name tools:
 > result recipe and a presentation; it may not define gesture grammars, node
 > kinds, or style properties.**
 
-The second sentence is the load-bearing one: it writes §4 and §8 into law, so
-that the next agent asked for "just a small script hook in a kit" is refused by
+The second sentence is load-bearing: it writes the routing rule of §3 into law,
+so that the next request for "just a small script hook in a kit" is refused by
 an article rather than by taste.
 
-Other articles: **III** relocates rather than relaxes (§4). **IV** is protected
-by non-goal 3. **VI** holds because a kit's only output path is `SceneCmd`.
-**IX** governs kit links and packaging (§7). **X** is satisfied by putting the
-kit model in a pure crate and the bar rendering in `atlas-shell`, so File Atlas
-inherits the capability and simply ships no kits today — see §12.
+Elsewhere: **III** relocates rather than relaxes (§9). **IV** is protected by
+the non-goals and by §4's serialization rule. **VI** holds because a kit's only
+output path is `SceneCmd`, and §10 keeps authorship straight. **VII.6** is
+satisfied by staging. **IX.4**'s fork-and-name-your-origin rule is reused
+verbatim for inheritance (§5). **X** is satisfied by putting the kit model in a
+pure crate and all rendering in `atlas-shell`, so File Atlas inherits the
+capability and simply ships no kits today.
 
-## 12. Honest cost
+## 14. Open questions
 
-Not free. The invasive parts, in descending order:
-
-1. **The command registry must become dynamic.** `Registry` holds
-   `&'static [CommandSpec]`, and `CommandSpec` is `Copy` with `&'static str`
-   fields throughout. Kit tools must be registered commands (Art. VII.1), so
-   the registry needs an owned runtime tier alongside the static table. This is
-   the largest single change — and it is needed for Wave 2's `atlas-mcp` and
-   for agent-authored assets regardless, so kits are not paying for it alone.
-2. **`DockItem.id` is `&'static str`** and `DockIcon::Custom` takes a Rust
-   `fn` pointer. Both must accept owned/data-driven forms. Icons: start with a
-   named built-in glyph library; SVG path data rendered through `vector-ink` is
-   the natural second step and costs no new dependency, since the SVG ceiling
-   is already law.
-3. **Hotkey and id collision.** Two kits binding `W` needs a deterministic
-   resolution order and a visible conflict state in the Advanced window. Kit
-   command ids need namespacing: `kit.<kit-id>.<tool-id>`.
-4. **The grammar/recipe refactor** in `board.rs` (§4).
-5. **`SlateDoc` gains `kits`**, which is a `format_version` bump and a fixture
-   test. Note it inherits the existing gap that doc-level (non-scene) state has
-   no journal; kit attachment should become journaled when that lands.
-
-Two further recommendations that cost little and derisk a lot:
-
-- **Ship the built-in toolbar as a kit.** Compile the default kit in with
-  `include_str!`, the way `ui-tokens.toml` is embedded. It guarantees the
-  format is expressive enough by construction, guarantees no privileged path
-  that user kits cannot reach, and gives the loader its first real test.
-- **Add capture-as-tool before any kit editor UI.** "Save this brush as a
-  tool" and "save selection as a stamp" write a kit entry from live state. Two
-  commands, no editor, and they deliver most of the authoring value — you get
-  a tool by making the thing once and naming it.
-
-## 13. Sequencing
-
-| Step | Depends on | Delivers |
-|---|---|---|
-| 1. Grammar/recipe refactor in `board.rs` | nothing | a smaller tool match; recipes become inspectable structs |
-| 2. `crates/atlas-kit` — pure model, loader, resolver | 1 | a kit can be parsed and validated; `cargo xtask kits` |
-| 3. Built-in toolbar as an embedded kit | 2 | format proven; no privileged path |
-| 4. Dynamic command tier + dock ownership changes | 2 | kit tools reach the palette, keyboard, and reference window |
-| 5. User-scope kits from `data_dir()/kits/`, hot-reloaded | 4 | the fast personal-experiment loop |
-| 6. Capture-as-tool commands | 5 | authoring without an editor |
-| 7. Workbook-scope kit links + packaging | 5 | sharing; drag-and-drop onto a document |
-| 8. `stamp` recipes | 5 | symbol libraries — the profession-shaped payload |
-| 9. `portal` recipes | Phase 3 | preset dashboards |
-
-Steps 1–3 are useful on their own and commit to nothing: if kits are abandoned
-after step 3, the core is left simpler than it started.
-
-## 14. Open questions for the user
-
-1. **Scope precedence** — when a user kit and a workbook kit bind the same key,
-   which wins? (Recommendation: workbook wins, because it is the more specific
-   context, and the conflict is shown rather than silent.)
-2. **Does a kit dropped on a document attach to the workbook, or install for
-   the user?** The proposal says workbook; a modifier or a prompt could offer
-   both. Needs deciding before the drop handler is written.
-3. **One extension or two** (`.slatekit` holding both, versus separate tool and
-   bar files). Recommendation: one.
-4. **Does this wait for Amendment D?** Recommendation: no. Kits supply content;
-   Amendment D governs slots. Keeping bar layout deliberately thin — an ordered
-   list of tool ids with flyout grouping — means ratifying Amendment D later
-   subsumes it cleanly instead of colliding with it.
-5. **Should Atlas host kits?** Not on day one, but the model belongs in a pure
-   crate and the rendering in `atlas-shell` so that it can, without divergence.
+1. **What does Create do when the contract is not expressible?** §3 proposes
+   the button becomes *Propose* and writes a maintainer-facing document. The
+   alternative — refusing to let the user answer outside the vocabulary at
+   all — is simpler but teaches nothing and makes the registry of unmet needs
+   invisible.
+2. **Is a user's accepted contract row precedent for their next tool only, or
+   does it ever flow upstream?** §8 says local-only, silently never upward.
+   Anything else needs a review path.
+3. **Can a user edit a grammar's feel constants** (ortho angle, click-vs-drag
+   threshold) per tool, or are those global? Per-tool is more powerful and
+   makes two tools with the same grammar behave differently, which may be
+   confusing rather than flexible.
+4. **Does a shared tool bring its contract with it?** Recommendation: yes, both
+   files travel — the contract is the tool's documentation and its diff.
+5. **Should the contract window be modal?** It is a form that produces a file;
+   non-modal lets a user try the parent tool while editing the child's
+   contract, which is a genuinely useful thing to do.
