@@ -22,13 +22,14 @@
 //!   gesture start).
 
 use super::{
-    board_crop, board_handles, board_icons, board_path, board_snap, model3d, SlateApp, ThumbState,
+    board_crop, board_handles, board_icons, board_path, board_snap, kits, model3d, SlateApp,
+    ThumbState,
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
-    Corner, Crop, Dash, FontChoice, FrameNode, ImageAdjust, ImageNode, Node, NodeKind, PortalNode,
-    Rgba, SceneCmd, ShapeKind, ShapeNode, StrokeCap, StrokeJoin, TextAlign, TextNode, WidthProfile,
-    WorldRect, REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W,
+    Corner, Crop, Dash, FontChoice, ImageAdjust, ImageNode, Node, NodeKind, Rgba, SceneCmd,
+    ShapeKind, StrokeCap, StrokeJoin, TextAlign, TextNode, WidthProfile, WorldRect,
+    REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W,
 };
 use slate_doc::{ItemId, NodeId};
 use std::collections::BTreeMap;
@@ -123,6 +124,29 @@ pub enum BoardTool {
 }
 
 impl BoardTool {
+    /// Every tool, in declaration order. Kept beside [`BoardTool::grammar`],
+    /// whose exhaustive match is the compiler-enforced reason a new variant
+    /// cannot be added without being considered here too.
+    pub const ALL: [BoardTool; 17] = [
+        BoardTool::Select,
+        BoardTool::Pan,
+        BoardTool::Frame,
+        BoardTool::RectShape,
+        BoardTool::Ellipse,
+        BoardTool::Line,
+        BoardTool::Arc,
+        BoardTool::Polyline,
+        BoardTool::BezierSpan,
+        BoardTool::Pen,
+        BoardTool::Text,
+        BoardTool::Brush,
+        BoardTool::Eraser,
+        BoardTool::Eyedropper,
+        BoardTool::Sticky,
+        BoardTool::DirectSelect,
+        BoardTool::RepoLens,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             BoardTool::Select => "Select",
@@ -184,6 +208,44 @@ impl BoardTool {
             BoardTool::Sticky => "N",
             BoardTool::DirectSelect => "A",
             BoardTool::RepoLens => "",
+        }
+    }
+
+    /// The gesture grammar this tool is built on.
+    ///
+    /// One statement of the mapping, so "which tools share a gesture" is a fact
+    /// the compiler checks rather than a `matches!` repeated at each site. It is
+    /// also the join to `slate-kit`: a kit tool names one of these grammars, and
+    /// arming it reuses the very state machine a built-in tool uses.
+    pub fn grammar(self) -> slate_kit::Grammar {
+        use slate_kit::Grammar as G;
+        match self {
+            // Pan is the camera, not a result-producing tool; it borrows
+            // Select's grammar slot because a kit can never reference it.
+            BoardTool::Select | BoardTool::Pan => G::Select,
+            BoardTool::DirectSelect => G::DirectSelect,
+            BoardTool::Frame | BoardTool::RectShape | BoardTool::Ellipse | BoardTool::RepoLens => {
+                G::DragRect
+            }
+            BoardTool::Line => G::TwoPoint,
+            BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => G::MultiPoint,
+            BoardTool::Pen | BoardTool::Brush => G::Freehand,
+            BoardTool::Text | BoardTool::Sticky => G::PlacePoint,
+            BoardTool::Eraser => G::Sweep,
+            BoardTool::Eyedropper => G::Sample,
+        }
+    }
+
+    /// The built-in kit entry that holds this tool's result recipe, for the
+    /// tools whose results are already data. The rest still build their nodes
+    /// in code and move over as their recipes become expressible.
+    pub fn kit_id(self) -> Option<&'static str> {
+        match self {
+            BoardTool::Frame => Some("frame"),
+            BoardTool::RectShape => Some("rect"),
+            BoardTool::Ellipse => Some("ellipse"),
+            BoardTool::RepoLens => Some("portal-repo-lens"),
+            _ => None,
         }
     }
 
@@ -3306,7 +3368,13 @@ impl SlateApp {
                 Some(BoardDrag::BezierAnchor { press })
             }
             BoardTool::Polyline | BoardTool::Arc | BoardTool::Line => None,
-            tool => Some(BoardDrag::Draw {
+            // The DragRect family. Named rather than caught by a wildcard so a
+            // new tool cannot fall into a press-drag-release it never asked for;
+            // `kits::tests` checks this list against `BoardTool::grammar`.
+            tool @ (BoardTool::Frame
+            | BoardTool::RectShape
+            | BoardTool::Ellipse
+            | BoardTool::RepoLens) => Some(BoardDrag::Draw {
                 start_world: world,
                 tool,
             }),
@@ -3920,38 +3988,49 @@ impl SlateApp {
     /// Click-to-place default frame (Frame tool click, or the canvas
     /// palette placing at its invocation point).
     pub(crate) fn place_frame_at(&mut self, center: Pos2) {
+        // Frames alone take their click size from the app's frame preset rather
+        // than the recipe — the preset is a live UI choice, not a tool default.
         let (w, h) = self.board_frame_preset.size();
-        let rect = WorldRect::new(center.x - w * 0.5, center.y - h * 0.5, w, h);
-        let kind = NodeKind::Frame(FrameNode {
-            title: format!("Slide {}", self.doc().scene.next_frame_order() + 1),
-            order: self.doc().scene.next_frame_order(),
-            fill: Rgba::WHITE,
-            assignments: BTreeMap::new(),
-        });
-        let node = self.doc_mut().scene.build_node(rect, kind);
-        let ids = self.add_nodes(vec![node]);
-        self.board_sel = ids.into_iter().collect();
-        self.board_tool = BoardTool::Select;
-        self.push_history(
-            atlas_commands::CommandId("board.tool.frame"),
-            Some("placed".into()),
-        );
+        self.place_from_recipe(BoardTool::Frame, center, (w, h));
     }
 
     /// Click-to-place default Repository Lens portal (960×540, unbound).
     pub(crate) fn place_repo_lens_at(&mut self, center: Pos2) {
-        let w = REPO_PORTAL_DEFAULT_W;
-        let h = REPO_PORTAL_DEFAULT_H;
+        self.place_from_recipe(
+            BoardTool::RepoLens,
+            center,
+            (REPO_PORTAL_DEFAULT_W, REPO_PORTAL_DEFAULT_H),
+        );
+    }
+
+    /// Place a tool's recipe centred on a point, at the recipe's own default
+    /// size when it names one and `fallback` otherwise.
+    fn place_from_recipe(&mut self, tool: BoardTool, center: Pos2, fallback: (f32, f32)) {
+        let Some(recipe) = self.kits.recipe_for(tool).cloned() else {
+            self.board_tool = BoardTool::Select;
+            return;
+        };
+        let [w, h] = recipe.default_size().unwrap_or([fallback.0, fallback.1]);
         let rect = WorldRect::new(center.x - w * 0.5, center.y - h * 0.5, w, h);
-        let kind = NodeKind::Portal(PortalNode::unbound_repo_lens("Repository Lens"));
-        let node = self.doc_mut().scene.build_node(rect, kind);
-        let ids = self.add_nodes(vec![node]);
+        let ctx = kits::build_ctx(
+            to_rgba(self.palette().accent),
+            self.doc().scene.next_frame_order(),
+        );
+        let nodes: Vec<Node> = recipe
+            .instantiate(rect, &ctx)
+            .into_iter()
+            .map(|s| self.doc_mut().scene.build_node(s.rect, s.kind))
+            .collect();
+        if nodes.is_empty() {
+            self.board_tool = BoardTool::Select;
+            return;
+        }
+        let ids = self.add_nodes(nodes);
         self.board_sel = ids.into_iter().collect();
         self.board_tool = BoardTool::Select;
-        self.push_history(
-            atlas_commands::CommandId("board.portal.repo_lens"),
-            Some("placed".into()),
-        );
+        if let Some(id) = Self::draw_command_id(tool) {
+            self.push_history(atlas_commands::CommandId(id), Some("placed".into()));
+        }
     }
 
     /// Click-to-create text at a world point (Text tool click / palette).
@@ -3987,7 +4066,7 @@ impl SlateApp {
         );
     }
 
-    fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
+    pub(crate) fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
         let raw = WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
         let r = if tool == BoardTool::Frame && !mods.shift {
             self.frame_drag_rect(a, b)
@@ -4004,69 +4083,42 @@ impl SlateApp {
             self.board_tool = BoardTool::Select;
             return;
         }
-        let accent = {
-            let p = self.palette();
-            to_rgba(p.accent)
+        // What the gesture produces is the tool's recipe, read from the kit
+        // registry. Nothing here knows what a rectangle looks like.
+        let Some(recipe) = self.kits.recipe_for(tool).cloned() else {
+            self.board_tool = BoardTool::Select;
+            return;
         };
-        let kind = match tool {
-            BoardTool::Frame => NodeKind::Frame(FrameNode {
-                title: format!("Slide {}", self.doc().scene.next_frame_order() + 1),
-                order: self.doc().scene.next_frame_order(),
-                fill: Rgba::WHITE,
-                assignments: BTreeMap::new(),
-            }),
-            BoardTool::RepoLens => {
-                NodeKind::Portal(PortalNode::unbound_repo_lens("Repository Lens"))
-            }
-            BoardTool::RectShape => NodeKind::Shape(ShapeNode {
-                shape: ShapeKind::Rect,
-                fill: Some(Rgba([accent.0[0], accent.0[1], accent.0[2], 60])),
-                stroke: slate_doc::scene::Stroke {
-                    width: 2.0,
-                    color: accent,
-                    dash: Dash::Solid,
-                    cap: StrokeCap::Butt,
-                    join: StrokeJoin::Miter,
-                    profile: WidthProfile::Uniform,
-                },
-                corner: Corner::Square,
-                flip: false,
-                path: None,
-            }),
-            BoardTool::Ellipse => NodeKind::Shape(ShapeNode {
-                shape: ShapeKind::Ellipse,
-                fill: Some(Rgba([accent.0[0], accent.0[1], accent.0[2], 60])),
-                stroke: slate_doc::scene::Stroke {
-                    width: 2.0,
-                    color: accent,
-                    dash: Dash::Solid,
-                    cap: StrokeCap::Butt,
-                    join: StrokeJoin::Miter,
-                    profile: WidthProfile::Uniform,
-                },
-                corner: Corner::Square,
-                flip: false,
-                path: None,
-            }),
-            _ => {
-                self.board_tool = BoardTool::Select;
-                return;
-            }
-        };
-        let node = self.doc_mut().scene.build_node(r, kind);
-        let ids = self.add_nodes(vec![node]);
+        let ctx = kits::build_ctx(
+            to_rgba(self.palette().accent),
+            self.doc().scene.next_frame_order(),
+        );
+        let specs = recipe.instantiate(r, &ctx);
+        if specs.is_empty() {
+            self.board_tool = BoardTool::Select;
+            return;
+        }
+        let nodes: Vec<Node> = specs
+            .into_iter()
+            .map(|s| self.doc_mut().scene.build_node(s.rect, s.kind))
+            .collect();
+        let ids = self.add_nodes(nodes);
         self.board_sel = ids.into_iter().collect();
-        let tool_id = match tool {
-            BoardTool::Frame => "board.tool.frame",
-            BoardTool::RepoLens => "board.portal.repo_lens",
-            BoardTool::RectShape => "board.tool.rect",
-            BoardTool::Ellipse => "board.tool.ellipse",
-            _ => "",
-        };
-        if !tool_id.is_empty() {
-            self.push_history(atlas_commands::CommandId(tool_id), Some("drawn".into()));
+        if let Some(id) = Self::draw_command_id(tool) {
+            self.push_history(atlas_commands::CommandId(id), Some("drawn".into()));
         }
         self.board_tool = BoardTool::Select;
+    }
+
+    /// Journal entry a completed draw is recorded under.
+    fn draw_command_id(tool: BoardTool) -> Option<&'static str> {
+        match tool {
+            BoardTool::Frame => Some("board.tool.frame"),
+            BoardTool::RepoLens => Some("board.portal.repo_lens"),
+            BoardTool::RectShape => Some("board.tool.rect"),
+            BoardTool::Ellipse => Some("board.tool.ellipse"),
+            _ => None,
+        }
     }
 
     fn board_click(&mut self, world: Pos2, mods: egui::Modifiers) {

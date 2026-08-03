@@ -41,6 +41,7 @@ mod clipboard;
 pub mod commands;
 mod dispatch;
 pub mod imagefx;
+pub mod kits;
 pub mod lens;
 pub mod model3d;
 mod overlays;
@@ -257,6 +258,10 @@ pub struct SlateApp {
     /// Repository Lens portal runtime (derived extract/layout cache).
     pub portals: board_portal::PortalRuntime,
 
+    /// Board tool definitions: the built-in kit plus any in the user's kit
+    /// folder. Read once at startup — the board consults it per commit.
+    pub kits: kits::KitState,
+
     // ----- board (authored canvas) state -----
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
     pub board_sel: HashSet<NodeId>,
@@ -459,6 +464,7 @@ impl SlateApp {
             ai: atlas_ai::AiPanel::new(),
             lens: lens::LensState::default(),
             portals: board_portal::PortalRuntime::default(),
+            kits: kits::KitState::load(),
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
             board_nav_tool: board::BoardTool::Select,

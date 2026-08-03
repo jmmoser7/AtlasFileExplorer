@@ -7,6 +7,7 @@ members = [
     "crates/atlas-ai",
     "crates/atlas-commands",
     "crates/slate-doc",
+    "crates/slate-kit",
     "crates/slate-artifact",
     "crates/circle-pack",
     "crates/collage",
@@ -55,6 +56,7 @@ atlas-session = { path = "crates/atlas-session" }
 atlas-ai = { path = "crates/atlas-ai" }
 atlas-commands = { path = "crates/atlas-commands" }
 slate-doc = { path = "crates/slate-doc" }
+slate-kit = { path = "crates/slate-kit" }
 slate-artifact = { path = "crates/slate-artifact" }
 circle-pack = { path = "crates/circle-pack" }
 vector-ink = { path = "crates/vector-ink" }

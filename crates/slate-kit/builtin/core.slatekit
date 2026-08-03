@@ -1,0 +1,79 @@
+# Slate's own board tools, as data.
+#
+# This file is compiled into the build (`slate_kit::BUILTIN_KIT_TOML`) and read
+# through the same parser and resolver as anything in a user's kit folder. It
+# has no privileged fields. When it cannot express a shipped tool, the format
+# is wrong — not the tool.
+#
+# A user kit that reuses one of these ids shadows it, which is how editing a
+# built-in tool works without ever rewriting this file.
+
+format_version = 1
+id = "core"
+name = "Slate core"
+doc = "The board's default tools."
+
+# ---------------------------------------------------------------------------
+# The DragRect family: one grammar, four results. This is the whole argument
+# for keeping grammar and recipe apart — press-drag-release is identical in
+# all four, and only the recipe differs.
+# ---------------------------------------------------------------------------
+
+[[tool]]
+id = "frame"
+name = "Frame"
+grammar = "drag_rect"
+icon = "frame"
+doc = "A slide. Drag holds the frame preset's aspect; Shift draws freely."
+
+  [tool.recipe]
+  kind = "shape"
+  node = "frame"
+  # `{n}` is the 1-based slide number — a named substitution, not an
+  # expression. Click-to-place size comes from the app's frame preset, which
+  # is why this recipe names no `default_size`.
+  frame = { title = "Slide {n}", fill = "#ffffff" }
+
+[[tool]]
+id = "rect"
+name = "Rectangle"
+grammar = "drag_rect"
+icon = "rect"
+
+  [tool.recipe]
+  kind = "shape"
+  node = "rect"
+  fill = "accent@60"
+  stroke = { width = 2.0, color = "accent" }
+
+[[tool]]
+id = "ellipse"
+name = "Ellipse"
+grammar = "drag_rect"
+icon = "ellipse"
+
+  [tool.recipe]
+  kind = "shape"
+  node = "ellipse"
+  fill = "accent@60"
+  stroke = { width = 2.0, color = "accent" }
+
+[[tool]]
+id = "portal-repo-lens"
+name = "Repository Lens"
+grammar = "drag_rect"
+icon = "repo_lens"
+doc = "A generated portal onto a git repository's history."
+
+  [tool.recipe]
+  kind = "portal"
+  portal = "repo_lens"
+  title = "Repository Lens"
+  default_size = [960.0, 540.0]
+  # No `source`: a portal placed from the palette is unbound until the user
+  # chooses a repository. A kit that shipped a source would name a path that
+  # only exists on its author's machine (Art. IX.2).
+
+# The dock's own grouping stays in the app for now; a `[[bar]]` here would be a
+# second, competing description of the same rail. Kits gain bars once the dock
+# reads its layout from the registry.

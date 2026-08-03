@@ -1663,8 +1663,11 @@ impl AtlasApp {
             return;
         }
         let i = self.active_tab.min(self.tabs.len() - 1);
+        // Mid-flight, the live camera is an arbitrary point along the
+        // interpolation; where the user is actually headed is the destination.
+        let cam = self.anim.as_ref().map_or(self.cam, |a| a.to);
         if let Some(tab) = self.tabs.get_mut(i) {
-            tab.cam = Some(self.cam);
+            tab.cam = Some(cam);
             if self.scan_seeds.is_empty() {
                 if let Some(r) = &self.root {
                     tab.set_folders(vec![r.clone()]);
@@ -1746,7 +1749,9 @@ impl AtlasApp {
             alive_count: self.alive_count,
             any_filter: self.any_filter,
             structure_only: self.structure_only,
-            cam: self.cam,
+            // `remember_active_tab_meta` above already resolved this tab's
+            // camera; read it back so the two stores cannot disagree.
+            cam: self.tabs[i].cam.unwrap_or(self.cam),
         };
 
         // Clear interaction leftovers that reference entry ids.
@@ -1811,6 +1816,11 @@ impl AtlasApp {
         self.pending_cam = None;
         self.tree_dirty = false;
         self.filter_dirty = true;
+        // The camera-follow baseline belongs to the tab that was on screen, not
+        // to this one: leaving it in place makes the restored tab's own framing
+        // read as a filter change and flies away from the position just
+        // restored. Dropping it re-seeds from this tab on the next recompute.
+        self.auto_zoom_last = None;
         // Advance past the parked generation so any late results still
         // tagged with it (from the cancel at park time) are dropped; the
         // quiet refresh below tags work with this new epoch.
@@ -3285,6 +3295,18 @@ impl AtlasApp {
         bounds
     }
 
+    /// What *Zoom to matches* frames right now: the filter's survivors, or the
+    /// whole map when no filter is narrowing anything. `None` when there is
+    /// nothing to frame.
+    fn framed_bounds(&self) -> Option<Rect> {
+        match &self.tree {
+            Some(t) if self.any_filter => self.match_bounds(t),
+            // No filter: everything matches, so the honest frame is the map.
+            Some(t) => Some(self.map_bounds(t)),
+            None => None,
+        }
+    }
+
     /// Camera follow (Filters → *Zoom to matches*, on by default): frame what
     /// survived the filter, and the whole map again once the filter is cleared.
     ///
@@ -3296,20 +3318,39 @@ impl AtlasApp {
         if !self.auto_zoom_matches || self.canvas_rect.width() < 1.0 {
             return;
         }
-        let bounds = match &self.tree {
-            Some(t) if self.any_filter => self.match_bounds(t),
-            // No filter: everything matches, so the honest frame is the map.
-            Some(t) => Some(self.map_bounds(t)),
-            None => None,
-        };
         // Nothing matched: hold position instead of flying to an empty point.
-        let Some(bounds) = bounds else { return };
-        if self
-            .auto_zoom_last
-            .is_some_and(|last| rect_settled(last, bounds))
-        {
+        let Some(bounds) = self.framed_bounds() else {
+            return;
+        };
+        let Some(last) = self.auto_zoom_last else {
+            // No baseline yet: a folder just loaded, or a tab was just
+            // restored. The camera there was placed deliberately — the home
+            // view, or the position the tab remembered — so adopt this framing
+            // as the baseline instead of flying away from it. Only a genuine
+            // later change is an edge worth following.
+            self.auto_zoom_last = Some(bounds);
+            return;
+        };
+        if rect_settled(last, bounds) {
             return;
         }
+        self.auto_zoom_last = Some(bounds);
+        let cam = self.cam_for_bounds(bounds, 1.2);
+        self.fly_to(cam);
+    }
+
+    /// Frame the filter's current survivors immediately, which is what turning
+    /// *Zoom to matches* on asks for — the steady-state follow only reacts to
+    /// changes, so the switch has to spend its own fly.
+    pub(crate) fn refit_matches_now(&mut self) {
+        self.auto_zoom_last = None;
+        self.filter_dirty = true;
+        if !self.auto_zoom_matches || self.canvas_rect.width() < 1.0 {
+            return;
+        }
+        let Some(bounds) = self.framed_bounds() else {
+            return;
+        };
         self.auto_zoom_last = Some(bounds);
         let cam = self.cam_for_bounds(bounds, 1.2);
         self.fly_to(cam);
@@ -4500,6 +4541,12 @@ impl AtlasApp {
 
     fn apply_view_cmd(&mut self, cmd: ViewCmd) {
         let Some(t) = &self.tree else { return };
+        // Fit and Home place the camera outright. Any flight still in progress
+        // would keep interpolating from its own endpoints on the next frame and
+        // silently undo that placement.
+        if !matches!(cmd, ViewCmd::FlyToBounds(_)) {
+            self.anim = None;
+        }
         match cmd {
             ViewCmd::Fit => {
                 self.cam = self.cam_for_bounds(self.map_bounds(t), 1.2);
@@ -6861,8 +6908,11 @@ fn rect_settled(a: Rect, b: Rect) -> bool {
 ///
 /// Design: Anton Mikhailov; GLSL fit: Ruofei Du — Apache-2.0
 /// <https://research.google/blog/turbo-an-improved-rainbow-colormap-for-visualization/>
+///
+/// The published coefficients carry more decimals than `f32` can hold, so the
+/// polynomial is evaluated in `f64` and narrowed once at the end.
 fn folder_heat_color(t: f32) -> Color32 {
-    let x = t.clamp(0.0, 1.0);
+    let x = f64::from(t.clamp(0.0, 1.0));
     let x2 = x * x;
     let x3 = x2 * x;
     let x4 = x2 * x2;
@@ -6962,7 +7012,7 @@ fn ellipsize_to_width(painter: &egui::Painter, text: &str, font: &FontId, max_w:
     let mut lo = 0usize;
     let mut hi = chars.len();
     while lo < hi {
-        let mid = (lo + hi + 1) / 2;
+        let mid = (lo + hi).div_ceil(2);
         let candidate: String = chars[..mid].iter().collect();
         let w = text_width(painter, &format!("{candidate}{ELLIPSIS}"), font);
         if w <= max_w {

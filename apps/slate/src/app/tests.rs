@@ -31,7 +31,10 @@ impl Harness {
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         let ctx = egui::Context::default();
-        let app = SlateApp::with_ctx(&ctx, None);
+        let mut app = SlateApp::with_ctx(&ctx, None);
+        // Tool kits come from the built-in set only: a `.slatekit` file sitting
+        // in the developer's own kit folder must not change a test result.
+        app.kits = kits::KitState::builtin_only();
         Harness { ctx, app, base }
     }
 
@@ -1193,5 +1196,235 @@ fn line_pick_stroke_not_bbox() {
         board_path::board_pick_node(scene, 50.0, 10.0, 1.0).is_none(),
         "interior bbox point off the diagonal must not select"
     );
+    h.frame();
+}
+
+// ---------- tool kits: the result of a gesture comes from data ----------
+
+fn kit_board(tag: &str, tool: board::BoardTool) -> Harness {
+    let mut h = Harness::new(tag);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.set_board_tool(tool);
+    h
+}
+
+fn drag(h: &mut Harness, tool: board::BoardTool, a: Pos2, b: Pos2) {
+    h.app.finish_draw(a, b, tool, egui::Modifiers::default());
+}
+
+/// The rectangle tool's fill and stroke come from `core.slatekit`, resolved
+/// against the live palette — the same shape the constants in `finish_draw`
+/// used to build.
+#[test]
+fn a_drawn_rectangle_takes_its_style_from_the_kit_recipe() {
+    let mut h = kit_board("kit_rect", board::BoardTool::RectShape);
+    let accent = board::to_rgba(h.app.palette().accent);
+    drag(
+        &mut h,
+        board::BoardTool::RectShape,
+        Pos2::new(0.0, 0.0),
+        Pos2::new(200.0, 120.0),
+    );
+
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let NodeKind::Shape(s) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected a shape node");
+    };
+    assert_eq!(s.shape, slate_doc::scene::ShapeKind::Rect);
+    let [r, g, b, _] = accent.0;
+    assert_eq!(s.fill, Some(slate_doc::scene::Rgba([r, g, b, 60])));
+    assert_eq!(s.stroke.width, 2.0);
+    assert_eq!(s.stroke.color, accent);
+    assert_eq!(s.corner, slate_doc::scene::Corner::Square);
+    assert_eq!(h.app.board_tool, board::BoardTool::Select, "one-shot");
+    h.frame();
+}
+
+/// A user kit that reuses a built-in tool's id replaces what that tool
+/// produces — no rebuild, no change to the shipped kit. This is the whole
+/// point of the split.
+#[test]
+fn a_user_kit_overrides_what_a_builtin_tool_produces() {
+    let mut h = kit_board("kit_override", board::BoardTool::RectShape);
+    let dir = h.base.join("tools");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("mine.slatekit"),
+        r##"
+        format_version = 1
+        id = "mine"
+        name = "Mine"
+
+        [[tool]]
+        id = "rect"
+        name = "Rounded rectangle"
+        grammar = "drag_rect"
+
+          [tool.recipe]
+          kind = "shape"
+          node = "rect"
+          fill = "#123456"
+          corner = { rounded = { radius = 12.0 } }
+          stroke = { width = 4.0, color = "#e8443a", join = "round" }
+        "##,
+    )
+    .unwrap();
+    h.app.kits = kits::KitState::load_from(Some(&dir), &[]);
+    assert_eq!(h.app.kits.errors().count(), 0);
+
+    drag(
+        &mut h,
+        board::BoardTool::RectShape,
+        Pos2::new(0.0, 0.0),
+        Pos2::new(200.0, 120.0),
+    );
+
+    let NodeKind::Shape(s) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected a shape node");
+    };
+    assert_eq!(
+        s.fill,
+        Some(slate_doc::scene::Rgba([0x12, 0x34, 0x56, 255]))
+    );
+    assert_eq!(s.stroke.width, 4.0);
+    assert_eq!(
+        s.stroke.color,
+        slate_doc::scene::Rgba([0xe8, 0x44, 0x3a, 255])
+    );
+    assert_eq!(s.stroke.join, slate_doc::scene::StrokeJoin::Round);
+    assert_eq!(s.corner, slate_doc::scene::Corner::Rounded { radius: 12.0 });
+
+    // Tools the user did not override are untouched.
+    drag(
+        &mut h,
+        board::BoardTool::Ellipse,
+        Pos2::new(0.0, 300.0),
+        Pos2::new(100.0, 400.0),
+    );
+    let NodeKind::Shape(e) = &h.app.doc().scene.nodes[1].kind else {
+        panic!("expected a shape node");
+    };
+    assert_eq!(e.shape, slate_doc::scene::ShapeKind::Ellipse);
+    assert_eq!(e.stroke.width, 2.0);
+    h.frame();
+}
+
+/// A kit whose grammar this build does not implement costs that one tool and
+/// leaves the built-in it tried to shadow in place.
+#[test]
+fn a_kit_tool_with_an_unknown_grammar_leaves_the_builtin_working() {
+    let mut h = kit_board("kit_unknown", board::BoardTool::RectShape);
+    let dir = h.base.join("tools");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("future.slatekit"),
+        r##"
+        format_version = 1
+        id = "future"
+        name = "From a later build"
+
+        [[tool]]
+        id = "rect"
+        name = "Constrained rectangle"
+        grammar = "constraint_solve"
+        recipe = { kind = "shape", node = "rect", fill = "#123456" }
+        "##,
+    )
+    .unwrap();
+    h.app.kits = kits::KitState::load_from(Some(&dir), &[]);
+    assert_eq!(h.app.kits.errors().count(), 1, "reported, not fatal");
+
+    drag(
+        &mut h,
+        board::BoardTool::RectShape,
+        Pos2::new(0.0, 0.0),
+        Pos2::new(200.0, 120.0),
+    );
+    let NodeKind::Shape(s) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected a shape node");
+    };
+    let accent = board::to_rgba(h.app.palette().accent);
+    assert_eq!(s.stroke.color, accent, "the built-in rect still applies");
+    h.frame();
+}
+
+/// Placing frames claims consecutive slide orders and numbers their titles
+/// from the recipe's `{n}` substitution.
+#[test]
+fn placed_frames_claim_consecutive_slide_orders() {
+    let mut h = kit_board("kit_frame", board::BoardTool::Frame);
+    h.app.place_frame_at(Pos2::new(0.0, 0.0));
+    h.app.place_frame_at(Pos2::new(2000.0, 0.0));
+
+    let frames: Vec<(u32, String)> = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .filter_map(|n| match &n.kind {
+            NodeKind::Frame(f) => Some((f.order, f.title.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        frames,
+        vec![(0, "Slide 1".to_string()), (1, "Slide 2".to_string())]
+    );
+    // The frame preset, not the recipe, sizes a click-placed frame.
+    let (w, h_) = h.app.board_frame_preset.size();
+    assert_eq!(
+        (
+            h.app.doc().scene.nodes[0].rect.w,
+            h.app.doc().scene.nodes[0].rect.h
+        ),
+        (w, h_)
+    );
+    h.frame();
+}
+
+/// A click-placed Repository Lens portal takes the recipe's default size and
+/// stays unbound — a kit must not ship a path from its author's machine.
+#[test]
+fn a_placed_repository_lens_portal_is_unbound_at_the_recipe_size() {
+    let mut h = kit_board("kit_portal", board::BoardTool::RepoLens);
+    h.app.place_repo_lens_at(Pos2::new(0.0, 0.0));
+
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let node = &h.app.doc().scene.nodes[0];
+    let NodeKind::Portal(p) = &node.kind else {
+        panic!("expected a portal node");
+    };
+    assert_eq!(p.class, slate_doc::scene::PortalClass::Generated);
+    assert_eq!(p.kind, slate_doc::scene::PortalKind::RepoLens);
+    assert!(p.source.is_none(), "unbound until the user chooses a repo");
+    assert_eq!(p.query, slate_doc::scene::RepoPortalQuery::default());
+    assert_eq!(
+        (node.rect.w, node.rect.h),
+        (
+            slate_doc::scene::REPO_PORTAL_DEFAULT_W,
+            slate_doc::scene::REPO_PORTAL_DEFAULT_H
+        )
+    );
+    h.frame();
+}
+
+/// One completed draw is one undo step, and undo removes the node.
+#[test]
+fn a_recipe_driven_draw_is_a_single_undo_step() {
+    let mut h = kit_board("kit_undo", board::BoardTool::Ellipse);
+    drag(
+        &mut h,
+        board::BoardTool::Ellipse,
+        Pos2::new(0.0, 0.0),
+        Pos2::new(80.0, 80.0),
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty(), "one gesture, one undo");
+    h.app.board_redo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
     h.frame();
 }

@@ -4228,6 +4228,7 @@ dependencies = [
  "serde_json",
  "slate-artifact",
  "slate-doc",
+ "slate-kit",
  "vector-ink",
  "winresource",
 ]
@@ -4246,6 +4247,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "slate-kit"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "slate-doc",
+ "toml 0.8.23",
 ]
 
 [[package]]
@@ -5708,6 +5719,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "slate-kit",
  "syn",
  "toml 0.8.23",
 ]
