@@ -6908,8 +6908,11 @@ fn rect_settled(a: Rect, b: Rect) -> bool {
 ///
 /// Design: Anton Mikhailov; GLSL fit: Ruofei Du — Apache-2.0
 /// <https://research.google/blog/turbo-an-improved-rainbow-colormap-for-visualization/>
+///
+/// The published coefficients carry more decimals than `f32` can hold, so the
+/// polynomial is evaluated in `f64` and narrowed once at the end.
 fn folder_heat_color(t: f32) -> Color32 {
-    let x = t.clamp(0.0, 1.0);
+    let x = f64::from(t.clamp(0.0, 1.0));
     let x2 = x * x;
     let x3 = x2 * x;
     let x4 = x2 * x2;
@@ -7009,7 +7012,7 @@ fn ellipsize_to_width(painter: &egui::Painter, text: &str, font: &FontId, max_w:
     let mut lo = 0usize;
     let mut hi = chars.len();
     while lo < hi {
-        let mid = (lo + hi + 1) / 2;
+        let mid = (lo + hi).div_ceil(2);
         let candidate: String = chars[..mid].iter().collect();
         let w = text_width(painter, &format!("{candidate}{ELLIPSIS}"), font);
         if w <= max_w {
