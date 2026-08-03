@@ -4,6 +4,10 @@
 not amended by this document; §13 drafts the one clause that would need
 ratifying, for the user to accept or reject.
 
+Written against `5a9ea0b` (dock UX, condensed palette, timeline/heat, portal
+groundwork). That commit moved four things this proposal depends on, and §15
+lists them; the body already reflects them.
+
 ---
 
 ## 1. The thesis
@@ -20,14 +24,23 @@ decision below is judged by whether it keeps the loop honest and fast.
 
 Two properties make this more than a macro recorder:
 
-- **The entry point pre-constrains the answer.** Right-clicking the *Curve*
-  group means the gesture grammar is already decided, so the contract opens
-  with most of its rows answered and the result is nearly always something the
-  core can actually build. You are not filling in a blank form; you are
-  editing a working tool's description.
+- **The entry point pre-constrains the answer.** The dock now carries six
+  groups — Frame, Portals, Shapes, Text, Object properties, Document
+  settings — and right-clicking one of the first three decides the gesture
+  grammar before the form opens. The contract arrives with most rows answered
+  and the result is nearly always something the core can actually build. You
+  are not filling in a blank form; you are editing a working tool's
+  description.
 - **Every Create produces something honest.** Either a live tool, or a
   well-formed request for a capability the core does not have — never a broken
   tool and never a lie. §3 is how.
+
+The value is sharpest read against the loop that exists today. `docs/dev-loop.md`
+is explicit that the new `bacon` workflow is "auto rebuild + relaunch, not
+in-process hot-patching," that each save "kills the previous run" so board state
+is lost, and that "board-tool feel constants still require a rebuild." Changing
+a tool today costs a compile and your place on the canvas. Changing a kit tool
+costs a file write.
 
 ---
 
@@ -189,27 +202,30 @@ database. The skill's source vocabulary already distinguishes `precedent` from
 
 The loop cannot pre-fill a contract from an existing tool, or compile one into
 data, unless tools are made of parts that can be copied and written down. Today
-they are not: `BoardTool` is a seventeen-variant enum in the app crate, and the
-defaults are hardcoded inline. From `finish_draw` in `board.rs`:
+they are not: `BoardTool` is an **eighteen**-variant enum in the app crate, and
+the defaults are hardcoded inline.
 
-```rust
-BoardTool::RectShape => NodeKind::Shape(ShapeNode {
-    shape: ShapeKind::Rect,
-    fill: Some(Rgba([accent.0[0], accent.0[1], accent.0[2], 60])),
-    stroke: Stroke { width: 2.0, color: accent, /* … */ },
-    corner: Corner::Square, flip: false, path: None,
-}),
-BoardTool::Ellipse => NodeKind::Shape(ShapeNode {
-    shape: ShapeKind::Ellipse,
-    fill: Some(Rgba([accent.0[0], accent.0[1], accent.0[2], 60])),
-    stroke: Stroke { width: 2.0, color: accent, /* … */ },
-    corner: Corner::Square, flip: false, path: None,
-}),
-```
+The Repository Lens portal, added in `5a9ea0b`, is the cleanest possible
+demonstration — and it is dated evidence rather than an argument. It is a
+genuinely new node kind, and it reused an existing gesture **unchanged**:
 
-Two arms, identical but for one enum field, sharing one press-drag-release
-gesture. There is nothing here to inherit *from* — "inherit the Rect tool's
-attributes" would mean transcribing a match arm by hand, seventeen times.
+- Its contract declares `Inherits: … P2.DragShape` — the same archetype as
+  Frame, Rect, and Ellipse.
+- In `end_gesture` it falls through to the `BoardDrag::Draw` catch-all, then
+  takes a click-to-place default exactly the way Frame does:
+  `else if tool == BoardTool::RepoLens && !moved { self.place_repo_lens_at(…) }`.
+- Its only real novelty is *what the completed gesture produces*
+  (`PortalNode::unbound_repo_lens`) and its presentation.
+
+And it cost **eighteen edit sites across five files** — `board.rs`,
+`board_portal.rs`, `board_icons.rs`, `dispatch.rs`, `ui/tools.rs` — plus an
+enum variant and arms in `label()`, `tool_icon()`, and `hotkey()`. A tool whose
+grammar already existed still paid the full structural tax.
+
+The same fusion shows in `finish_draw`, where the Rect and Ellipse arms are
+identical but for one enum field and a block of style constants. There is
+nothing here to inherit *from*: "inherit the Rect tool's attributes" would mean
+transcribing a match arm by hand, eighteen times over.
 
 So the enabling refactor is to split what is currently fused:
 
@@ -220,19 +236,34 @@ tool = grammar (code, closed, 9 members)
      × availability (data: view / facet / selection)
 ```
 
-Nine grammars cover all seventeen of today's tools: `Select`, `DirectSelect`,
-`DragRect` (Frame, Rect, Ellipse), `TwoPoint` (Line — click-move-click or drag,
-direction lock, typed length), `MultiPoint` (Polyline, Arc, Bezier),
-`Freehand` (Pen, Brush), `PlacePoint` (Text, Sticky), `Sweep` (Eraser), and
-`Sample` (Eyedropper). `Pan` is a camera mode, not a creation grammar.
+Nine grammars cover all eighteen of today's tools: `Select`, `DirectSelect`,
+`DragRect` (Frame, Rect, Ellipse, **RepoLens**), `TwoPoint` (Line —
+click-move-click or drag, direction lock, typed length), `MultiPoint`
+(Polyline, Arc, Bezier), `Freehand` (Pen, Brush), `PlacePoint` (Text, Sticky),
+`Sweep` (Eraser), and `Sample` (Eyedropper). `Pan` is a camera mode, not a
+creation grammar. That an eighteenth tool arrived needing no tenth grammar is
+the load-bearing evidence for the split.
 
-Recipes come in three kinds: **`shape`** (a node of an existing kind with a
-style block), **`stamp`** (a saved group of nodes placed by the gesture — north
-arrows, scale bars, title blocks, door symbols; the highest-value kind and the
-one to ship first), and **`portal`** (a preset source and query; blocked on
-Phase 3, but reserve it in the format).
+Recipes come in three kinds:
 
-This refactor also collapses the tool match in `begin_gesture` from seventeen
+- **`shape`** — a node of an existing kind with a style block.
+- **`stamp`** — a saved group of nodes placed by the gesture: north arrows,
+  scale bars, title blocks, door symbols. The highest-value kind and the one to
+  ship first.
+- **`portal`** — **no longer speculative.** `NodeKind::Portal` landed in
+  `5a9ea0b` with `PortalNode { class, kind, title, source, query, fill }`, and
+  the authored half is exactly the shape a recipe wants: a `SourceUri` and a
+  `RepoPortalQuery { include_remotes, max_commits, axis }`, with extracted
+  contents derived and never stored. A portal recipe presets `source` and
+  `query`; five preset lenses on one repository become five kit entries.
+
+Two limits the new code makes precise. `PortalKind` is a **closed enum in
+`slate-doc`** (one variant, `RepoLens`), so a kit may preset an existing portal
+kind and never introduce a new one — a new kind is core work, in both
+interpreters. And `PortalClass` currently has only `Generated`, which matters
+for §11.
+
+This refactor also collapses the tool match in `begin_gesture` from eighteen
 arms to nine, in a 4,900-line file. It is worth doing on its own merits.
 
 **Article III is relocated, not repealed.** The 10% rule binds the grammar set
@@ -270,33 +301,50 @@ agent that wrote the tool. Article VI's author field is per-commit, so this
 falls out correctly as long as nobody is tempted to attribute node creation to
 the tool.
 
-**The dock.** Right-click does not exist on dock icons today —
-`floating_dock` returns `Option<&'static str>` for clicks and `DOCK.md`
-specifies only hover and click semantics for the Tool, Dashboard, and Action
-kinds. Adding a context menu is a shared-chrome change (Art. X: a dedicated
-task, not mixed into app work) and needs a line in `DOCK.md`. Group flyouts —
-Frame, Shapes, Curve, Colors — are hardcoded arrays in
-`apps/slate/src/app/ui/tools.rs` and become data under the kit format anyway.
+**The dock, and why right-click is the only gesture left.** `TOOLBARS.md` now
+spends the icon gesture budget precisely: hover shows a title chip, linger
+expands it to the description, **single click opens a volatile body**, **double
+click pins**, and the minimize glyph dismisses or unpins. Every primary gesture
+is spoken for.
+
+Secondary click is not. `floating_dock` still returns `Option<&'static str>`
+and has no `PointerButton::Secondary` path, so right-click is both free and the
+*only* thing free — which turns it from one option among several into the
+obvious one. Adding it is a shared-chrome change (Art. X: a dedicated task, not
+mixed into app work) and needs a line in `TOOLBARS.md`.
+
+The six groups are hardcoded arrays in `apps/slate/src/app/ui/tools.rs`, and
+they become data under the kit format anyway. Worth noting that
+`.cursor/rules/dock-chrome.mdc` still says a Tool or Dashboard "body preview
+opens on-icon while hovering," which contradicts `TOOLBARS.md`'s "Hover →
+title chip. No body." One of the two is stale; the rule file and the contract
+should agree before either is used to specify right-click behaviour.
 
 ## 11. Sequencing, and one risk worth naming
 
-The proposal puts the contract on the canvas as a portal. That is coherent
-under Article V and it is genuinely the *right* long-term home — a document
-portal over a contract file is arguably the cleanest possible pilot for Phase
-3's document-portal class, since it is small, structured, and self-contained.
+The proposal puts the contract on the canvas as a portal. That is coherent under
+Article V and it is genuinely the right long-term home. The dependency is now
+much narrower than it was a week ago, and worth stating exactly.
 
-But it front-loads two unbuilt things onto a feature whose value lives entirely
-in the loop: **portals are Phase 3**, and the control-surface model is
-**Amendment D, unratified and explicitly unplanned before ratification**.
-Making the contract interface a portal means the authoring loop cannot ship
-until both land.
+`NodeKind::Portal` **exists** as of `5a9ea0b`, with placement, journaled
+frame/source/query, async extraction, and focus/bake/refresh commands. So
+"portal" is no longer a Phase-3 abstraction. But the contract interface would be
+a **document** portal — the child file owns mutations (Art. V.3) — and
+`PortalClass` today has exactly one variant, `Generated`. A generated portal
+"owns no mutations" and regenerates deterministically, which is precisely what
+an editable form is not. So what the contract-as-portal actually needs is
+`PortalClass::Document` plus an editing path, not portals in general.
+
+The second dependency is unchanged: the control-surface model is **Amendment D,
+unratified and explicitly unplanned before ratification**. Making the contract
+interface a portal means the authoring loop waits on both.
 
 The loop does not need either. Recommended split:
 
 | | Ships as | Depends on |
 |---|---|---|
 | **The loop** | a floating window over the canvas, using existing chrome | the §9 refactor only |
-| **The presentation** | promoted to a canvas portal | Phase 3, Amendment D |
+| **The presentation** | promoted to a canvas portal | `PortalClass::Document`, Amendment D |
 
 Same rows, same file, same agent, same result. Promote the surface when the
 substrate exists. This costs nothing later because the rows are the durable
@@ -328,13 +376,28 @@ started.
    fields throughout. Kit tools must be registered commands (Art. VII.1), so
    the registry needs an owned runtime tier beside the static table. This is
    the single largest change — and Wave 2's `atlas-mcp` needs it regardless.
-2. **`DockItem.id` is `&'static str`** and `DockIcon::Custom` takes a Rust `fn`
-   pointer; both need owned, data-driven forms. Icons: start with a named
-   built-in glyph library, then SVG path data through `vector-ink`, which costs
-   no new dependency since the SVG ceiling is already law.
-3. **Hotkey and id collision** between user tools needs a deterministic
-   resolution order and a visible conflict state in the Advanced window.
-   Namespace kit commands as `kit.<kit-id>.<tool-id>`.
+2. **`DockItem.id` is `&'static str`, and `5a9ea0b` drove that deeper.**
+   `DockState` now interns ids in `pinned: Vec<&'static str>`, `body_preview`,
+   `label_hover`, and `panel_open: HashMap<&'static str, f32>`, so the
+   `'static` assumption is threaded through the dock's persistent state rather
+   than sitting only in the item list. `DockIcon::Custom` still takes a Rust
+   `fn` pointer. Both need owned, data-driven forms; this cost went **up**.
+   Icons: start with a named built-in glyph library, then SVG path data through
+   `vector-ink`, which costs no new dependency since the SVG ceiling is already
+   law.
+3. **Hotkey collision is much smaller than it was**, because `5a9ea0b` shipped
+   type-to-command: an unbound letter opens command entry pre-seeded, a bare
+   letter chord waits out `BARE_LETTER_HOLD` in case a second character
+   promotes it, and `Chord::is_bare_letter` exists to arbitrate. The new
+   `RepoLens` tool ships with `hotkey()` returning `""` and is reached by name.
+
+   So **a user tool's name is its primary invocation channel and a key is
+   optional.** `aliases` becomes the field that matters, the palette becomes
+   the discovery surface for user tools rather than the dock, and kit tools
+   should default to *no* bare letter — bare letters are now a scarce resource
+   that costs every user a hold window. Namespace kit commands as
+   `kit.<kit-id>.<tool-id>`, and reserve conflict reporting for keys a user
+   explicitly asks for.
 4. **Dock right-click** (§10), as a dedicated shared-chrome task.
 5. **The agent compiler** needs a schema strict enough to validate against and
    a refusal path (§3). This is prompt-and-schema work, not model work.
@@ -384,3 +447,22 @@ capability and simply ships no kits today.
 5. **Should the contract window be modal?** It is a form that produces a file;
    non-modal lets a user try the parent tool while editing the child's
    contract, which is a genuinely useful thing to do.
+6. **Does a kit tool get a bare letter at all?** §12 argues no by default, now
+   that typing a name reaches everything and bare letters cost every user a
+   hold window. If user tools may claim them, the resolution order against
+   `SPECS` needs deciding.
+
+## 15. What `5a9ea0b` changed for this proposal
+
+Recorded so a later reader can tell which parts of the argument are dated
+evidence and which are still projection.
+
+| Landed | Effect here |
+|---|---|
+| `NodeKind::Portal` + `PortalNode` / `PortalClass::Generated` / `PortalKind::RepoLens` / `RepoPortalQuery` | `portal` recipes stop being speculative (§9). Two new hard limits: `PortalKind` is closed, so kits preset kinds and never add them; and the contract-as-portal needs `PortalClass::Document`, which does not exist (§11). |
+| `BoardTool::RepoLens` — 18th variant, 18 edit sites, 5 files, reusing `P2.DragShape` unchanged | The grammar/recipe thesis stops being an inference about Rect and Ellipse and becomes a dated observation about the newest tool in the tree (§9). |
+| Type-to-command: `Key::as_letter`, `Chord::is_bare_letter`, `BARE_LETTER_HOLD`, pre-seeded command entry — and `RepoLens` shipping with no hotkey | The largest reduction in the proposal's cost. A tool's *name* is its invocation channel, hotkeys become optional, and the collision problem shrinks to the keys a user explicitly requests (§12). |
+| Dock condensed to six groups incl. **Portals**; `TOOLBARS.md` spends hover / linger / click / double-click / minimize | The right-click entry point survives and is now the only free gesture (§10). "Custom instance of *X* group" has a concrete six-item target list, one of which is Portals (§2). |
+| `DockState` interning `&'static str` in `pinned` / `body_preview` / `label_hover` / `panel_open` | Cost item 2 went up: the `'static` id assumption is now in the dock's persistent state, not just its item list (§12). |
+| `bacon` dev loop — "auto rebuild + relaunch, not in-process hot-patching"; board state lost per save; feel constants still need a rebuild | Sharpens the motivation: a tool tweak costs a compile and your place on the canvas; a kit tweak costs a file write (§1). |
+| Portal contract now **agreed**, 31/31 rows approved; registry unchanged at 31 dimensions (17 tool-scoped) | §4's row count is re-verified against `cargo xtask contracts`, and the contract system is proven through a second, larger contract. |
