@@ -1,0 +1,13 @@
+[package]
+name = "slate-kit"
+version = "0.1.0"
+edition = "2021"
+description = "Declarative tool kits: gesture grammar + result recipe as data (Slate board tools)"
+
+[dependencies]
+serde = { workspace = true }
+toml = { workspace = true }
+slate-doc = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

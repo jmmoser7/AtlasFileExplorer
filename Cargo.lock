@@ -4249,6 +4249,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "slate-kit"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "slate-doc",
+ "toml 0.8.23",
+]
+
+[[package]]
 name = "slotmap"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
