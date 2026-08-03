@@ -158,6 +158,17 @@ fn make_tree(dir: &Path, files: usize) -> PathBuf {
     dir.to_path_buf()
 }
 
+/// A folder holding one real, decodable image. `make_tree`'s files are named
+/// like photos but carry placeholder bytes, so no decoder can produce pixels
+/// from them — a test that waits for a texture has to supply a genuine one.
+fn make_image_folder(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    image::RgbaImage::from_pixel(64, 64, image::Rgba([12, 200, 90, 255]))
+        .save(dir.join("photo.png"))
+        .unwrap();
+    dir.to_path_buf()
+}
+
 #[test]
 fn second_tab_from_top_bar_while_first_is_loaded() {
     let mut h = Harness::new("second_tab");
@@ -195,7 +206,7 @@ fn second_tab_from_top_bar_while_first_is_loaded() {
 #[test]
 fn a_warm_result_releases_a_card_that_was_waiting_on_pixels() {
     let mut h = Harness::new("warm_release");
-    let root = make_tree(&h._base.join("warm_proj"), 3);
+    let root = make_image_folder(&h._base.join("warm_proj"));
     h.app.set_root(root);
     h.pump_until_idle();
     assert!(!h.app.entries.is_empty());

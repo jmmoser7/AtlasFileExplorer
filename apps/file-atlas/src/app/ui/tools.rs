@@ -318,10 +318,9 @@ fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme
     sidebar_subtle_divider(ui, theme);
 
     if sidebar_checkbox_row(ui, &mut app.auto_zoom_matches, "Zoom to matches") {
-        // Forget the last frame so switching this on frames the current result
-        // immediately instead of waiting for the next filter change.
-        app.auto_zoom_last = None;
-        app.filter_dirty = true;
+        // Switching this on frames the current result immediately instead of
+        // waiting for the next filter change.
+        app.refit_matches_now();
     }
     ui.label(
         RichText::new("camera follows the filter, and fits the map again when it clears")
