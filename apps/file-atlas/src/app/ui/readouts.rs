@@ -1,10 +1,11 @@
 //! Bottom readout bar — metrics and future status panels.
 
 use super::super::{AtlasApp, DateFilterField, ScanMode};
-use super::activity_heatmap::draw_activity_heatmap;
 use crate::app::chrome::ReadoutPanel;
 use atlas_core::types::human_size;
-use atlas_shell::widgets::{gear_menu, group_digits};
+use atlas_shell::sidebar::SidebarTheme;
+use atlas_shell::timeline::{ActivityTimeline, TimelineSelection};
+use atlas_shell::widgets::{gear_menu, group_digits, menu_check_row};
 use eframe::egui;
 
 fn readouts_gear(app: &mut AtlasApp, ui: &mut egui::Ui) {
@@ -13,7 +14,7 @@ fn readouts_gear(app: &mut AtlasApp, ui: &mut egui::Ui) {
         ui.separator();
         for panel in ReadoutPanel::ALL {
             let mut on = app.active_chrome().readout(panel);
-            if ui.checkbox(&mut on, panel.label()).changed() {
+            if menu_check_row(ui, &mut on, panel.label()) {
                 app.active_chrome_mut().set_readout(panel, on);
             }
         }
@@ -121,6 +122,17 @@ fn metrics_row(app: &mut AtlasApp, ui: &mut egui::Ui) {
                 "Pre-generating thumbnails in the background so \
                  cold folders open instantly. Throttled to stay \
                  polite to the network.",
+            );
+        }
+        let cloud = app.cloud_remaining();
+        if cloud > 0 {
+            ui.label(
+                egui::RichText::new(format!("· downloading cloud files ({cloud} left)"))
+                    .color(palette.staged),
+            )
+            .on_hover_text(
+                "Fetching files kept online only, one at a time, because you \
+                 asked for their previews. Previews appear as each file lands.",
             );
         }
         let prewarm = app.prewarm_remaining();
@@ -342,13 +354,25 @@ pub fn status_bar(app: &mut AtlasApp, ctx: &egui::Context) {
         return;
     }
 
+    let rk = atlas_shell::tokens::current().readouts;
     egui::TopBottomPanel::bottom("readouts").show(ctx, |ui| {
         let palette = app.palette();
-        ui.add_space(3.0);
+        ui.add_space(rk.pad_top);
         ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
             ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = rk.item_gap;
+                if rk.row_height > 0.0 {
+                    ui.set_min_height(rk.row_height);
+                }
                 readouts_gear(app, ui);
-                ui.separator();
+                if rk.separators {
+                    ui.separator();
+                }
+                // One font for the rest of the row: the counts, the path, and
+                // every transient progress line are one readout and should not
+                // change size relative to each other. Set after the gear so the
+                // menu it opens keeps normal menu text.
+                ui.style_mut().override_font_id = Some(egui::FontId::proportional(rk.text_size));
 
                 if show_metrics {
                     metrics_row(app, ui);
@@ -356,27 +380,62 @@ pub fn status_bar(app: &mut AtlasApp, ctx: &egui::Context) {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some(root) = &app.root {
-                        ui.label(
-                            egui::RichText::new(root.to_string_lossy())
-                                .small()
-                                .color(palette.sub),
-                        );
+                        ui.label(egui::RichText::new(root.to_string_lossy()).color(palette.sub));
                     }
                 });
             });
 
-            if show_heatmap && app.root.is_some() && app.scan_ui.is_none() {
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(2.0);
+            // Persist through scans: the grid stays up and fills as files arrive.
+            if show_heatmap && app.root.is_some() {
+                ui.add_space(rk.row_gap);
+                if rk.separators {
+                    ui.separator();
+                }
+                // The widget owns its own vertical padding (`pad_top` /
+                // `pad_bottom`) so it is tunable in one place.
                 let field_label = date_field_label(app.date_field);
                 let source_label = activity_source_label(app);
                 let dark = app.dark_mode;
-                // Cached in app state; rebuilding per frame was O(entries).
-                let heatmap = app.activity_heatmap();
-                draw_activity_heatmap(ui, heatmap, field_label, source_label, dark, palette.sub);
+                let theme = SidebarTheme {
+                    card: palette.card,
+                    border: palette.border,
+                    ink: palette.ink,
+                    sub: palette.sub,
+                };
+                // Lend the cached index to the widget rather than cloning it:
+                // the vector is one entry per file (Art. II — no O(files) work
+                // per frame).
+                app.ensure_activity_index();
+                let cached = app.heatmap_cache.take();
+                if let Some((fingerprint, index)) = cached {
+                    let timeline = ActivityTimeline {
+                        // Keyed per folder, so zoom survives a tab switch
+                        // instead of following whichever tab moved it last.
+                        id: egui::Id::new("atlas_activity_timeline").with(&app.key_prefix),
+                        index: &index,
+                        span_lo: app.date_span_lo,
+                        span_hi: app.date_span_hi,
+                        theme,
+                        dark,
+                        muted: palette.sub,
+                        field_label,
+                        source_label,
+                    };
+                    let action = timeline.show(
+                        ui,
+                        TimelineSelection {
+                            range_lo: &mut app.date_range_lo,
+                            range_hi: &mut app.date_range_hi,
+                            picks: &mut app.time_picks,
+                        },
+                    );
+                    app.heatmap_cache = Some((fingerprint, index));
+                    if action.changed {
+                        app.filter_dirty = true;
+                    }
+                }
             }
         });
-        ui.add_space(3.0);
+        ui.add_space(rk.pad_bottom);
     });
 }

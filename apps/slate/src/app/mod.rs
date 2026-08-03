@@ -31,6 +31,7 @@ mod board_handles;
 pub mod board_icons;
 mod board_line;
 mod board_path;
+mod board_portal;
 mod board_snap;
 mod board_style;
 mod board_wire;
@@ -170,6 +171,11 @@ pub enum PickerMsg {
     ExportArtifact(Option<PathBuf>),
     /// Folder picked as the Lens code root.
     LensRoot(Option<PathBuf>),
+    /// Folder picked as a Repository Lens portal source.
+    RepoPortalSource {
+        portal: NodeId,
+        path: Option<PathBuf>,
+    },
 }
 
 pub enum ThumbState {
@@ -248,6 +254,9 @@ pub struct SlateApp {
     /// become per-tab later.
     pub lens: lens::LensState,
 
+    /// Repository Lens portal runtime (derived extract/layout cache).
+    pub portals: board_portal::PortalRuntime,
+
     // ----- board (authored canvas) state -----
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
     pub board_sel: HashSet<NodeId>,
@@ -322,6 +331,8 @@ pub struct SlateApp {
     pub(crate) cmd_history: atlas_commands::History,
     /// Space-tap repeat tracking (tap = repeat, hold+drag = pan).
     pub(crate) space_tap: dispatch::SpaceTap,
+    /// Bare-letter shortcut held briefly so typed command names can win.
+    pub(crate) bare_letter_hold: Option<dispatch::BareLetterHold>,
     /// F2 command-history window visibility.
     pub history_open: bool,
     /// Minimap overlay pinned on (M); persisted in chrome prefs.
@@ -447,6 +458,7 @@ impl SlateApp {
             atlas: None,
             ai: atlas_ai::AiPanel::new(),
             lens: lens::LensState::default(),
+            portals: board_portal::PortalRuntime::default(),
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
             board_nav_tool: board::BoardTool::Select,
@@ -480,6 +492,7 @@ impl SlateApp {
             registry: commands::registry(),
             cmd_history: atlas_commands::History::new(),
             space_tap: dispatch::SpaceTap::default(),
+            bare_letter_hold: None,
             history_open: false,
             minimap_on: chrome_prefs.minimap,
             minimap_state: atlas_shell::minimap::MinimapState::default(),
@@ -1227,6 +1240,10 @@ impl SlateApp {
                         self.doc_mut().lens_root = Some(path);
                         self.lens_rescan();
                     }
+                    PickerMsg::RepoPortalSource {
+                        portal,
+                        path: Some(path),
+                    } => self.bind_portal_source(portal, path),
                     _ => {}
                 }
             }
@@ -1257,6 +1274,7 @@ impl SlateApp {
         self.session_pump(ctx);
         self.ai.poll();
         self.lens_pump(ctx);
+        self.portal_pump(ctx);
         self.ai_context_frame();
 
         // Dropped files land in the active workbook, uncategorized. On the

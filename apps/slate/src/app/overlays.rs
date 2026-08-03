@@ -133,6 +133,7 @@ impl SlateApp {
                 NodeKind::Image(_) => blocks.push((r, palette.portal.gamma_multiply(0.85))),
                 NodeKind::Text(_) => blocks.push((r, palette.sub.gamma_multiply(0.8))),
                 NodeKind::Shape(_) => blocks.push((r, palette.accent.gamma_multiply(0.8))),
+                NodeKind::Portal(_) => blocks.push((r, palette.accent.gamma_multiply(0.55))),
                 NodeKind::Connector(_) => {}
             }
         }
@@ -163,6 +164,19 @@ impl SlateApp {
         self.palette_state.open_at(screen, world);
         self.refresh_palette_items();
         self.push_history(CommandId("board.palette"), None);
+    }
+
+    /// Type-to-command: open the canvas palette with a seeded query at the
+    /// pointer (or canvas center). Same UI as double-click empty board.
+    pub(crate) fn open_command_entry(&mut self, ctx: &egui::Context, query: String) {
+        let screen = ctx
+            .input(|i| i.pointer.hover_pos())
+            .filter(|p| self.canvas_rect.contains(*p))
+            .unwrap_or_else(|| self.canvas_rect.center());
+        let world = self.screen_to_world(screen);
+        self.palette_state.open_with_query(screen, world, query);
+        self.refresh_palette_items();
+        self.push_history(CommandId("board.palette"), Some("type".into()));
     }
 
     fn refresh_palette_items(&mut self) {
@@ -224,6 +238,11 @@ impl SlateApp {
             "board.tool.frame" => {
                 self.place_frame_at(world);
                 self.push_history(item.id, Some("placed".into()));
+                self.connect_pending_wire_to_selection();
+            }
+            "board.portal.repo_lens" => {
+                self.place_repo_lens_at(world);
+                // place_repo_lens_at already pushes history.
                 self.connect_pending_wire_to_selection();
             }
             "board.tool.text" => {
@@ -333,6 +352,7 @@ impl SlateApp {
                             .label
                             .as_ref()
                             .is_some_and(|l| l.to_lowercase().contains(&q)),
+                        NodeKind::Portal(p) => p.title.to_lowercase().contains(&q),
                         NodeKind::Shape(_) => false,
                     };
                     if is_match {

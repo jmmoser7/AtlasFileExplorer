@@ -11,7 +11,9 @@
 //!
 //! Specially handled (not chord table rows): Space-tap / Enter-idle repeat,
 //! the Esc cancel stack ([`atlas_commands::cancel_target`]), Tab cycling,
-//! and arrows (nudge with a selection, pan without).
+//! arrows (nudge with a selection, pan without), and Board type-to-command
+//! (bare letter shortcuts hold ~700 ms so a second character can open the
+//! canvas palette instead).
 
 use super::{board, commands, SlateApp};
 use atlas_commands::{
@@ -25,12 +27,26 @@ use std::time::{Duration, Instant};
 /// Space taps longer than this are holds (pan chords), not repeat requests.
 const SPACE_TAP_MAX: Duration = Duration::from_millis(250);
 
+/// After a bare letter shortcut, wait this long before committing so a
+/// following character can promote the keystroke into type-to-command entry.
+const BARE_LETTER_HOLD: Duration = Duration::from_millis(700);
+
 /// Tracks a live Space press so release can decide tap (repeat) vs hold (pan).
 #[derive(Default)]
 pub struct SpaceTap {
     pressed_at: Option<Instant>,
     /// A pointer button went down while Space was held — it was a pan chord.
     pointer_used: bool,
+}
+
+/// Pending bare-letter shortcut waiting out the type-to-command ambiguity
+/// window. If more printable characters arrive before [`BARE_LETTER_HOLD`],
+/// the buffer opens the canvas palette instead of firing `pending_id`.
+#[derive(Clone, Debug)]
+pub struct BareLetterHold {
+    pub pending_id: CommandId,
+    pub buffer: String,
+    pub started_at: Instant,
 }
 
 impl SlateApp {
@@ -263,6 +279,34 @@ impl SlateApp {
             }
             "board.tool.direct_select" => {
                 self.set_board_tool(board::BoardTool::DirectSelect);
+                true
+            }
+            "board.portal.repo_lens" => {
+                self.set_board_tool(board::BoardTool::RepoLens);
+                true
+            }
+            "portal.repo.source" => self.portal_pick_source_for_selection(),
+            "portal.repo.refresh" => self.portal_refresh_selected(),
+            "portal.repo.bake" => self.portal_bake_selected(),
+            "portal.repo.focus" => {
+                // Focus is driven by pointer clicks inside an interactive portal;
+                // the command clears focus when already set (Esc / palette).
+                if self.portals.interactive.is_some() || self.portals.has_commit_focus() {
+                    self.portal_clear_focus()
+                } else if let Some(id) = self
+                    .board_sel
+                    .iter()
+                    .copied()
+                    .find(|id| self.doc().scene.node(*id).is_some_and(|n| n.is_portal()))
+                {
+                    self.portal_enter_interactive(id);
+                    true
+                } else {
+                    false
+                }
+            }
+            "portal.repo.branch_create" | "portal.repo.merge" | "portal.repo.checkout" => {
+                self.toast("Git write-back is human-only and not wired in this build yet.");
                 true
             }
             // ----- color state + widths -------------------------------------------
@@ -513,6 +557,12 @@ impl SlateApp {
             self.lens.focus = None;
             return true;
         }
+        // Repository Lens portal interactive / commit focus.
+        if self.doc().view.active_view == ViewKind::Board
+            && (self.portals.interactive.is_some() || self.portals.has_commit_focus())
+        {
+            return self.portal_clear_focus();
+        }
         let board = self.doc().view.active_view == ViewKind::Board;
         let mut live: Vec<CancelLayer> = Vec::new();
         // Running drag operations (wire drags, eraser scrubs, direct-
@@ -621,7 +671,9 @@ impl SlateApp {
                 self.new_tag_edit = None;
                 true
             }
-            None => false,
+            // Slate has no readout-owned selection (File Atlas' activity
+            // timeline registers that layer), so it is never live here.
+            Some(CancelLayer::Readout) | None => false,
         }
     }
 
@@ -631,6 +683,7 @@ impl SlateApp {
         // Presentation mode owns the keyboard (handled in present_frame).
         if self.presenting.is_some() {
             self.space_tap = SpaceTap::default();
+            self.bare_letter_hold = None;
             return;
         }
         let wants_kb = ctx.wants_keyboard_input();
@@ -638,9 +691,25 @@ impl SlateApp {
         let editing = self.text_edit.is_some();
         let palette_open = self.palette_state.open;
         let cmd_ctx = self.command_ctx();
+        // Type-to-command / bare-letter hold: Board only, and never while a
+        // draft or inline editor owns digits/letters.
+        let command_typing_ok = board
+            && !wants_kb
+            && !editing
+            && !palette_open
+            && self.line_draft.is_none()
+            && self.board_path_draft.is_none()
+            && self.board_crop.is_none()
+            && self.wire_label_edit.is_none()
+            && self.text_edit.is_none()
+            && !self.search.open;
 
         struct Keys {
             matched: Vec<CommandId>,
+            /// Bare A–Z chords deferred for the type-to-command hold window.
+            bare_letter: Option<(CommandId, char)>,
+            /// Printable text typed this frame (lowercase), for command entry.
+            typed: String,
             escape: bool,
             enter: bool,
             tab: Option<i64>,
@@ -648,10 +717,13 @@ impl SlateApp {
             shift: bool,
             repeat_via_space: bool,
             paste_text: Option<String>,
+            pointer_pressed: bool,
         }
         let keys = ctx.input(|i| {
             let mut k = Keys {
                 matched: Vec::new(),
+                bare_letter: None,
+                typed: String::new(),
                 escape: false,
                 enter: false,
                 tab: None,
@@ -659,6 +731,7 @@ impl SlateApp {
                 shift: i.modifiers.shift,
                 repeat_via_space: false,
                 paste_text: None,
+                pointer_pressed: i.pointer.any_pressed(),
             };
             fn push_unique(v: &mut Vec<CommandId>, id: CommandId) {
                 if !v.contains(&id) {
@@ -698,9 +771,18 @@ impl SlateApp {
                 if suppressed(chord, wants_kb, editing, palette_open) {
                     continue;
                 }
-                if spec.when.matches(cmd_ctx) {
-                    push_unique(&mut k.matched, spec.id);
+                if !spec.when.matches(cmd_ctx) {
+                    continue;
                 }
+                // On the board, bare letters wait out the hold window so a
+                // second character can open type-to-command instead.
+                if command_typing_ok && chord.is_bare_letter() {
+                    if let Some(ch) = chord.key.as_letter() {
+                        k.bare_letter = Some((spec.id, ch));
+                    }
+                    continue;
+                }
+                push_unique(&mut k.matched, spec.id);
             }
             for (chord, id) in commands::ALIAS_CHORDS {
                 if !chord_pressed(i, *chord) {
@@ -710,9 +792,16 @@ impl SlateApp {
                     continue;
                 }
                 if let Some(spec) = self.registry.by_id(*id) {
-                    if spec.when.matches(cmd_ctx) {
-                        push_unique(&mut k.matched, *id);
+                    if !spec.when.matches(cmd_ctx) {
+                        continue;
                     }
+                    if command_typing_ok && chord.is_bare_letter() {
+                        if let Some(ch) = chord.key.as_letter() {
+                            k.bare_letter = Some((*id, ch));
+                        }
+                        continue;
+                    }
+                    push_unique(&mut k.matched, *id);
                 }
             }
 
@@ -741,6 +830,24 @@ impl SlateApp {
                             );
                         }
                         _ => {}
+                    }
+                }
+            }
+
+            // Printable text for type-to-command (letters/digits; drafts
+            // already gate command_typing_ok). Space is allowed only after
+            // the first character so Space-tap pan/repeat is not stolen.
+            if command_typing_ok && !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.command {
+                for e in &i.events {
+                    if let egui::Event::Text(t) = e {
+                        for c in t.chars() {
+                            let c = c.to_ascii_lowercase();
+                            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                                k.typed.push(c);
+                            } else if c == ' ' && !k.typed.is_empty() {
+                                k.typed.push(' ');
+                            }
+                        }
                     }
                 }
             }
@@ -774,9 +881,12 @@ impl SlateApp {
             k
         });
 
-        // --- Escape: overlays with focused text own Esc; else the stack ---
+        // --- Escape: cancel a pending bare-letter hold first; else stack ---
+        let mut cancelled_hold = false;
         if keys.escape && !palette_open {
-            if self.search.open {
+            if self.bare_letter_hold.take().is_some() {
+                cancelled_hold = true;
+            } else if self.search.open {
                 self.search.open = false;
             } else if !editing {
                 // The text-edit overlay commits on its own Esc.
@@ -784,8 +894,79 @@ impl SlateApp {
             }
         }
 
+        // --- bare-letter hold / type-to-command ---
+        // Resolve the ambiguity window before dispatching other chords so a
+        // follow-up letter opens the palette instead of firing the shortcut.
+        let mut open_entry: Option<String> = None;
+        let mut commit_hold: Option<CommandId> = None;
+        // Enter/Space that only existed to flush the hold must not also
+        // trigger repeat-last in the same frame.
+        let mut suppress_repeat = false;
+        if cancelled_hold {
+            // nothing pending
+        } else if let Some(hold) = self.bare_letter_hold.as_mut() {
+            if !keys.typed.is_empty() {
+                hold.buffer.push_str(&keys.typed);
+                open_entry = Some(std::mem::take(&mut hold.buffer));
+                self.bare_letter_hold = None;
+            } else if keys.pointer_pressed
+                || !keys.matched.is_empty()
+                || keys.tab.is_some()
+                || keys.arrows != (0.0, 0.0)
+            {
+                // Pointer or another command: commit so tool-then-click stays
+                // snappy inside the hold window.
+                commit_hold = Some(hold.pending_id);
+                self.bare_letter_hold = None;
+            } else if keys.enter || keys.repeat_via_space {
+                commit_hold = Some(hold.pending_id);
+                self.bare_letter_hold = None;
+                suppress_repeat = true;
+            } else if hold.started_at.elapsed() >= BARE_LETTER_HOLD {
+                commit_hold = Some(hold.pending_id);
+                self.bare_letter_hold = None;
+            } else {
+                let left = BARE_LETTER_HOLD.saturating_sub(hold.started_at.elapsed());
+                ctx.request_repaint_after(left);
+            }
+        } else if command_typing_ok {
+            if let Some((id, ch)) = keys.bare_letter {
+                // Same frame may already carry more than the first letter
+                // (fast typists) — go straight to command entry.
+                let mut buf = String::new();
+                if keys.typed.is_empty() {
+                    buf.push(ch);
+                } else {
+                    buf.push_str(&keys.typed);
+                    // Ensure the chord letter is represented if Text lagged.
+                    if !buf.starts_with(ch) {
+                        buf.insert(0, ch);
+                    }
+                }
+                if buf.chars().count() > 1 {
+                    open_entry = Some(buf);
+                } else {
+                    self.bare_letter_hold = Some(BareLetterHold {
+                        pending_id: id,
+                        buffer: buf,
+                        started_at: Instant::now(),
+                    });
+                    ctx.request_repaint_after(BARE_LETTER_HOLD);
+                }
+            } else if !keys.typed.is_empty() {
+                // Unbound first character(s): open command entry immediately.
+                open_entry = Some(keys.typed.clone());
+            }
+        }
+        if let Some(id) = commit_hold {
+            self.dispatch(ctx, id, None);
+        }
+        if let Some(q) = open_entry {
+            self.open_command_entry(ctx, q);
+        }
+
         // --- Enter: crop / line / path drafts first (as before), else idle repeat ---
-        if keys.enter && !wants_kb && !editing && !palette_open {
+        if keys.enter && !wants_kb && !editing && !palette_open && !suppress_repeat {
             if board && self.board_crop.is_some() {
                 self.board_crop = None;
             } else if board && self.line_draft.is_some() {
@@ -798,7 +979,7 @@ impl SlateApp {
                 self.dispatch(ctx, CommandId("app.repeat_last"), None);
             }
         }
-        if keys.repeat_via_space {
+        if keys.repeat_via_space && !suppress_repeat {
             self.dispatch(ctx, CommandId("app.repeat_last"), None);
         }
 

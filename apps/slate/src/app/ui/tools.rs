@@ -1,6 +1,6 @@
-//! Slate's unified bottom dock — one centered row of floating squircle icons
-//! over the canvas. Board creation tools (Board view only), grid/snap toggles,
-//! and the Tags dashboard; dock chrome is painted by `atlas_shell::dock`.
+//! Slate's unified bottom dock — one condensed row of floating squircle icons
+//! over the canvas. Board creation tools (Board view only) plus object /
+//! document dashboards; dock chrome is painted by `atlas_shell::dock`.
 //!
 //! Ordering: Tools → Actions → Dashboards (see `crates/atlas-shell/DOCK.md`).
 
@@ -9,8 +9,10 @@ use super::super::board_icons::{self, ToolIcon};
 use super::super::chrome::ToolPanel;
 use super::super::SlateApp;
 use atlas_shell::dock::{floating_dock, DockIcon, DockItem, DockItemKind};
-use atlas_shell::sidebar::{sidebar_subtle_divider, SidebarTheme};
-use eframe::egui::{self, Color32, Rect, RichText};
+use atlas_shell::sidebar::{
+    sidebar_checkbox_row, sidebar_fold_region, sidebar_subtle_divider, SidebarTheme,
+};
+use eframe::egui::{self, Color32, Id, Rect, RichText};
 use slate_doc::{GroupId, TagId, ViewKind};
 
 macro_rules! board_dock_icon {
@@ -21,25 +23,38 @@ macro_rules! board_dock_icon {
     };
 }
 board_dock_icon!(icon_frame, ToolIcon::Frame);
+board_dock_icon!(icon_portals, ToolIcon::Portals);
 board_dock_icon!(icon_shapes, ToolIcon::Shapes);
-board_dock_icon!(icon_curve, ToolIcon::Curve);
 board_dock_icon!(icon_text, ToolIcon::Text);
 board_dock_icon!(icon_grid, ToolIcon::Grid);
-board_dock_icon!(icon_snap, ToolIcon::Snap);
 board_dock_icon!(icon_colors, ToolIcon::Colors);
 
-/// The single floating toolbar: simplified board tools + tags + grid/snap.
+/// The single floating toolbar: Frame, Portals, Shapes (incl. curves), Text,
+/// Object properties (colors + tags), Document settings (grid + snap).
 pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
     let theme = app.palette().sidebar_theme();
     let view = app.doc().view.active_view;
     let board = view == ViewKind::Board;
     let tool = app.board_tool;
 
+    let shape_active = matches!(
+        tool,
+        BoardTool::RectShape
+            | BoardTool::Ellipse
+            | BoardTool::Line
+            | BoardTool::Arc
+            | BoardTool::Polyline
+            | BoardTool::BezierSpan
+            | BoardTool::Pen
+            | BoardTool::Brush
+            | BoardTool::Eraser
+    );
+
     let items = [
         DockItem {
             id: "tool.frame",
             label: "Frame",
-            description: "",
+            description: "Place a slide frame — Letter, Tabloid, 16:9, or a custom size.",
             icon: DockIcon::Custom(icon_frame),
             kind: DockItemKind::Tool,
             active: tool == BoardTool::Frame,
@@ -47,48 +62,29 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             gap_before: false,
         },
         DockItem {
+            id: "tool.portals",
+            label: "Portals",
+            description: "Drop a generated or host portal onto the board (Repository Lens).",
+            icon: DockIcon::Custom(icon_portals),
+            kind: DockItemKind::Tool,
+            active: tool == BoardTool::RepoLens,
+            visible: board,
+            gap_before: false,
+        },
+        DockItem {
             id: "tool.shapes",
             label: "Shapes",
-            description: "",
+            description: "Rectangles, ellipses, and curve tools (line, pen, brush, eraser…).",
             icon: DockIcon::Custom(icon_shapes),
             kind: DockItemKind::Tool,
-            active: matches!(tool, BoardTool::RectShape | BoardTool::Ellipse),
-            visible: board,
-            gap_before: false,
-        },
-        DockItem {
-            id: "tool.curve",
-            label: "Curve",
-            description: "",
-            icon: DockIcon::Custom(icon_curve),
-            kind: DockItemKind::Tool,
-            active: matches!(
-                tool,
-                BoardTool::Line
-                    | BoardTool::Arc
-                    | BoardTool::Polyline
-                    | BoardTool::BezierSpan
-                    | BoardTool::Pen
-                    | BoardTool::Brush
-                    | BoardTool::Eraser
-            ),
-            visible: board,
-            gap_before: false,
-        },
-        DockItem {
-            id: "tool.colors",
-            label: "Colors",
-            description: "",
-            icon: DockIcon::Custom(icon_colors),
-            kind: DockItemKind::Tool,
-            active: false,
+            active: shape_active,
             visible: board,
             gap_before: false,
         },
         DockItem {
             id: "tool.text",
             label: "Text",
-            description: "",
+            description: "Place a text block on the board.",
             icon: DockIcon::Custom(icon_text),
             kind: DockItemKind::Action,
             active: tool == BoardTool::Text,
@@ -96,33 +92,23 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             gap_before: false,
         },
         DockItem {
-            id: "board.grid",
-            label: "Grid",
-            description: "",
-            icon: DockIcon::Custom(icon_grid),
-            kind: DockItemKind::Action,
-            active: app.board_show_grid,
-            visible: board,
-            gap_before: false,
-        },
-        DockItem {
-            id: "board.snap",
-            label: "Snap",
-            description: "",
-            icon: DockIcon::Custom(icon_snap),
-            kind: DockItemKind::Action,
-            active: app.board_snap_grid,
-            visible: board,
-            gap_before: false,
-        },
-        DockItem {
-            id: "tags",
-            label: "Tags",
-            description: "Faceted tag groups for this workbook.",
-            icon: DockIcon::Tags,
+            id: "object.properties",
+            label: "Object properties",
+            description: "Ink / paper colors and the workbook’s faceted tag groups.",
+            icon: DockIcon::Custom(icon_colors),
             kind: DockItemKind::Dashboard,
             active: false,
-            visible: app.chrome().tool(ToolPanel::Tags),
+            visible: board || app.chrome().tool(ToolPanel::Tags),
+            gap_before: board,
+        },
+        DockItem {
+            id: "document.settings",
+            label: "Document settings",
+            description: "Board grid visibility and snap-to-grid.",
+            icon: DockIcon::Custom(icon_grid),
+            kind: DockItemKind::Dashboard,
+            active: app.board_show_grid || app.board_snap_grid,
+            visible: board,
             gap_before: false,
         },
     ];
@@ -140,15 +126,15 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         &restore,
         |ui, id| match id {
             "tool.frame" => frame_flyout(app, ui, theme),
+            "tool.portals" => portals_flyout(app, ui, theme),
             "tool.shapes" => shapes_flyout(app, ui, theme),
-            "tool.curve" => curve_flyout(app, ui, theme),
-            "tool.colors" => colors_body(app, ui, theme),
-            "tags" => tags_body(app, ui, theme),
+            "object.properties" => object_properties_body(app, ui, theme),
+            "document.settings" => document_settings_body(app, ui, theme),
             _ => {}
         },
     );
 
-    // Persist pinned palettes (e.g. Tags) across sessions.
+    // Persist pinned palettes across sessions.
     if let Some(pins) = atlas_shell::dock::pinned_ids(ctx, "slate_tools") {
         if pins != app.dock_pins {
             app.dock_pins = pins;
@@ -164,20 +150,21 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         Some("tool.frame") => {
             app.dispatch(ctx, CommandId("board.tool.frame"), Some("dock".into()));
         }
-        Some("tool.shapes") => {
-            app.dispatch(ctx, CommandId("board.tool.rect"), Some("dock".into()));
+        Some("tool.portals") => {
+            app.dispatch(
+                ctx,
+                CommandId("board.portal.repo_lens"),
+                Some("dock".into()),
+            );
         }
-        Some("tool.curve") => {
-            app.dispatch(ctx, CommandId("board.tool.line"), Some("dock".into()));
+        Some("tool.shapes") => {
+            // Open on the last shape-family tool, defaulting to rect.
+            if !shape_active {
+                app.dispatch(ctx, CommandId("board.tool.rect"), Some("dock".into()));
+            }
         }
         Some("tool.text") => {
             app.dispatch(ctx, CommandId("board.tool.text"), Some("dock".into()));
-        }
-        Some("board.grid") => {
-            app.dispatch(ctx, CommandId("board.grid"), Some("dock".into()));
-        }
-        Some("board.snap") => {
-            app.dispatch(ctx, CommandId("board.snap_grid"), Some("dock".into()));
         }
         _ => {}
     }
@@ -224,6 +211,23 @@ fn frame_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     }
 }
 
+fn portals_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    if board_icons::tool_menu_row(
+        ui,
+        ToolIcon::RepoLens,
+        "Repository Lens",
+        None,
+        app.board_tool == BoardTool::RepoLens,
+        theme.ink,
+        theme.sub,
+    )
+    .clicked()
+    {
+        app.set_board_tool(BoardTool::RepoLens);
+    }
+}
+
+/// Shapes + curves in one flyout (collapsed curve section by default).
 fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     for shape in [BoardTool::RectShape, BoardTool::Ellipse] {
         if board_icons::tool_menu_row(
@@ -240,38 +244,92 @@ fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             app.set_board_tool(shape);
         }
     }
+
+    sidebar_fold_region(
+        ui,
+        Id::new("slate_shapes_curves"),
+        "Curves & ink",
+        false,
+        theme,
+        |ui| {
+            for curve in [
+                BoardTool::Line,
+                BoardTool::Pen,
+                BoardTool::Brush,
+                BoardTool::Eraser,
+                BoardTool::Arc,
+                BoardTool::Polyline,
+                BoardTool::BezierSpan,
+            ] {
+                let hotkey = match curve {
+                    BoardTool::Line => Some(curve.hotkey()),
+                    BoardTool::Pen => Some("P"),
+                    BoardTool::Brush => Some("B"),
+                    BoardTool::Eraser => Some("E"),
+                    _ => None,
+                };
+                if board_icons::tool_menu_row(
+                    ui,
+                    curve.tool_icon(),
+                    curve.label(),
+                    hotkey,
+                    app.board_tool == curve,
+                    theme.ink,
+                    theme.sub,
+                )
+                .clicked()
+                {
+                    app.set_board_tool(curve);
+                }
+            }
+        },
+    );
 }
 
-fn curve_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    for curve in [
-        BoardTool::Line,
-        BoardTool::Pen,
-        BoardTool::Brush,
-        BoardTool::Eraser,
-        BoardTool::Arc,
-        BoardTool::Polyline,
-        BoardTool::BezierSpan,
-    ] {
-        let hotkey = match curve {
-            BoardTool::Line => Some(curve.hotkey()),
-            BoardTool::Pen => Some("P"),
-            BoardTool::Brush => Some("B"),
-            BoardTool::Eraser => Some("E"),
-            _ => None,
-        };
-        let resp = board_icons::tool_menu_row(
+fn object_properties_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    let board = app.doc().view.active_view == ViewKind::Board;
+    if board {
+        sidebar_fold_region(
             ui,
-            curve.tool_icon(),
-            curve.label(),
-            hotkey,
-            app.board_tool == curve,
-            theme.ink,
-            theme.sub,
+            Id::new("slate_obj_colors"),
+            "Colors",
+            true,
+            theme,
+            |ui| colors_body(app, ui, theme),
         );
-        if resp.clicked() {
-            app.set_board_tool(curve);
-        }
     }
+    if app.chrome().tool(ToolPanel::Tags) {
+        sidebar_fold_region(
+            ui,
+            Id::new("slate_obj_tags"),
+            "Tags",
+            !board,
+            theme,
+            |ui| tags_body(app, ui, theme),
+        );
+    }
+}
+
+fn document_settings_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    let mut grid = app.board_show_grid;
+    if sidebar_checkbox_row(ui, &mut grid, "Show grid") {
+        let ctx = ui.ctx().clone();
+        app.dispatch(
+            &ctx,
+            atlas_commands::CommandId("board.grid"),
+            Some("dock".into()),
+        );
+    }
+    let mut snap = app.board_snap_grid;
+    if sidebar_checkbox_row(ui, &mut snap, "Snap to grid") {
+        let ctx = ui.ctx().clone();
+        app.dispatch(
+            &ctx,
+            atlas_commands::CommandId("board.snap_grid"),
+            Some("dock".into()),
+        );
+    }
+    let _ = theme;
 }
 
 /// Colors panel: the fg/bg chip pair (click a chip = the standard color

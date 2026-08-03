@@ -284,6 +284,7 @@ impl SlateApp {
             NodeKind::Frame(f) => Some(f.fill),
             NodeKind::Image(img) => (!img.stroke.is_none()).then_some(img.stroke.color),
             NodeKind::Connector(c) => Some(c.stroke.color),
+            NodeKind::Portal(p) => Some(p.fill),
         }
     }
 

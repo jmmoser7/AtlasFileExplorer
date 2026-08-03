@@ -62,6 +62,8 @@ pub struct TabSpec {
     pub title: String,
     pub tooltip: String,
     pub closable: bool,
+    /// Optional right-click action label for replacing the tab's content.
+    pub content_action_label: Option<&'static str>,
     /// Empty tabs render without a label and invite content selection:
     /// clicking the active empty tab yields [`TabAction::ActivateEmpty`]
     /// instead of a switch.
@@ -72,6 +74,9 @@ pub enum TabAction {
     Switch(usize),
     Close(usize),
     New,
+    /// Right-click tab menu: app-specific content replacement. File Atlas uses
+    /// this for "Change directory…"; Slate may ignore it.
+    ChangeContent(usize),
     /// Active empty tab clicked — the app opens its "choose content" flow
     /// (folder picker in File Atlas, workbook picker in Slate).
     ActivateEmpty,
@@ -327,6 +332,14 @@ pub fn tab_strip(
                     TabAction::ActivateEmpty
                 } else {
                     TabAction::Switch(i)
+                });
+            }
+            if let Some(label) = spec.content_action_label {
+                resp.clone().context_menu(|ui| {
+                    if ui.button(label).clicked() {
+                        action = Some(TabAction::ChangeContent(i));
+                        ui.close_menu();
+                    }
                 });
             }
             resp.on_hover_text(spec.tooltip.clone());

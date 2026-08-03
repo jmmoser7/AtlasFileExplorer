@@ -63,6 +63,12 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
   visible, unlocked objects in reading order with minimal camera nudge.
 - **Double-click empty board** — canvas palette at that point (fuzzy search
   over commands + aliases like "note", "box", "circle", "slide").
+- **Type-to-command (Board)** — typing a letter with no bare shortcut opens
+  the canvas palette seeded with that text. Bare letter shortcuts (`B`,
+  `L`, …) wait ~700 ms before committing; a second character inside that
+  window promotes the keystroke into the same palette entry mode (so
+  typing `brush` is not stolen by the `B` tool binding). Esc cancels a
+  pending hold; pointer-down or another chord commits it early.
 - **PageUp / PageDown** bring-to-front / send-to-back (**Ctrl+B** = send to
   back) · **C** crop the single selected croppable image · **Ctrl+U** image
   adjust popover · **Ctrl+I** invert image colors (journaled).

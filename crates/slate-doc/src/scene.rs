@@ -407,6 +407,88 @@ pub struct FrameNode {
     pub assignments: BTreeMap<GroupId, TagId>,
 }
 
+/// Default Repository Lens portal size (world units) for click-to-place (D04).
+pub const REPO_PORTAL_DEFAULT_W: f32 = 960.0;
+pub const REPO_PORTAL_DEFAULT_H: f32 = 540.0;
+
+/// Portal mutation authority class (Constitution Art. V.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PortalClass {
+    /// Deterministic derived contents; owns nothing. Frame/source/query are journaled.
+    Generated,
+}
+
+/// Portal subtype discriminator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PortalKind {
+    RepoLens,
+}
+
+/// Local-filesystem locator stub until full `SourceUri` (T2.1) lands.
+/// Prefer a path relative to the workbook directory; absolute is accepted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceUri {
+    pub locator: String,
+}
+
+/// Authored Repository Lens query (journaled). Extracted graph contents are
+/// derived and never stored on the node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RepoPortalQuery {
+    pub include_remotes: bool,
+    pub max_commits: u32,
+    pub axis: RepoTimeAxis,
+}
+
+impl Default for RepoPortalQuery {
+    fn default() -> Self {
+        Self {
+            include_remotes: true,
+            max_commits: 2000,
+            axis: RepoTimeAxis::Topological,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RepoTimeAxis {
+    Topological,
+    Chronological,
+}
+
+/// A journaled portal frame. Contents are derived from `source` + `query`
+/// (generated class) and never serialized here.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PortalNode {
+    pub class: PortalClass,
+    pub kind: PortalKind,
+    pub title: String,
+    /// Bound repository; `None` paints the "Choose repository…" empty state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceUri>,
+    #[serde(default)]
+    pub query: RepoPortalQuery,
+    pub fill: Rgba,
+}
+
+impl PortalNode {
+    /// Fresh unbound Repository Lens portal.
+    pub fn unbound_repo_lens(title: impl Into<String>) -> Self {
+        Self {
+            class: PortalClass::Generated,
+            kind: PortalKind::RepoLens,
+            title: title.into(),
+            source: None,
+            query: RepoPortalQuery::default(),
+            fill: Rgba([18, 20, 24, 255]),
+        }
+    }
+}
+
 /// A placed image: a link into the workbook item pool plus placement styling.
 /// Video playback settings. Everything here maps onto native HTML `<video>`
 /// semantics: the trim window becomes a media-fragment URL (`#t=start,end`)
@@ -893,6 +975,7 @@ pub enum NodeKind {
     Shape(ShapeNode),
     Text(TextNode),
     Connector(ConnectorNode),
+    Portal(PortalNode),
 }
 
 impl NodeKind {
@@ -903,6 +986,7 @@ impl NodeKind {
             NodeKind::Shape(_) => "shape",
             NodeKind::Text(_) => "text",
             NodeKind::Connector(_) => "connector",
+            NodeKind::Portal(_) => "portal",
         }
     }
 }
@@ -945,6 +1029,10 @@ fn is_false(v: &bool) -> bool {
 impl Node {
     pub fn is_frame(&self) -> bool {
         matches!(self.kind, NodeKind::Frame(_))
+    }
+
+    pub fn is_portal(&self) -> bool {
+        matches!(self.kind, NodeKind::Portal(_))
     }
 }
 
@@ -1900,6 +1988,34 @@ mod tests {
         assert!(!out.contains("hidden"));
         assert!(!out.contains("group"));
         assert!(!out.contains("fill"));
+    }
+
+    #[test]
+    fn portal_node_round_trips_unbound() {
+        let node = Node {
+            id: NodeId(1),
+            rect: WorldRect::new(0.0, 0.0, REPO_PORTAL_DEFAULT_W, REPO_PORTAL_DEFAULT_H),
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            kind: NodeKind::Portal(PortalNode::unbound_repo_lens("Repository Lens")),
+        };
+        let json = serde_json::to_string(&node).unwrap();
+        assert!(json.contains("\"portal\""));
+        assert!(!json.contains("\"source\""));
+        let back: Node = serde_json::from_str(&json).unwrap();
+        assert!(back.is_portal());
+        match back.kind {
+            NodeKind::Portal(p) => {
+                assert!(p.source.is_none());
+                assert_eq!(p.title, "Repository Lens");
+                assert!(matches!(p.class, PortalClass::Generated));
+                assert!(matches!(p.kind, PortalKind::RepoLens));
+            }
+            _ => panic!("expected portal"),
+        }
     }
 
     #[test]

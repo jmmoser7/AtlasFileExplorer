@@ -22,6 +22,10 @@ pub use item::SlateItem;
 pub use lease::{Lease, LeaseInfo, LeaseState, LEASE_HEARTBEAT_SECS, LEASE_STALE_SECS};
 pub use link::{link_status, LinkStatus};
 pub use media::{media_kind, MediaKind};
-pub use scene::{Node, NodeId, NodeKind, Scene, SceneCmd, SceneJournal, WorldRect};
+pub use scene::{
+    Node, NodeId, NodeKind, PortalClass, PortalKind, PortalNode, RepoPortalQuery, RepoTimeAxis,
+    Scene, SceneCmd, SceneJournal, SourceUri, WorldRect, REPO_PORTAL_DEFAULT_H,
+    REPO_PORTAL_DEFAULT_W,
+};
 pub use tags::{Tag, TagGroup};
 pub use view::{ViewKind, ViewState};

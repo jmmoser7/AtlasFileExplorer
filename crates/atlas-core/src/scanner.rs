@@ -4,7 +4,7 @@
 //! streamed to the UI in batches so cards appear from the first frame;
 //! nothing waits for the scan to finish.
 
-use crate::metadata::{ctime_of, owner_short};
+use crate::metadata::ctime_of;
 use crate::types::FileEntry;
 use crossbeam_channel::Sender;
 use std::path::PathBuf;
@@ -134,10 +134,18 @@ pub fn start_scan_seeds(
                             let size = md.len();
                             let mtime = mtime_of(&md);
                             let ctime = ctime_of(&md);
-                            let owner = owner_short(&entry.path());
-                            if let Some(fe) =
-                                FileEntry::from_abs(&root, entry.path(), size, mtime, ctime, owner)
-                            {
+                            // Owner is deliberately absent: it lives in the
+                            // security descriptor, so it costs a round trip per
+                            // file and was the dominant cost of discovery on a
+                            // share. `crate::owners` fills it in afterwards.
+                            if let Some(fe) = FileEntry::from_abs(
+                                &root,
+                                entry.path(),
+                                size,
+                                mtime,
+                                ctime,
+                                String::new(),
+                            ) {
                                 files_found.fetch_add(1, Ordering::Relaxed);
                                 batch.push(fe);
                             }
@@ -198,7 +206,8 @@ pub fn stat_file(root: &std::path::Path, path: &std::path::Path) -> Option<FileE
     }
     let mtime = mtime_of(&md);
     let ctime = ctime_of(&md);
-    let owner = owner_short(path);
+    // One file, not a walk: the owner query is affordable here.
+    let owner = crate::metadata::owner_short(path);
     FileEntry::from_abs(root, path.to_path_buf(), md.len(), mtime, ctime, owner)
 }
 

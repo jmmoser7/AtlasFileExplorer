@@ -5,6 +5,45 @@ bound and why) and `ARCHITECTURE.md` (how it is built); per-app binding
 tables live in each app's `commands.rs` (`SPECS`) and render in
 **Advanced → Commands & shortcuts**.
 
+## 2026-08-01 — One time axis: the activity timeline
+
+- **The stacked pair became one control.** File Atlas' contribution graph and
+  its date-window slider were two widgets with two independent scales for one
+  piece of state; they are now `atlas_shell::timeline::ActivityTimeline`, where
+  cells, handles, and ticks are all placed by the same `x(t)`. The Filters
+  dock's duplicate slider is gone, replaced by a readout plus *clear
+  selection*. Spec: `specs/activity-timeline.md`.
+- **Semantic zoom instead of a scrub bar.** Wheel pans, Ctrl+wheel zooms at the
+  cursor, and the 7×N weekday block morphs — staggering into per-day slots
+  around a month of span, then expanding the focused day into an adaptive
+  bucket strip and finally per-file dashes down to seconds. Thresholds, LOD,
+  and wheel feel are tokens, not constants.
+- **Discrete picks generalized to the grain in force** (`TimePicks`, a
+  normalized disjoint interval set): Ctrl+click toggles the bucket you are
+  looking at — a day zoomed out, an hour or a minute zoomed in — so punching a
+  hole in a range is possible at any depth. Timeline reset earns its own cancel
+  layer (`CancelLayer::Readout`) below canvas selection, so Esc walks the
+  canvas first and the time window last.
+
+## 2026-08-01 — Type-to-command vs bare-letter shortcuts
+
+- **Board type-to-command**: typing opens the canvas palette with the query
+  pre-seeded (same UI as double-click empty board). Bare A–Z shortcuts hold
+  ~700 ms before committing so a following character can promote into
+  command entry instead of stealing the first letter of a typed name
+  (`B` vs `brush`). Esc cancels the hold; pointer-down / other chords
+  commit early so tool-then-click stays snappy.
+
+## 2026-08-01 — Repository Lens portal on the board
+
+- **Board portal ships a usable v1**: `NodeKind::Portal` (generated /
+  repo_lens) with journaled source + query; palette / tool placement
+  (`board.portal.repo_lens`); empty-state bind; async `repo-graph`
+  extract→layout paint; focus dimming; refresh / bake; inspector controls.
+  Git write-back commands remain stubbed (toast) until IX.5 wiring lands.
+- Earlier the same day: contract moved to **agreed**, `repo-graph` scaffolded,
+  and SPECS registered.
+
 ## 2026-07-30 — The contract system covers portals (first portal contract)
 
 - **`portal-lens-repository.md`** — the first contract for something that is

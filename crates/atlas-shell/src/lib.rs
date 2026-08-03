@@ -13,7 +13,9 @@
 //! - [`tokens`] — values embedded from the human-editable `ui-tokens.toml`.
 //! - [`tuning`] — optional live editor, compiled only with `ui-tuner`.
 //! - [`sidebar`] — left tools-rail layout primitives (sections, rows).
-//! - [`widgets`] — shared controls (chips, sliders, timeline, gear menu).
+//! - [`timeline`] — unified activity timeline: contribution graph and range
+//!   handles on one cursor-anchored time axis (see `TOOLBARS.md`).
+//! - [`widgets`] — shared controls (chips, sliders, gear menu).
 //! - [`chrome`] — gear-menu panel registry, generic over each app's panels.
 //! - [`commands`] — command-reference table + shared canvas navigation.
 //! - [`home`] — Cover Flow launch / home surface (recent folders & workbooks).
@@ -42,6 +44,7 @@ pub mod sidebar;
 pub mod tabs;
 pub mod taper;
 pub mod theme;
+pub mod timeline;
 pub mod tokens;
 pub mod tuning;
 pub mod widgets;

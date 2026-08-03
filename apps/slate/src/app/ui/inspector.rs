@@ -189,6 +189,11 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         // wave-2: connector inspector section (arrowheads, faint/default,
         // label) lands with the board interaction work.
         NodeKind::Connector(_) => {}
+        NodeKind::Portal(_) => {
+            sidebar_collapsible_region(ui, tool_group, Id::new("portal"), "Portal", theme, |ui| {
+                portal_controls(app, ui, theme, &ids, &primary)
+            });
+        }
     }
 
     sidebar_subtle_divider(ui, theme);
@@ -982,6 +987,96 @@ fn text_controls(
 }
 
 // ---------- frame ----------
+
+fn portal_controls(
+    app: &mut SlateApp,
+    ui: &mut egui::Ui,
+    theme: SidebarTheme,
+    ids: &[NodeId],
+    primary: &Node,
+) {
+    let NodeKind::Portal(p) = &primary.kind else {
+        return;
+    };
+    let mut title = p.title.clone();
+    if ui
+        .add(egui::TextEdit::singleline(&mut title).desired_width(ui.available_width()))
+        .changed()
+    {
+        let t = title.clone();
+        app.patch_nodes(ids, move |n| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                p.title = t.clone();
+            }
+        });
+    }
+    ui.label(
+        RichText::new(match &p.source {
+            Some(s) => format!("Source: {}", s.locator),
+            None => "Source: unbound".into(),
+        })
+        .small()
+        .color(theme.sub),
+    );
+    ui.horizontal(|ui| {
+        if ui.button(RichText::new("Choose…").small()).clicked() {
+            app.dispatch(
+                ui.ctx(),
+                atlas_commands::CommandId("portal.repo.source"),
+                None,
+            );
+        }
+        if ui.button(RichText::new("Refresh").small()).clicked() {
+            app.dispatch(
+                ui.ctx(),
+                atlas_commands::CommandId("portal.repo.refresh"),
+                None,
+            );
+        }
+        if ui.button(RichText::new("Bake").small()).clicked() {
+            app.dispatch(
+                ui.ctx(),
+                atlas_commands::CommandId("portal.repo.bake"),
+                None,
+            );
+        }
+    });
+    let mut remotes = p.query.include_remotes;
+    if ui
+        .checkbox(&mut remotes, RichText::new("Include remotes").small())
+        .changed()
+    {
+        app.patch_nodes(ids, move |n| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                p.query.include_remotes = remotes;
+            }
+        });
+    }
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Axis").small().color(theme.sub));
+        let topo = matches!(p.query.axis, slate_doc::scene::RepoTimeAxis::Topological);
+        if ui
+            .selectable_label(topo, RichText::new("Topological").small())
+            .clicked()
+        {
+            app.patch_nodes(ids, move |n| {
+                if let NodeKind::Portal(p) = &mut n.kind {
+                    p.query.axis = slate_doc::scene::RepoTimeAxis::Topological;
+                }
+            });
+        }
+        if ui
+            .selectable_label(!topo, RichText::new("Chronological").small())
+            .clicked()
+        {
+            app.patch_nodes(ids, move |n| {
+                if let NodeKind::Portal(p) = &mut n.kind {
+                    p.query.axis = slate_doc::scene::RepoTimeAxis::Chronological;
+                }
+            });
+        }
+    });
+}
 
 fn frame_controls(
     app: &mut SlateApp,

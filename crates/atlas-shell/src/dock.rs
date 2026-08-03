@@ -44,14 +44,12 @@ pub enum DockIcon {
 /// icons as another (neighbors by order only â€” no visible separator).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DockItemKind {
-    /// Settings dashboards (filters, tags, displayâ€¦). Hover â†’ name chip;
-    /// prolonged hover â†’ description; click pins the full body. Hover never
-    /// displaces the pinned dashboard stack.
+    /// Settings dashboards (filters, tags, display…). Hover → title chip;
+    /// click → volatile body; double-click → pin. See `TOOLBARS.md`.
     Dashboard,
-    /// Tool flyouts (shapes, curves, navâ€¦). Hover opens the sub-tool panel;
-    /// click pins that panel open.
+    /// Tool flyouts (shapes, curves, nav…). Same hover / click / pin model.
     Tool,
-    /// Click fires an action; no popover. Hover shows the shared label chip above the icon.
+    /// Click fires an action; no body. Hover shows the title chip above the icon.
     Action,
 }
 
@@ -66,7 +64,7 @@ pub struct DockItem<'a> {
     pub id: &'static str,
     /// Human name: popover header / name chip / tooltip.
     pub label: &'a str,
-    /// Longer blurb shown on prolonged Dashboard hover. Unused for Tool/Action.
+    /// Longer blurb shown after a short linger on the title chip (any kind).
     pub description: &'a str,
     pub icon: DockIcon,
     pub kind: DockItemKind,
@@ -105,13 +103,16 @@ struct DockState {
     /// and apps may persist them across sessions via [`seed_pinned`] /
     /// [`pinned_ids`] + `ChromePrefs`.
     pinned: Vec<&'static str>,
-    /// Transient Tool/Dashboard body while hovering (anchored above the icon;
-    /// not in the stack). Survives the pointer's travel from icon to panel:
-    /// only replaced by another hover or retired by the close-delay grace.
+    /// Volatile body from a single click (anchored on the icon; not in the
+    /// stack). Retires on minimize, Escape, outside click, or close-delay.
     body_preview: Option<&'static str>,
-    /// Short label chip for Action + Dashboard hovers (always above the spawning icon).
+    /// Title chip while hovering any icon (above the spawning icon).
     label_hover: Option<&'static str>,
     label_hover_since: f64,
+    /// After a click / double-click pin, suppress the title chip until the
+    /// pointer leaves the icon strip. Without this the chip snaps back under
+    /// a still-hovering cursor the same frame the pin lands.
+    label_suppress: bool,
     /// 0..1 fade for Dashboard description text (smooth, not a hard toggle).
     describe_blend: f32,
     /// Ease-in for pinned stack panels and hover previews (id → 0..1).
@@ -119,6 +120,14 @@ struct DockState {
     last_inside_time: f64,
     /// Last-frame measured popover sizes for stack centering.
     panel_sizes: HashMap<&'static str, Vec2>,
+    /// Adaptive body width per panel: grown from the token width while the
+    /// body's content would need to scroll (see [`adapt_panel_width`]).
+    panel_widths: HashMap<&'static str, f32>,
+    /// Last-frame body content height per panel. Drives the grow-vs-scroll
+    /// decision: an egui `Area` locks its `max_rect` to the previous size, so
+    /// a always-on `ScrollArea` traps expanded fold sections forever. We only
+    /// scroll once content has actually overflowed the canvas budget.
+    panel_content_h: HashMap<&'static str, f32>,
     /// Whether persisted pins were already restored this session.
     seeded: bool,
 }
@@ -126,6 +135,23 @@ struct DockState {
 fn ease_out_cubic(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     1.0 - (1.0 - t).powi(3)
+}
+
+/// How hard hover / active icon fills lean toward their token colors.
+/// Keep these low — selected palette icons should barely shift.
+const ICON_HOVER_MIX: f32 = 0.14;
+const ICON_ACTIVE_MIX: f32 = 0.18;
+/// Title-chip translucency (on top of the open animation).
+const HOVER_CHIP_OPACITY: f32 = 0.78;
+
+fn mix_icon_fill(base: Color32, accent: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    Color32::from_rgba_unmultiplied(
+        (base.r() as f32 + (accent.r() as f32 - base.r() as f32) * t).round() as u8,
+        (base.g() as f32 + (accent.g() as f32 - base.g() as f32) * t).round() as u8,
+        (base.b() as f32 + (accent.b() as f32 - base.b() as f32) * t).round() as u8,
+        (base.a() as f32 + (accent.a() as f32 - base.a() as f32) * t).round() as u8,
+    )
 }
 
 fn lerp_toward(current: f32, target: f32, dt: f32, duration: f32) -> f32 {
@@ -433,11 +459,72 @@ fn stack_ids(state: &DockState) -> Vec<&'static str> {
     state.pinned.clone()
 }
 
+/// Gap kept between a panel and the canvas edge.
+const PANEL_EDGE_MARGIN: f32 = 12.0;
+/// Height of the caption row (label + minimize glyph) and the rule below it.
+const PANEL_CAPTION_H: f32 = 22.0;
+const PANEL_SEPARATOR_H: f32 = 10.0;
+/// A panel body never gets less than this, even on a tiny canvas.
+const PANEL_MIN_BODY_H: f32 = 120.0;
+/// Fraction of the canvas a panel may grow across. Docks are palettes, not
+/// workspaces.
+const PANEL_MAX_WIDTH_FRAC: f32 = 0.42;
+/// One widen/narrow increment of the width feedback loop.
+const PANEL_WIDTH_STEP: f32 = 48.0;
+/// Narrow only once the content uses less than this share of the height
+/// budget. The gap between this and "overflows the budget" is the dead zone
+/// that stops widen and narrow from fighting each frame.
+const PANEL_SHRINK_FRACTION: f32 = 0.7;
+
 fn panel_size_for(state: &DockState, id: &'static str, tokens: &DockTokens) -> Vec2 {
-    state.panel_sizes.get(&id).copied().unwrap_or(Vec2::new(
-        tokens.popover_width,
-        (tokens.popover_max_height * 0.45).clamp(120.0, 280.0),
-    ))
+    let width = state
+        .panel_widths
+        .get(&id)
+        .copied()
+        .unwrap_or(tokens.popover_width);
+    state
+        .panel_sizes
+        .get(&id)
+        .copied()
+        .unwrap_or(Vec2::new(width, PANEL_MIN_BODY_H * 2.0))
+}
+
+/// Widest a panel may grow to.
+fn panel_max_width(canvas: Rect, tokens: &DockTokens) -> f32 {
+    (canvas.width() * PANEL_MAX_WIDTH_FRAC).max(tokens.popover_width)
+}
+
+/// This panel's current body width, clamped to what the canvas allows.
+fn panel_width(state: &DockState, id: &'static str, tokens: &DockTokens, canvas: Rect) -> f32 {
+    state
+        .panel_widths
+        .get(&id)
+        .copied()
+        .unwrap_or(tokens.popover_width)
+        .clamp(tokens.popover_width, panel_max_width(canvas, tokens))
+}
+
+/// Vertical space a panel body may use before it has to scroll: the canvas
+/// minus the edge margins and the panel's own chrome.
+fn panel_body_max_height(canvas: Rect, tokens: &DockTokens) -> f32 {
+    let chrome = tokens.popover_padding * 2.0 + PANEL_CAPTION_H + PANEL_SEPARATOR_H;
+    (canvas.height() - PANEL_EDGE_MARGIN * 2.0 - chrome).max(PANEL_MIN_BODY_H)
+}
+
+/// One step of the panel width feedback loop. A pinned panel with several fold
+/// sections expanded overflows its height budget; widening reflows wrapped
+/// rows (chip flows, label + control rows) so the complement of open sections
+/// fits without a scrollbar.
+fn adapt_panel_width(current: f32, content_h: f32, body_max_h: f32, min_w: f32, max_w: f32) -> f32 {
+    let max_w = max_w.max(min_w);
+    let current = current.clamp(min_w, max_w);
+    if content_h > body_max_h + 1.0 {
+        (current + PANEL_WIDTH_STEP).min(max_w)
+    } else if content_h < body_max_h * PANEL_SHRINK_FRACTION {
+        (current - PANEL_WIDTH_STEP).max(min_w)
+    } else {
+        current
+    }
 }
 
 /// Lay out open panels: pack along the stack axis, then translate so the
@@ -481,9 +568,16 @@ fn layout_panel_origins(
                 .fold(f32::NEG_INFINITY, f32::max)
                 + tokens.popover_gap;
 
-            for (slot, &(i, _, _)) in packed.iter().enumerate() {
+            for (slot, &(i, _, size)) in packed.iter().enumerate() {
                 let id = open[i].0;
-                origins.insert(id, Pos2::new(x, placed_y[slot] + shift));
+                // A panel tall enough to fill the canvas must start at the top
+                // margin, not float above it where the top would be clipped.
+                let top = canvas.top() + PANEL_EDGE_MARGIN;
+                let bottom = (canvas.bottom() - PANEL_EDGE_MARGIN - size.y).max(top);
+                origins.insert(
+                    id,
+                    Pos2::new(x, (placed_y[slot] + shift).clamp(top, bottom)),
+                );
             }
         }
         DockSide::BottomCenter => {
@@ -517,7 +611,11 @@ fn layout_panel_origins(
                 let id = open[i].0;
                 let size = open[i].2;
                 // Pivot is CENTER_BOTTOM â€” pass the bottom-center anchor.
-                origins.insert(id, Pos2::new(placed_x[slot] + size.x * 0.5 + shift, y));
+                let half = size.x * 0.5;
+                let left = canvas.left() + PANEL_EDGE_MARGIN + half;
+                let right = (canvas.right() - PANEL_EDGE_MARGIN - half).max(left);
+                let cx = (placed_x[slot] + half + shift).clamp(left, right);
+                origins.insert(id, Pos2::new(cx, y));
             }
         }
     }
@@ -586,9 +684,14 @@ pub fn floating_dock(
         }
     }
     if let Some(hover) = state.label_hover {
-        if !visible.iter().any(|item| {
-            item.id == hover && matches!(item.kind, DockItemKind::Action | DockItemKind::Dashboard)
-        }) {
+        // Title chips are for unpinned icons only — a pinned panel already
+        // owns the label in its caption, and a chip would sit on the icon.
+        let still_ok = visible.iter().any(|item| {
+            item.id == hover
+                && !state.pinned.contains(&item.id)
+                && state.body_preview != Some(item.id)
+        });
+        if !still_ok {
             state.label_hover = None;
             state.label_hover_since = 0.0;
             state.describe_blend = 0.0;
@@ -637,8 +740,11 @@ pub fn floating_dock(
     };
 
     let mut icon_rects: HashMap<&'static str, Rect> = HashMap::new();
-    let mut body_preview_candidate: Option<&'static str> = None;
     let mut label_hover_candidate: Option<&'static str> = None;
+    // Pointer is over a pinned / volatile-open icon — previous chips must die
+    // immediately (the bar still counts as "inside", so close-delay alone
+    // would leave the prior name stuck).
+    let mut label_blocked_by_open = false;
     let mut hovered_icon: Option<&'static str> = None;
     let bar_response = bar_area.show(ctx, |ui| {
         let mut draw_items = |ui: &mut egui::Ui| {
@@ -651,15 +757,17 @@ pub fn floating_dock(
                     ui.allocate_exact_size(Vec2::splat(tokens.icon_size), Sense::click());
                 icon_rects.insert(item.id, rect);
                 let hovered = resp.hovered();
-                let is_open = state.pinned.contains(&item.id)
-                    || state.body_preview == Some(item.id)
-                    || state.label_hover == Some(item.id);
-                let fill = if item.active || is_open {
-                    th.icon_active_color()
+                let is_pinned = state.pinned.contains(&item.id);
+                let is_preview = state.body_preview == Some(item.id);
+                // Selected / pinned / hover fills are a bare whisper over the
+                // default — never a full-opacity swap that screams "active".
+                let base = th.icon_fill_color();
+                let fill = if item.active || is_pinned || is_preview {
+                    mix_icon_fill(base, th.icon_active_color(), ICON_ACTIVE_MIX)
                 } else if hovered {
-                    th.icon_hover_color()
+                    mix_icon_fill(base, th.icon_hover_color(), ICON_HOVER_MIX)
                 } else {
-                    th.icon_fill_color()
+                    base
                 };
                 paint_squircle(
                     ui.painter(),
@@ -673,40 +781,51 @@ pub fn floating_dock(
                 if hovered {
                     state.last_inside_time = now;
                     hovered_icon = Some(item.id);
-                    if !state.pinned.contains(&item.id) {
-                        match item.kind {
-                            DockItemKind::Tool | DockItemKind::Dashboard => {
-                                body_preview_candidate = Some(item.id);
-                            }
-                            DockItemKind::Action => {}
-                        }
-                    }
-                    match item.kind {
-                        DockItemKind::Action | DockItemKind::Dashboard => {
-                            label_hover_candidate = Some(item.id);
-                        }
-                        DockItemKind::Tool => {}
+                    // Title chip only when the panel isn't already open —
+                    // pinned / volatile bodies carry their own caption.
+                    if is_pinned || is_preview {
+                        label_blocked_by_open = true;
+                    } else {
+                        label_hover_candidate = Some(item.id);
                     }
                 }
-                if resp.clicked() {
+                if item.kind.opens_body() && resp.double_clicked() {
+                    clicked = Some(item.id);
+                    state.last_inside_time = now;
+                    if let Some(idx) = state.pinned.iter().position(|p| *p == item.id) {
+                        state.pinned.remove(idx);
+                        state.panel_open.remove(&item.id);
+                    } else {
+                        state.pinned.push(item.id);
+                        state.panel_open.insert(item.id, 0.0);
+                    }
+                    if state.body_preview == Some(item.id) {
+                        state.body_preview = None;
+                    }
+                    // Pin/unpin under a still-hovering cursor must not flash
+                    // the name chip back on top of the icon.
+                    state.label_hover = None;
+                    state.label_hover_since = 0.0;
+                    state.describe_blend = 0.0;
+                    state.label_suppress = true;
+                } else if resp.clicked() {
                     clicked = Some(item.id);
                     state.last_inside_time = now;
                     if item.kind.opens_body() {
-                        if let Some(idx) = state.pinned.iter().position(|p| *p == item.id) {
-                            state.pinned.remove(idx);
+                        if state.pinned.contains(&item.id) {
+                            // Already pinned — single click is a no-op (use ─).
+                        } else if state.body_preview == Some(item.id) {
+                            state.body_preview = None;
                             state.panel_open.remove(&item.id);
                         } else {
-                            state.pinned.push(item.id);
+                            // Volatile menu.
+                            state.body_preview = Some(item.id);
                             state.panel_open.insert(item.id, 0.0);
                         }
-                        if state.body_preview == Some(item.id) {
-                            state.body_preview = None;
-                        }
-                        if state.label_hover == Some(item.id) {
-                            state.label_hover = None;
-                            state.label_hover_since = 0.0;
-                            state.describe_blend = 0.0;
-                        }
+                        state.label_hover = None;
+                        state.label_hover_since = 0.0;
+                        state.describe_blend = 0.0;
+                        state.label_suppress = true;
                     }
                 }
             }
@@ -722,18 +841,19 @@ pub fn floating_dock(
     });
     let bar_rect = bar_response.response.rect;
 
-    // A new icon hover replaces the preview; leaving the icon does NOT clear
-    // it — the preview must survive the pointer's travel across the gap into
-    // the panel. The close-delay grace below retires abandoned previews.
-    // Hovering a different icon (of any kind) is an explicit new target.
-    if let Some(id) = body_preview_candidate {
-        if !state.pinned.contains(&id) {
-            state.body_preview = Some(id);
-        }
-    } else if hovered_icon.is_some() && hovered_icon != state.body_preview {
-        state.body_preview = None;
+    // Hover only drives the title chip. Volatile bodies come from single-click.
+    let _ = hovered_icon;
+    if label_hover_candidate.is_none() && !label_blocked_by_open {
+        // Pointer left every eligible icon — allow chips again next hover.
+        // (Blocked-by-open keeps suppress so we don't flash a chip if the
+        // user later drifts onto a non-pinned neighbor without leaving.)
+        state.label_suppress = false;
     }
-    if let Some(id) = label_hover_candidate {
+    if state.label_suppress || label_blocked_by_open {
+        state.label_hover = None;
+        state.label_hover_since = 0.0;
+        state.describe_blend = 0.0;
+    } else if let Some(id) = label_hover_candidate {
         if state.label_hover != Some(id) {
             state.label_hover = Some(id);
             state.label_hover_since = now;
@@ -743,8 +863,8 @@ pub fn floating_dock(
 
     if let Some(label_id) = state.label_hover {
         if let Some(item) = visible.iter().find(|item| item.id == label_id) {
-            let target = if item.kind == DockItemKind::Dashboard
-                && !item.description.is_empty()
+            // Linger: any icon with a description expands the chip after delay.
+            let target = if !item.description.is_empty()
                 && now - state.label_hover_since >= tokens.dashboard_describe_delay as f64
             {
                 1.0
@@ -757,6 +877,9 @@ pub fn floating_dock(
                 dt,
                 tokens.describe_fade_duration,
             );
+            if target > 0.0 || state.describe_blend > 0.001 {
+                ctx.request_repaint();
+            }
         }
     } else {
         state.describe_blend = 0.0;
@@ -793,14 +916,15 @@ pub fn floating_dock(
         th.muted_text_color(),
     );
 
-    // ---- Shared label chip (Action + Dashboard; above the icon) ----
+    // ---- Shared label chip (above the icon; transparent, linger expands) ----
     let mut label_chip_rect: Option<Rect> = None;
     if let Some(label_id) = state.label_hover {
         if let Some(&icon) = icon_rects.get(&label_id) {
             if let Some(item) = visible.iter().find(|item| item.id == label_id) {
                 let (chip_pos, chip_pivot) = icon_popover_anchor(side, icon, tokens.hover_chip_gap);
-                let chip_alpha =
-                    ease_out_cubic(state.panel_open.get(&label_id).copied().unwrap_or(1.0));
+                let chip_alpha = ease_out_cubic(
+                    state.panel_open.get(&label_id).copied().unwrap_or(1.0),
+                ) * HOVER_CHIP_OPACITY;
                 let chip = egui::Area::new(state_id.with("label_chip"))
                     .order(egui::Order::Foreground)
                     .pivot(chip_pivot)
@@ -809,17 +933,17 @@ pub fn floating_dock(
                     .show(ctx, |ui| {
                         ui.set_opacity(chip_alpha);
                         egui::Frame::new()
-                            .fill(th.popover_fill_color())
-                            .stroke(Stroke::new(1.0_f32, th.border_color()))
+                            .fill(th.popover_fill_color().gamma_multiply(0.82))
+                            .stroke(Stroke::new(
+                                1.0_f32,
+                                th.border_color().gamma_multiply(0.7),
+                            ))
                             .corner_radius(CornerRadius::same(6))
                             .inner_margin(egui::Margin::symmetric(10, 6))
                             .show(ui, |ui| {
-                                ui.set_max_width(220.0);
+                                ui.set_max_width(240.0);
                                 ui.label(RichText::new(item.label).strong().color(th.text_color()));
-                                if item.kind == DockItemKind::Dashboard
-                                    && !item.description.is_empty()
-                                    && state.describe_blend > 0.001
-                                {
+                                if !item.description.is_empty() && state.describe_blend > 0.001 {
                                     ui.add_space(2.0);
                                     ui.label(RichText::new(item.description).small().color(
                                         th.muted_text_color().gamma_multiply(state.describe_blend),
@@ -837,6 +961,8 @@ pub fn floating_dock(
 
     let mut union_panels = Rect::NOTHING;
     let mut new_sizes: HashMap<&'static str, Vec2> = HashMap::new();
+    let mut new_widths: HashMap<&'static str, f32> = HashMap::new();
+    let mut new_content_h: HashMap<&'static str, f32> = HashMap::new();
     let pointer = ctx.pointer_latest_pos();
 
     // ---- Hover preview panel (on-icon; does not join the centered stack) ----
@@ -848,35 +974,56 @@ pub fn floating_dock(
                     .find(|item| item.id == preview_id)
                     .map(|item| item.label.to_owned())
                     .unwrap_or_default();
-                let max_h = tokens
-                    .popover_max_height
-                    .min((canvas.height() - 60.0).max(120.0));
-                let gap = tokens.popover_gap + tokens.hover_chip_gap;
-                let (origin, pivot) = icon_popover_anchor(side, icon, gap);
+                let body_max_h = panel_body_max_height(canvas, &tokens);
+                let (origin, pivot) = icon_popover_anchor(side, icon, tokens.popover_gap);
                 let open =
                     ease_out_cubic(state.panel_open.get(&preview_id).copied().unwrap_or(0.0));
+                let width = panel_width(&state, preview_id, &tokens, canvas);
+                let last_h = state
+                    .panel_content_h
+                    .get(&preview_id)
+                    .copied()
+                    .unwrap_or(0.0);
                 let panel_area = egui::Area::new(state_id.with(("preview", preview_id)))
                     .order(egui::Order::Foreground)
                     .pivot(pivot)
                     .fixed_pos(origin)
-                    .constrain_to(ctx.screen_rect());
-                let response = panel_area.show(ctx, |ui| {
-                    ui.set_opacity(open);
-                    popover_frame(&tokens, th).show(ui, |ui| {
-                        ui.set_width(
-                            (tokens.popover_width - tokens.popover_padding * 2.0).max(1.0),
-                        );
-                        ui.label(RichText::new(label).small().strong().color(th.text_color()));
-                        ui.separator();
-                        ScrollArea::vertical()
-                            .max_height(max_h)
-                            .show(ui, |ui| panel_body(ui, preview_id));
-                    });
-                });
-                let panel_rect = response.response.rect;
-                new_sizes.insert(preview_id, panel_rect.size());
-                union_panels = panel_rect;
-                if pointer.is_some_and(|p| panel_rect.contains(p)) {
+                    .default_size(Vec2::new(
+                        width,
+                        body_max_h + PANEL_CAPTION_H + PANEL_SEPARATOR_H,
+                    ))
+                    .constrain_to(canvas);
+                let render = show_panel(
+                    ctx,
+                    panel_area,
+                    &tokens,
+                    th,
+                    &label,
+                    false,
+                    width,
+                    body_max_h,
+                    last_h,
+                    open,
+                    |ui| panel_body(ui, preview_id),
+                );
+                if render.minimize {
+                    state.body_preview = None;
+                    state.panel_open.remove(&preview_id);
+                }
+                new_widths.insert(
+                    preview_id,
+                    adapt_panel_width(
+                        width,
+                        render.content_h,
+                        body_max_h,
+                        tokens.popover_width,
+                        panel_max_width(canvas, &tokens),
+                    ),
+                );
+                new_content_h.insert(preview_id, render.content_h);
+                new_sizes.insert(preview_id, render.rect.size());
+                union_panels = render.rect;
+                if pointer.is_some_and(|p| render.rect.contains(p)) {
                     state.last_inside_time = now;
                 }
             }
@@ -907,41 +1054,56 @@ pub fn floating_dock(
             .map(|item| item.label.to_owned())
             .unwrap_or_default();
         let pinned = state.pinned.contains(oid);
-        let max_h = tokens
-            .popover_max_height
-            .min((canvas.height() - 60.0).max(120.0));
+        let body_max_h = panel_body_max_height(canvas, &tokens);
+        let width = panel_width(&state, oid, &tokens, canvas);
+        let last_h = state.panel_content_h.get(oid).copied().unwrap_or(0.0);
+        let default_size = Vec2::new(width, body_max_h + PANEL_CAPTION_H + PANEL_SEPARATOR_H);
         let panel_area = match side {
             DockSide::LeftCenter => egui::Area::new(state_id.with(("panel", *oid)))
                 .order(egui::Order::Foreground)
                 .pivot(Align2::LEFT_TOP)
                 .fixed_pos(origin)
-                .constrain_to(ctx.screen_rect()),
+                .default_size(default_size)
+                .constrain_to(canvas),
             DockSide::BottomCenter => egui::Area::new(state_id.with(("panel", *oid)))
                 .order(egui::Order::Foreground)
                 .pivot(Align2::CENTER_BOTTOM)
                 .fixed_pos(origin)
-                .constrain_to(ctx.screen_rect()),
+                .default_size(default_size)
+                .constrain_to(canvas),
         };
         let open_anim = ease_out_cubic(state.panel_open.get(oid).copied().unwrap_or(1.0));
-        let response = panel_area.show(ctx, |ui| {
-            ui.set_opacity(open_anim);
-            popover_frame(&tokens, th).show(ui, |ui| {
-                ui.set_width((tokens.popover_width - tokens.popover_padding * 2.0).max(1.0));
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(label).small().strong().color(th.text_color()));
-                    if pinned {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new("pinned").small().color(th.muted_text_color()));
-                        });
-                    }
-                });
-                ui.separator();
-                ScrollArea::vertical()
-                    .max_height(max_h)
-                    .show(ui, |ui| panel_body(ui, oid));
-            });
-        });
-        let panel_rect = response.response.rect;
+        let render = show_panel(
+            ctx,
+            panel_area,
+            &tokens,
+            th,
+            &label,
+            pinned,
+            width,
+            body_max_h,
+            last_h,
+            open_anim,
+            |ui| panel_body(ui, oid),
+        );
+        if render.minimize {
+            if let Some(idx) = state.pinned.iter().position(|p| p == oid) {
+                state.pinned.remove(idx);
+            }
+            state.panel_open.remove(oid);
+        }
+        new_widths.insert(
+            *oid,
+            adapt_panel_width(
+                width,
+                render.content_h,
+                body_max_h,
+                tokens.popover_width,
+                panel_max_width(canvas, &tokens),
+            ),
+        );
+        new_content_h.insert(*oid, render.content_h);
+        let panel_rect = render.rect;
         new_sizes.insert(*oid, panel_rect.size());
         if union_panels == Rect::NOTHING {
             union_panels = panel_rect;
@@ -960,7 +1122,24 @@ pub fn floating_dock(
             state.last_inside_time = now;
         }
     }
+    // Width / height / scroll-mode changes take effect next frame.
+    let settling = new_widths.iter().any(|(id, w)| {
+        state
+            .panel_widths
+            .get(id)
+            .is_none_or(|prev| (prev - w).abs() > 0.5)
+    }) || new_content_h.iter().any(|(id, h)| {
+        state
+            .panel_content_h
+            .get(id)
+            .is_none_or(|prev| (prev - h).abs() > 1.0)
+    });
     state.panel_sizes = new_sizes;
+    state.panel_widths = new_widths;
+    state.panel_content_h = new_content_h;
+    if settling {
+        ctx.request_repaint();
+    }
 
     // Hover tracer: faint orthogonal wire from panel border back to icon.
     if let Some((_id, icon_rect, panel_rect)) = tracer_for {
@@ -997,9 +1176,10 @@ pub fn floating_dock(
     });
     if pointer_inside {
         state.last_inside_time = now;
-    } else if body_preview_candidate.is_none() && label_hover_candidate.is_none() {
+    } else if label_hover_candidate.is_none() {
         let hover_expired = now - state.last_inside_time > tokens.close_delay as f64;
         if hover_expired {
+            // Volatile bodies and title chips retire; pins stay.
             state.body_preview = None;
             state.label_hover = None;
             state.label_hover_since = 0.0;
@@ -1032,6 +1212,136 @@ fn pointer_in_rect(ctx: &egui::Context, rect: Rect) -> bool {
     ctx.pointer_latest_pos().is_some_and(|p| rect.contains(p))
 }
 
+/// Panel body in a thin floating scroll area. Returns the body's content
+/// height, which drives [`adapt_panel_width`] on the next frame.
+fn compact_panel_scroll(
+    ui: &mut egui::Ui,
+    max_h: f32,
+    add_body: impl FnOnce(&mut egui::Ui),
+) -> f32 {
+    ui.scope(|ui| {
+        let scroll = &mut ui.style_mut().spacing.scroll;
+        scroll.floating = true;
+        scroll.bar_width = 2.5;
+        scroll.floating_width = 1.0;
+        scroll.floating_allocated_width = 3.0;
+        scroll.bar_inner_margin = 2.0;
+        scroll.bar_outer_margin = 1.0;
+        ScrollArea::vertical()
+            .max_height(max_h)
+            .drag_to_scroll(false)
+            .auto_shrink([true, true])
+            .show(ui, add_body)
+            .content_size
+            .y
+    })
+    .inner
+}
+
+/// Lay the body out without a ScrollArea so the parent [`egui::Area`] can grow
+/// with expanded fold sections. Returns the measured content height.
+fn panel_body_unsized(ui: &mut egui::Ui, add_body: impl FnOnce(&mut egui::Ui)) -> f32 {
+    let top = ui.cursor().top();
+    add_body(ui);
+    (ui.cursor().top() - top).max(0.0)
+}
+
+/// Outcome of one rendered panel: what the user clicked, where it landed, and
+/// how tall its content wanted to be.
+struct PanelRender {
+    minimize: bool,
+    rect: Rect,
+    content_h: f32,
+}
+
+/// Frame + caption + body, shared by hover-preview (volatile) and pinned
+/// panels so both size and read identically.
+///
+/// Height policy: while `last_content_h` fits in `body_max_h`, the body is
+/// laid out directly and the Area grows/shrinks with open fold sections. Only
+/// after content has overflowed the budget do we wrap in a ScrollArea — an
+/// always-on ScrollArea would lock the Area to its previous size forever.
+#[allow(clippy::too_many_arguments)]
+fn show_panel(
+    ctx: &egui::Context,
+    area: egui::Area,
+    tokens: &DockTokens,
+    th: &DockThemeTokens,
+    label: &str,
+    pinned: bool,
+    width: f32,
+    body_max_h: f32,
+    last_content_h: f32,
+    open_anim: f32,
+    add_body: impl FnOnce(&mut egui::Ui),
+) -> PanelRender {
+    let mut minimize = false;
+    let mut content_h = 0.0;
+    let needs_scroll = last_content_h > body_max_h + 1.0;
+    let response = area.show(ctx, |ui| {
+        ui.set_opacity(open_anim);
+        popover_frame(tokens, th).show(ui, |ui| {
+            ui.set_width((width - tokens.popover_padding * 2.0).max(1.0));
+            minimize |= panel_caption(ui, label, pinned, th);
+            ui.separator();
+            if needs_scroll {
+                // Previous frame already grew the Area past the budget, so
+                // available height is large enough for a max-height scroll.
+                content_h = compact_panel_scroll(ui, body_max_h, add_body);
+            } else {
+                content_h = panel_body_unsized(ui, add_body);
+            }
+        });
+    });
+    PanelRender {
+        minimize,
+        rect: response.response.rect,
+        content_h,
+    }
+}
+
+/// Panel title row with Windows-style minimize (─) in the upper right.
+/// Returns `true` when minimize was clicked.
+fn panel_caption(ui: &mut egui::Ui, label: &str, pinned: bool, th: &DockThemeTokens) -> bool {
+    let mut minimize = false;
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::Label::new(RichText::new(label).small().strong().color(th.text_color()))
+                .sense(Sense::hover()),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let size = Vec2::splat(14.0);
+            let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+            let resp = resp
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text(if pinned {
+                    "Unpin (return to icon)"
+                } else {
+                    "Close"
+                });
+            if resp.hovered() {
+                ui.painter()
+                    .rect_filled(rect, 2.0, th.border_color().gamma_multiply(0.35));
+            }
+            let c = rect.center();
+            ui.painter().line_segment(
+                [Pos2::new(c.x - 4.0, c.y), Pos2::new(c.x + 4.0, c.y)],
+                Stroke::new(1.15_f32, th.text_color()),
+            );
+            if resp.clicked() {
+                minimize = true;
+            }
+            if pinned {
+                ui.add(
+                    egui::Label::new(RichText::new("pinned").small().color(th.muted_text_color()))
+                        .sense(Sense::hover()),
+                );
+            }
+        });
+    });
+    minimize
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1062,5 +1372,78 @@ mod tests {
     fn dock_side_labels() {
         assert_eq!(DockSide::LeftCenter.label(), "Left edge");
         assert_eq!(DockSide::BottomCenter.label(), "Bottom edge");
+    }
+
+    #[test]
+    fn body_height_budget_spans_the_canvas() {
+        let mut tokens = DockTokens::default();
+        tokens.normalize();
+        let canvas = Rect::from_min_size(Pos2::new(0.0, 40.0), Vec2::new(1600.0, 900.0));
+        let budget = panel_body_max_height(canvas, &tokens);
+        // Nearly the whole canvas, minus margins and caption chrome — the old
+        // behavior capped bodies at the much smaller popover_max_height.
+        assert!(
+            budget > canvas.height() - 100.0 && budget < canvas.height(),
+            "budget {budget} should track the canvas height"
+        );
+    }
+
+    #[test]
+    fn panel_widens_while_content_overflows_then_stops_at_max() {
+        let (min_w, max_w) = (260.0, 400.0);
+        let mut w = min_w;
+        for _ in 0..20 {
+            // Content always overflows: width must climb and then hold.
+            w = adapt_panel_width(w, 2000.0, 600.0, min_w, max_w);
+        }
+        assert_eq!(w, max_w);
+    }
+
+    #[test]
+    fn panel_narrows_again_once_content_fits_easily() {
+        let (min_w, max_w) = (260.0, 500.0);
+        let mut w = 452.0;
+        for _ in 0..20 {
+            w = adapt_panel_width(w, 100.0, 600.0, min_w, max_w);
+        }
+        assert_eq!(w, min_w);
+    }
+
+    #[test]
+    fn width_holds_inside_the_dead_zone() {
+        let w = 340.0;
+        // Content fills most, but not all, of the budget: no oscillation.
+        assert_eq!(adapt_panel_width(w, 500.0, 600.0, 260.0, 500.0), w);
+    }
+
+    #[test]
+    fn width_never_exceeds_a_narrow_canvas() {
+        let mut tokens = DockTokens::default();
+        tokens.normalize();
+        let canvas = Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 600.0));
+        let mut state = DockState::default();
+        state.panel_widths.insert("filters", 9000.0);
+        let w = panel_width(&state, "filters", &tokens, canvas);
+        assert!(
+            w >= tokens.popover_width && w <= panel_max_width(canvas, &tokens),
+            "width {w} escaped the canvas clamp"
+        );
+    }
+
+    #[test]
+    fn tall_panel_is_anchored_inside_the_canvas() {
+        let mut tokens = DockTokens::default();
+        tokens.normalize();
+        let canvas = Rect::from_min_size(Pos2::new(0.0, 40.0), Vec2::new(1600.0, 900.0));
+        let icon = Rect::from_min_size(Pos2::new(10.0, 460.0), Vec2::splat(34.0));
+        // A panel taller than the canvas would otherwise be centered off-screen.
+        let open = [("filters", icon, Vec2::new(260.0, 1200.0))];
+        let origins = layout_panel_origins(DockSide::LeftCenter, &open, &tokens, canvas);
+        let y = origins.get("filters").expect("origin").y;
+        assert!(
+            y >= canvas.top(),
+            "panel top {y} floated above canvas top {}",
+            canvas.top()
+        );
     }
 }

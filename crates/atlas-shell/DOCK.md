@@ -1,9 +1,8 @@
 # Floating canvas docks
 
 Both File Atlas and Slate host a **single floating dock** of squircle icons
-over the canvas. Dock chrome (shape, placement, hover/pin, multi-panel stack,
-partition line, tracers) lives in `atlas-shell::dock`; apps supply items and
-panel bodies only.
+over the canvas. Dock chrome lives in `atlas-shell::dock`; apps supply items
+and panel bodies only. Cross-app interaction notes: **`TOOLBARS.md`**.
 
 ## Ownership split
 
@@ -27,69 +26,46 @@ as `{app}-chrome.json` next to the index DB (`atlas_shell::prefs::ChromePrefs`).
 
 Popovers open **rightward** from a left dock and **upward** from a bottom dock.
 
-## Icon kinds
+## Icon kinds & gestures
 
-| Kind | Role | Hover | Click |
-|------|------|-------|-------|
-| **Tool** | Sub-tool flyouts (shapes, curves…) | Preview panel anchored on the icon; ease-in | Pin → joins centered stack |
-| **Dashboard** | Settings bodies (tags, filters…) | Label chip above icon; description fades in; preview on icon | Pin → joins centered stack |
-| **Action** | Toggles (grid, text tool…) | Same label chip as Dashboard (short name only) | Fires the action; no pin |
+| Kind | Hover | Single click | Double click |
+|------|-------|--------------|--------------|
+| **Tool** / **Dashboard** | Title chip only | Volatile body (on-icon) | Pin → centered stack |
+| **Action** | Title chip | Fire action | — |
+
+- **Minimize (─)** in the upper-right of any open body dismisses a volatile
+  panel or unpins a pinned one back to its icon.
+- Hover never joins the pinned stack. Volatile bodies retire after
+  `close_delay` when abandoned, or on Escape / outside click.
+- Title chips are suppressed on pin/click until the pointer leaves, and never
+  shown for icons that already have a pinned or volatile body open.
+- Hover / selected icon fills are a subtle mix, not a full-opacity swap.
+- Pins persist across sessions via `ChromePrefs.pinned_panels` where wired.
 
 ### Grouping rule (no visible separator)
 
-List icons so **Tools are neighbors** and **Dashboards are neighbors**. Do
-**not** draw a divider between groups — order alone carries the grouping.
-`gap_before` exists for rare spacing needs; prefer contiguous kind blocks.
+List icons so **Tools are neighbors** and **Dashboards are neighbors**. Order
+alone carries the grouping. Recommended: Tools → Actions → Dashboards.
 
-Recommended order in a mixed dock: Tools → Actions → Dashboards.
+## Sizing
 
-### Critical hover split
-
-- **Hover previews never join the centered stack** — only **pinned** panels do.
-- **Label chips** never reshuffle pinned panels; they sit above the hovered icon.
-- **Action** and **Dashboard** share one chip implementation (no legacy tooltips).
-
-## Interaction rules
-
-- Click a Tool / Dashboard icon → toggle pin; click again to unpin.
-- Multiple pinned panels stay open together (centered stack).
-- **Pinned panels are persistent palettes.** Canvas clicks and Escape never
-  dismiss them — unpinning is only by re-clicking the icon. Escape / outside
-  clicks clear transient hover state only.
-- **Pins persist across sessions**: apps pass saved ids into `floating_dock`
-  (`restore_pins`) and read the live set back with `dock::pinned_ids` to
-  save into `ChromePrefs.pinned_panels`. Pins on currently-hidden icons
-  (e.g. board tools while in another view) survive and re-appear with the
-  icon.
-- **Hover previews survive the trip to the panel**: leaving the icon does
-  not close the preview — it stays alive while the pointer is inside it and
-  retires only after `close_delay` once abandoned (or instantly when another
-  icon is hovered).
-- Docks float over the canvas and must never reserve layout space.
+Bodies size to their content: height grows with open fold sections up to the
+canvas budget (no always-on `ScrollArea` — that freezes height; see
+`TOOLBARS.md`), then width up to a fraction of the canvas while the open
+subsections would still overflow (`popover_width` is the minimum, not a fixed
+width). When a scrollbar is present it uses `drag_to_scroll(false)` so
+dual-handle timelines and thin sliders keep pointer ownership. Large panel
+bodies should fold subsections closed by default (`sidebar_fold_region`).
 
 ## Multi-panel stacking
 
 Only **pinned** ids participate. Open panels pack along the dock's secondary
 axis, then the group is translated so it stays **centered** on that canvas edge.
-Panel open uses a short ease-out (`panel_open_duration`).
 
-## Partition line
+## Partition line & tracers
 
-A soft anti-aliased tapered ribbon sits between the icon strip and the canvas
-(`taper::paint_tapered_ribbon` — see `PAINT.md`). Tunable under **Dock · Partition & tracers**.
-
-## Hover tracers
-
-Hovering the **border** of a **pinned** popover paints a faint orthogonal tracer
-back to the initiating icon.
-
-## Tokens and tuning
-
-All geometry/colors live under `[dock]` in `crates/atlas-shell/ui-tokens.toml`
-and in the `ui-tuner` dashboard. Key motion tokens: `describe_fade_duration`,
-`panel_open_duration`, `hover_chip_gap`, `dashboard_describe_delay`.
-
-Dev harness: set `ATLAS_DOCK_OPEN=<item id>` to force a panel open.
+Soft AA tapered ribbon (`PAINT.md`). Border-hover on a **pinned** popover paints
+an orthogonal tracer back to the icon.
 
 ## Extension
 
@@ -105,8 +81,6 @@ DockItem {
     gap_before: false,
 }
 ```
-
-Adding a tool = one `DockItem` + one arm in the app's body/click match.
 
 ## Verification
 

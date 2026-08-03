@@ -32,6 +32,8 @@ pub struct LayoutConfig {
     pub align_groups_to_lowest: bool,
     /// Percent scale for the offset between row datums (depth step).
     pub row_spacing: usize,
+    /// Percent scale for the breadth gap between root-level folders.
+    pub root_folder_gap: usize,
 }
 
 impl Default for LayoutConfig {
@@ -41,6 +43,7 @@ impl Default for LayoutConfig {
             portal_threshold: 100,
             align_groups_to_lowest: false,
             row_spacing: 100,
+            root_folder_gap: 100,
         }
     }
 }
@@ -52,6 +55,7 @@ impl LayoutConfig {
             portal_threshold: self.portal_threshold.clamp(10, 10_000),
             align_groups_to_lowest: self.align_groups_to_lowest,
             row_spacing: self.row_spacing.clamp(40, 300),
+            root_folder_gap: self.root_folder_gap.clamp(40, 300),
         }
     }
 }
@@ -72,6 +76,10 @@ pub struct DirNode {
     pub desc_files: usize,
     pub desc_bytes: u64,
     pub desc_matches: usize,
+    /// Folder creation time, when available from the scanner host.
+    pub ctime: i64,
+    /// Short owner/creator label, when available.
+    pub owner: String,
     pub collapsed: bool,
     // Layout output (world space). (x, y) is left edge x, center y.
     pub x: f32,
@@ -220,6 +228,17 @@ impl Tree {
                     .name_lc
                     .cmp(&entries[b as usize].name_lc)
             });
+        }
+        for d in &mut dirs {
+            let path = if d.rel.is_empty() {
+                root.to_path_buf()
+            } else {
+                root.join(d.rel.replace('\\', std::path::MAIN_SEPARATOR_STR))
+            };
+            if let Ok(md) = std::fs::metadata(&path) {
+                d.ctime = crate::metadata::ctime_of(&md);
+                d.owner = crate::metadata::owner_short(&path);
+            }
         }
 
         let total_dirs = dirs.len().saturating_sub(1);
@@ -423,7 +442,7 @@ impl Tree {
             };
             self.dirs[di].x = x;
             self.dirs[di].y = y;
-            *cursor += (if v { h } else { w }) + ROW_GAP;
+            *cursor += (if v { h } else { w }) + self.breadth_gap(di);
             self.dirs[di].bounds = self.dirs[di].rect();
             return;
         }
@@ -454,6 +473,9 @@ impl Tree {
             let cc = if v { child.y } else { child.x + child.w / 2.0 };
             min_c = min_c.min(cc);
             max_c = max_c.max(cc);
+            if self.dirs[di].depth == 0 {
+                *cursor += self.root_extra_gap();
+            }
         }
 
         if grid_files {
@@ -506,7 +528,7 @@ impl Tree {
             };
             min_c = min_c.min(gc);
             max_c = max_c.max(gc);
-            *cursor = (if v { gb.max.y } else { gb.max.x }) + ROW_GAP + 8.0;
+            *cursor = (if v { gb.max.y } else { gb.max.x }) + self.breadth_gap(di) + 8.0;
         }
 
         let mid = (min_c + max_c) / 2.0;
@@ -520,7 +542,19 @@ impl Tree {
         let own = self.dirs[di].rect();
         let b = bounds.map_or(own, |b| b.union(own));
         self.dirs[di].bounds = b;
-        *cursor = cursor.max((if v { b.max.y } else { b.max.x }) + ROW_GAP);
+        *cursor = cursor.max((if v { b.max.y } else { b.max.x }) + self.breadth_gap(di));
+    }
+
+    fn breadth_gap(&self, di: usize) -> f32 {
+        if self.dirs[di].depth == 0 {
+            ROW_GAP * self.cfg.normalized().root_folder_gap as f32 / 100.0
+        } else {
+            ROW_GAP
+        }
+    }
+
+    fn root_extra_gap(&self) -> f32 {
+        ROW_GAP * (self.cfg.normalized().root_folder_gap as f32 / 100.0 - 1.0)
     }
 
     /// H mode: image group tops align to the midline of sibling folder nodes
@@ -740,6 +774,8 @@ impl DirNode {
             desc_files: 0,
             desc_bytes: 0,
             desc_matches: 0,
+            ctime: 0,
+            owner: String::new(),
             collapsed: false,
             x: 0.0,
             y: 0.0,

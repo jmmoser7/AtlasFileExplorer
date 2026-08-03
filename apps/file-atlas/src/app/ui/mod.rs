@@ -1,7 +1,6 @@
 //! Top-level chrome: unified top bar (icon portal, menus, tabs, window controls).
 //! Everything else lives inside the active tab workspace.
 
-pub(crate) mod activity_heatmap;
 mod advanced;
 mod menubar;
 mod readouts;

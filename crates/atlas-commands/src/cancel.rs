@@ -15,13 +15,17 @@ pub enum CancelLayer {
     Mode,
     /// A non-empty selection — Esc clears it.
     Selection,
+    /// A readout-owned selection: File Atlas' activity timeline window and
+    /// picked spans. Below [`CancelLayer::Selection`] because the canvas
+    /// selection is what the user just touched; the time window is ambient.
+    Readout,
     /// Open menus, popovers, or the palette.
     Chrome,
 }
 
 /// Given the layers that are live this frame (any order, duplicates
 /// harmless), return the single layer one Esc press should pop:
-/// ActiveOperation → Draft → Mode → Selection → Chrome. Returns `None` when
+/// ActiveOperation → Draft → Mode → Selection → Readout → Chrome. Returns `None` when
 /// nothing is live (the app lets Esc fall through).
 ///
 /// The app assembles `live` from its state each frame and matches on the
@@ -39,6 +43,7 @@ mod tests {
     fn full_stack_pops_in_documented_order() {
         let mut live = vec![
             CancelLayer::Chrome,
+            CancelLayer::Readout,
             CancelLayer::Selection,
             CancelLayer::Mode,
             CancelLayer::Draft,
@@ -49,6 +54,7 @@ mod tests {
             CancelLayer::Draft,
             CancelLayer::Mode,
             CancelLayer::Selection,
+            CancelLayer::Readout,
             CancelLayer::Chrome,
         ];
         // Simulate successive Esc presses: pop the returned layer each time.

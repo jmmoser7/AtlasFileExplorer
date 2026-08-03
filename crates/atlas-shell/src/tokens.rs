@@ -20,19 +20,336 @@ pub struct UiTokens {
     pub home: HomeTokens,
     pub minimap: MinimapTokens,
     pub palette: PaletteTokens,
+    pub readouts: ReadoutTokens,
+    pub activity_heatmap: ActivityHeatmapTokens,
     pub theme: ThemeTokens,
 }
 
 impl Default for UiTokens {
     fn default() -> Self {
         Self {
-            schema_version: 3,
+            schema_version: 4,
             topbar: TopBarTokens::default(),
             dock: DockTokens::default(),
             home: HomeTokens::default(),
             minimap: MinimapTokens::default(),
             palette: PaletteTokens::default(),
+            readouts: ReadoutTokens::default(),
+            activity_heatmap: ActivityHeatmapTokens::default(),
             theme: ThemeTokens::default(),
+        }
+    }
+}
+
+/// The bottom readout bar that hosts the gear menu, the live counts, and the
+/// activity timeline. Several unrelated readouts compete for the same few
+/// vertical pixels here, so its padding and text size are dials rather than
+/// constants — the balance between them is a judgement made by eye.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReadoutTokens {
+    /// Padding above the first row and below the last (px).
+    pub pad_top: f32,
+    pub pad_bottom: f32,
+    /// Vertical gap between the metrics row and the timeline below it (px).
+    pub row_gap: f32,
+    /// Horizontal gap between items in the metrics row (px).
+    pub item_gap: f32,
+    /// Minimum height of the metrics row; `0` follows the text (px).
+    pub row_height: f32,
+    /// Point size for every label in the metrics row.
+    pub text_size: f32,
+    /// Draw the vertical separators flanking the gear menu.
+    pub separators: bool,
+}
+
+impl Default for ReadoutTokens {
+    fn default() -> Self {
+        Self {
+            pad_top: 3.0,
+            pad_bottom: 3.0,
+            row_gap: 4.0,
+            item_gap: 8.0,
+            row_height: 0.0,
+            text_size: 12.0,
+            separators: true,
+        }
+    }
+}
+
+impl ReadoutTokens {
+    pub fn normalize(&mut self) {
+        self.pad_top = self.pad_top.clamp(0.0, 24.0);
+        self.pad_bottom = self.pad_bottom.clamp(0.0, 24.0);
+        self.row_gap = self.row_gap.clamp(0.0, 24.0);
+        self.item_gap = self.item_gap.clamp(0.0, 24.0);
+        self.row_height = self.row_height.clamp(0.0, 48.0);
+        self.text_size = self.text_size.clamp(7.0, 20.0);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        for value in [
+            &mut self.pad_top,
+            &mut self.pad_bottom,
+            &mut self.row_gap,
+            &mut self.item_gap,
+            &mut self.row_height,
+            &mut self.text_size,
+        ] {
+            *value = (*value * 1_000.0).round() / 1_000.0;
+        }
+    }
+}
+
+/// The unified activity timeline: one time axis shared by the contribution
+/// graph and the range handles (see `TOOLBARS.md` and
+/// `docs/keymap/specs/activity-timeline.md`).
+///
+/// Two morph curves carry the graph across zoom levels. `stagger_*` shears the
+/// GitHub grid from week columns to each day's true time position; `expand_*`
+/// then flattens the weekday staircase into a full-height bucket strip. Both
+/// are spans in **days visible**, running from wide to narrow.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ActivityHeatmapTokens {
+    /// Opacity multiplier for time outside the active selection (`1` = none).
+    pub out_of_range_opacity: f32,
+    /// Saturation multiplier for time outside the active selection.
+    pub out_of_range_saturation: f32,
+    /// Optional hairline on in-selection cells (`0` = off). Kept for tuning,
+    /// not the primary selection cue.
+    pub selected_stroke_width: f32,
+    pub selected_stroke_opacity: f32,
+    /// Day-cell edge and the gap between cells (px).
+    pub cell: f32,
+    pub cell_gap: f32,
+    /// Weekday gutter beside the graph (px).
+    pub day_label_width: f32,
+    /// Handle rail, and the *minimum* height of the tick scale beneath it — the
+    /// scale band grows past this whenever the label font or its gaps need more,
+    /// since it is the control's only date readout (px).
+    pub rail_height: f32,
+    pub scale_height: f32,
+    /// Padding around the whole control: above the info row, between that row
+    /// and the graph, below the tick scale, and the inset from the right edge
+    /// where the axis stops (the left inset is `day_label_width`).
+    pub pad_top: f32,
+    pub row_gap: f32,
+    pub pad_bottom: f32,
+    pub pad_right: f32,
+    /// Info row: spacing between its items, its text size, the padding inside
+    /// its buttons, a minimum row height (`0` follows the text), and the legend
+    /// swatch size / gap.
+    pub info_gap: f32,
+    pub info_text: f32,
+    pub info_button_pad_x: f32,
+    pub info_button_pad_y: f32,
+    pub info_row_height: f32,
+    pub legend_cell: f32,
+    pub legend_gap: f32,
+    /// Point size of the weekday and tick labels.
+    pub label_font: f32,
+    /// The weekday label's inset from the left edge (px).
+    pub weekday_label_dx: f32,
+    /// Rail: vertical inset of the selection band inside the rail band, painted
+    /// handle radius, square hit area per handle, and the floor width of the
+    /// scrub grip so a tight window stays draggable (px).
+    pub rail_inset: f32,
+    pub handle_radius: f32,
+    pub handle_hit: f32,
+    pub grip_min_width: f32,
+    /// Tick scale: drop from the top of the band to the tick row, tick length,
+    /// and the gap from tick to label (px).
+    pub scale_top_gap: f32,
+    pub scale_tick_len: f32,
+    pub scale_label_gap: f32,
+    /// Days visible where the weekday columns begin to stagger, and where the
+    /// stagger completes (each day then owns its own horizontal slot).
+    pub stagger_begin_days: f32,
+    pub stagger_full_days: f32,
+    /// Days visible where the staircase begins flattening into a full-height
+    /// strip, and where a single bucket owns the whole bar height.
+    pub expand_begin_days: f32,
+    pub expand_full_days: f32,
+    /// Narrowest bucket the strip will draw before choosing a coarser grain.
+    pub min_bucket_px: f32,
+    /// Below this visible span (days), individual file timestamps are drawn as
+    /// dashes inside the strip.
+    pub file_tick_days: f32,
+    pub file_tick_width: f32,
+    /// Deepest zoom, in seconds of visible span.
+    pub min_view_secs: f32,
+    /// Ctrl+wheel zoom factor per notch, and plain-wheel pan as a fraction of
+    /// the visible span per notch.
+    pub zoom_per_notch: f32,
+    pub pan_per_notch: f32,
+    /// Wheel-down moves later in time; set true to flip it.
+    pub pan_invert: bool,
+    /// Seconds for the view to ease toward a new zoom target (`0` = instant).
+    pub zoom_ease: f32,
+}
+
+impl Default for ActivityHeatmapTokens {
+    fn default() -> Self {
+        Self {
+            out_of_range_opacity: 0.38,
+            out_of_range_saturation: 0.45,
+            selected_stroke_width: 0.0,
+            selected_stroke_opacity: 0.0,
+            cell: 8.0,
+            cell_gap: 2.0,
+            day_label_width: 14.0,
+            rail_height: 12.0,
+            scale_height: 14.0,
+            pad_top: 2.0,
+            row_gap: 2.0,
+            pad_bottom: 0.0,
+            pad_right: 2.0,
+            info_gap: 6.0,
+            info_text: 10.0,
+            info_button_pad_x: 4.0,
+            info_button_pad_y: 1.0,
+            info_row_height: 0.0,
+            legend_cell: 8.0,
+            legend_gap: 2.0,
+            label_font: 9.0,
+            weekday_label_dx: 1.0,
+            rail_inset: 2.0,
+            handle_radius: 1.8,
+            handle_hit: 12.0,
+            grip_min_width: 28.0,
+            scale_top_gap: 3.0,
+            scale_tick_len: 5.0,
+            scale_label_gap: 1.0,
+            stagger_begin_days: 31.0,
+            stagger_full_days: 7.0,
+            expand_begin_days: 7.0,
+            expand_full_days: 1.0,
+            min_bucket_px: 8.0,
+            file_tick_days: 1.0,
+            file_tick_width: 1.0,
+            min_view_secs: 30.0,
+            zoom_per_notch: 1.18,
+            pan_per_notch: 0.12,
+            pan_invert: false,
+            zoom_ease: 0.12,
+        }
+    }
+}
+
+impl ActivityHeatmapTokens {
+    pub fn normalize(&mut self) {
+        self.out_of_range_opacity = self.out_of_range_opacity.clamp(0.05, 1.0);
+        self.out_of_range_saturation = self.out_of_range_saturation.clamp(0.0, 1.0);
+        self.selected_stroke_width = self.selected_stroke_width.clamp(0.0, 3.0);
+        self.selected_stroke_opacity = self.selected_stroke_opacity.clamp(0.0, 1.0);
+        self.cell = self.cell.clamp(4.0, 28.0);
+        self.cell_gap = self.cell_gap.clamp(0.0, 8.0);
+        self.day_label_width = self.day_label_width.clamp(0.0, 48.0);
+        self.rail_height = self.rail_height.clamp(10.0, 48.0);
+        self.scale_height = self.scale_height.clamp(12.0, 48.0);
+        self.pad_top = self.pad_top.clamp(0.0, 24.0);
+        self.row_gap = self.row_gap.clamp(0.0, 24.0);
+        self.pad_bottom = self.pad_bottom.clamp(0.0, 24.0);
+        self.pad_right = self.pad_right.clamp(0.0, 48.0);
+        self.info_gap = self.info_gap.clamp(0.0, 24.0);
+        self.info_text = self.info_text.clamp(7.0, 18.0);
+        self.info_button_pad_x = self.info_button_pad_x.clamp(0.0, 12.0);
+        self.info_button_pad_y = self.info_button_pad_y.clamp(0.0, 12.0);
+        self.info_row_height = self.info_row_height.clamp(0.0, 48.0);
+        self.legend_cell = self.legend_cell.clamp(4.0, 20.0);
+        self.legend_gap = self.legend_gap.clamp(0.0, 8.0);
+        self.label_font = self.label_font.clamp(6.0, 16.0);
+        self.weekday_label_dx = self.weekday_label_dx.clamp(0.0, 16.0);
+        // The band must leave a line of rail visible on both sides.
+        self.rail_inset = self.rail_inset.clamp(0.0, self.rail_height * 0.4);
+        self.handle_radius = self.handle_radius.clamp(0.0, 6.0);
+        self.handle_hit = self.handle_hit.clamp(6.0, 32.0);
+        self.grip_min_width = self.grip_min_width.clamp(8.0, 80.0);
+        self.scale_top_gap = self.scale_top_gap.clamp(0.0, 16.0);
+        self.scale_tick_len = self.scale_tick_len.clamp(0.0, 16.0);
+        self.scale_label_gap = self.scale_label_gap.clamp(0.0, 16.0);
+        // The morph curves must stay ordered wide → narrow, and the expansion
+        // cannot start before the stagger has finished or cells would move on
+        // two axes at once.
+        self.stagger_full_days = self.stagger_full_days.clamp(1.0, 60.0);
+        self.stagger_begin_days = self
+            .stagger_begin_days
+            .clamp(self.stagger_full_days + 1.0, 400.0);
+        self.expand_full_days = self.expand_full_days.clamp(0.02, 7.0);
+        self.expand_begin_days = self
+            .expand_begin_days
+            .clamp(self.expand_full_days + 0.1, self.stagger_begin_days);
+        self.min_bucket_px = self.min_bucket_px.clamp(1.0, 40.0);
+        self.file_tick_days = self.file_tick_days.clamp(0.01, 14.0);
+        self.file_tick_width = self.file_tick_width.clamp(0.5, 4.0);
+        self.min_view_secs = self.min_view_secs.clamp(5.0, 86_400.0);
+        self.zoom_per_notch = self.zoom_per_notch.clamp(1.02, 2.0);
+        self.pan_per_notch = self.pan_per_notch.clamp(0.01, 1.0);
+        self.zoom_ease = self.zoom_ease.clamp(0.0, 0.6);
+    }
+
+    /// Height of the graph block above the rail: seven weekday rows.
+    pub fn grid_height(&self) -> f32 {
+        7.0 * (self.cell + self.cell_gap) - self.cell_gap
+    }
+
+    /// Set the graph's total height by solving for the row size. The seven-row
+    /// structure is fixed, so this is the same dial as `cell` viewed from the
+    /// other end — and it is the end that matters when the question is how many
+    /// vertical pixels the readout bar can spare.
+    pub fn set_grid_height(&mut self, height: f32) {
+        self.cell = (height - 6.0 * self.cell_gap) / 7.0;
+        self.cell = self.cell.clamp(4.0, 28.0);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        fn round3(value: &mut f32) {
+            *value = (*value * 1_000.0).round() / 1_000.0;
+        }
+        for value in [
+            &mut self.out_of_range_opacity,
+            &mut self.out_of_range_saturation,
+            &mut self.selected_stroke_width,
+            &mut self.selected_stroke_opacity,
+            &mut self.cell,
+            &mut self.cell_gap,
+            &mut self.day_label_width,
+            &mut self.rail_height,
+            &mut self.scale_height,
+            &mut self.pad_top,
+            &mut self.row_gap,
+            &mut self.pad_bottom,
+            &mut self.pad_right,
+            &mut self.info_gap,
+            &mut self.info_text,
+            &mut self.info_button_pad_x,
+            &mut self.info_button_pad_y,
+            &mut self.info_row_height,
+            &mut self.legend_cell,
+            &mut self.legend_gap,
+            &mut self.label_font,
+            &mut self.weekday_label_dx,
+            &mut self.rail_inset,
+            &mut self.handle_radius,
+            &mut self.handle_hit,
+            &mut self.grip_min_width,
+            &mut self.scale_top_gap,
+            &mut self.scale_tick_len,
+            &mut self.scale_label_gap,
+            &mut self.stagger_begin_days,
+            &mut self.stagger_full_days,
+            &mut self.expand_begin_days,
+            &mut self.expand_full_days,
+            &mut self.min_bucket_px,
+            &mut self.file_tick_days,
+            &mut self.file_tick_width,
+            &mut self.min_view_secs,
+            &mut self.zoom_per_notch,
+            &mut self.pan_per_notch,
+            &mut self.zoom_ease,
+        ] {
+            round3(value);
         }
     }
 }
@@ -451,9 +768,10 @@ pub struct DockThemeTokens {
 impl DockThemeTokens {
     fn light() -> Self {
         Self {
+            // Hover/active stay close to fill — dock.rs mixes them in lightly.
             icon_fill: [248, 249, 250, 238],
-            icon_hover: [232, 235, 239, 255],
-            icon_active: [215, 235, 242, 255],
+            icon_hover: [240, 242, 245, 242],
+            icon_active: [232, 240, 244, 242],
             popover_fill: [248, 249, 250, 248],
             border: [215, 220, 226, 255],
             text: [24, 25, 27, 255],
@@ -464,8 +782,8 @@ impl DockThemeTokens {
     fn dark() -> Self {
         Self {
             icon_fill: [18, 21, 25, 238],
-            icon_hover: [34, 39, 46, 255],
-            icon_active: [22, 55, 58, 255],
+            icon_hover: [24, 28, 33, 242],
+            icon_active: [20, 32, 36, 242],
             popover_fill: [18, 20, 22, 248],
             border: [54, 60, 66, 255],
             text: [235, 238, 241, 255],
@@ -1091,6 +1409,8 @@ fn parse_embedded() -> UiTokens {
     tokens.home.normalize();
     tokens.minimap.normalize();
     tokens.palette.normalize();
+    tokens.readouts.normalize();
+    tokens.activity_heatmap.normalize();
     tokens
 }
 
@@ -1111,6 +1431,8 @@ pub fn replace(mut tokens: UiTokens) {
     tokens.home.normalize();
     tokens.minimap.normalize();
     tokens.palette.normalize();
+    tokens.readouts.normalize();
+    tokens.activity_heatmap.normalize();
     *store().write().expect("UI token lock poisoned") = tokens;
 }
 

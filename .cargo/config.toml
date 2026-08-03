@@ -1,2 +1,21 @@
+# MSVC/SDK headers and libs for this machine.
+#
+# The VS2022 install here has `cl.exe` but no usable SDK include paths, so cc-rs
+# finds the compiler and then fails to find `stdarg.h` when it builds
+# `libsqlite3-sys`'s bundled C. The VS2019 BuildTools + Windows SDK 10.0.19041.0
+# below do have them. `scripts/_msvc-env.ps1` sets the same thing for the dev
+# scripts; this makes a bare `cargo build` / `test` / `clippy` work in any
+# terminal too.
+#
+# Cargo only applies `[env]` entries that are not already set, so running inside
+# a proper vcvars shell still wins. Harmless on Linux, where neither variable is
+# consulted. Paths are machine-specific — update them if the toolchain moves.
+[env]
+INCLUDE = 'C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\include;C:\Program Files (x86)\Windows Kits\10\include\10.0.19041.0\ucrt;C:\Program Files (x86)\Windows Kits\10\include\10.0.19041.0\shared;C:\Program Files (x86)\Windows Kits\10\include\10.0.19041.0\um'
+LIB = 'C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\lib\x64;C:\Program Files (x86)\Windows Kits\10\lib\10.0.19041.0\ucrt\x64;C:\Program Files (x86)\Windows Kits\10\lib\10.0.19041.0\um\x64'
+
 [alias]
 xtask = "run -p xtask --"
+# Short run aliases for the edit loop (see docs/dev-loop.md).
+slate = "run -p slate --"
+atlas = "run -p native-file-atlas --"

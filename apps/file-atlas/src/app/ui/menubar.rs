@@ -24,6 +24,9 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
                     .separated(),
                 MenuItem::new("file.new_tab", "New tab"),
                 MenuItem::new("file.close_tab", "Close tab"),
+                MenuItem::new("file.download_cloud", "Download cloud files…")
+                    .enabled(has_root)
+                    .separated(),
                 MenuItem::new("file.exit", "Exit").separated(),
             ],
         },
@@ -89,6 +92,7 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
                 title: tab.title(),
                 tooltip: tab.tooltip_path(),
                 closable: app.tabs.len() > 1 || tab.root.is_some(),
+                content_action_label: Some("Change directory…"),
                 is_empty,
             }
         })
@@ -136,6 +140,10 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
                 let i = app.active_tab;
                 app.close_tab(i);
             }
+        }
+        Some("file.download_cloud") => {
+            app.plan_cloud_download();
+            app.push_history("atlas.download_cloud", None);
         }
         Some("file.exit") => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         Some("view.fit") => {
@@ -206,6 +214,11 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
         }
         Some(TabAction::New) => app.home_new_workspace(),
         Some(TabAction::ActivateEmpty) => app.open_folder_dialog(),
+        Some(TabAction::ChangeContent(i)) => {
+            if let Some(&tab_i) = visible_indices.get(i) {
+                app.open_folder_dialog_for_tab(tab_i);
+            }
+        }
         None => {}
     }
 }

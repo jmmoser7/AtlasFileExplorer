@@ -59,10 +59,15 @@ impl PaletteState {
     /// Open (or re-anchor) the palette at a screen point, remembering the
     /// world point under it. Resets the query and selection.
     pub fn open_at(&mut self, screen: Pos2, world: Pos2) {
+        self.open_with_query(screen, world, String::new());
+    }
+
+    /// Open the palette pre-seeded with a query (type-to-command entry).
+    pub fn open_with_query(&mut self, screen: Pos2, world: Pos2, query: String) {
         self.open = true;
         self.anchor = screen;
         self.world = world;
-        self.query.clear();
+        self.query = query;
         self.selected = 0;
         self.needs_focus = true;
     }

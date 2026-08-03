@@ -6,16 +6,21 @@
 //! copy-only exporter. Both `apps/file-atlas` and `apps/slate` build on this
 //! crate; app-specific state and chrome never live here.
 
+pub mod cloud;
 pub mod export;
+pub mod folder_heat;
 pub mod index;
 pub mod journal;
 pub mod metadata;
 pub mod office;
+pub mod owners;
 pub mod pdf;
 pub mod preview;
+pub mod rasterthumb;
 pub mod scanner;
 pub mod threedm;
 pub mod thumbs;
+pub mod timeline;
 pub mod tree;
 pub mod types;
 pub mod watcher;

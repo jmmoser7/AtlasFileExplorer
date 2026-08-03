@@ -86,6 +86,21 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
                     }
                 });
             }
+            let cloud_left = app.cloud_remaining();
+            if cloud_left > 0 {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Downloading cloud files — {cloud_left} remaining"
+                        ))
+                        .small()
+                        .color(palette.sub),
+                    );
+                    if ui.small_button("Cancel").clicked() {
+                        app.cancel_cloud_download();
+                    }
+                });
+            }
             if let Some(sc) = &app.shared_cache {
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("Shared project cache").small().strong());

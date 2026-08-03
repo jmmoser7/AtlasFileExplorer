@@ -2,7 +2,7 @@
 # Edit directly, or run either app with `--features ui-tuner` for live editing.
 # Saved tuner values are embedded by the next build.
 
-schema_version = 3
+schema_version = 4
 
 [topbar]
 height = 31.0
@@ -188,7 +188,7 @@ shadow_offset_y = 6.0
 shadow_blur = 20.0
 shadow_spread = 1.0
 shadow_opacity = 0.25999999046325684
-close_delay = 0.45
+close_delay = 0.44999998807907104
 left_margin = 15.0
 bottom_margin = 13.0
 stack_gap = 8.0
@@ -214,16 +214,16 @@ icon_fill = [
     238,
 ]
 icon_hover = [
-    232,
-    235,
-    239,
-    255,
+    240,
+    242,
+    245,
+    242,
 ]
 icon_active = [
-    215,
-    235,
+    232,
+    240,
+    244,
     242,
-    255,
 ]
 popover_fill = [
     248,
@@ -258,16 +258,16 @@ icon_fill = [
     238,
 ]
 icon_hover = [
-    34,
-    39,
-    46,
-    255,
+    24,
+    28,
+    33,
+    242,
 ]
 icon_active = [
-    22,
-    55,
-    58,
-    255,
+    20,
+    32,
+    36,
+    242,
 ]
 popover_fill = [
     18,
@@ -330,9 +330,57 @@ row_height = 26.0
 max_rows = 8
 text_size = 12.5
 
-# The two built-in themes. `theme.rs` reads these into `Palette`, and egui's
-# `Visuals` are derived from that palette — a colour changed here moves both.
-# A user theme is a `[theme.<name>]` table of the same shape; see TOPBAR.md.
+[readouts]
+pad_top = 3.0
+pad_bottom = 0.0
+row_gap = 0.0
+item_gap = 6.5
+row_height = 6.0
+text_size = 12.0
+separators = true
+
+[activity_heatmap]
+out_of_range_opacity = 0.3799999952316284
+out_of_range_saturation = 0.44999998807907104
+selected_stroke_width = 0.0
+selected_stroke_opacity = 0.0
+cell = 12.571000099182129
+cell_gap = 2.0
+day_label_width = 35.0
+rail_height = 12.0
+scale_height = 12.0
+pad_top = 0.0
+row_gap = 0.0
+pad_bottom = 0.0
+pad_right = 18.0
+info_gap = 5.0
+info_text = 10.0
+info_button_pad_x = 4.0
+info_button_pad_y = 1.0
+info_row_height = 0.0
+legend_cell = 6.0
+legend_gap = 2.5999999046325684
+label_font = 12.0
+weekday_label_dx = 0.0
+rail_inset = 4.0
+handle_radius = 2.4000000953674316
+handle_hit = 12.0
+grip_min_width = 28.0
+scale_top_gap = 1.0
+scale_tick_len = 2.5
+scale_label_gap = 1.0
+stagger_begin_days = 95.0
+stagger_full_days = 7.0
+expand_begin_days = 7.0
+expand_full_days = 1.0
+min_bucket_px = 8.0
+file_tick_days = 1.0
+file_tick_width = 0.5
+min_view_secs = 30.0
+zoom_per_notch = 1.1799999475479126
+pan_per_notch = 0.11999999731779099
+pan_invert = false
+zoom_ease = 0.11999999731779099
 
 [theme.light]
 dark_base = false

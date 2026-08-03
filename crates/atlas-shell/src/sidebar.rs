@@ -2,8 +2,8 @@
 //! aligned control rows. See `SIDEBAR.md` for usage rules.
 
 use eframe::egui::{
-    self, Align, Color32, CornerRadius, CursorIcon, Frame, Id, Layout, Margin, RichText, Sense,
-    Stroke, Ui,
+    self, Align, Color32, CornerRadius, CursorIcon, Frame, Id, Layout, Margin, Pos2, Rect,
+    RichText, Sense, Stroke, StrokeKind, Ui, Vec2,
 };
 
 /// Theme colors for sidebar sections (sourced from `AtlasApp::palette()`).
@@ -193,6 +193,72 @@ pub fn sidebar_region(
 ) {
     sidebar_subsection_label(ui, label, theme);
     add_body(ui);
+}
+
+/// Independent fold region. Uses Windows-like minimize / maximize glyphs in
+/// the upper-right — shared dock/toolbar pattern (see `TOOLBARS.md`).
+/// Large toolbars should pass `default_expanded: false`.
+pub fn sidebar_fold_region(
+    ui: &mut Ui,
+    id: Id,
+    label: &str,
+    default_expanded: bool,
+    theme: SidebarTheme,
+    add_body: impl FnOnce(&mut Ui),
+) {
+    let mut expanded = ui
+        .ctx()
+        .data(|d| d.get_temp::<bool>(id))
+        .unwrap_or(default_expanded);
+
+    ui.horizontal(|ui| {
+        ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
+        let label_color = if expanded { theme.ink } else { theme.sub };
+        let label_resp = ui
+            .add(
+                egui::Label::new(RichText::new(label).small().strong().color(label_color))
+                    .sense(Sense::click()),
+            )
+            .on_hover_cursor(CursorIcon::PointingHand);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if windows_min_max_button(ui, expanded, theme) {
+                expanded = !expanded;
+            }
+        });
+        if label_resp.clicked() {
+            expanded = !expanded;
+        }
+    });
+
+    if expanded {
+        ui.indent(id, add_body);
+        ui.add_space(SidebarTokens::ROW_GAP);
+    }
+    ui.ctx().data_mut(|d| d.insert_temp(id, expanded));
+}
+
+/// Windows caption-style minimize (─) / maximize (□) toggle. Returns true on click.
+pub fn windows_min_max_button(ui: &mut Ui, expanded: bool, theme: SidebarTheme) -> bool {
+    let size = Vec2::splat(14.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let resp = resp
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text(if expanded { "Collapse" } else { "Expand" });
+    let painter = ui.painter();
+    if resp.hovered() {
+        painter.rect_filled(rect, 2.0, theme.border.gamma_multiply(0.35));
+    }
+    let c = rect.center();
+    let s = Stroke::new(1.15_f32, theme.ink);
+    if expanded {
+        // Minimize: horizontal bar
+        painter.line_segment([Pos2::new(c.x - 4.0, c.y), Pos2::new(c.x + 4.0, c.y)], s);
+    } else {
+        // Maximize: hollow square
+        let r = Rect::from_center_size(c, Vec2::splat(7.0));
+        painter.rect_stroke(r, 1.0, s, StrokeKind::Middle);
+    }
+    resp.clicked()
 }
 
 /// Accordion row inside a section body — title toggles an indented control block.

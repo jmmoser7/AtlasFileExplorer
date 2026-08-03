@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-07-30",
+  "updated": "2026-08-01",
   "tools": {
     "line": {
       "status": "shipped",
@@ -121,7 +121,7 @@
           "decided": "2026-07-23"
         },
         "D16": {
-          "behavior": "Yes — last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Yes \u2014 last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -137,7 +137,7 @@
       }
     },
     "portal-lens-repository": {
-      "status": "draft",
+      "status": "agreed",
       "family": "portal",
       "portal_class": "generated",
       "reference": "GitKraken / GitLens commit graph, GitHub network graph, git log --graph",
@@ -146,224 +146,224 @@
         "P1.node",
         "P2.DragShape"
       ],
-      "canvas": null,
+      "canvas": "portal-lens-repository-tool-contract",
       "decisions": {
         "D01": {
           "behavior": "Palette 'repository lens' + Enter (aliases: repo lens, git graph, history portal); tools-rail Portals flyout; command board.portal.repo_lens, board tabs only (P0.7/P0.8). No single-key chord in v1 (OQ3).",
           "source": "guess",
           "confidence": 55,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D02": {
           "behavior": "One-shot: commit returns to Select; Space/Enter re-arms (P2.DragShape, P0.4).",
           "source": "precedent",
           "confidence": 90,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D03": {
           "behavior": "Armed -> Dragging(rect) -> Committed(unbound). Press-drag-release defines the frame; release commits an unbound portal painting a 'Choose repository...' empty state. Binding is a separate, non-modal step; no file dialog opens inside a draw gesture.",
           "source": "pattern",
           "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D04": {
           "behavior": "Travel > draft.drag_threshold (4 px) = drag grammar (frame = dragged rect); below it, a portal.repo.default_size frame (960x540 world units) centred on the click, as board::place_frame_at already does for the Frame tool. Deviates P2.DragShape, which discards sub-MIN_DRAW releases.",
           "source": "precedent",
           "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D05": {
           "behavior": "Shift during the drag locks 16:9; unmodified drags are free-aspect. Deviates the Frame tool's frame_drag_rect, which locks the preset aspect unconditionally, and P1.shape.aspect, whose Shift means square: the frame's width is how much history is on screen. Ctrl/Alt unassigned in v1.",
           "source": "guess",
           "confidence": 60,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D06": {
           "behavior": "F9 grid snap and smart guides apply to the frame rect as for a Frame node (P1.node.move); F8 ortho is n/a for an axis-aligned rect. Contents never snap.",
           "source": "pattern",
           "confidence": 80,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D07": {
           "behavior": "n/a - no directional parameter in a rect placement.",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D08": {
           "behavior": "n/a in v1; typed frame dimensions are a non-goal (D15) rather than invented for one node kind.",
           "source": "guess",
           "confidence": 55,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D09": {
           "behavior": "Drag: frame outline in Palette::portal + live w x h in the dock readout (line D09 precedent). Bound and idle: repository name, HEAD short ref, commits in window, as-of pin, health. Focused commit: short SHA, author, date, subject.",
           "source": "precedent",
           "confidence": 80,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D10": {
           "behavior": "Crosshair while armed; arrow over an unfocused portal; arrow inside a focused portal, PointingHand over a commit dot with an open action.",
           "source": "precedent",
           "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D11": {
           "behavior": "One journaled Add of a portal node { rect, class: Generated, kind: RepoLens, source: None, query: RepoQuery::default() }. Frame, source, query journaled; contents never (Art. VI.3). One gesture = one undo. No style state consumed.",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D12": {
           "behavior": "Esc peels one layer per press (P0.1): contents focus -> drag draft -> armed tool -> selection. A focused portal registers the contents-focus layer for that frame only.",
           "source": "pattern",
           "confidence": 80,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D13": {
-          "behavior": "Frame selects with the standard eight resize handles plus rotation (P1.node); contents expose no grips and are not selectable (Art. V.3). Resize re-lays-out rather than scaling: a wider frame shows more history. Rotation rotates the painted result.",
-          "source": "guess",
-          "confidence": 60,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Frame selects with standard frame handles, but portals participate in a future handle carousel shared with frames, rectangles, and wire-capable nodes: handles fade in near an edge; resize, wire creation, crop, and future edge actions stack at the same edge anchor; the primary action is centered, secondary actions slide aside with opacity/ease transitions and scroll into the primary slot as the cursor approaches them. Contents expose no grips and are not selectable. Resize re-lays-out rather than scaling; rotation rotates the painted result. The carousel ships in a later shared-handles pass.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D14": {
           "behavior": "Re-edit through the Portal sidebar section (visible when a portal is selected) or the portal.repo.* commands; each edit is a journaled Patch of source/query, and contents regenerate from it.",
           "source": "pattern",
           "confidence": 80,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D15": {
-          "behavior": "Cut (Art. III): staging, committing, checkout, branch/tag create or delete, merge, rebase, cherry-pick, revert, stash, fetch, pull, push (also barred by Art. IX.5 and false-affordance register row 5); diff and blame; conflict resolution; issues and PR data; authenticated host APIs (Art. I.4); per-file history and Gource-style playback; typed frame dimensions; a portal-local minimap.",
+          "behavior": "Cut (Art. III): staging, committing, rebase, cherry-pick, revert, stash, fetch, pull, push, branch/tag deletion, diff and blame, conflict resolution, issues and PR data, authenticated host APIs, per-file history, Gource-style playback, typed frame dimensions, and a portal-local minimap. Not cut: human-directed branch create, checkout, and merge are allowed only as explicit per-action write-back commands with journaled intent and named targets (Art. IX.5); they are never available to agents.",
           "source": "stated",
-          "confidence": 90,
-          "verdict": "proposed",
-          "decided": null
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D16": {
           "behavior": "No. The frame paints from Palette::portal and the portal token block; it neither consumes nor becomes BoardLastStyle. Deviates P1.shape.style so analysis surfaces stay identical across boards and both apps (Art. X).",
           "source": "pattern",
           "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D17": {
-          "behavior": "Frame picks on its rect (Frame-node semantics), marquee included. Contents are inert until focused: first click selects the portal, double-click (or Enter on a selected portal) focuses the contents, after which dots and ribbons hit-test with pick.slop (4 px). Clicking outside drops contents focus.",
-          "source": "guess",
-          "confidence": 60,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Frame picks on its rect. Contents become interactive only when focused and the portal apparent scale passes portal.repo.interact_zoom. Double-click or Enter focuses contents; a caption maximize button or border double-click within portal.repo.border_hit_px temporarily maximizes contents to the viewport. Focused/interactive commit dots and ribbons hit-test with pick.slop. Clicking outside, Esc, or leaving maximize drops contents focus.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D18": {
           "behavior": "Generated. No journal owns mutations inside it: contents are a deterministic function of (object database, source, query, frame size) and are never journaled (Art. V.3, VI.3). Journaled acts are frame-only: place, move, resize, rebind, re-query, delete, bake.",
           "source": "pattern",
           "confidence": 95,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D19": {
           "behavior": "One SourceUri { kind: LocalFs } naming a git worktree or bare repository directory, relative-first (Art. IX.2). Bound by portal.repo.source (picker, empty-state button, sidebar) or by dropping a folder containing .git onto an unbound portal; rebinding is a journaled Patch that discards cached contents. Refused in v1: remote URLs and hosted APIs (Art. I.4).",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D20": {
           "behavior": "RepoQuery { refs (All|Heads|Named + include_remotes + hidden), window (Last(n)|Since(date)|Range(a..b)), as_of (None|Commit|Date), axis (Topological|Chronological, OQ1), trunk pinned to lane 0 (default remote HEAD branch, else main/master, else first ref by name), max_commits default 2000 with a visible 'N older commits not shown' band }.",
           "source": "research",
           "confidence": 65,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D21": {
           "behavior": "Recompute on bind, query patch, frame resize, portal.repo.refresh, and a debounced watch of HEAD/refs/packed-refs (1000 ms). Background thread, generation-tagged; stale results discarded (Art. II.3). While running, last good contents stay at stale_alpha (0.6) with a progress strip. A portal pinned by as_of never auto-refreshes past its pin and captions 'pinned'.",
           "source": "pattern",
           "confidence": 80,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D22": {
           "behavior": "Hover commit: tooltip (short SHA, author, date, subject, containing refs). Hover ref: reachable commits keep full alpha, rest dim to dim_alpha (0.25) - the Lens convention. Click: focus, details to the dock readout. Double-click a commit: open its web page when a configured remote matches a known host pattern, else inert (P0.8). Ctrl+C copies the full SHA. Esc clears focus. No board tool reaches the contents. The frame->contents coordinate map is defined and used by hit-testing now.",
           "source": "research",
           "confidence": 70,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D23": {
-          "behavior": "Buckets keyed on world px per commit column: < 4 px ribbons + chevrons + ref tips, no dots; 4-18 px dots + ribbons + tags; >= 18 px adds short SHA, truncated subject, author initials, date ticks. Ribbon meshes tessellate once per (lane, zoom bucket) and cache (Art. II.2).",
-          "source": "research",
-          "confidence": 70,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "LOD buckets key on world px per commit column. < portal.repo.lod_ribbon_px: ribbons + chevrons + ref tips, no dots. portal.repo.lod_ribbon_px..portal.repo.lod_detail_px: dots + ribbons + tags. >= portal.repo.lod_detail_px: dots plus short SHA, subject, author initials, date ticks. lod_ribbon_px and lod_detail_px are fine-tuning dashboard sliders. Ribbon meshes tessellate once per lane/zoom bucket and cache.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D24": {
           "behavior": "slate-artifact emits the regenerated contents as SVG under the Art. IV.3 ceiling from the same layout function the painter uses, plus a provenance caption (repository, HEAD short SHA, as-of, ref set, commit count, generation time). No script, no fetch. An unbound or Missing portal exports its state card, not an empty rectangle.",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D25": {
           "behavior": "portal.repo.bake emits one journaled Add batch of authored nodes matching the current contents, grouped, with a provenance text node (Art. VI.3). The portal stays live: bake copies, it does not convert.",
           "source": "guess",
           "confidence": 65,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D26": {
           "behavior": "Frame, source, and query sync as journal deltas. Contents are per-peer and never transmitted; each peer regenerates from its own clone. A peer that cannot resolve the locator paints Unknown naming the locator it tried (Art. IX.3). Focus, hover, and search are presence (Art. VIII.5).",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D27": {
-          "behavior": "Every board.portal.repo_lens / portal.repo.* command is a registry SPEC and therefore MCP-reachable (Art. VII.1); agent mutations stage (Art. VII.6). The beacon carries repository locator, HEAD, visible ref set, window, as-of, focused commit (Art. VIII.1). An agent may never run a git write or network command, nor add a commit, ref, or edge (register row 4, Art. IX.5). Agent-authored lane/epoch labels on the lens-agent-contract overlay pattern are the one allowed contribution, deferred to a follow-up.",
-          "source": "pattern",
-          "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Every board.portal.repo_lens / portal.repo.* command is a registry SPEC and therefore MCP-reachable; frame/source/query mutations stage for acceptance. The beacon carries locator, HEAD, ref set, window, as_of, and focused commit. Humans may issue explicit write-back commands for branch create, checkout, and merge. Agents may never run git write/network commands, invoke write-back commands, or add commits, refs, or edges; agent-authored lane/epoch labels are deferred to the overlay pattern.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D28": {
           "behavior": "Same object database + same query + same frame size => byte-identical layout. Commits sort by (commit_time, oid); lane assignment is one forward pass with first-parent inheritance and trunk pinned to lane 0; nothing reads the wall clock except generated_at, which is excluded from RepoGraph::fingerprint() (code-lens precedent). The fingerprint gates re-layout, the beacon write, and the determinism golden test.",
           "source": "precedent",
           "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D29": {
           "behavior": "Background extraction over crossbeam-channel, generation-tagged, drained once per frame. Budget: 5000 commits extracted < 1 s, layout < 50 ms, paint windowed to the visible time range so a 100k-commit repository pans at 60 fps. Layout cached by (fingerprint, query, frame_size); meshes by (lane, zoom bucket). max_commits 2000 by default.",
           "source": "pattern",
           "confidence": 80,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D30": {
           "behavior": "Unbound; Unknown (initial/unresolved, neutral marker, not the missing marker); Analyzing (last good contents at stale_alpha + progress strip); Ready; Missing (locator named, last-known summary kept); NotARepository (names the folder); Unreadable(msg) (no partial graph presented as complete); Shallow(n) (.git/shallow detected, truncation marked); plus a Remotes(list) caption on every bound state so the fork surface being drawn is stated.",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         },
         "D31": {
           "behavior": "Journaled: frame rect, rotation, source, and every query field including hidden refs and the as-of pin. Derived per-peer and never journaled or exported: focus, hover, tooltip, search, contents-focus mode, analysis status, cached layout, last-good contents.",
           "source": "pattern",
           "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-08-01"
         }
       }
     }

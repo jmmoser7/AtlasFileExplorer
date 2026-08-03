@@ -13,14 +13,14 @@ use atlas_commands::{
 use atlas_core::export::{self, ExportItem, ExportMsg};
 use atlas_core::index::{AssignState, Db, DbCmd, LoadedRoot};
 use atlas_core::journal::{Action, AssignVal, Journal, JournalEntry};
+use atlas_core::owners::{OwnerHandle, OwnerMsg};
 use atlas_core::scanner::{self, ScanHandle, ScanMsg};
 use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
-use atlas_core::tree::{
-    self, FilePlace, Hit, LayoutConfig, Orient, Tree, COL_H, COL_W, DIR_H, DIR_W,
-};
+use atlas_core::timeline::{ActivityIndex, TimePicks};
+use atlas_core::tree::{self, FilePlace, Hit, LayoutConfig, Orient, Tree};
 use atlas_core::types::{
-    age_string, common_ancestor, date_string, human_size, normalize_folder_selection,
-    upstream_folders, ExtGroup, Family, FileEntry, FAMILIES,
+    common_ancestor, date_string, human_size, normalize_folder_selection, ExtGroup, Family,
+    FileEntry, FAMILIES, SECS_PER_DAY,
 };
 use atlas_core::watcher::{self, FsChange, FsWatch};
 use atlas_shell::minimap::{minimap_ui, MinimapAction, MinimapModel, MinimapState};
@@ -43,9 +43,11 @@ pub use chrome::ChromeConfig;
 
 const TEXTURE_CAP: usize = 1100;
 const ZOOM_MIN: f32 = 0.02;
-const ZOOM_MAX: f32 = 3.5;
-const LOD_FULL: f32 = 0.2;
-const LOD_MID: f32 = 0.06;
+/// High enough that a directory tag (`DIR_H`) can fill a typical viewport
+/// height (~1080–1440px) so names and metadata are no longer cropped.
+const ZOOM_MAX: f32 = 32.0;
+const LOD_FULL_DEFAULT: usize = 20;
+const LOD_MID_DEFAULT: usize = 6;
 
 pub use atlas_core::types::wants_thumb;
 
@@ -67,6 +69,29 @@ pub(crate) enum DateFilterField {
     Modified,
 }
 
+/// Folder-card colouring driven by a robust per-folder metric
+/// ([`atlas_core::folder_heat`]). `Off` keeps the ordinary card chrome.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum FolderHeatMode {
+    #[default]
+    Off,
+    Size,
+    Created,
+    Modified,
+}
+
+impl FolderHeatMode {
+    fn metric(self) -> Option<atlas_core::folder_heat::FolderHeatMetric> {
+        use atlas_core::folder_heat::FolderHeatMetric;
+        match self {
+            FolderHeatMode::Off => None,
+            FolderHeatMode::Size => Some(FolderHeatMetric::Size),
+            FolderHeatMode::Created => Some(FolderHeatMetric::Created),
+            FolderHeatMode::Modified => Some(FolderHeatMetric::Modified),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum DirGrip {
     Incremental,
@@ -79,7 +104,7 @@ pub(crate) enum LeaderStyle {
     Orthogonal,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum ThumbState {
     NotAsked,
     AskedColor,
@@ -129,6 +154,54 @@ pub(crate) struct PrewarmJob {
     bytes_done: u64,
     /// Rolling (time, done, bytes_done) samples for the speed readout.
     samples: VecDeque<(Instant, usize, u64)>,
+}
+
+/// One cloud file the user may choose to download.
+pub(crate) struct CloudFile {
+    id: u32,
+    path: PathBuf,
+    key: String,
+}
+
+/// A costed proposal, waiting on the user. Building one reads directory entries
+/// only; nothing here has touched the network.
+pub(crate) struct CloudPlan {
+    /// What the count covers, e.g. "the current selection" — shown verbatim.
+    scope: String,
+    files: Vec<CloudFile>,
+    bytes: u64,
+}
+
+/// An accepted cloud download. The only thing in Atlas that fetches file
+/// content on purpose, and it exists solely because a human asked for it
+/// (Constitution Art. I: the user decides what leaves their machine's cache).
+pub(crate) struct CloudDownload {
+    scope: String,
+    started: Instant,
+    total: usize,
+    total_bytes: u64,
+    done: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    bytes_done: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    failed: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Set by Cancel — the fetch thread stops before its next file.
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Ids whose bytes have landed and whose cards still show the old icon.
+    ready: std::sync::Arc<std::sync::Mutex<Vec<u32>>>,
+}
+
+impl CloudDownload {
+    fn done_now(&self) -> usize {
+        self.done.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub(crate) fn remaining(&self) -> usize {
+        self.total.saturating_sub(self.done_now())
+    }
+
+    fn finished_now(&self) -> bool {
+        self.finished.load(std::sync::atomic::Ordering::Acquire)
+    }
 }
 
 impl PrewarmJob {
@@ -323,8 +396,10 @@ fn prewarm_walk(
             let Ok(md) = entry.metadata() else { continue };
             let mtime = scanner::mtime_of(&md);
             let ctime = atlas_core::metadata::ctime_of(&md);
-            let owner = atlas_core::metadata::owner_short(&entry.path());
-            let Some(fe) = FileEntry::from_abs(&ctx.0, entry.path(), md.len(), mtime, ctime, owner)
+            // No owner lookup: pre-warm only needs the cache key and the path,
+            // and that query is a per-file round trip on a share.
+            let Some(fe) =
+                FileEntry::from_abs(&ctx.0, entry.path(), md.len(), mtime, ctime, String::new())
             else {
                 continue;
             };
@@ -392,9 +467,6 @@ pub struct AtlasApp {
     at_home: bool,
     /// Chrome prefs while at home with no work tabs.
     home_chrome: ChromeConfig,
-    /// Parent folders of the mapped root (volume → … → parent), drawn as a
-    /// visual upstream chain into the tree — not part of the scan.
-    upstream: Vec<(String, PathBuf)>,
     generation: u64,
     entries: Vec<FileEntry>,
     rel_to_id: HashMap<String, u32>,
@@ -403,6 +475,18 @@ pub struct AtlasApp {
     tree: Option<Tree>,
     tree_dirty: bool,
     last_tree_build: Instant,
+    /// Every collapse decision this root has made, keyed by directory `rel`.
+    ///
+    /// Collapse cannot live only on the tree, because the tree is thrown away
+    /// and rebuilt while a scan streams: `Tree::build` re-runs `default_collapse`
+    /// on counts that are still growing, so a folder the user was looking at
+    /// would re-decide itself partway through loading, and a folder they expanded
+    /// during a background build would snap shut when that build landed. A
+    /// decision is recorded here once — by the default rule the first time the
+    /// folder is seen, or by the user — and is never silently revisited.
+    dir_collapsed: HashMap<String, bool>,
+    /// Entry count behind the current tree, for the amortized rebuild gate.
+    last_build_entries: usize,
     /// In-flight background tree build for large roots (`TreeBuild` arrives
     /// through here). The old tree keeps painting until the new one lands.
     tree_build_rx: Option<Receiver<TreeBuild>>,
@@ -417,6 +501,9 @@ pub struct AtlasApp {
     portal_threshold: usize,
     align_groups_to_lowest: bool,
     row_spacing: usize,
+    root_folder_gap: usize,
+    lod_mid: usize,
+    lod_full: usize,
     leader_style: LeaderStyle,
     cam: Camera,
     grid_fade: atlas_shell::grid_fade::GridFade,
@@ -431,6 +518,13 @@ pub struct AtlasApp {
     scan_ui: Option<ScanUi>,
     scan_handle: Option<ScanHandle>,
     rescan_buffer: Vec<FileEntry>,
+    /// Deferred owner enrichment. Discovery leaves `owner` empty because the
+    /// lookup is a round trip per file; this pass backfills it once the canvas
+    /// is already up. Holding the handle is what keeps it alive — dropping it
+    /// cancels the pass.
+    owner_tx: Sender<(u64, OwnerMsg)>,
+    owner_rx: Receiver<(u64, OwnerMsg)>,
+    owner_handle: Option<OwnerHandle>,
     /// In-flight index load: the root it was requested for plus the reply
     /// channel. The root is checked on arrival so a late reply can never be
     /// ingested into a different tab's workspace.
@@ -456,25 +550,44 @@ pub struct AtlasApp {
     date_span_hi: i64,
     date_range_lo: i64,
     date_range_hi: i64,
+    /// Per-bucket exceptions punched inside the date window with Ctrl-click on
+    /// the activity timeline. Seeded from the window the first time one is
+    /// toggled, so the first Ctrl-click reads as "deselect this one"; cleared
+    /// whenever a new window is defined.
+    time_picks: TimePicks,
     only_unassigned: bool,
     /// When true, among files with the same name and size, show only the newest (by mtime).
     dedupe_twins: bool,
     filter_dirty: bool,
     file_match: Vec<bool>,
     any_filter: bool,
+    /// Opt-in: after every filter change, fly the camera to what survived the
+    /// filter (and back out to the whole map when the filter is cleared).
+    auto_zoom_matches: bool,
+    /// Bounds the last auto-zoom framed, so a filter recompute that lands on
+    /// the same set — a scan batch, a repaint — does not re-fly the camera.
+    auto_zoom_last: Option<Rect>,
     /// All family checkboxes unchecked: draw the folder skeleton, no files.
     structure_only: bool,
     shown_count: usize,
     shown_bytes: u64,
     total_bytes: u64,
     alive_count: usize,
-    /// Bumped by `recompute_matches` so dependents (activity heatmap) can
-    /// invalidate cheaply instead of re-deriving from all entries per frame.
+    /// Bumped by `recompute_matches` so dependents can invalidate cheaply.
     matches_rev: u64,
-    /// Bottom-bar activity heatmap, cached against a fingerprint of its
-    /// inputs (match revision, selection, date field). Rebuilding it every
-    /// frame allocated O(entries) and degraded long sessions on big roots.
-    heatmap_cache: Option<(u64, ui::activity_heatmap::ActivityHeatmap)>,
+    /// Bumped when the entry set that feeds the activity heatmap changes
+    /// (scan batches, refresh, root reset) — deliberately *not* when the
+    /// date filter moves, so scrubbing never collapses the grid.
+    heatmap_data_rev: u64,
+    /// Sorted timestamp index behind the activity timeline, cached against a
+    /// fingerprint of its inputs (entry data revision, selection, date field).
+    /// Rebuilding it every frame allocated O(entries) and degraded long
+    /// sessions on big roots.
+    heatmap_cache: Option<(u64, ActivityIndex)>,
+    /// Folder heatmap mode (Display settings). Off leaves cards uncoloured.
+    folder_heat_mode: FolderHeatMode,
+    /// Cached normalised heats keyed by `(heatmap_data_rev, mode, dir_count)`.
+    folder_heat_cache: Option<(u64, Vec<Option<f32>>)>,
 
     // thumbnails
     thumb_state: Vec<ThumbState>,
@@ -500,6 +613,11 @@ pub struct AtlasApp {
     /// Live pre-warm run (Some while active) — drives the temporary bottom
     /// dashboard and is dropped on completion or cancel.
     prewarm: Option<PrewarmJob>,
+    /// Cloud files the user has been asked to confirm downloading. `Some` only
+    /// while the confirmation window is up; nothing is fetched until accepted.
+    cloud_plan: Option<CloudPlan>,
+    /// Live cloud download (Some while active).
+    cloud_dl: Option<CloudDownload>,
 
     // command surface: execution history (intent log) + Space/Enter repeat.
     // The registry itself is the const `commands::REGISTRY`.
@@ -582,9 +700,46 @@ pub struct AtlasApp {
     demo_ran: bool,
 }
 
+/// Heavyweight per-tab canvas state parked when the user leaves a tab so
+/// returning restores the workspace instead of reloading from disk.
+struct ParkedWorkspace {
+    root: Option<PathBuf>,
+    scan_seeds: Vec<PathBuf>,
+    entries: Vec<FileEntry>,
+    thumb_state: Vec<ThumbState>,
+    avg_color: Vec<Option<[u8; 3]>>,
+    file_match: Vec<bool>,
+    rel_to_id: HashMap<String, u32>,
+    textures: HashMap<u32, (egui::TextureHandle, u64)>,
+    tree: Option<Tree>,
+    dir_collapsed: HashMap<String, bool>,
+    selection: HashSet<u32>,
+    last_selected_file: Option<u32>,
+    assign_state: AssignState,
+    journal: Journal,
+    known_dests: BTreeSet<String>,
+    date_span_lo: i64,
+    date_span_hi: i64,
+    date_range_lo: i64,
+    date_range_hi: i64,
+    time_picks: TimePicks,
+    heatmap_cache: Option<(u64, ActivityIndex)>,
+    heatmap_data_rev: u64,
+    shared_cache: Option<std::sync::Arc<PathBuf>>,
+    key_prefix: String,
+    generation: u64,
+    shown_count: usize,
+    shown_bytes: u64,
+    total_bytes: u64,
+    alive_count: usize,
+    any_filter: bool,
+    structure_only: bool,
+    cam: Camera,
+}
+
 /// One open directory tab. The heavyweight state (entries, tree, textures)
-/// lives on the app and is swapped on tab switch via the SQLite index-first
-/// load, which paints in milliseconds; the tab remembers where you were.
+/// lives on the app while the tab is active, and is parked on the tab when
+/// the user switches away so returning restores the workspace in place.
 struct TabState {
     /// Stable identity: tab indices shift when tabs close, so anything async
     /// (like the folder picker) must reference tabs by id, never by index.
@@ -596,6 +751,9 @@ struct TabState {
     folders: Vec<PathBuf>,
     cam: Option<Camera>,
     chrome: ChromeConfig,
+    /// Parked canvas when this tab is inactive. `None` if never visited or
+    /// cleared (e.g. empty tab / closed).
+    parked: Option<ParkedWorkspace>,
 }
 
 impl TabState {
@@ -607,6 +765,7 @@ impl TabState {
             folders: Vec::new(),
             cam: None,
             chrome: chrome::default_chrome(),
+            parked: None,
         }
     }
 
@@ -693,6 +852,7 @@ impl AtlasApp {
         // (structure-only screenshot testing).
         let fam_default = !matches!(std::env::var("ATLAS_FAM").as_deref(), Ok("none"));
         let (scan_tx, scan_rx) = unbounded();
+        let (owner_tx, owner_rx) = unbounded();
         let chrome_prefs = atlas_shell::prefs::ChromePrefs::load(
             "file-atlas",
             atlas_shell::dock::DockSide::LeftCenter,
@@ -716,13 +876,14 @@ impl AtlasApp {
             ),
             at_home: initial_root.is_none(),
             home_chrome: chrome::default_chrome(),
-            upstream: Vec::new(),
             generation: 0,
             entries: Vec::new(),
             rel_to_id: HashMap::new(),
             tree: None,
             tree_dirty: false,
             last_tree_build: Instant::now(),
+            dir_collapsed: HashMap::new(),
+            last_build_entries: 0,
             tree_build_rx: None,
             orient: Orient::H,
             dark_mode: true,
@@ -733,6 +894,9 @@ impl AtlasApp {
             portal_threshold: 100,
             align_groups_to_lowest: true,
             row_spacing: 40, // minimum datum spacing by default
+            root_folder_gap: 100,
+            lod_mid: LOD_MID_DEFAULT,
+            lod_full: LOD_FULL_DEFAULT,
             leader_style: LeaderStyle::Orthogonal,
             cam: Camera {
                 offset: Vec2::ZERO,
@@ -748,6 +912,9 @@ impl AtlasApp {
             scan_ui: None,
             scan_handle: None,
             rescan_buffer: Vec::new(),
+            owner_tx,
+            owner_rx,
+            owner_handle: None,
             pending_load: None,
             picker_rx: None,
             export_picker_rx: None,
@@ -761,10 +928,13 @@ impl AtlasApp {
             date_span_hi: 0,
             date_range_lo: 0,
             date_range_hi: 0,
+            time_picks: TimePicks::new(),
             only_unassigned: false,
             dedupe_twins: false,
             filter_dirty: false,
             file_match: Vec::new(),
+            auto_zoom_matches: true,
+            auto_zoom_last: None,
             any_filter: false,
             structure_only: false,
             shown_count: 0,
@@ -772,7 +942,10 @@ impl AtlasApp {
             total_bytes: 0,
             alive_count: 0,
             matches_rev: 0,
+            heatmap_data_rev: 0,
             heatmap_cache: None,
+            folder_heat_mode: FolderHeatMode::Off,
+            folder_heat_cache: None,
             thumb_state: Vec::new(),
             avg_color: Vec::new(),
             textures: HashMap::new(),
@@ -786,6 +959,8 @@ impl AtlasApp {
             prewarm_picker_rx: None,
             prewarm_portal_mode: PrewarmPortalMode::Defer,
             prewarm: None,
+            cloud_plan: None,
+            cloud_dl: None,
             cmd_history: CommandHistory::new(),
             history_open: false,
             space_press: None,
@@ -884,6 +1059,7 @@ impl AtlasApp {
             portal_threshold: self.portal_threshold,
             align_groups_to_lowest: self.align_groups_to_lowest,
             row_spacing: self.row_spacing,
+            root_folder_gap: self.root_folder_gap,
         }
         .normalized()
     }
@@ -891,11 +1067,15 @@ impl AtlasApp {
     // ---------- root / scanning ----------
 
     fn open_folder_dialog(&mut self) {
+        self.open_folder_dialog_for_tab(self.active_tab);
+    }
+
+    fn open_folder_dialog_for_tab(&mut self, tab_i: usize) {
         if self.picker_rx.is_some() {
             return;
         }
         self.ensure_tab();
-        let Some(tab_id) = self.tabs.get(self.active_tab).map(|t| t.id) else {
+        let Some(tab_id) = self.tabs.get(tab_i).map(|t| t.id) else {
             return;
         };
         let (tx, rx) = unbounded();
@@ -999,6 +1179,232 @@ impl AtlasApp {
         self.prewarm.as_ref().map(|j| j.remaining()).unwrap_or(0)
     }
 
+    // ---------- cloud files: the one download the user asks for ----------
+
+    /// Cost out the cloud-only files in the current selection — or in the whole
+    /// filtered view when nothing is selected — and put the number in front of
+    /// the user before anything is fetched.
+    ///
+    /// This reads directory entries only. Nothing here touches the network.
+    pub(crate) fn plan_cloud_download(&mut self) {
+        if self.cloud_dl.is_some() {
+            self.toast("Already downloading cloud files — cancel that first");
+            return;
+        }
+        let by_selection = !self.selection.is_empty();
+        let scope = if by_selection {
+            "the selection"
+        } else if self.any_filter {
+            "the current filter"
+        } else {
+            "this folder"
+        };
+
+        let mut files: Vec<CloudFile> = Vec::new();
+        let mut bytes = 0u64;
+        for i in 0..self.entries.len() {
+            let e = &self.entries[i];
+            if e.dead {
+                continue;
+            }
+            let included = if by_selection {
+                self.selection.contains(&(i as u32))
+            } else {
+                self.file_match.get(i).copied().unwrap_or(false)
+            };
+            if !included || !atlas_core::cloud::is_dehydrated(&e.path) {
+                continue;
+            }
+            files.push(CloudFile {
+                id: i as u32,
+                path: e.path.clone(),
+                key: self.entry_key(e),
+            });
+            bytes += e.size;
+        }
+
+        if files.is_empty() {
+            self.toast(format!("Nothing to download — {scope} is already local"));
+            return;
+        }
+        self.cloud_plan = Some(CloudPlan {
+            scope: scope.to_string(),
+            files,
+            bytes,
+        });
+    }
+
+    /// Fetch the accepted files, one at a time, on a background thread.
+    ///
+    /// Sequential on purpose. The constraint is somebody's office link, not our
+    /// CPU, and a browser quietly opening dozens of parallel streams against a
+    /// corporate file server is how a user ends up explaining themselves to an
+    /// administrator.
+    fn start_cloud_download(&mut self, plan: CloudPlan) {
+        let job = CloudDownload {
+            scope: plan.scope,
+            started: Instant::now(),
+            total: plan.files.len(),
+            total_bytes: plan.bytes,
+            done: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            bytes_done: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            failed: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            finished: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            ready: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        };
+        let (done, bytes_done) = (job.done.clone(), job.bytes_done.clone());
+        let (failed, cancel) = (job.failed.clone(), job.cancel.clone());
+        let (finished, ready) = (job.finished.clone(), job.ready.clone());
+        let pool = self.thumbs.clone();
+        let files = plan.files;
+
+        self.toast(format!(
+            "Downloading {} files ({})",
+            group_digits(job.total as u64),
+            human_size(job.total_bytes)
+        ));
+        self.cloud_dl = Some(job);
+
+        std::thread::spawn(move || {
+            use std::sync::atomic::Ordering::Relaxed;
+            for f in files {
+                if cancel.load(Relaxed) {
+                    break;
+                }
+                match atlas_core::cloud::hydrate(&f.path) {
+                    Ok(n) => {
+                        bytes_done.fetch_add(n, Relaxed);
+                        // The type icon cached while this file was cloud-only is
+                        // now the wrong answer for it.
+                        pool.forget_icon(&f.key);
+                        ready.lock().unwrap().push(f.id);
+                    }
+                    Err(_) => {
+                        failed.fetch_add(1, Relaxed);
+                    }
+                }
+                done.fetch_add(1, Relaxed);
+            }
+            finished.store(true, std::sync::atomic::Ordering::Release);
+        });
+    }
+
+    /// Stop fetching. The file already in flight finishes — cutting a partial
+    /// read short would leave the sync client holding a half-downloaded file.
+    pub(crate) fn cancel_cloud_download(&mut self) {
+        let Some(job) = self.cloud_dl.take() else {
+            return;
+        };
+        job.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.toast(format!(
+            "Stopped — {} of {} files downloaded ({})",
+            group_digits(job.done_now() as u64),
+            group_digits(job.total as u64),
+            human_size(job.bytes_done.load(std::sync::atomic::Ordering::Relaxed))
+        ));
+    }
+
+    pub(crate) fn cloud_remaining(&self) -> usize {
+        self.cloud_dl.as_ref().map(|j| j.remaining()).unwrap_or(0)
+    }
+
+    /// Give freshly-downloaded files their real previews, and report when the
+    /// run is over.
+    fn poll_cloud_download(&mut self) {
+        let Some(job) = &self.cloud_dl else {
+            return;
+        };
+        let landed: Vec<u32> = std::mem::take(&mut *job.ready.lock().unwrap());
+        for id in landed {
+            let i = id as usize;
+            if i < self.thumb_state.len() {
+                // Back to square one for this card: the icon it is showing came
+                // from a file whose bytes were not here yet.
+                self.thumb_state[i] = ThumbState::NotAsked;
+                self.textures.remove(&id);
+            }
+        }
+        let Some(job) = &self.cloud_dl else {
+            return;
+        };
+        if !job.finished_now() {
+            return;
+        }
+        let job = self.cloud_dl.take().expect("checked above");
+        let failed = job.failed.load(std::sync::atomic::Ordering::Relaxed);
+        let mut msg = format!(
+            "Downloaded {} files ({}) from {} in {:.0}s",
+            group_digits(job.done_now().saturating_sub(failed) as u64),
+            human_size(job.bytes_done.load(std::sync::atomic::Ordering::Relaxed)),
+            job.scope,
+            job.started.elapsed().as_secs_f32()
+        );
+        if failed > 0 {
+            msg.push_str(&format!(" · {failed} failed"));
+        }
+        self.toast(msg);
+    }
+
+    /// The confirmation. Deliberately states the byte count, because that is the
+    /// part of this decision the user cannot otherwise see.
+    fn cloud_confirm_window(&mut self, ctx: &egui::Context) {
+        let Some(plan) = &self.cloud_plan else {
+            return;
+        };
+        let (count, bytes, scope) = (plan.files.len(), plan.bytes, plan.scope.clone());
+        let mut open = true;
+        let mut accepted = false;
+        let mut declined = false;
+        egui::Window::new("Download cloud files for previews")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(430.0)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "{} files in {scope} are stored online only.",
+                    group_digits(count as u64)
+                ));
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Building their previews means downloading {}.",
+                        human_size(bytes)
+                    ))
+                    .strong(),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(
+                        "There is no smaller way to do it — a file kept online only \
+                         has no thumbnail to fetch, so the file itself has to come \
+                         down. Atlas never starts this on its own.",
+                    )
+                    .small(),
+                );
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(format!("Download {}", human_size(bytes)))
+                        .clicked()
+                    {
+                        accepted = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        declined = true;
+                    }
+                });
+            });
+        if accepted {
+            if let Some(plan) = self.cloud_plan.take() {
+                self.start_cloud_download(plan);
+            }
+        } else if declined || !open {
+            self.cloud_plan = None;
+        }
+    }
+
     /// Discard stale thumbnail results on a root change without losing
     /// pre-warm progress accounting (pinned results are generation-less).
     fn flush_thumb_results(&mut self) {
@@ -1041,11 +1447,14 @@ impl AtlasApp {
         self.thumb_state = Vec::new();
         self.avg_color = Vec::new();
         self.file_match = Vec::new();
+        self.auto_zoom_last = None;
         self.rel_to_id = HashMap::new();
         self.textures = HashMap::new();
         self.tree = None;
         self.tree_dirty = false;
         self.tree_build_rx = None;
+        self.dir_collapsed = HashMap::new();
+        self.last_build_entries = 0;
 
         // Interaction state that carries entry ids or in-progress gestures.
         self.selection = HashSet::new();
@@ -1072,7 +1481,20 @@ impl AtlasApp {
         self.all_owners.clear();
         self.rescan_buffer = Vec::new();
         self.filter_dirty = true;
+        // These accumulate as a scan streams (see `absorb_new_entries`), so a
+        // new root has to start them at zero rather than inherit the last one's.
+        self.shown_count = 0;
+        self.shown_bytes = 0;
+        self.total_bytes = 0;
+        self.alive_count = 0;
         self.heatmap_cache = None;
+        self.folder_heat_cache = None;
+        self.heatmap_data_rev = self.heatmap_data_rev.wrapping_add(1);
+        self.time_picks.clear();
+        self.date_span_lo = 0;
+        self.date_span_hi = 0;
+        self.date_range_lo = 0;
+        self.date_range_hi = 0;
 
         // Async per-root machinery.
         self.scan_ui = None;
@@ -1083,7 +1505,6 @@ impl AtlasApp {
         self.warm_audit = None;
         self.warm_plan_rx = None;
         self.scan_seeds.clear();
-        self.upstream.clear();
     }
 
     fn set_root(&mut self, root: PathBuf) {
@@ -1115,7 +1536,6 @@ impl AtlasApp {
         self.ensure_tab();
         self.root = Some(root.clone());
         self.scan_seeds = folders.clone();
-        self.upstream = upstream_folders(&root);
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.set_folders(folders.clone());
         }
@@ -1228,8 +1648,22 @@ impl AtlasApp {
             return;
         }
         self.at_home = false;
-        // Remember where the current tab was.
-        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+        self.remember_active_tab_meta();
+        if i == self.active_tab {
+            return;
+        }
+        self.park_active_workspace();
+        self.active_tab = i;
+        self.activate_tab_workspace();
+    }
+
+    /// Persist folder list + camera onto the active tab without parking.
+    fn remember_active_tab_meta(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let i = self.active_tab.min(self.tabs.len() - 1);
+        if let Some(tab) = self.tabs.get_mut(i) {
             tab.cam = Some(self.cam);
             if self.scan_seeds.is_empty() {
                 if let Some(r) = &self.root {
@@ -1241,15 +1675,174 @@ impl AtlasApp {
                 tab.set_folders(self.scan_seeds.clone());
             }
         }
-        if i == self.active_tab {
+    }
+
+    /// Snapshot the live canvas into the active tab so a later return can
+    /// restore it without a full reload.
+    fn park_active_workspace(&mut self) {
+        if self.tabs.is_empty() {
             return;
         }
-        self.active_tab = i;
+        let i = self.active_tab.min(self.tabs.len() - 1);
+        self.remember_active_tab_meta();
+
+        // Cancel in-flight work tied to this generation; a quiet refresh
+        // will resume when the tab is restored.
+        if let Some(h) = &self.scan_handle {
+            h.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.scan_handle = None;
+        self.scan_ui = None;
+        self.pending_load = None;
+        self.tree_build_rx = None;
+        self.watch = None;
+        self.rescan_buffer.clear();
+
+        if self.root.is_none() && self.entries.is_empty() {
+            if let Some(tab) = self.tabs.get_mut(i) {
+                tab.parked = None;
+            }
+            // Still advance the epoch so a cancelled scan for a just-cleared
+            // root can't land on the next tab.
+            self.generation = self.generation.wrapping_add(1);
+            self.thumbs.retain_generation(self.generation);
+            return;
+        }
+
+        let parked = ParkedWorkspace {
+            root: self.root.take(),
+            scan_seeds: std::mem::take(&mut self.scan_seeds),
+            entries: std::mem::take(&mut self.entries),
+            thumb_state: std::mem::take(&mut self.thumb_state),
+            avg_color: std::mem::take(&mut self.avg_color),
+            file_match: std::mem::take(&mut self.file_match),
+            rel_to_id: std::mem::take(&mut self.rel_to_id),
+            textures: std::mem::take(&mut self.textures),
+            tree: self.tree.take(),
+            dir_collapsed: std::mem::take(&mut self.dir_collapsed),
+            selection: std::mem::take(&mut self.selection),
+            last_selected_file: self.last_selected_file.take(),
+            assign_state: std::mem::replace(
+                &mut self.assign_state,
+                AssignState {
+                    assigns: HashMap::new(),
+                },
+            ),
+            journal: std::mem::take(&mut self.journal),
+            known_dests: std::mem::take(&mut self.known_dests),
+            date_span_lo: self.date_span_lo,
+            date_span_hi: self.date_span_hi,
+            date_range_lo: self.date_range_lo,
+            date_range_hi: self.date_range_hi,
+            time_picks: std::mem::take(&mut self.time_picks),
+            heatmap_cache: self.heatmap_cache.take(),
+            heatmap_data_rev: self.heatmap_data_rev,
+            shared_cache: self.shared_cache.take(),
+            key_prefix: std::mem::take(&mut self.key_prefix),
+            generation: self.generation,
+            shown_count: self.shown_count,
+            shown_bytes: self.shown_bytes,
+            total_bytes: self.total_bytes,
+            alive_count: self.alive_count,
+            any_filter: self.any_filter,
+            structure_only: self.structure_only,
+            cam: self.cam,
+        };
+
+        // Clear interaction leftovers that reference entry ids.
+        self.hovered_file = None;
+        self.hovered_dir = None;
+        self.hovered_dir_grip = None;
+        self.rubber_origin = None;
+        self.drag_chip = None;
+        self.detail = None;
+        self.menu_at = None;
+        self.anim = None;
+        self.pending_view = None;
+        self.pending_cam = None;
+        self.tree_dirty = false;
+
+        // Invalidate in-flight scan/thumb results for the parked generation
+        // so they can't mutate whichever tab becomes active next.
+        self.generation = self.generation.wrapping_add(1);
+        self.thumbs.retain_generation(self.generation);
+
+        if let Some(tab) = self.tabs.get_mut(i) {
+            tab.parked = Some(parked);
+        }
+    }
+
+    fn restore_parked_workspace(&mut self, parked: ParkedWorkspace) {
+        self.root = parked.root;
+        self.scan_seeds = parked.scan_seeds;
+        self.entries = parked.entries;
+        self.thumb_state = parked.thumb_state;
+        self.avg_color = parked.avg_color;
+        self.file_match = parked.file_match;
+        self.rel_to_id = parked.rel_to_id;
+        self.textures = parked.textures;
+        self.tree = parked.tree;
+        self.last_build_entries = self.entries.len();
+        self.dir_collapsed = parked.dir_collapsed;
+        self.selection = parked.selection;
+        self.last_selected_file = parked.last_selected_file;
+        self.assign_state = parked.assign_state;
+        self.journal = parked.journal;
+        self.known_dests = parked.known_dests;
+        self.date_span_lo = parked.date_span_lo;
+        self.date_span_hi = parked.date_span_hi;
+        self.date_range_lo = parked.date_range_lo;
+        self.date_range_hi = parked.date_range_hi;
+        self.time_picks = parked.time_picks;
+        self.heatmap_cache = parked.heatmap_cache;
+        self.heatmap_data_rev = parked.heatmap_data_rev;
+        self.shared_cache = parked.shared_cache;
+        self.key_prefix = parked.key_prefix;
+        self.generation = parked.generation;
+        self.shown_count = parked.shown_count;
+        self.shown_bytes = parked.shown_bytes;
+        self.total_bytes = parked.total_bytes;
+        self.alive_count = parked.alive_count;
+        self.any_filter = parked.any_filter;
+        self.structure_only = parked.structure_only;
+        self.cam = parked.cam;
+        self.anim = None;
+        self.pending_view = None;
+        self.pending_cam = None;
+        self.tree_dirty = false;
+        self.filter_dirty = true;
+        // Advance past the parked generation so any late results still
+        // tagged with it (from the cancel at park time) are dropped; the
+        // quiet refresh below tags work with this new epoch.
+        self.generation = parked.generation.wrapping_add(1);
+        self.thumbs.retain_generation(self.generation);
+    }
+
+    /// Activate whatever the current `active_tab` points at: restore a parked
+    /// workspace, load folders for a first visit, or show an empty canvas.
+    fn activate_tab_workspace(&mut self) {
+        if self.tabs.is_empty() {
+            self.clear_root();
+            return;
+        }
+        let i = self.active_tab.min(self.tabs.len() - 1);
+        let target_cam = self.tabs[i].cam;
+        if let Some(parked) = self.tabs[i].parked.take() {
+            self.restore_parked_workspace(parked);
+            if let Some(cam) = target_cam {
+                self.cam = cam;
+                self.anim = None;
+            }
+            // Background freshness check — keep the restored canvas painted.
+            self.start_quiet_refresh();
+            return;
+        }
         let target_folders = self.tabs[i].folders.clone();
         let target_root = self.tabs[i].root.clone();
-        let target_cam = self.tabs[i].cam;
         if target_folders.is_empty() && target_root.is_none() {
-            self.clear_root();
+            self.reset_workspace();
+            self.root = None;
+            self.scan_seeds.clear();
             return;
         }
         let folders = if target_folders.is_empty() {
@@ -1257,23 +1850,36 @@ impl AtlasApp {
         } else {
             target_folders
         };
-        let same = self.scan_seeds == folders
-            || (folders.len() == 1
-                && self.root.as_ref() == folders.first()
-                && self.scan_seeds.len() <= 1);
-        if same {
-            // Same folder(s) in two tabs: just jump the camera.
-            if let Some(cam) = target_cam {
-                self.cam = cam;
-                self.anim = None;
-            }
-        } else {
-            // The index-first load repaints in milliseconds; restore
-            // this tab's camera once its tree is rebuilt. Set after
-            // `set_roots`, which resets any stale pending camera.
-            self.set_roots(folders);
-            self.pending_cam = target_cam;
+        self.set_roots(folders);
+        self.pending_cam = target_cam;
+    }
+
+    /// Soft rescan after a tab restore: keep the parked tree on screen and
+    /// only replace entries if the disk view actually changed.
+    fn start_quiet_refresh(&mut self) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        if let Some(h) = &self.scan_handle {
+            h.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         }
+        self.rescan_buffer.clear();
+        self.scan_ui = Some(ScanUi {
+            mode: ScanMode::Refresh,
+            started: Instant::now(),
+        });
+        let seeds = if self.scan_seeds.is_empty() {
+            vec![root.clone()]
+        } else {
+            self.scan_seeds.clone()
+        };
+        self.scan_handle = Some(scanner::start_scan_seeds(
+            root.clone(),
+            seeds,
+            self.generation,
+            self.scan_tx.clone(),
+        ));
+        self.watch = watcher::watch(root);
     }
 
     fn new_tab(&mut self) {
@@ -1289,33 +1895,26 @@ impl AtlasApp {
             return;
         }
         if self.tabs.len() == 1 {
+            self.park_active_workspace();
             self.tabs.clear();
             self.active_tab = 0;
             self.at_home = true;
-            self.clear_root();
+            self.reset_workspace();
+            self.root = None;
+            self.scan_seeds.clear();
             return;
         }
-        self.tabs.remove(i);
         if self.active_tab == i {
-            // Activate the neighbor (same index now holds the next tab).
-            let next = i.min(self.tabs.len() - 1);
-            let folders = self.tabs[next].folders.clone();
-            let root = self.tabs[next].root.clone();
-            let cam = self.tabs[next].cam;
-            self.active_tab = next;
-            let folders = if folders.is_empty() {
-                root.into_iter().collect()
-            } else {
-                folders
-            };
-            if folders.is_empty() {
-                self.clear_root();
-            } else {
-                self.set_roots(folders);
-                self.pending_cam = cam;
+            // Leaving the tab being closed: park is discarded with the tab.
+            self.park_active_workspace();
+            self.tabs.remove(i);
+            self.active_tab = i.min(self.tabs.len() - 1);
+            self.activate_tab_workspace();
+        } else {
+            self.tabs.remove(i);
+            if self.active_tab > i {
+                self.active_tab -= 1;
             }
-        } else if self.active_tab > i {
-            self.active_tab -= 1;
         }
     }
 
@@ -1381,6 +1980,32 @@ impl AtlasApp {
             seeds,
             self.generation,
             self.scan_tx.clone(),
+        ));
+    }
+
+    /// Backfill the owner of every entry that does not have one yet.
+    ///
+    /// Discovery skips the owner lookup because it is a security-descriptor
+    /// query per file — on a share, a round trip per file, which is what made
+    /// opening a 20k-file folder take about fifteen seconds before a single card
+    /// appeared. Entries restored from the index already carry the owner learned
+    /// last time, so a revisit usually finds nothing to do here.
+    fn queue_owner_pass(&mut self) {
+        let todo: Vec<(String, PathBuf)> = self
+            .entries
+            .iter()
+            .filter(|e| !e.dead && e.owner.is_empty())
+            .map(|e| (e.rel.clone(), e.path.clone()))
+            .collect();
+        if todo.is_empty() {
+            self.owner_handle = None;
+            return;
+        }
+        // Replacing the handle cancels any pass still running for an older root.
+        self.owner_handle = Some(atlas_core::owners::start_owner_pass(
+            todo,
+            self.generation,
+            self.owner_tx.clone(),
         ));
     }
 
@@ -1496,17 +2121,35 @@ impl AtlasApp {
     /// background thread — a 20k+ build froze the frame for long enough to
     /// feel like a choke — and the previous tree keeps painting until the
     /// new one arrives through `tree_build_rx`.
+    /// Whether a streaming scan has changed enough to be worth another rebuild.
+    ///
+    /// A rebuild copies every entry and re-lays out the whole canvas, so its cost
+    /// grows with the folder. On a fixed 700 ms timer that means a big root pays
+    /// more per second the bigger it gets — 133k entries rebuilt every 700 ms is
+    /// most of the frame budget, and it is what made panning judder during a load.
+    ///
+    /// Growth-proportional instead: rebuild once the canvas is meaningfully out of
+    /// date (a quarter more files than it was built from), with a floor so small
+    /// additions still appear promptly and a ceiling so a slow trickle is not
+    /// ignored forever. Total rebuild work over a load becomes O(n log n) rather
+    /// than O(n × frames).
+    fn tree_rebuild_due(&self) -> bool {
+        let since = self.last_tree_build.elapsed();
+        if since.as_millis() < 700 {
+            return false;
+        }
+        // Outside a streaming scan the pending change is small and rare — a
+        // watcher event, a file that moved — so it should appear promptly.
+        if self.scan_ui.is_none() {
+            return true;
+        }
+        let grew_by = self.entries.len().saturating_sub(self.last_build_entries);
+        let quarter = self.last_build_entries / 4;
+        grew_by >= quarter.max(1) || since.as_secs() >= 4
+    }
+
     fn rebuild_tree(&mut self, first: bool) {
-        let collapsed: HashMap<String, bool> = self
-            .tree
-            .as_ref()
-            .map(|t| {
-                t.dirs
-                    .iter()
-                    .map(|d| (d.rel.clone(), d.collapsed))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let collapsed = self.dir_collapsed.clone();
 
         if self.entries.len() >= ASYNC_TREE_THRESHOLD {
             if self.tree_build_rx.is_some() {
@@ -1565,10 +2208,41 @@ impl AtlasApp {
 
     /// Install a freshly built tree and, on the root's first build, place
     /// the initial camera (restored tab position or the home view).
-    fn adopt_tree(&mut self, t: Tree, first: bool) {
+    fn adopt_tree(&mut self, mut t: Tree, first: bool) {
+        // Reconcile collapse against the record, not against whatever the build
+        // started from: a background build can be in flight for seconds, and a
+        // folder the user opened in the meantime must not slam shut when it
+        // lands. Directories seen for the first time keep the default they were
+        // just given, recorded so no later rebuild decides differently.
+        let mut diverged = false;
+        for d in t.dirs.iter_mut() {
+            match self.dir_collapsed.get(&d.rel) {
+                Some(&c) => {
+                    if d.collapsed != c {
+                        d.collapsed = c;
+                        diverged = true;
+                    }
+                }
+                None => {
+                    self.dir_collapsed.insert(d.rel.clone(), d.collapsed);
+                }
+            }
+        }
+        if diverged {
+            // Positions were computed against the collapse we just overrode.
+            t.layout_filtered(
+                self.orient,
+                self.filter_mode == FilterMode::Hide && self.any_filter,
+                &self.file_match,
+                self.structure_only,
+            );
+        }
         self.tree = Some(t);
         self.tree_dirty = false;
         self.last_tree_build = Instant::now();
+        self.last_build_entries = self.entries.len();
+        // Timeline + folder heat refresh here rather than per scan batch.
+        self.heatmap_data_rev = self.heatmap_data_rev.wrapping_add(1);
         self.filter_dirty = true;
         self.bump_minimap();
         if first {
@@ -1656,6 +2330,8 @@ impl AtlasApp {
                 }
             }
         }
+
+        self.poll_cloud_download();
 
         // Pre-warm folder picker result
         if let Some(rx) = &self.prewarm_picker_rx {
@@ -1747,9 +2423,14 @@ impl AtlasApp {
                 ScanMsg::Batch(batch) => match mode {
                     Some(ScanMode::Refresh) => self.rescan_buffer.extend(batch),
                     _ => {
+                        let first_new = self.entries.len();
+                        let mut replaced = false;
                         for fe in batch {
                             match self.rel_to_id.get(&fe.rel) {
-                                Some(&i) => self.entries[i as usize] = fe,
+                                Some(&i) => {
+                                    self.entries[i as usize] = fe;
+                                    replaced = true;
+                                }
                                 None => {
                                     self.rel_to_id
                                         .insert(fe.rel.clone(), self.entries.len() as u32);
@@ -1758,6 +2439,21 @@ impl AtlasApp {
                                     self.avg_color.push(None);
                                 }
                             }
+                        }
+                        // The timeline index and folder-heat map are keyed on
+                        // `heatmap_data_rev`, and both are whole-corpus passes.
+                        // Bumping it per batch rebuilt them every frame of a
+                        // load; they ride the tree's cadence instead (see
+                        // `adopt_tree`), which is as often as the canvas they
+                        // annotate actually changes shape.
+                        //
+                        // A re-reported file can change size/date, so its
+                        // aggregates are no longer additive — that needs the
+                        // full pass. Appends do not.
+                        if replaced {
+                            self.filter_dirty = true;
+                        } else if self.entries.len() > first_new {
+                            self.absorb_new_entries(first_new);
                         }
                         self.tree_dirty = true;
                     }
@@ -1771,7 +2467,11 @@ impl AtlasApp {
                         }
                     );
                     if mode == Some(ScanMode::Refresh) {
-                        let buffer = std::mem::take(&mut self.rescan_buffer);
+                        let mut buffer = std::mem::take(&mut self.rescan_buffer);
+                        // Owner is not part of identity — a rescan always
+                        // reports it empty because discovery no longer looks it
+                        // up, so comparing it here would declare every refresh a
+                        // change and throw the whole workspace away.
                         let changed = buffer.len()
                             != self.entries.iter().filter(|e| !e.dead).count()
                             || buffer.iter().any(|fe| {
@@ -1783,11 +2483,20 @@ impl AtlasApp {
                                             || e.size != fe.size
                                             || e.mtime != fe.mtime
                                             || e.ctime != fe.ctime
-                                            || e.owner != fe.owner
                                     })
                                     .unwrap_or(true)
                             });
                         if changed {
+                            // Carry forward the owners already resolved so the
+                            // facet does not empty out and get re-walked.
+                            for fe in &mut buffer {
+                                if let Some(&i) = self.rel_to_id.get(&fe.rel) {
+                                    let known = &self.entries[i as usize].owner;
+                                    if fe.owner.is_empty() && !known.is_empty() {
+                                        fe.owner = known.clone();
+                                    }
+                                }
+                            }
                             self.entries = buffer;
                             self.thumb_state = vec![ThumbState::NotAsked; self.entries.len()];
                             self.avg_color = vec![None; self.entries.len()];
@@ -1795,6 +2504,7 @@ impl AtlasApp {
                             self.rebuild_rel_map();
                             self.selection.clear();
                             self.new_epoch();
+                            self.heatmap_data_rev = self.heatmap_data_rev.wrapping_add(1);
                             self.rebuild_tree(false);
                         }
                     } else {
@@ -1810,6 +2520,49 @@ impl AtlasApp {
                     self.scan_handle = None;
                     self.save_snapshot();
                     self.queue_cache_warming();
+                    self.queue_owner_pass();
+                }
+            }
+        }
+
+        // Deferred owner results.
+        while let Ok((generation, msg)) = self.owner_rx.try_recv() {
+            if generation != self.generation {
+                continue;
+            }
+            match msg {
+                OwnerMsg::Batch(pairs) => {
+                    for (rel, owner) in pairs {
+                        if let Some(&i) = self.rel_to_id.get(&rel) {
+                            let e = &mut self.entries[i as usize];
+                            if e.owner != owner {
+                                // Keep the facet tally in step with the one
+                                // label that changed. Re-tallying every file
+                                // per batch was another whole-corpus pass on
+                                // the frame loop, right after a scan finished.
+                                if !e.owner.is_empty() {
+                                    if let Some(n) = self.all_owners.get_mut(&e.owner) {
+                                        *n = n.saturating_sub(1);
+                                    }
+                                }
+                                if !owner.is_empty() {
+                                    *self.all_owners.entry(owner.clone()).or_insert(0) += 1;
+                                }
+                                self.entries[i as usize].owner = owner;
+                                if !self.owner_filter.is_empty() {
+                                    self.filter_dirty = true;
+                                }
+                            }
+                        }
+                    }
+                    self.all_owners.retain(|_, n| *n > 0);
+                }
+                OwnerMsg::Done => {
+                    self.owner_handle = None;
+                    self.recount_owners();
+                    // Persist so the next visit gets owners straight from the
+                    // index instead of repeating the walk.
+                    self.save_snapshot();
                 }
             }
         }
@@ -1817,8 +2570,7 @@ impl AtlasApp {
         // Throttled tree rebuild while a fresh scan streams in.
         if self.tree_dirty {
             let first = self.tree.is_none();
-            let due = self.last_tree_build.elapsed().as_millis() > 700;
-            if first && !self.entries.is_empty() || due {
+            if first && !self.entries.is_empty() || self.tree_rebuild_due() {
                 self.rebuild_tree(first);
             }
         }
@@ -1879,6 +2631,21 @@ impl AtlasApp {
             if res.warm {
                 // Disk cache is now hot; the UI re-requests pixels on demand.
                 // The harvested average color feeds the far-zoom overview.
+                //
+                // "On demand" needs help: warm jobs carry no pixels, so a card
+                // whose on-demand request was answered by this warm result sits
+                // in `AskedFull` with nothing to draw, and the paint pass only
+                // ever re-asks for `NotAsked`/`HasColor`. Release it here or it
+                // stays a blank placeholder for the life of the tab.
+                if self.thumb_state[id] == ThumbState::AskedFull
+                    && !self.textures.contains_key(&res.id)
+                {
+                    self.thumb_state[id] = if self.avg_color[id].is_some() {
+                        ThumbState::HasColor
+                    } else {
+                        ThumbState::NotAsked
+                    };
+                }
                 continue;
             }
             if res.color_only {
@@ -2128,7 +2895,9 @@ impl AtlasApp {
     }
 
     /// Unix timestamps for the activity heatmap: selected files when any are
-    /// selected, otherwise files currently visible on the canvas.
+    /// selected, otherwise every alive file in the folder. Date (and other)
+    /// filters intentionally do **not** shrink this set — the grid is the
+    /// folder's activity map; selection mutes cells and ghosts canvas files.
     pub(crate) fn activity_timestamps(&self) -> Vec<i64> {
         if !self.selection.is_empty() {
             self.selection
@@ -2140,16 +2909,53 @@ impl AtlasApp {
         } else {
             self.entries
                 .iter()
-                .enumerate()
-                .filter(|(i, e)| !e.dead && self.file_match.get(*i).copied().unwrap_or(false))
-                .map(|(_, e)| self.file_date_secs(e))
+                .filter(|e| !e.dead)
+                .map(|e| self.file_date_secs(e))
                 .collect()
         }
     }
 
-    /// Cached activity heatmap for the bottom bar. Rebuilt only when the
-    /// match set, selection, or date field changes — never per frame.
-    pub(crate) fn activity_heatmap(&mut self) -> &ui::activity_heatmap::ActivityHeatmap {
+    /// Rebuild the folder-heatmap cache when the mode, entry set, or tree
+    /// shape changes. Cheap no-op when the mode is Off.
+    pub(crate) fn ensure_folder_heat(&mut self) {
+        let Some(metric) = self.folder_heat_mode.metric() else {
+            self.folder_heat_cache = None;
+            return;
+        };
+        let dir_count = self.tree.as_ref().map(|t| t.dirs.len()).unwrap_or(0) as u64;
+        let mode_tag = match self.folder_heat_mode {
+            FolderHeatMode::Off => 0u64,
+            FolderHeatMode::Size => 1,
+            FolderHeatMode::Created => 2,
+            FolderHeatMode::Modified => 3,
+        };
+        let fingerprint = self
+            .heatmap_data_rev
+            .wrapping_mul(0x9E37)
+            .wrapping_add(mode_tag << 48)
+            .wrapping_add(dir_count);
+        if matches!(&self.folder_heat_cache, Some((fp, _)) if *fp == fingerprint) {
+            return;
+        }
+        let Some(tree) = self.tree.as_ref() else {
+            self.folder_heat_cache = None;
+            return;
+        };
+        let map = atlas_core::folder_heat::compute_folder_heat(&tree.dirs, &self.entries, metric);
+        self.folder_heat_cache = Some((fingerprint, map.heats));
+    }
+
+    /// Normalised heat for a directory, if the folder heatmap is armed.
+    fn folder_heat(&self, di: usize) -> Option<f32> {
+        self.folder_heat_cache
+            .as_ref()
+            .and_then(|(_, heats)| heats.get(di).copied().flatten())
+    }
+
+    /// Builds the activity timeline's timestamp index if it is stale. Rebuilt
+    /// when the folder's entry set, selection, or date field changes — never
+    /// when the window moves, so scrubbing can never collapse the graph.
+    pub(crate) fn ensure_activity_index(&mut self) {
         // Order-independent selection digest: cheap relative to a rebuild and
         // stable across HashSet iteration order.
         let sel_digest = self
@@ -2160,20 +2966,34 @@ impl AtlasApp {
             })
             .wrapping_add(self.selection.len() as u64);
         let fingerprint = self
-            .matches_rev
+            .heatmap_data_rev
             .wrapping_mul(0x100_0193)
             .wrapping_add(sel_digest)
+            .wrapping_add(self.entries.len() as u64)
             .wrapping_add(match self.date_field {
                 DateFilterField::Created => 0,
                 DateFilterField::Modified => 1 << 62,
             });
         let stale = !matches!(&self.heatmap_cache, Some((fp, _)) if *fp == fingerprint);
         if stale {
-            let heatmap =
-                ui::activity_heatmap::ActivityHeatmap::from_timestamps(self.activity_timestamps());
-            self.heatmap_cache = Some((fingerprint, heatmap));
+            let index = ActivityIndex::from_timestamps(self.activity_timestamps());
+            self.heatmap_cache = Some((fingerprint, index));
         }
-        &self.heatmap_cache.as_ref().unwrap().1
+    }
+
+    /// True when the timeline is showing less than everything — the condition
+    /// that arms the `Readout` cancel layer and the reset affordances.
+    pub(crate) fn time_selection_active(&self) -> bool {
+        self.date_filter_active()
+    }
+
+    /// Back to the default: the whole span, no punched buckets. Shared by the
+    /// timeline's reset button, its "clear selection" button, and Escape.
+    pub(crate) fn reset_time_selection(&mut self) {
+        self.time_picks.clear();
+        self.date_range_lo = self.date_span_lo;
+        self.date_range_hi = self.date_span_hi;
+        self.filter_dirty = true;
     }
 
     fn update_date_span(&mut self) {
@@ -2189,29 +3009,65 @@ impl AtlasApp {
         if min == i64::MAX {
             min = 0;
             max = 0;
+        } else {
+            // Whole days: the graph's coarsest bucket is a day, so a fully
+            // open window must cover the first and last day completely.
+            min = atlas_core::types::day_start(min);
+            max = atlas_core::types::day_start(max) + SECS_PER_DAY - 1;
         }
-        let span_changed = self.date_span_lo != min || self.date_span_hi != max;
+        self.apply_date_span(min, max);
+    }
+
+    /// Move the timeline's outer span to `min..max`, keeping whatever window the
+    /// user had cropped inside it. Shared by the full recompute and the
+    /// incremental streaming path so a growing span behaves identically either
+    /// way.
+    fn apply_date_span(&mut self, min: i64, max: i64) {
+        let old_lo = self.date_span_lo;
+        let old_hi = self.date_span_hi;
+        let range_was_full = (self.date_range_lo == old_lo && self.date_range_hi == old_hi)
+            || (old_lo == 0 && old_hi == 0);
         self.date_span_lo = min;
         self.date_span_hi = max;
-        if span_changed {
+        if range_was_full {
             self.date_range_lo = min;
             self.date_range_hi = max;
+        } else if min < max {
+            // Preserve the user's crop; clamp into the expanded/shrunk span.
+            self.date_range_lo = self.date_range_lo.clamp(min, max);
+            self.date_range_hi = self.date_range_hi.clamp(min, max);
+            if self.date_range_lo > self.date_range_hi {
+                self.date_range_lo = min;
+                self.date_range_hi = max;
+            }
         }
     }
 
     fn date_filter_active(&self) -> bool {
+        if !self.time_picks.is_empty() {
+            return true;
+        }
         if self.date_span_lo >= self.date_span_hi && self.date_span_hi == 0 {
             return false;
         }
         self.date_range_lo > self.date_span_lo || self.date_range_hi < self.date_span_hi
     }
 
+    /// The window is the coarse selection; picks are exceptions inside it. A
+    /// file must satisfy both, which is what lets one Ctrl-click punch a hole
+    /// without redefining the window.
     fn date_matches(&self, e: &FileEntry) -> bool {
         if !self.date_filter_active() {
             return true;
         }
         let t = self.file_date_secs(e);
-        t >= self.date_range_lo && t <= self.date_range_hi
+        if t <= 0 {
+            return false;
+        }
+        if t < self.date_range_lo || t > self.date_range_hi {
+            return false;
+        }
+        self.time_picks.is_empty() || self.time_picks.contains(t)
     }
 
     fn owner_matches(&self, e: &FileEntry) -> bool {
@@ -2219,6 +3075,109 @@ impl AtlasApp {
             return true;
         }
         !e.owner.is_empty() && self.owner_filter.contains(&e.owner)
+    }
+
+    /// Does one file survive the current filter? The single definition of that,
+    /// so the streaming path and the full recompute can never disagree.
+    fn entry_matches(&self, e: &FileEntry, search: &str) -> bool {
+        let mut m = self.family_on[e.family.idx()];
+        if m {
+            m = self.ext_type_matches(e);
+        }
+        if m && !search.is_empty() {
+            m = e.name_lc.contains(search);
+        }
+        if m && self.only_unassigned && self.assign_state.assigns.contains_key(&e.rel) {
+            m = false;
+        }
+        if m {
+            m = self.owner_matches(e);
+        }
+        if m {
+            m = self.date_matches(e);
+        }
+        m
+    }
+
+    /// Fold an appended scan batch into the filter state without re-examining
+    /// every file already on the canvas.
+    ///
+    /// A streaming scan delivers a batch every ~30 ms, and the full recompute is
+    /// several passes over every entry plus a whole-tree relayout. Doing that per
+    /// batch makes a load quadratic: measured at 40k files it was most of the
+    /// frame budget, which is what made panning and zooming judder while a folder
+    /// was still arriving, and what made the file count appear to freeze — the
+    /// number was only redrawn a few times a second.
+    ///
+    /// Appended files can only *add* to every aggregate here, so they fold in
+    /// directly. Layout is not touched: new files get positions from the
+    /// throttled tree rebuild, which is the only thing that can place them.
+    fn absorb_new_entries(&mut self, first_new: usize) {
+        if self.dedupe_twins {
+            // "Newest twin wins" is a global decision — a new file can unseat a
+            // keeper chosen earlier, so there is no incremental answer.
+            self.filter_dirty = true;
+            return;
+        }
+        self.matches_rev = self.matches_rev.wrapping_add(1);
+        self.file_match.resize(self.entries.len(), true);
+
+        let search = self.search.to_lowercase();
+        let mut span_lo = i64::MAX;
+        let mut span_hi = i64::MIN;
+        let mut alive = 0usize;
+        let mut total_bytes = 0u64;
+        let mut shown = 0usize;
+        let mut shown_bytes = 0u64;
+        let mut owners: Vec<String> = Vec::new();
+
+        for i in first_new..self.entries.len() {
+            let e = &self.entries[i];
+            if e.dead {
+                self.file_match[i] = false;
+                continue;
+            }
+            alive += 1;
+            total_bytes += e.size;
+            let t = self.file_date_secs(e);
+            if t > 0 {
+                span_lo = span_lo.min(t);
+                span_hi = span_hi.max(t);
+            }
+            if !e.owner.is_empty() {
+                owners.push(e.owner.clone());
+            }
+            let m = self.entry_matches(e, &search);
+            self.file_match[i] = m;
+            if m {
+                shown += 1;
+                shown_bytes += e.size;
+            }
+        }
+
+        self.alive_count += alive;
+        self.total_bytes += total_bytes;
+        self.shown_count += shown;
+        self.shown_bytes += shown_bytes;
+        for owner in owners {
+            *self.all_owners.entry(owner).or_insert(0) += 1;
+        }
+        if span_lo <= span_hi {
+            let lo = atlas_core::types::day_start(span_lo);
+            let hi = atlas_core::types::day_start(span_hi) + SECS_PER_DAY - 1;
+            let (old_lo, old_hi) = (self.date_span_lo, self.date_span_hi);
+            let combined_lo = if old_lo == 0 && old_hi == 0 {
+                lo
+            } else {
+                old_lo.min(lo)
+            };
+            let combined_hi = old_hi.max(hi);
+            self.apply_date_span(combined_lo, combined_hi);
+        }
+        // The minimap is deliberately *not* invalidated here. It draws from tree
+        // positions, and files this batch brought in have none until the next
+        // rebuild — so bumping it per batch would rebuild an O(entries) model
+        // that cannot show anything new. `adopt_tree` bumps it instead.
     }
 
     fn recompute_matches(&mut self) {
@@ -2247,25 +3206,7 @@ impl AtlasApp {
             }
             alive += 1;
             total_bytes += e.size;
-            let mut m = self.family_on[e.family.idx()];
-            if m {
-                m = self.ext_type_matches(e);
-            }
-            if m && !search.is_empty() {
-                m = e.name_lc.contains(&search);
-            }
-            if m {
-                if self.only_unassigned && self.assign_state.assigns.contains_key(&e.rel) {
-                    m = false;
-                }
-                if m {
-                    m = self.owner_matches(e);
-                }
-                if m {
-                    m = self.date_matches(e);
-                }
-            }
-            self.file_match[i] = m;
+            self.file_match[i] = self.entry_matches(e, &search);
         }
 
         if self.dedupe_twins {
@@ -2318,6 +3259,60 @@ impl AtlasApp {
         }
         self.bump_minimap();
         self.filter_dirty = false;
+        self.auto_zoom_after_filter();
+    }
+
+    /// World bounds of every file still standing after the filter, ignoring the
+    /// ones the layout hid. `None` when nothing matched.
+    fn match_bounds(&self, t: &Tree) -> Option<Rect> {
+        let mut bounds: Option<Rect> = None;
+        for (i, &matched) in self.file_match.iter().enumerate() {
+            if !matched {
+                continue;
+            }
+            let Some(fp) = t.file_pos.get(i) else {
+                continue;
+            };
+            if fp.place == FilePlace::Hidden {
+                continue;
+            }
+            let r = fp.rect();
+            bounds = Some(match bounds {
+                Some(acc) => acc.union(r),
+                None => r,
+            });
+        }
+        bounds
+    }
+
+    /// Camera follow (Filters → *Zoom to matches*, on by default): frame what
+    /// survived the filter, and the whole map again once the filter is cleared.
+    ///
+    /// Edge-triggered on the framed bounds rather than on the filter revision,
+    /// because a filter recompute also happens on every scan batch and on
+    /// repaints that changed nothing — flying the camera for those would fight
+    /// the user while they are reading the result.
+    fn auto_zoom_after_filter(&mut self) {
+        if !self.auto_zoom_matches || self.canvas_rect.width() < 1.0 {
+            return;
+        }
+        let bounds = match &self.tree {
+            Some(t) if self.any_filter => self.match_bounds(t),
+            // No filter: everything matches, so the honest frame is the map.
+            Some(t) => Some(self.map_bounds(t)),
+            None => None,
+        };
+        // Nothing matched: hold position instead of flying to an empty point.
+        let Some(bounds) = bounds else { return };
+        if self
+            .auto_zoom_last
+            .is_some_and(|last| rect_settled(last, bounds))
+        {
+            return;
+        }
+        self.auto_zoom_last = Some(bounds);
+        let cam = self.cam_for_bounds(bounds, 1.2);
+        self.fly_to(cam);
     }
 
     // ---------- organizing actions ----------
@@ -2666,6 +3661,7 @@ impl AtlasApp {
         self.edit_window(ctx);
         self.action_menu(ctx);
         self.detail_window(ctx);
+        self.cloud_confirm_window(ctx);
         self.drag_overlay(ctx);
         self.hover_tip(ctx);
         self.draw_toasts(ctx);
@@ -2877,6 +3873,9 @@ impl AtlasApp {
         if !self.selection.is_empty() {
             live.push(CancelLayer::Selection);
         }
+        if self.time_selection_active() {
+            live.push(CancelLayer::Readout);
+        }
         match cancel_target(&live) {
             Some(CancelLayer::ActiveOperation) => self.zoom_marquee = None,
             Some(CancelLayer::Draft) => {
@@ -2889,6 +3888,8 @@ impl AtlasApp {
             }
             Some(CancelLayer::Mode) => self.zoom_armed = false,
             Some(CancelLayer::Selection) => self.selection.clear(),
+            // The activity timeline back to the whole span.
+            Some(CancelLayer::Readout) => self.reset_time_selection(),
             Some(CancelLayer::Chrome) | None => {}
         }
     }
@@ -3107,6 +4108,22 @@ impl AtlasApp {
         let n = paths.len();
         ctx.copy_text(paths.join("\n"));
         self.toast(format!("Copied {n} path(s)"));
+        Some(n)
+    }
+
+    fn copy_rels_paths(&mut self, ctx: &egui::Context, rels: &[String]) -> Option<usize> {
+        let paths: Vec<String> = rels
+            .iter()
+            .filter_map(|rel| self.entry_by_rel(rel))
+            .filter(|e| !e.dead)
+            .map(|e| e.path.to_string_lossy().into_owned())
+            .collect();
+        if paths.is_empty() {
+            return None;
+        }
+        let n = paths.len();
+        ctx.copy_text(paths.join("\n"));
+        self.toast(format!("Copied {n} path(s) for Slate"));
         Some(n)
     }
 
@@ -3467,29 +4484,9 @@ impl AtlasApp {
         }
     }
 
-    /// Tree bounds expanded to include the upstream parent-folder chain.
+    /// Bounds of the mapped tree — what "fit" frames.
     fn map_bounds(&self, t: &Tree) -> Rect {
-        let mut b = t.root_bounds();
-        if self.upstream.is_empty() {
-            return b;
-        }
-        let Some(root) = t.dirs.first() else {
-            return b;
-        };
-        let n = self.upstream.len() as f32;
-        let v = self.orient == Orient::V;
-        let step = if v { COL_W * 0.55 } else { COL_H * 0.55 };
-        for i in 0..self.upstream.len() {
-            let depth_i = (i as f32) - n;
-            let (x, y) = if v {
-                (depth_i * step, root.y)
-            } else {
-                (root.x, depth_i * step + root.h / 2.0)
-            };
-            let r = Rect::from_min_size(Pos2::new(x, y - DIR_H / 2.0), Vec2::new(DIR_W, DIR_H));
-            b = b.union(r);
-        }
-        b
+        t.root_bounds()
     }
 
     fn fly_to(&mut self, to: Camera) {
@@ -3677,11 +4674,14 @@ impl AtlasApp {
         }
 
         // --- draw the tree ---
+        self.ensure_folder_heat();
         let world_view = Rect::from_min_max(self.s2w(rect.min), self.s2w(rect.max));
         let z = self.cam.z;
-        let lod = if z < LOD_MID {
+        let lod_mid = self.lod_mid.min(self.lod_full.saturating_sub(1)).max(1) as f32 / 100.0;
+        let lod_full = self.lod_full.max(self.lod_mid + 1) as f32 / 100.0;
+        let lod = if z < lod_mid {
             0
-        } else if z < LOD_FULL {
+        } else if z < lod_full {
             1
         } else {
             2
@@ -3690,7 +4690,6 @@ impl AtlasApp {
         let mut color_budget: i32 = 14;
         if self.tree.is_some() {
             let tree = self.tree.take().unwrap();
-            self.draw_upstream_chain(&painter, &tree, lod);
             self.draw_branch(
                 &painter,
                 &tree,
@@ -4146,8 +5145,25 @@ impl AtlasApp {
             let after = Pos2::new(t.dirs[di].x, t.dirs[di].y);
             self.cam.offset += (before - after) * self.cam.z;
         }
+        self.record_collapse_state();
         self.bump_minimap();
         self.filter_dirty = true; // match counts move around
+    }
+
+    /// Copy the tree's collapse flags into `dir_collapsed`, making them the
+    /// decisions that survive every future rebuild. Called after a deliberate
+    /// collapse change (a grip click, a portal-threshold change) — never per
+    /// frame, since it walks every directory.
+    pub(crate) fn record_collapse_state(&mut self) {
+        let Some(t) = &self.tree else { return };
+        for d in &t.dirs {
+            match self.dir_collapsed.get_mut(&d.rel) {
+                Some(c) => *c = d.collapsed,
+                None => {
+                    self.dir_collapsed.insert(d.rel.clone(), d.collapsed);
+                }
+            }
+        }
     }
 
     // ---------- minimap ----------
@@ -4157,6 +5173,17 @@ impl AtlasApp {
     fn bump_minimap(&mut self) {
         self.minimap_generation = self.minimap_generation.wrapping_add(1);
         self.minimap_model = None;
+    }
+
+    /// Folder-heatmap mode changes the minimap's dir tints — bump so the
+    /// shared model rebuilds against the new colours.
+    pub(crate) fn set_folder_heat_mode(&mut self, mode: FolderHeatMode) {
+        if self.folder_heat_mode == mode {
+            return;
+        }
+        self.folder_heat_mode = mode;
+        self.folder_heat_cache = None;
+        self.bump_minimap();
     }
 
     /// Simplified world-space picture of the tree for the shared minimap:
@@ -4170,14 +5197,20 @@ impl AtlasApp {
         let file_fallback = palette.sub.gamma_multiply(0.7);
         let hide = self.filter_mode == FilterMode::Hide && self.any_filter;
         let mut blocks: Vec<(Rect, Color32)> = Vec::new();
-        for d in &t.dirs {
+        for (di, d) in t.dirs.iter().enumerate() {
             if !d.placed {
                 continue;
             }
             if hide && !self.structure_only && d.desc_matches == 0 {
                 continue;
             }
-            blocks.push((d.rect(), dir_color));
+            // Minimap has no readable stroke at this scale — use the heat
+            // hue as a muted block tint so the overview still shows the ramp.
+            let color = self
+                .folder_heat(di)
+                .map(|h| folder_heat_color(h).gamma_multiply(0.55))
+                .unwrap_or(dir_color);
+            blocks.push((d.rect(), color));
             if let Some(g) = d.grid_bounds {
                 blocks.push((g, grid_color));
             }
@@ -4458,7 +5491,18 @@ impl AtlasApp {
                 if !fr.intersects(view) {
                     continue;
                 }
-                self.draw_file_card(painter, t, f, fr, lod, dimming, requests, color_budget);
+                let parent_heat = self.folder_heat(di);
+                self.draw_file_card(
+                    painter,
+                    t,
+                    f,
+                    fr,
+                    lod,
+                    dimming,
+                    parent_heat,
+                    requests,
+                    color_budget,
+                );
             }
         }
 
@@ -4539,8 +5583,10 @@ impl AtlasApp {
         let z = self.cam.z;
         let sr = self.w2s_rect(d.rect());
         let hovered = self.hovered_dir == Some(di as u32);
+        let heat = self.folder_heat(di);
 
         if lod == 0 {
+            // Far zoom: keep the solid glyph fill; heat lives on the stroke.
             painter.rect_filled(
                 sr,
                 CornerRadius::ZERO,
@@ -4550,6 +5596,14 @@ impl AtlasApp {
                     p.accent.gamma_multiply(0.75)
                 },
             );
+            if let Some(h) = heat {
+                painter.rect_stroke(
+                    sr,
+                    CornerRadius::ZERO,
+                    Stroke::new(1.5_f32, folder_heat_color(h)),
+                    StrokeKind::Inside,
+                );
+            }
             return;
         }
 
@@ -4559,16 +5613,15 @@ impl AtlasApp {
         }
 
         let cr = CornerRadius::same((10.0 * z).clamp(2.0, 10.0) as u8);
-        painter.rect_filled(sr, cr, if hovered { p.card_hover } else { p.card });
-        painter.rect_stroke(
-            sr,
-            cr,
-            Stroke::new(
-                if hovered { 1.6_f32 } else { 1.1_f32 },
-                if hovered { p.border_strong } else { p.border },
-            ),
-            StrokeKind::Inside,
-        );
+        let fill = if hovered { p.card_hover } else { p.card };
+        painter.rect_filled(sr, cr, fill);
+        let stroke_w = if hovered { 1.6_f32 } else { 1.25_f32 };
+        let stroke_c = match heat {
+            Some(h) => folder_heat_color(h),
+            None if hovered => p.border_strong,
+            None => p.border,
+        };
+        painter.rect_stroke(sr, cr, Stroke::new(stroke_w, stroke_c), StrokeKind::Inside);
 
         // Open/closed ring indicator.
         let ring_c = self.w2s(Pos2::new(d.x + 20.0, d.y));
@@ -4618,129 +5671,10 @@ impl AtlasApp {
             );
         }
 
-        let name_px = (13.0 * z).min(15.0);
-        if name_px >= 6.0 {
-            let text_pos = self.w2s(Pos2::new(d.x + 34.0, d.y));
-            if lod == 2 {
-                painter.text(
-                    text_pos - Vec2::new(0.0, 7.0 * z),
-                    Align2::LEFT_CENTER,
-                    trunc(&d.name, 15),
-                    FontId::proportional(name_px),
-                    p.ink,
-                );
-                let sub_px = (10.5 * z).min(12.0);
-                if sub_px >= 6.0 {
-                    painter.text(
-                        text_pos + Vec2::new(0.0, 9.0 * z),
-                        Align2::LEFT_CENTER,
-                        format!(
-                            "{} files · {}{}",
-                            group_digits(d.desc_files as u64),
-                            human_size(d.desc_bytes),
-                            if d.collapsed { "  ▸" } else { "" }
-                        ),
-                        FontId::proportional(sub_px),
-                        p.sub,
-                    );
-                }
-                if self.any_filter && d.desc_matches > 0 && d.collapsed {
-                    painter.text(
-                        self.w2s(Pos2::new(d.x + d.w + 10.0, d.y)),
-                        Align2::LEFT_CENTER,
-                        format!("{} match", group_digits(d.desc_matches as u64)),
-                        FontId::proportional(sub_px.max(8.0)),
-                        p.accent,
-                    );
-                }
-            } else {
-                painter.text(
-                    text_pos,
-                    Align2::LEFT_CENTER,
-                    trunc(&d.name, 13),
-                    FontId::proportional(name_px),
-                    p.ink,
-                );
-            }
-        }
-    }
-
-    /// Folder cards for every parent of the mapped root (C: → … → parent),
-    /// leading into the tree. Visual context only — not part of the scan.
-    fn draw_upstream_chain(&self, painter: &egui::Painter, t: &Tree, lod: u8) {
-        if self.upstream.is_empty() || lod == 0 {
-            return;
-        }
-        let Some(root) = t.dirs.first() else {
-            return;
-        };
-        let p = self.palette();
-        let z = self.cam.z;
-        let n = self.upstream.len() as f32;
-        let v = self.orient == Orient::V;
-        let step = if v { COL_W * 0.55 } else { COL_H * 0.55 };
-
-        for (i, (name, _)) in self.upstream.iter().enumerate() {
-            let depth_i = (i as f32) - n; // negative depths before root at 0
-            let (x, y) = if v {
-                (depth_i * step, root.y)
-            } else {
-                (root.x, depth_i * step + root.h / 2.0)
-            };
-            let rect = Rect::from_min_size(Pos2::new(x, y - DIR_H / 2.0), Vec2::new(DIR_W, DIR_H));
-            let sr = self.w2s_rect(rect);
-            let cr = CornerRadius::same((10.0 * z).clamp(2.0, 10.0) as u8);
-            // Muted so they read as context, not the active map.
-            painter.rect_filled(sr, cr, p.card.gamma_multiply(0.85));
-            painter.rect_stroke(
-                sr,
-                cr,
-                Stroke::new(1.0_f32, p.border.gamma_multiply(0.9)),
-                StrokeKind::Inside,
-            );
-            let ring_c = self.w2s(Pos2::new(x + 20.0, y));
-            let ring_r = 6.5 * z;
-            if ring_r > 1.5 {
-                painter.circle_stroke(ring_c, ring_r, Stroke::new((1.8 * z).max(1.0), p.sub));
-            }
-            let name_px = (13.0 * z).min(15.0);
-            if name_px >= 6.0 {
-                painter.text(
-                    self.w2s(Pos2::new(x + 34.0, y)),
-                    Align2::LEFT_CENTER,
-                    trunc(name, 13),
-                    FontId::proportional(name_px),
-                    p.sub,
-                );
-            }
-            // Wire to the next card (or the map root) — same leader rules as
-            // the scanned tree (orthogonal / bezier via [`Self::route_edge`]).
-            let stroke_w = (1.3 * z).max(1.0);
-            let (port, tgt) = if i + 1 < self.upstream.len() {
-                let depth_n = ((i + 1) as f32) - n;
-                let (nx, ny) = if v {
-                    (depth_n * step, root.y)
-                } else {
-                    (root.x, depth_n * step + root.h / 2.0)
-                };
-                if v {
-                    (Pos2::new(x + DIR_W, y), Pos2::new(nx, ny))
-                } else {
-                    (
-                        Pos2::new(x + DIR_W / 2.0, y + DIR_H / 2.0),
-                        Pos2::new(nx + DIR_W / 2.0, ny - DIR_H / 2.0),
-                    )
-                }
-            } else if v {
-                (Pos2::new(x + DIR_W, y), Pos2::new(root.x, root.y))
-            } else {
-                (
-                    Pos2::new(x + DIR_W / 2.0, y + DIR_H / 2.0),
-                    Pos2::new(root.x + root.w / 2.0, root.y - root.h / 2.0),
-                )
-            };
-            self.route_edge(painter, port, tgt, None, v, stroke_w);
-        }
+        // Labels are embedded in the card: font size tracks node screen
+        // height, text is clipped to `sr`, and width-fitted so nothing
+        // escapes the node at any zoom. Close zoom adds richer LOD lines.
+        self.paint_dir_labels(painter, d, sr, lod, &p);
     }
 
     fn draw_portal(
@@ -4756,12 +5690,18 @@ impl AtlasApp {
         let d = &t.dirs[di];
         let z = self.cam.z;
         let hovered = self.hovered_dir == Some(di as u32);
+        let heat = self.folder_heat(di);
         let cr = CornerRadius::same((12.0 * z).clamp(2.0, 12.0) as u8);
-        painter.rect_filled(sr, cr, if hovered { p.card_hover } else { p.card });
+        let fill = if hovered { p.card_hover } else { p.card };
+        painter.rect_filled(sr, cr, fill);
+        let stroke_c = match heat {
+            Some(h) => folder_heat_color(h),
+            None => p.portal,
+        };
         painter.rect_stroke(
             sr,
             cr,
-            Stroke::new(if hovered { 1.8_f32 } else { 1.4_f32 }, p.portal),
+            Stroke::new(if hovered { 1.8_f32 } else { 1.4_f32 }, stroke_c),
             StrokeKind::Inside,
         );
 
@@ -4811,35 +5751,223 @@ impl AtlasApp {
             }
         }
 
-        if lod == 2 {
-            let name_px = (13.0 * z).min(14.0);
-            if name_px >= 6.0 {
-                painter.text(
-                    Pos2::new(sr.min.x + pad + 2.0 * z, sr.max.y - 33.0 * z),
+        // Footer strip under the mosaic — same embedded / clipped rules as
+        // regular directory cards so labels never spill the portal frame.
+        let footer = Rect::from_min_max(
+            Pos2::new(
+                sr.min.x + pad,
+                (sr.max.y - 48.0 * z).max(mos.max.y + 2.0 * z),
+            ),
+            Pos2::new(sr.max.x - pad, sr.max.y - 6.0 * z),
+        );
+        if footer.height() >= 4.0 && lod >= 1 {
+            self.paint_portal_labels(painter, d, footer, lod, &p);
+        }
+    }
+
+    /// Directory-card labels: scale with the node, clip inside it, reveal
+    /// more lines as screen-space room grows (close zoom = full LOD).
+    fn paint_dir_labels(
+        &self,
+        painter: &egui::Painter,
+        d: &tree::DirNode,
+        sr: Rect,
+        lod: u8,
+        p: &Palette,
+    ) {
+        let z = self.cam.z;
+        let pad_l = 34.0 * z;
+        let pad_r = 8.0 * z;
+        let pad_y = (3.0 * z).max(1.0);
+        let max_w = sr.width() - pad_l - pad_r;
+        let max_h = sr.height() - pad_y * 2.0;
+        if max_w < 6.0 || max_h < 4.0 {
+            return;
+        }
+
+        // Font size is a fraction of the card height so text grows with the
+        // node — at deep zoom a tag can fill the screen and still show its
+        // full name / meta instead of staying capped at a mid-zoom size.
+        let name_px = (max_h * 0.36).max(0.0);
+        if name_px < 3.5 {
+            return;
+        }
+        let sub_px = (max_h * 0.24).max(0.0);
+
+        // Screen-space LOD: how many lines the card can honestly hold.
+        // Mid zoom → name (+ short meta if room). Close zoom → name, meta,
+        // relative path. Filter match badge rides the right edge inside clip.
+        let close = max_h >= 28.0 || sr.width() >= 260.0;
+        let show_meta = lod >= 1 && sub_px >= 3.0 && max_h >= name_px * 1.7;
+        let show_path = lod >= 2 && close && !d.rel.is_empty() && max_h >= name_px * 2.6;
+        let show_match = self.any_filter && d.desc_matches > 0 && d.collapsed && lod >= 2;
+
+        let name_font = FontId::proportional(name_px);
+        let sub_font = FontId::proportional(sub_px);
+        let path_px = (sub_px * 0.92).max(3.0);
+        let path_font = FontId::proportional(path_px);
+
+        let name = ellipsize_to_width(painter, &d.name, &name_font, max_w);
+        let meta = if show_meta {
+            let mut m = if lod >= 2 {
+                format!(
+                    "{} files · {}",
+                    group_digits(d.desc_files as u64),
+                    human_size(d.desc_bytes)
+                )
+            } else {
+                format!(
+                    "{} · {}",
+                    group_digits(d.desc_files as u64),
+                    human_size(d.desc_bytes)
+                )
+            };
+            if lod >= 2 && d.ctime > 0 {
+                m.push_str(" · created ");
+                m.push_str(&date_string(d.ctime));
+            }
+            if lod >= 2 && !d.owner.is_empty() {
+                m.push_str(" · ");
+                m.push_str(&d.owner);
+            } else if lod == 1 && d.ctime > 0 && close {
+                m.push_str(" · ");
+                m.push_str(&date_string(d.ctime));
+            }
+            if d.collapsed {
+                m.push_str("  ▸");
+            }
+            Some(ellipsize_to_width(painter, &m, &sub_font, max_w))
+        } else {
+            None
+        };
+        let path = if show_path {
+            Some(ellipsize_to_width(painter, &d.rel, &path_font, max_w))
+        } else {
+            None
+        };
+        let match_badge = if show_match {
+            Some(format!("{} match", group_digits(d.desc_matches as u64)))
+        } else {
+            None
+        };
+
+        let lp = painter.with_clip_rect(sr);
+        let mut lines: Vec<(String, FontId, Color32)> = Vec::with_capacity(3);
+        lines.push((name, name_font, p.ink));
+        if let Some(m) = meta {
+            lines.push((m, sub_font.clone(), p.sub));
+        }
+        if let Some(path) = path {
+            lines.push((path, path_font, p.sub.gamma_multiply(0.85)));
+        }
+
+        let line_gap = 1.15;
+        let block_h: f32 = lines.iter().map(|(_, f, _)| f.size * line_gap).sum();
+        let mut y = sr.min.y + pad_y + (max_h - block_h).max(0.0) * 0.5 + lines[0].1.size * 0.5;
+        let x = sr.min.x + pad_l;
+        for (text, font, color) in &lines {
+            if !text.is_empty() {
+                lp.text(
+                    Pos2::new(x, y),
                     Align2::LEFT_CENTER,
-                    trunc(&d.name, 24),
-                    FontId::proportional(name_px),
-                    p.ink,
+                    text,
+                    font.clone(),
+                    *color,
                 );
-                painter.text(
-                    Pos2::new(sr.min.x + pad + 2.0 * z, sr.max.y - 18.0 * z),
-                    Align2::LEFT_CENTER,
-                    format!(
-                        "{} items Â· {}",
-                        group_digits((d.child_dirs.len() + d.files.len()) as u64),
-                        human_size(d.desc_bytes)
-                    ),
-                    FontId::proportional((10.5 * z).clamp(6.0, 12.0)),
-                    p.sub,
-                );
-                painter.text(
-                    Pos2::new(sr.max.x - pad - 2.0 * z, sr.max.y - 18.0 * z),
+            }
+            y += font.size * line_gap;
+        }
+
+        if let Some(label) = match_badge {
+            lp.text(
+                Pos2::new(sr.max.x - pad_r, sr.min.y + pad_y + sub_px * 0.55),
+                Align2::RIGHT_CENTER,
+                label,
+                sub_font,
+                p.accent,
+            );
+        }
+    }
+
+    fn paint_portal_labels(
+        &self,
+        painter: &egui::Painter,
+        d: &tree::DirNode,
+        footer: Rect,
+        lod: u8,
+        p: &Palette,
+    ) {
+        let max_w = footer.width();
+        let max_h = footer.height();
+        if max_w < 6.0 || max_h < 4.0 {
+            return;
+        }
+        let name_px = (max_h * 0.42).max(0.0);
+        if name_px < 3.5 {
+            return;
+        }
+        let sub_px = (max_h * 0.30).max(0.0);
+        let show_meta = lod >= 1 && sub_px >= 3.0 && max_h >= name_px * 1.6;
+        let show_path = lod >= 2 && max_h >= 36.0 && !d.rel.is_empty();
+
+        let name_font = FontId::proportional(name_px);
+        let sub_font = FontId::proportional(sub_px);
+        let path_font = FontId::proportional((sub_px * 0.9).max(3.0));
+
+        let name = ellipsize_to_width(painter, &d.name, &name_font, max_w);
+        let meta = if show_meta {
+            let m = format!(
+                "{} items · {}",
+                group_digits((d.child_dirs.len() + d.files.len()) as u64),
+                human_size(d.desc_bytes)
+            );
+            Some(ellipsize_to_width(painter, &m, &sub_font, max_w * 0.72))
+        } else {
+            None
+        };
+        let enter = if show_meta {
+            Some("Enter ↵".to_string())
+        } else {
+            None
+        };
+        let path = if show_path {
+            Some(ellipsize_to_width(painter, &d.rel, &path_font, max_w))
+        } else {
+            None
+        };
+
+        let lp = painter.with_clip_rect(footer);
+        let x = footer.min.x + 2.0;
+        let mut y = footer.min.y + name_px * 0.55;
+        lp.text(Pos2::new(x, y), Align2::LEFT_CENTER, name, name_font, p.ink);
+        y += name_px * 1.15;
+        if let Some(m) = meta {
+            lp.text(
+                Pos2::new(x, y),
+                Align2::LEFT_CENTER,
+                m,
+                sub_font.clone(),
+                p.sub,
+            );
+            if let Some(label) = enter {
+                lp.text(
+                    Pos2::new(footer.max.x - 2.0, y),
                     Align2::RIGHT_CENTER,
-                    "Enter â¤¢",
-                    FontId::proportional((10.5 * z).clamp(6.0, 12.0)),
+                    label,
+                    sub_font,
                     p.portal,
                 );
             }
+            y += sub_px * 1.15;
+        }
+        if let Some(path) = path {
+            lp.text(
+                Pos2::new(x, y),
+                Align2::LEFT_CENTER,
+                path,
+                path_font,
+                p.sub.gamma_multiply(0.85),
+            );
         }
     }
 
@@ -4932,6 +6060,7 @@ impl AtlasApp {
         world: Rect,
         lod: u8,
         dimming: bool,
+        parent_heat: Option<f32>,
         requests: &mut Vec<ThumbRequest>,
         color_budget: &mut i32,
     ) {
@@ -4960,6 +6089,13 @@ impl AtlasApp {
                     Stroke::new(1.0_f32, p.select),
                     StrokeKind::Inside,
                 );
+            } else if let Some(h) = parent_heat {
+                painter.rect_stroke(
+                    sr,
+                    CornerRadius::ZERO,
+                    Stroke::new(1.2_f32, folder_heat_color(h).gamma_multiply(alpha)),
+                    StrokeKind::Inside,
+                );
             }
             return;
         }
@@ -4971,8 +6107,15 @@ impl AtlasApp {
             p.card
         };
         painter.rect_filled(sr, cr, card_fill.gamma_multiply(alpha));
+        // Heat replaces the default cyan/border stroke on thumbnails; selection
+        // still wins so chosen files stay obvious.
         let border = if selected {
             Stroke::new(2.0_f32, p.select)
+        } else if let Some(h) = parent_heat {
+            Stroke::new(
+                if hovered { 1.5_f32 } else { 1.25_f32 },
+                folder_heat_color(h).gamma_multiply(alpha),
+            )
         } else if matched && dimming {
             Stroke::new(1.2_f32, p.accent.gamma_multiply(0.65))
         } else if hovered {
@@ -5038,9 +6181,11 @@ impl AtlasApp {
                 }
             }
 
-            // Type tick + name + size.
+            // Type tick + name + size — width-fit so deep zoom shows the full
+            // filename instead of a hard 20-character truncate.
             let name_px = 11.0 * z;
             if name_px >= 6.0 {
+                let text_max_w = (sr.width() - 20.0 * z).max(8.0);
                 painter.rect_filled(
                     Rect::from_min_size(
                         self.w2s(Pos2::new(world.min.x + 6.0, world.max.y - 25.0)),
@@ -5049,18 +6194,27 @@ impl AtlasApp {
                     CornerRadius::ZERO,
                     fam_color.gamma_multiply(alpha),
                 );
+                let name_font = FontId::proportional(name_px);
+                let name = ellipsize_to_width(painter, &e.name, &name_font, text_max_w);
                 painter.text(
                     self.w2s(Pos2::new(world.min.x + 14.0, world.max.y - 19.0)),
                     Align2::LEFT_CENTER,
-                    trunc(&e.name, 20),
-                    FontId::proportional(name_px),
+                    name,
+                    name_font,
                     p.ink.gamma_multiply(alpha),
                 );
+                let mut meta = format!("{} · created {}", human_size(e.size), date_string(e.ctime));
+                if !e.owner.is_empty() {
+                    meta.push_str(" · ");
+                    meta.push_str(&e.owner);
+                }
+                let meta_font = FontId::proportional((9.5 * z).max(6.0));
+                let meta = ellipsize_to_width(painter, &meta, &meta_font, text_max_w);
                 painter.text(
                     self.w2s(Pos2::new(world.min.x + 14.0, world.max.y - 8.0)),
                     Align2::LEFT_CENTER,
-                    format!("{} Â· {}", human_size(e.size), age_string(e.mtime)),
-                    FontId::proportional((9.5 * z).max(6.0)),
+                    meta,
+                    meta_font,
                     p.sub.gamma_multiply(alpha),
                 );
             }
@@ -5110,7 +6264,7 @@ impl AtlasApp {
         let mut close = false;
         let rels = self.target_rels(Some(id));
         let n = rels.len();
-        egui::Area::new(egui::Id::new("action_menu"))
+        let menu = egui::Area::new(egui::Id::new("action_menu"))
             .fixed_pos(pos)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
@@ -5122,16 +6276,24 @@ impl AtlasApp {
                             .small()
                             .color(palette.sub),
                     );
-                    if ui.button("Assign…").clicked() {
+                    if ui.button("Assign data tag…").clicked() {
                         self.open_edit_panel();
                         close = true;
                     }
-                    if ui.button("Clear assignment").clicked() {
-                        self.set_assign(&rels, None, format!("Clear assignment on {n} file(s)"));
+                    if ui.button("Clear assigned data tag").clicked() {
+                        self.set_assign(
+                            &rels,
+                            None,
+                            format!("Clear assigned data tag on {n} file(s)"),
+                        );
                         close = true;
                     }
                     self.session_menu_section(ui, &rels);
                     ui.separator();
+                    if ui.button("Copy path(s) for Slate").clicked() {
+                        self.copy_rels_paths(ctx, &rels);
+                        close = true;
+                    }
                     if n == 1 {
                         if ui.button("Open").clicked() {
                             let opened = self.entry_by_rel(&rels[0]).map(|e| {
@@ -5157,7 +6319,11 @@ impl AtlasApp {
                     }
                 });
             });
+        let pointer_left_menu = ctx.pointer_latest_pos().is_some_and(|p| {
+            !menu.response.rect.expand(10.0).contains(p) && !ctx.input(|i| i.pointer.any_down())
+        });
         if close
+            || pointer_left_menu
             || ctx.input(|i| {
                 i.pointer.any_click()
                     && i.pointer
@@ -5681,6 +6847,45 @@ impl AtlasApp {
     }
 }
 
+/// Whether two frames are the same to the eye — the test that keeps an
+/// auto-zoom from re-firing on a filter pass that landed on the same files.
+fn rect_settled(a: Rect, b: Rect) -> bool {
+    const SLOP: f32 = 2.0;
+    (a.min.x - b.min.x).abs() < SLOP
+        && (a.min.y - b.min.y).abs() < SLOP
+        && (a.max.x - b.max.x).abs() < SLOP
+        && (a.max.y - b.max.y).abs() < SLOP
+}
+
+/// Google Turbo colormap (polynomial approximation) for folder-heatmap strokes.
+///
+/// Design: Anton Mikhailov; GLSL fit: Ruofei Du — Apache-2.0
+/// <https://research.google/blog/turbo-an-improved-rainbow-colormap-for-visualization/>
+fn folder_heat_color(t: f32) -> Color32 {
+    let x = t.clamp(0.0, 1.0);
+    let x2 = x * x;
+    let x3 = x2 * x;
+    let x4 = x2 * x2;
+    let x5 = x4 * x;
+    let r = (0.135_721_38 + 4.615_392_60 * x - 42.660_322_58 * x2 + 132.131_082_34 * x3
+        - 152.942_393_96 * x4
+        + 59.286_379_43 * x5)
+        .clamp(0.0, 1.0);
+    let g = (0.091_402_61 + 2.194_188_39 * x + 4.842_966_58 * x2 - 14.185_033_33 * x3
+        + 4.277_298_57 * x4
+        + 2.829_566_04 * x5)
+        .clamp(0.0, 1.0);
+    let b = (0.106_673_30 + 12.641_946_08 * x - 60.582_048_36 * x2 + 110.362_767_71 * x3
+        - 89.903_109_12 * x4
+        + 27.348_249_73 * x5)
+        .clamp(0.0, 1.0);
+    Color32::from_rgb(
+        (r * 255.0).round() as u8,
+        (g * 255.0).round() as u8,
+        (b * 255.0).round() as u8,
+    )
+}
+
 /// UV rect that crops a `tex_size` texture to cover `cell` (aspect-fill).
 /// Chords that keep firing while a text field has focus — matching the
 /// pre-migration gates (undo/redo/open/F11 were never typing-gated) plus the
@@ -5732,13 +6937,45 @@ fn cover_uv(tex_size: Vec2, cell: Vec2) -> Rect {
     }
 }
 
-fn trunc(s: &str, n: usize) -> String {
-    if s.chars().count() > n {
-        let cut: String = s.chars().take(n.saturating_sub(1)).collect();
-        format!("{cut}â€¦")
-    } else {
-        s.to_string()
+fn text_width(painter: &egui::Painter, text: &str, font: &FontId) -> f32 {
+    painter
+        .layout_no_wrap(text.to_string(), font.clone(), Color32::WHITE)
+        .size()
+        .x
+}
+
+/// Fit `text` into `max_w` screen pixels, appending an ellipsis when truncated.
+/// Empty when even the ellipsis cannot fit — callers should skip painting.
+fn ellipsize_to_width(painter: &egui::Painter, text: &str, font: &FontId, max_w: f32) -> String {
+    if max_w <= 1.0 || text.is_empty() {
+        return String::new();
     }
+    if text_width(painter, text, font) <= max_w {
+        return text.to_string();
+    }
+    const ELLIPSIS: &str = "…";
+    let ell_w = text_width(painter, ELLIPSIS, font);
+    if ell_w >= max_w {
+        return String::new();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut lo = 0usize;
+    let mut hi = chars.len();
+    while lo < hi {
+        let mid = (lo + hi + 1) / 2;
+        let candidate: String = chars[..mid].iter().collect();
+        let w = text_width(painter, &format!("{candidate}{ELLIPSIS}"), font);
+        if w <= max_w {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    if lo == 0 {
+        return ELLIPSIS.to_string();
+    }
+    let cut: String = chars[..lo].iter().collect();
+    format!("{cut}{ELLIPSIS}")
 }
 
 fn chip(ui: &mut egui::Ui, text: &str, active: bool, base: Color32) -> egui::Response {

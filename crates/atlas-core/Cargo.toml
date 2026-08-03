@@ -12,6 +12,7 @@ notify = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 image = { workspace = true }
+jpeg-decoder = { workspace = true }
 dirs = { workspace = true }
 zip = { workspace = true }
 pdfium-render = { workspace = true }

@@ -42,6 +42,9 @@ impl BoardLastStyle {
             NodeKind::Connector(c) => {
                 style.stroke = Some(c.stroke);
             }
+            NodeKind::Portal(p) => {
+                style.fill = Some(p.fill);
+            }
         }
         style
     }

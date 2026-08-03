@@ -37,7 +37,10 @@ pub fn minimap_ui(ui, model: &MinimapModel, state: &mut MinimapState) -> Minimap
 
 - **Trigger**: double-click empty board (kept: Atlas double-click = zoom).
   Also opened by a dangling wire release (see `connectors.md`) with a
-  placeables filter.
+  placeables filter. **Type-to-command**: on the Board, unbound letters
+  open the palette seeded with the typed query; bare letter shortcuts
+  hold ~700 ms and promote into the same entry mode if more characters
+  arrive (Esc cancels the hold; pointer-down commits the shortcut).
 - Popup at the click point: text field (focused), result list (max 8),
   arrow keys navigate, Enter executes, Esc dismisses, click-away dismisses.
 - Data: `atlas_commands::palette_query` (fuzzy over names + aliases,

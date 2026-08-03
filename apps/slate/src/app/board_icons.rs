@@ -32,6 +32,10 @@ pub enum ToolIcon {
     Sticky,
     DirectSelect,
     Colors,
+    /// Board Portals family (dock icon + flyout).
+    Portals,
+    /// Repository Lens portal subtype.
+    RepoLens,
 }
 
 impl ToolIcon {
@@ -62,6 +66,8 @@ impl ToolIcon {
             ToolIcon::Sticky => "Sticky note",
             ToolIcon::DirectSelect => "Direct select",
             ToolIcon::Colors => "Colors",
+            ToolIcon::Portals => "Portals",
+            ToolIcon::RepoLens => "Repository Lens",
         }
     }
 }
@@ -327,6 +333,36 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
             painter.rect_stroke(back, 1.5, s, egui::StrokeKind::Inside);
             let front = Rect::from_min_max(pt(r, 0.16, 0.16), pt(r, 0.62, 0.62));
             painter.rect_filled(front, 1.5, color);
+        }
+        ToolIcon::Portals => {
+            // Portal frame with a diamond peephole (distinct from Frame's title bar).
+            let outer = Rect::from_min_max(pt(r, 0.16, 0.16), pt(r, 0.84, 0.84));
+            painter.rect_stroke(outer, 1.5, s, egui::StrokeKind::Inside);
+            painter.add(egui::Shape::closed_line(
+                vec![
+                    pt(r, 0.50, 0.30),
+                    pt(r, 0.68, 0.50),
+                    pt(r, 0.50, 0.70),
+                    pt(r, 0.32, 0.50),
+                ],
+                s,
+            ));
+        }
+        ToolIcon::RepoLens => {
+            // Branching commit graph: trunk + fork + merge tips.
+            painter.line_segment([pt(r, 0.18, 0.72), pt(r, 0.46, 0.72)], s);
+            painter.line_segment([pt(r, 0.46, 0.72), pt(r, 0.62, 0.40)], s);
+            painter.line_segment([pt(r, 0.46, 0.72), pt(r, 0.82, 0.72)], s);
+            painter.line_segment([pt(r, 0.62, 0.40), pt(r, 0.82, 0.40)], s);
+            for p in [
+                pt(r, 0.18, 0.72),
+                pt(r, 0.46, 0.72),
+                pt(r, 0.62, 0.40),
+                pt(r, 0.82, 0.40),
+                pt(r, 0.82, 0.72),
+            ] {
+                painter.circle_filled(p, r.width() * 0.055, color);
+            }
         }
     }
 }

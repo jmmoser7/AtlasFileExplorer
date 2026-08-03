@@ -41,24 +41,66 @@ pub fn bake_mosaic_cover(key_path: &Path, samples: &[PathBuf]) -> Option<PathBuf
     if samples.is_empty() {
         return None;
     }
-    let cell_w = COVER_W / 3;
-    let cell_h = COVER_H / 3;
     let mut canvas = image::RgbaImage::from_pixel(COVER_W, COVER_H, BG);
     for (i, path) in samples.iter().take(MOSAIC_N).enumerate() {
         let Ok(src) = image::open(path) else {
             continue;
         };
-        let img = image::imageops::thumbnail(&src.to_rgba8(), cell_w, cell_h);
-        let col = (i % 3) as u32;
-        let row = (i / 3) as u32;
-        image::imageops::overlay(
-            &mut canvas,
-            &img,
-            (col * cell_w) as i64,
-            (row * cell_h) as i64,
-        );
+        let (x0, x1) = cell_bounds((i % 3) as u32, 3, COVER_W);
+        let (y0, y1) = cell_bounds((i / 3) as u32, 3, COVER_H);
+        let img = fill_cell(&src.to_rgba8(), x1 - x0, y1 - y0);
+        image::imageops::overlay(&mut canvas, &img, x0 as i64, y0 as i64);
     }
     save_cover(&out, canvas)
+}
+
+/// Half-open pixel bounds of cell `i` of `n` across `total` pixels.
+///
+/// Integer division alone (`COVER_W / 3`) loses the remainder, which left a
+/// two-pixel background gutter down the right edge and along the bottom of every
+/// mosaic. Deriving each edge from the total instead makes the cells tile it
+/// exactly, at the cost of some cells being a pixel wider than others.
+fn cell_bounds(i: u32, n: u32, total: u32) -> (u32, u32) {
+    (i * total / n, (i + 1) * total / n)
+}
+
+/// Largest centered crop of a `sw × sh` source that has the aspect of a
+/// `tw × th` cell, as `(x, y, w, h)`.
+fn cover_crop(sw: u32, sh: u32, tw: u32, th: u32) -> (u32, u32, u32, u32) {
+    if sw == 0 || sh == 0 || tw == 0 || th == 0 {
+        return (0, 0, sw, sh);
+    }
+    // Compare aspects as cross-multiplied integers to avoid float wobble.
+    let (mut w, mut h) = (sw, sh);
+    if sw as u64 * th as u64 > tw as u64 * sh as u64 {
+        // Source is wider than the cell: keep full height, trim the sides.
+        w = ((sh as u64 * tw as u64) / th as u64).max(1) as u32;
+    } else {
+        h = ((sw as u64 * th as u64) / tw as u64).max(1) as u32;
+    }
+    let w = w.min(sw);
+    let h = h.min(sh);
+    ((sw - w) / 2, (sh - h) / 2, w, h)
+}
+
+/// Scale a source to exactly fill a mosaic cell, cropping rather than squashing.
+///
+/// `imageops::thumbnail` resizes to precisely the size asked for and does *not*
+/// preserve aspect (that is `DynamicImage::thumbnail`), so handing it a 3:2 photo
+/// for a square cell flattened every landscape shot and stretched every portrait
+/// one — nine of those in a grid is what made the shelf covers look lumpy. Crop
+/// to the cell's shape first; filling is right for a mosaic tile, where
+/// letterboxing would only trade distortion for gaps.
+fn fill_cell(src: &image::RgbaImage, cell_w: u32, cell_h: u32) -> image::RgbaImage {
+    if cell_w == 0 || cell_h == 0 {
+        return image::RgbaImage::new(cell_w.max(1), cell_h.max(1));
+    }
+    let (x, y, w, h) = cover_crop(src.width(), src.height(), cell_w, cell_h);
+    if w == 0 || h == 0 {
+        return image::RgbaImage::from_pixel(cell_w, cell_h, BG);
+    }
+    let cropped = image::imageops::crop_imm(src, x, y, w, h).to_image();
+    image::imageops::thumbnail(&cropped, cell_w, cell_h)
 }
 
 /// Workbook cover: mosaic when linked images exist, otherwise a workbook tile.
@@ -117,7 +159,11 @@ pub fn schedule_cover_bake(path: &Path) -> bool {
 
 fn mark_cover_bake_requested(path: &Path) -> bool {
     static IN_FLIGHT: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
-    let set = IN_FLIGHT.get_or_init(|| Mutex::new(HashSet::new()));
+    // First bake request of the run is also when last run's stale covers go.
+    let set = IN_FLIGHT.get_or_init(|| {
+        crate::recent::prune_stale_covers();
+        Mutex::new(HashSet::new())
+    });
     set.lock()
         .map(|mut g| g.insert(path.to_path_buf()))
         .unwrap_or(false)
@@ -385,6 +431,99 @@ impl RgbaGamma for Rgba<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cells_tile_the_cover_with_no_gutter() {
+        for total in [512_u32, 510, 511, 100] {
+            let mut edge = 0;
+            for i in 0..3 {
+                let (x0, x1) = cell_bounds(i, 3, total);
+                assert_eq!(x0, edge, "cell {i} does not start where the last ended");
+                assert!(x1 > x0, "cell {i} of {total} is empty");
+                edge = x1;
+            }
+            assert_eq!(edge, total, "cells left {} px of gutter", total - edge);
+        }
+    }
+
+    /// A tile fills its cell by cropping, never by squashing — the whole point of
+    /// the fix, since `imageops::thumbnail` will happily resize to any aspect.
+    #[test]
+    fn a_tile_crops_to_the_cell_instead_of_squashing() {
+        // Wide source into a square cell: keep the height, trim the sides.
+        assert_eq!(cover_crop(300, 100, 90, 90), (100, 0, 100, 100));
+        // Tall source into a square cell: keep the width, trim top and bottom.
+        assert_eq!(cover_crop(100, 300, 90, 90), (0, 100, 100, 100));
+        // Already the right shape: take all of it.
+        assert_eq!(cover_crop(640, 640, 170, 170), (0, 0, 640, 640));
+        // Aspect is what is matched, not size.
+        assert_eq!(cover_crop(400, 100, 200, 100), (100, 0, 200, 100));
+
+        // Whatever the source shape, the crop carries the cell's aspect and stays
+        // inside the source — that is what keeps the picture undistorted.
+        for (sw, sh) in [
+            (4000_u32, 3000_u32),
+            (3, 4000),
+            (1, 1),
+            (1920, 1080),
+            (7, 5),
+        ] {
+            let (x, y, w, h) = cover_crop(sw, sh, 170, 170);
+            assert!(
+                x + w <= sw && y + h <= sh,
+                "crop {sw}x{sh} escaped the source"
+            );
+            assert!(w > 0 && h > 0, "crop {sw}x{sh} is empty");
+            let off = (w as i64 - h as i64).abs();
+            assert!(
+                off <= 1,
+                "crop {w}x{h} from {sw}x{sh} is not square for a square cell"
+            );
+        }
+    }
+
+    #[test]
+    fn degenerate_sources_do_not_panic() {
+        assert_eq!(cover_crop(0, 0, 170, 170), (0, 0, 0, 0));
+        assert_eq!(cover_crop(100, 100, 0, 0), (0, 0, 100, 100));
+        let src = image::RgbaImage::from_pixel(1, 1, Rgba([9, 9, 9, 255]));
+        let tile = fill_cell(&src, 170, 170);
+        assert_eq!((tile.width(), tile.height()), (170, 170));
+    }
+
+    /// The tile keeps the middle of the picture, at the right scale: a source
+    /// whose center third is a solid block must come out solid, which the old
+    /// squash-to-fit could never guarantee.
+    #[test]
+    fn a_tile_keeps_the_center_of_the_picture() {
+        let (red, blue) = (Rgba([255, 0, 0, 255]), Rgba([0, 0, 255, 255]));
+        let mut src = image::RgbaImage::from_pixel(300, 100, red);
+        for y in 0..100 {
+            for x in 100..200 {
+                src.put_pixel(x, y, blue);
+            }
+        }
+        let tile = fill_cell(&src, 50, 50);
+        assert_eq!((tile.width(), tile.height()), (50, 50));
+        for (x, y, px) in tile.enumerate_pixels() {
+            assert_eq!(
+                px.0, blue.0,
+                "tile pixel ({x}, {y}) came from outside the centered square crop"
+            );
+        }
+    }
+
+    #[test]
+    fn a_recipe_bump_retires_the_previous_generation() {
+        use crate::recent::{cover_cache_path, COVER_RECIPE_VERSION};
+        let name = cover_cache_path(Path::new("C:/some/folder"));
+        let name = name.file_name().unwrap().to_string_lossy().to_string();
+        assert!(
+            name.starts_with(&format!("v{COVER_RECIPE_VERSION}-")),
+            "cover filename {name} does not carry the recipe version, so a bump \
+             could never reach a machine that already has covers"
+        );
+    }
 
     #[test]
     fn structure_cover_writes_png() {

@@ -105,6 +105,7 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
                 title: tab.title(),
                 tooltip,
                 closable: app.tabs.len() > 1 || !blank,
+                content_action_label: None,
                 is_empty: blank,
             }
         })
@@ -237,6 +238,7 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
         }
         Some(TabAction::New) => app.home_new_workspace(),
         Some(TabAction::ActivateEmpty) => app.open_doc_dialog(),
+        Some(TabAction::ChangeContent(_)) => {}
         None => {}
     }
 }

@@ -32,15 +32,21 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 #[cfg(windows)]
 use windows::Win32::UI::Shell::{
-    IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_RESIZETOFIT,
-    SIIGBF_THUMBNAILONLY,
+    IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY,
+    SIIGBF_MEMORYONLY, SIIGBF_RESIZETOFIT, SIIGBF_THUMBNAILONLY,
 };
 
 pub const THUMB_PX: i32 = 192;
 
 /// Bump when extraction logic changes so stale JPEGs (e.g. cached shell icons)
 /// are regenerated.
-const CACHE_KEY_VERSION: &str = "3";
+///
+/// `4` retires everything the shell-first era wrote. Those entries are not just
+/// slightly worse than what `rasterthumb` produces — an unknown number of them
+/// are generic file-type icons the shell substituted when it could not reach the
+/// pixels (a cloud placeholder, a missing codec), and because the key is
+/// `path + size + mtime` an icon cached once was served forever.
+const CACHE_KEY_VERSION: &str = "4";
 
 /// Max concurrent background cache-warming jobs. Keeps the sustained network
 /// load at roughly "one file copy running quietly", while on-demand requests
@@ -121,6 +127,21 @@ struct Shared {
     /// User-adjustable cap on concurrent pre-warm jobs (dashboard speed control).
     slow_limit: AtomicUsize,
     worker_count: AtomicUsize,
+    /// Keys already re-checked this session after a previous run could only get
+    /// a file-type icon. See [`Shared::should_retry_icon`].
+    icon_retried: Mutex<std::collections::HashSet<String>>,
+}
+
+impl Shared {
+    /// Once per key per process, an icon-only file earns one fresh extraction
+    /// attempt: the reason it failed (a cloud placeholder, a missing codec) is
+    /// exactly the kind of thing that changes between sessions. After that the
+    /// stored icon is served directly, so a folder of preview-less CAD files
+    /// does not re-run shell extraction every time it scrolls into view.
+    fn should_retry_icon(&self, key: &str) -> bool {
+        let mut seen = self.icon_retried.lock().unwrap();
+        seen.insert(key.to_string())
+    }
 }
 
 #[derive(Clone)]
@@ -129,6 +150,20 @@ pub struct ThumbPool {
     tx: Sender<ThumbResult>,
     cache_dir: PathBuf,
     pub rx: Receiver<ThumbResult>,
+}
+
+impl ThumbPool {
+    /// Forget that `key` could only be answered with a file-type icon, so the
+    /// next request extracts it again from scratch.
+    ///
+    /// The icon tier deliberately sticks — a folder of preview-less CAD files
+    /// should not re-run shell extraction on every scroll — but it has to yield
+    /// the moment the reason for the icon goes away. Hydrating a cloud
+    /// placeholder is exactly that moment.
+    pub fn forget_icon(&self, key: &str) {
+        self.shared.icon_retried.lock().unwrap().remove(key);
+        let _ = std::fs::remove_file(self.cache_dir.join(format!("{key}.icon.jpg")));
+    }
 }
 
 pub fn cache_key(rel: &str, size: u64, mtime: i64) -> String {
@@ -183,6 +218,7 @@ impl ThumbPool {
             slow_active: AtomicUsize::new(0),
             slow_limit: AtomicUsize::new(SLOW_CONCURRENCY_DEFAULT),
             worker_count: AtomicUsize::new(0),
+            icon_retried: Mutex::new(std::collections::HashSet::new()),
         });
         let (tx, rx) = unbounded::<ThumbResult>();
         let workers = std::thread::available_parallelism()
@@ -409,23 +445,48 @@ pub fn discover_project_cache(open_root: &Path) -> Option<ProjectCache> {
 }
 
 /// True for UNC paths and mapped network drive letters.
+///
+/// Memoized per drive letter, and deliberately allocation-free: the queue
+/// preference scan calls this for every entry of the hot queue (up to
+/// [`HOT_QUEUE_CAP`]) on *every* pop, while holding the queue lock. Doing a
+/// `GetDriveTypeW` and a `to_string_lossy` allocation per entry there put
+/// hundreds of syscalls in front of each thumbnail and serialized every worker
+/// behind them. A drive's remoteness does not change while we are looking.
 #[cfg(windows)]
 pub fn is_network_path(p: &Path) -> bool {
-    let s = p.as_os_str().to_string_lossy();
-    if s.starts_with(r"\\") {
+    let bytes = p.as_os_str().as_encoded_bytes();
+    if bytes.starts_with(br"\\") {
         return true;
     }
-    let mut chars = s.chars();
-    if let (Some(drive), Some(':')) = (chars.next(), chars.next()) {
-        use windows::Win32::Storage::FileSystem::GetDriveTypeW;
-        let root: Vec<u16> = format!("{drive}:\\")
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        // 4 == DRIVE_REMOTE
-        return unsafe { GetDriveTypeW(PCWSTR(root.as_ptr())) } == 4;
+    let (Some(&drive), Some(&b':')) = (bytes.first(), bytes.get(1)) else {
+        return false;
+    };
+    drive_is_remote(drive.to_ascii_uppercase())
+}
+
+#[cfg(windows)]
+fn drive_is_remote(drive: u8) -> bool {
+    use std::sync::atomic::AtomicU64;
+    // Two bitmaps over A..=Z: "answer known" and "answer is yes". A relaxed
+    // load is enough — a racing duplicate query returns the same answer.
+    static KNOWN: AtomicU64 = AtomicU64::new(0);
+    static REMOTE: AtomicU64 = AtomicU64::new(0);
+    if !drive.is_ascii_uppercase() {
+        return false;
     }
-    false
+    let bit = 1u64 << (drive - b'A');
+    if KNOWN.load(Ordering::Relaxed) & bit != 0 {
+        return REMOTE.load(Ordering::Relaxed) & bit != 0;
+    }
+    use windows::Win32::Storage::FileSystem::GetDriveTypeW;
+    let root: [u16; 4] = [drive as u16, b':' as u16, b'\\' as u16, 0];
+    // 4 == DRIVE_REMOTE
+    let remote = unsafe { GetDriveTypeW(PCWSTR(root.as_ptr())) } == 4;
+    if remote {
+        REMOTE.fetch_or(bit, Ordering::Relaxed);
+    }
+    KNOWN.fetch_or(bit, Ordering::Relaxed);
+    remote
 }
 
 /// True for UNC paths and mapped network drive letters.
@@ -459,14 +520,14 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
         let (req, tier) = {
             let mut q = shared.queue.lock().unwrap();
             loop {
-                if let Some(r) = q.hot.pop() {
+                if let Some(r) = pop_preferred_hot(&mut q.hot) {
                     break (r, 0u8);
                 }
                 if !q.warm.is_empty()
                     && shared.warm_active.load(Ordering::Relaxed) < WARM_CONCURRENCY
                 {
                     shared.warm_active.fetch_add(1, Ordering::Relaxed);
-                    break (q.warm.pop_front().unwrap(), 1);
+                    break (pop_preferred_warm(&mut q.warm), 1);
                 }
                 if shared.slow_active.load(Ordering::Relaxed)
                     < shared.slow_limit.load(Ordering::Relaxed)
@@ -502,6 +563,7 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
         }
 
         let cache_file = cache_dir.join(format!("{}.jpg", req.key));
+        let icon_file = cache_dir.join(format!("{}.icon.jpg", req.key));
         let shared_file = req
             .shared_dir
             .as_ref()
@@ -523,14 +585,26 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
                 load_cached(&cache_file)
             })
             .or_else(|| {
-                let img = extract_thumbnail(&req.path, req.pdf_page);
-                if let Some((w, h, ref rgba)) = img {
-                    save_cached(&cache_file, w, h, rgba);
+                // A file we could previously only get an icon for: serve that
+                // icon unless this session still owes it a retry.
+                if icon_file.exists() && !shared.should_retry_icon(&req.key) {
+                    return load_cached(&icon_file);
+                }
+                let got = extract_thumbnail(&req.path, req.pdf_page)?;
+                if got.cacheable {
+                    save_cached(&cache_file, got.w, got.h, &got.rgba);
                     if let Some(sf) = &shared_file {
                         publish_shared(&cache_file, sf);
                     }
+                    // The real preview finally arrived; the icon is now noise.
+                    let _ = std::fs::remove_file(&icon_file);
+                } else {
+                    // Icons live in their own tier so they are never mistaken
+                    // for a preview, never published to the shared project
+                    // cache, and never permanent.
+                    save_cached(&icon_file, got.w, got.h, &got.rgba);
                 }
-                img
+                Some((got.w, got.h, got.rgba))
             });
         done_tier();
 
@@ -554,6 +628,23 @@ fn worker(shared: Arc<Shared>, tx: Sender<ThumbResult>, cache_dir: PathBuf) {
             // UI memory (the result channel holds them until drained).
             image: if warm || req.color_only { None } else { image },
         });
+    }
+}
+
+/// Pick the newest local visible request before network requests. We spent a
+/// lot of effort keeping SMB pipelines full, but local disks should not wait
+/// behind slow network misses when both are queued.
+fn pop_preferred_hot(hot: &mut Vec<ThumbRequest>) -> Option<ThumbRequest> {
+    let local_idx = hot.iter().rposition(|r| !is_network_path(&r.path));
+    local_idx.map(|idx| hot.remove(idx)).or_else(|| hot.pop())
+}
+
+/// Warm jobs are FIFO within local/network class, with local class preferred.
+fn pop_preferred_warm(warm: &mut VecDeque<ThumbRequest>) -> ThumbRequest {
+    if let Some(idx) = warm.iter().position(|r| !is_network_path(&r.path)) {
+        warm.remove(idx).unwrap()
+    } else {
+        warm.pop_front().unwrap()
     }
 }
 
@@ -597,14 +688,106 @@ fn prefers_builtin_extractor(ext: &str) -> bool {
 }
 
 /// Choose the best thumbnail source for a file on cache miss.
-fn extract_thumbnail(path: &Path, pdf_page: Option<u16>) -> Option<(u32, u32, Vec<u8>)> {
+///
+/// Raster photos are decoded by us, not by the shell. `IShellItemImageFactory`
+/// transfers and decodes the entire file — measured at 189 ms for a 6000x4000
+/// JPEG, i.e. the five-per-second ceiling that made 20k-image folders unusable —
+/// whereas `rasterthumb` reads an embedded preview out of the first 128 KB, or
+/// failing that decodes at 1/8 scale. Explorer's *cached* thumbnail is still
+/// worth asking for first when it exists, since that is a small local read and
+/// cannot beat being already done.
+fn extract_thumbnail(path: &Path, pdf_page: Option<u16>) -> Option<Extracted> {
     let ext = file_ext(path);
+    // A cloud placeholder: every extractor below this line reads bytes, and
+    // reading one byte downloads the whole file. Thumbnailing a folder of these
+    // would quietly pull gigabytes across someone's managed network, so we take
+    // whatever the shell already has and otherwise show the type icon. See
+    // `crate::cloud`.
+    if crate::cloud::is_dehydrated(path) {
+        return cached_thumbnail_no_download(path);
+    }
     if prefers_builtin_extractor(&ext) {
         fallback_thumbnail(path, &ext, pdf_page)
-            .or_else(|| shell_thumbnail_cached_only(path))
+            .map(Extracted::real)
+            .or_else(|| shell_thumbnail_cached_only(path).map(Extracted::real))
             .or_else(|| pdf_shell_fallback(&ext, path))
+    } else if crate::rasterthumb::handles(&ext) {
+        crate::rasterthumb::thumbnail(path, THUMB_PX as u32)
+            .map(Extracted::real)
+            .or_else(|| shell_then_builtin(path, &ext, pdf_page))
     } else {
-        shell_thumbnail(path).or_else(|| fallback_thumbnail(path, &ext, pdf_page))
+        shell_then_builtin(path, &ext, pdf_page)
+    }
+}
+
+/// Everything we can show for a file whose bytes are still in the cloud,
+/// without causing a download.
+///
+/// `SIIGBF_MEMORYONLY` is the guarantee: Microsoft documents it as "return only
+/// the cached image, do not access the disk even if the cached version is not
+/// present". So this either finds a thumbnail Explorer already had, or gives the
+/// file-type icon — which the icon tier stores separately and re-checks later, so
+/// the real preview appears once the file is local.
+#[cfg(windows)]
+fn cached_thumbnail_no_download(path: &Path) -> Option<Extracted> {
+    let cached = shell_get_image(
+        path,
+        SIIGBF_THUMBNAILONLY | SIIGBF_MEMORYONLY | SIIGBF_BIGGERSIZEOK,
+        THUMB_PX,
+    );
+    if let Some(real) = cached {
+        return Some(Extracted::real(real));
+    }
+    let (w, h, rgba) = shell_get_image(path, SIIGBF_ICONONLY | SIIGBF_RESIZETOFIT, THUMB_PX)?;
+    Some(Extracted {
+        w,
+        h,
+        rgba,
+        cacheable: false,
+    })
+}
+
+#[cfg(not(windows))]
+fn cached_thumbnail_no_download(_path: &Path) -> Option<Extracted> {
+    None
+}
+
+/// The shell knows more formats than we do, so ask it first — but a file-type
+/// icon is not an answer. Until icons were detectable a successful icon *shadowed*
+/// our own extractors: every `.3dm` on this machine showed the Rhino type icon
+/// while its embedded preview sat unread in the file.
+fn shell_then_builtin(path: &Path, ext: &str, pdf_page: Option<u16>) -> Option<Extracted> {
+    let shell = shell_thumbnail(path);
+    if shell.as_ref().is_some_and(|got| got.cacheable) {
+        return shell;
+    }
+    fallback_thumbnail(path, ext, pdf_page)
+        .map(Extracted::real)
+        .or(shell)
+}
+
+/// Pixels for one file, plus whether they are worth keeping.
+///
+/// A generic file-type icon is worth *showing* — better than a card that spins
+/// forever — but never worth writing to disk. The cache key is
+/// `path + size + mtime`, so a persisted icon is permanent: it outlives the
+/// cloud placeholder being hydrated or the missing codec being installed, and
+/// no amount of waiting or revisiting replaces it.
+struct Extracted {
+    w: u32,
+    h: u32,
+    rgba: Vec<u8>,
+    cacheable: bool,
+}
+
+impl Extracted {
+    fn real((w, h, rgba): (u32, u32, Vec<u8>)) -> Extracted {
+        Extracted {
+            w,
+            h,
+            rgba,
+            cacheable: true,
+        }
     }
 }
 
@@ -612,7 +795,7 @@ fn extract_thumbnail(path: &Path, pdf_page: Option<u16>) -> Option<(u32, u32, Ve
 /// sometimes has a real cached/extracted page even when pdfium fails (XFA,
 /// odd encodings, password prompts). A generic type icon is still better
 /// than an eternal loading placeholder.
-fn pdf_shell_fallback(ext: &str, path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+fn pdf_shell_fallback(ext: &str, path: &Path) -> Option<Extracted> {
     if ext == "pdf" {
         shell_thumbnail(path)
     } else {
@@ -629,7 +812,8 @@ fn fallback_thumbnail(
     pdf_page: Option<u16>,
 ) -> Option<(u32, u32, Vec<u8>)> {
     match ext {
-        "3dm" => crate::threedm::embedded_preview(path),
+        // Rhino writes the previous save as `.3dmbak` in the same format.
+        "3dm" | "3dmbak" => crate::threedm::embedded_preview(path),
         "pdf" => crate::pdf::thumbnail_page(path, pdf_page.unwrap_or(0), THUMB_PX),
         e if crate::office::is_ooxml(e) => crate::office::embedded_thumbnail(path),
         _ => None,
@@ -671,10 +855,25 @@ fn shell_thumbnail_cached_only(_path: &Path) -> Option<(u32, u32, Vec<u8>)> {
 
 /// Ask the Windows Shell for a thumbnail; returns RGBA pixels.
 /// Tries Explorer's existing thumbnail cache first (near-instant), then does
-/// a full extraction (which may be a scaled type icon).
+/// a full extraction — which may quietly hand back a scaled type icon instead,
+/// so the result says whether it is safe to cache.
 #[cfg(windows)]
-fn shell_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
-    shell_image_at(path, THUMB_PX)
+fn shell_thumbnail(path: &Path) -> Option<Extracted> {
+    if let Some(real) = shell_get_image(path, SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK, THUMB_PX)
+    {
+        return Some(Extracted::real(real));
+    }
+    // `SIIGBF_RESIZETOFIT` never fails: with no thumbnail to be had it draws the
+    // file-type icon. Asking for the icon outright tells us which one we got.
+    let (w, h, rgba) = shell_get_image(path, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK, THUMB_PX)?;
+    let is_icon = shell_get_image(path, SIIGBF_ICONONLY | SIIGBF_RESIZETOFIT, THUMB_PX)
+        .is_some_and(|(iw, ih, icon)| (iw, ih) == (w, h) && icon == rgba);
+    Some(Extracted {
+        w,
+        h,
+        rgba,
+        cacheable: !is_icon,
+    })
 }
 
 /// Full shell extraction at an arbitrary target size — the preview pipeline
@@ -690,11 +889,42 @@ pub(crate) fn shell_image_at(_path: &Path, _px: i32) -> Option<(u32, u32, Vec<u8
     None
 }
 
+/// Benchmark hook: time the shell path directly (see `tests/thumb_bench.rs`).
+#[cfg(windows)]
+#[doc(hidden)]
+pub fn probe_shell_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+    shell_thumbnail(path).map(|e| (e.w, e.h, e.rgba))
+}
+
+/// Diagnostic hook: ask the shell for a thumbnail with or without permitting
+/// disk/provider access, to measure what a cloud placeholder will give up
+/// without being downloaded. Returns pixels and whether they are the type icon.
+#[cfg(windows)]
+#[doc(hidden)]
+pub fn probe_shell_cloud(path: &Path, memory_only: bool) -> Option<(u32, u32, bool)> {
+    let mut flags = SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK;
+    if memory_only {
+        flags |= SIIGBF_MEMORYONLY;
+    }
+    let (w, h, rgba) = shell_get_image(path, flags, THUMB_PX)?;
+    let is_icon = shell_get_image(path, SIIGBF_ICONONLY | SIIGBF_RESIZETOFIT, THUMB_PX)
+        .is_some_and(|(iw, ih, icon)| (iw, ih) == (w, h) && icon == rgba);
+    Some((w, h, is_icon))
+}
+
+/// Diagnostic hook: run the real source-selection logic for one file, exactly as
+/// a worker would on a cache miss. The flag is whether the worker would persist
+/// the result (`false` = a substituted file-type icon).
+#[doc(hidden)]
+pub fn probe_extract(path: &Path, pdf_page: Option<u16>) -> Option<(u32, u32, Vec<u8>, bool)> {
+    extract_thumbnail(path, pdf_page).map(|e| (e.w, e.h, e.rgba, e.cacheable))
+}
+
 /// Non-Windows (e.g. Linux CI): decode common raster formats directly so
 /// tests can exercise the pipeline; other formats fall through to the
 /// format-specific extractors.
 #[cfg(not(windows))]
-fn shell_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
+fn shell_thumbnail(path: &Path) -> Option<Extracted> {
     let ext = file_ext(path);
     if !matches!(ext.as_str(), "png" | "jpg" | "jpeg") {
         return None;
@@ -703,7 +933,7 @@ fn shell_thumbnail(path: &Path) -> Option<(u32, u32, Vec<u8>)> {
     let img = img.thumbnail(THUMB_PX as u32, THUMB_PX as u32);
     let rgba = img.to_rgba8();
     let (w, h) = (rgba.width(), rgba.height());
-    Some((w, h, rgba.into_raw()))
+    Some(Extracted::real((w, h, rgba.into_raw())))
 }
 
 #[cfg(windows)]
@@ -938,6 +1168,58 @@ mod tests {
         assert_eq!(a.len(), 32);
     }
 
+    /// The bug this guards: for months every cached thumbnail for a set of
+    /// OneDrive PNGs was one shared 192x192 file-type icon, written when the
+    /// shell could not reach the pixels. `path + size + mtime` keys never
+    /// change, so the icon was served forever and no revisit could dislodge it.
+    #[cfg(windows)]
+    #[test]
+    fn a_substituted_type_icon_is_never_persisted() {
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        }
+        let dir = std::env::temp_dir().join(format!("nfa_icon_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // An extension no thumbnail provider handles: the shell can only offer
+        // the generic unknown-file icon.
+        let odd = dir.join("mystery.zzqq");
+        std::fs::write(&odd, b"no provider knows this format").unwrap();
+        if let Some((w, h, _, cacheable)) = probe_extract(&odd, None) {
+            assert!(
+                !cacheable,
+                "a {w}x{h} type icon was marked cacheable — it would outlive the \
+                 placeholder or codec that caused it"
+            );
+        }
+
+        // The detector must not be so eager that real pixels stop being cached.
+        let png = dir.join("real.png");
+        image::RgbaImage::from_pixel(320, 200, image::Rgba([12, 200, 90, 255]))
+            .save(&png)
+            .unwrap();
+        let (w, h, _, cacheable) = probe_extract(&png, None).expect("PNG must produce pixels");
+        assert!(cacheable, "a decoded PNG must still be cached");
+        assert!(
+            w > h,
+            "real pixels keep the source aspect, an icon is square"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Each icon-only file gets exactly one fresh attempt per session: enough to
+    /// pick up a hydrated placeholder or a newly installed codec, few enough
+    /// that a folder of preview-less CAD files is not re-extracted on every pan.
+    #[test]
+    fn an_icon_only_file_is_rechecked_once_per_session() {
+        let pool = ThumbPool::new();
+        assert!(pool.shared.should_retry_icon("key-a"));
+        assert!(!pool.shared.should_retry_icon("key-a"));
+        assert!(!pool.shared.should_retry_icon("key-a"));
+        assert!(pool.shared.should_retry_icon("key-b"));
+    }
+
     #[test]
     fn cache_key_page_differs_for_nonzero_pages() {
         let base = cache_key("docs/a.pdf", 100, 1);
@@ -981,7 +1263,13 @@ mod tests {
 
         let result = shell_thumbnail(&png_path);
         assert!(result.is_some(), "shell returned no thumbnail for a PNG");
-        let (w, h, rgba) = result.unwrap();
+        let Extracted {
+            w,
+            h,
+            rgba,
+            cacheable,
+        } = result.unwrap();
+        assert!(cacheable, "real image pixels must be cacheable");
         assert!(w > 0 && h > 0);
         assert_eq!(rgba.len(), (w * h * 4) as usize);
         // Center pixel should be red-dominant after BGRA->RGBA swap.

@@ -120,8 +120,13 @@ the canvas or triggers rescans.
 - `src/index.rs` — SQLite persistence on a dedicated thread
 - `src/tree.rs` — folder hierarchy + tidy-tree layout (orientation, grid-pack,
   portals, collapse, hit testing)
-- `src/thumbs.rs` — shell thumbnail workers (LIFO priority) + JPEG disk cache;
-  tries Explorer's thumbnail cache before extracting
+- `src/thumbs.rs` — thumbnail workers (LIFO priority) + JPEG disk cache and
+  shared project cache tier; picks a source per format
+- `src/rasterthumb.rs` — the photo fast path: embedded EXIF preview out of the
+  first 128 KB, else a 1/8-scale DCT decode. ~1500 thumbnails/sec against ~13
+  through the Windows shell (see `docs/performance.md`)
+- `src/owners.rs` — deferred owner resolution, kept out of discovery because it
+  costs a security-descriptor query per file
 - `src/threedm.rs` — `.3dm` embedded-preview fallback parser
 - `src/office.rs` — Office Open XML embedded-thumbnail extractor
 - `src/pdf.rs` — PDF page-1 renderer via dynamically loaded pdfium

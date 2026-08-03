@@ -39,6 +39,59 @@ Floating canvas docks follow the same workflow:
 | `crates/atlas-shell/DOCK.md` | Permanent dock design and behavior contract |
 | `[dock]` in `ui-tokens.toml` | Icon size/gap, squircle exponent, popover size, shadows, colors |
 
+The activity timeline (contribution graph + date window on one axis):
+
+| File | Responsibility |
+|------|----------------|
+| `crates/atlas-shell/src/timeline.rs` | Paint + interaction (both morph layers) |
+| `crates/atlas-core/src/timeline.rs` | Pure math: picks, grain ladder, morph curves, index |
+| `crates/atlas-shell/TOOLBARS.md` | Selection / gesture contract |
+| `docs/keymap/specs/activity-timeline.md` | Full spec: axis, semantic zoom, selection model |
+| `[activity_heatmap]` in `ui-tokens.toml` | Mute, cell geometry, stagger/expansion thresholds, LOD, wheel feel, every pad and offset |
+
+The two morph thresholds are the values most worth tuning live: they decide
+where the weekday grid starts staggering into per-day slots and where the
+staircase expands into a bucket strip. Both are spans in **days visible**, wide
+→ narrow, and the tuner shows them under *Activity timeline · Geometry &
+semantic zoom*.
+
+Layout nudges live in a third group, *Activity timeline · Padding &
+positions*, organised the way you reach for them:
+
+- **Vertical** — graph height, then the pads above the info row, between the row
+  and the graph, and below the scale.
+- **Horizontal insets** — left (the weekday gutter) and right, adjacent, because
+  they are the same decision made twice.
+- **Info row** — text size, item spacing, button padding in x and y, a minimum
+  row height, and the legend swatch size / gap.
+- **Labels**, **handle rail**, **tick scale** — weekday inset and font size; band
+  inset, handle radius, handle hit size, minimum grip width; top gap, tick
+  length, tick → label gap.
+
+Two of these are views onto another token rather than tokens of their own.
+*Graph height* solves `cell` for the seven-row structure, which is the end you
+want when budgeting the readout bar's height rather than sizing a square. And
+`scale_height` is a floor: the tick band grows to fit the label font plus its
+gaps, so no combination of those dials can clip the dates.
+
+The widget adds its own `pad_top` / `pad_bottom`, so tune those rather than
+wrapping the call site in `add_space`.
+
+## The readout bar itself
+
+The bar hosting the timeline is tunable too, under *Readout bar (bottom)*:
+
+| File | Responsibility |
+|------|----------------|
+| `apps/file-atlas/src/app/ui/readouts.rs` | The bar: gear menu, live counts, root path, timeline |
+| `[readouts]` in `ui-tokens.toml` | Text size, pad above/below, metrics row → timeline gap, item spacing, min row height, separator rules |
+
+`text_size` sets `override_font_id` for the whole metrics row, so the counts,
+the root path, and every transient progress line scale together — they are one
+readout, and one of them growing relative to the others is never what you want.
+The override is applied *after* the gear menu so its popup keeps normal menu
+text.
+
 ## Fine-tuning session
 
 ### 1. Build an optimized tuner executable

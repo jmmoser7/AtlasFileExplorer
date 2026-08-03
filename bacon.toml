@@ -1,0 +1,67 @@
+# Fast edit → rebuild → relaunch loop (no hot-patch, no runtime changes).
+# Install once:  cargo install --locked bacon
+# Then:          bacon slate
+# Docs:          docs/dev-loop.md
+#
+# https://dystroy.org/bacon/
+
+default_job = "check"
+env.CARGO_TERM_COLOR = "always"
+
+[jobs.check]
+command = ["cargo", "check", "--workspace", "--color", "always"]
+need_stdout = false
+
+[jobs.slate]
+command = ["cargo", "run", "--color", "always", "-p", "slate"]
+need_stdout = true
+allow_warnings = true
+
+[jobs.atlas]
+command = ["cargo", "run", "--color", "always", "-p", "native-file-atlas"]
+need_stdout = true
+allow_warnings = true
+
+# Atlas with the live token dashboard (Advanced → UI Tuner) — the build to use
+# when dialing timeline padding. See docs/ui-tuning-workflow.md.
+[jobs.atlas-tuner]
+command = [
+    "cargo",
+    "run",
+    "--color",
+    "always",
+    "-p",
+    "native-file-atlas",
+    "--features",
+    "ui-tuner",
+]
+need_stdout = true
+allow_warnings = true
+
+# Both apps (linked-session / chrome parity work). Rebuilds both debug
+# binaries, kills prior instances, launches Slate + File Atlas.
+[jobs.both]
+command = [
+    "powershell",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "scripts/run-both-dev.ps1",
+]
+need_stdout = true
+allow_warnings = true
+
+# Release rebuild when you need real paint/perf feel (still auto-relaunches).
+[jobs.slate-release]
+command = ["cargo", "run", "--release", "--color", "always", "-p", "slate"]
+need_stdout = true
+allow_warnings = true
+
+[jobs.test-slate]
+command = ["cargo", "test", "--color", "always", "-p", "slate"]
+need_stdout = false
+
+[jobs.test]
+command = ["cargo", "test", "--workspace", "--color", "always"]
+need_stdout = false

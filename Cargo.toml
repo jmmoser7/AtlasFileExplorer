@@ -12,6 +12,7 @@ members = [
     "crates/collage",
     "crates/vector-ink",
     "crates/code-lens",
+    "crates/repo-graph",
     "crates/rhino-mesh",
     "apps/file-atlas",
     "apps/slate",
@@ -36,11 +37,16 @@ toml = "0.8"
 syn = { version = "2", features = ["full", "visit"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Scaled (DCT-domain) JPEG decoding, which `image`'s zune-jpeg backend does not
+# expose. `rayon` is off on purpose: thumbnails are already parallel across
+# files, so a second pool inside each decode only oversubscribes.
+jpeg-decoder = { version = "0.3", default-features = false }
 dirs = "6"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 pdfium-render = { version = "0.8", features = ["thread_safe"] }
 flate2 = "1"
 kurbo = "0.13.1"
+gix = { version = "0.86.0", default-features = false, features = ["revision", "sha1"] }
 
 # Workspace crates.
 atlas-core = { path = "crates/atlas-core" }
@@ -53,6 +59,7 @@ slate-artifact = { path = "crates/slate-artifact" }
 circle-pack = { path = "crates/circle-pack" }
 vector-ink = { path = "crates/vector-ink" }
 code-lens = { path = "crates/code-lens" }
+repo-graph = { path = "crates/repo-graph" }
 rhino-mesh = { path = "crates/rhino-mesh" }
 native-file-atlas = { path = "apps/file-atlas" }
 

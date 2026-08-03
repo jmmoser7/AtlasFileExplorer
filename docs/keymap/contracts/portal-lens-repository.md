@@ -1,7 +1,12 @@
 # Repository Lens portal — interaction contract
 
-Status: **draft** — every row below is `proposed` in `decisions.json` and
-awaits accept / alter / reject. Four open questions are live at the bottom.
+Status: **agreed** (matrix approved 2026-08-01 via the
+`portal-lens-repository-tool-contract` canvas; all rows accepted or altered,
+all open questions resolved). **v1 board portal lands**: `NodeKind::Portal`
++ unbound placement, local-source bind, async `repo-graph` extract/layout
+paint, focus/bake/refresh commands. Still deferred: Portals rail flyout,
+human git write-back wiring, full `SourceUri` health, interact-zoom LOD
+tuner, S1 `docs/portal-contract.md`.
 Family: portal
 Portal class: **generated** (Art. V.3 / decision D7) · Type: **lens** ·
 Subtype: **repository**
@@ -29,8 +34,10 @@ code Lens it explains. This repository's own history, built by waves of
 parallel agents on `feature/*` branches, is the first subject.
 
 The 90% deliberately not implemented is in D15: this is a reading instrument,
-not a git client. Nothing in it stages, commits, checks out, branches,
-rebases, or pushes.
+not a general git client. Human-directed branch create / checkout / merge are
+kept as explicit write-back commands because D27 approved them and IX.5 allows
+per-action human write-back. Staging, committing, rebasing, pulling, pushing,
+fetching, stashing, and all agent git writes remain cut.
 
 ## Pushback before agreement (Art. XI)
 
@@ -74,13 +81,11 @@ contract.
 
 ## Deciding this matrix
 
-The skill's usual surface is an interactive canvas beside the chat; this
-contract was drafted by a cloud agent, where that canvas cannot be rendered or
-clicked, so the matrix below **is** the decision surface. Reply by row ID —
-"D04 accept, D13 alter: <text>, D23 reject" — plus an answer to each open
-question; the rows then flip in `decisions.json` (altered text adopted
-verbatim at confidence 100), the status moves to agreed, and implementation
-starts against the golden paths. Nothing here is built yet.
+Decided in the volatile canvas
+[portal-lens-repository-tool-contract](/Users/jmoser/.cursor/projects/c-Users-jmoser-source-repos-AtlasFileExplorer/canvases/portal-lens-repository-tool-contract.canvas.tsx)
+on 2026-08-01. Accepted rows are mirrored in `decisions.json`; altered rows
+adopt the user's note in contract form and become confidence 100 there. Nothing
+here is built yet unless noted in the implementation scaffold.
 
 ## Behavior matrix
 
@@ -88,7 +93,7 @@ Rows keyed to `DIMENSIONS.md` in registry order: D01–D17 (`any` scope) answer
 the **placement gesture and the frame**; D18–D31 (`portal` scope) answer the
 portal itself. Every row is mirrored in `decisions.json`.
 
-| ID | Dimension | Proposed behavior | Source | Conf |
+| ID | Dimension | Agreed behavior | Source | Conf |
 |----|-----------|-------------------|--------|------|
 | D01 | Initiation & arming | Palette: type "repository lens" + Enter (aliases: repo lens, git graph, history portal); tools-rail **Portals** flyout; command `board.portal.repo_lens`, board tabs only (P0.7/P0.8). No single-key chord in v1 — portals are placed rarely and the single-key space is spent on drawing tools (OQ3) | guess | 55 |
 | D02 | Stickiness & repeat | One-shot: commit returns to Select; Space/Enter re-arms (P2.DragShape, P0.4) | precedent | 90 |
@@ -102,21 +107,21 @@ portal itself. Every row is mirrored in `decisions.json`.
 | D10 | Cursor | Crosshair while armed (line D10 precedent). Over an unfocused portal: arrow. Inside a focused portal: arrow, `PointingHand` over a commit dot that has an open action (D22) | precedent | 75 |
 | D11 | Commit | One journaled `Add` of a portal node: `{ rect, class: Generated, kind: RepoLens, source: None, query: RepoQuery::default() }`. Frame, source, and query are journaled; contents never are (Art. VI.3). One gesture = one undo (P0.2/P0.3). No style state consumed (D16) | pattern | 85 |
 | D12 | Cancel | Esc peels, one layer per press (P0.1): contents focus → drag draft → armed tool → selection. A portal with focus registers the contents-focus layer for that frame only | pattern | 80 |
-| D13 | Selected presentation | The frame selects and shows the standard eight resize handles plus rotation, like a Frame node (P1.node). Contents expose **no** grips and are not selectable — a generated portal owns no mutations (Art. V.3). **Resize re-lays-out, it does not scale**: frame size is a layout input, so a wider frame shows more history rather than a stretched picture. Rotation rotates the painted result, as for any node | guess | 60 |
+| D13 | Selected presentation | The frame selects and shows standard frame handles, but portals participate in a future **handle carousel** pattern shared with frames, rectangles, and wire-capable nodes: handles fade in as the cursor nears an edge; resize, wire creation, crop, and future edge actions stack at the same edge anchor; the primary action is centered, secondary actions slide aside with opacity/ease transitions and scroll into the primary slot as the cursor approaches them. Contents expose no grips and are not selectable — a generated portal owns no mutations (Art. V.3). Resize re-lays-out, it does not scale: frame size is a layout input, so a wider frame shows more history rather than a stretched picture. Rotation rotates the painted result, as for any node. The carousel itself ships in a later shared-handles pass, not in `repo-graph` | stated | 100 |
 | D14 | Post-edit | Every parameter is re-edited later through the **Portal** sidebar section (visible when a portal is selected) or the `portal.repo.*` commands; each edit is a journaled `Patch` of `source`/`query` on the node, and contents regenerate from it (D21) | pattern | 80 |
-| D15 | Non-goals | Cut, and each is a decision (Art. III): staging, committing, checkout, branch/tag create or delete, merge, rebase, cherry-pick, revert, stash, fetch, pull, push — the whole GitKraken context menu, and barred anyway by Art. IX.5 and register row 5; diff and blame views; conflict resolution; issues and pull-request data; authenticated host APIs (Art. I.4); per-file history and Gource-style playback (the animated form belongs to the S2 dynamics layer if it is ever wanted); typed frame dimensions (D08); a minimap of the portal's own (the canvas has one) | stated | 90 |
+| D15 | Non-goals | Cut, and each is a decision (Art. III): staging, committing, rebase, cherry-pick, revert, stash, fetch, pull, push, branch/tag deletion, diff and blame views, conflict resolution, issues and pull-request data, authenticated host APIs (Art. I.4), per-file history, Gource-style playback, typed frame dimensions (D08), and a portal-local minimap (the canvas has one). **Not cut:** human-directed branch create, checkout, and merge are allowed only as explicit per-action write-back commands (`portal.repo.branch_create`, `portal.repo.checkout`, `portal.repo.merge`) with journaled intent and named targets (Art. IX.5). They are never implicit, never sticky settings, and never available to agents (D27) | stated | 100 |
 | D16 | Create-style inheritance | **No.** The frame paints from `Palette::portal` and the portal token block; it does not consume `BoardLastStyle`, and a portal does not become the "last single-node edit" that seeds the next curve. **Deviates P1.shape.style**: chrome-styled analysis surfaces stay identical between boards, and between the two apps (Art. X) | pattern | 75 |
-| D17 | Hit-testing & pick | The frame picks on its **rect** (Frame-node semantics), including marquee. Contents are inert until the portal is focused: first click selects the portal node, double-click (or Enter on a selected portal) focuses the contents, after which commit dots and ribbons hit-test with `pick.slop` (4 px). Clicking outside the frame drops contents focus. This is what keeps a portal from swallowing board gestures | guess | 60 |
+| D17 | Hit-testing & pick | The frame picks on its rect (Frame-node semantics), including marquee. Contents become interactive only when the portal is focused **and** its apparent scale passes `portal.repo.interact_zoom`; the threshold is exposed in the fine-tuning dashboard because large monitors can preserve legibility longer. Double-click (or Enter on a selected portal) focuses the contents; a caption maximize button or double-clicking the border within `portal.repo.border_hit_px` temporarily maximizes the portal contents to the viewport. In focused/interactive mode, commit dots and ribbons hit-test with `pick.slop` (4 px). Clicking outside, Esc, or leaving maximize drops contents focus. This keeps a portal from swallowing board gestures while allowing deep inspection | stated | 100 |
 | D18 | Portal class & authority | **Generated.** No journal owns mutations inside it, because none can be made: contents are a deterministic function of (repository object database, `source`, `query`, frame size) and are never journaled (Art. V.3, VI.3). The only journaled acts are on the frame itself — place, move, resize, rebind, re-query, delete, bake | pattern | 95 |
 | D19 | Source binding | One `SourceUri { kind: LocalFs, … }` naming a **git worktree or bare repository directory**, stored relative-first (Art. IX.2) so a workbook survives a moved checkout. Bound by `portal.repo.source` (folder picker, empty-state button, or sidebar) or by dropping a folder containing `.git` onto an unbound portal; rebinding is a journaled `Patch` and discards cached contents. Refused as source kinds in v1: remote URLs and hosted APIs (Art. I.4 — see pushback) | pattern | 85 |
 | D20 | Query & parameters (journaled) | `RepoQuery { refs, window, as_of, axis, trunk, max_commits }` — `refs: All \| Heads \| Named(Vec<String>)` plus `include_remotes: bool` and `hidden: Vec<String>` (GitKraken hide/solo, made authored because a board that shows one branch's story must show it to the next reader); `window: Last(n) \| Since(date) \| Range(a..b)`; `as_of: None \| Commit(oid) \| Date(ts)` — the pin that makes an exported board reproducible; `axis: Topological \| Chronological` (OQ1); `trunk: Option<String>` pinned to lane 0 (GitKraken branch pinning), default = the remote HEAD's branch, else `main`/`master` if present, else the first ref by name; `max_commits: u32` default 2000, honoured with a visible "N older commits not shown" band, never a silent truncation | research | 65 |
 | D21 | Regeneration & staleness | Recompute on: bind, `query` patch, frame resize, `portal.repo.refresh`, and a debounced watch of the repository's `HEAD`/`refs`/`packed-refs` (`portal.repo.refresh_debounce_ms` = 1000). Work runs on a background thread, generation-tagged; a stale result is discarded, never painted (Art. II.3). While it runs, the last good contents stay painted at `portal.repo.stale_alpha` (0.6) with a progress strip — a portal never blanks while it thinks. A portal pinned by `as_of` does not auto-refresh past its pin, and says `pinned` in its caption | pattern | 80 |
 | D22 | Contents interaction | Hover a commit: tooltip = short SHA, author, date, subject, containing refs. Hover a ref label: its reachable commits keep full alpha, the rest dim to `portal.repo.dim_alpha` (0.25) — the Lens's focus convention, one dimming rule across both analysis portals. Click a commit or ref: focus it (`portal.repo.focus`), details to the dock readout. Double-click a commit: open its web page in the OS browser when a configured remote's URL matches a known host pattern, otherwise inert, never an error (P0.8). `Ctrl+C` with a focused commit copies the full SHA. Esc clears focus (D12). **No board tool reaches the contents** — draw, move, and marquee act on the frame. The parent-frame→contents coordinate map (`frame_rect`, `query` → contents space) is defined and used by hit-testing now, so the day a portal gains in-place navigation it is not a rewrite (S1 requires the same of document portals) | research | 70 |
-| D23 | Level of detail | Buckets keyed on **world pixels per commit column** (`px_per_commit`), not on camera zoom alone, so a small frame and a zoomed-out camera behave the same. `< portal.repo.lod_ribbon_px` (4): lanes as continuous ribbons, branch/merge chevrons, ref tips labelled, no dots. 4–`portal.repo.lod_detail_px` (18): commit dots, ribbons, tags. `≥ 18`: dots plus short SHA, truncated subject, author initials, date ticks. Ribbon meshes tessellate once per (lane, zoom bucket) and cache (Art. II.2) | research | 70 |
+| D23 | Level of detail | Buckets key on world pixels per commit column (`px_per_commit`), not camera zoom alone, so a small frame and a zoomed-out camera behave the same. `< portal.repo.lod_ribbon_px` (4): lanes as continuous ribbons, branch/merge chevrons, ref tips labelled, no dots. 4–`portal.repo.lod_detail_px` (18): commit dots, ribbons, tags. `≥ 18`: dots plus short SHA, truncated subject, author initials, date ticks. `portal.repo.lod_ribbon_px` and `portal.repo.lod_detail_px` are fine-tuning dashboard sliders because large monitors can keep details legible longer. Ribbon meshes tessellate once per (lane, zoom bucket) and cache (Art. II.2) | stated | 100 |
 | D24 | Export serialization | `slate-artifact` emits the **regenerated contents** as SVG under the Art. IV.3 ceiling — paths for ribbons, circles for commits, text for labels — from the same layout function the painter uses (two interpreters, one model), plus a provenance caption: repository name, HEAD short SHA, as-of, ref set, commit count, and the generation timestamp. No script, no fetch, nothing that implies the export is live. An unbound or `Missing` portal exports its state card, not an empty rectangle | pattern | 85 |
 | D25 | Bake | `portal.repo.bake` emits one journaled `Add` batch of authored nodes — paths, dots, and text matching the current contents, grouped, with a provenance Text node naming repository, HEAD, as-of, and generation time (Art. VI.3's explicit promotion of derived state to authored content). The portal is **left in place**: bake copies, it does not convert, so the live view and the frozen snapshot can sit side by side, which is the actual use (a slide that must not change under you) | guess | 65 |
 | D26 | Collaboration & per-peer | Frame, `source`, and `query` sync as ordinary journal deltas. Contents are per-peer and are never transmitted — each peer regenerates from its own clone (wave-3 rule). A peer that cannot resolve the locator paints `Unknown` **naming the locator it tried**, which is stated in the interface so it does not read as a bug (Art. IX.3). Focus, hover, and search are presence: broadcast at most, never journaled, never exported (Art. VIII.5) | pattern | 85 |
-| D27 | Agent surface | Every `board.portal.repo_lens` / `portal.repo.*` command is a registry `SPEC` and therefore reachable from the MCP surface (Art. VII.1); agent-issued mutations stage for acceptance (Art. VII.6). The context beacon carries: repository locator, HEAD, visible ref set, window, as-of, and focused commit — the portal is part of the canvas-as-prompt (Art. VIII.1). An agent may **never**: run any git write or network command, or add a commit, ref, or edge to the graph (register row 4, Art. IX.5). Agent-authored *labels* for lanes and epochs are the one contribution the class allows, matched against extracted refs only, on the `docs/lens-agent-contract.md` overlay pattern — named here so it is not invented ad hoc, deferred to a follow-up | pattern | 85 |
+| D27 | Agent surface | Every `board.portal.repo_lens` / `portal.repo.*` command is a registry `SPEC` and therefore reachable from the MCP surface (Art. VII.1); agent-issued frame/source/query mutations stage for acceptance (Art. VII.6). The context beacon carries: repository locator, HEAD, visible ref set, window, as-of, and focused commit — the portal is part of the canvas-as-prompt (Art. VIII.1). A human may issue explicit write-back commands for branch create, checkout, and merge (D15), each named and journaled per action (Art. IX.5). An agent may **never** run any git write or network command, invoke those write-back commands, or add a commit, ref, or edge to the graph (register row 4, Art. IX.5). Agent-authored labels for lanes and epochs are the one contribution the class allows, matched against extracted refs only, on the `docs/lens-agent-contract.md` overlay pattern — named here so it is not invented ad hoc, deferred to a follow-up | stated | 100 |
 | D28 | Determinism & provenance | Same object database + same `query` + same frame size ⇒ byte-identical layout. Commits sort by `(commit_time, oid)` with the oid as tie-break, so equal timestamps cannot reorder between runs; lane assignment is the single forward pass of the research doc §1(c) with first-parent inheritance and `trunk` pinned to lane 0; nothing reads the wall clock except a `generated_at` stamp, which is excluded from `RepoGraph::fingerprint()` (the `code-lens` precedent). The fingerprint gates re-layout, the beacon write, and the golden determinism test | precedent | 85 |
 | D29 | Performance envelope | Extraction on a background thread over `crossbeam-channel`, generation-tagged, drained once per frame in the existing pump. Budget: 5 000 commits extracted in < 1 s, layout < 50 ms, paint windowed to the visible time range so a 100 000-commit repository pans at 60 fps (Art. II.1). Layout cached by `(fingerprint, query, frame_size)`; meshes by (lane, zoom bucket). `max_commits` = 2000 by default so first meaningful paint does not scale with repository age (Art. II.4) | pattern | 80 |
 | D30 | Failure & honesty states | `Unbound` — "Choose repository…". `Unknown` — initial and unresolved; neutral marker, **not** the missing marker (Art. IX.3). `Analyzing` — last good contents at `stale_alpha` + progress strip. `Ready`. `Missing` — locator named, last-known summary kept, frame intact. `NotARepository` — bound to a folder with no `.git`, says which folder. `Unreadable(msg)` — corrupt or permission-denied objects; the message is shown and **no partial graph is presented as complete**. `Shallow(n)` — `.git/shallow` detected: a banner marks the truncation so the view cannot imply the history began there. `Remotes(list)` caption on every bound state, so the fork surface being drawn is stated (register row 4) | pattern | 85 |
@@ -185,10 +190,34 @@ chrome and stays in the theme.
 | `portal.repo.stale_alpha` | alpha of last-good contents while re-analyzing | 0.6 |
 | `portal.repo.lod_ribbon_px` | px per commit below which dots disappear | 4.0 |
 | `portal.repo.lod_detail_px` | px per commit above which text appears | 18.0 |
+| `portal.repo.interact_zoom` | apparent scale threshold before contents can receive pointer hits | 1.5 |
+| `portal.repo.border_hit_px` | screen-pixel border band for double-click maximize | 8.0 |
 | `portal.repo.max_commits` | default window cap, elided beyond it | 2000 |
 | `portal.repo.refresh_debounce_ms` | ref-change watch debounce | 1000 |
 | `portal.repo.label_gap` | gap between a ref tip and its label | 6.0 |
 | `pick.slop` | contents pick tolerance (reused) | 4.0 |
+
+The LOD and interaction thresholds are fine-tuning dashboard values when the
+painter lands. The user specifically called out large-monitor legibility, so
+the values are not buried as fixed constants.
+
+## Temporal controllers
+
+Two project-wide temporal interaction forms are named here for reuse when the
+portal UI ships:
+
+- **Range window:** a double-handle time slider controlling `RepoQuery::window`
+  (`Since` / `Range`) without changing the graph model.
+- **Contribution heatmap:** a GitHub-style 7×N commit tracker that can act as
+  both overview and controller for dense commit history.
+
+Both shipped as **one** control — `atlas_shell::timeline::ActivityTimeline`,
+first used by File Atlas' readout bar (spec:
+`../specs/activity-timeline.md`). Overview and controller share a single time
+axis, and semantic zoom carries the 7×N block through a staggered staircase to
+a per-bucket strip. The portal reuses that widget rather than growing a second
+one (Art. X); only its data source differs — commits instead of file
+timestamps.
 
 ## Golden paths
 
@@ -233,28 +262,12 @@ expected layout is exact rather than descriptive.
 
 ## Open questions
 
-Four, drawn from the lowest-confidence rows. Each needs an answer before
-Status can move to agreed.
+None. Resolved 2026-08-01:
 
-1. **Time axis default (D20/D23, conf 65).** *(a)* `Topological` — one column
-   per commit, chronological date bands labelled underneath: dense, legible,
-   hides quiet periods. *(b)* `Chronological` — x from commit time, with gaps
-   longer than a threshold collapsed into a marked elision: shows rhythm and
-   bursts, wastes space on a repository with a slow year. Proposal: **(a)** as
-   the default, **(b)** available in the query, because the first question
-   asked of a history is usually structural.
-2. **Fork surface in v1 (D19/D30, conf 85 for the refusal, lower for scope).**
-   *(a)* Remotes only, hosted networks never. *(b)* Remotes now, with the
-   optional out-of-process enrichment specced now and built later. *(c)*
-   Remotes now, enrichment unspecified. Proposal: **(b)** — the seam is cheap
-   to name and expensive to retrofit, and Art. I.4 is satisfied as long as the
-   enrichment is optional.
-3. **Placement binding (D01, conf 55).** *(a)* Palette + rail only. *(b)* A
-   `Portals` flyout with its own chord. *(c)* A single key. Proposal: **(a)** —
-   portals are placed rarely, and single keys are the scarcest resource in the
-   board keymap.
-4. **Extraction backend (D28/D29, conf 65).** *(a)* `gix` (gitoxide) — pure
-   Rust, no C toolchain, keeps the Linux verification floor cheap, young API.
-   *(b)* `git2` (libgit2) — mature, a C dependency in a workspace that has
-   none. *(c)* Shell out to `git` — refused above: version-dependent text
-   output is not a model. Proposal: **(a)**.
+1. Time axis default: `Topological`; `Chronological` remains available in
+   `RepoQuery`.
+2. Fork surface: configured remotes now; optional out-of-process enrichment is
+   named now and built later.
+3. Placement binding: palette + Portals rail only; no single-key chord.
+4. Extraction backend: `gix` (gitoxide), pure Rust; shelling out to `git` stays
+   refused because text output is not a stable model.

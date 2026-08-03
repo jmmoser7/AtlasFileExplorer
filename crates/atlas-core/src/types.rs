@@ -539,44 +539,6 @@ pub fn normalize_folder_selection(folders: Vec<PathBuf>) -> Vec<PathBuf> {
     kept
 }
 
-/// Parent folders from the volume root down to (but not including) `path`.
-///
-/// Used to draw a visual upstream chain into the selected map root
-/// (e.g. `C:\Users\jmoser\Projects` → `[C:\, Users, jmoser]`).
-pub fn upstream_folders(path: &Path) -> Vec<(String, PathBuf)> {
-    use std::path::Component;
-    let mut stack = Vec::new();
-    let mut cur = path.parent();
-    while let Some(p) = cur {
-        let name = if let Some(n) = p.file_name() {
-            n.to_string_lossy().into_owned()
-        } else {
-            p.components()
-                .find_map(|c| match c {
-                    Component::Prefix(pre) => {
-                        Some(pre.as_os_str().to_string_lossy().replace('\\', ""))
-                    }
-                    _ => None,
-                })
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| p.to_string_lossy().into_owned())
-        };
-        // Relative paths bottom out at an empty parent (`"Users".parent()` is
-        // `Some("")`); there is no folder to show for it.
-        if name.is_empty() {
-            break;
-        }
-        stack.push((name, p.to_path_buf()));
-        let parent = p.parent();
-        if parent == Some(p) || parent == cur {
-            break;
-        }
-        cur = parent;
-    }
-    stack.reverse();
-    stack
-}
-
 pub const SECS_PER_DAY: i64 = 86_400;
 pub const SECS_PER_HOUR: i64 = 3_600;
 pub const SECS_PER_MINUTE: i64 = 60;
@@ -638,8 +600,13 @@ pub fn timeline_tick_label(secs: i64, step_secs: i64) -> String {
         return format!("{h:02}:00");
     }
     let h = (secs - day_start(secs)) / SECS_PER_HOUR;
-    let min = (secs % SECS_PER_HOUR) / SECS_PER_MINUTE;
-    format!("{h:02}:{min:02}")
+    let min = secs.rem_euclid(SECS_PER_HOUR) / SECS_PER_MINUTE;
+    if step_secs >= SECS_PER_MINUTE {
+        return format!("{h:02}:{min:02}");
+    }
+    // Deep zoom: individual files are seconds apart.
+    let sec = secs.rem_euclid(SECS_PER_MINUTE);
+    format!("{h:02}:{min:02}:{sec:02}")
 }
 
 /// Range readout under the timeline rail.
@@ -652,15 +619,14 @@ pub fn timeline_range_caption(lo: i64, hi: i64, snap_secs: i64) -> String {
         }
     } else {
         let fmt = |t: i64| {
-            if snap_secs >= SECS_PER_HOUR {
-                format!(
-                    "{} {}",
-                    date_string(t),
-                    timeline_tick_label(t, SECS_PER_HOUR)
-                )
+            let step = if snap_secs >= SECS_PER_HOUR {
+                SECS_PER_HOUR
+            } else if snap_secs >= SECS_PER_MINUTE {
+                15 * SECS_PER_MINUTE
             } else {
-                format!("{} {}", date_string(t), timeline_tick_label(t, 900))
-            }
+                1
+            };
+            format!("{} {}", date_string(t), timeline_tick_label(t, step))
         };
         format!("{} — {}", fmt(lo), fmt(hi))
     }
@@ -774,15 +740,5 @@ mod tests {
             master.join("B"),
         ]);
         assert_eq!(got, vec![master.join("A"), master.join("B")]);
-    }
-
-    #[test]
-    fn upstream_folders_lists_parents_only() {
-        let path = PathBuf::from("Users").join("jmoser").join("Projects");
-        let up = upstream_folders(&path);
-        assert_eq!(up.len(), 2);
-        assert_eq!(up[0].0, "Users");
-        assert_eq!(up[1].0, "jmoser");
-        assert!(!up.iter().any(|(n, _)| n == "Projects"));
     }
 }

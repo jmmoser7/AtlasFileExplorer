@@ -171,6 +171,45 @@ pub enum Key {
     Minus,
 }
 
+impl Key {
+    /// Lowercase letter for A–Z keys; `None` for every other key.
+    ///
+    /// Used by the board's type-to-command path: bare letter chords compete
+    /// with multi-character command entry and need a short hold window.
+    #[must_use]
+    pub const fn as_letter(self) -> Option<char> {
+        match self {
+            Key::A => Some('a'),
+            Key::B => Some('b'),
+            Key::C => Some('c'),
+            Key::D => Some('d'),
+            Key::E => Some('e'),
+            Key::F => Some('f'),
+            Key::G => Some('g'),
+            Key::H => Some('h'),
+            Key::I => Some('i'),
+            Key::J => Some('j'),
+            Key::K => Some('k'),
+            Key::L => Some('l'),
+            Key::M => Some('m'),
+            Key::N => Some('n'),
+            Key::O => Some('o'),
+            Key::P => Some('p'),
+            Key::Q => Some('q'),
+            Key::R => Some('r'),
+            Key::S => Some('s'),
+            Key::T => Some('t'),
+            Key::U => Some('u'),
+            Key::V => Some('v'),
+            Key::W => Some('w'),
+            Key::X => Some('x'),
+            Key::Y => Some('y'),
+            Key::Z => Some('z'),
+            _ => None,
+        }
+    }
+}
+
 /// A machine-readable key chord: one [`Key`] plus modifier state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Chord {
@@ -205,6 +244,12 @@ impl Chord {
             shift: false,
             alt: false,
         }
+    }
+
+    /// Bare A–Z with no modifiers — competes with typed command names.
+    #[must_use]
+    pub const fn is_bare_letter(self) -> bool {
+        !self.ctrl && !self.shift && !self.alt && self.key.as_letter().is_some()
     }
 }
 
@@ -260,5 +305,15 @@ mod tests {
         assert!(!a.intersects(Availability::ATLAS));
         assert!(a.contains(Availability::BOARD_VIEW));
         assert!(!a.contains(Availability::BOARD_VIEW | Availability::ATLAS));
+    }
+
+    #[test]
+    fn bare_letter_chords_are_type_to_command_ambiguous() {
+        assert_eq!(Key::B.as_letter(), Some('b'));
+        assert_eq!(Key::Delete.as_letter(), None);
+        assert!(Chord::bare(Key::B).is_bare_letter());
+        assert!(!Chord::ctrl(Key::B).is_bare_letter());
+        assert!(!Chord::bare(Key::F5).is_bare_letter());
+        assert!(!Chord::bare(Key::Delete).is_bare_letter());
     }
 }

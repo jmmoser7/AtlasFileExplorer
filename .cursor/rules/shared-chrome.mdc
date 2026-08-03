@@ -20,9 +20,11 @@ Hard rules:
    and tab strip into separate rows again. Adjustable top-bar values belong in
    `ui-tokens.toml`, not scattered constants. Follow
    `docs/ui-tuning-workflow.md` when adding tunable UI areas. Read
-   `crates/atlas-shell/DOCK.md` before changing floating canvas docks, and
-   `crates/atlas-shell/PAINT.md` before adding soft AA strokes (partition
-   ribbons, etc.).
+   `crates/atlas-shell/DOCK.md` and `TOOLBARS.md` before changing floating
+ canvas docks / palette interaction, and `crates/atlas-shell/PAINT.md`
+ before adding soft AA strokes (partition ribbons, etc.) **or any textured
+ mesh whose vertices are projected** — `epaint` interpolates UVs affinely,
+ with no perspective correction, so such a mesh must be subdivided.
 2. Never hardcode chrome colors or repaint tab/sidebar shapes inside an app
    crate. If a new chrome capability is needed, extend `atlas-shell` so both
    apps inherit it.

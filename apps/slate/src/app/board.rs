@@ -26,9 +26,9 @@ use super::{
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
-    Corner, Crop, Dash, FontChoice, FrameNode, ImageAdjust, ImageNode, Node, NodeKind, Rgba,
-    SceneCmd, ShapeKind, ShapeNode, StrokeCap, StrokeJoin, TextAlign, TextNode, WidthProfile,
-    WorldRect,
+    Corner, Crop, Dash, FontChoice, FrameNode, ImageAdjust, ImageNode, Node, NodeKind, PortalNode,
+    Rgba, SceneCmd, ShapeKind, ShapeNode, StrokeCap, StrokeJoin, TextAlign, TextNode, WidthProfile,
+    WorldRect, REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W,
 };
 use slate_doc::{ItemId, NodeId};
 use std::collections::BTreeMap;
@@ -118,6 +118,8 @@ pub enum BoardTool {
     Sticky,
     /// Direct Selection: anchor/segment/handle editing on paths (A).
     DirectSelect,
+    /// Repository Lens portal placement (palette / Portals rail).
+    RepoLens,
 }
 
 impl BoardTool {
@@ -139,6 +141,7 @@ impl BoardTool {
             BoardTool::Eyedropper => "Eyedropper",
             BoardTool::Sticky => "Sticky note",
             BoardTool::DirectSelect => "Direct select",
+            BoardTool::RepoLens => "Repository Lens",
         }
     }
 
@@ -160,6 +163,7 @@ impl BoardTool {
             BoardTool::Eyedropper => board_icons::ToolIcon::Eyedropper,
             BoardTool::Sticky => board_icons::ToolIcon::Sticky,
             BoardTool::DirectSelect => board_icons::ToolIcon::DirectSelect,
+            BoardTool::RepoLens => board_icons::ToolIcon::RepoLens,
         }
     }
 
@@ -179,6 +183,7 @@ impl BoardTool {
             BoardTool::Eyedropper => "I",
             BoardTool::Sticky => "N",
             BoardTool::DirectSelect => "A",
+            BoardTool::RepoLens => "",
         }
     }
 
@@ -1697,6 +1702,10 @@ impl SlateApp {
                 let conn = conn.clone();
                 self.paint_connector(painter, xf, node, &conn);
             }
+            NodeKind::Portal(p) => {
+                let portal = p.clone();
+                self.paint_portal_node(ui, painter, xf, node, &portal, chrome);
+            }
         }
     }
 
@@ -2053,11 +2062,36 @@ impl SlateApp {
                 }
             }
         }
+        let portal_focus = self.portals.interactive;
         for n in nodes.iter().filter(|n| n.is_frame()) {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
         for n in nodes.iter().filter(|n| !n.is_frame()) {
             self.paint_board_node(ui, &painter, &xf, n, true);
+        }
+        // Interactive portal focus: dim everything outside the portal frame.
+        if let Some(pid) = portal_focus {
+            if let Some(pn) = self.doc().scene.node(pid) {
+                let focus_rect = xf.rect_w2s(pn.rect).expand(2.0);
+                let full = painter.clip_rect();
+                let dim = Color32::from_black_alpha(140);
+                // Four slabs around the focused portal (cheap; no tessellation cache needed).
+                let top = Rect::from_min_max(full.min, egui::pos2(full.max.x, focus_rect.min.y));
+                let bot = Rect::from_min_max(egui::pos2(full.min.x, focus_rect.max.y), full.max);
+                let left = Rect::from_min_max(
+                    egui::pos2(full.min.x, focus_rect.min.y),
+                    egui::pos2(focus_rect.min.x, focus_rect.max.y),
+                );
+                let right = Rect::from_min_max(
+                    egui::pos2(focus_rect.max.x, focus_rect.min.y),
+                    egui::pos2(full.max.x, focus_rect.max.y),
+                );
+                for r in [top, bot, left, right] {
+                    if r.width() > 0.5 && r.height() > 0.5 {
+                        painter.rect_filled(r, 0.0, dim);
+                    }
+                }
+            }
         }
         // Ctrl+H feedback: just-hidden nodes ghost out over 150 ms.
         self.paint_hide_ghosts(ui, &painter, &xf);
@@ -3741,6 +3775,8 @@ impl SlateApp {
                 let moved = (world - start_world).length_sq().sqrt() > 4.0;
                 if tool == BoardTool::Frame && !moved {
                     self.place_frame_at(start_world);
+                } else if tool == BoardTool::RepoLens && !moved {
+                    self.place_repo_lens_at(start_world);
                 } else {
                     self.finish_draw(start_world, world, tool, mods);
                 }
@@ -3846,6 +3882,8 @@ impl SlateApp {
     ) -> Rect {
         let world = if tool == BoardTool::Frame && !mods.shift {
             self.frame_drag_rect(start, end)
+        } else if tool == BoardTool::RepoLens {
+            self.repo_lens_drag_rect(start, end, mods.shift)
         } else {
             let square_tool = matches!(
                 tool,
@@ -3858,6 +3896,25 @@ impl SlateApp {
             )
         };
         xf.rect_w2s(world)
+    }
+
+    /// Repo Lens drag: free aspect by default; Shift locks 16:9 (D05).
+    fn repo_lens_drag_rect(&self, start: Pos2, end: Pos2, shift_169: bool) -> WorldRect {
+        let dx = end.x - start.x;
+        let dy = end.y - start.y;
+        if shift_169 {
+            let aspect = 16.0 / 9.0;
+            let w = dx.abs().max(MIN_DRAW);
+            let h = (w / aspect).max(MIN_DRAW);
+            let (x, y) = if dx >= 0.0 {
+                (start.x, if dy >= 0.0 { start.y } else { start.y - h })
+            } else {
+                (start.x - w, if dy >= 0.0 { start.y } else { start.y - h })
+            };
+            return WorldRect::new(x, y, w, h);
+        }
+        let raw = WorldRect::new(start.x, start.y, dx, dy);
+        board_snap::constrain_draw_rect(raw, false, false)
     }
 
     /// Click-to-place default frame (Frame tool click, or the canvas
@@ -3877,6 +3934,22 @@ impl SlateApp {
         self.board_tool = BoardTool::Select;
         self.push_history(
             atlas_commands::CommandId("board.tool.frame"),
+            Some("placed".into()),
+        );
+    }
+
+    /// Click-to-place default Repository Lens portal (960×540, unbound).
+    pub(crate) fn place_repo_lens_at(&mut self, center: Pos2) {
+        let w = REPO_PORTAL_DEFAULT_W;
+        let h = REPO_PORTAL_DEFAULT_H;
+        let rect = WorldRect::new(center.x - w * 0.5, center.y - h * 0.5, w, h);
+        let kind = NodeKind::Portal(PortalNode::unbound_repo_lens("Repository Lens"));
+        let node = self.doc_mut().scene.build_node(rect, kind);
+        let ids = self.add_nodes(vec![node]);
+        self.board_sel = ids.into_iter().collect();
+        self.board_tool = BoardTool::Select;
+        self.push_history(
+            atlas_commands::CommandId("board.portal.repo_lens"),
             Some("placed".into()),
         );
     }
@@ -3918,6 +3991,8 @@ impl SlateApp {
         let raw = WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
         let r = if tool == BoardTool::Frame && !mods.shift {
             self.frame_drag_rect(a, b)
+        } else if tool == BoardTool::RepoLens {
+            self.repo_lens_drag_rect(a, b, mods.shift)
         } else {
             let square_tool = matches!(
                 tool,
@@ -3940,6 +4015,9 @@ impl SlateApp {
                 fill: Rgba::WHITE,
                 assignments: BTreeMap::new(),
             }),
+            BoardTool::RepoLens => {
+                NodeKind::Portal(PortalNode::unbound_repo_lens("Repository Lens"))
+            }
             BoardTool::RectShape => NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Rect,
                 fill: Some(Rgba([accent.0[0], accent.0[1], accent.0[2], 60])),
@@ -3980,6 +4058,7 @@ impl SlateApp {
         self.board_sel = ids.into_iter().collect();
         let tool_id = match tool {
             BoardTool::Frame => "board.tool.frame",
+            BoardTool::RepoLens => "board.portal.repo_lens",
             BoardTool::RectShape => "board.tool.rect",
             BoardTool::Ellipse => "board.tool.ellipse",
             _ => "",
@@ -4080,6 +4159,8 @@ impl SlateApp {
                 } else {
                     self.board_sel = group_ids.into_iter().collect();
                 }
+                // Commit focus inside a selected Repository Lens portal.
+                let _ = self.portal_pointer_click(world, mods);
             }
             None => self.board_sel.clear(),
         }
@@ -4115,6 +4196,9 @@ impl SlateApp {
         match &node.kind {
             NodeKind::Text(t) => {
                 self.text_edit = Some((id, t.text.clone()));
+            }
+            NodeKind::Portal(_) => {
+                self.portal_enter_interactive(id);
             }
             NodeKind::Connector(_) => {
                 // Double-click a wire = edit its label at the midpoint.

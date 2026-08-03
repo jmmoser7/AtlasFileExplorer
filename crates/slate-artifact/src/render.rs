@@ -253,6 +253,21 @@ fn render_node(
             render_connector(html, &doc.scene, node, conn, origin_x, origin_y)
         }
         NodeKind::Frame(_) => {}
+        // Generated portal contents are derived; export a poster shell. Bake
+        // to promote graph geometry into authored nodes the writer serializes.
+        NodeKind::Portal(p) => {
+            let mut style = geometry_style(rel, node.rotation_deg);
+            append_opacity(&mut style, node.opacity);
+            style.push_str("background:");
+            style.push_str(&p.fill.css());
+            style.push_str(";display:flex;align-items:center;justify-content:center;");
+            style.push_str("color:rgba(228,230,235,0.85);font:14px system-ui,sans-serif;");
+            html.push_str("<div class=\"node portal\" style=\"");
+            html.push_str(&style);
+            html.push_str("\">");
+            html.push_str(&escape_html(&p.title));
+            html.push_str("</div>\n");
+        }
     }
 }
 

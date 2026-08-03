@@ -107,11 +107,43 @@ pub fn covers_dir() -> PathBuf {
     dir
 }
 
-/// Stable cover filename for a filesystem path.
+/// Bake recipe generation, part of every cover filename.
+///
+/// A cover is cached by nothing but the path it was baked from, so without this a
+/// change to the recipe could never reach a machine that already had covers —
+/// exactly the trap `CACHE_KEY_VERSION` exists for in `atlas-core::thumbs`
+/// (`docs/performance.md`). **Bump it whenever the baked output changes.**
+///
+/// * 2 — mosaic tiles crop to the cell instead of being squashed into it, and
+///   the cells tile the full cover with no background gutter.
+pub const COVER_RECIPE_VERSION: u32 = 2;
+
+/// Stable cover filename for a filesystem path, scoped to the bake recipe.
 pub fn cover_cache_path(for_path: &Path) -> PathBuf {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     let mut h = DefaultHasher::new();
     for_path.hash(&mut h);
-    covers_dir().join(format!("{:016x}.png", h.finish()))
+    covers_dir().join(cover_file_name(h.finish()))
+}
+
+fn cover_file_name(hash: u64) -> String {
+    format!("v{COVER_RECIPE_VERSION}-{hash:016x}.png")
+}
+
+/// Delete covers baked by an older recipe. Called once per run before the shelf
+/// asks for covers, so a version bump reclaims its predecessor's disk instead of
+/// leaving a generation behind on every machine forever.
+pub fn prune_stale_covers() {
+    let prefix = format!("v{COVER_RECIPE_VERSION}-");
+    let Ok(entries) = std::fs::read_dir(covers_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.ends_with(".png") && !name.starts_with(&prefix) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }

@@ -28,8 +28,8 @@ shared crates:
 
 | Crate | Role | Safe to edit in parallel |
 |-------|------|--------------------------|
-| `crates/atlas-core` | UI-free backend: types, scanner, SQLite index, thumbnail pool + cache tiers, tree layout, journal, export, watcher | Yes |
-| `crates/atlas-shell` | **Shared window chrome**: theme/Palette, tab strip, sidebar primitives, widgets, panel registry, command reference | Yes — but see the chrome rule below |
+| `crates/atlas-core` | UI-free backend: types, scanner, SQLite index, thumbnail pool + cache tiers, tree layout, journal, export, watcher, time-selection math (`timeline.rs`) | Yes — but read `docs/performance.md` first for `scanner.rs`, `thumbs.rs`, `rasterthumb.rs`, `owners.rs`, `metadata.rs` |
+| `crates/atlas-shell` | **Shared window chrome**: theme/Palette, tab strip, sidebar primitives, widgets, activity timeline, panel registry, command reference | Yes — but see the chrome rule below |
 | `crates/atlas-session` | In-process bridge for linked Slate⇄Atlas sessions | Yes |
 | `crates/atlas-ai` | AI / Cursor integration: shared AI-workspace config, Cursor launcher, live-link context beacon, the sidebar AI panel body | Yes |
 | `crates/slate-doc` | `.slate` document model: faceted tag system + the board scene graph (`scene.rs`: nodes, SVG-ceiling styles, invertible + authored `SceneCmd` journal) | Yes |
@@ -80,6 +80,77 @@ inside `cargo test --workspace`.
 cargo test --workspace
 cargo build --release -p native-file-atlas -p slate
 ```
+
+The load-time benchmarks are `#[ignore]`d (they write large corpora) and are the
+evidence behind `docs/performance.md` — run them before and after any change to
+the scan or thumbnail hot paths:
+
+```powershell
+cargo test -p atlas-core --release --test thumb_bench -- --ignored --nocapture
+cargo test -p atlas-core --release --test scan_bench  -- --ignored --nocapture
+cargo test -p native-file-atlas --release load_jitter -- --ignored --nocapture
+```
+
+### Nothing whole-corpus on the batch path
+
+`load_jitter` measures frame time while batches stream in, because that is where
+smoothness is won or lost. A scan delivers a batch every ~30 ms, so **anything a
+batch triggers runs on essentially every frame of a load**. One O(entries) pass
+there — a filter recompute, a relayout, a rebuilt index, an owner re-tally — makes
+panning judder worse the bigger the folder gets, which is the opposite of what the
+user needs at that moment. Fold appended files in incrementally
+(`absorb_new_entries`) or put the work on the tree's rebuild cadence, and check the
+frame-time tail rather than the mean. `ATLAS_BENCH_LEGACY=1` reproduces the old
+per-batch behavior for a same-machine comparison.
+
+Likewise, **collapse state is a recorded decision, not a derived one**
+(`AtlasApp::dir_collapsed`). Rebuilds happen constantly during a load and
+`default_collapse` reads counts that are still growing, so anything that changes
+collapse must record it — otherwise the next rebuild silently undoes the user.
+
+When a real folder shows wrong or missing previews, run the pipeline against it
+directly instead of guessing — `folder_probe` reports what each tier returned per
+file, and `docs/performance.md` explains reading the result:
+
+```powershell
+$env:ATLAS_PROBE_DIR = "C:\path\to\folder"
+cargo test -p atlas-core --release --test folder_probe -- --ignored --nocapture
+```
+
+**Bumping `CACHE_KEY_VERSION` is part of changing extraction**, not an optional
+extra. Keys are `path + size + mtime`, so a bad cached entry is permanent
+otherwise; `docs/performance.md` records the months-long icon bug that taught
+this.
+
+### Never read a cloud file's bytes in bulk
+
+The reference machine's roots are OneDrive / SharePoint libraries where most files
+are **dehydrated placeholders**: normal-looking directory entries whose content is
+on a server, and reading one byte downloads the whole file. Thumbnailing such a
+folder is a mass download — slow for the user and, on a managed network, loud
+enough to get their access revoked. This is not hypothetical: it is why the app
+appeared to cap out at 15 thumbnails/sec.
+
+So, in code and in your own diagnostics alike:
+
+- gate anything that reads file bytes on `atlas_core::cloud::is_dehydrated`, which
+  reads only the directory entry and can never itself trigger a download;
+- never write a script that opens or reads many files under a OneDrive path — not
+  even a few KB each, since a partial read hydrates the whole file. Attributes
+  from `Get-ChildItem` are safe; `[System.IO.File]::OpenRead` is not;
+- `cargo test -p atlas-core --release --test cloud_guard batch` verifies the
+  guarantee per file against a real folder, and is the thing to run after touching
+  extraction.
+
+`docs/performance.md` has the measurements, the `MAX_PATH` fail-open bug that
+downloaded 502 files before it was caught, and why cloud-only files legitimately
+show type icons.
+
+For day-to-day board/UI iteration, prefer the **dev watch loop** (auto
+rebuild + relaunch on save — no hot-patch): `bacon slate` after
+`cargo install --locked bacon`. Details: `docs/dev-loop.md`. Chrome spacing
+and color still live-tune via `--features ui-tuner`
+(`docs/ui-tuning-workflow.md`).
 
 Release binaries: `target/release/native-file-atlas.exe` and
 `target/release/slate.exe`. Atlas requires `vendor/pdfium.dll` for PDF

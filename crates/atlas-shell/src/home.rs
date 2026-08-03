@@ -13,8 +13,15 @@ use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Id, Mesh, Pos2, Rect, Sense, Stroke, TextureId,
     Ui, Vec2,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+thread_local! {
+    /// Reused column samples for the artwork mesh — the shelf paints a dozen
+    /// cards a frame and this is a paint path (Constitution Art. II).
+    static ARTWORK_X: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
+}
 
 /// The one home surface both apps embed. Owns cover textures and shelf focus;
 /// apps only translate the returned action into their own open/new flows.
@@ -786,6 +793,62 @@ fn rotate_y(x: f32, y: f32, z: f32, angle: f32) -> (f32, f32, f32) {
     (x * c + z * s, y, -x * s + z * c)
 }
 
+/// Columns across a card face for the artwork mesh.
+///
+/// `epaint` interpolates UVs affinely across a triangle — a 2D mesh has no `w`,
+/// so there is no perspective-correct texturing. One quad therefore paints a
+/// yawed card's artwork with the wrong mapping, and the triangle fan this used to
+/// be was worse: every wedge is a separate affine patch, so the image also
+/// creased along each of the 24 boundaries radiating from the center. Warped plus
+/// faceted is what reads as "distorted and lumpy", and why the artwork looked
+/// like it was following a different rule than the card under it.
+///
+/// Subdividing is the fix, and it is only needed across **x**: local z is zero,
+/// so the perspective depth is a function of local x alone (see `project_point`).
+/// Down any vertical line the projection is exactly linear in y, which makes two
+/// rows per column exact and leaves all the error across the width, where these
+/// columns bound it — quadratically, so this many makes it sub-pixel even at the
+/// 80° yaw the shelf is tuned to.
+const ARTWORK_COLS: usize = 32;
+/// Quarter-circle segments per filleted corner.
+const ARC_STEPS: usize = 5;
+
+/// Card-local half-height of the filleted silhouette at local x. Exact, so a
+/// strip mesh traces the same rounded rect as [`fillet_outline`].
+fn silhouette_half_height(lx: f32, hw: f32, hh: f32, radius: f32) -> f32 {
+    let r = radius.clamp(0.0, hw.min(hh) * 0.9);
+    if r <= 0.05 {
+        return hh;
+    }
+    let over = lx.abs() - (hw - r);
+    if over <= 0.0 {
+        return hh;
+    }
+    let dx = over.min(r);
+    hh - r + (r * r - dx * dx).max(0.0).sqrt()
+}
+
+/// Card-local x samples for the artwork strips: uniform across the face to bound
+/// the perspective error, plus the corner-arc x values so the fillet stays round
+/// instead of being chamfered by whichever column happened to land near it.
+fn artwork_columns(hw: f32, hh: f32, radius: f32, out: &mut Vec<f32>) {
+    out.clear();
+    for i in 0..=ARTWORK_COLS {
+        out.push(-hw + 2.0 * hw * i as f32 / ARTWORK_COLS as f32);
+    }
+    let r = radius.clamp(0.0, hw.min(hh) * 0.9);
+    if r > 0.05 {
+        let flat = hw - r;
+        for step in 0..=ARC_STEPS {
+            let dx = r * (90.0 * step as f32 / ARC_STEPS as f32).to_radians().cos();
+            out.push(flat + dx);
+            out.push(-(flat + dx));
+        }
+    }
+    out.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    out.dedup_by(|a, b| (*a - *b).abs() < 0.05);
+}
+
 /// Card-local silhouette with filleted (rounded) corners, clockwise.
 fn fillet_outline(hw: f32, hh: f32, radius: f32) -> Vec<(f32, f32)> {
     let r = radius.clamp(0.0, hw.min(hh) * 0.9);
@@ -793,7 +856,6 @@ fn fillet_outline(hw: f32, hh: f32, radius: f32) -> Vec<(f32, f32)> {
         return vec![(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)];
     }
     // Quarter-circle arcs at each corner (y-down clockwise: TL → TR → BR → BL).
-    const ARC_STEPS: usize = 5;
     let corners = [
         (-hw + r, -hh + r, 180.0_f32), // top-left: 180° → 270°
         (hw - r, -hh + r, 270.0),      // top-right: 270° → 360°
@@ -835,27 +897,15 @@ fn paint_cover(
     paint_ambient_occlusion(painter, palette, &outline, tuning);
 
     if let Some(tex) = texture {
-        // Triangle fan around the projected center, per-vertex UVs from the
-        // card-local coordinates so the artwork follows the perspective.
-        let mut mesh = Mesh::with_texture(tex);
-        let center = project_point(flow_center, 0.0, 0.0, slot_offset, tuning);
-        mesh.vertices.push(Vertex {
-            pos: center,
-            uv: egui::pos2(0.5, 0.5),
-            color: Color32::WHITE,
-        });
-        for (&(lx, ly), &pos) in outline_local.iter().zip(outline.iter()) {
-            mesh.vertices.push(Vertex {
-                pos,
-                uv: egui::pos2(lx / card_w + 0.5, ly / card_h + 0.5),
-                color: Color32::WHITE,
-            });
-        }
-        let n = outline.len() as u32;
-        for i in 0..n {
-            mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
-        }
-        painter.add(egui::Shape::mesh(mesh));
+        paint_artwork(
+            painter,
+            flow_center,
+            card_w,
+            card_h,
+            slot_offset,
+            tuning,
+            tex,
+        );
     } else {
         let fill = if placeholder {
             palette.card.gamma_multiply(0.75)
@@ -868,6 +918,52 @@ fn paint_cover(
             Stroke::NONE,
         ));
     }
+}
+
+/// Paint the cover artwork as vertical strips across the card face.
+///
+/// See [`ARTWORK_COLS`] for why strips rather than one quad or a fan: this is the
+/// shape that makes the image obey the same projection as the card carrying it.
+/// Each column's two vertices sit on the true filleted silhouette, so the artwork
+/// keeps its rounded corners without a second clip.
+fn paint_artwork(
+    painter: &egui::Painter,
+    flow_center: Pos2,
+    card_w: f32,
+    card_h: f32,
+    slot_offset: f32,
+    tuning: &CoverFlowTuning,
+    tex: TextureId,
+) {
+    let hw = card_w * 0.5;
+    let hh = card_h * 0.5;
+    ARTWORK_X.with(|cols| {
+        let mut cols = cols.borrow_mut();
+        artwork_columns(hw, hh, tuning.bevel, &mut cols);
+        if cols.len() < 2 {
+            return;
+        }
+        let mut mesh = Mesh::with_texture(tex);
+        mesh.vertices.reserve(cols.len() * 2);
+        mesh.indices.reserve((cols.len() - 1) * 6);
+        for &lx in cols.iter() {
+            let h = silhouette_half_height(lx, hw, hh, tuning.bevel);
+            let u = lx / card_w + 0.5;
+            for ly in [-h, h] {
+                mesh.vertices.push(Vertex {
+                    pos: project_point(flow_center, lx, ly, slot_offset, tuning),
+                    uv: egui::pos2(u, ly / card_h + 0.5),
+                    color: Color32::WHITE,
+                });
+            }
+        }
+        for i in 0..cols.len() as u32 - 1 {
+            let a = i * 2;
+            mesh.add_triangle(a, a + 1, a + 3);
+            mesh.add_triangle(a, a + 3, a + 2);
+        }
+        painter.add(egui::Shape::mesh(mesh));
+    });
 }
 
 /// Normalized sigmoid falloff over `t ∈ [0, 1]`: 1 at the card edge, 0 at the
@@ -1041,6 +1137,145 @@ fn pill_button(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The artwork has to obey the same projection as the card it sits on.
+    ///
+    /// `epaint` interpolates UVs affinely, so the only thing standing between the
+    /// texture and the card's perspective is how finely the face is subdivided.
+    /// This measures that directly: how far the mesh's piecewise-affine mapping
+    /// drifts from the true projection across a yawed card.
+    #[test]
+    fn artwork_tracks_the_card_projection_at_a_hard_yaw() {
+        let mut tuning = CoverFlowTuning::for_cover(260.0);
+        // Square off the corners so this measures the mapping, not the fillet.
+        tuning.bevel = 0.0;
+        let (hw, hh) = (130.0_f32, 130.0_f32);
+        let center = Pos2::new(600.0, 300.0);
+        let slot = 2.0;
+        assert!(
+            rack_angle(slot, &tuning).abs().to_degrees() > 30.0,
+            "fixture must be a properly yawed card"
+        );
+
+        // Worst drift between the true projection and what a mesh of `columns`
+        // strips paints, sampled inside every strip along both edges (the
+        // projection is exact down a column, so the error lives across x).
+        let drift = |columns: usize| -> f32 {
+            let xs: Vec<f32> = (0..=columns)
+                .map(|i| -hw + 2.0 * hw * i as f32 / columns as f32)
+                .collect();
+            let mut worst = 0.0_f32;
+            for w in xs.windows(2) {
+                for t in [0.25_f32, 0.5, 0.75] {
+                    let lx = w[0] + (w[1] - w[0]) * t;
+                    for ly in [-hh, hh] {
+                        let truth = project_point(center, lx, ly, slot, &tuning);
+                        let a = project_point(center, w[0], ly, slot, &tuning);
+                        let b = project_point(center, w[1], ly, slot, &tuning);
+                        let approx = a + (b - a) * t;
+                        worst = worst.max((truth - approx).length());
+                    }
+                }
+            }
+            worst
+        };
+
+        let one_quad = drift(1);
+        let subdivided = drift(ARTWORK_COLS);
+        assert!(
+            one_quad > 1.0,
+            "fixture does not actually warp ({one_quad:.2}px), so this proves nothing"
+        );
+        assert!(
+            subdivided < 0.1,
+            "artwork drifts {subdivided:.3}px from the card it is painted on"
+        );
+        assert!(
+            subdivided * 50.0 < one_quad,
+            "subdivision must be a real improvement: {one_quad:.2}px → {subdivided:.3}px"
+        );
+    }
+
+    /// Down a column the projection is exactly linear in y — the property that
+    /// lets the mesh use two rows and subdivide in x alone. If local z ever stops
+    /// being zero, or a y-dependent term enters the depth, this fails.
+    #[test]
+    fn projection_is_exact_down_a_column() {
+        let tuning = CoverFlowTuning::for_cover(260.0);
+        let center = Pos2::new(600.0, 300.0);
+        for slot in [-3.0_f32, -1.0, 0.0, 0.7, 2.0, 4.0] {
+            for lx in [-130.0_f32, -40.0, 0.0, 90.0, 130.0] {
+                let top = project_point(center, lx, -130.0, slot, &tuning);
+                let bottom = project_point(center, lx, 130.0, slot, &tuning);
+                for t in [0.0_f32, 0.2, 0.5, 0.9, 1.0] {
+                    let ly = -130.0 + 260.0 * t;
+                    let truth = project_point(center, lx, ly, slot, &tuning);
+                    let lerped = top + (bottom - top) * t;
+                    assert!(
+                        (truth - lerped).length() < 0.001,
+                        "column at lx={lx} slot={slot} is not linear in y"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_strip_silhouette_is_the_rounded_rect_the_outline_traces() {
+        let (hw, hh, r) = (130.0_f32, 130.0, 12.0);
+        let h = |lx: f32| silhouette_half_height(lx, hw, hh, r);
+        assert_eq!(h(0.0), hh, "flat through the middle");
+        assert_eq!(
+            h(hw - r),
+            hh,
+            "full height right up to where the arc starts"
+        );
+        assert!(
+            (h(hw) - (hh - r)).abs() < 0.001,
+            "the outer edge is shortened by exactly the radius"
+        );
+        // Mid-arc lands on the circle rather than on a chord across it.
+        let want = hh - r + (r * r - (r * 0.5) * (r * 0.5)).sqrt();
+        assert!((h(hw - r + r * 0.5) - want).abs() < 0.001);
+        for lx in [-hw, -hw * 0.5, 0.0, hw * 0.5, hw] {
+            assert_eq!(h(lx), h(-lx), "symmetric about the center");
+            assert!(h(lx) <= hh, "never taller than the card");
+        }
+        // Past the edge must stay real, not go imaginary under the sqrt.
+        assert!((h(hw * 2.0) - (hh - r)).abs() < 0.001);
+        // A square card is flat everywhere.
+        assert_eq!(silhouette_half_height(hw, hw, hh, 0.0), hh);
+    }
+
+    #[test]
+    fn artwork_columns_span_the_face_and_keep_the_corners_round() {
+        let (hw, hh, r) = (130.0_f32, 130.0, 9.0);
+        let mut cols = Vec::new();
+        artwork_columns(hw, hh, r, &mut cols);
+
+        assert!(cols.len() > ARTWORK_COLS, "arc samples must be added");
+        assert!((cols[0] + hw).abs() < 0.001, "starts at the left edge");
+        assert!(
+            (cols[cols.len() - 1] - hw).abs() < 0.001,
+            "ends at the right edge"
+        );
+        assert!(
+            cols.windows(2).all(|w| w[1] > w[0]),
+            "sorted and free of duplicates"
+        );
+        // The corner zone is where the silhouette curves, so it needs the most
+        // samples — a single column there would chamfer the fillet.
+        let in_corner = cols.iter().filter(|&&x| x > hw - r - 0.01).count();
+        assert!(
+            in_corner >= 4,
+            "only {in_corner} samples across the corner arc"
+        );
+        // Reuse must not accumulate: the buffer is thread-local and shared.
+        artwork_columns(hw, hh, r, &mut cols);
+        let again = cols.len();
+        artwork_columns(hw, hh, r, &mut cols);
+        assert_eq!(cols.len(), again, "buffer grew across calls");
+    }
 
     #[test]
     fn mod_index_wraps_both_directions() {

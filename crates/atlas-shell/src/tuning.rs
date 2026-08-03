@@ -23,8 +23,9 @@ pub(crate) fn dock_preview_panel() -> Option<&'static str> {
 #[cfg(feature = "ui-tuner")]
 mod enabled {
     use crate::tokens::{
-        self, DockThemeTokens, DockTokens, HomeTokens, PortalMenuThemeTokens, PortalMenuTokens,
-        TopBarThemeTokens, TopBarTokens, UiTokens,
+        self, ActivityHeatmapTokens, DockThemeTokens, DockTokens, HomeTokens,
+        PortalMenuThemeTokens, PortalMenuTokens, ReadoutTokens, TopBarThemeTokens, TopBarTokens,
+        UiTokens,
     };
     use eframe::egui::{self, Color32, RichText, Slider};
     use std::path::PathBuf;
@@ -70,6 +71,10 @@ mod enabled {
         stored.dock.round_for_storage();
         stored.home.normalize();
         stored.home.round_for_storage();
+        stored.readouts.normalize();
+        stored.readouts.round_for_storage();
+        stored.activity_heatmap.normalize();
+        stored.activity_heatmap.round_for_storage();
         let body = toml::to_string_pretty(&stored).map_err(|error| error.to_string())?;
         let header = concat!(
             "# Canonical shared-chrome design tokens.\n",
@@ -80,16 +85,19 @@ mod enabled {
         Ok(path)
     }
 
+    /// Returns whether the value changed, for dials that are a view onto some
+    /// other token rather than the token itself.
     fn scalar(
         ui: &mut egui::Ui,
         label: &str,
         value: &mut f32,
         range: std::ops::RangeInclusive<f32>,
-    ) {
+    ) -> bool {
         ui.horizontal(|ui| {
             ui.label(label);
-            ui.add(Slider::new(value, range).show_value(true));
-        });
+            ui.add(Slider::new(value, range).show_value(true)).changed()
+        })
+        .inner
     }
 
     fn integer(
@@ -533,6 +541,229 @@ mod enabled {
             });
     }
 
+    fn readouts_editor(ui: &mut egui::Ui, readouts: &mut ReadoutTokens) {
+        egui::CollapsingHeader::new("Readout bar (bottom)")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(
+                        "The strip carrying the gear menu, live counts, root path, and \
+                         the activity timeline. Several readouts share these few vertical \
+                         pixels, so pack them by eye.",
+                    )
+                    .small(),
+                );
+                ui.add_space(4.0);
+                scalar(ui, "Text size (pt)", &mut readouts.text_size, 7.0..=20.0);
+                scalar(ui, "Pad above (px)", &mut readouts.pad_top, 0.0..=24.0);
+                scalar(ui, "Pad below (px)", &mut readouts.pad_bottom, 0.0..=24.0);
+                scalar(
+                    ui,
+                    "Metrics row → timeline (px)",
+                    &mut readouts.row_gap,
+                    0.0..=24.0,
+                );
+                scalar(ui, "Item spacing (px)", &mut readouts.item_gap, 0.0..=24.0);
+                scalar(
+                    ui,
+                    "Min row height, 0 = auto (px)",
+                    &mut readouts.row_height,
+                    0.0..=48.0,
+                );
+                ui.checkbox(&mut readouts.separators, "Separator rules");
+            });
+    }
+
+    fn activity_heatmap_editor(ui: &mut egui::Ui, heat: &mut ActivityHeatmapTokens) {
+        egui::CollapsingHeader::new("Activity timeline · Selection appearance")
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(
+                        "One axis for the contribution graph and the range handles: \
+                         in-selection buckets stay fully saturated, the rest are muted. \
+                         Prefer mute over a heavy border.",
+                    )
+                    .small(),
+                );
+                ui.add_space(4.0);
+                ui.label(RichText::new("Out-of-selection mute").strong());
+                scalar(ui, "Opacity", &mut heat.out_of_range_opacity, 0.05..=1.0);
+                scalar(
+                    ui,
+                    "Saturation",
+                    &mut heat.out_of_range_saturation,
+                    0.0..=1.0,
+                );
+                ui.separator();
+                ui.label(RichText::new("Optional in-selection stroke (usually off)").strong());
+                scalar(
+                    ui,
+                    "Stroke width (px)",
+                    &mut heat.selected_stroke_width,
+                    0.0..=3.0,
+                );
+                scalar(
+                    ui,
+                    "Stroke opacity",
+                    &mut heat.selected_stroke_opacity,
+                    0.0..=1.0,
+                );
+            });
+
+        egui::CollapsingHeader::new("Activity timeline · Geometry & semantic zoom")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(
+                        "The two morph curves are spans in days visible, wide → narrow. \
+                         Stagger shears week columns into per-day slots; expansion then \
+                         flattens the weekday staircase into a full-height bucket strip. \
+                         Large monitors can hold the grid legible longer, so these are \
+                         dials rather than constants.",
+                    )
+                    .small(),
+                );
+                ui.add_space(4.0);
+                ui.label(RichText::new("Grid").strong());
+                scalar(ui, "Cell (px)", &mut heat.cell, 4.0..=28.0);
+                scalar(ui, "Cell gap (px)", &mut heat.cell_gap, 0.0..=8.0);
+                ui.separator();
+                ui.label(RichText::new("Rail & scale").strong());
+                scalar(ui, "Rail height (px)", &mut heat.rail_height, 10.0..=48.0);
+                scalar(
+                    ui,
+                    "Scale height, min (px)",
+                    &mut heat.scale_height,
+                    12.0..=48.0,
+                );
+                ui.separator();
+                ui.label(RichText::new("Stagger (days visible)").strong());
+                scalar(ui, "Begins at", &mut heat.stagger_begin_days, 8.0..=400.0);
+                scalar(ui, "Complete at", &mut heat.stagger_full_days, 1.0..=60.0);
+                ui.label(RichText::new("Expansion (days visible)").strong());
+                scalar(ui, "Begins at", &mut heat.expand_begin_days, 1.0..=60.0);
+                scalar(ui, "Complete at", &mut heat.expand_full_days, 0.02..=7.0);
+                ui.separator();
+                ui.label(RichText::new("Detail").strong());
+                scalar(ui, "Min bucket (px)", &mut heat.min_bucket_px, 1.0..=40.0);
+                scalar(
+                    ui,
+                    "File dashes below (days)",
+                    &mut heat.file_tick_days,
+                    0.01..=14.0,
+                );
+                scalar(ui, "Dash width (px)", &mut heat.file_tick_width, 0.5..=4.0);
+                ui.separator();
+                ui.label(RichText::new("Wheel").strong());
+                scalar(
+                    ui,
+                    "Deepest zoom (s visible)",
+                    &mut heat.min_view_secs,
+                    5.0..=86_400.0,
+                );
+                scalar(ui, "Zoom per notch", &mut heat.zoom_per_notch, 1.02..=2.0);
+                scalar(ui, "Pan per notch", &mut heat.pan_per_notch, 0.01..=1.0);
+                scalar(ui, "Zoom ease (s)", &mut heat.zoom_ease, 0.0..=0.6);
+                ui.checkbox(&mut heat.pan_invert, "Invert wheel pan direction");
+            });
+
+        egui::CollapsingHeader::new("Activity timeline · Padding & positions")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(
+                        "Where the parts sit, top to bottom: info row, graph, handle rail, \
+                         tick scale. The left inset is the weekday gutter above; the right \
+                         inset stops the axis short of the panel edge.",
+                    )
+                    .small(),
+                );
+                ui.add_space(4.0);
+                ui.label(RichText::new("Vertical (px)").strong());
+                // The seven-row structure is fixed, so this is `cell` solved
+                // from the other end — the end you actually care about when
+                // budgeting the readout bar's height.
+                let mut graph_h = heat.grid_height();
+                if scalar(ui, "Graph height", &mut graph_h, 40.0..=208.0) {
+                    heat.set_grid_height(graph_h);
+                }
+                scalar(ui, "Above info row", &mut heat.pad_top, 0.0..=24.0);
+                scalar(ui, "Info row → graph", &mut heat.row_gap, 0.0..=24.0);
+                scalar(ui, "Below scale", &mut heat.pad_bottom, 0.0..=24.0);
+                ui.separator();
+                ui.label(RichText::new("Horizontal insets (px)").strong());
+                scalar(
+                    ui,
+                    "Left · weekday gutter",
+                    &mut heat.day_label_width,
+                    0.0..=48.0,
+                );
+                scalar(ui, "Right", &mut heat.pad_right, 0.0..=48.0);
+                ui.separator();
+                ui.label(RichText::new("Info row").strong());
+                scalar(ui, "Text size (pt)", &mut heat.info_text, 7.0..=18.0);
+                scalar(ui, "Item spacing (px)", &mut heat.info_gap, 0.0..=24.0);
+                scalar(
+                    ui,
+                    "Button padding · x (px)",
+                    &mut heat.info_button_pad_x,
+                    0.0..=12.0,
+                );
+                scalar(
+                    ui,
+                    "Button padding · y (px)",
+                    &mut heat.info_button_pad_y,
+                    0.0..=12.0,
+                );
+                scalar(
+                    ui,
+                    "Min row height, 0 = auto (px)",
+                    &mut heat.info_row_height,
+                    0.0..=48.0,
+                );
+                scalar(ui, "Legend swatch (px)", &mut heat.legend_cell, 4.0..=20.0);
+                scalar(ui, "Legend gap (px)", &mut heat.legend_gap, 0.0..=8.0);
+                ui.separator();
+                ui.label(RichText::new("Labels").strong());
+                scalar(ui, "Font size (pt)", &mut heat.label_font, 6.0..=16.0);
+                scalar(
+                    ui,
+                    "Weekday inset (px)",
+                    &mut heat.weekday_label_dx,
+                    0.0..=16.0,
+                );
+                ui.separator();
+                ui.label(RichText::new("Handle rail").strong());
+                scalar(ui, "Band inset (px)", &mut heat.rail_inset, 0.0..=12.0);
+                scalar(ui, "Handle radius (px)", &mut heat.handle_radius, 0.0..=6.0);
+                scalar(ui, "Handle hit size (px)", &mut heat.handle_hit, 6.0..=32.0);
+                scalar(
+                    ui,
+                    "Min grip width (px)",
+                    &mut heat.grip_min_width,
+                    8.0..=80.0,
+                );
+                ui.separator();
+                ui.label(RichText::new("Tick scale").strong());
+                ui.label(
+                    RichText::new(
+                        "The band grows to fit the label, so these push the dates \
+                         around without ever clipping them.",
+                    )
+                    .small(),
+                );
+                scalar(ui, "Top gap (px)", &mut heat.scale_top_gap, 0.0..=16.0);
+                scalar(ui, "Tick length (px)", &mut heat.scale_tick_len, 0.0..=16.0);
+                scalar(
+                    ui,
+                    "Tick → label (px)",
+                    &mut heat.scale_label_gap,
+                    0.0..=16.0,
+                );
+            });
+    }
+
     fn home_editor(ui: &mut egui::Ui, home: &mut HomeTokens) {
         egui::CollapsingHeader::new("Home · Cover Flow")
             .default_open(true)
@@ -670,6 +901,10 @@ mod enabled {
                 ui.separator();
 
                 // Newest work first for quick access.
+                readouts_editor(ui, &mut state.draft.readouts);
+
+                activity_heatmap_editor(ui, &mut state.draft.activity_heatmap);
+
                 home_editor(ui, &mut state.draft.home);
 
                 dock_partition_tracer_editor(ui, &mut state.draft.dock);
@@ -714,6 +949,7 @@ mod enabled {
                 normalize(&mut state.draft);
                 state.draft.dock.normalize();
                 state.draft.home.normalize();
+                state.draft.activity_heatmap.normalize();
                 tokens::replace(state.draft.clone());
                 ctx.request_repaint();
             });

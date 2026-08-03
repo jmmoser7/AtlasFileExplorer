@@ -27,8 +27,8 @@ When you add or change any user-facing input binding:
 3. **Do not** duplicate shortcut lists in tooltips, README, or other UI copy —
    the Advanced window reads from `SPECS` automatically via
    `commands::shortcuts_reference_ui`.
-4. **Keep categories stable:** Navigation, Files, Filters, Selection, Workflow
-   (add a new category only when a whole new area of commands appears).
+4. **Keep categories stable:** Navigation, Files, Filters, Timeline, Selection,
+   Workflow (add a new category only when a whole new area of commands appears).
 5. `Registry::validate()` runs at startup under `debug_assertions` and in the
    `commands.rs` tests — duplicate ids or ambiguous chords fail fast.
 
@@ -42,7 +42,7 @@ When you add or change any user-facing input binding:
 | Advanced settings panel + history access | `ui/advanced.rs` |
 | Canvas mouse (pan, turbo pan, clicks, zoom tool) | `mod.rs` → `canvas` |
 | Minimap overlay | `atlas_shell::minimap`, model in `mod.rs` → `draw_minimap` |
-| Date filter timeline | `atlas_shell::widgets` → `sidebar_date_timeline` |
+| Activity timeline (graph + date window, one axis) | `atlas_shell::timeline`; spec in `docs/keymap/specs/activity-timeline.md` |
 
 ## Keymap-project bindings (Wave 2)
 
@@ -54,7 +54,8 @@ When you add or change any user-facing input binding:
   repeat.
 - **Esc** — formal cancel stack (`atlas_commands::cancel_target`), preserving
   the shipped order: context menu → edit panel → details → zoom tool →
-  selection. A focused search field only surrenders focus (query kept).
+  selection → activity-timeline selection (`CancelLayer::Readout`). A focused
+  search field only surrenders focus (query kept).
 - **M** — toggle the shared minimap (lower-right); pinned state persists.
 - **Ctrl+F** — focus the Filters-dock search field (or a floating search
   popover when that panel is closed). Esc returns focus to the canvas.
@@ -69,6 +70,12 @@ When you add or change any user-facing input binding:
 - **F3** — toggle Details for the single selected file. **F2 stays Assign.**
 - **Command history** — Advanced → Command history (shared
   `atlas_shell::history_ui` overlay; Atlas has no F2 history window).
+- **File → Download cloud files…** (`atlas.download_cloud`) — no chord, and it
+  should not gain one. It is the only command that downloads file content, so it
+  costs the transfer out loud in a confirmation window first and stays a
+  deliberate menu trip. Scope is the selection, else the current filter, else the
+  folder. Cancel lives in Advanced; progress shows in the readout bar. Background
+  work never triggers this — see `crates/atlas-core/src/cloud.rs`.
 
 ## Pan buttons (reference)
 
