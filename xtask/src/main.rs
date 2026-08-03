@@ -4,10 +4,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use xtask::{
-    audit_contracts, collect, render_contract_audit, verify_workspace_root, write_artifacts,
+    audit_contracts, audit_kits, collect, render_contract_audit, render_kit_audit,
+    verify_workspace_root, write_artifacts,
 };
 
-const USAGE: &str = "usage: cargo xtask <metrics | contracts>";
+const USAGE: &str = "usage: cargo xtask <metrics | contracts | kits [dir]>";
 
 fn main() -> ExitCode {
     match run() {
@@ -24,8 +25,32 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match command.as_deref() {
         Some("metrics") => metrics(),
         Some("contracts") => contracts(),
+        Some("kits") => kits(std::env::args().nth(2)),
         Some(other) => Err(format!("unknown command `{other}`\n{USAGE}").into()),
         None => Err(USAGE.into()),
+    }
+}
+
+/// Checks every `.slatekit` file: it parses, its grammars exist in this build,
+/// and each recipe is something its grammar can actually produce. With no
+/// argument it audits the committed tree; with one it audits that folder, which
+/// is how a person checks a kit they just wrote.
+fn kits(dir: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let root: PathBuf = match dir {
+        Some(d) => PathBuf::from(d),
+        None => {
+            let root = std::env::current_dir()?;
+            verify_workspace_root(&root)?;
+            root
+        }
+    };
+
+    let audit = audit_kits(&root)?;
+    print!("{}", render_kit_audit(&audit));
+    if audit.findings.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("{} kit finding(s)", audit.findings.len()).into())
     }
 }
 

@@ -9,6 +9,7 @@
 
 pub mod collect;
 pub mod contracts;
+pub mod kits;
 pub mod ledger;
 pub mod model;
 pub mod report;
@@ -20,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 pub use collect::collect;
 pub use contracts::{audit as audit_contracts, render as render_contract_audit};
+pub use kits::{audit as audit_kits, render as render_kit_audit};
 pub use ledger::{parse_deviations, rewrite_deviation_block};
 pub use model::{
     CommandCounts, CrateKind, CrateMetrics, DeviationCounts, LongestFile, ModelMetrics, Snapshot,
