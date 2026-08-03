@@ -33,6 +33,7 @@ shared crates:
 | `crates/atlas-session` | In-process bridge for linked Slate⇄Atlas sessions | Yes |
 | `crates/atlas-ai` | AI / Cursor integration: shared AI-workspace config, Cursor launcher, live-link context beacon, the sidebar AI panel body | Yes |
 | `crates/slate-doc` | `.slate` document model: faceted tag system + the board scene graph (`scene.rs`: nodes, SVG-ceiling styles, invertible + authored `SceneCmd` journal) | Yes |
+| `crates/slate-kit` | Declarative board tools: gesture grammar (code, closed set of 9) + result recipe (data). `.slatekit` model, loader, and scope resolver; `builtin/core.slatekit` holds the board's own tool results. See `KITS.md` | Yes |
 | `crates/slate-artifact` | HTML artifact writer: scene → slides, styles → CSS, embedded JS slide runtime. Export is serialization, not conversion | Yes |
 | `crates/circle-pack` | Pure geometry: circle packing + Venn layout | Yes |
 | `crates/vector-ink` | Pure vector geometry engine (kurbo): path flattening, variable-width stroking to feathered AA meshes, stroke outlines for SVG export, hit-testing, freehand fitting. No renderer deps (Constitution Art. I) | Yes |
@@ -73,6 +74,17 @@ Interaction contracts for canvas tools and portal subtypes live in
 contract) and are governed by the `.cursor/skills/tool-contract` skill.
 `cargo xtask contracts` checks that the three artifacts agree — it also runs
 inside `cargo test --workspace`.
+
+## Board tools: grammar and recipe
+
+A board tool is a **gesture grammar** (how input is read — code, a closed set of
+nine in `slate-kit`) plus a **result recipe** (what the commit produces — data,
+in a `.slatekit` file). `BoardTool::grammar()` states each shipped tool's
+grammar once, and `finish_draw` asks `SlateApp::kits` what the gesture produces
+rather than building nodes inline. When adding a tool, prefer expressing the
+result as a recipe; only reach for new code when the grammar itself is new, which
+is core work under Article III. Read `crates/slate-kit/KITS.md` first, and check
+kit files with `cargo xtask kits` (also inside `cargo test --workspace`).
 
 ## Build & test (Windows — primary target)
 

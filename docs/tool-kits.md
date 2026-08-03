@@ -1,8 +1,26 @@
 # User-authored tools — the contract loop
 
-**Status: proposal, not adopted.** Nothing here is built. The constitution is
-not amended by this document; §13 drafts the one clause that would need
-ratifying, for the user to accept or reject.
+**Status: steps 1–3 of §11 are built; the loop itself is not.** The
+grammar/recipe split, the kit model and resolver, and the built-in toolbar as an
+embedded kit all exist and are tested. Nothing user-facing has landed: there is
+no contract window, no right-click entry point, and no agent compilation, so a
+kit today is a file you write by hand. The constitution is **not** amended by
+this document; §13 drafts the one clause that would need ratifying, and steps 4
+onward are what actually require it.
+
+Two deviations from the plan as written, both deliberate:
+
+- The crate is **`crates/slate-kit`**, not `atlas-kit`. A recipe's whole job is
+  to name node kinds and style properties from `slate-doc`, so a kit crate that
+  did not depend on it would be an abstraction over one implementation. File
+  Atlas has no scene graph and no board, which makes a shared crate speculative
+  under Article III. If Atlas ever hosts tools, the presentation half splits out
+  then; §14's Article X argument is unaffected, because bar *painting* stays in
+  `atlas-shell` either way.
+- **Stamp recipes are absent rather than stubbed.** `Recipe` ships `shape` and
+  `portal` only. Stamps need a relative-coordinate design and an asset-path
+  story, and step 8 is where they earn that; an enum variant that parses and
+  then does nothing is a worse lie than a missing feature.
 
 Written against `5a9ea0b` (dock UX, condensed palette, timeline/heat, portal
 groundwork). That commit moved four things this proposal depends on, and §15
@@ -353,11 +371,18 @@ one-model-several-interpreters move Articles IV and V already ratify.
 
 ### Order of work
 
-1. **Grammar/recipe refactor** (§9) — smaller tool match; recipes become
-   inspectable, copyable structs. Prerequisite for everything.
-2. **`crates/atlas-kit`** — pure model, loader, resolver, `cargo xtask kits`.
-3. **Built-in toolbar as an embedded kit** — proves the format; no privileged
-   path.
+1. ~~**Grammar/recipe refactor** (§9)~~ — **done.** `BoardTool::grammar()` states
+   each shipped tool's grammar once; `begin_gesture`'s `DragRect` arm is named
+   rather than a wildcard, and `kits::tests` checks the two against each other.
+2. ~~**`crates/atlas-kit`**~~ — **done** as `crates/slate-kit`: model, loader,
+   resolver, and `cargo xtask kits`, which runs inside `cargo test --workspace`.
+3. ~~**Built-in toolbar as an embedded kit**~~ — **done** for the results.
+   `finish_draw` reads recipes from `builtin/core.slatekit` instead of sixty
+   lines of constants, through the same parser a user's kit uses. Only the
+   `DragRect` family moved; Text and Sticky still build their nodes in code
+   because their color is contextual (dark on a frame, light on the void) and
+   the format has no way to say that yet. Bars are still described by the app,
+   not the kit — see step 4.
 4. **Dynamic command tier + dock ownership changes** (§12) — kit tools reach
    the palette, keyboard, and reference window.
 5. **Contract window + Create** — the loop, minus the agent.
@@ -367,7 +392,13 @@ one-model-several-interpreters move Articles IV and V already ratify.
 9. **Contract as a canvas portal** — after Phase 3.
 
 Steps 1–3 commit to nothing: abandoned there, the core is simpler than it
-started.
+started. That is now the actual state of the tree — the board no longer knows
+what a rectangle looks like, which is worth having whether or not the loop is
+ever built.
+
+The remaining steps are where the cost sits. Step 4 is the invasive one (§12.1
+and §12.2: the command registry and the dock both assume `&'static str`), and
+step 6 is the one that needs Article VII's staging layer and a ratified §13.
 
 ## 12. Honest cost
 
