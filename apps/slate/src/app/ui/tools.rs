@@ -299,14 +299,9 @@ fn object_properties_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarT
         );
     }
     if app.chrome().tool(ToolPanel::Tags) {
-        sidebar_fold_region(
-            ui,
-            Id::new("slate_obj_tags"),
-            "Tags",
-            !board,
-            theme,
-            |ui| tags_body(app, ui, theme),
-        );
+        sidebar_fold_region(ui, Id::new("slate_obj_tags"), "Tags", !board, theme, |ui| {
+            tags_body(app, ui, theme)
+        });
     }
 }
 

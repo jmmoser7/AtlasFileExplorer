@@ -4228,6 +4228,7 @@ dependencies = [
  "serde_json",
  "slate-artifact",
  "slate-doc",
+ "slate-kit",
  "vector-ink",
  "winresource",
 ]

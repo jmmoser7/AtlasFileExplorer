@@ -922,9 +922,9 @@ pub fn floating_dock(
         if let Some(&icon) = icon_rects.get(&label_id) {
             if let Some(item) = visible.iter().find(|item| item.id == label_id) {
                 let (chip_pos, chip_pivot) = icon_popover_anchor(side, icon, tokens.hover_chip_gap);
-                let chip_alpha = ease_out_cubic(
-                    state.panel_open.get(&label_id).copied().unwrap_or(1.0),
-                ) * HOVER_CHIP_OPACITY;
+                let chip_alpha =
+                    ease_out_cubic(state.panel_open.get(&label_id).copied().unwrap_or(1.0))
+                        * HOVER_CHIP_OPACITY;
                 let chip = egui::Area::new(state_id.with("label_chip"))
                     .order(egui::Order::Foreground)
                     .pivot(chip_pivot)
@@ -934,10 +934,7 @@ pub fn floating_dock(
                         ui.set_opacity(chip_alpha);
                         egui::Frame::new()
                             .fill(th.popover_fill_color().gamma_multiply(0.82))
-                            .stroke(Stroke::new(
-                                1.0_f32,
-                                th.border_color().gamma_multiply(0.7),
-                            ))
+                            .stroke(Stroke::new(1.0_f32, th.border_color().gamma_multiply(0.7)))
                             .corner_radius(CornerRadius::same(6))
                             .inner_margin(egui::Margin::symmetric(10, 6))
                             .show(ui, |ui| {
