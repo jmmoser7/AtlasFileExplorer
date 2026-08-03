@@ -17,13 +17,17 @@ use slate_doc::scene::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// A finished extraction. Boxed inside [`PortalMsg`] so a channel of mostly
+/// small messages does not pay the graph's size on every send.
+struct PortalReady {
+    portal: NodeId,
+    generation: u64,
+    graph: RepoGraph,
+    layout: RepoLayout,
+}
+
 enum PortalMsg {
-    Ready {
-        portal: NodeId,
-        generation: u64,
-        graph: RepoGraph,
-        layout: RepoLayout,
-    },
+    Ready(Box<PortalReady>),
     Error {
         portal: NodeId,
         generation: u64,
@@ -135,16 +139,11 @@ impl SlateApp {
         while let Ok(msg) = self.portals.rx.try_recv() {
             got = true;
             match msg {
-                PortalMsg::Ready {
-                    portal,
-                    generation,
-                    graph,
-                    layout,
-                } => {
-                    if let Some(cache) = self.portals.caches.get_mut(&portal) {
-                        if cache.generation == generation {
-                            cache.graph = Some(graph);
-                            cache.layout = Some(layout);
+                PortalMsg::Ready(ready) => {
+                    if let Some(cache) = self.portals.caches.get_mut(&ready.portal) {
+                        if cache.generation == ready.generation {
+                            cache.graph = Some(ready.graph);
+                            cache.layout = Some(ready.layout);
                             cache.status = PortalStatus::Ready;
                         }
                     }
@@ -239,12 +238,12 @@ impl SlateApp {
         std::thread::spawn(move || match extract_repository(&root, &repo_query) {
             Ok(graph) => {
                 let layout = layout_graph(&graph, &repo_query, frame);
-                let _ = tx.send(PortalMsg::Ready {
+                let _ = tx.send(PortalMsg::Ready(Box::new(PortalReady {
                     portal,
                     generation,
                     graph,
                     layout,
-                });
+                })));
             }
             Err(RepoError::NotARepository { .. }) => {
                 let _ = tx.send(PortalMsg::Error {
