@@ -6,9 +6,11 @@ is in this folder.
 
 | File | Role |
 |------|------|
-| [`project-state.json`](project-state.json) | Canonical research snapshot (thesis, law, roadmap, workplan, deviations, metrics, crates, next actions) |
-| [`index.html`](index.html) | Working interactive dashboard — open in any browser (file:// or static host) |
-| **This file** | Build brief, UX plan, acceptance criteria, update protocol |
+| **[`ATLAS-STATUS-BUNDLE.html`](ATLAS-STATUS-BUNDLE.html)** | **One-file deliverable** — interactive dashboard + handoff plan + embedded JSON. Open in a browser, or click **Copy all for agent**. |
+| **[`ATLAS-STATUS-BUNDLE.md`](ATLAS-STATUS-BUNDLE.md)** | **Plain-text paste bundle** — same handoff + full JSON for chat/agent paste. |
+| [`project-state.json`](project-state.json) | Canonical research snapshot (also embedded in the HTML). |
+| [`index.html`](index.html) | Same content as the HTML bundle. |
+| **This file** | Build brief source (included inside both bundles). |
 
 **Snapshot date:** 2026-08-05 · **HEAD at capture:** `664e2e1`  
 **Research verdict:** Wave 0 + ratification (G0) are complete. Wave 1 (convergent
