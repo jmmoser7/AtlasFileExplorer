@@ -1157,6 +1157,117 @@ fn edit_mode_defaults_to_view_and_resets_on_root_change() {
     assert_eq!(h.app.tabs[h.app.active_tab].edit_mode, EditMode::View);
 }
 
+/// Panning is the gesture the hand repeats all day, and on a full folder there
+/// is almost no empty canvas left to aim it at. So the right button pans from
+/// anywhere — landing on a thumbnail must not turn a pan into a drag-out.
+#[test]
+fn right_drag_pans_even_when_it_starts_on_a_card() {
+    let mut h = Harness::new("rmb_pan");
+    let root = make_tree(&h._base.join("pan_proj"), 12);
+    h.app.set_root(root);
+    h.pump_until_idle();
+    h.frame();
+
+    let card = h
+        .app
+        .tree
+        .as_ref()
+        .expect("tree")
+        .file_pos
+        .iter()
+        .position(|p| p.place != atlas_core::tree::FilePlace::Hidden)
+        .expect("something is laid out");
+    let start = h
+        .app
+        .w2s(h.app.tree.as_ref().unwrap().file_pos[card].rect().center());
+
+    h.frame_with_events(vec![egui::Event::PointerMoved(start)]);
+    assert_eq!(
+        h.app.hovered_file,
+        Some(card as u32),
+        "the press has to land on a card for this test to mean anything"
+    );
+
+    let before = h.app.cam.offset;
+    h.frame_with_events(vec![egui::Event::PointerButton {
+        pos: start,
+        button: egui::PointerButton::Secondary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    for step in 1..=4 {
+        let p = start + Vec2::new(20.0 * step as f32, 12.0 * step as f32);
+        h.frame_with_events(vec![egui::Event::PointerMoved(p)]);
+    }
+
+    assert!(
+        h.app.pending_shell_drag.is_none(),
+        "a right-drag handed the card to Windows instead of panning"
+    );
+    assert!(
+        (h.app.cam.offset - before).length() > 40.0,
+        "the canvas did not pan: {:?} -> {:?}",
+        before,
+        h.app.cam.offset
+    );
+}
+
+/// The other half of the same rule: the left button acts on what is under the
+/// cursor, so on empty canvas it sweeps out a selection rather than panning.
+#[test]
+fn left_drag_on_empty_canvas_sweeps_a_selection() {
+    let mut h = Harness::new("lmb_marquee");
+    let root = make_tree(&h._base.join("marquee_proj"), 12);
+    h.app.set_root(root);
+    h.pump_until_idle();
+    h.frame();
+
+    // Somewhere inside the canvas with nothing under it, and clear of the edges
+    // where the floating chrome sits.
+    let rect = h.app.canvas_rect.shrink(80.0);
+    let mut start = None;
+    'search: for row in 0..8 {
+        for col in 0..8 {
+            let p = rect.min
+                + Vec2::new(
+                    rect.width() * col as f32 / 7.0,
+                    rect.height() * row as f32 / 7.0,
+                );
+            h.frame_with_events(vec![egui::Event::PointerMoved(p)]);
+            if h.app.hovered_file.is_none() && h.app.hovered_dir.is_none() {
+                start = Some(p);
+                break 'search;
+            }
+        }
+    }
+    let start = start.expect("no empty canvas to start a marquee from");
+
+    let press = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.frame_with_events(vec![press(start, true)]);
+    let end = h.app.canvas_rect.center();
+    for step in 1..=4 {
+        let t = step as f32 / 4.0;
+        h.frame_with_events(vec![egui::Event::PointerMoved(start + (end - start) * t)]);
+    }
+    assert!(h.app.rubber_origin.is_some(), "no marquee was started");
+    assert!(
+        h.app.pending_shell_drag.is_none(),
+        "a marquee must never hand anything to Windows"
+    );
+    h.frame_with_events(vec![press(end, false)]);
+    h.frame();
+
+    assert!(
+        !h.app.selection.is_empty(),
+        "sweeping the whole canvas selected nothing"
+    );
+}
+
 /// A drag has to survive the whole gesture — press, threshold, release — and
 /// land where the cursor is, which for a folder means anywhere inside it,
 /// including over the files it already holds. The first cut resolved the drop

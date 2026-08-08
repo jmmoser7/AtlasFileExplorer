@@ -771,7 +771,7 @@
           "decided": "2026-08-07"
         },
         "D03": {
-          "behavior": "Edit mode: LMB down on file/folder, drag past egui threshold, ghost follows cursor, folder hover validates target, release commits move/copy or cancels on blank/invalid.",
+          "behavior": "Edit mode: LMB down on file/folder, drag past egui threshold, ghost follows cursor, folder hover validates target, release commits move/copy or cancels on blank/invalid. An LMB drag that starts on empty canvas is a rubber band, not an edit drag; RMB always pans.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1044,7 +1044,7 @@
           "decided": "2026-08-08"
         },
         "D23": {
-          "behavior": "Buckets key on the portal's on-screen height in physical pixels, so a hundred tiled pages zoomed out cost nothing. Below portal.web.lod_strip_px (96): chrome strip only, no texture bound. From 96 to portal.web.live_min_px (320), or off-screen at any size: the cached poster. At or above 320 and on screen: eligible for the live pool, admitted by the D29 priority; an eligible portal that misses admission paints its poster and reports Budgeted. Double-clicking a portal below the live threshold zooms the camera to fit it first, then takes input focus, rather than refusing.",
+          "behavior": "Buckets key on the portal's on-screen height in physical pixels, so a hundred tiled pages zoomed out cost nothing. Below portal.web.lod_strip_px (96): chrome strip only, no texture bound. From 96 to portal.web.live_min_px (160), or off-screen at any size: the cached poster. At or above 160 and on screen: eligible for the live pool, admitted by the D29 priority; an eligible portal that misses admission paints its poster and reports Budgeted. Double-clicking a portal below the live threshold zooms the camera to fit it first, then takes input focus - and a focused portal ignores the size gate entirely, so the human is never told 'too small' after asking to run the page.",
           "source": "pattern",
           "confidence": 75,
           "verdict": "approved",

@@ -293,9 +293,17 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::WebPortal);
                 true
             }
-            "portal.web.source" => self.web_pick_source_for_selection(),
+            "portal.web.source" => match detail.as_deref().map(str::trim).filter(|s| !s.is_empty())
+            {
+                // Agents and the command palette can pass a URL or path; humans
+                // without a detail get the file picker (GP11 / D14 / D27).
+                Some(source) => self.web_bind_source_for_selection(source),
+                None => self.web_pick_source_for_selection(),
+            },
             "portal.web.allow_origin" => self.web_allow_selected_origin(),
             "portal.web.reload" => self.web_reload_selected(),
+            "portal.web.back" => self.web_history_step(false),
+            "portal.web.forward" => self.web_history_step(true),
             "portal.web.recapture" => self.web_recapture_selected(),
             "portal.web.focus" => self.web_toggle_focus(),
             "portal.web.open_external" => self.web_open_external(),
@@ -717,13 +725,20 @@ impl SlateApp {
         let wants_kb = ctx.wants_keyboard_input();
         let board = self.doc().view.active_view == ViewKind::Board;
         let editing = self.text_edit.is_some();
+        // A focused web portal is a keyboard sink, like an inline editor: bare
+        // letters, digits, Tab, and arrows belong to the page, so typing in a
+        // form cannot switch tools (D22). Ctrl chords stay Slate's — save and
+        // undo keep working — and Escape stays out of this so it can still peel
+        // the focus back off.
+        let web_focus = board && self.web.focused.is_some();
+        let typing_sink = editing || web_focus;
         let palette_open = self.palette_state.open;
         let cmd_ctx = self.command_ctx();
         // Type-to-command / bare-letter hold: Board only, and never while a
         // draft or inline editor owns digits/letters.
         let command_typing_ok = board
             && !wants_kb
-            && !editing
+            && !typing_sink
             && !palette_open
             && self.line_draft.is_none()
             && self.board_path_draft.is_none()
@@ -771,7 +786,7 @@ impl SlateApp {
             if i.key_pressed(egui::Key::Space)
                 && self.space_tap.pressed_at.is_none()
                 && !wants_kb
-                && !editing
+                && !typing_sink
                 && !palette_open
             {
                 self.space_tap.pressed_at = Some(Instant::now());
@@ -783,7 +798,7 @@ impl SlateApp {
             if i.key_released(egui::Key::Space) {
                 if let Some(at) = self.space_tap.pressed_at.take() {
                     let tapped = at.elapsed() < SPACE_TAP_MAX && !self.space_tap.pointer_used;
-                    if tapped && !wants_kb && !editing && !palette_open {
+                    if tapped && !wants_kb && !typing_sink && !palette_open {
                         k.repeat_via_space = true;
                     }
                 }
@@ -796,7 +811,7 @@ impl SlateApp {
                 if !chord_pressed(i, chord) {
                     continue;
                 }
-                if suppressed(chord, wants_kb, editing, palette_open) {
+                if suppressed(chord, wants_kb, typing_sink, palette_open) {
                     continue;
                 }
                 if !spec.when.matches(cmd_ctx) {
@@ -816,7 +831,7 @@ impl SlateApp {
                 if !chord_pressed(i, *chord) {
                     continue;
                 }
-                if suppressed(*chord, wants_kb, editing, palette_open) {
+                if suppressed(*chord, wants_kb, typing_sink, palette_open) {
                     continue;
                 }
                 if let Some(spec) = self.registry.by_id(*id) {
@@ -888,10 +903,10 @@ impl SlateApp {
                 && !i.modifiers.ctrl
                 && !i.modifiers.shift
                 && !i.modifiers.alt;
-            if i.key_pressed(egui::Key::Tab) && !wants_kb && !editing && !palette_open {
+            if i.key_pressed(egui::Key::Tab) && !wants_kb && !typing_sink && !palette_open {
                 k.tab = Some(if i.modifiers.shift { -1 } else { 1 });
             }
-            if !wants_kb && !editing && !palette_open && !i.modifiers.ctrl {
+            if !wants_kb && !typing_sink && !palette_open && !i.modifiers.ctrl {
                 let step = 1.0;
                 if i.key_pressed(egui::Key::ArrowLeft) {
                     k.arrows.0 -= step;
@@ -994,7 +1009,7 @@ impl SlateApp {
         }
 
         // --- Enter: crop / line / path drafts first (as before), else idle repeat ---
-        if keys.enter && !wants_kb && !editing && !palette_open && !suppress_repeat {
+        if keys.enter && !wants_kb && !typing_sink && !palette_open && !suppress_repeat {
             if board && self.board_crop.is_some() {
                 self.board_crop = None;
             } else if board && self.line_draft.is_some() {

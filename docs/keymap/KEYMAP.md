@@ -60,7 +60,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | E | Photoshop | **Eraser** — drag across strokes to remove them | Board | ✅ exists | Vector semantics: stroke-level erase (hit-tested whole-stroke delete) first; segment splitting is 🟡 P2. Journaled `Remove`s. |
 | F | Miro | **Frame tool** | Board | ✅ exists | Fit-view stays `Home` on Board, `F` elsewhere (existing, deliberate). |
 | G | Miro | **Toggle board grid** | Board | ✅ exists | Grid toggle exists in dock; this adds the key. `F7` = alias (Rhino muscle memory). |
-| H | Miro | **Hand tool** | Board | ✅ exists | Atlas needs no hand mode — every drag already pans (⛔ for Atlas, no-op value). |
+| H | Miro | **Hand tool** | Board | ✅ exists | Atlas needs no hand mode — right-drag pans from anywhere, cards included (⛔ for Atlas, no-op value). |
 | I | Photoshop | **Eyedropper** — sample color under cursor into foreground | Board | ✅ exists | Samples node fill/stroke/text color; image-pixel sampling 🟡 P2. Alt+click samples into background. |
 | L | Rhino | **Line** — parametric two-point line (click-move-click or press-drag-release) | Board | ✅ exists | Contract shipped 2026-07-23: `contracts/line.md` (P2.RhinoDraft grammar — Tab direction lock, typed length, one-shot; endpoint grips, no bbox). Replaced the bbox drag line; legacy `.slate` bbox lines convert on load. Also in the `P` precise-family flyout. |
 | M | Miro | **Minimap toggle** | **Both** | ✅ exists | Shared `atlas-shell` overlay widget (Art. X). Click/drag to navigate; viewport rectangle indicator. Atlas trees are huge — both apps win. |

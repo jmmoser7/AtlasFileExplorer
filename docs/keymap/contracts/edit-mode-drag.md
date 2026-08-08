@@ -12,7 +12,7 @@ Inherits: P0.* — deviations flagged below.
 |----|-----------|-----------------|--------|------|
 | D01 | Initiation & arming | Mode dock exposes View and Edit. Edit arms real filesystem operations for the active tab only; View refuses them. | stated | 100 |
 | D02 | Stickiness & repeat | Mode persists while the tab is active or parked, but fresh roots and launches reset to View. Drag operations are one-shot. | stated | 100 |
-| D03 | Gesture grammar | Edit mode: LMB down on file/folder, drag past egui threshold, ghost follows cursor, folder hover validates target, release commits move/copy or cancels on blank/invalid. | stated | 100 |
+| D03 | Gesture grammar | Edit mode: LMB down on file/folder, drag past egui threshold, ghost follows cursor, folder hover validates target, release commits move/copy or cancels on blank/invalid. An LMB drag that starts on empty canvas is a rubber band, not an edit drag; RMB always pans. | stated | 100 |
 | D04 | Click vs drag rule | Existing egui drag threshold disambiguates click/select from drag. Clicks keep current selection/open behavior. | pattern | 85 |
 | D05 | Modifiers | Alt held at release copies; no Alt moves. Shift keeps rubber-band selection precedence. Ctrl is not an edit-drag modifier. | stated | 100 |
 | D06 | Constraints & snapping | No grid, ortho, or object snap applies to filesystem placement. The target is the deepest folder whose bounds contain the cursor, so a folder's whole rectangle accepts a drop — including over the files it already holds. | stated | 100 |

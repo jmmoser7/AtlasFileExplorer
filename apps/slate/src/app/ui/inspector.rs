@@ -1243,6 +1243,8 @@ fn web_portal_controls(
 
     ui.horizontal(|ui| {
         for (label, cmd) in [
+            ("Back", "portal.web.back"),
+            ("Forward", "portal.web.forward"),
             ("Reload", "portal.web.reload"),
             ("Recapture", "portal.web.recapture"),
             ("Open externally", "portal.web.open_external"),

@@ -11,3 +11,18 @@ Desktop.ini
 # Secrets (never commit)
 .env
 *.env.local
+
+# Agent / app runtime diagnostics (never source)
+debug-*.log
+*.ndjson
+
+# Live-link beacons and stage proposals the apps rewrite while running.
+# Keep committed READMEs and hand-authored fixtures; ignore the rest.
+**/.atlas-ai/**/context.json
+**/.atlas-ai/**/session.json
+**/.atlas-ai/**/request.json
+**/.atlas-ai/*-context.json
+**/.atlas-ai/*-context.json.tmp
+**/.atlas-ai/stage/
+**/.atlas-ai/lens/graph.json
+**/.atlas-ai/lens/overlay.json

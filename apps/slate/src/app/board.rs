@@ -1829,8 +1829,15 @@ impl SlateApp {
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
 
+        // One web portal may hold the pointer and keyboard (D17/D22). This runs
+        // before the camera because that is the whole point: with the pointer
+        // inside a focused page, the wheel scrolls the page instead of zooming
+        // the board. Its chrome strip and a thin border band stay Slate targets,
+        // so the frame can always be grabbed and released.
+        let web_capture = self.web_input_frame(ui, &xf, pointer);
+
         // --- camera ---
-        if resp.hovered() {
+        if resp.hovered() && !web_capture {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.raw_scroll_delta.y);
             if scroll.abs() > 0.0 {
                 // Scroll over an unlocked 3D viewport zooms the model, not
@@ -1862,11 +1869,13 @@ impl SlateApp {
             canvas_nav = true;
         }
         // Precise pan: middle-drag, Space+left-drag, right-drag (File Atlas
-        // parity), or Hand tool (H) left-drag.
-        let panning = resp.dragged_by(egui::PointerButton::Middle)
-            || (space && resp.dragged_by(egui::PointerButton::Primary))
-            || (resp.dragged_by(egui::PointerButton::Secondary) && !turbo_pan_active)
-            || (hand_pan && resp.dragged_by(egui::PointerButton::Primary));
+        // parity), or Hand tool (H) left-drag. A focused page owns the buttons
+        // it is given, so a drag inside it selects text instead of panning.
+        let panning = !web_capture
+            && (resp.dragged_by(egui::PointerButton::Middle)
+                || (space && resp.dragged_by(egui::PointerButton::Primary))
+                || (resp.dragged_by(egui::PointerButton::Secondary) && !turbo_pan_active)
+                || (hand_pan && resp.dragged_by(egui::PointerButton::Primary)));
         if hand_pan && resp.hovered() {
             ui.ctx().set_cursor_icon(if panning {
                 egui::CursorIcon::Grabbing
@@ -1886,13 +1895,8 @@ impl SlateApp {
 
         // Z zoom tool: while armed, the primary button belongs to the tool
         // (click = step, drag = zoom window); pans keep their buttons.
-        let zoom_tool = self.zoom_tool_frame(ui, &resp, rect, space || panning || hand_pan);
-
-        // One web portal may hold the pointer and keyboard (D17/D22). Its
-        // chrome strip and a thin border band stay Slate targets, so the frame
-        // can always be grabbed and released; everything inside goes to the
-        // page and selects nothing on the board.
-        let web_capture = self.web_input_frame(ui, &xf, pointer);
+        let zoom_tool =
+            !web_capture && self.zoom_tool_frame(ui, &resp, rect, space || panning || hand_pan);
 
         // Connector grips: Select tool, idle pointer near a node edge.
         if self.board_tool == BoardTool::Select
@@ -1900,6 +1904,7 @@ impl SlateApp {
             && !panning
             && !zoom_tool
             && !editing_text
+            && !web_capture
             && self.board_crop.is_none()
             && resp.hovered()
         {
@@ -1918,6 +1923,7 @@ impl SlateApp {
             && !panning
             && !zoom_tool
             && !model_toolbar_captures
+            && !web_capture
             && resp.hovered();
         if line_pointer {
             let mods = ui.input(|i| i.modifiers);
@@ -4229,13 +4235,36 @@ impl SlateApp {
         locator: Option<String>,
         detail: &'static str,
     ) -> NodeId {
-        let portal = match locator {
+        self.add_web_portal_with_entry(rect, locator, None, detail)
+    }
+
+    /// Like [`Self::add_web_portal`], with an explicit directory entry file
+    /// (`index.html` / `index.htm`) so a dropped dashboard folder binds to the
+    /// file it actually holds.
+    pub(crate) fn add_web_portal_with_entry(
+        &mut self,
+        rect: WorldRect,
+        locator: Option<String>,
+        entry: Option<String>,
+        detail: &'static str,
+    ) -> NodeId {
+        let mut portal = match &locator {
             Some(locator) => {
-                let title = slate_doc::scene::web_display_locator(&locator);
-                PortalNode::bound_web(title, locator)
+                let title = slate_doc::scene::web_display_locator(locator);
+                PortalNode::bound_web(title, locator.clone())
             }
             None => PortalNode::unbound_web("Web portal"),
         };
+        if let Some(entry) = entry {
+            if let Some(web) = &mut portal.web {
+                web.entry = entry;
+            }
+        }
+        // Dropping or pasting a page is the human permitting its origin, the
+        // same as binding one from the inspector (D32).
+        if let Some(locator) = &locator {
+            self.grant_web_consent(locator);
+        }
         let node = self
             .doc_mut()
             .scene

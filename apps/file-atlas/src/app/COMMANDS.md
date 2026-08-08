@@ -93,24 +93,33 @@ When you add or change any user-facing input binding:
   folder. Cancel lives in Advanced; progress shows in the readout bar. Background
   work never triggers this — see `crates/atlas-core/src/cloud.rs`.
 
-## Pan buttons (reference)
+## Mouse buttons (reference)
 
-- **Left-drag** on empty canvas pans. On a thumbnail during a linked Slate
-  session it starts the drag-to-Slate carry instead (standalone Atlas pans).
-- **Right-drag on empty canvas** pans. A right-click *without* dragging still
-  opens the file context menu.
-- **Right-drag from a file or folder** drags it out to Windows (see below), so
-  the one place right-drag no longer pans is on top of a card. **Ctrl +
-  right-drag** turbo-pans from anywhere, cards included, which is what keeps
-  navigation unblocked on a dense canvas.
-- **Shift + left-drag** rubber-band selects (left button only).
-- In **Edit** mode, left-drag starting on a file/folder belongs to filesystem
-  move/copy instead of Slate-session carry. Shift still wins for rubber-band
-  selection; right-drag shell drag-out is unchanged.
+**The left button acts on what is under the cursor; the right button moves the
+view.** That split is the whole rule, and it is worth holding: panning is the
+gesture the hand repeats all day, and on a folder packed edge to edge there is
+almost no empty canvas left to aim it at. An earlier build made right-drag on a
+card a drag-out and left pan the exception, which meant pan failed wherever the
+canvas was busiest — exactly where it is needed most.
+
+- **Right-drag** (or middle-drag) pans, from anywhere, cards included. Nothing
+  takes it away: no mode, no hover target, no other gesture. A right-click
+  *without* dragging still opens the file context menu.
+- **Ctrl + right-drag** turbo-pans (see below).
+- **Left-drag on empty canvas** rubber-band selects. **Shift + left-drag**
+  starts a band even from on top of a card, which is the only way to sweep one
+  out in a dense folder; **Ctrl** while releasing adds to the selection.
+- **Left-drag from a file or folder card** picks it up. What that means depends
+  on context, in this order: **Edit** mode moves or copies it on the filesystem;
+  a linked Slate session carries it to the Slate window; otherwise it drags out
+  to Windows (below).
+- **Z armed:** the left button belongs to the zoom tool (click steps, drag is a
+  zoom window). The right button still pans.
 
 ## Dragging files out (reference)
 
-- **Binding:** right-drag starting on a file or folder card.
+- **Binding:** left-drag starting on a file or folder card, in View mode,
+  outside a linked Slate session.
 - **Behavior:** hands the selection — or just the card under the cursor, if it
   is not part of the selection — to Windows as a shell data object, so any drop
   target that accepts a drag from File Explorer (PowerPoint, Explorer, Slate, a

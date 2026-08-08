@@ -33,7 +33,13 @@ use super::SlateApp;
 /// Below this on-screen height, a portal is a chrome strip and nothing else.
 pub const LOD_STRIP_PX: f32 = 96.0;
 /// On-screen height at which a portal becomes eligible for the live pool.
-pub const LIVE_MIN_PX: f32 = 320.0;
+///
+/// This is not a taste threshold, it is a cost one, so it sits low enough that a
+/// portal at the board's usual zoom is simply live. It started at 320 px, which
+/// meant a freshly placed 540 px-tall portal never loaded at any zoom under
+/// 0.6 — the page looked broken rather than budgeted. An explicitly focused
+/// portal ignores this entirely (see [`admit`]).
+pub const LIVE_MIN_PX: f32 = 160.0;
 /// Webviews alive at once, across the whole board.
 pub const LIVE_POOL: usize = 6;
 /// Render rate for pooled portals that do not hold input focus.
@@ -154,6 +160,19 @@ pub fn lod_for(height_px: f32) -> WebLod {
     }
 }
 
+/// Whether a live URL is still the bound page, ignoring the `file:///` form and
+/// a trailing slash — so a portal does not claim to have navigated away the
+/// instant it finishes loading.
+fn same_page(locator: &str, url: &str) -> bool {
+    let norm = |s: &str| {
+        s.trim_end_matches('/')
+            .trim_start_matches("file:///")
+            .replace('\\', "/")
+            .to_ascii_lowercase()
+    };
+    norm(locator) == norm(url)
+}
+
 fn ago(d: Duration) -> String {
     let secs = d.as_secs();
     if secs < 60 {
@@ -186,10 +205,13 @@ pub struct WebRequest {
 /// hosting gives the app no HWND for the page, so every event is explicit.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WebInput {
-    /// Pointer position in page CSS pixels.
+    /// Pointer position in page CSS pixels. `buttons` is the bitmask of what is
+    /// currently held (1 = left, 2 = right, 4 = middle) — without it a page
+    /// sees a bare hover and drag-selecting text does nothing.
     Move {
         x: f32,
         y: f32,
+        buttons: u8,
     },
     Down {
         x: f32,
@@ -201,11 +223,15 @@ pub enum WebInput {
         y: f32,
         button: u8,
     },
+    /// Wheel in page units; `horizontal` distinguishes the two axes.
     Wheel {
         x: f32,
         y: f32,
-        dy: f32,
+        delta: f32,
+        horizontal: bool,
     },
+    /// The pointer left the frame, so hover states can clear.
+    Leave,
     Key {
         key: egui::Key,
         pressed: bool,
@@ -239,6 +265,25 @@ pub trait WebHost {
     fn cursor(&self, id: NodeId) -> Option<egui::CursorIcon>;
     /// Whether the page reported a load failure.
     fn load_error(&self, id: NodeId) -> Option<String>;
+
+    /// Where the page has actually got to, which is not the locator once the
+    /// human follows a link. Reporting it is what keeps the frame honest about
+    /// what it is showing (Art. IV).
+    fn current_url(&self, _id: NodeId) -> Option<String> {
+        None
+    }
+    /// In-page history. `false` when there is nowhere to go, so the caller can
+    /// leave the command inert rather than pretend.
+    fn go_back(&mut self, _id: NodeId) -> bool {
+        false
+    }
+    fn go_forward(&mut self, _id: NodeId) -> bool {
+        false
+    }
+    /// Reload in place, keeping the view and its slot.
+    fn reload(&mut self, _id: NodeId) -> bool {
+        false
+    }
 }
 
 /// The host used where no WebView2 runtime is present — every other platform,
@@ -294,6 +339,13 @@ struct WebView {
     last_focus: Option<Instant>,
     last_poll: Option<Instant>,
     source_mtime: Option<SystemTime>,
+    /// Local source changed while this portal still holds a pool slot — reload
+    /// on the next admit rather than waiting for eviction (D21).
+    reload_pending: bool,
+    /// A metadata probe is in flight; do not spawn another.
+    poll_inflight: bool,
+    /// Last off-thread existence probe. `None` means not yet answered.
+    source_exists: Option<bool>,
 }
 
 impl WebView {
@@ -311,8 +363,19 @@ impl WebView {
             last_focus: None,
             last_poll: None,
             source_mtime: None,
+            reload_pending: false,
+            poll_inflight: false,
+            source_exists: None,
         }
     }
+}
+
+/// One local-source probe result. Generation-tagged so a rebind discards it.
+struct SourcePoll {
+    id: NodeId,
+    generation: u64,
+    exists: bool,
+    mtime: Option<SystemTime>,
 }
 
 /// Board-wide web portal state. One per app, not per portal.
@@ -324,24 +387,39 @@ pub struct WebRuntime {
     consent: HashSet<String>,
     /// The one portal receiving pointer and keyboard, if any (D22).
     pub focused: Option<NodeId>,
+    /// Whether the pointer was inside the focused page last frame, so the page
+    /// gets exactly one `Leave` when it wanders off.
+    pointer_inside: bool,
+    /// Buttons held inside the focused page (1 = left, 2 = right, 4 = middle).
+    /// A drag that starts in the page keeps the pointer until release.
+    pointer_down: u8,
     host: Box<dyn WebHost>,
     next_generation: u64,
     /// Texture uploads already spent this frame (D29).
     uploads_this_frame: usize,
     /// Portals with a frame waiting for an upload slot.
     backlog: Vec<NodeId>,
+    /// Off-thread local-source probes (Art. II.2 — never `metadata` on the
+    /// frame loop; a share can take seconds).
+    poll_tx: crossbeam_channel::Sender<SourcePoll>,
+    poll_rx: crossbeam_channel::Receiver<SourcePoll>,
 }
 
 impl Default for WebRuntime {
     fn default() -> Self {
+        let (poll_tx, poll_rx) = crossbeam_channel::unbounded();
         Self {
             views: HashMap::new(),
             consent: HashSet::new(),
             focused: None,
+            pointer_inside: false,
+            pointer_down: 0,
             host: default_host(),
             next_generation: 1,
             uploads_this_frame: 0,
             backlog: Vec::new(),
+            poll_tx,
+            poll_rx,
         }
     }
 }
@@ -417,10 +495,16 @@ pub struct Candidate {
 /// Priority is input focus, then greatest on-screen area, then most recently
 /// focused. Pure so the hundred-tile research-hub case can be asserted without
 /// a browser, a GPU, or a window.
+///
+/// Focus overrides the size gate rather than merely sorting ahead of it: a
+/// human who double-clicks into a page has said what they want, and answering
+/// "too small" would be the app arguing with them.
 pub fn admit(candidates: &[Candidate], pool: usize) -> Vec<NodeId> {
     let mut eligible: Vec<&Candidate> = candidates
         .iter()
-        .filter(|c| c.renderable && c.on_screen && lod_for(c.height_px) == WebLod::Eligible)
+        .filter(|c| {
+            c.renderable && c.on_screen && (c.focused || lod_for(c.height_px) == WebLod::Eligible)
+        })
         .collect();
     eligible.sort_by(|a, b| {
         b.focused
@@ -484,6 +568,7 @@ impl SlateApp {
     /// budget. Nothing here blocks, and nothing here reaches the network.
     pub(crate) fn web_pump(&mut self, ctx: &egui::Context) {
         self.web.uploads_this_frame = 0;
+        self.drain_source_polls();
         let portals = self.web_portals();
         if portals.is_empty() {
             if !self.web.views.is_empty() {
@@ -550,14 +635,21 @@ impl SlateApp {
         for (id, portal, rect) in &portals {
             let want_live = admitted_set.contains(id);
             let was_live = self.web.views.get(id).is_some_and(|v| v.live);
-            if want_live && !was_live {
+            if want_live {
+                // Admit every frame while eligible: WebView2's environment is
+                // asynchronous, and a one-shot call that lands before it is
+                // ready would otherwise leave the portal stuck on Loading with
+                // `live` already true and no further admit.
                 if let Some(req) = self.web_request(portal, workbook.as_deref(), *rect) {
                     self.web.host.admit(*id, &req);
                     if let Some(v) = self.web.views.get_mut(id) {
                         v.live = true;
+                        if std::mem::take(&mut v.reload_pending) {
+                            let _ = self.web.host.reload(*id);
+                        }
                     }
                 }
-            } else if !want_live && was_live {
+            } else if was_live {
                 // Capture on the way out, so a demoted portal degrades to its
                 // last frame instead of blanking (D29).
                 if let Some(img) = self.web.host.capture_poster(*id) {
@@ -617,6 +709,27 @@ impl SlateApp {
         }
     }
 
+    /// Apply finished local-source probes. Generation-tagged so a rebind that
+    /// happened while the worker was out is discarded rather than painted.
+    fn drain_source_polls(&mut self) {
+        while let Ok(poll) = self.web.poll_rx.try_recv() {
+            let Some(v) = self.web.views.get_mut(&poll.id) else {
+                continue;
+            };
+            if v.generation != poll.generation {
+                continue;
+            }
+            v.poll_inflight = false;
+            v.source_exists = Some(poll.exists);
+            let changed = v.source_mtime.is_some() && v.source_mtime != poll.mtime;
+            v.source_mtime = poll.mtime;
+            if changed {
+                v.poster_at = None;
+                v.reload_pending = true;
+            }
+        }
+    }
+
     /// What state a portal is in right now, and whether it is worth a webview.
     fn resolve_web_state(
         &mut self,
@@ -660,32 +773,36 @@ impl SlateApp {
                 }
             }
         } else {
-            // Local staleness is a worker-interval poll, never a per-frame stat
-            // (Art. II.2). `Missing` keeps the last poster and names the path.
+            // Local staleness is a worker-interval poll, never a per-frame
+            // `metadata` (Art. II.2) — a share can take seconds and would freeze
+            // the window. `Missing` keeps the last poster and names the path.
             let due = self
                 .web
                 .views
                 .get(&id)
                 .and_then(|v| v.last_poll)
                 .is_none_or(|t| t.elapsed().as_secs_f32() >= POLL_SECS);
-            if due {
+            let inflight = self.web.views.get(&id).is_some_and(|v| v.poll_inflight);
+            if due && !inflight {
                 let path = resolve_web_source(workbook, &locator);
-                let probe = std::fs::metadata(&path).ok();
-                let exists = probe.is_some();
-                let mtime = probe.and_then(|m| m.modified().ok());
+                let generation = self.web.views.get(&id).map(|v| v.generation).unwrap_or(0);
+                let tx = self.web.poll_tx.clone();
                 if let Some(v) = self.web.views.get_mut(&id) {
                     v.last_poll = Some(Instant::now());
-                    let changed = v.source_mtime.is_some() && v.source_mtime != mtime;
-                    v.source_mtime = mtime;
-                    if changed {
-                        // Content moved under us: the poster is stale, and a
-                        // pooled portal reloads on its next admission.
-                        v.poster_at = None;
-                    }
+                    v.poll_inflight = true;
                 }
-                if !exists {
-                    return (WebState::Missing { locator }, false);
-                }
+                std::thread::spawn(move || {
+                    let probe = std::fs::metadata(&path).ok();
+                    let _ = tx.send(SourcePoll {
+                        id,
+                        generation,
+                        exists: probe.is_some(),
+                        mtime: probe.and_then(|m| m.modified().ok()),
+                    });
+                });
+            }
+            if self.web.views.get(&id).and_then(|v| v.source_exists) == Some(false) {
+                return (WebState::Missing { locator }, false);
             }
         }
 
@@ -695,6 +812,9 @@ impl SlateApp {
         let view = self.web.views.get(&id);
         let height = view.map(|v| v.height_px).unwrap_or(0.0);
         let on_screen = view.is_some_and(|v| v.on_screen);
+        // Focus is the human overriding the size budget, so the state has to
+        // agree with what the pool will do.
+        let focused = self.web.focused == Some(id);
         if let Some(err) = self.web.host.load_error(id) {
             return (WebState::Missing { locator: err }, true);
         }
@@ -707,7 +827,7 @@ impl SlateApp {
                 false,
             );
         }
-        if !on_screen || lod_for(height) != WebLod::Eligible {
+        if !on_screen || (!focused && lod_for(height) != WebLod::Eligible) {
             let state = if height > 0.0 && height < LIVE_MIN_PX && on_screen {
                 WebState::TooSmall
             } else {
@@ -790,7 +910,30 @@ impl SlateApp {
     /// Release input focus without tearing the page down: scroll position,
     /// form contents, and running charts survive (D12).
     pub(crate) fn web_blur(&mut self) -> bool {
-        self.web.focused.take().is_some()
+        let had = self.web.focused.take();
+        if let Some(id) = had {
+            // Let the page settle its hover and drag state instead of freezing
+            // mid-gesture.
+            if std::mem::take(&mut self.web.pointer_inside) {
+                self.web.host.send_input(id, WebInput::Leave);
+            }
+            self.web.pointer_down = 0;
+        }
+        had.is_some()
+    }
+
+    /// `portal.web.back` / `portal.web.forward` — in-page history for the
+    /// focused or selected portal. Derived state: following a link changes what
+    /// the frame shows, never what the workbook says (Art. V.3).
+    pub(crate) fn web_history_step(&mut self, forward: bool) -> bool {
+        let Some(id) = self.web.focused.or_else(|| self.selected_web_portal()) else {
+            return false;
+        };
+        if forward {
+            self.web.host.go_forward(id)
+        } else {
+            self.web.host.go_back(id)
+        }
     }
 
     /// Permit the selected portal's origin and let it load (D32). Local state,
@@ -808,6 +951,17 @@ impl SlateApp {
     /// Bind or rebind a locator. One journaled `Patch`; the cached poster goes
     /// with the old locator (D19, D21).
     pub(crate) fn bind_web_source(&mut self, id: NodeId, locator: String) -> bool {
+        self.bind_web_source_with_entry(id, locator, None)
+    }
+
+    /// Like [`Self::bind_web_source`], optionally setting the directory entry
+    /// file in the same undo step.
+    pub(crate) fn bind_web_source_with_entry(
+        &mut self,
+        id: NodeId,
+        locator: String,
+        entry: Option<String>,
+    ) -> bool {
         let Some(node) = self.doc().scene.node(id).cloned() else {
             return false;
         };
@@ -824,25 +978,47 @@ impl SlateApp {
         p.source = Some(SourceUri {
             locator: locator.clone(),
         });
-        if p.web.is_none() {
-            p.web = Some(WebPortalRef::default());
+        let mut web = p.web_ref();
+        if let Some(entry) = entry {
+            web.entry = entry;
         }
+        p.web = Some(web);
         let committed = self.commit_scene(vec![SceneCmd::Patch {
             before: Box::new(node),
             after: Box::new(after),
         }]);
         if committed {
+            // Typing, pasting, or dropping a locator *is* the permission for
+            // that origin: asking again on the frame would be theatre (D32).
+            // What still asks is the case that matters — a workbook reopened
+            // from disk, where nobody has said yet that these pages may run.
+            self.grant_web_consent(&locator);
             self.web.host.evict(id);
             self.web.views.remove(&id);
         }
         committed
     }
 
-    /// Bind a local path, storing it workbook-relative where possible.
+    /// Permit the origin of a human-supplied locator for this session. Local
+    /// files have no origin and need no consent.
+    pub(crate) fn grant_web_consent(&mut self, locator: &str) {
+        if let Some(origin) = web_origin(locator) {
+            self.web.grant_consent(origin);
+        }
+    }
+
+    /// Bind a local path, storing it workbook-relative where possible. A folder
+    /// records whichever entry file it actually holds (`index.html` or
+    /// `index.htm`), so a dashboard that only ships the latter still loads.
     pub(crate) fn bind_web_path(&mut self, id: NodeId, path: PathBuf) -> bool {
         let workbook = self.tab().path.clone();
         let locator = web_source_locator(workbook.as_deref(), &path);
-        self.bind_web_source(id, locator)
+        let entry = if path.is_dir() {
+            web_entry_for_dir(&path).map(|s| s.to_string())
+        } else {
+            None
+        };
+        self.bind_web_source_with_entry(id, locator, entry)
     }
 
     /// Drop the cached poster so the next admission recaptures (D21).
@@ -876,7 +1052,12 @@ impl SlateApp {
             );
             let workbook = self.tab().path.clone();
             let locator = web_source_locator(workbook.as_deref(), path);
-            self.add_web_portal(rect, Some(locator), "dropped");
+            let entry = if path.is_dir() {
+                web_entry_for_dir(path).map(|s| s.to_string())
+            } else {
+                None
+            };
+            self.add_web_portal_with_entry(rect, Some(locator), entry, "dropped");
             placed += 1;
         }
         rest
@@ -957,6 +1138,28 @@ impl SlateApp {
         Some((id, p.source.as_ref()?.locator.clone()))
     }
 
+    /// `portal.web.source` with a locator detail — the agent / palette path.
+    /// Accepts an http(s) URL or a filesystem path; folders pick their entry.
+    pub(crate) fn web_bind_source_for_selection(&mut self, source: &str) -> bool {
+        let Some(id) = self.selected_web_portal() else {
+            return false;
+        };
+        let trimmed = source.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        if web_origin(trimmed).is_some() {
+            return self.bind_web_source(id, trimmed.to_string());
+        }
+        let path = PathBuf::from(trimmed);
+        if path.exists() {
+            return self.bind_web_path(id, path);
+        }
+        // A relative path that is not yet on disk still binds as a locator so
+        // the Missing state can name what was asked for (D30).
+        self.bind_web_source(id, trimmed.replace('\\', "/"))
+    }
+
     /// `portal.web.source` — pick a local page. URLs are typed into the
     /// inspector field instead; a dialog cannot express one.
     pub(crate) fn web_pick_source_for_selection(&mut self) -> bool {
@@ -1021,11 +1224,15 @@ impl SlateApp {
     /// `portal.web.reload` — drop the derived view so the next pump rebuilds
     /// it from the same authored locator. Nothing journaled.
     pub(crate) fn web_reload_selected(&mut self) -> bool {
-        let Some(id) = self.selected_web_portal() else {
+        let Some(id) = self.web.focused.or_else(|| self.selected_web_portal()) else {
             return false;
         };
-        self.web.host.evict(id);
-        self.web.views.remove(&id);
+        // Reload in place where the host can; otherwise drop the view and let
+        // the next admission rebuild it.
+        if !self.web.host.reload(id) {
+            self.web.host.evict(id);
+            self.web.views.remove(&id);
+        }
         true
     }
 
@@ -1230,11 +1437,16 @@ impl SlateApp {
         let Some(id) = self.web.focused else {
             return false;
         };
-        let Some(node) = self.doc().scene.node(id) else {
+        // Page CSS coordinates, so the host never has to know about the board
+        // camera.
+        let Some((rect, web)) = self.doc().scene.node(id).and_then(|n| match &n.kind {
+            NodeKind::Portal(portal) => Some((n.rect, portal.web_ref())),
+            _ => None,
+        }) else {
             self.web.focused = None;
             return false;
         };
-        let srect = xf.rect_w2s(node.rect);
+        let srect = xf.rect_w2s(rect);
         let strip_h = 26.0_f32.min(srect.height());
         let page = Rect::from_min_max(
             Pos2::new(srect.left() + BORDER_HIT_PX, srect.top() + strip_h),
@@ -1243,32 +1455,55 @@ impl SlateApp {
                 srect.bottom() - BORDER_HIT_PX,
             ),
         );
-        let Some(p) = pointer else {
-            return false;
-        };
-        if !page.contains(p) {
+        let inside = pointer.is_some_and(|p| page.contains(p));
+        // A press that started inside the page keeps the pointer until release,
+        // the way a browser does: leaving the frame mid-drag must not hand the
+        // rest of a text selection back to the board.
+        let dragging = self.web.pointer_down != 0;
+        if !inside && !dragging {
+            if std::mem::take(&mut self.web.pointer_inside) {
+                self.web.host.send_input(id, WebInput::Leave);
+                self.web.pointer_down = 0;
+            }
+            // Keyboard still belongs to the focused page even when the pointer
+            // has wandered off it (D22).
+            let keys = self.web_keyboard_events(ui);
+            for event in keys {
+                self.web.host.send_input(id, event);
+            }
             return false;
         }
+        self.web.pointer_inside = true;
 
-        // Page CSS coordinates, so the host never has to know about the board
-        // camera.
-        let web = match &node.kind {
-            NodeKind::Portal(portal) => portal.web_ref(),
-            _ => return false,
-        };
-        let (css_w, css_h) = css_size(&web, node.rect);
+        let (css_w, css_h) = css_size(&web, rect);
+        let p = pointer.unwrap_or(page.center());
         let u = ((p.x - page.left()) / page.width().max(1.0)).clamp(0.0, 1.0);
         let v = ((p.y - page.top()) / page.height().max(1.0)).clamp(0.0, 1.0);
         let x = u * css_w as f32;
         let y = v * css_h as f32;
 
-        let mut events = vec![WebInput::Move { x, y }];
+        let mut events = Vec::new();
+        let mut buttons = self.web.pointer_down;
         ui.input(|i| {
-            for (button, code) in [
-                (egui::PointerButton::Primary, 0u8),
-                (egui::PointerButton::Secondary, 1),
-                (egui::PointerButton::Middle, 2),
+            for (button, bit) in [
+                (egui::PointerButton::Primary, 1u8),
+                (egui::PointerButton::Secondary, 2),
+                (egui::PointerButton::Middle, 4),
             ] {
+                if i.pointer.button_pressed(button) {
+                    buttons |= bit;
+                }
+                if i.pointer.button_released(button) {
+                    buttons &= !bit;
+                }
+            }
+            events.push(WebInput::Move { x, y, buttons });
+            for (button, bit, code) in [
+                (egui::PointerButton::Primary, 1u8, 0u8),
+                (egui::PointerButton::Secondary, 2, 1),
+                (egui::PointerButton::Middle, 4, 2),
+            ] {
+                let _ = bit;
                 if i.pointer.button_pressed(button) {
                     events.push(WebInput::Down { x, y, button: code });
                 }
@@ -1278,17 +1513,47 @@ impl SlateApp {
             }
             // Ctrl+wheel stays the camera zoom, so P0.5 survives; the plain
             // wheel is the one thing this frame surrenders (D22).
-            if !i.modifiers.command && i.raw_scroll_delta.y != 0.0 {
-                events.push(WebInput::Wheel {
-                    x,
-                    y,
-                    dy: i.raw_scroll_delta.y,
-                });
+            if !i.modifiers.command {
+                let d = i.raw_scroll_delta;
+                if d.y != 0.0 {
+                    events.push(WebInput::Wheel {
+                        x,
+                        y,
+                        delta: d.y,
+                        horizontal: false,
+                    });
+                }
+                if d.x != 0.0 {
+                    events.push(WebInput::Wheel {
+                        x,
+                        y,
+                        delta: d.x,
+                        horizontal: true,
+                    });
+                }
             }
+        });
+        self.web.pointer_down = buttons;
+        events.extend(self.web_keyboard_events(ui));
+        for event in events {
+            self.web.host.send_input(id, event);
+        }
+        ui.ctx().set_cursor_icon(
+            self.web
+                .host
+                .cursor(id)
+                .unwrap_or(egui::CursorIcon::Default),
+        );
+        true
+    }
+
+    /// Keys the focused page is allowed to hear. Esc is Slate's, always: it is
+    /// how focus is peeled back off the page (D22).
+    fn web_keyboard_events(&self, ui: &egui::Ui) -> Vec<WebInput> {
+        let mut events = Vec::new();
+        ui.input(|i| {
             for event in &i.events {
                 match event {
-                    // Esc is Slate's, always: it is how focus is peeled back
-                    // off the page (D22), so the page never sees it.
                     egui::Event::Key { key, pressed, .. } if *key != egui::Key::Escape => {
                         events.push(WebInput::Key {
                             key: *key,
@@ -1302,13 +1567,7 @@ impl SlateApp {
                 }
             }
         });
-        for event in events {
-            self.web.host.send_input(id, event);
-        }
-        if let Some(cursor) = self.web.host.cursor(id) {
-            ui.ctx().set_cursor_icon(cursor);
-        }
-        true
+        events
     }
 
     // -----------------------------------------------------------------------
@@ -1352,7 +1611,27 @@ impl SlateApp {
             srect.left_top(),
             Pos2::new(srect.right(), srect.top() + strip_h),
         );
-        self.paint_web_strip(painter, strip, portal, &state, live, alpha);
+        // Where the page has actually got to, once the human follows a link.
+        let visiting = self
+            .web
+            .host
+            .current_url(node.id)
+            .filter(|url| {
+                portal
+                    .source
+                    .as_ref()
+                    .is_none_or(|s| !same_page(&s.locator, url))
+            })
+            .map(|url| web_display_locator(&url));
+        self.paint_web_strip(
+            painter,
+            strip,
+            portal,
+            &state,
+            live,
+            alpha,
+            visiting.as_deref(),
+        );
 
         if lod_for(srect.height()) == WebLod::Strip {
             return;
@@ -1378,6 +1657,7 @@ impl SlateApp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn paint_web_strip(
         &self,
         painter: &egui::Painter,
@@ -1386,6 +1666,7 @@ impl SlateApp {
         state: &WebState,
         live: bool,
         alpha: f32,
+        visiting: Option<&str>,
     ) {
         let fade = |c: Color32| c.gamma_multiply(alpha);
         painter.rect_filled(
@@ -1393,11 +1674,16 @@ impl SlateApp {
             0.0,
             fade(Color32::from_rgba_unmultiplied(10, 12, 16, 190)),
         );
-        let locator = portal
-            .source
-            .as_ref()
-            .map(|s| web_display_locator(&s.locator))
-            .unwrap_or_else(|| "unbound".into());
+        let locator = match visiting {
+            // The bound page is still what the workbook says; the arrow marks
+            // where the reader has navigated to since.
+            Some(url) => format!("{url}  ↩"),
+            None => portal
+                .source
+                .as_ref()
+                .map(|s| web_display_locator(&s.locator))
+                .unwrap_or_else(|| "unbound".into()),
+        };
         let remote = portal
             .source
             .as_ref()
@@ -1494,14 +1780,23 @@ use slate_doc::scene::{PORTAL_DEFAULT_H as PORTAL_H, PORTAL_DEFAULT_W as PORTAL_
 /// read — nothing here opens a file.
 pub fn is_web_drop(path: &Path) -> bool {
     if path.is_dir() {
-        return [slate_doc::scene::WEB_DEFAULT_ENTRY, "index.htm"]
-            .iter()
-            .any(|entry| path.join(entry).is_file());
+        return web_entry_for_dir(path).is_some();
     }
     matches!(
         classify_web_locator(&path.to_string_lossy(), false),
         Ok(WebSourceKind::LocalFile)
     )
+}
+
+/// Prefer `index.html`, then `index.htm`. Returns `None` when the folder is
+/// not a page, so a drop of a photo album stays a photo album.
+pub fn web_entry_for_dir(path: &Path) -> Option<&'static str> {
+    for entry in [slate_doc::scene::WEB_DEFAULT_ENTRY, "index.htm"] {
+        if path.join(entry).is_file() {
+            return Some(entry);
+        }
+    }
+    None
 }
 
 /// Recursive copy for packaging a dashboard folder.

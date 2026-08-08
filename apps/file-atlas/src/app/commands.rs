@@ -78,7 +78,8 @@ pub const SPECS: &[CommandSpec] = &[
         "canvas.pan",
         "Pan (precise)",
         "Navigation",
-        "Left-drag on canvas background, or right-drag on empty canvas",
+        "Right-drag (or middle-drag) anywhere on the canvas, cards included — the right \
+         button is navigation and nothing takes it away",
         ATLAS,
     ),
     gesture(
@@ -226,7 +227,7 @@ pub const SPECS: &[CommandSpec] = &[
         "atlas.drag_out",
         "Drag files to another application",
         "Files",
-        "Right-drag from a file or folder — drop into PowerPoint, Explorer, Slate, anything \
+        "Left-drag from a file or folder — drop into PowerPoint, Explorer, Slate, anything \
          that accepts a drop from File Explorer. Drags the whole selection. Copies or links; \
          never moves. Esc cancels",
         ATLAS,
@@ -407,7 +408,8 @@ pub const SPECS: &[CommandSpec] = &[
         "atlas.select_rubber",
         "Rubber-band select",
         "Selection",
-        "Shift + left-drag on canvas",
+        "Left-drag on empty canvas — or Shift + left-drag anywhere, which starts a band \
+         even from on top of a card. Ctrl adds to the selection",
         ATLAS,
     ),
     gesture(

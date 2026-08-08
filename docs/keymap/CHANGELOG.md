@@ -5,6 +5,37 @@ bound and why) and `ARCHITECTURE.md` (how it is built); per-app binding
 tables live in each app's `commands.rs` (`SPECS`) and render in
 **Advanced → Commands & shortcuts**.
 
+## 2026-08-08 — Web portal hardening (post-ship)
+
+- **Deferred WebView2 admit no longer sticks on Loading.** Admission is
+  re-issued every frame while a portal is eligible, so an environment that
+  finishes creating after the first admit still starts the page; an environment
+  that fails reports `NoRuntime` instead of pretending forever.
+- **Local source probes left the UI thread.** `metadata` for Missing/mtime runs
+  on a worker and is generation-tagged; a live portal whose file changes on disk
+  reloads in place (D21) rather than waiting to be evicted.
+- **`index.htm`-only folders bind correctly.** Drop/bind records the entry the
+  folder actually holds.
+- **Popups and downloads are denied** in the composition host (D15, D32).
+- **`portal.web.source` accepts a detail** (URL or path) so agents share the
+  human command path (GP11 / D27). `live_min_px` is 160 so a normally zoomed
+  board page is live rather than looking broken.
+
+## 2026-08-08 — Atlas mouse buttons: left acts, right navigates
+
+- **Right-drag pans from anywhere, cards included.** It previously pans only on
+  empty canvas, because a right-drag off a card handed the files to Windows —
+  which meant pan failed wherever the folder was full, exactly where it is
+  needed most. Ctrl+right-drag turbo pan and middle-drag pan are unchanged.
+- **The shell drag-out moved to the left button**, joining the other things the
+  left button already did to the card under the cursor: filesystem move/copy in
+  Edit mode, and the carry-to-Slate in a linked session.
+- **Left-drag on empty canvas now rubber-band selects** instead of panning.
+  Shift+left-drag still forces a band from on top of a card, which is the only
+  way to start one in a dense folder.
+- Tests: `right_drag_pans_even_when_it_starts_on_a_card` and
+  `left_drag_on_empty_canvas_sweeps_a_selection`.
+
 ## 2026-08-01 — One time axis: the activity timeline
 
 - **The stacked pair became one control.** File Atlas' contribution graph and

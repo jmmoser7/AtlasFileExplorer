@@ -854,7 +854,7 @@ pub struct AtlasApp {
     // export
     export_ui: Option<ExportUi>,
 
-    /// Files a right-drag has handed to Windows, run once the frame's UI is
+    /// Files a left-drag has handed to Windows, run once the frame's UI is
     /// built (`run_shell_drag`). The OLE call is modal, so it must not happen
     /// half way through laying the canvas out.
     pending_shell_drag: Option<Vec<PathBuf>>,
@@ -5624,9 +5624,6 @@ impl AtlasApp {
 
         let pointer = ui.ctx().pointer_latest_pos();
         let shift = ui.input(|i| i.modifiers.shift);
-        // Ctrl keeps the secondary button on turbo pan, so the navigation
-        // gesture survives the card-drag binding below.
-        let ctrl_held = ui.input(|i| i.modifiers.ctrl);
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
         // Zoom tool (Z): while armed, the primary button belongs to the tool
@@ -5651,68 +5648,45 @@ impl AtlasApp {
             }
         }
 
-        // --- input: pan / rubber band / turbo pan / drag-to-Slate ---
-        // Only the primary button starts a rubber band or a drag-to-Slate
-        // carry; the secondary button always pans, even when the press lands
-        // on a thumbnail (right-drag = pan anywhere, left-drag on a
-        // thumbnail = carry to Slate during a linked session).
+        // --- input: marquee / carry / drag-out / pan ---
+        //
+        // The buttons divide by what they address: **the left button acts on
+        // what is under the cursor, the right button moves the view.** So a
+        // left-drag is a marquee on empty canvas and picks the card up when it
+        // starts on one, while a right-drag pans from anywhere — cards
+        // included. Panning is the gesture the hand repeats all day, and on a
+        // full folder there is almost no empty canvas left to aim it at, so it
+        // cannot be the one that loses a coin flip against dragging a file out.
         if resp.drag_started_by(egui::PointerButton::Primary) {
+            let on_card = self.hovered_file.is_some() || self.hovered_dir.is_some();
             if zoom_tool {
                 self.zoom_marquee = pointer;
-            } else if shift {
+            } else if shift || !on_card {
+                // Shift forces a marquee even from on top of a card, which is
+                // the only way to start one in a folder packed edge to edge.
                 self.rubber_origin = pointer;
             } else if self.edit_mode == EditMode::Edit {
                 self.edit_drag = self.edit_drag_from_hover();
-            } else if self.session.is_some() {
-                // Linked session: click-hold-drag on a thumbnail carries the
-                // file(s) toward the Slate window instead of panning.
-                if let Some(f) = self.hovered_file {
-                    let ids: Vec<u32> = if self.selection.contains(&f) {
-                        self.selection.iter().copied().collect()
-                    } else {
-                        vec![f]
-                    };
-                    let files = self.session_files_for_ids(&ids);
-                    if !files.is_empty() {
-                        self.session_drag = Some(files);
-                    }
+            } else if self.session.is_some() && self.hovered_file.is_some() {
+                // Linked session: dragging a thumbnail carries the file(s)
+                // toward the Slate window rather than out to Windows.
+                let f = self.hovered_file.unwrap_or_default();
+                let ids: Vec<u32> = if self.selection.contains(&f) {
+                    self.selection.iter().copied().collect()
+                } else {
+                    vec![f]
+                };
+                let files = self.session_files_for_ids(&ids);
+                if !files.is_empty() {
+                    self.session_drag = Some(files);
                 }
-            }
-        }
-        // Right-drag off a card hands the files to Windows, so they can be
-        // dropped into PowerPoint, Explorer, Slate — anything that accepts a
-        // drop from File Explorer. Ctrl still turbo-pans, and a right-drag that
-        // starts on empty canvas still pans, so navigation is intact.
-        if resp.drag_started_by(egui::PointerButton::Secondary) && !ctrl_held {
-            let paths = match (self.hovered_file, self.hovered_dir) {
-                (Some(f), _) => {
-                    let mut ids: Vec<u32> = if self.selection.contains(&f) {
-                        self.selection.iter().copied().collect()
-                    } else {
-                        vec![f]
-                    };
-                    ids.sort_unstable();
-                    ids.iter()
-                        .filter_map(|&i| self.entries.get(i as usize))
-                        .filter(|e| !e.dead)
-                        .take(atlas_core::shell_drag::MAX_DRAG_PATHS)
-                        .map(|e| e.path.clone())
-                        .collect()
+            } else {
+                // Off a card and out to Windows: PowerPoint, Explorer, Slate —
+                // anything that accepts a drop from File Explorer.
+                let paths = self.shell_drag_paths();
+                if !paths.is_empty() {
+                    self.pending_shell_drag = Some(paths);
                 }
-                // A folder drags as the folder, the way Explorer does it —
-                // one shell item, so the cost of starting the drag does not
-                // scale with how much is inside it.
-                (None, Some(d)) => self
-                    .tree
-                    .as_ref()
-                    .and_then(|t| t.dirs.get(d as usize))
-                    .zip(self.root.as_ref())
-                    .map(|(dir, root)| vec![root.join(&dir.rel)])
-                    .unwrap_or_default(),
-                _ => Vec::new(),
-            };
-            if !paths.is_empty() {
-                self.pending_shell_drag = Some(paths);
             }
         }
         if resp.drag_started() {
@@ -5726,15 +5700,12 @@ impl AtlasApp {
             self.anim = None;
             canvas_nav = true;
         }
-        if resp.dragged()
-            && self.rubber_origin.is_none()
-            && self.zoom_marquee.is_none()
-            && self.edit_drag.is_none()
-            && !turbo_pan_active
-            && self.session_drag.is_none()
-            && self.pending_shell_drag.is_none()
-            && !(zoom_tool && resp.dragged_by(egui::PointerButton::Primary))
-        {
+        // Pan is the right button's whole job, so it has no exceptions to check:
+        // no card, no mode, and no other gesture can take it away. Turbo pan is
+        // the same button with Ctrl and moves the camera itself.
+        let pan_drag = resp.dragged_by(egui::PointerButton::Secondary)
+            || resp.dragged_by(egui::PointerButton::Middle);
+        if pan_drag && !turbo_pan_active {
             self.cam.offset += resp.drag_delta();
             canvas_nav = true;
         }
@@ -6087,8 +6058,34 @@ impl AtlasApp {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         } else if self.hovered_file.is_some() || self.hovered_dir.is_some() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        } else if resp.dragged() && self.rubber_origin.is_none() {
+        } else if pan_drag {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        }
+    }
+
+    /// What a drag off the card under the cursor hands to Windows: the whole
+    /// selection when the card is part of it, otherwise just that card.
+    fn shell_drag_paths(&self) -> Vec<PathBuf> {
+        match (self.hovered_file, self.hovered_dir) {
+            (Some(f), _) => {
+                let mut ids: Vec<u32> = if self.selection.contains(&f) {
+                    self.selection.iter().copied().collect()
+                } else {
+                    vec![f]
+                };
+                ids.sort_unstable();
+                ids.iter()
+                    .filter_map(|&i| self.entries.get(i as usize))
+                    .filter(|e| !e.dead)
+                    .take(atlas_core::shell_drag::MAX_DRAG_PATHS)
+                    .map(|e| e.path.clone())
+                    .collect()
+            }
+            // A folder drags as the folder, the way Explorer does it — one
+            // shell item, so the cost of starting the drag does not scale with
+            // how much is inside it.
+            (None, Some(d)) => self.dir_path(d).map(|p| vec![p]).unwrap_or_default(),
+            _ => Vec::new(),
         }
     }
 
@@ -8707,7 +8704,7 @@ impl AtlasApp {
             });
     }
 
-    /// Hand a right-drag off to Windows and wait for the drop.
+    /// Hand a left-drag off to Windows and wait for the drop.
     ///
     /// This blocks the frame loop for as long as the user holds the button —
     /// unavoidably, because `DoDragDrop` is synchronous and only works on the
@@ -8720,11 +8717,11 @@ impl AtlasApp {
         };
         let n = paths.len();
         let outcome =
-            atlas_core::shell_drag::drag_out(&paths, atlas_core::shell_drag::DragButton::Right);
+            atlas_core::shell_drag::drag_out(&paths, atlas_core::shell_drag::DragButton::Left);
 
         // The drop consumed the button release, so egui never saw it and would
-        // otherwise believe the secondary button is still down — which reads as
-        // an endless pan the moment the mouse moves again.
+        // otherwise believe the button is still down — which reads as a gesture
+        // that never ends the moment the mouse moves again.
         ctx.input_mut(|i| i.pointer = egui::PointerState::default());
 
         match outcome {

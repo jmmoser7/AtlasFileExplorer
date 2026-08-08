@@ -132,6 +132,15 @@ them is an index-out-of-bounds crash the moment another tab's entries load:
     confirmation. The walk is I/O on a share, so it runs on its own thread
     (`cloud_audit` → `poll_cloud_audit`) and the readout says "checking" while it
     does; nothing about "would this download" may be asked on the frame loop.
+11. **The left button acts on what is under the cursor; the right button moves
+    the view.** Right-drag (and middle-drag) pans unconditionally — no mode, no
+    hover target, and no other gesture may take it away, because on a full
+    folder there is almost no empty canvas left to aim a pan at. Left-drag is a
+    rubber band on empty canvas, and on a card it belongs to whichever of the
+    three "pick it up" gestures is in force: Edit-mode filesystem drag, the
+    linked-session carry to Slate, or the shell drag-out. Guarded by
+    `right_drag_pans_even_when_it_starts_on_a_card` and
+    `left_drag_on_empty_canvas_sweeps_a_selection`.
 
 `src/app/tests.rs` drives the real frame loop headlessly (12-tab stress,
 mid-scan switches, picker routing, pointer torture) and asserts these

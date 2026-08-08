@@ -53,18 +53,23 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     CreateCoreWebView2EnvironmentWithOptions, GetAvailableCoreWebView2BrowserVersionString,
     ICoreWebView2, ICoreWebView2CompositionController, ICoreWebView2Controller,
     ICoreWebView2Controller2, ICoreWebView2Controller3, ICoreWebView2Environment,
-    ICoreWebView2Environment3, COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS, COREWEBVIEW2_COLOR,
-    COREWEBVIEW2_MOUSE_EVENT_KIND, COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN,
-    COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP, COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN,
+    ICoreWebView2Environment3, ICoreWebView2_4, COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS,
+    COREWEBVIEW2_COLOR, COREWEBVIEW2_MOUSE_EVENT_KIND,
+    COREWEBVIEW2_MOUSE_EVENT_KIND_HORIZONTAL_WHEEL, COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE,
+    COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN, COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP,
+    COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN,
     COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP, COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE,
     COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN, COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP,
     COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS,
-    COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE,
+    COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_LEFT_BUTTON,
+    COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_MIDDLE_BUTTON,
+    COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_RIGHT_BUTTON,
 };
 use webview2_com::{
     CallDevToolsProtocolMethodCompletedHandler,
     CreateCoreWebView2CompositionControllerCompletedHandler,
-    CreateCoreWebView2EnvironmentCompletedHandler, NavigationCompletedEventHandler,
+    CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler,
+    NavigationCompletedEventHandler, NewWindowRequestedEventHandler,
 };
 
 use super::board_web::{WebHost, WebInput, WebRequest};
@@ -72,6 +77,35 @@ use super::board_web::{WebHost, WebInput, WebRequest};
 /// Wide, NUL-terminated, kept alive for the duration of the call.
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// `Navigate` takes a URI, not a path: a bare `C:\dir\page.html` is rejected
+/// outright, which is why a local dashboard used to sit at `Loading` forever.
+/// Remote locators pass through untouched.
+pub(crate) fn navigate_uri(target: &str) -> String {
+    let lower = target.to_ascii_lowercase();
+    if lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("file://")
+        || lower.starts_with("about:")
+    {
+        return target.to_string();
+    }
+    let mut out = String::from("file:///");
+    for ch in target.chars() {
+        match ch {
+            '\\' => out.push('/'),
+            // Percent-encode what a URI cannot carry literally. Keeping this to
+            // the characters that actually appear in paths avoids mangling
+            // non-ASCII folder names, which WebView2 accepts as-is.
+            ' ' => out.push_str("%20"),
+            '#' => out.push_str("%23"),
+            '?' => out.push_str("%3F"),
+            '%' => out.push_str("%25"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// What the async WebView2 callbacks fill in for one view. The callbacks land
@@ -84,6 +118,9 @@ struct Pending {
     webview: Option<ICoreWebView2>,
     /// A failed navigation, as a human-readable reason (P1.portal.health).
     error: Option<String>,
+    /// Where the page actually is, which diverges from the locator as soon as
+    /// the human follows a link.
+    url: Option<String>,
     /// Set once the visual tree has been handed to the controller.
     attached: bool,
 }
@@ -113,6 +150,9 @@ pub struct Webview2Host {
     /// and therefore the compositor — alive.
     _queue: Option<DispatcherQueueController>,
     env: Rc<RefCell<Option<ICoreWebView2Environment3>>>,
+    /// Set when the environment callback reports failure. Until then a missing
+    /// env just means "still creating", and portals stay on Loading.
+    env_failed: Rc<RefCell<bool>>,
     views: HashMap<NodeId, View>,
     /// Admissions that arrived before the environment finished creating.
     deferred: Vec<(NodeId, WebRequest)>,
@@ -148,16 +188,20 @@ impl Webview2Host {
                 .ok()?;
 
         let env: Rc<RefCell<Option<ICoreWebView2Environment3>>> = Rc::new(RefCell::new(None));
+        let env_failed: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let sink = env.clone();
+        let fail = env_failed.clone();
         let handler = CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(
             move |result: windows::core::Result<()>,
                   environment: Option<ICoreWebView2Environment>| {
-                if result.is_ok() {
-                    if let Some(e) =
-                        environment.and_then(|e| e.cast::<ICoreWebView2Environment3>().ok())
-                    {
-                        *sink.borrow_mut() = Some(e);
+                match (result, environment) {
+                    (Ok(()), Some(environment)) => {
+                        match environment.cast::<ICoreWebView2Environment3>() {
+                            Ok(e) => *sink.borrow_mut() = Some(e),
+                            Err(_) => *fail.borrow_mut() = true,
+                        }
                     }
+                    _ => *fail.borrow_mut() = true,
                 }
                 Ok(())
             },
@@ -180,8 +224,8 @@ impl Webview2Host {
             capture_device,
             compositor,
             _queue: queue,
-
             env,
+            env_failed,
             views: HashMap::new(),
             deferred: Vec::new(),
         })
@@ -369,6 +413,10 @@ impl Webview2Host {
         Some(image)
     }
 
+    fn webview(&self, id: NodeId) -> Option<ICoreWebView2> {
+        self.views.get(&id)?.shared.borrow().webview.clone()
+    }
+
     fn devtools(&self, id: NodeId, method: &str, params: &str) {
         let Some(webview) = self
             .views
@@ -388,10 +436,14 @@ impl Webview2Host {
 
 impl WebHost for Webview2Host {
     fn available(&self) -> bool {
-        true
+        !*self.env_failed.borrow()
     }
 
     fn admit(&mut self, id: NodeId, req: &WebRequest) {
+        if *self.env_failed.borrow() {
+            self.deferred.clear();
+            return;
+        }
         // The environment may have arrived since an earlier admission.
         if !self.deferred.is_empty() && self.env.borrow().is_some() {
             for (pending_id, pending) in std::mem::take(&mut self.deferred) {
@@ -460,9 +512,12 @@ impl WebHost for Webview2Host {
             let _ = unsafe { comp.SendMouseInput(kind, keys, data, p) };
         };
         match input {
-            WebInput::Move { x, y } => {
-                mouse(COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE, 0, point(x, y), none)
-            }
+            WebInput::Move { x, y, buttons } => mouse(
+                COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE,
+                0,
+                point(x, y),
+                held_keys(buttons),
+            ),
             WebInput::Down { x, y, button } => mouse(
                 match button {
                     1 => COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN,
@@ -483,10 +538,25 @@ impl WebHost for Webview2Host {
                 point(x, y),
                 none,
             ),
-            WebInput::Wheel { x, y, dy } => mouse(
-                COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL,
-                (dy.round() as i32) as u32,
+            WebInput::Wheel {
+                x,
+                y,
+                delta,
+                horizontal,
+            } => mouse(
+                if horizontal {
+                    COREWEBVIEW2_MOUSE_EVENT_KIND_HORIZONTAL_WHEEL
+                } else {
+                    COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL
+                },
+                wheel_data(delta),
                 point(x, y),
+                none,
+            ),
+            WebInput::Leave => mouse(
+                COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE,
+                0,
+                POINT { x: 0, y: 0 },
                 none,
             ),
             // Keyboard goes through DevTools rather than the parent window's
@@ -525,6 +595,66 @@ impl WebHost for Webview2Host {
     fn load_error(&self, id: NodeId) -> Option<String> {
         self.views.get(&id)?.shared.borrow().error.clone()
     }
+
+    fn current_url(&self, id: NodeId) -> Option<String> {
+        self.views.get(&id)?.shared.borrow().url.clone()
+    }
+
+    fn go_back(&mut self, id: NodeId) -> bool {
+        let Some(webview) = self.webview(id) else {
+            return false;
+        };
+        let mut can = windows::core::BOOL(0);
+        let _ = unsafe { webview.CanGoBack(&mut can) };
+        can.as_bool() && unsafe { webview.GoBack() }.is_ok()
+    }
+
+    fn go_forward(&mut self, id: NodeId) -> bool {
+        let Some(webview) = self.webview(id) else {
+            return false;
+        };
+        let mut can = windows::core::BOOL(0);
+        let _ = unsafe { webview.CanGoForward(&mut can) };
+        can.as_bool() && unsafe { webview.GoForward() }.is_ok()
+    }
+
+    fn reload(&mut self, id: NodeId) -> bool {
+        let Some(webview) = self.webview(id) else {
+            return false;
+        };
+        unsafe { webview.Reload() }.is_ok()
+    }
+}
+
+/// Buttons held during a move, so a drag reads as a drag inside the page.
+fn held_keys(buttons: u8) -> COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS {
+    let mut keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE;
+    if buttons & 1 != 0 {
+        keys |= COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_LEFT_BUTTON;
+    }
+    if buttons & 2 != 0 {
+        keys |= COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_RIGHT_BUTTON;
+    }
+    if buttons & 4 != 0 {
+        keys |= COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_MIDDLE_BUTTON;
+    }
+    keys
+}
+
+/// egui reports scroll in points; Windows counts notches of `WHEEL_DELTA`.
+/// Without the conversion a notch moved a page by a couple of lines and
+/// scrolling felt broken.
+fn wheel_data(delta: f32) -> u32 {
+    const WHEEL_DELTA: f32 = 120.0;
+    // egui's Windows backend reports roughly 50 points per notch.
+    let notches = delta / 50.0;
+    let scaled = (notches * WHEEL_DELTA).round() as i32;
+    let clamped = if scaled == 0 {
+        WHEEL_DELTA as i32 * delta.signum() as i32
+    } else {
+        scaled
+    };
+    clamped as u32
 }
 
 /// Wire a freshly created composition controller to our visual and point it at
@@ -573,7 +703,7 @@ fn attach(
     }
 
     let errors = sink.clone();
-    let nav = NavigationCompletedEventHandler::create(Box::new(move |_sender, args| {
+    let nav = NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
         if let Some(args) = args {
             let mut ok = windows::core::BOOL(0);
             let _ = unsafe { args.IsSuccess(&mut ok) };
@@ -586,12 +716,45 @@ fn attach(
                 Some(format!("the page did not load (error {})", status.0))
             };
         }
+        // Following a link changes what the frame shows; saying so is what
+        // keeps it honest about being a browser (Art. IV).
+        if let Some(sender) = sender {
+            let mut source = windows::core::PWSTR::null();
+            if unsafe { sender.Source(&mut source) }.is_ok() && !source.is_null() {
+                let text = unsafe { source.to_string() }.ok();
+                unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(source.0 as *const _)) };
+                errors.borrow_mut().url = text;
+            }
+        }
         Ok(())
     }));
     let mut token = 0i64;
     let _ = unsafe { webview.add_NavigationCompleted(&nav, &mut token) };
 
-    let url = wide(target);
+    // Popups and downloads are not a browser chrome feature we ship (D15, D32).
+    // Handled=true with no NewWindow, and Cancel=true on download, so the page
+    // cannot open a window or write a file through this host.
+    let popup = NewWindowRequestedEventHandler::create(Box::new(move |_sender, args| {
+        if let Some(args) = args {
+            let _ = unsafe { args.SetHandled(true) };
+        }
+        Ok(())
+    }));
+    let mut popup_token = 0i64;
+    let _ = unsafe { webview.add_NewWindowRequested(&popup, &mut popup_token) };
+    if let Ok(wv4) = webview.cast::<ICoreWebView2_4>() {
+        let download = DownloadStartingEventHandler::create(Box::new(move |_sender, args| {
+            if let Some(args) = args {
+                let _ = unsafe { args.SetCancel(true) };
+                let _ = unsafe { args.SetHandled(true) };
+            }
+            Ok(())
+        }));
+        let mut download_token = 0i64;
+        let _ = unsafe { wv4.add_DownloadStarting(&download, &mut download_token) };
+    }
+
+    let url = wide(&navigate_uri(target));
     unsafe { webview.Navigate(PCWSTR(url.as_ptr())) }?;
 
     let mut pending = sink.borrow_mut();
@@ -711,6 +874,225 @@ fn virtual_key(key: egui::Key) -> Option<u32> {
         F5 => 0x74,
         _ => return None,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Test scaffolding
+// ---------------------------------------------------------------------------
+//
+// The live tests need what the app normally supplies: a window to parent the
+// browser to, and a message loop to deliver WebView2's async callbacks. Both
+// live here rather than in a test module so the board-level integration test
+// can use them too.
+
+#[cfg(test)]
+pub(crate) mod probe {
+    use super::*;
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, PeekMessageW, RegisterClassW,
+        TranslateMessage, CW_USEDEFAULT, MSG, PM_REMOVE, WINDOW_EX_STYLE, WNDCLASSW,
+        WS_OVERLAPPEDWINDOW,
+    };
+
+    /// Drain the thread's message queue. WebView2 completions arrive here.
+    pub(crate) fn pump() {
+        unsafe {
+            let mut msg = MSG::default();
+            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+    }
+
+    unsafe extern "system" fn probe_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: windows::Win32::Foundation::WPARAM,
+        lparam: windows::Win32::Foundation::LPARAM,
+    ) -> windows::Win32::Foundation::LRESULT {
+        unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+    }
+
+    pub(crate) fn window() -> HWND {
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let instance = GetModuleHandleW(None).unwrap();
+            let class = wide("SlateWebHostProbe");
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(probe_proc),
+                hInstance: instance.into(),
+                lpszClassName: PCWSTR(class.as_ptr()),
+                ..Default::default()
+            };
+            RegisterClassW(&wc);
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                PCWSTR(class.as_ptr()),
+                PCWSTR(wide("probe").as_ptr()),
+                WS_OVERLAPPEDWINDOW,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                640,
+                480,
+                None,
+                None,
+                Some(instance.into()),
+                None,
+            )
+            .unwrap()
+        }
+    }
+
+    /// A host parented to a throwaway window, with its own profile folder.
+    pub(crate) fn host(tag: &str) -> Option<Webview2Host> {
+        let dir = std::env::temp_dir().join(format!("slate-web-probe-{tag}"));
+        std::fs::create_dir_all(&dir).ok()?;
+        Webview2Host::new(window(), &dir.join("udf"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::probe::{host, pump};
+    use super::*;
+    use slate_doc::scene::WebSourceKind;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_windows_path_becomes_a_file_uri_and_a_url_is_left_alone() {
+        assert_eq!(
+            navigate_uri(r"C:\dash boards\index.html"),
+            "file:///C:/dash%20boards/index.html"
+        );
+        assert_eq!(
+            navigate_uri("https://example.com/a?b=1"),
+            "https://example.com/a?b=1"
+        );
+        assert_eq!(
+            navigate_uri("file:///C:/x.html"),
+            "file:///C:/x.html",
+            "an already-formed file URI is not re-encoded"
+        );
+    }
+
+    /// Pull frames until one satisfies `want`, pumping the message loop.
+    fn run_until(
+        host: &mut Webview2Host,
+        id: NodeId,
+        req: &WebRequest,
+        secs: u64,
+        want: impl Fn(&egui::ColorImage) -> bool,
+    ) -> (usize, bool) {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        let mut frames = 0usize;
+        let mut hit = false;
+        while Instant::now() < deadline && !hit {
+            pump();
+            // `admit` is idempotent, and re-calling it is how the environment's
+            // late arrival gets picked up — exactly what the pump does.
+            host.admit(id, req);
+            if let Some(img) = host.take_frame(id) {
+                frames += 1;
+                hit = want(&img);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        (frames, hit)
+    }
+
+    /// The one test that proves the pipeline end to end: a real browser, a real
+    /// composition visual, a real capture session, real pixels. It needs a
+    /// desktop session and the Evergreen runtime, so it is `#[ignore]`d and run
+    /// deliberately:
+    ///
+    /// ```powershell
+    /// cargo test -p slate --lib board_web_win -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn a_local_page_paints_into_a_texture() {
+        let dir = std::env::temp_dir().join("slate-web-probe-local");
+        std::fs::create_dir_all(&dir).unwrap();
+        let page = dir.join("probe.html");
+        std::fs::write(
+            &page,
+            "<html><body style=\"margin:0;background:#ff0000\"></body></html>",
+        )
+        .unwrap();
+
+        let mut host =
+            host("local").expect("no WebView2 runtime, GPU device, or compositor on this machine");
+        let id = NodeId(1);
+        let req = WebRequest {
+            // Deliberately a bare Windows path, which is what the board hands
+            // the host: turning it into a URI is the host's job.
+            target: page.to_string_lossy().into_owned(),
+            kind: WebSourceKind::LocalFile,
+            width_css: 320,
+            height_css: 200,
+        };
+        let (frames, red) = run_until(&mut host, id, &req, 45, |img| {
+            img.pixels
+                .iter()
+                .any(|p| p.r() > 200 && p.g() < 80 && p.b() < 80)
+        });
+        println!(
+            "frames: {frames}, red: {red}, error: {:?}",
+            host.load_error(id)
+        );
+        assert!(frames > 0, "the capture session never produced a frame");
+        assert!(red, "frames arrived but the page never painted");
+    }
+
+    /// Browser parity: an arbitrary public page loads and paints. Needs the
+    /// network as well as a desktop session.
+    #[test]
+    #[ignore]
+    fn an_arbitrary_public_page_loads_and_paints() {
+        let mut host = host("remote").expect("no WebView2 runtime on this machine");
+        let id = NodeId(2);
+        let req = WebRequest {
+            target: "https://example.com/".into(),
+            kind: WebSourceKind::Remote,
+            width_css: 1024,
+            height_css: 700,
+        };
+        // Any page that renders text puts dark pixels on a light background;
+        // an unpainted capture is uniformly transparent.
+        let (frames, painted) = run_until(&mut host, id, &req, 60, |img| {
+            img.pixels.iter().any(|p| p.a() > 200 && p.r() < 120)
+        });
+        println!(
+            "frames: {frames}, painted: {painted}, error: {:?}",
+            host.load_error(id)
+        );
+        assert!(frames > 0, "the capture session never produced a frame");
+        assert!(painted, "example.com never rendered any content");
+    }
+
+    /// Eviction releases the browser and the capture session, which is what
+    /// keeps a board of a hundred pages to a bounded number of processes.
+    #[test]
+    #[ignore]
+    fn eviction_releases_the_view() {
+        let mut host = host("evict").expect("no WebView2 runtime on this machine");
+        let id = NodeId(3);
+        let req = WebRequest {
+            target: "about:blank".into(),
+            kind: WebSourceKind::Remote,
+            width_css: 200,
+            height_css: 120,
+        };
+        let (frames, _) = run_until(&mut host, id, &req, 30, |_| true);
+        assert!(frames > 0);
+        host.evict(id);
+        pump();
+        assert!(host.views.is_empty(), "the view outlived its slot");
+        assert!(host.take_frame(id).is_none());
+    }
 }
 
 fn map_cursor(cursor: HCURSOR) -> Option<egui::CursorIcon> {
