@@ -43,6 +43,9 @@ pub struct Palette {
     pub thumb_bg: Color32,
     pub select: Color32,
     pub staged: Color32,
+    /// Armed-for-destruction cue: the Edit-mode canvas border and chip. Read as
+    /// a warning at a glance, which is why it is never the accent.
+    pub danger: Color32,
     /// `Visuals::panel_fill`.
     pub panel: Color32,
     /// `Visuals::window_fill`.
@@ -100,6 +103,16 @@ impl Palette {
         visuals
     }
 
+    /// Legible foreground for text sitting on [`Palette::danger`]. Both themes
+    /// have a near-white slot; which one it is flips with the base.
+    pub fn on_danger(&self) -> Color32 {
+        if self.dark_mode {
+            self.ink
+        } else {
+            self.bg
+        }
+    }
+
     /// Theme subset used by the sidebar layout primitives.
     pub fn sidebar_theme(&self) -> SidebarTheme {
         SidebarTheme {
@@ -137,6 +150,7 @@ impl Palette {
             thumb_bg: slots.thumb_bg.color(),
             select: slots.select.color(),
             staged: slots.staged.color(),
+            danger: slots.danger.color(),
             panel: slots.panel.color(),
             window: slots.window.color(),
             extreme_bg: slots.extreme_bg.color(),
@@ -283,6 +297,29 @@ mod tests {
         assert_eq!(dark.thumb_bg, Color32::from_rgb(0x15, 0x18, 0x1c));
         assert_eq!(dark.select, Color32::from_rgb(0x6f, 0xb7, 0xff));
         assert_eq!(dark.staged, Color32::from_rgb(0xe0, 0xa8, 0x3c));
+    }
+
+    /// The Edit-mode cue has to read as a warning, not as ordinary emphasis:
+    /// red-dominant, never the accent, and legible under its own foreground.
+    #[test]
+    fn the_danger_slot_is_deep_red_in_both_themes() {
+        for palette in [Palette::builtin(false), Palette::builtin(true)] {
+            let (r, g, b) = (
+                palette.danger.r() as i32,
+                palette.danger.g() as i32,
+                palette.danger.b() as i32,
+            );
+            assert!(
+                r > g + 80 && r > b + 80,
+                "danger {:?} is not clearly red",
+                palette.danger
+            );
+            assert!(r < 0xd0, "danger {:?} is not deep", palette.danger);
+            assert_ne!(palette.danger, palette.accent);
+            // Near-white on the fill, whichever base the theme paints over.
+            let fg = palette.on_danger();
+            assert!(fg.r() > 0xd0 && fg.g() > 0xd0 && fg.b() > 0xd0, "{fg:?}");
+        }
     }
 
     /// `dark_visuals` / `light_visuals` as they were written before they were

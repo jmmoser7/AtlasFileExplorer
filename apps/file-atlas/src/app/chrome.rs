@@ -9,15 +9,17 @@
 pub enum ToolPanel {
     BasicFilters = 0,
     DisplaySettings = 1,
-    Workflow = 2,
+    Mode = 2,
+    Workflow = 3,
     /// AI / Cursor integration (shared panel body from `atlas-ai`).
-    Ai = 3,
+    Ai = 4,
 }
 
 impl ToolPanel {
-    pub const ALL: [ToolPanel; 4] = [
+    pub const ALL: [ToolPanel; 5] = [
         ToolPanel::BasicFilters,
         ToolPanel::DisplaySettings,
+        ToolPanel::Mode,
         ToolPanel::Workflow,
         ToolPanel::Ai,
     ];
@@ -26,6 +28,7 @@ impl ToolPanel {
         match self {
             ToolPanel::BasicFilters => "Basic filters",
             ToolPanel::DisplaySettings => "Display settings",
+            ToolPanel::Mode => "Mode",
             ToolPanel::Workflow => "Workflow",
             ToolPanel::Ai => "AI",
         }
@@ -64,7 +67,7 @@ impl From<ReadoutPanel> for usize {
 }
 
 /// Per-tab UI chrome configuration (nested inside the active tab's workspace).
-pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<4, 2>;
+pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<5, 2>;
 
 /// App default: everything visible, the AI panel starts collapsed (it's the
 /// optional assistant toolbar, not part of the core filtering workflow).

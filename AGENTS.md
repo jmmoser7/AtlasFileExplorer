@@ -28,7 +28,7 @@ shared crates:
 
 | Crate | Role | Safe to edit in parallel |
 |-------|------|--------------------------|
-| `crates/atlas-core` | UI-free backend: types, scanner, SQLite index, thumbnail pool + cache tiers, tree layout, journal, export, watcher, time-selection math (`timeline.rs`) | Yes — but read `docs/performance.md` first for `scanner.rs`, `thumbs.rs`, `rasterthumb.rs`, `owners.rs`, `metadata.rs` |
+| `crates/atlas-core` | UI-free backend: types, scanner (+ `skiplist.rs`), SQLite index, thumbnail pool + cache tiers, tree layout, journal, export, watcher, time-selection math (`timeline.rs`) | Yes — but read `docs/performance.md` first for `scanner.rs`, `thumbs.rs`, `rasterthumb.rs`, `owners.rs`, `metadata.rs` |
 | `crates/atlas-shell` | **Shared window chrome**: theme/Palette, tab strip, sidebar primitives, widgets, activity timeline, panel registry, command reference | Yes — but see the chrome rule below |
 | `crates/atlas-session` | In-process bridge for linked Slate⇄Atlas sessions | Yes |
 | `crates/atlas-ai` | AI / Cursor integration: shared AI-workspace config, Cursor launcher, live-link context beacon, the sidebar AI panel body | Yes |
@@ -69,6 +69,12 @@ Read the app's `COMMANDS.md` before adding keyboard or mouse bindings. Every
 user-facing command must be registered in that app's `commands.rs` (`ENTRIES`)
 so it appears in **Advanced → Commands & shortcuts**.
 
+File Atlas has a View / Edit safety mode. View is the default on launch and root
+changes and must refuse real filesystem mutations. Edit mode is human-only and
+unlocks rename, move, copy, new-folder, and delete operations; each completed
+mutation must be journaled as a reversible `atlas_core::journal::Action` where a
+safe inverse exists. Agents must not initiate these write paths.
+
 Interaction contracts for canvas tools and portal subtypes live in
 `docs/keymap/contracts/` (registry, patterns, decisions database, one file per
 contract) and are governed by the `.cursor/skills/tool-contract` skill.
@@ -103,6 +109,37 @@ cargo test -p atlas-core --release --test scan_bench  -- --ignored --nocapture
 cargo test -p native-file-atlas --release load_jitter -- --ignored --nocapture
 ```
 
+### Never fix a stall by slowing down what the user is watching
+
+A folder filling in — cards from the first batch, previews landing while
+discovery is still running — **is the product**, and it matters most exactly where
+it is slowest. So when the window stutters or freezes during a load, the fix is
+never to hold population back. That instinct has already cost once: deferring the
+network thumbnail pool until the scan finished did nothing for the freeze (worker
+threads never touch the frame loop) and turned a slow share into minutes of empty
+cards.
+
+Diagnose it as a frame-loop problem, because that is what it is:
+
+- **Nothing on the frame loop may block on the network.** One `metadata` call is
+  ~10 ms on a share and `owner_short` is ~5 *seconds*; either one, drained in a
+  loop, is a frozen window. Windows marking the process "Not Responding" (check
+  `Get-Process ... Responding`) tells you the UI thread is blocked rather than
+  merely busy.
+- **Put a per-frame budget on anything whose volume you do not control** — texture
+  uploads, watcher events (`FS_EVENTS_PER_FRAME`), scan-driven rebuilds
+  (`tree_rebuild_due`). Keep the remainder in a backlog and request a repaint.
+- **Throttle bulk work only.** On-demand thumbnail requests are bounded by the
+  screen and should always run; the whole-corpus sweep (`queue_cache_warming`) is
+  the one that waits for `ScanMsg::Done` and stays capped at `WARM_CONCURRENCY`.
+- **Background work still costs the share.** Off-thread is not free when the
+  bottleneck is one SMB link: a cover bake DFS'ing thousands of directories will
+  starve discovery without ever touching a frame.
+
+Invariant 7 in `apps/file-atlas/src/app/ARCHITECTURE.md` states this; the tests
+are `previews_stream_while_the_folder_is_still_arriving` and
+`a_watcher_storm_is_spread_across_frames`.
+
 ### Nothing whole-corpus on the batch path
 
 `load_jitter` measures frame time while batches stream in, because that is where
@@ -119,6 +156,21 @@ Likewise, **collapse state is a recorded decision, not a derived one**
 (`AtlasApp::dir_collapsed`). Rebuilds happen constantly during a load and
 `default_collapse` reads counts that are still growing, so anything that changes
 collapse must record it — otherwise the next rebuild silently undoes the user.
+
+**`Tree::build` performs no I/O.** It runs on the frame loop, so a `metadata` or
+owner call inside it is a network round trip per folder on the frame loop — that
+is what once froze a first-visit share for minutes behind a progress bar. Folder
+dates ride along with discovery (free from the directory listing the walk already
+read); owners are resolved off-thread, on demand, for folders actually in view
+(`dirmeta.rs`). Feed the build a `DirMetaMap`; never let it ask the filesystem
+anything.
+
+**A slow folder may just be a slow folder.** Vendored asset libraries (Megascans
+and friends) are thousands of near-empty directories, and on a share each read
+costs seconds. The walk is breadth-first so shallow content lands first, and
+`atlas_core::skiplist` holds the user's list of folder names nothing walks into
+(**Advanced → Folders never scanned**). Grow the defaults only on evidence — what
+counts as content is the user's judgement, not ours.
 
 When a real folder shows wrong or missing previews, run the pipeline against it
 directly instead of guessing — `folder_probe` reports what each tier returned per
@@ -146,7 +198,10 @@ appeared to cap out at 15 thumbnails/sec.
 So, in code and in your own diagnostics alike:
 
 - gate anything that reads file bytes on `atlas_core::cloud::is_dehydrated`, which
-  reads only the directory entry and can never itself trigger a download;
+  reads only the directory entry and can never itself trigger a download; for a
+  whole copy — a selection, or a folder whose subtree has to be counted — use
+  `cloud::copy_cloud_cost`, which answers the same question for a set of paths
+  and, being real I/O on a share, belongs on a worker thread;
 - never write a script that opens or reads many files under a OneDrive path — not
   even a few KB each, since a partial read hydrates the whole file. Attributes
   from `Get-ChildItem` are safe; `[System.IO.File]::OpenRead` is not;

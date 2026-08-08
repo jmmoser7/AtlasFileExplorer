@@ -18,8 +18,9 @@
 //!
 //! Format routing mirrors the thumbnail extractors: rasters the bundled
 //! `image` build understands decode natively on every platform, PDFs render
-//! through the shared pdfium worker at the requested size, and everything
-//! else asks the platform shell (Windows) for a large extraction.
+//! through the shared pdfium worker at the requested size, SVGs rasterize
+//! via `resvg`, and everything else asks the platform shell (Windows) for a
+//! large extraction.
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::path::{Path, PathBuf};
@@ -156,6 +157,8 @@ pub fn decode_preview(
         "png" | "jpg" | "jpeg" => decode_raster(path, target_px),
         // PDFs render via the shared pdfium worker at the requested size.
         "pdf" => crate::pdf::thumbnail_page(path, pdf_page.unwrap_or(0), target_px as i32),
+        // SVGs rasterize via resvg (same extractor as the thumbnail path).
+        "svg" => crate::svg::thumbnail(path, target_px),
         // Everything else: the platform shell (Windows) often produces large
         // previews — video posters, HEIC/PSD with codec packs installed, …
         _ => crate::thumbs::shell_image_at(path, target_px as i32),

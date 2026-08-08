@@ -26,6 +26,10 @@ pub struct AssetMap {
     /// Frozen-camera poster URLs for 3D model nodes, keyed by node id (one
     /// placed model = one saved perspective = one poster).
     model_posters: BTreeMap<u64, String>,
+    /// Packaged local web-portal material, keyed by node id.
+    web_pages: BTreeMap<u64, WebAsset>,
+    /// Captured web-portal posters, keyed by node id.
+    web_posters: BTreeMap<u64, String>,
 }
 
 impl AssetMap {
@@ -60,6 +64,24 @@ impl AssetMap {
     pub fn insert_model_poster(&mut self, node: NodeId, url: String) {
         self.model_posters.insert(node.0, url);
     }
+
+    /// The packaged copy of a local web portal's material, and where it came
+    /// from.
+    pub fn web_page(&self, node: NodeId) -> Option<&WebAsset> {
+        self.web_pages.get(&node.0)
+    }
+
+    pub fn web_poster(&self, node: NodeId) -> Option<&str> {
+        self.web_posters.get(&node.0).map(String::as_str)
+    }
+}
+
+/// A local page copied beside the artifact. `origin` is the path it was forked
+/// from, which the caption states rather than quietly dropping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebAsset {
+    pub url: String,
+    pub origin: String,
 }
 
 pub struct AssetBuildReport {
@@ -173,11 +195,81 @@ pub fn build_assets(
         map.model_posters.insert(node.id.0, url);
     }
 
+    // Web portals. Local material is copied whole — a dashboard is its entry
+    // file plus the scripts and data beside it — and the copy records its
+    // origin (Art. IX.4). Remote pages are never fetched at export time; they
+    // get their captured poster and a link (Art. V.3).
+    for node in &doc.scene.nodes {
+        let NodeKind::Portal(portal) = &node.kind else {
+            continue;
+        };
+        if portal.kind != slate_doc::scene::PortalKind::Web {
+            continue;
+        }
+        if let Some(source) = opts.web_sources.get(&node.id) {
+            if source.exists() {
+                if !assets_dir_ready {
+                    fs::create_dir_all(&assets_dir)?;
+                    assets_dir_ready = true;
+                }
+                let dir_name = format!("web-{}", node.id.0);
+                let dest = assets_dir.join(&dir_name);
+                let entry = if source.is_dir() {
+                    let entry = portal.web_ref().entry;
+                    copy_tree(source, &dest, &mut copied)?;
+                    format!("assets/{dir_name}/{entry}")
+                } else {
+                    fs::create_dir_all(&dest)?;
+                    let file_name = asset_file_name(source);
+                    fs::copy(source, dest.join(&file_name))?;
+                    copied += 1;
+                    format!("assets/{dir_name}/{file_name}")
+                };
+                map.web_pages.insert(
+                    node.id.0,
+                    WebAsset {
+                        url: entry,
+                        origin: source.to_string_lossy().into_owned(),
+                    },
+                );
+            } else {
+                missing += 1;
+            }
+        }
+        if let Some(poster) = opts.web_posters.get(&node.id) {
+            if poster.exists() {
+                let url = if opts.inline_assets {
+                    data_uri(poster)?
+                } else {
+                    copy_file(poster, &mut assets_dir_ready, &mut copied)?
+                };
+                map.web_posters.insert(node.id.0, url);
+            }
+        }
+    }
+
     Ok(AssetBuildReport {
         map,
         copied,
         missing,
     })
+}
+
+/// Copy a dashboard folder whole: its entry file is useless without the
+/// scripts, styles, and data files beside it.
+fn copy_tree(from: &Path, to: &Path, copied: &mut usize) -> io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &target, copied)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+            *copied += 1;
+        }
+    }
+    Ok(())
 }
 
 fn data_uri(path: &Path) -> io::Result<String> {

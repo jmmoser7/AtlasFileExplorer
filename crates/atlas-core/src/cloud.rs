@@ -15,7 +15,7 @@
 //! at the moment it matters, which costs one metadata call and never recalls
 //! content.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// `FILE_ATTRIBUTE_OFFLINE`: content is not immediately available.
 pub const OFFLINE: u32 = 0x0000_1000;
@@ -93,6 +93,124 @@ pub fn is_dehydrated(_path: &Path) -> bool {
 #[cfg(not(windows))]
 pub fn file_attributes(_path: &Path) -> Option<u32> {
     None
+}
+
+/// What copying a set of paths would pull down from a sync client.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CloudCost {
+    /// Placeholder files that would have to be downloaded first.
+    pub files: usize,
+    /// Their combined size, from the directory entry.
+    pub bytes: u64,
+}
+
+impl CloudCost {
+    pub fn is_free(self) -> bool {
+        self.files == 0
+    }
+}
+
+/// Attributes and size straight from the directory entry.
+///
+/// `GetFileAttributesEx` never opens the file, which matters: a placeholder
+/// carrying `RECALL_ON_OPEN` hydrates the moment a handle is opened, so the
+/// ordinary `std::fs::metadata` path is not safe to point at one.
+#[cfg(windows)]
+pub fn file_facts(path: &Path) -> Option<(u32, u64)> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{
+        GetFileAttributesExW, GetFileExInfoStandard, WIN32_FILE_ATTRIBUTE_DATA,
+    };
+
+    let wide = extended_wide(path);
+    let mut data = WIN32_FILE_ATTRIBUTE_DATA::default();
+    unsafe {
+        GetFileAttributesExW(
+            PCWSTR(wide.as_ptr()),
+            GetFileExInfoStandard,
+            &mut data as *mut _ as *mut std::ffi::c_void,
+        )
+        .ok()?;
+    }
+    let size = ((data.nFileSizeHigh as u64) << 32) | data.nFileSizeLow as u64;
+    Some((data.dwFileAttributes, size))
+}
+
+#[cfg(not(windows))]
+pub fn file_facts(path: &Path) -> Option<(u32, u64)> {
+    let md = std::fs::symlink_metadata(path).ok()?;
+    // No cloud attributes exist off Windows; only the directory bit is real.
+    let attrs = if md.is_dir() { DIRECTORY } else { 0 };
+    Some((attrs, md.len()))
+}
+
+/// `FILE_ATTRIBUTE_DIRECTORY`.
+pub const DIRECTORY: u32 = 0x0000_0010;
+
+/// The download a copy of `sources` would trigger, counting everything inside
+/// any directory among them.
+///
+/// A folder is the case the per-file check cannot answer: `is_dehydrated` reads
+/// one entry, so Alt-dragging a folder of placeholders would otherwise start a
+/// mass download with no confirmation at all.
+///
+/// Reads directory entries only, never file bytes, so asking can never be the
+/// thing that downloads. It is still I/O — on a share each listing is a round
+/// trip — so it belongs on a worker thread and never on the frame loop.
+pub fn copy_cloud_cost(sources: &[PathBuf]) -> CloudCost {
+    let mut cost = CloudCost::default();
+    let mut stack: Vec<PathBuf> = sources.to_vec();
+    while let Some(path) = stack.pop() {
+        let Some((attrs, size)) = file_facts(&path) else {
+            // Consistent with `is_dehydrated`: an entry we cannot read is
+            // assumed to be cloud-only. Its size is unknown, so it adds a file
+            // and no bytes.
+            cost.files += 1;
+            continue;
+        };
+        if attrs & DIRECTORY != 0 {
+            walk_dir(&path, &mut stack, &mut cost);
+        } else if attrs_are_dehydrated(attrs) {
+            cost.files += 1;
+            cost.bytes += size;
+        }
+    }
+    cost
+}
+
+/// List one directory, costing its files and queueing its subdirectories.
+///
+/// Child entries are costed from the listing itself rather than re-queried:
+/// `DirEntry::metadata` on Windows is served by the same `FindNextFile` that
+/// produced the entry, so a thousand-file folder is one round trip, not a
+/// thousand.
+fn walk_dir(dir: &Path, stack: &mut Vec<PathBuf>, cost: &mut CloudCost) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in rd.flatten() {
+        let Ok(md) = entry.metadata() else {
+            stack.push(entry.path());
+            continue;
+        };
+        if md.is_dir() {
+            stack.push(entry.path());
+        } else if metadata_is_dehydrated(&md) {
+            cost.files += 1;
+            cost.bytes += md.len();
+        }
+    }
+}
+
+#[cfg(windows)]
+fn metadata_is_dehydrated(md: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    attrs_are_dehydrated(md.file_attributes())
+}
+
+#[cfg(not(windows))]
+fn metadata_is_dehydrated(_md: &std::fs::Metadata) -> bool {
+    false
 }
 
 /// Download a placeholder's content so it can be read locally, and report how
@@ -194,6 +312,31 @@ mod tests {
         assert!(is_dehydrated(missing));
         #[cfg(not(windows))]
         let _ = missing;
+    }
+
+    /// The folder case the per-file guard could not answer. Nothing in a temp
+    /// tree is a placeholder, so the measurable property is the other half of
+    /// the contract: a local folder costs nothing and raises no confirmation,
+    /// however deep it goes.
+    #[test]
+    fn a_local_folder_costs_nothing_to_copy() {
+        let base = std::env::temp_dir().join(format!("atlas-cost-{}", std::process::id()));
+        let deep = base.join("a").join("b").join("c");
+        std::fs::create_dir_all(&deep).expect("dirs");
+        std::fs::write(base.join("top.bin"), b"12345").expect("write");
+        std::fs::write(deep.join("nested.bin"), vec![0u8; 4096]).expect("write");
+
+        assert_eq!(
+            copy_cloud_cost(std::slice::from_ref(&base)),
+            CloudCost::default()
+        );
+        assert!(copy_cloud_cost(&[base.join("top.bin")]).is_free());
+
+        // Fails closed, exactly like the single-file check.
+        let missing = base.join("gone.bin");
+        assert_eq!(copy_cloud_cost(&[missing]).files, 1);
+
+        std::fs::remove_dir_all(&base).ok();
     }
 
     #[test]

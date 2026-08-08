@@ -66,6 +66,7 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
                     .separated(),
                 MenuItem::new("tools.display", "Show Display dock")
                     .checked(chrome.tool(ToolPanel::DisplaySettings)),
+                MenuItem::new("tools.mode", "Show Mode dock").checked(chrome.tool(ToolPanel::Mode)),
                 MenuItem::new("tools.workflow", "Show Workflow dock")
                     .checked(chrome.tool(ToolPanel::Workflow)),
                 MenuItem::new("tools.ai", "Show AI dock").checked(chrome.tool(ToolPanel::Ai)),
@@ -185,6 +186,10 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
             let on = !app.active_chrome().tool(ToolPanel::DisplaySettings);
             app.active_chrome_mut()
                 .set_tool(ToolPanel::DisplaySettings, on);
+        }
+        Some("tools.mode") => {
+            let on = !app.active_chrome().tool(ToolPanel::Mode);
+            app.active_chrome_mut().set_tool(ToolPanel::Mode, on);
         }
         Some("tools.workflow") => {
             let on = !app.active_chrome().tool(ToolPanel::Workflow);

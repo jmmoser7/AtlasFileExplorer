@@ -1411,6 +1411,485 @@ fn a_placed_repository_lens_portal_is_unbound_at_the_recipe_size() {
     h.frame();
 }
 
+// ---------------------------------------------------------------------------
+// Web portal golden paths (contracts/portal-web-embed.md)
+// ---------------------------------------------------------------------------
+
+/// A host that reports a working runtime and hands out a solid frame, so the
+/// pool, the states, and bake can be driven without a browser.
+#[derive(Default)]
+struct FakeWebHost {
+    admitted: std::collections::HashSet<slate_doc::NodeId>,
+    admits: usize,
+    evicts: usize,
+    inputs: Vec<board_web::WebInput>,
+}
+
+impl board_web::WebHost for FakeWebHost {
+    fn available(&self) -> bool {
+        true
+    }
+    fn admit(&mut self, id: slate_doc::NodeId, _req: &board_web::WebRequest) {
+        self.admitted.insert(id);
+        self.admits += 1;
+    }
+    fn evict(&mut self, id: slate_doc::NodeId) {
+        if self.admitted.remove(&id) {
+            self.evicts += 1;
+        }
+    }
+    fn take_frame(&mut self, id: slate_doc::NodeId) -> Option<egui::ColorImage> {
+        self.admitted
+            .contains(&id)
+            .then(|| egui::ColorImage::new([8, 8], egui::Color32::from_rgb(30, 90, 160)))
+    }
+    fn capture_poster(&mut self, _id: slate_doc::NodeId) -> Option<egui::ColorImage> {
+        Some(egui::ColorImage::new(
+            [8, 8],
+            egui::Color32::from_rgb(30, 90, 160),
+        ))
+    }
+    fn send_input(&mut self, _id: slate_doc::NodeId, input: board_web::WebInput) {
+        self.inputs.push(input);
+    }
+    fn cursor(&self, _id: slate_doc::NodeId) -> Option<egui::CursorIcon> {
+        None
+    }
+    fn load_error(&self, _id: slate_doc::NodeId) -> Option<String> {
+        None
+    }
+}
+
+fn web_board(tag: &str) -> Harness {
+    let mut h = Harness::new(tag);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.kits = kits::KitState::builtin_only();
+    h
+}
+
+fn with_fake_host(h: &mut Harness) {
+    h.app.web.set_host(Box::new(FakeWebHost::default()));
+}
+
+/// Report the portals as painted at a given on-screen height, which is what
+/// the pool sorts by, and run frames until the pipeline settles. Geometry is
+/// normally recorded during painting; a headless harness supplies it directly,
+/// and it only sticks once the pump has made the derived view.
+fn web_settle(h: &mut Harness, sizes: &[(slate_doc::NodeId, f32)], frames: usize) {
+    let clip = ERect::from_min_size(Pos2::ZERO, EVec2::new(4000.0, 4000.0));
+    for _ in 0..frames {
+        for (id, height) in sizes {
+            let r = ERect::from_min_size(Pos2::ZERO, EVec2::new(height * 1.78, *height));
+            h.app.note_web_geometry(*id, r, clip);
+        }
+        h.frame();
+    }
+}
+fn only_portal(h: &Harness) -> (slate_doc::NodeId, slate_doc::scene::PortalNode) {
+    let node = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .find(|n| matches!(&n.kind, NodeKind::Portal(p) if p.kind == slate_doc::scene::PortalKind::Web))
+        .expect("a web portal on the board");
+    let NodeKind::Portal(p) = &node.kind else {
+        unreachable!()
+    };
+    (node.id, p.clone())
+}
+
+/// GP1 — the draw grammar always commits an unbound portal: binding never
+/// happens inside a gesture (D03).
+#[test]
+fn gp1_a_drawn_web_portal_commits_unbound() {
+    let mut h = web_board("web_gp1");
+    h.app.set_board_tool(board::BoardTool::WebPortal);
+    drag(
+        &mut h,
+        board::BoardTool::WebPortal,
+        Pos2::new(0.0, 0.0),
+        Pos2::new(640.0, 360.0),
+    );
+    let (id, p) = only_portal(&h);
+    assert_eq!(p.class, slate_doc::scene::PortalClass::Host);
+    assert!(p.source.is_none(), "a draw never binds");
+    assert_eq!(h.app.board_tool, board::BoardTool::Select, "one-shot (D02)");
+    h.frame();
+    assert_eq!(h.app.web.state(id), board_web::WebState::Unbound);
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty(), "one gesture, one undo");
+    h.frame();
+}
+
+/// GP1b — a click places the shared portal default size (P2.PortalPlace.click).
+#[test]
+fn gp1_a_clicked_web_portal_takes_the_shared_portal_default_size() {
+    let mut h = web_board("web_gp1b");
+    h.app.place_web_portal_at(Pos2::new(0.0, 0.0));
+    let node = &h.app.doc().scene.nodes[0];
+    assert_eq!(
+        (node.rect.w, node.rect.h),
+        (
+            slate_doc::scene::PORTAL_DEFAULT_W,
+            slate_doc::scene::PORTAL_DEFAULT_H
+        )
+    );
+    h.frame();
+}
+
+/// GP2 — dropping an HTML file on the board makes a portal, not a text card,
+/// and the locator is stored workbook-relative (D01, Art. IX.2).
+#[test]
+fn gp2_dropping_a_dashboard_makes_a_portal_and_leaves_other_files_alone() {
+    let mut h = web_board("web_gp2");
+    let page = h.base.join("dash.html");
+    std::fs::write(&page, "<h1>hi</h1>").unwrap();
+    let photo = h.base.join("photo.png");
+    std::fs::write(&photo, [0u8; 8]).unwrap();
+
+    let rest = h
+        .app
+        .divert_web_drops(&[page.clone(), photo.clone()], Pos2::ZERO);
+    assert_eq!(rest, vec![photo], "only the page is diverted");
+    let (_, p) = only_portal(&h);
+    assert_eq!(
+        p.source.as_ref().map(|s| s.locator.as_str()),
+        Some(page.to_string_lossy().as_ref()),
+        "unsaved workbook keeps the absolute path"
+    );
+    h.frame();
+}
+
+/// GP2b — a folder is a page only when it actually holds an entry file.
+#[test]
+fn gp2_a_folder_is_a_portal_only_when_it_holds_an_entry_file() {
+    let mut h = web_board("web_gp2b");
+    let with_entry = h.base.join("dashboard");
+    std::fs::create_dir_all(&with_entry).unwrap();
+    std::fs::write(with_entry.join("index.html"), "<h1>hi</h1>").unwrap();
+    let plain = h.base.join("photos");
+    std::fs::create_dir_all(&plain).unwrap();
+
+    assert!(board_web::is_web_drop(&with_entry));
+    assert!(!board_web::is_web_drop(&plain));
+    let rest = h
+        .app
+        .divert_web_drops(&[with_entry, plain.clone()], Pos2::ZERO);
+    assert_eq!(rest, vec![plain]);
+    h.frame();
+}
+
+/// GP3 — a pasted URL becomes a portal that is blocked until the human permits
+/// its origin, and the permission is never journaled or saved (D32, D26).
+#[test]
+fn gp3_a_pasted_url_is_blocked_until_the_origin_is_allowed() {
+    let mut h = web_board("web_gp3");
+    with_fake_host(&mut h);
+    assert!(h.app.paste_web_url("https://example.com/dash", Pos2::ZERO));
+    let (id, p) = only_portal(&h);
+    assert_eq!(
+        p.source.as_ref().map(|s| s.locator.as_str()),
+        Some("https://example.com/dash")
+    );
+
+    web_settle(&mut h, &[(id, 600.0)], 2);
+    assert_eq!(
+        h.app.web.state(id),
+        board_web::WebState::Blocked {
+            origin: "https://example.com".into()
+        }
+    );
+    assert_eq!(h.app.web.live_count(), 0, "a blocked page runs nothing");
+
+    let journal_before = h.app.tab().journal.undo_depth();
+    h.app.web_allow_origin(id);
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        journal_before,
+        "consent is a local decision, never a journaled command"
+    );
+    let saved = serde_json::to_string(&h.app.doc().scene).unwrap();
+    assert!(
+        !saved.contains("example.com\",\"allowed"),
+        "consent never reaches the document"
+    );
+
+    web_settle(&mut h, &[(id, 600.0)], 2);
+    assert!(
+        h.app.web.is_live(id),
+        "permitted, on screen, and big enough"
+    );
+}
+
+/// GP4 — focus is about the keyboard, not the page: Esc releases it without
+/// tearing the view down (D12, D22).
+#[test]
+fn gp4_releasing_input_focus_leaves_the_page_running() {
+    let mut h = web_board("web_gp4");
+    with_fake_host(&mut h);
+    h.app.paste_web_url("https://example.com/a", Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    h.app.web_allow_origin(id);
+    web_settle(&mut h, &[(id, 600.0)], 3);
+    assert!(h.app.web.is_live(id));
+
+    h.app.web_focus(id);
+    assert_eq!(h.app.web.focused, Some(id));
+    assert!(h.app.web_blur(), "Esc peels focus");
+    assert_eq!(h.app.web.focused, None);
+    web_settle(&mut h, &[(id, 600.0)], 1);
+    assert!(
+        h.app.web.is_live(id),
+        "the page keeps rendering after focus leaves"
+    );
+}
+
+/// GP5 — a portal painted below the live threshold runs nothing and says so,
+/// rather than silently doing nothing (D23, D30).
+#[test]
+fn gp5_a_page_painted_too_small_runs_nothing_and_says_so() {
+    let mut h = web_board("web_gp5");
+    with_fake_host(&mut h);
+    h.app.paste_web_url("https://example.com/a", Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    h.app.web_allow_origin(id);
+    web_settle(&mut h, &[(id, 120.0)], 2);
+    assert_eq!(h.app.web.state(id), board_web::WebState::TooSmall);
+    assert_eq!(h.app.web.live_count(), 0);
+}
+
+/// GP7 — a source that disappears names the locator it tried and keeps its last
+/// poster, rather than reading as a bug (P1.portal.health, D30).
+#[test]
+fn gp7_a_missing_local_source_names_the_locator_it_tried() {
+    let mut h = web_board("web_gp7");
+    with_fake_host(&mut h);
+    let page = h.base.join("gone.html");
+    std::fs::write(&page, "<h1>hi</h1>").unwrap();
+    h.app
+        .divert_web_drops(std::slice::from_ref(&page), Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    web_settle(&mut h, &[(id, 600.0)], 2);
+
+    std::fs::remove_file(&page).unwrap();
+    // The poll floor is a second; step past it rather than sleeping.
+    std::thread::sleep(std::time::Duration::from_secs_f32(
+        board_web::POLL_SECS + 0.05,
+    ));
+    web_settle(&mut h, &[(id, 600.0)], 1);
+    match h.app.web.state(id) {
+        board_web::WebState::Missing { locator } => {
+            assert!(locator.contains("gone.html"), "names what it tried");
+        }
+        other => panic!("expected Missing, got {other:?}"),
+    }
+}
+
+/// GP8 — the research-hub case end to end: twelve eligible pages, six webviews.
+#[test]
+fn gp8_twelve_eligible_pages_run_exactly_the_pool() {
+    let mut h = web_board("web_gp8");
+    with_fake_host(&mut h);
+    let mut ids = Vec::new();
+    for i in 0..12 {
+        h.app
+            .paste_web_url(&format!("https://example.com/{i}"), Pos2::ZERO);
+        let node = h.app.doc().scene.nodes.last().unwrap();
+        ids.push(node.id);
+    }
+    h.app.web.grant_consent("https://example.com");
+    let sizes: Vec<(slate_doc::NodeId, f32)> = ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (*id, 400.0 + i as f32))
+        .collect();
+    // Enough frames for the pool to fill and the capped upload budget to drain.
+    web_settle(&mut h, &sizes, 8);
+    assert_eq!(
+        h.app.web.live_count(),
+        board_web::LIVE_POOL,
+        "a board full of pages costs a bounded number of processes"
+    );
+    let live = ids
+        .iter()
+        .filter(|id| h.app.web.state(**id) == board_web::WebState::Live)
+        .count();
+    let budgeted = ids
+        .iter()
+        .filter(|id| h.app.web.state(**id) == board_web::WebState::Budgeted)
+        .count();
+    assert_eq!(live, board_web::LIVE_POOL);
+    assert_eq!(
+        budgeted,
+        ids.len() - board_web::LIVE_POOL,
+        "the rest say they are waiting rather than looking broken"
+    );
+    // The biggest pages win the slots — the pool is area-ordered (D29).
+    for id in ids.iter().skip(ids.len() - board_web::LIVE_POOL) {
+        assert!(h.app.web.is_live(*id));
+    }
+}
+
+/// GP9/GP10 — export is a serialization, not a screenshot: a local dashboard
+/// travels inside the artifact and still runs; a remote page cannot be copied,
+/// so it exports as a poster that points at where it came from (D26, Art. IV).
+#[test]
+fn gp9_export_packages_a_local_page_and_points_at_a_remote_one() {
+    let mut h = web_board("web_export");
+    with_fake_host(&mut h);
+    h.seed_frame(None);
+
+    let dash = h.base.join("dashboard");
+    std::fs::create_dir_all(dash.join("data")).unwrap();
+    std::fs::write(dash.join("index.html"), "<h1>numbers</h1>").unwrap();
+    std::fs::write(dash.join("data").join("rows.json"), "[]").unwrap();
+    h.app.divert_web_drops(&[dash], Pos2::ZERO);
+    let local = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.paste_web_url("https://example.com/live", Pos2::ZERO);
+    let remote = h.app.doc().scene.nodes.last().unwrap().id;
+    // Both inside the seeded 800x450 frame, so both land on the slide.
+    h.app.patch_nodes(&[local], |n| {
+        n.rect = WorldRect::new(20.0, 20.0, 320.0, 180.0);
+    });
+    h.app.patch_nodes(&[remote], |n| {
+        n.rect = WorldRect::new(400.0, 20.0, 320.0, 180.0);
+    });
+    h.frame();
+
+    let out = h.base.join("export");
+    h.app.do_export(out.clone());
+    let deck = out.join("Untitled-slides");
+    let html = std::fs::read_to_string(deck.join("index.html")).unwrap();
+
+    assert!(
+        html.contains("<iframe"),
+        "the packaged dashboard still runs in the artifact"
+    );
+    assert!(
+        html.contains("sandbox=\"allow-scripts allow-same-origin\""),
+        "scripts and its own data files, nothing wider (D32)"
+    );
+    assert!(
+        html.contains("Packaged from"),
+        "a copy names where it came from (Art. IX.3)"
+    );
+    let copied: Vec<PathBuf> = walk_files(&deck)
+        .into_iter()
+        .filter(|p| p.ends_with("rows.json"))
+        .collect();
+    assert_eq!(copied.len(), 1, "the whole folder travels, not just entry");
+
+    assert!(
+        html.contains("https://example.com/live"),
+        "the remote page exports as a pointer"
+    );
+    assert!(
+        !html.contains("<iframe src=\"https://example.com/live\""),
+        "a remote page is not silently reloaded from the artifact"
+    );
+    h.frame();
+}
+
+fn walk_files(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(walk_files(&p));
+        } else {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// GP12 — bake adds the poster plus its provenance and leaves the portal alone
+/// (D25).
+#[test]
+fn gp12_bake_copies_the_poster_and_leaves_the_portal_in_place() {
+    let mut h = web_board("web_gp12");
+    with_fake_host(&mut h);
+    let page = h.base.join("dash.html");
+    std::fs::write(&page, "<h1>hi</h1>").unwrap();
+    h.app.divert_web_drops(&[page], Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    h.app.board_sel = std::iter::once(id).collect();
+
+    assert!(h.app.web_bake_selected());
+    let kinds: Vec<&str> = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .map(|n| match &n.kind {
+            NodeKind::Portal(_) => "portal",
+            NodeKind::Image(_) => "image",
+            NodeKind::Text(_) => "text",
+            _ => "other",
+        })
+        .collect();
+    assert!(
+        kinds.contains(&"portal"),
+        "bake copies, it does not convert"
+    );
+    assert!(kinds.contains(&"image"));
+    assert!(kinds.contains(&"text"));
+    let note = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .find_map(|n| match &n.kind {
+            NodeKind::Text(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(note.contains("dash.html"), "provenance names the source");
+    assert!(note.contains("captured"), "and when it was captured");
+    h.frame();
+}
+
+/// Dangerous locators are refused by name rather than quietly not loading
+/// (D19, D30).
+#[test]
+fn a_javascript_locator_is_refused_and_says_why() {
+    let mut h = web_board("web_refuse");
+    with_fake_host(&mut h);
+    h.app.place_web_portal_at(Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    h.app.bind_web_source(id, "javascript:alert(1)".into());
+    web_settle(&mut h, &[(id, 600.0)], 2);
+    match h.app.web.state(id) {
+        board_web::WebState::Refused { reason } => {
+            assert!(reason.contains("javascript"), "the reason names the scheme");
+        }
+        other => panic!("expected Refused, got {other:?}"),
+    }
+    assert_eq!(h.app.web.live_count(), 0);
+}
+
+/// With no WebView2 runtime, portals still place, bind, and export — they just
+/// say what is missing instead of stalling (D29, D30).
+#[test]
+fn without_a_runtime_a_portal_degrades_instead_of_stalling() {
+    let mut h = web_board("web_noruntime");
+    h.app.paste_web_url("https://example.com/a", Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    h.app.web_allow_origin(id);
+    web_settle(&mut h, &[(id, 600.0)], 2);
+    assert_eq!(h.app.web.state(id), board_web::WebState::NoRuntime);
+    assert_eq!(h.app.web.live_count(), 0);
+}
+
 /// One completed draw is one undo step, and undo removes the node.
 #[test]
 fn a_recipe_driven_draw_is_a_single_undo_step() {

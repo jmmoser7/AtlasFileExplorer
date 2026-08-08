@@ -34,6 +34,14 @@ pub struct ExportOptions {
     /// different saved camera poses. Nodes without an entry fall back to
     /// the item thumbnail, then to a labeled card.
     pub model_posters: BTreeMap<slate_doc::NodeId, PathBuf>,
+    /// Resolved absolute sources for local web portals, keyed by node. The app
+    /// resolves the workbook-relative locator; packaging them is a fork that
+    /// names its origin (Art. IX.4), so the writer records where each came
+    /// from. Remote portals never appear here — a URL is not packaged.
+    pub web_sources: BTreeMap<slate_doc::NodeId, PathBuf>,
+    /// Captured posters per web portal node, used for the poster + pointer
+    /// export a remote page gets (Art. V.3).
+    pub web_posters: BTreeMap<slate_doc::NodeId, PathBuf>,
 }
 
 /// Summary returned after a successful export.

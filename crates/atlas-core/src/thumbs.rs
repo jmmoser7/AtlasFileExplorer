@@ -4,9 +4,10 @@
 //!   1. Disk cache (JPEG, keyed by hash of path|size|mtime|version)
 //!   2. Shared project cache (`.atlas-cache`)
 //!   3. Extraction — format-dependent:
-//!      - PDF / Office Open XML: built-in extractors first (pdfium page 1,
-//!        `docProps/thumbnail.*` from the zip), then Explorer's real thumbnail
-//!        cache only (`SIIGBF_THUMBNAILONLY`). Shell type icons are skipped.
+//!      - PDF / Office Open XML / SVG: built-in extractors first (pdfium page 1,
+//!        `docProps/thumbnail.*` from the zip, `resvg` rasterize), then
+//!        Explorer's real thumbnail cache only (`SIIGBF_THUMBNAILONLY`).
+//!        Shell type icons are skipped.
 //!      - Everything else: Explorer thumbnail cache, full shell extraction,
 //!        then format fallbacks (.3dm embedded preview, etc.)
 //!
@@ -46,7 +47,7 @@ pub const THUMB_PX: i32 = 192;
 /// are generic file-type icons the shell substituted when it could not reach the
 /// pixels (a cloud placeholder, a missing codec), and because the key is
 /// `path + size + mtime` an icon cached once was served forever.
-const CACHE_KEY_VERSION: &str = "4";
+const CACHE_KEY_VERSION: &str = "5";
 
 /// Max concurrent background cache-warming jobs. Keeps the sustained network
 /// load at roughly "one file copy running quietly", while on-demand requests
@@ -681,10 +682,11 @@ fn file_ext(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// PDF and modern Office files get reliable content from built-in extractors;
-/// the shell often returns only a scaled file-type icon via `SIIGBF_RESIZETOFIT`.
+/// PDF, SVG, and modern Office files get reliable content from built-in
+/// extractors; the shell often returns only a scaled file-type icon via
+/// `SIIGBF_RESIZETOFIT`.
 fn prefers_builtin_extractor(ext: &str) -> bool {
-    ext == "pdf" || crate::office::is_ooxml(ext)
+    ext == "pdf" || ext == "svg" || crate::office::is_ooxml(ext)
 }
 
 /// Choose the best thumbnail source for a file on cache miss.
@@ -805,7 +807,7 @@ fn pdf_shell_fallback(ext: &str, path: &Path) -> Option<Extracted> {
 
 /// Our own extractors for formats the shell often can't handle without
 /// extra software installed: Rhino .3dm embedded previews, Office Open XML
-/// embedded thumbnails, and PDFs rendered via pdfium.
+/// embedded thumbnails, PDFs rendered via pdfium, and SVGs via resvg.
 fn fallback_thumbnail(
     path: &Path,
     ext: &str,
@@ -815,6 +817,7 @@ fn fallback_thumbnail(
         // Rhino writes the previous save as `.3dmbak` in the same format.
         "3dm" | "3dmbak" => crate::threedm::embedded_preview(path),
         "pdf" => crate::pdf::thumbnail_page(path, pdf_page.unwrap_or(0), THUMB_PX),
+        "svg" => crate::svg::thumbnail(path, THUMB_PX as u32),
         e if crate::office::is_ooxml(e) => crate::office::embedded_thumbnail(path),
         _ => None,
     }
@@ -1232,6 +1235,7 @@ mod tests {
     #[test]
     fn prefers_builtin_extractor_for_pdf_and_pptx() {
         assert!(prefers_builtin_extractor("pdf"));
+        assert!(prefers_builtin_extractor("svg"));
         assert!(prefers_builtin_extractor("pptx"));
         assert!(prefers_builtin_extractor("docx"));
         assert!(!prefers_builtin_extractor("ppt"));

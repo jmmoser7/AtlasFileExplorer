@@ -285,6 +285,28 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::RepoLens);
                 true
             }
+            "board.portal.agent" => {
+                self.set_board_tool(board::BoardTool::AgentPortal);
+                true
+            }
+            "board.portal.web" => {
+                self.set_board_tool(board::BoardTool::WebPortal);
+                true
+            }
+            "portal.web.source" => self.web_pick_source_for_selection(),
+            "portal.web.allow_origin" => self.web_allow_selected_origin(),
+            "portal.web.reload" => self.web_reload_selected(),
+            "portal.web.recapture" => self.web_recapture_selected(),
+            "portal.web.focus" => self.web_toggle_focus(),
+            "portal.web.open_external" => self.web_open_external(),
+            "portal.web.package" => self.web_package_selected(),
+            "portal.web.bake" => self.web_bake_selected(),
+            "portal.agent.send" => self.send_selected_agent_prompt(),
+            "portal.agent.provider" => self.toggle_selected_agent_provider(),
+            "portal.agent.reveal" => self.reveal_selected_agent_link(),
+            "portal.agent.launch" => self.launch_selected_agent_provider(),
+            "stage.accept" => self.accept_selected_stage_proposal(),
+            "stage.reject" => self.reject_selected_stage_proposal(),
             "portal.repo.source" => self.portal_pick_source_for_selection(),
             "portal.repo.refresh" => self.portal_refresh_selected(),
             "portal.repo.bake" => self.portal_bake_selected(),
@@ -556,6 +578,12 @@ impl SlateApp {
         if self.doc().view.active_view == ViewKind::Lens && self.lens.focus.is_some() {
             self.lens.focus = None;
             return true;
+        }
+        // Web portal input focus. Releasing it leaves the page running with
+        // its scroll position and form contents intact (D12) — this peels
+        // where the keyboard goes, nothing more.
+        if self.doc().view.active_view == ViewKind::Board && self.web.focused.is_some() {
+            return self.web_blur();
         }
         // Repository Lens portal interactive / commit focus.
         if self.doc().view.active_view == ViewKind::Board

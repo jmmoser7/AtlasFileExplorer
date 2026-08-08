@@ -7,7 +7,7 @@
 //! visibility is toggled from the app-icon portal (Preferences).
 
 use super::super::{
-    AtlasApp, DateFilterField, FilterMode, FolderHeatMode, LeaderStyle, Orient, ViewCmd,
+    AtlasApp, DateFilterField, EditMode, FilterMode, FolderHeatMode, LeaderStyle, Orient, ViewCmd,
 };
 use crate::app::chrome::ToolPanel;
 use atlas_core::types::{ExtGroup, FAMILIES};
@@ -56,6 +56,16 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
             gap_before: false,
         },
         DockItem {
+            id: "mode",
+            label: "Mode",
+            description: "Switch between safe browsing and Explorer-style file edits.",
+            icon: DockIcon::Mode,
+            kind: DockItemKind::Dashboard,
+            active: app.edit_mode == EditMode::Edit,
+            visible: chrome.tool(ToolPanel::Mode),
+            gap_before: false,
+        },
+        DockItem {
             id: "workflow",
             label: "Workflow",
             description: "Focus the canvas on unassigned files during export prep.",
@@ -91,6 +101,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         |ui, id| match id {
             "filters" => basic_filters_body(app, ui, theme),
             "display" => display_settings_body(app, ui, ctx, theme),
+            "mode" => mode_body(app, ui, theme),
             "workflow" => workflow_body(app, ui),
             "ai" => atlas_ai::ui::ai_body(&mut app.ai, ui, theme),
             _ => {}
@@ -103,6 +114,41 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
             app.dock_pins = pins;
             app.save_chrome_prefs();
         }
+    }
+}
+
+fn mode_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    ui.label(
+        RichText::new("View is safe browsing. Edit unlocks real filesystem changes.")
+            .small()
+            .color(theme.sub),
+    );
+    ui.add_space(6.0);
+    if sidebar_mode_row(
+        ui,
+        app.edit_mode == EditMode::View,
+        "view",
+        "browse only",
+        "No rename, move, copy, folder creation, or delete operations are allowed.",
+        theme,
+    )
+    .clicked()
+    {
+        app.set_edit_mode(EditMode::View);
+        app.push_history("atlas.mode_view", None);
+    }
+    if sidebar_mode_row(
+        ui,
+        app.edit_mode == EditMode::Edit,
+        "edit",
+        "Explorer-style file edits",
+        "Allows human-directed rename, move, copy, new folder, and delete operations.",
+        theme,
+    )
+    .clicked()
+    {
+        app.set_edit_mode(EditMode::Edit);
+        app.push_history("atlas.mode_edit", None);
     }
 }
 
@@ -500,9 +546,21 @@ fn display_settings_body(
                     theme.sub,
                 );
             });
+            sidebar_slider_block(ui, |ui| {
+                lod_changed |= thin_sidebar_slider(
+                    ui,
+                    &mut app.lod_detail,
+                    50..=3200,
+                    "LOD detail",
+                    "%",
+                    "Deep zoom: full file paths and a short paragraph of details on the tag",
+                    theme.sub,
+                );
+            });
             if lod_changed {
                 app.lod_mid = app.lod_mid.clamp(1, 100);
                 app.lod_full = app.lod_full.clamp(app.lod_mid + 1, 200);
+                app.lod_detail = app.lod_detail.clamp(app.lod_full + 1, 3200);
                 ctx.request_repaint();
             }
         },

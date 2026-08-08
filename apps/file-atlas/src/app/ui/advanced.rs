@@ -127,6 +127,10 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(6.0);
+            skip_list_ui(app, ui, palette.sub);
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(6.0);
             // Command history (Atlas keeps F2 = Assign; history lives here).
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Command history").small().strong());
@@ -148,4 +152,65 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
     if !open {
         app.active_chrome_mut().advanced_open = false;
     }
+}
+
+/// Folder names no walk enters. Vendored asset libraries are the case that
+/// earns this a place in the UI: a Megascans `Downloaded` tree is thousands of
+/// per-surface `Thumbs` folders and a plugin source tree, each read costing a
+/// second or two on a share, so a scan can spend minutes on scaffolding after
+/// the real content has already arrived.
+fn skip_list_ui(app: &mut AtlasApp, ui: &mut egui::Ui, sub: egui::Color32) {
+    ui.label(
+        egui::RichText::new("Folders never scanned")
+            .small()
+            .strong(),
+    );
+    ui.label(
+        egui::RichText::new(
+            "One name per line, matched at any depth and ignoring case. \
+             Caches and build scaffolding belong here — anything listed is \
+             invisible to scanning, pre-warming, and cover art.",
+        )
+        .small()
+        .color(sub),
+    );
+    ui.add_space(4.0);
+    let edit = egui::TextEdit::multiline(&mut app.skip_edit)
+        .desired_rows(6)
+        .desired_width(ui.available_width())
+        .code_editor();
+    ui.add(edit);
+    let saved = atlas_core::skiplist::effective();
+    let pending: Vec<&str> = app
+        .skip_edit
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let dirty = pending.len() != saved.names.len()
+        || !pending
+            .iter()
+            .zip(saved.names.iter())
+            .all(|(a, b)| a.eq_ignore_ascii_case(b));
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(dirty, egui::Button::new("Save list"))
+            .on_hover_text("Applies to the next scan.")
+            .clicked()
+        {
+            app.apply_skip_list();
+            app.toast("Skip list saved — rescan to apply it to this folder");
+        }
+        if ui
+            .add_enabled(app.root.is_some(), egui::Button::new("Save and rescan"))
+            .on_hover_text("Re-reads the open folder so the change takes effect now.")
+            .clicked()
+        {
+            app.apply_skip_list();
+            app.rescan_root();
+        }
+        if ui.small_button("Defaults").clicked() {
+            app.skip_edit = atlas_core::skiplist::default_names().join("\n");
+        }
+    });
 }

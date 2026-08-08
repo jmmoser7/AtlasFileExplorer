@@ -407,9 +407,13 @@ pub struct FrameNode {
     pub assignments: BTreeMap<GroupId, TagId>,
 }
 
-/// Default Repository Lens portal size (world units) for click-to-place (D04).
-pub const REPO_PORTAL_DEFAULT_W: f32 = 960.0;
-pub const REPO_PORTAL_DEFAULT_H: f32 = 540.0;
+/// Default portal frame size (world units) for click-to-place, shared by every
+/// portal subtype (P2.PortalPlace.click, D04).
+pub const PORTAL_DEFAULT_W: f32 = 960.0;
+pub const PORTAL_DEFAULT_H: f32 = 540.0;
+/// Repository Lens spelling of [`PORTAL_DEFAULT_W`], kept for existing callers.
+pub const REPO_PORTAL_DEFAULT_W: f32 = PORTAL_DEFAULT_W;
+pub const REPO_PORTAL_DEFAULT_H: f32 = PORTAL_DEFAULT_H;
 
 /// Portal mutation authority class (Constitution Art. V.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -417,6 +421,8 @@ pub const REPO_PORTAL_DEFAULT_H: f32 = 540.0;
 pub enum PortalClass {
     /// Deterministic derived contents; owns nothing. Frame/source/query are journaled.
     Generated,
+    /// Foreign local-agent surface; owns no mutations and exports as a poster + pointer.
+    Host,
 }
 
 /// Portal subtype discriminator.
@@ -424,6 +430,8 @@ pub enum PortalClass {
 #[serde(rename_all = "snake_case")]
 pub enum PortalKind {
     RepoLens,
+    Agent,
+    Web,
 }
 
 /// Local-filesystem locator stub until full `SourceUri` (T2.1) lands.
@@ -460,6 +468,260 @@ pub enum RepoTimeAxis {
     Chronological,
 }
 
+/// Scope of board context an agent portal publishes to its linked local agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentContextScope {
+    Selection,
+    Frame,
+    Board,
+}
+
+impl Default for AgentContextScope {
+    fn default() -> Self {
+        Self::Selection
+    }
+}
+
+/// Journaled agent-portal binding. The provider is resolved by name from user
+/// settings so durable scene data never depends on a vendor protocol (Art. I.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentPortalRef {
+    pub provider: String,
+    pub session: String,
+    #[serde(default)]
+    pub context: AgentContextScope,
+}
+
+/// How a web portal's rendered page is fitted into its frame (D20).
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebZoom {
+    /// Lay the page out at `width_css` and scale the render to the frame width.
+    /// Resizing the frame scales; it does not reflow.
+    #[default]
+    Fit,
+    /// Lay the page out at `width_css` and render at this fixed factor.
+    Fixed(f32),
+    /// The frame's own size is the CSS viewport, so resizing reflows the page
+    /// the way dragging a browser window does.
+    Auto,
+}
+
+/// Authored layout parameters for a hosted page (D20).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WebViewport {
+    /// CSS width the page is laid out at. Ignored when `zoom` is `Auto`.
+    pub width_css: u32,
+    pub zoom: WebZoom,
+}
+
+/// `portal.web.viewport_default`.
+pub const WEB_VIEWPORT_DEFAULT_WIDTH: u32 = 1280;
+
+impl Default for WebViewport {
+    fn default() -> Self {
+        Self {
+            width_css: WEB_VIEWPORT_DEFAULT_WIDTH,
+            zoom: WebZoom::Fit,
+        }
+    }
+}
+
+/// What the artifact writer emits for a web portal (D24).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebExport {
+    /// A captured poster wrapped in a link to the locator — the Art. V.3
+    /// host-portal default, and the only honest option for a remote page.
+    Poster,
+    /// An `<iframe>` over material the package copied beside the artifact.
+    /// Local sources only by default (Art. IV.1 + IX.4).
+    Iframe,
+}
+
+/// When the poster is recaptured (D21). Never a timer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebPosterCapture {
+    #[default]
+    OnBind,
+    Manual,
+}
+
+/// Journaled web-portal parameters. The locator itself lives in
+/// [`PortalNode::source`]; everything derived from loading it — poster texture,
+/// scroll offset, page history, pool membership — is never stored here (D31).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WebPortalRef {
+    /// Entry file for a directory source. Ignored for file and URL sources.
+    pub entry: String,
+    pub viewport: WebViewport,
+    /// `None` means "decide from the source kind": iframe for local material,
+    /// poster for a remote page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub export: Option<WebExport>,
+    /// A presentation-only dashboard can be pinned to its poster.
+    pub interactive_allowed: bool,
+    pub poster_capture: WebPosterCapture,
+}
+
+/// Default entry file for a directory source.
+pub const WEB_DEFAULT_ENTRY: &str = "index.html";
+
+impl Default for WebPortalRef {
+    fn default() -> Self {
+        Self {
+            entry: WEB_DEFAULT_ENTRY.to_string(),
+            viewport: WebViewport::default(),
+            export: None,
+            interactive_allowed: true,
+            poster_capture: WebPosterCapture::OnBind,
+        }
+    }
+}
+
+/// What a web portal's locator turned out to be (D19).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebSourceKind {
+    /// An `http(s)` page: fetched over the network, exported as poster + pointer.
+    Remote,
+    /// A single `.html`/`.htm` file.
+    LocalFile,
+    /// A directory whose entry file is [`WebPortalRef::entry`].
+    LocalDir,
+}
+
+impl WebSourceKind {
+    pub fn is_remote(self) -> bool {
+        matches!(self, WebSourceKind::Remote)
+    }
+
+    /// The export mode this source kind gets when the node does not name one.
+    pub fn default_export(self) -> WebExport {
+        match self {
+            WebSourceKind::Remote => WebExport::Poster,
+            WebSourceKind::LocalFile | WebSourceKind::LocalDir => WebExport::Iframe,
+        }
+    }
+}
+
+/// Why a locator was refused as a web-portal source (D19). Refusals are stated,
+/// never silently coerced into something that happens to load.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebRefusal {
+    /// `javascript:` and `data:` — code smuggled in as a location.
+    DangerousScheme(String),
+    /// Any scheme that is not `http`/`https`, e.g. `ftp:`, `about:`.
+    UnsupportedScheme(String),
+    /// `.slate` files open as tabs everywhere in the app, portals included.
+    Workbook,
+    /// A local file that is not HTML stays an ordinary board item.
+    NotHtml(String),
+    Empty,
+}
+
+impl std::fmt::Display for WebRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WebRefusal::DangerousScheme(s) => {
+                write!(f, "{s}: locations are code, not pages — refused")
+            }
+            WebRefusal::UnsupportedScheme(s) => write!(f, "{s}: is not an http(s) page"),
+            WebRefusal::Workbook => write!(f, "a .slate workbook opens as a tab, not a portal"),
+            WebRefusal::NotHtml(ext) => write!(f, ".{ext} is not an HTML page"),
+            WebRefusal::Empty => write!(f, "no page or file named"),
+        }
+    }
+}
+
+/// Classifies a locator without touching the filesystem or the network, so it
+/// is safe to call on the frame loop and testable on any platform.
+///
+/// `is_dir` answers what the caller already knows about a local path; a caller
+/// that has not looked (a drag payload, a freshly typed field) passes `false`
+/// and gets [`WebSourceKind::LocalFile`] for anything HTML-shaped.
+pub fn classify_web_locator(locator: &str, is_dir: bool) -> Result<WebSourceKind, WebRefusal> {
+    let trimmed = locator.trim();
+    if trimmed.is_empty() {
+        return Err(WebRefusal::Empty);
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        return Ok(WebSourceKind::Remote);
+    }
+    if lower.starts_with("javascript:") || lower.starts_with("data:") {
+        let scheme = lower.split(':').next().unwrap_or_default().to_string();
+        return Err(WebRefusal::DangerousScheme(scheme));
+    }
+    // A scheme is a leading run of `a-z0-9+-.` before `:` that is not a Windows
+    // drive letter (`C:\...`), which is an ordinary absolute path.
+    if let Some(colon) = lower.find(':') {
+        let scheme = &lower[..colon];
+        let drive_letter = scheme.len() == 1 && scheme.chars().all(|c| c.is_ascii_alphabetic());
+        let schemey = !scheme.is_empty()
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+        if schemey && !drive_letter {
+            return Err(WebRefusal::UnsupportedScheme(scheme.to_string()));
+        }
+    }
+    if is_dir {
+        return Ok(WebSourceKind::LocalDir);
+    }
+    let ext = lower
+        .rsplit(['/', '\\'])
+        .next()
+        .and_then(|name| name.rsplit_once('.'))
+        .map(|(_, ext)| ext.to_string());
+    match ext.as_deref() {
+        Some("html") | Some("htm") => Ok(WebSourceKind::LocalFile),
+        Some("slate") => Err(WebRefusal::Workbook),
+        Some(other) => Err(WebRefusal::NotHtml(other.to_string())),
+        None => Err(WebRefusal::NotHtml(String::new())),
+    }
+}
+
+/// The host name a remote locator shows in chrome and in the consent prompt;
+/// local locators show their file name.
+pub fn web_display_locator(locator: &str) -> String {
+    let trimmed = locator.trim();
+    if let Some(rest) = trimmed
+        .strip_prefix("http://")
+        .or_else(|| trimmed.strip_prefix("https://"))
+    {
+        return rest
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or(rest)
+            .to_string();
+    }
+    trimmed
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+/// The origin a consent grant keys on (scheme + host + port). Local sources
+/// have no origin — they need no permission (D32).
+pub fn web_origin(locator: &str) -> Option<String> {
+    let trimmed = locator.trim();
+    for scheme in ["http://", "https://"] {
+        if let Some(rest) = trimmed.strip_prefix(scheme) {
+            let host = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+            if host.is_empty() {
+                return None;
+            }
+            return Some(format!("{scheme}{}", host.to_ascii_lowercase()));
+        }
+    }
+    None
+}
+
 /// A journaled portal frame. Contents are derived from `source` + `query`
 /// (generated class) and never serialized here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -472,6 +734,16 @@ pub struct PortalNode {
     pub source: Option<SourceUri>,
     #[serde(default)]
     pub query: RepoPortalQuery,
+    /// Agent portal binding. This is intentionally a documented per-subtype
+    /// field until a future format-version card replaces `query` with a
+    /// `PortalQuery { Repo(..), Agent(..) }` enum; adding that enum now would
+    /// force a migration for no user-visible behaviour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentPortalRef>,
+    /// Web portal parameters; see the note on `agent` for why the subtypes sit
+    /// side by side rather than in a `PortalQuery` enum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web: Option<WebPortalRef>,
     pub fill: Rgba,
 }
 
@@ -484,9 +756,74 @@ impl PortalNode {
             title: title.into(),
             source: None,
             query: RepoPortalQuery::default(),
+            agent: None,
+            web: None,
             fill: Rgba([18, 20, 24, 255]),
         }
     }
+
+    /// Fresh unbound web host portal — paints "Choose page or file…" until a
+    /// locator is bound (D03).
+    pub fn unbound_web(title: impl Into<String>) -> Self {
+        Self {
+            class: PortalClass::Host,
+            kind: PortalKind::Web,
+            title: title.into(),
+            source: None,
+            query: RepoPortalQuery::default(),
+            agent: None,
+            web: Some(WebPortalRef::default()),
+            fill: Rgba([20, 20, 26, 255]),
+        }
+    }
+
+    /// Web host portal bound at placement — the drag/paste/drop entry paths of
+    /// D01, which skip the unbound state.
+    pub fn bound_web(title: impl Into<String>, locator: impl Into<String>) -> Self {
+        let mut portal = Self::unbound_web(title);
+        portal.source = Some(SourceUri {
+            locator: locator.into(),
+        });
+        portal
+    }
+
+    /// The web parameters, or the defaults for a node that predates them.
+    pub fn web_ref(&self) -> WebPortalRef {
+        self.web.clone().unwrap_or_default()
+    }
+
+    /// What this portal's locator is, if it has one that is usable.
+    pub fn web_source_kind(&self, is_dir: bool) -> Option<WebSourceKind> {
+        let locator = self.source.as_ref()?.locator.as_str();
+        classify_web_locator(locator, is_dir).ok()
+    }
+
+    /// Fresh unbound local-agent host portal.
+    pub fn unbound_agent(title: impl Into<String>, provider: impl Into<String>) -> Self {
+        let provider = provider.into();
+        Self {
+            class: PortalClass::Host,
+            kind: PortalKind::Agent,
+            title: title.into(),
+            source: None,
+            query: RepoPortalQuery::default(),
+            agent: Some(AgentPortalRef {
+                session: new_agent_session_id(),
+                provider,
+                context: AgentContextScope::Selection,
+            }),
+            web: None,
+            fill: Rgba([16, 22, 34, 255]),
+        }
+    }
+}
+
+fn new_agent_session_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("agent-{nanos:x}")
 }
 
 /// A placed image: a link into the workbook item pool plus placement styling.
@@ -1466,6 +1803,12 @@ impl SceneJournal {
     pub fn can_redo(&self) -> bool {
         !self.undone.is_empty()
     }
+
+    /// Committed groups available to undo. Exposed so a test can assert that
+    /// something *did not* journal — derived state must leave no trace here.
+    pub fn undo_depth(&self) -> usize {
+        self.done.len()
+    }
 }
 
 #[cfg(test)]
@@ -1498,6 +1841,105 @@ mod tests {
             node: img,
         });
         (scene, frame_id, img_id)
+    }
+
+    #[test]
+    fn a_web_locator_is_classified_without_touching_the_disk() {
+        assert_eq!(
+            classify_web_locator("https://example.com/dash?a=1#top", false),
+            Ok(WebSourceKind::Remote)
+        );
+        assert_eq!(
+            classify_web_locator("reports/q3/index.html", false),
+            Ok(WebSourceKind::LocalFile)
+        );
+        assert_eq!(
+            classify_web_locator(r"C:\dashboards\build\index.htm", false),
+            Ok(WebSourceKind::LocalFile)
+        );
+        assert_eq!(
+            classify_web_locator("reports/q3", true),
+            Ok(WebSourceKind::LocalDir)
+        );
+    }
+
+    #[test]
+    fn dangerous_and_off_contract_locators_are_refused_by_name() {
+        // Code smuggled in as a location, in either case (D19, D32).
+        assert!(matches!(
+            classify_web_locator("javascript:alert(1)", false),
+            Err(WebRefusal::DangerousScheme(_))
+        ));
+        assert!(matches!(
+            classify_web_locator("DATA:text/html;base64,PHA+", false),
+            Err(WebRefusal::DangerousScheme(_))
+        ));
+        assert!(matches!(
+            classify_web_locator("ftp://host/page.html", false),
+            Err(WebRefusal::UnsupportedScheme(_))
+        ));
+        // A workbook opens as a tab everywhere, portals included.
+        assert_eq!(
+            classify_web_locator("deck.slate", false),
+            Err(WebRefusal::Workbook)
+        );
+        // Everything else stays an ordinary board item.
+        assert_eq!(
+            classify_web_locator("photo.png", false),
+            Err(WebRefusal::NotHtml("png".into()))
+        );
+        assert_eq!(classify_web_locator("   ", false), Err(WebRefusal::Empty));
+    }
+
+    #[test]
+    fn export_mode_and_origin_follow_the_source_kind() {
+        // Art. V.3 for remote, Art. IV.1 + IX.4 for packaged local material.
+        assert_eq!(WebSourceKind::Remote.default_export(), WebExport::Poster);
+        assert_eq!(WebSourceKind::LocalDir.default_export(), WebExport::Iframe);
+        assert_eq!(
+            web_origin("https://Example.COM:8443/a/b"),
+            Some("https://example.com:8443".into())
+        );
+        // Local material has no origin, so there is nothing to consent to.
+        assert_eq!(web_origin("reports/index.html"), None);
+        assert_eq!(
+            web_display_locator("https://example.com/a/b"),
+            "example.com"
+        );
+        assert_eq!(web_display_locator("reports/q3/index.html"), "index.html");
+    }
+
+    #[test]
+    fn a_web_portal_is_host_class_and_carries_only_authored_parameters() {
+        let portal = PortalNode::bound_web("Dashboard", "reports/q3/index.html");
+        assert_eq!(portal.class, PortalClass::Host);
+        assert_eq!(portal.kind, PortalKind::Web);
+        let web = portal.web_ref();
+        assert_eq!(web.entry, WEB_DEFAULT_ENTRY);
+        assert_eq!(web.viewport.width_css, WEB_VIEWPORT_DEFAULT_WIDTH);
+        assert_eq!(web.viewport.zoom, WebZoom::Fit);
+        assert_eq!(
+            web.export, None,
+            "export follows the source kind by default"
+        );
+        assert!(web.interactive_allowed);
+        assert_eq!(
+            portal.web_source_kind(false),
+            Some(WebSourceKind::LocalFile)
+        );
+    }
+
+    #[test]
+    fn a_portal_saved_before_web_portals_existed_still_loads() {
+        let older = r#"{
+            "class": "host",
+            "kind": "agent",
+            "title": "Agent portal",
+            "fill": [16, 22, 34, 255]
+        }"#;
+        let portal: PortalNode = serde_json::from_str(older).expect("older portal parses");
+        assert_eq!(portal.kind, PortalKind::Agent);
+        assert_eq!(portal.web, None);
     }
 
     #[test]

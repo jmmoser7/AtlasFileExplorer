@@ -29,6 +29,7 @@ pub type DockIconPainter = fn(&egui::Painter, Rect, Color32);
 pub enum DockIcon {
     Filters,
     Display,
+    Mode,
     Workflow,
     Ai,
     Tags,
@@ -248,6 +249,14 @@ fn paint_builtin_icon(painter: &egui::Painter, rect: Rect, icon: DockIcon, color
             painter.rect_stroke(screen, 2.0, s, egui::StrokeKind::Inside);
             painter.line_segment([pt(rect, 0.42, 0.80), pt(rect, 0.58, 0.80)], s);
             painter.line_segment([pt(rect, 0.50, 0.68), pt(rect, 0.50, 0.80)], s);
+        }
+        DockIcon::Mode => {
+            let view = Rect::from_min_max(pt(rect, 0.18, 0.24), pt(rect, 0.50, 0.58));
+            let edit = Rect::from_min_max(pt(rect, 0.50, 0.42), pt(rect, 0.82, 0.76));
+            painter.rect_stroke(view, 2.0, s, egui::StrokeKind::Inside);
+            painter.rect_stroke(edit, 2.0, s, egui::StrokeKind::Inside);
+            painter.line_segment([pt(rect, 0.57, 0.49), pt(rect, 0.75, 0.67)], s);
+            painter.line_segment([pt(rect, 0.73, 0.50), pt(rect, 0.56, 0.67)], s);
         }
         DockIcon::Workflow => {
             for (x, y) in [(0.24, 0.30), (0.72, 0.30), (0.72, 0.72)] {

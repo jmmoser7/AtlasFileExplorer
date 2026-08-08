@@ -16,6 +16,24 @@ const ATLAS: Availability = Availability::ATLAS;
 const GLOBAL: Availability = Availability::GLOBAL;
 const ATLAS_SEL: Availability = Availability::ATLAS.union(Availability::NEEDS_SELECTION);
 
+const fn ctrl_shift(key: Key) -> Chord {
+    Chord {
+        key,
+        ctrl: true,
+        shift: true,
+        alt: false,
+    }
+}
+
+const fn shift(key: Key) -> Chord {
+    Chord {
+        key,
+        ctrl: false,
+        shift: true,
+        alt: false,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 const fn spec(
     id: &'static str,
@@ -60,7 +78,7 @@ pub const SPECS: &[CommandSpec] = &[
         "canvas.pan",
         "Pan (precise)",
         "Navigation",
-        "Left-drag on canvas background, or right-drag anywhere (even over a thumbnail)",
+        "Left-drag on canvas background, or right-drag on empty canvas",
         ATLAS,
     ),
     gesture(
@@ -204,6 +222,15 @@ pub const SPECS: &[CommandSpec] = &[
         "Right-click file or folder (without dragging)",
         ATLAS,
     ),
+    gesture(
+        "atlas.drag_out",
+        "Drag files to another application",
+        "Files",
+        "Right-drag from a file or folder — drop into PowerPoint, Explorer, Slate, anything \
+         that accepts a drop from File Explorer. Drags the whole selection. Copies or links; \
+         never moves. Esc cancels",
+        ATLAS,
+    ),
     spec(
         "atlas.copy_paths",
         "Copy file paths",
@@ -223,6 +250,73 @@ pub const SPECS: &[CommandSpec] = &[
         Repeat::Repeatable,
         ATLAS_SEL,
         &["details", "inspector"],
+    ),
+    gesture(
+        "atlas.mode_view",
+        "Mode: View",
+        "Files",
+        "Mode dock → View",
+        ATLAS,
+    ),
+    gesture(
+        "atlas.mode_edit",
+        "Mode: Edit",
+        "Files",
+        "Mode dock → Edit",
+        ATLAS,
+    ),
+    gesture(
+        "atlas.edit_move",
+        "Move files or folders",
+        "Files",
+        "Edit mode: left-drag file/folder to a folder",
+        ATLAS,
+    ),
+    gesture(
+        "atlas.edit_copy",
+        "Copy files or folders",
+        "Files",
+        "Edit mode: Alt + left-drag file/folder to a folder",
+        ATLAS,
+    ),
+    gesture(
+        "atlas.rename",
+        "Rename file or folder",
+        "Files",
+        "Edit mode: right-click → Rename…",
+        ATLAS,
+    ),
+    spec(
+        "atlas.new_folder",
+        "Add subdirectory",
+        "Files",
+        "Ctrl + Shift + N, or Edit mode context menu → Add subdirectory…",
+        Some(ctrl_shift(Key::N)),
+        Repeat::Never,
+        ATLAS,
+        &["mkdir", "folder"],
+    ),
+    // Availability is plain ATLAS, not ATLAS_SEL: Delete also acts on the
+    // folder or card under the cursor, which is not a selection.
+    spec(
+        "atlas.delete",
+        "Delete file or folder",
+        "Files",
+        "Delete — selection, or the item under the cursor (Edit mode)",
+        Some(Chord::bare(Key::Delete)),
+        Repeat::Never,
+        ATLAS,
+        &["remove", "recycle"],
+    ),
+    spec(
+        "atlas.delete_permanent",
+        "Delete permanently",
+        "Files",
+        "Shift + Delete (Edit mode)",
+        Some(shift(Key::Delete)),
+        Repeat::Never,
+        ATLAS,
+        &["remove permanently"],
     ),
     // ---- Activity timeline (one axis: graph + range handles) ----
     gesture(

@@ -154,6 +154,7 @@ impl PortalKindRef {
         // and can never introduce one.
         match self.0.as_str() {
             "repo_lens" => Some(PortalKind::RepoLens),
+            "web" => Some(PortalKind::Web),
             _ => None,
         }
     }
@@ -230,8 +231,18 @@ impl Recipe {
                     PortalKind::RepoLens => PortalNode::unbound_repo_lens(
                         p.title.clone().unwrap_or_else(|| "Repository Lens".into()),
                     ),
+                    PortalKind::Agent => PortalNode::unbound_agent(
+                        p.title.clone().unwrap_or_else(|| "Agent portal".into()),
+                        "cursor",
+                    ),
+                    PortalKind::Web => PortalNode::unbound_web(
+                        p.title.clone().unwrap_or_else(|| "Web portal".into()),
+                    ),
                 };
-                node.class = PortalClass::Generated;
+                node.class = match kind {
+                    PortalKind::RepoLens => PortalClass::Generated,
+                    PortalKind::Agent | PortalKind::Web => PortalClass::Host,
+                };
                 node.query = p.query.clone();
                 node.source = p.source.clone().map(|locator| SourceUri { locator });
                 if let Some(f) = p.fill {

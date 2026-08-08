@@ -27,6 +27,12 @@ fn in_own_cache(p: &std::path::Path) -> bool {
     })
 }
 
+/// Watch `root` for changes.
+///
+/// Note for callers: an event is cheap to *receive* and not necessarily cheap to
+/// *apply* — resolving one costs a `metadata` round trip, which on a high-latency
+/// share is milliseconds rather than microseconds. Drain this channel with a
+/// per-frame budget instead of to exhaustion (File Atlas: `FS_EVENTS_PER_FRAME`).
 pub fn watch(root: PathBuf) -> Option<FsWatch> {
     let (tx, rx) = unbounded::<FsChange>();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
@@ -60,4 +66,22 @@ pub fn watch(root: PathBuf) -> Option<FsWatch> {
         _watcher: watcher,
         rx,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn our_own_cache_writes_are_not_events() {
+        // Warming writes thumbnails inside the watched root; treating those as
+        // changes would rescan forever.
+        assert!(in_own_cache(&PathBuf::from(
+            r"R:\Cad\Rhino\.atlas-cache\ab.jpg"
+        )));
+        assert!(in_own_cache(&PathBuf::from(
+            r"R:\Cad\Rhino\.ATLAS-CACHE\ab.jpg"
+        )));
+        assert!(!in_own_cache(&PathBuf::from(r"R:\Cad\Rhino\model.3dm")));
+    }
 }

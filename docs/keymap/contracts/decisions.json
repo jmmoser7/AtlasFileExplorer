@@ -1,7 +1,143 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-08-01",
+  "updated": "2026-08-08",
   "tools": {
+    "text": {
+      "status": "proposed",
+      "family": "tool",
+      "reference": "Miro sticky / text place",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P2.GhostPlace"
+      ],
+      "canvas": "text-tool-contract",
+      "variants": [
+        "text-box",
+        "sticky"
+      ],
+      "decisions": {
+        "D01": {
+          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box · (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T → Text box, N → Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D02": {
+          "behavior": "Text box: one-shot — after place+edit-blur (or Esc commit), return to Select. Sticky: stays armed after commit; Tab / Shift+Tab while editing spawns an adjacent sticky and keeps the tool armed. Esc while armed (no edit) disarms to Select.",
+          "source": "research",
+          "confidence": 70,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D03": {
+          "behavior": "Armed → GhostFollow (default-size ghost locked to cursor) → Press → (ClickPlace | DragScale) → Commit → enter inline edit. Click-release places at default world size. Press-drag-release places and scales. Replaces P2.PlaceOnce for text/sticky (new L2: GhostPlace).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D04": {
+          "behavior": "Cursor travel > draft.drag_threshold (4 screen px) before release = DragScale; release within threshold = ClickPlace at default size. Drag under MIN_DRAW discards.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D05": {
+          "behavior": "Held Shift during DragScale locks aspect: Sticky → square; Text box → lock to default aspect (280×48). No Alt/Ctrl create modifiers in v1.",
+          "source": "research",
+          "confidence": 65,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D06": {
+          "behavior": "F9 grid snap applies to the ghost's anchor (Text: top-left of default rect; Sticky: center) and to both corners of a DragScale rect. F8 ortho does not apply to area placement. Object-snap off for v1.",
+          "source": "guess",
+          "confidence": 50,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D07": {
+          "behavior": "n/a during placement (no Tab direction lock). Tab while editing a sticky is the spawn-adjacent command (D02), not a place-time lock.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D08": {
+          "behavior": "No digit-entry sizing during place (Art. III). After commit, font size / box size edit via inspector + bbox grips only.",
+          "source": "guess",
+          "confidence": 70,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D09": {
+          "behavior": "While Armed: ghosted Text box or sticky preview locked to the cursor at the default world size (text: 280×48 + sample Text; sticky: STICKY_SIZE + yellow fill), alpha from place.ghost_alpha. During DragScale: live sized ghost. Paint always uses world metrics × camera zoom (font = size×z, wrap = rect.w×z) with no screen-constant / auto-fit path and no relative-scale floor.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D10": {
+          "behavior": "While Armed / DragScale the ghost is the cursor feedback (plus optional thin crosshair at the anchor). No system I-beam until inline edit starts after commit.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D11": {
+          "behavior": "Text box → TextNode (fill=None, default text Text, size 24 world). Sticky → TextNode with STICKY_FILL + STICKY_INK, empty text, size 24 world. Journal cmds board.tool.text / board.tool.sticky; one gesture = one undo. Immediately open inline edit. Creation DragScale sets rect from drag and scales font by mean scale vs default rect. Subsequent bbox resize of an existing node changes the frame only — authored font size stays put and text reflows.",
+          "source": "stated",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D12": {
+          "behavior": "Esc while GhostFollow / mid-DragScale → disarm to Select, no node (P0.1). Esc while inline-editing → commit text + peel edit (sticky stays armed per D02; text returns to Select).",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D13": {
+          "behavior": "Standard node resize bbox + rotation (P1.node). Multi-select uses the shared group bbox; group uniform scale also scales TextNode.size.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D14": {
+          "behavior": "Double-click enters inline edit. Inspector edits family / size / color / align / fill. Single-node bbox resize = frame-only reflow at fixed authored font size. No Miro Auto font size.",
+          "source": "stated",
+          "confidence": 95,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D15": {
+          "behavior": "Cut (Art. III): Miro Auto font size; sticky bulk-mode / spreadsheet paste; sticky stack; emoji reactions; S/M/L size picker chrome; screen-constant text / LOD that changes relative glyph size vs geometry.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D16": {
+          "behavior": "Next Text box / sticky consumes the last single-node Text edit when present: family, size, color, align; sticky also inherits fill (else STICKY_FILL). Defaults when none: Text box fill=None size 24; sticky yellow fill size 24.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D17": {
+          "behavior": "AABB of the text/sticky rect (area pick), including the fill for stickies. Marquee intersects the rect. Not stroke-precise.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        }
+      }
+    },
     "line": {
       "status": "shipped",
       "family": "tool",
@@ -121,7 +257,7 @@
           "decided": "2026-07-23"
         },
         "D16": {
-          "behavior": "Yes \u2014 last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Yes — last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -364,6 +500,618 @@
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-01"
+        },
+        "D32": {
+          "behavior": "Nothing to consent to, and this is a property of the design rather than an omission: contents are extracted from a local repository directory the human picked, no code from that repository is ever executed, and remote URLs and hosted APIs are refused as source kinds (D19, Art. I.4). The portal opens no network connection, so no origin permission exists. Restated from already-approved D15/D19/D27 when D32 joined the registry.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        }
+      }
+    },
+    "portal-agent-link": {
+      "status": "draft",
+      "family": "portal",
+      "reference": "Cursor SDK sidecar + local agent file contract",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P2.DragShape"
+      ],
+      "decisions": {
+        "D01": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D01.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D02": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D02.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D03": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D03.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D04": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D04.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D05": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D05.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D06": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D06.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D07": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D07.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D08": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D08.",
+          "source": "guess",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D09": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D09.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D10": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D10.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D11": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D11.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D12": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D12.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D13": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D13.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D14": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D14.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D15": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D15.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D16": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D16.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D17": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D17.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D18": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D18.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D19": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D19.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D20": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D20.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D21": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D21.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D22": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D22.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D23": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D23.",
+          "source": "guess",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D24": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D24.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D25": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D25.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D26": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D26.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D27": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D27.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D28": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D28.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D29": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D29.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D30": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D30.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D31": {
+          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D31.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D32": {
+          "behavior": "The agent runtime is out-of-process and user-run: Slate never spawns it (D15) and reaches it only through JSON files under the AI workspace the human established. Slate loads no page, script, or network endpoint on the portal's behalf, so there is no origin consent to grant - the trust boundary is the human's decision to run the sidecar, and staged proposals are the acceptance gate for everything it produces (D27, Art. VII.6).",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        }
+      }
+    },
+    "edit-mode-drag": {
+      "status": "shipped",
+      "family": "tool",
+      "shipped": "2026-08-07",
+      "reference": "Windows File Explorer drag / context menu",
+      "inherits": [
+        "P0.*"
+      ],
+      "canvas": null,
+      "decisions": {
+        "D01": {
+          "behavior": "Mode dock exposes View and Edit. Edit arms real filesystem operations for the active tab only; View refuses them.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D02": {
+          "behavior": "Mode persists while the tab is active or parked, but fresh roots and launches reset to View. Drag operations are one-shot.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D03": {
+          "behavior": "Edit mode: LMB down on file/folder, drag past egui threshold, ghost follows cursor, folder hover validates target, release commits move/copy or cancels on blank/invalid.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D04": {
+          "behavior": "Existing egui drag threshold disambiguates click/select from drag. Clicks keep current selection/open behavior.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D05": {
+          "behavior": "Alt held at release copies; no Alt moves. Shift keeps rubber-band selection precedence. Ctrl is not an edit-drag modifier.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D06": {
+          "behavior": "No grid, ortho, or object snap applies to filesystem placement. The target is the deepest folder whose bounds contain the cursor, so a folder's whole rectangle accepts a drop — including over the files it already holds.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D07": {
+          "behavior": "n/a: filesystem drag has no direction or numeric parameter lock.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D08": {
+          "behavior": "n/a for drag. Rename and new-folder names are typed in the anchored popup; Enter commits, Esc cancels. Every edit-mode prompt and confirmation opens at the cursor, never at a screen edge.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D09": {
+          "behavior": "Drag paints a semi-transparent ghost at the cursor naming the destination folder (or saying the release does nothing) and highlights the valid folder target. The bottom readout shows running filesystem operation progress.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D10": {
+          "behavior": "Drag cursor is grabbing for move and copy cursor when Alt is held. Invalid/blank targets show no folder highlight.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D11": {
+          "behavior": "Release on valid folder dispatches a background FsOp. A copy is first accounted for cloud placeholders on a worker thread — files and whole folder subtrees, directory entries only — and confirms before downloading anything. Completed changes are journaled as FsRename, FsMove, FsCopy, or FsDelete and applied to the current index/tree.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D12": {
+          "behavior": "Release on blank canvas or invalid target is a null action: no filesystem operation, no dialog, no journal entry. Esc closes prompt/dialog layers before canvas state.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D13": {
+          "behavior": "Existing File Atlas selection presentation remains unchanged; edit drag does not add grips or bbox handles.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D14": {
+          "behavior": "Watcher/index reconciliation refreshes the canvas. Rename/move rewrite assignment keys so staged export metadata follows the file.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D15": {
+          "behavior": "No cut/paste file operations, no agent-initiated writes, and no Delete command outside Edit mode. Delete acts on the selection, or on the item under the cursor when nothing is selected — the only way to delete a folder from the keyboard, since folders are never part of a selection.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D16": {
+          "behavior": "n/a: filesystem operations do not inherit visual style.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        },
+        "D17": {
+          "behavior": "Picking up uses the card hit-test (`Tree::hit_test`); dropping uses containment (`Tree::dir_at_point`), because a drop is aimed at a folder, not at a card. The target rejects self, the current parent, and descendants of dragged folders.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-07"
+        }
+      }
+    },
+    "portal-web-embed": {
+      "status": "agreed",
+      "family": "portal",
+      "reference": "Browser embed (WebView2) / packaged HTML dashboard",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.portal",
+        "P2.PortalPlace"
+      ],
+      "canvas": "portal-web-embed-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Command board.portal.web, board tabs only. Palette: \"web portal\" (aliases: embed, web page, iframe, url, dashboard, html). Portals dock flyout row. No single-key chord. Three drop-in entry paths create a bound portal at the pointer without arming a tool: dragging a browser tab or link out of Edge / Chrome / Firefox onto the board (the OLE payload carries UniformResourceLocatorW, text/uri-list, or CF_UNICODETEXT; atlas-core::shell_drag grows a URL arm beside its file arm); pasting an http(s) URL onto the board (Ctrl+V of clipboard text that parses as one); and dropping a .html/.htm file or a folder containing index.html, which makes a portal instead of a text card (Alt-drop keeps the text card, D05).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D02": {
+          "behavior": "P2.PortalPlace: one-shot, commit returns to Select, Space/Enter re-arms.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D03": {
+          "behavior": "P2.PortalPlace: Armed -> Dragging(rect) -> Committed(unbound), empty state \"Choose page or file...\", binding is a separate non-modal step (D19) - no file dialog and no network fetch inside a draw gesture. The three drop-in paths of D01 skip straight to Committed(bound).",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D04": {
+          "behavior": "P2.PortalPlace: travel > draft.drag_threshold (4 px) uses the dragged rect; below it places portal.web.default_size (960x540) centred on the click.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D05": {
+          "behavior": "P2.PortalPlace Shift = 16:9. Addition: Alt while dropping a .html file bypasses the portal diversion and creates the legacy text snippet card. Ctrl unassigned in v1.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D06": {
+          "behavior": "P2.PortalPlace: grid snap and smart guides on the frame rect, never on contents.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D07": {
+          "behavior": "n/a - P2.PortalPlace has no directional parameter.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D08": {
+          "behavior": "No digit entry during placement. One numeric knob exists after commit and it is authored: viewport.width_css (default 1280), edited in the Portal inspector. Typed frame dimensions stay a non-goal (D15).",
+          "source": "guess",
+          "confidence": 60,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D09": {
+          "behavior": "During the drag: frame outline in Palette::portal + live w x h in the dock readout. Placed: a chrome strip carrying a globe glyph (URL) or file glyph (local), the display locator, the health dot (Ok/Unknown/Missing), and the poster capture age. A portal currently rendering live shows a small live dot in the strip; the one input-focused portal additionally gets a 2 px accent border, so \"this is the frame holding my keyboard\" is never ambiguous on a board where several are animating. Dock readout when selected: locator - source kind - viewport width - zoom mode - state.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D10": {
+          "behavior": "Crosshair while armed. Over a portal that is not input-focused - poster or live-rendering alike - the normal board arrow, because clicks select the frame. Over the input-focused portal, Slate applies the cursor the page requests through the composition controller. Over the chrome strip: always arrow, because the strip stays a Slate target.",
+          "source": "pattern",
+          "confidence": 78,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D11": {
+          "behavior": "One journaled Add of PortalNode { class: Host, kind: Web, web: Some(WebPortalRef { source, entry, viewport, export_mode }) }. Poster texture, live state, scroll offset, and page history are derived and never journaled (Art. VI.3). One gesture = one undo. No style state consumed (D16).",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D12": {
+          "behavior": "Esc peels one layer per press (P0.1): page input focus -> drag draft -> armed tool -> selection. Releasing input focus returns the portal to ordinary live rendering; it does not tear the webview down, and page state (scroll position, form contents, running charts) survives. Teardown happens only on pool eviction (D29) or node delete, and aborts any in-flight load.",
+          "source": "pattern",
+          "confidence": 82,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D13": {
+          "behavior": "Standard frame handles (resize + rotation), joining the shared handle-carousel pattern. Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Rotation is fully supported: contents composite as a texture in the scene, so a rotated portal keeps rendering and stays hit-testable through its rotated rect, exactly like an image.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D14": {
+          "behavior": "Portal sidebar section when selected, mirrored by portal.web.* commands, each a journaled Patch: source (URL field / Choose file... / Choose folder + entry), viewport width and zoom mode, export mode, Reload, Recapture poster, Open in system browser, Package into workbook folder (Art. IX.4), and Allow this origin (local trust, not journaled - D32).",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D15": {
+          "behavior": "Cut, each a decision (Art. III): browser chrome (tabs, back/forward, address bar, bookmarks, history), devtools, downloads, popups and window.open (blocked, offered as open-in-browser), printing, a cookie jar shared with the user's real browser, persisted logins across sessions, notifications / geolocation / camera / mic / clipboard-read, scraping page DOM into board nodes, writing back to the source HTML file (Art. IX.5), and typed frame dimensions (D08). Not cut, deferred to its own contract: the declared control surface of D18 - the only channel that will ever cross the frame boundary, carrying typed parameter values from Slate into the page. Arbitrary JS bridges, host objects, and page-initiated postMessage into Slate stay permanently cut. Page-internal navigation while focused is allowed but never persisted: the authored locator is the home.",
+          "source": "pattern",
+          "confidence": 82,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D16": {
+          "behavior": "No - P1.portal.style.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D17": {
+          "behavior": "The frame picks on its (rotated) rect, including marquee, whenever it is not input-focused: a live-rendering portal is still an ordinary board node under the cursor. Only the single input-focused portal routes pointer and keyboard to the page and selects nothing on the board, and even then the chrome strip and a portal.web.border_hit_px (6 px) border band stay Slate targets so the frame can be grabbed and released. No board tool reaches the contents.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D18": {
+          "behavior": "Host, with one named future exception. The page owns its own runtime and Slate owns no mutations inside it; the only journaled acts are on the frame - place, move, resize, rebind, re-parameterize, delete, bake. The exception, deferred to its own contract: a hosted surface may declare a control surface of named, typed parameters, which board wires drive from other nodes - the case being a dashboard with sliders wired to an input node so other board content moves them. Values written that way are authored journaled data on the Slate side and travel one way, Slate -> page, over a declarative typed channel; the page never issues commands back, which keeps Art. VII.3 (data, not code) and VII.4 intact and makes the exception explicit rather than accidental. Determinism is not required of host portals (P1.portal.determinism).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D19": {
+          "behavior": "SourceUri.locator holds exactly one of: an http(s) URL; a path to an .html/.htm file; or a path to a directory plus WebPortalRef.entry (default index.html) for a multi-file dashboard. Paths are relative to the workbook first, absolute as fallback (Art. IX.2). Bound by the inspector, the empty-state button, or by dropping a file/folder/tab on an unbound portal; rebinding is a journaled Patch that discards the cached poster. Refused: javascript: and data: URIs, non-http(s) schemes (ftp:, about:, custom protocol handlers), .slate files (diverted to open as a tab), and non-HTML files (which stay ordinary board items).",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D20": {
+          "behavior": "Journaled: viewport.width_css (default 1280) - the CSS width the page is laid out at; viewport.zoom = Fit (scale the render to the frame width, default) | Fixed(f32) | Auto (frame size drives the CSS viewport, so resize reflows like a browser window); entry (folder sources); interactive_allowed (default true); poster_capture = OnBind | Manual (never a timer in v1); export_mode (D24); title; frame rect and fill. Derived: scroll offset, page history, live state, poster texture, load errors.",
+          "source": "guess",
+          "confidence": 62,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D21": {
+          "behavior": "Poster recapture triggers: bind/rebind, viewport change, explicit portal.web.recapture, pool eviction (D29), and - for local file/folder sources only - an mtime change found by a worker-thread poll no more often than portal.web.poll_secs (1.0). Remote URLs never auto-recapture: a network fetch is never implicit. Capture runs off-thread, generation-tagged; a stale capture is discarded, never painted (Art. II.3). While capturing, the previous poster stays at portal.web.stale_alpha (0.6) with a progress strip. Source gone: Missing, last poster retained and dimmed, locator named (P1.portal.health).",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D22": {
+          "behavior": "Many render, one listens. Every pooled portal (D29) renders live all the time - charts tick, animations run - while pointer and keyboard stay with the board. Hover shows the full locator; single click selects the frame; double-click (or Enter on the selection) takes input focus, routing pointer and keyboard to that one page and marking it (D09); Esc or clicking elsewhere releases focus without stopping its rendering. Ctrl+double-click opens the locator in the system browser instead. While input-focused the wheel scrolls the page and Ctrl+wheel still zooms the camera, so P0.5 holds - flagged as a deviation because the plain wheel is surrendered for that one frame.",
+          "source": "pattern",
+          "confidence": 78,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D23": {
+          "behavior": "Buckets key on the portal's on-screen height in physical pixels, so a hundred tiled pages zoomed out cost nothing. Below portal.web.lod_strip_px (96): chrome strip only, no texture bound. From 96 to portal.web.live_min_px (320), or off-screen at any size: the cached poster. At or above 320 and on screen: eligible for the live pool, admitted by the D29 priority; an eligible portal that misses admission paints its poster and reports Budgeted. Double-clicking a portal below the live threshold zooms the camera to fit it first, then takes input focus, rather than refusing.",
+          "source": "pattern",
+          "confidence": 75,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D24": {
+          "behavior": "Two modes, journaled per portal, defaulting by source kind (OQ2 = A). Local file/folder: packaged iframe - build_assets copies the entry file and its folder into assets/ and rewrites the locator (Art. IX.4 fork, origin recorded in the manifest), and the writer emits <iframe src=\"assets/...\" sandbox=\"allow-scripts allow-same-origin\" title=...> plus a caption naming the origin. Remote URL: poster + pointer (Art. V.3) - <a href=url><img poster></a> with a caption reading \"Live page, captured <date>\", and an honesty note where the site would refuse framing. export_mode: Iframe is opt-in for remote and says in its caption that the frame loads live from the network.",
+          "source": "stated",
+          "confidence": 95,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D25": {
+          "behavior": "portal.web.bake emits one journaled Add batch: an Image node holding the captured poster (written into the workbook assets) plus a provenance Text node naming the locator, the source kind, and the capture time. The portal is left in place - bake copies, it does not convert. Exact repo-lens D25 precedent.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D26": {
+          "behavior": "Frame, locator, entry, viewport, and export mode sync as ordinary journal deltas. Poster texture, live/pool state, scroll offset, page history, and per-origin consent are per-peer and never transmitted - each peer runs its own pool, and only the peer who focuses a portal gives it input. A peer that cannot resolve the locator paints Unknown naming the locator it tried (P1.portal.health). Consent is deliberately not journaled: a .slate you received must never arrive carrying someone else's decision to trust a host.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D27": {
+          "behavior": "Parity, mediated by the existing autonomy grant. Agents and humans drive the identical board.portal.web / portal.web.* commands with identical privileges (Art. VII.1); agent-issued mutations stage for acceptance by default and apply directly where the workspace has granted autonomy (Art. VII.6) - the same rule that governs every command, not a portal-specific leash. Origin consent (D32) is a command like any other and follows that same path. The remaining restrictions are capability-level, not agent-level: nobody, human or agent, can read page DOM, cookies, or storage, or make the page issue a command, because no such channel exists (D15). Art. IX.5's \"never available to an agent\" clause governs write-back to sources and does not bite here - this portal never writes to its source. The context beacon carries locator, source kind, viewport, and state.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D28": {
+          "behavior": "n/a - P1.portal.determinism: determinism is required of generated portals only (Art. V.3), and Art. IV.2 governs extracted graphs; neither describes a hosted page. What this portal owes instead is provenance, shown on the frame and in every export: resolved locator, source kind, content hash (local) or capture timestamp (remote), viewport width, and the origin recorded by packaging.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D29": {
+          "behavior": "A pool, not a webview per page. At most portal.web.live_pool (6) webviews exist at once, admitted from the eligible set (D23) by priority: input-focused first, then greatest on-screen area, then most recently focused. Eviction captures a poster on the way out, so a demoted portal degrades to its last frame rather than blanking. Contents composite offscreen into a texture (WebView2 visual hosting), so portals obey z-order, rotation, and opacity like any node. Frame rates are budgeted, not free: the input-focused portal renders at the board's rate, other pooled portals at portal.web.idle_fps (5), and texture uploads are capped at portal.web.uploads_per_frame (2) per frame with the remainder held in a backlog that requests a repaint - the per-frame-budget rule the scanner and watcher already follow. Poster capture is async and generation-tagged; posters cache by (locator, content hash or capture epoch, viewport width) and evict with the thumbnail tier (Art. II.2). Nothing on the frame loop touches the network or the filesystem; the local mtime poll is a worker at >= 1 s. The research-hub case is therefore a hundred cached textures, at most six processes, and none at all once the board zooms past the strip threshold. A missing WebView2 runtime degrades every portal to NoRuntime, never a stall.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D30": {
+          "behavior": "Unbound (\"Choose page or file...\"). Unknown - not yet resolved, neutral marker, never blocking (P1.portal.health). Blocked - remote origin not yet permitted, host named. Loading. Live. Budgeted - eligible but outside the live pool, showing its last frame and saying so. Poster(age) - stale by construction, age stated. Missing - file gone, DNS failure, or 404, locator named, last poster kept. Refused(reason) - unsupported or dangerous scheme. NoRuntime - WebView2 runtime absent, with what to install. TooSmall - below live_min_px. NotFramable - export-time note when a remote site refuses iframing. Every state names itself in the frame rather than blanking it.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D31": {
+          "behavior": "Journaled authored intent: frame rect / rotation / opacity / fill, title, locator, entry, viewport width and zoom mode, interactive_allowed, poster_capture mode, export mode. Derived per-peer: poster texture and its capture time, live/pool membership, input focus, scroll offset, page navigation history, load errors, origin consent grants, WebView2 runtime availability.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-08"
+        },
+        "D32": {
+          "behavior": "Remote origins are Blocked until the human permits them; grants key on (workbook, origin), live in local app state, and are never journaled or written into the .slate, so a workbook you receive cannot arrive pre-trusting a host. Local sources under the workbook root need no prompt. The webview runs in a per-workbook user-data folder - no cookies, storage, or logins shared with the user's real browser. Denied outright: downloads, popups, notifications, geolocation, camera, microphone, clipboard read, and any host object or postMessage bridge (D15). Exports sandbox what they embed: packaged local content gets sandbox=\"allow-scripts allow-same-origin\", because a dashboard must fetch its own sibling data files; remote iframes get allow-scripts only.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-08"
         }
       }
     }

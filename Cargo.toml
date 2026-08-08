@@ -45,6 +45,8 @@ jpeg-decoder = { version = "0.3", default-features = false }
 dirs = "6"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 pdfium-render = { version = "0.8", features = ["thread_safe"] }
+# SVG → RGBA for atlas thumbnails / zoom previews. Pure Rust; no native DLL.
+resvg = "0.48"
 flate2 = "1"
 kurbo = "0.13.1"
 gix = { version = "0.86.0", default-features = false, features = ["revision", "sha1"] }

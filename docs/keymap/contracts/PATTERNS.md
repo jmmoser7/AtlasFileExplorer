@@ -99,13 +99,34 @@ text- or image-producing tool appears.
 
 ### P1.portal — portal nodes (generated / document / host)
 
-Exists as a class (Constitution Art. V.3, decision D7), with no rules promoted
-into it yet: `portal-lens-repository` is the first portal contract, so its
-rules stay L3 by the promotion rule. When the second portal contract lands —
-the code Lens folding into a portal is the likely candidate — the shared rules
-(frame is journaled, contents are derived; click selects the frame and
-double-click enters the contents; the source-health tri-state; export marks)
-promote here and both contracts replace their copy with a reference.
+Promoted when `portal-web-embed` became the third portal contract. The two
+older contracts (`portal-lens-repository`, `portal-agent-link`) still state
+these rules inline — they are the source the rules were lifted from, and
+rewriting an already-approved matrix cell is a worse cost than the duplication.
+New portal contracts reference these and add only deviations.
+
+- **P1.portal.frame** the frame — rect, source, query/parameters, title, fill —
+  is journaled authored data; contents come from elsewhere and are never
+  journaled (Art. V.1, VI.3).
+- **P1.portal.health** source health is the tri-state `Ok` / `Unknown` /
+  `Missing`, resolved without blocking any user-facing operation, and every
+  unresolved or missing state **names the locator it tried** so it does not read
+  as a bug (Art. IX.3).
+- **P1.portal.enter** click selects the frame; double-click (or Enter on the
+  selection) enters the contents; Esc leaves. No board tool reaches the
+  contents from outside the frame.
+- **P1.portal.determinism** determinism is required of **generated** portals
+  only (Art. V.3); Art. IV.2 governs extracted graphs. Host and document
+  portals answer D28 with *provenance* — what is being shown and when it was
+  obtained — and do not claim reproducibility. Promoted specifically so no
+  further non-generated portal has to re-litigate the point.
+- **P1.portal.style** portals paint from `Palette::portal` and the portal token
+  block; they never consume `BoardLastStyle` and never become the last
+  single-node edit. **Deviates P1.shape.style** — analysis and host surfaces
+  stay identical between boards and between the two apps (Art. X).
+- **P1.portal.export-honesty** whatever the artifact writer emits carries a
+  caption saying what it is and when it was obtained; an unbound or `Missing`
+  portal exports its state card, never an empty rectangle (Art. IV.1).
 
 ## L2 — Tool-family archetypes
 
@@ -136,6 +157,26 @@ State machine: `Armed → Placing(point k) → … → Commit`.
 
 - press-drag-release only; Shift = aspect (P1.shape.aspect); releases under
   `MIN_DRAW` discard; commit returns to Select.
+
+### P2.PortalPlace — area placement for portal frames
+
+The placement grammar every portal subtype has arrived at, promoted from
+`portal-lens-repository`, `portal-agent-link`, and `portal-web-embed`.
+
+- **P2.PortalPlace.gesture** `Armed → Dragging(rect) → Committed(unbound)`:
+  press-drag-release defines the frame and the release commits an **unbound**
+  portal painting its own empty state. Binding never happens inside a draw
+  gesture — no file dialog, no network fetch.
+- **P2.PortalPlace.click** travel under `draft.drag_threshold` (4 px) places
+  `<portal>.default_size` (960×540 world units) centred on the click.
+  **Deviates P2.DragShape**, which discards sub-`MIN_DRAW` releases: for a node
+  this size, a click that produces nothing reads as a broken tool.
+- **P2.PortalPlace.aspect** held Shift locks 16:9; unmodified drags are
+  free-aspect. **Deviates P1.shape.aspect** (square).
+- **P2.PortalPlace.snap** grid snap and smart guides apply to the frame rect
+  (P1.node.move); contents never snap. No direction lock, no numeric entry.
+- **P2.PortalPlace.oneshot** commit returns to Select; Space/Enter re-arms
+  (P0.4).
 
 ### P2.StickyInk — expressive stroke tools (brush, eraser)
 

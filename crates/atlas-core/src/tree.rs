@@ -4,10 +4,11 @@
 //! a configurable-width block; collapsed folders past a configurable child count
 //! render as "portals".
 
+use crate::dirmeta::DirMetaMap;
 use crate::types::FileEntry;
 use eframe::egui::{Pos2, Rect, Vec2};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // Geometry constants (world units) — same numbers as the web app.
 pub const COL_W: f32 = 340.0; // depth step, v orientation
@@ -76,9 +77,10 @@ pub struct DirNode {
     pub desc_files: usize,
     pub desc_bytes: u64,
     pub desc_matches: usize,
-    /// Folder creation time, when available from the scanner host.
+    /// Folder creation time, 0 until the deferred folder-metadata pass
+    /// ([`crate::dirmeta`]) reports it.
     pub ctime: i64,
-    /// Short owner/creator label, when available.
+    /// Short owner/creator label, empty until that same pass reports it.
     pub owner: String,
     pub collapsed: bool,
     // Layout output (world space). (x, y) is left edge x, center y.
@@ -115,7 +117,7 @@ impl DirNode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum FilePlace {
     Hidden,
     /// Cell in the parent's grid-pack block (all visible files).
@@ -167,7 +169,33 @@ impl Tree {
             .unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::splat(1.0)))
     }
 
-    pub fn build(entries: &[FileEntry], root: &Path, cfg: LayoutConfig) -> Tree {
+    /// Build the folder hierarchy and lay it out.
+    ///
+    /// Pure: no filesystem access, so it is safe to call on the frame path and
+    /// cheap to repeat while a scan streams. Folder creation dates and owners
+    /// come from `dir_meta` — resolved off-thread by
+    /// [`crate::dirmeta::start_dir_meta_pass`] — and are simply absent until
+    /// that pass reports them.
+    pub fn build(
+        entries: &[FileEntry],
+        root: &Path,
+        cfg: LayoutConfig,
+        dir_meta: &DirMetaMap,
+    ) -> Tree {
+        Self::build_with_dirs(entries, root, cfg, dir_meta, &[])
+    }
+
+    /// `build`, plus directories that must exist even though no file is in
+    /// them. Folders are otherwise derived from the files inside them, which
+    /// would make a folder the user just created invisible — and therefore
+    /// impossible to drop anything into.
+    pub fn build_with_dirs(
+        entries: &[FileEntry],
+        root: &Path,
+        cfg: LayoutConfig,
+        dir_meta: &DirMetaMap,
+        extra_dirs: &[String],
+    ) -> Tree {
         let cfg = cfg.normalized();
         let root_name = root
             .file_name()
@@ -177,38 +205,54 @@ impl Tree {
         let mut by_rel: HashMap<String, u32> = HashMap::new();
         by_rel.insert(String::new(), 0);
 
+        // Walk a directory rel, creating any missing node along the way, and
+        // answer with the node it names.
+        fn ensure_chain(
+            dirs: &mut Vec<DirNode>,
+            by_rel: &mut HashMap<String, u32>,
+            dir_rel: &str,
+        ) -> u32 {
+            let mut parent: u32 = 0;
+            let mut pos = 0usize;
+            let bytes = dir_rel.as_bytes();
+            loop {
+                let next = dir_rel[pos..].find('\\').map(|k| pos + k);
+                let end = next.unwrap_or(bytes.len());
+                let prefix = &dir_rel[..end];
+                parent = match by_rel.get(prefix) {
+                    Some(&idx) => idx,
+                    None => {
+                        let name = dir_rel[pos..end].to_string();
+                        let depth = dirs[parent as usize].depth + 1;
+                        let idx = dirs.len() as u32;
+                        dirs.push(DirNode::new(name, prefix.to_string(), depth));
+                        dirs[parent as usize].child_dirs.push(idx);
+                        by_rel.insert(prefix.to_string(), idx);
+                        idx
+                    }
+                };
+                match next {
+                    Some(k) => pos = k + 1,
+                    None => break,
+                }
+            }
+            parent
+        }
+
         for (i, e) in entries.iter().enumerate() {
             if e.dead {
                 continue;
             }
-            // Ensure the directory chain exists.
-            let mut parent: u32 = 0;
-            if let Some(dir_rel) = e.rel.rsplit_once('\\').map(|(d, _)| d) {
-                let mut pos = 0usize;
-                let bytes = dir_rel.as_bytes();
-                loop {
-                    let next = dir_rel[pos..].find('\\').map(|k| pos + k);
-                    let end = next.unwrap_or(bytes.len());
-                    let prefix = &dir_rel[..end];
-                    parent = match by_rel.get(prefix) {
-                        Some(&idx) => idx,
-                        None => {
-                            let name = dir_rel[pos..end].to_string();
-                            let depth = dirs[parent as usize].depth + 1;
-                            let idx = dirs.len() as u32;
-                            dirs.push(DirNode::new(name, prefix.to_string(), depth));
-                            dirs[parent as usize].child_dirs.push(idx);
-                            by_rel.insert(prefix.to_string(), idx);
-                            idx
-                        }
-                    };
-                    match next {
-                        Some(k) => pos = k + 1,
-                        None => break,
-                    }
-                }
-            }
+            let parent = match e.rel.rsplit_once('\\').map(|(d, _)| d) {
+                Some(dir_rel) => ensure_chain(&mut dirs, &mut by_rel, dir_rel),
+                None => 0,
+            };
             dirs[parent as usize].files.push(i as u32);
+        }
+        for rel in extra_dirs {
+            if !rel.is_empty() {
+                ensure_chain(&mut dirs, &mut by_rel, rel);
+            }
         }
 
         // Name-sort children for stable, readable layout.
@@ -229,15 +273,12 @@ impl Tree {
                     .cmp(&entries[b as usize].name_lc)
             });
         }
-        for d in &mut dirs {
-            let path = if d.rel.is_empty() {
-                root.to_path_buf()
-            } else {
-                root.join(d.rel.replace('\\', std::path::MAIN_SEPARATOR_STR))
-            };
-            if let Ok(md) = std::fs::metadata(&path) {
-                d.ctime = crate::metadata::ctime_of(&md);
-                d.owner = crate::metadata::owner_short(&path);
+        if !dir_meta.is_empty() {
+            for d in &mut dirs {
+                if let Some(m) = dir_meta.get(&d.rel) {
+                    d.ctime = m.ctime;
+                    d.owner = m.owner.clone();
+                }
             }
         }
 
@@ -261,6 +302,52 @@ impl Tree {
         tree.aggregate(entries);
         tree.default_collapse(cfg);
         tree
+    }
+
+    /// Copy resolved folder dates/owners onto the live tree. Labels only — no
+    /// geometry depends on them, so this never needs a relayout.
+    pub fn apply_dir_meta(&mut self, dir_meta: &DirMetaMap) {
+        for d in &mut self.dirs {
+            if let Some(m) = dir_meta.get(&d.rel) {
+                d.ctime = m.ctime;
+                d.owner = m.owner.clone();
+            }
+        }
+    }
+
+    /// Folders currently *on screen* whose metadata has not been asked for yet,
+    /// paired with the absolute path the deferred pass should stat.
+    ///
+    /// Deliberately not "every folder in the tree": each one costs a `stat` plus
+    /// a security-descriptor query, and the fields it feeds are a subtitle that
+    /// only appears when the camera is close. Sweeping the whole tree turned that
+    /// into thousands of round trips competing with discovery for the same share.
+    ///
+    /// Gated on *asked*, not on what came back, so a folder whose metadata is
+    /// unreadable is not re-queued on every frame.
+    pub fn dirs_needing_meta_in_view(
+        &self,
+        root: &Path,
+        view: Rect,
+        asked: &std::collections::HashSet<String>,
+        cap: usize,
+    ) -> Vec<(String, PathBuf)> {
+        let mut out: Vec<(String, PathBuf)> = Vec::new();
+        for d in &self.dirs {
+            if out.len() >= cap {
+                break;
+            }
+            if asked.contains(&d.rel) || !view.intersects(d.rect()) {
+                continue;
+            }
+            let path = if d.rel.is_empty() {
+                root.to_path_buf()
+            } else {
+                root.join(d.rel.replace('\\', std::path::MAIN_SEPARATOR_STR))
+            };
+            out.push((d.rel.clone(), path));
+        }
+        out
     }
 
     fn aggregate(&mut self, entries: &[FileEntry]) {
@@ -736,6 +823,31 @@ impl Tree {
         None
     }
 
+    /// Deepest placed directory whose subtree bounds contain `p`.
+    ///
+    /// This answers "which folder is the cursor inside", which is a different
+    /// question from `hit_test`'s "which card is under the cursor" — a drop
+    /// has to land in the folder even when the cursor is over one of its
+    /// files or over the empty space beside them.
+    pub fn dir_at_point(&self, p: Pos2) -> Option<u32> {
+        self.dir_at_point_from(0, p)
+    }
+
+    fn dir_at_point_from(&self, di: usize, p: Pos2) -> Option<u32> {
+        let d = &self.dirs[di];
+        if !d.placed || !d.bounds.contains(p) {
+            return None;
+        }
+        if !d.collapsed {
+            for &c in &d.child_dirs {
+                if let Some(hit) = self.dir_at_point_from(c as usize, p) {
+                    return Some(hit);
+                }
+            }
+        }
+        Some(di as u32)
+    }
+
     /// Collect file ids whose world rect intersects `r` (rubber band).
     pub fn files_in_rect(&self, r: Rect, out: &mut Vec<u32>) {
         self.files_in_rect_dir(0, r, out);
@@ -815,7 +927,12 @@ mod tests {
             entry(r"sub\deep\c.jpg"),
             entry(r"other\d.txt"),
         ];
-        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
+        let mut t = Tree::build(
+            &entries,
+            Path::new(r"C:\fake"),
+            LayoutConfig::default(),
+            &DirMetaMap::new(),
+        );
         assert_eq!(t.dirs.len(), 4); // root, sub, sub\deep, other
         assert_eq!(t.dirs[0].desc_files, 4);
         let sub = t.dirs.iter().position(|d| d.rel == "sub").unwrap();
@@ -851,7 +968,12 @@ mod tests {
         for i in 0..25 {
             entries.push(entry(&format!(r"pics\img_{i:02}.png")));
         }
-        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
+        let mut t = Tree::build(
+            &entries,
+            Path::new(r"C:\fake"),
+            LayoutConfig::default(),
+            &DirMetaMap::new(),
+        );
         for d in t.dirs.iter_mut() {
             d.collapsed = false;
         }
@@ -882,7 +1004,7 @@ mod tests {
             align_groups_to_lowest: true,
             ..LayoutConfig::default()
         };
-        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), cfg);
+        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), cfg, &DirMetaMap::new());
         for d in t.dirs.iter_mut() {
             d.collapsed = false;
         }
@@ -923,7 +1045,12 @@ mod tests {
         for i in 0..110 {
             entries.push(entry(&format!(r"big\sub_{i:03}\photo.jpg")));
         }
-        let t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
+        let t = Tree::build(
+            &entries,
+            Path::new(r"C:\fake"),
+            LayoutConfig::default(),
+            &DirMetaMap::new(),
+        );
         let big = t.dirs.iter().position(|d| d.rel == "big").unwrap();
         assert!(
             t.dirs[big].files.is_empty(),
@@ -949,7 +1076,12 @@ mod tests {
         for i in 0..150 {
             entries.push(entry(&format!(r"p\portal_{i:03}.png")));
         }
-        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
+        let mut t = Tree::build(
+            &entries,
+            Path::new(r"C:\fake"),
+            LayoutConfig::default(),
+            &DirMetaMap::new(),
+        );
         let p = t.dirs.iter().position(|d| d.rel == "p").unwrap();
         t.dirs[p].collapsed = true;
         let all_match = vec![true; entries.len()];
@@ -969,7 +1101,12 @@ mod tests {
     fn structure_only_keeps_dirs_hides_files() {
         let entries: Vec<FileEntry> =
             vec![entry(r"a\x.jpg"), entry(r"a\b\y.jpg"), entry(r"c\z.png")];
-        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
+        let mut t = Tree::build(
+            &entries,
+            Path::new(r"C:\fake"),
+            LayoutConfig::default(),
+            &DirMetaMap::new(),
+        );
         for d in t.dirs.iter_mut() {
             d.collapsed = false;
         }
@@ -1009,7 +1146,7 @@ mod tests {
             row_spacing: 40,
             ..LayoutConfig::default()
         };
-        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), cfg);
+        let mut t = Tree::build(&entries, Path::new(r"C:\fake"), cfg, &DirMetaMap::new());
         for d in t.dirs.iter_mut() {
             d.collapsed = false;
         }
@@ -1057,10 +1194,55 @@ mod tests {
         }
     }
 
+    /// A drop has to land in the folder the cursor is inside, even when the
+    /// cursor is over one of that folder's files. `hit_test` answers the other
+    /// question — it returns the folder only over its own card — so the two
+    /// must not be confused for each other.
+    #[test]
+    fn dir_at_point_finds_the_folder_the_cursor_is_inside() {
+        let entries: Vec<FileEntry> =
+            vec![entry(r"a\x.jpg"), entry(r"a\b\y.jpg"), entry("top.jpg")];
+        let mut t = Tree::build(
+            &entries,
+            Path::new(r"C:\fake"),
+            LayoutConfig::default(),
+            &DirMetaMap::new(),
+        );
+        for d in t.dirs.iter_mut() {
+            d.collapsed = false;
+        }
+        t.layout(Orient::H);
+
+        let dir_id = |rel: &str| {
+            t.dirs
+                .iter()
+                .position(|d| d.rel == rel)
+                .expect("dir in tree") as u32
+        };
+        let file_id = |rel: &str| entries.iter().position(|e| e.rel == rel).expect("file") as u32;
+
+        // Over a file: the file's own folder, not the card under the cursor.
+        let nested = t.file_pos[file_id(r"a\b\y.jpg") as usize].rect().center();
+        assert_eq!(t.dir_at_point(nested), Some(dir_id(r"a\b")));
+
+        // Over a folder's own card: that folder.
+        let card = t.dirs[dir_id("a") as usize].rect().center();
+        assert_eq!(t.dir_at_point(card), Some(dir_id("a")));
+
+        // Far outside every folder: a release there is a null action.
+        let away = t.dirs[0].bounds.max + Vec2::new(500.0, 500.0);
+        assert_eq!(t.dir_at_point(away), None);
+    }
+
     #[test]
     fn default_collapse_depth() {
         let entries: Vec<FileEntry> = vec![entry(r"a\b\c\deep.jpg"), entry(r"a\top.jpg")];
-        let t = Tree::build(&entries, Path::new(r"C:\fake"), LayoutConfig::default());
+        let t = Tree::build(
+            &entries,
+            Path::new(r"C:\fake"),
+            LayoutConfig::default(),
+            &DirMetaMap::new(),
+        );
         let ab = t.dirs.iter().find(|d| d.rel == r"a\b").unwrap();
         assert!(ab.collapsed); // depth 2
         let a = t.dirs.iter().find(|d| d.rel == "a").unwrap();

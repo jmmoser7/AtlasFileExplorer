@@ -18,7 +18,9 @@ use atlas_shell::sidebar::{
 };
 use atlas_shell::widgets::{thin_sidebar_slider, thin_sidebar_slider_i32};
 use eframe::egui::{self, Color32, Id, RichText};
-use slate_doc::scene::{Corner, Dash, FontChoice, Node, NodeKind, Rgba, TextAlign};
+use slate_doc::scene::{
+    AgentContextScope, Corner, Dash, FontChoice, Node, NodeKind, PortalKind, Rgba, TextAlign,
+};
 use slate_doc::{NodeId, ViewKind};
 
 fn rgba32(c: Rgba) -> Color32 {
@@ -1010,6 +1012,14 @@ fn portal_controls(
             }
         });
     }
+    if p.kind == PortalKind::Agent {
+        agent_portal_controls(app, ui, theme, ids, primary);
+        return;
+    }
+    if p.kind == PortalKind::Web {
+        web_portal_controls(app, ui, theme, ids, primary);
+        return;
+    }
     ui.label(
         RichText::new(match &p.source {
             Some(s) => format!("Source: {}", s.locator),
@@ -1076,6 +1086,324 @@ fn portal_controls(
             });
         }
     });
+}
+
+fn web_portal_controls(
+    app: &mut SlateApp,
+    ui: &mut egui::Ui,
+    theme: SidebarTheme,
+    ids: &[NodeId],
+    primary: &Node,
+) {
+    use slate_doc::scene::{web_origin, WebExport, WebZoom};
+
+    let NodeKind::Portal(p) = &primary.kind else {
+        return;
+    };
+    let web = p.web_ref();
+    let state = app.web.state(primary.id);
+    let locator = p.source.as_ref().map(|s| s.locator.clone());
+
+    ui.label(
+        RichText::new(format!("State: {}", state.label()))
+            .small()
+            .color(theme.sub),
+    );
+
+    // The URL field is the only way to bind a remote page; a file dialog
+    // cannot express one.
+    let mut url = locator.clone().unwrap_or_default();
+    let field = ui.add(
+        egui::TextEdit::singleline(&mut url)
+            .hint_text("https://… or choose a file")
+            .desired_width(ui.available_width()),
+    );
+    if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        let id = primary.id;
+        let typed = url.clone();
+        if typed.trim().is_empty() {
+            app.toast("Enter a URL, or choose a file below.");
+        } else {
+            app.bind_web_source(id, typed);
+        }
+    }
+    ui.horizontal(|ui| {
+        if ui.button(RichText::new("Choose file…").small()).clicked() {
+            app.web_pick_source_for_selection();
+        }
+        if ui.button(RichText::new("Choose folder…").small()).clicked() {
+            app.web_pick_folder_for_selection();
+        }
+    });
+
+    // Consent is a local decision, so it lives here rather than in the journal.
+    if let Some(origin) = locator.as_deref().and_then(web_origin) {
+        let granted = app.web.has_consent(&origin);
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(if granted {
+                    format!("{origin} allowed")
+                } else {
+                    format!("{origin} blocked")
+                })
+                .small()
+                .color(theme.sub),
+            );
+            if granted {
+                if ui.button(RichText::new("Revoke").small()).clicked() {
+                    app.web.revoke_consent(&origin);
+                }
+            } else if ui
+                .button(RichText::new("Allow this origin").small())
+                .clicked()
+            {
+                app.dispatch(
+                    ui.ctx(),
+                    atlas_commands::CommandId("portal.web.allow_origin"),
+                    None,
+                );
+            }
+        });
+        ui.label(
+            RichText::new("Permission is local to this machine — never saved into the workbook.")
+                .small()
+                .color(theme.sub),
+        );
+    }
+
+    if matches!(web.viewport.zoom, WebZoom::Fit | WebZoom::Fixed(_)) {
+        let mut width = web.viewport.width_css as f32;
+        if ui
+            .add(
+                egui::Slider::new(&mut width, 320.0..=2560.0)
+                    .step_by(20.0)
+                    .text(RichText::new("CSS width").small()),
+            )
+            .changed()
+        {
+            let w = width.round() as u32;
+            app.patch_nodes(ids, move |n| {
+                if let NodeKind::Portal(p) = &mut n.kind {
+                    let mut r = p.web_ref();
+                    r.viewport.width_css = w;
+                    p.web = Some(r);
+                }
+            });
+        }
+    }
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Fit").small().color(theme.sub));
+        for (label, zoom) in [("Scale", WebZoom::Fit), ("Reflow", WebZoom::Auto)] {
+            let on = std::mem::discriminant(&web.viewport.zoom) == std::mem::discriminant(&zoom);
+            if ui
+                .selectable_label(on, RichText::new(label).small())
+                .clicked()
+            {
+                app.patch_nodes(ids, move |n| {
+                    if let NodeKind::Portal(p) = &mut n.kind {
+                        let mut r = p.web_ref();
+                        r.viewport.zoom = zoom;
+                        p.web = Some(r);
+                    }
+                });
+            }
+        }
+    });
+
+    // Export mode. The default follows the source kind, and saying so beats a
+    // silently pre-selected radio button.
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Export").small().color(theme.sub));
+        for (label, mode) in [
+            ("Automatic", None),
+            ("Poster + link", Some(WebExport::Poster)),
+            ("Embed", Some(WebExport::Iframe)),
+        ] {
+            if ui
+                .selectable_label(web.export == mode, RichText::new(label).small())
+                .clicked()
+            {
+                app.patch_nodes(ids, move |n| {
+                    if let NodeKind::Portal(p) = &mut n.kind {
+                        let mut r = p.web_ref();
+                        r.export = mode;
+                        p.web = Some(r);
+                    }
+                });
+            }
+        }
+    });
+    if web.export == Some(WebExport::Iframe) && locator.as_deref().and_then(web_origin).is_some() {
+        ui.label(
+            RichText::new("Embedding a live page means the artifact loads it from the network.")
+                .small()
+                .color(theme.sub),
+        );
+    }
+
+    ui.horizontal(|ui| {
+        for (label, cmd) in [
+            ("Reload", "portal.web.reload"),
+            ("Recapture", "portal.web.recapture"),
+            ("Open externally", "portal.web.open_external"),
+        ] {
+            if ui.button(RichText::new(label).small()).clicked() {
+                app.dispatch(ui.ctx(), atlas_commands::CommandId(cmd), None);
+            }
+        }
+    });
+    ui.horizontal(|ui| {
+        for (label, cmd) in [
+            ("Package into workbook", "portal.web.package"),
+            ("Bake poster", "portal.web.bake"),
+        ] {
+            if ui.button(RichText::new(label).small()).clicked() {
+                app.dispatch(ui.ctx(), atlas_commands::CommandId(cmd), None);
+            }
+        }
+    });
+}
+
+fn agent_portal_controls(
+    app: &mut SlateApp,
+    ui: &mut egui::Ui,
+    theme: SidebarTheme,
+    ids: &[NodeId],
+    primary: &Node,
+) {
+    let NodeKind::Portal(p) = &primary.kind else {
+        return;
+    };
+    let Some(agent) = p.agent.clone() else {
+        ui.label(
+            RichText::new("Agent portal is unbound.")
+                .small()
+                .color(theme.sub),
+        );
+        return;
+    };
+
+    ui.label(
+        RichText::new(format!("Session: {}", agent.session))
+            .small()
+            .color(theme.sub),
+    );
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Provider").small().color(theme.sub));
+        for provider in ["cursor", "local"] {
+            if ui
+                .selectable_label(agent.provider == provider, RichText::new(provider).small())
+                .clicked()
+            {
+                let provider = provider.to_string();
+                app.patch_nodes(ids, move |n| {
+                    if let NodeKind::Portal(p) = &mut n.kind {
+                        if let Some(agent) = &mut p.agent {
+                            agent.provider = provider.clone();
+                        }
+                    }
+                });
+            }
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Context").small().color(theme.sub));
+        for (scope, label) in [
+            (AgentContextScope::Selection, "Selection"),
+            (AgentContextScope::Frame, "Frame"),
+            (AgentContextScope::Board, "Board"),
+        ] {
+            if ui
+                .selectable_label(agent.context == scope, RichText::new(label).small())
+                .clicked()
+            {
+                app.patch_nodes(ids, move |n| {
+                    if let NodeKind::Portal(p) = &mut n.kind {
+                        if let Some(agent) = &mut p.agent {
+                            agent.context = scope;
+                        }
+                    }
+                });
+            }
+        }
+    });
+
+    ui.horizontal(|ui| {
+        if ui.button(RichText::new("Launch").small()).clicked() {
+            app.dispatch(
+                ui.ctx(),
+                atlas_commands::CommandId("portal.agent.launch"),
+                None,
+            );
+        }
+        if ui.button(RichText::new("Reveal link").small()).clicked() {
+            app.dispatch(
+                ui.ctx(),
+                atlas_commands::CommandId("portal.agent.reveal"),
+                None,
+            );
+        }
+    });
+
+    sidebar_subtle_divider(ui, theme);
+    ui.label(RichText::new("Prompt").small().color(theme.sub));
+    let mut draft = app.agents.prompt_mut(primary.id).clone();
+    if ui
+        .add(
+            egui::TextEdit::multiline(&mut draft)
+                .desired_rows(3)
+                .desired_width(ui.available_width())
+                .hint_text("Ask the linked local agent…"),
+        )
+        .changed()
+    {
+        *app.agents.prompt_mut(primary.id) = draft;
+    }
+    if ui.button(RichText::new("Send").small()).clicked() {
+        app.dispatch(
+            ui.ctx(),
+            atlas_commands::CommandId("portal.agent.send"),
+            None,
+        );
+    }
+
+    let proposals: Vec<(String, String, String, usize)> = app
+        .agents
+        .pending_for(&agent.session)
+        .map(|p| {
+            (
+                p.id.clone(),
+                p.title.clone(),
+                p.author.clone(),
+                p.cmds.len(),
+            )
+        })
+        .collect();
+    if !proposals.is_empty() {
+        sidebar_subtle_divider(ui, theme);
+        ui.label(RichText::new("Staged proposals").small().strong());
+        for (id, title, author, count) in proposals {
+            ui.group(|ui| {
+                ui.label(RichText::new(title).small().strong());
+                ui.label(
+                    RichText::new(format!(
+                        "{author} · {count} command{}",
+                        if count == 1 { "" } else { "s" }
+                    ))
+                    .small()
+                    .color(theme.sub),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button(RichText::new("Accept").small()).clicked() {
+                        app.accept_stage_proposal(&id);
+                    }
+                    if ui.button(RichText::new("Reject").small()).clicked() {
+                        app.reject_stage_proposal(&id);
+                    }
+                });
+            });
+        }
+    }
 }
 
 fn frame_controls(

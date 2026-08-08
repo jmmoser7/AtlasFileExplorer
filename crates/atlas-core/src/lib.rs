@@ -7,8 +7,10 @@
 //! crate; app-specific state and chrome never live here.
 
 pub mod cloud;
+pub mod dirmeta;
 pub mod export;
 pub mod folder_heat;
+pub mod fsops;
 pub mod index;
 pub mod journal;
 pub mod metadata;
@@ -18,6 +20,9 @@ pub mod pdf;
 pub mod preview;
 pub mod rasterthumb;
 pub mod scanner;
+pub mod shell_drag;
+pub mod skiplist;
+pub mod svg;
 pub mod threedm;
 pub mod thumbs;
 pub mod timeline;

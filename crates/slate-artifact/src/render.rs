@@ -1,7 +1,8 @@
 use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
-    connector_bezier, ConnectorNode, Corner, Dash, Node, NodeId, NodeKind, PathData, PathSeg, Rgba,
-    Scene, ShapeKind, StrokeCap, StrokeJoin, TextAlign, WidthProfile, WireDisplay, WorldRect,
+    connector_bezier, web_origin, ConnectorNode, Corner, Dash, Node, NodeId, NodeKind, PathData,
+    PathSeg, PortalClass, PortalKind, Rgba, Scene, ShapeKind, StrokeCap, StrokeJoin, TextAlign,
+    WebExport, WebSourceKind, WidthProfile, WireDisplay, WorldRect,
 };
 use slate_doc::SlateDoc;
 use vector_ink::kurbo::{BezPath, PathEl, Point};
@@ -255,6 +256,9 @@ fn render_node(
         NodeKind::Frame(_) => {}
         // Generated portal contents are derived; export a poster shell. Bake
         // to promote graph geometry into authored nodes the writer serializes.
+        NodeKind::Portal(p) if p.kind == PortalKind::Web => {
+            render_web_portal(html, assets, node, p, rel);
+        }
         NodeKind::Portal(p) => {
             let mut style = geometry_style(rel, node.rotation_deg);
             append_opacity(&mut style, node.opacity);
@@ -265,10 +269,147 @@ fn render_node(
             html.push_str("<div class=\"node portal\" style=\"");
             html.push_str(&style);
             html.push_str("\">");
-            html.push_str(&escape_html(&p.title));
+            if p.class == PortalClass::Host {
+                let pointer = p
+                    .agent
+                    .as_ref()
+                    .map(|a| format!("{} / {}", a.provider, a.session))
+                    .unwrap_or_else(|| "unbound agent".into());
+                html.push_str("<div style=\"text-align:center\"><strong>");
+                html.push_str(&escape_html(&p.title));
+                html.push_str("</strong><br><span style=\"opacity:.7\">Host portal poster: ");
+                html.push_str(&escape_html(&pointer));
+                html.push_str(" (live agent state is not exported)</span></div>");
+            } else {
+                html.push_str(&escape_html(&p.title));
+            }
             html.push_str("</div>\n");
         }
     }
+}
+
+/// A web portal serializes as whatever is honest for its source (D24).
+///
+/// Local material was packaged beside the artifact, so an `<iframe>` over the
+/// copy *is* the serialization Art. IV.1 asks for — a screenshot of a working
+/// dashboard would be the lossy imitation it forbids. A remote page cannot be
+/// packaged and must not be silently refetched, so it gets the poster + pointer
+/// Art. V.3 names. Either way the caption states what the reader is looking at.
+fn render_web_portal(
+    html: &mut String,
+    assets: &AssetMap,
+    node: &Node,
+    portal: &slate_doc::scene::PortalNode,
+    rel: WorldRect,
+) {
+    let mut style = geometry_style(rel, node.rotation_deg);
+    append_opacity(&mut style, node.opacity);
+    style.push_str("overflow:hidden;background:");
+    style.push_str(&portal.fill.css());
+    style.push(';');
+    html.push_str("<div class=\"node portal portal-web\" style=\"");
+    html.push_str(&style);
+    html.push_str("\">");
+
+    let locator = portal
+        .source
+        .as_ref()
+        .map(|s| s.locator.clone())
+        .unwrap_or_default();
+    let remote = web_origin(&locator).is_some();
+    let kind = if remote {
+        WebSourceKind::Remote
+    } else {
+        WebSourceKind::LocalFile
+    };
+    let mode = portal
+        .web_ref()
+        .export
+        .unwrap_or_else(|| kind.default_export());
+    let packaged = assets.web_page(node.id);
+    let poster = assets.web_poster(node.id);
+
+    let caption = match (mode, packaged, remote) {
+        (WebExport::Iframe, Some(asset), _) => {
+            html.push_str("<iframe src=\"");
+            html.push_str(&escape_attr(&asset.url));
+            // Scripts, because a dashboard is scripts; same-origin, because it
+            // must read its own sibling data files. Nothing beyond that.
+            html.push_str(
+                "\" sandbox=\"allow-scripts allow-same-origin\" loading=\"lazy\" \
+                 style=\"width:100%;height:100%;border:0;display:block\" title=\"",
+            );
+            html.push_str(&escape_attr(&portal.title));
+            html.push_str("\"></iframe>");
+            format!("Packaged from {}", asset.origin)
+        }
+        (WebExport::Iframe, None, true) => {
+            html.push_str("<iframe src=\"");
+            html.push_str(&escape_attr(&locator));
+            html.push_str(
+                "\" sandbox=\"allow-scripts\" loading=\"lazy\" \
+                 style=\"width:100%;height:100%;border:0;display:block\" title=\"",
+            );
+            html.push_str(&escape_attr(&portal.title));
+            html.push_str("\"></iframe>");
+            format!("Loads live from {locator}")
+        }
+        _ => {
+            // Poster + pointer. An unbound or unavailable portal exports its
+            // state card rather than an empty rectangle (P1.portal.export-honesty).
+            if !locator.is_empty() {
+                html.push_str("<a href=\"");
+                html.push_str(&escape_attr(&locator));
+                html.push_str(
+                    "\" target=\"_blank\" rel=\"noreferrer noopener\" \
+                               style=\"display:block;width:100%;height:100%\">",
+                );
+            }
+            match poster {
+                Some(url) => {
+                    html.push_str("<img src=\"");
+                    html.push_str(&escape_attr(url));
+                    html.push_str("\" alt=\"");
+                    html.push_str(&escape_attr(&portal.title));
+                    html.push_str(
+                        "\" style=\"width:100%;height:100%;object-fit:cover;display:block\">",
+                    );
+                }
+                None => {
+                    html.push_str(
+                        "<div style=\"display:flex;align-items:center;justify-content:center;\
+                         width:100%;height:100%;color:rgba(228,230,235,0.85);\
+                         font:14px system-ui,sans-serif;text-align:center\">",
+                    );
+                    html.push_str(&escape_html(if locator.is_empty() {
+                        "Web portal — no page was bound"
+                    } else {
+                        "Web portal — no capture was available"
+                    }));
+                    html.push_str("</div>");
+                }
+            }
+            if !locator.is_empty() {
+                html.push_str("</a>");
+            }
+            if locator.is_empty() {
+                "Unbound web portal".to_string()
+            } else if remote {
+                format!("Live page, captured from {locator}")
+            } else {
+                format!("Captured from {locator}")
+            }
+        }
+    };
+
+    html.push_str(
+        "<div class=\"portal-caption\" style=\"position:absolute;left:0;right:0;bottom:0;\
+         padding:4px 8px;background:rgba(8,10,14,0.72);color:rgba(214,222,236,0.9);\
+         font:11px system-ui,sans-serif\">",
+    );
+    html.push_str(&escape_html(&caption));
+    html.push_str("</div>");
+    html.push_str("</div>\n");
 }
 
 fn render_image(

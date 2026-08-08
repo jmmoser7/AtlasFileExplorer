@@ -64,12 +64,18 @@ impl Harness {
         t.elapsed().as_secs_f64() * 1000.0
     }
 
-    /// Pump frames until the active tab has finished loading + scanning.
+    /// Pump frames until the active tab has finished loading + scanning **and
+    /// the camera has stopped moving**. The opening fly is part of settling: a
+    /// test that plants a camera while one is in flight is planting it into an
+    /// animation that will overwrite it on the next frame, which the app itself
+    /// never does (every real navigation cancels the fly first).
     fn pump_until_idle(&mut self) {
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
             self.frame();
-            let idle = self.app.scan_ui.is_none() && self.app.pending_load.is_none();
+            let idle = self.app.scan_ui.is_none()
+                && self.app.pending_load.is_none()
+                && self.app.anim.is_none();
             if idle {
                 // One extra frame so filter recompute / tree rebuild settle.
                 self.frame();
@@ -865,6 +871,83 @@ fn the_file_count_keeps_up_with_every_batch() {
     h.app.scan_ui = None;
 }
 
+/// A burst of watcher events must not be paid for in one frame.
+///
+/// Applying one event is a `metadata` round trip — microseconds locally,
+/// milliseconds on a share — so draining the channel to exhaustion turned a
+/// storm into a stall. The budget is what keeps the window alive; the backlog is
+/// what keeps the events.
+#[test]
+fn a_watcher_storm_is_spread_across_frames() {
+    let mut h = Harness::new("fs_budget");
+    let root = make_tree(&h._base.join("storm"), 3);
+    h.app.set_root(root.clone());
+    h.pump_until_idle();
+
+    // The real watcher on the temp root would keep feeding the same backlog,
+    // and this is measuring the drain rate, not the arrival rate.
+    h.app.watch = None;
+    let storm = FS_EVENTS_PER_FRAME * 3 + 5;
+    for i in 0..storm {
+        h.app
+            .fs_backlog
+            .push_back(FsChange::Upsert(root.join(format!("burst_{i}.png"))));
+    }
+
+    h.frame();
+    assert_eq!(
+        h.app.fs_backlog.len(),
+        storm - FS_EVENTS_PER_FRAME,
+        "one frame must apply at most FS_EVENTS_PER_FRAME events"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !h.app.fs_backlog.is_empty() {
+        h.frame();
+        assert!(Instant::now() < deadline, "backlog never drained");
+    }
+}
+
+/// Populating is the product: the user watches a folder fill in. Previews must
+/// therefore stream *during* discovery, not wait behind it — deferring the
+/// network worker pool until the scan finished meant minutes of empty cards on a
+/// slow share. Bulk warming is the thing that waits, and it is capped besides.
+#[test]
+fn previews_stream_while_the_folder_is_still_arriving() {
+    let mut h = Harness::new("stream_previews");
+    let root = make_tree(&h._base.join("streaming"), 4);
+    h.app.set_root(root.clone());
+    h.pump_until_idle();
+
+    pretend_scanning(&mut h.app);
+    h.app
+        .scan_tx
+        .send((
+            h.app.generation,
+            ScanMsg::Batch(synth_batch(&root, 0, 200, 4)),
+        ))
+        .unwrap();
+    h.frame();
+    h.frame();
+
+    assert!(
+        h.app.scan_ui.is_some(),
+        "fixture must still be mid-scan for this to mean anything"
+    );
+    let asked = h
+        .app
+        .thumb_state
+        .iter()
+        .filter(|s| !matches!(s, ThumbState::NotAsked))
+        .count();
+    assert!(
+        asked > 0,
+        "no thumbnail was requested while the folder was still loading — \
+         population stopped being live"
+    );
+    h.app.scan_ui = None;
+}
+
 fn percentile(sorted: &[f64], p: f64) -> f64 {
     if sorted.is_empty() {
         return 0.0;
@@ -1058,4 +1141,254 @@ fn multi_folder_open_shares_one_canvas() {
             || e.rel.starts_with("B/")
     }));
     assert_eq!(h.app.tabs[0].title(), "A +1");
+}
+
+#[test]
+fn edit_mode_defaults_to_view_and_resets_on_root_change() {
+    let mut h = Harness::new("edit_mode_reset");
+    assert_eq!(h.app.edit_mode, EditMode::View);
+    h.app.set_edit_mode(EditMode::Edit);
+    assert_eq!(h.app.edit_mode, EditMode::Edit);
+
+    let root = make_tree(&h._base.join("Root"), 2);
+    h.app.set_root(root);
+
+    assert_eq!(h.app.edit_mode, EditMode::View);
+    assert_eq!(h.app.tabs[h.app.active_tab].edit_mode, EditMode::View);
+}
+
+/// A drag has to survive the whole gesture — press, threshold, release — and
+/// land where the cursor is, which for a folder means anywhere inside it,
+/// including over the files it already holds. The first cut resolved the drop
+/// against the card under the cursor, so aiming at a folder's contents (the
+/// natural aim) dropped nothing at all.
+#[test]
+fn edit_mode_drag_moves_a_file_into_the_folder_under_the_cursor() {
+    let mut h = Harness::new("edit_drag");
+    let root = h._base.join("drag_proj");
+    std::fs::create_dir_all(root.join("from")).unwrap();
+    std::fs::create_dir_all(root.join("into")).unwrap();
+    std::fs::write(root.join("from").join("moving.jpg"), vec![b'x'; 32]).unwrap();
+    std::fs::write(root.join("into").join("anchor.jpg"), vec![b'y'; 32]).unwrap();
+
+    h.app.set_root(root.clone());
+    h.pump_until_idle();
+    h.app.set_edit_mode(EditMode::Edit);
+    h.frame();
+
+    let id_of = |app: &AtlasApp, rel: &str| -> u32 {
+        *app.rel_to_id
+            .get(rel)
+            .unwrap_or_else(|| panic!("{rel} not scanned"))
+    };
+    let moving = id_of(&h.app, r"from\moving.jpg");
+    let anchor = id_of(&h.app, r"into\anchor.jpg");
+    let tree = h.app.tree.as_ref().expect("tree");
+    assert_ne!(
+        tree.file_pos[moving as usize].place,
+        atlas_core::tree::FilePlace::Hidden,
+        "both folders must be laid out for the drag to be meaningful"
+    );
+    assert_ne!(
+        tree.file_pos[anchor as usize].place,
+        atlas_core::tree::FilePlace::Hidden
+    );
+    let src = h.app.w2s(tree.file_pos[moving as usize].rect().center());
+    // Aim at a file *inside* the destination folder, not at the folder card.
+    let dst = h.app.w2s(tree.file_pos[anchor as usize].rect().center());
+
+    let press = |pos: Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.frame_with_events(vec![egui::Event::PointerMoved(src)]);
+    assert_eq!(h.app.hovered_file, Some(moving), "cursor is on the card");
+    h.frame_with_events(vec![press(src, true)]);
+    for step in 1..=4 {
+        let t = step as f32 / 4.0;
+        let p = src + (dst - src) * t;
+        h.frame_with_events(vec![egui::Event::PointerMoved(p)]);
+    }
+    assert!(h.app.edit_drag.is_some(), "the drag never started");
+    assert!(h.app.edit_drop_dir.is_some(), "no drop target resolved");
+    h.frame_with_events(vec![press(dst, false)]);
+
+    assert!(h.app.fs_op.is_some(), "the release started no operation");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while h.app.fs_op.is_some() && Instant::now() < deadline {
+        h.frame();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let moved = root.join("into").join("moving.jpg");
+    assert!(moved.exists(), "the file never reached the destination");
+    assert!(!root.join("from").join("moving.jpg").exists());
+
+    // The move is journaled and the in-memory entry follows the file.
+    assert_eq!(
+        h.app.entries[moving as usize].rel.replace('/', "\\"),
+        r"into\moving.jpg"
+    );
+    assert!(h.app.journal.can_undo());
+}
+
+/// Delete works on what the cursor is over, and the card has to leave the
+/// canvas as soon as the file leaves the disk — a delete you cannot see is
+/// indistinguishable from one that failed.
+#[test]
+fn delete_key_removes_the_card_under_the_cursor() {
+    let mut h = Harness::new("edit_delete");
+    let root = h._base.join("delete_proj");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("doomed.jpg"), vec![b'x'; 32]).unwrap();
+    std::fs::write(root.join("keeper.jpg"), vec![b'y'; 32]).unwrap();
+
+    h.app.set_root(root.clone());
+    h.pump_until_idle();
+    h.app.set_edit_mode(EditMode::Edit);
+    // The small-delete confirmation is the user's to answer; this test is
+    // about the key reaching the command and the card leaving the canvas.
+    h.app.suppress_delete_confirm = true;
+    h.frame();
+
+    let doomed = *h.app.rel_to_id.get("doomed.jpg").expect("scanned");
+    let center = h.app.w2s(
+        h.app.tree.as_ref().unwrap().file_pos[doomed as usize]
+            .rect()
+            .center(),
+    );
+    h.frame_with_events(vec![egui::Event::PointerMoved(center)]);
+    assert_eq!(h.app.hovered_file, Some(doomed));
+    assert!(h.app.selection.is_empty(), "nothing is selected");
+
+    h.frame_with_events(vec![egui::Event::Key {
+        key: egui::Key::Delete,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while h.app.fs_op.is_some() && Instant::now() < deadline {
+        h.frame();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!root.join("doomed.jpg").exists(), "the file is still there");
+    assert!(h.app.entries[doomed as usize].dead);
+
+    // And the canvas agrees, on the next rebuild rather than a lazy one.
+    h.frame();
+    h.frame();
+    assert_eq!(
+        h.app.tree.as_ref().unwrap().file_pos[doomed as usize].place,
+        atlas_core::tree::FilePlace::Hidden,
+        "the deleted card is still placed on the canvas"
+    );
+    assert!(root.join("keeper.jpg").exists());
+}
+
+/// Folders on the canvas are derived from the files inside them, so a folder
+/// created in Edit mode has to be carried until something lands in it —
+/// otherwise "Add subdirectory" makes a folder nobody can see or drop into.
+#[test]
+fn a_new_folder_shows_on_the_canvas_before_anything_is_in_it() {
+    let mut h = Harness::new("new_folder");
+    let root = make_tree(&h._base.join("mkdir_proj"), 3);
+    h.app.set_root(root.clone());
+    h.pump_until_idle();
+    h.app.set_edit_mode(EditMode::Edit);
+
+    h.app.dispatch_fs_op(
+        FsOp::NewDir {
+            parent: root.clone(),
+            name: "Fresh".into(),
+        },
+        "New folder".into(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while h.app.fs_op.is_some() && Instant::now() < deadline {
+        h.frame();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(root.join("Fresh").is_dir());
+
+    h.frame();
+    h.frame();
+    let tree = h.app.tree.as_ref().expect("tree");
+    let fresh = tree
+        .dirs
+        .iter()
+        .position(|d| d.rel == "Fresh")
+        .expect("the new folder is missing from the canvas");
+    assert!(
+        tree.dirs[fresh].placed,
+        "the new folder has no place in the layout"
+    );
+}
+
+/// Copying a folder asks whether it holds cloud placeholders before it starts,
+/// and that question is answered off the frame loop. A local folder must come
+/// back free and copy without a dialog.
+#[test]
+fn copying_a_folder_clears_its_cloud_accounting_before_it_starts() {
+    let mut h = Harness::new("copy_audit");
+    let root = h._base.join("copy_proj");
+    std::fs::create_dir_all(root.join("src").join("inner")).unwrap();
+    std::fs::create_dir_all(root.join("dest")).unwrap();
+    std::fs::write(root.join("src").join("a.jpg"), vec![b'x'; 32]).unwrap();
+    std::fs::write(root.join("src").join("inner").join("b.jpg"), vec![b'y'; 32]).unwrap();
+    std::fs::write(root.join("dest").join("anchor.jpg"), vec![b'z'; 32]).unwrap();
+
+    h.app.set_root(root.clone());
+    h.pump_until_idle();
+    h.app.set_edit_mode(EditMode::Edit);
+
+    h.app.dispatch_fs_op(
+        FsOp::Copy {
+            sources: vec![root.join("src")],
+            dest_dir: root.join("dest"),
+        },
+        "Copy".into(),
+    );
+    assert!(
+        h.app.fs_op.is_none() && h.app.cloud_audit.is_some(),
+        "the copy must wait on its accounting instead of starting blind"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while (h.app.cloud_audit.is_some() || h.app.fs_op.is_some()) && Instant::now() < deadline {
+        h.frame();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        h.app.cloud_copy_plan.is_none(),
+        "a folder of local files raised a download confirmation"
+    );
+    assert!(root.join("dest").join("src").join("a.jpg").exists());
+    assert!(root
+        .join("dest")
+        .join("src")
+        .join("inner")
+        .join("b.jpg")
+        .exists());
+    assert!(root.join("src").join("a.jpg").exists(), "copy, not move");
+}
+
+#[test]
+fn edit_name_validation_matches_windows_file_rules() {
+    assert_eq!(
+        AtlasApp::invalid_windows_name(""),
+        Some("Name cannot be empty")
+    );
+    assert_eq!(
+        AtlasApp::invalid_windows_name("bad:name"),
+        Some("Name contains a character Windows does not allow")
+    );
+    assert_eq!(
+        AtlasApp::invalid_windows_name("bad."),
+        Some("Name cannot end with a space or period")
+    );
+    assert_eq!(AtlasApp::invalid_windows_name("good-name"), None);
 }

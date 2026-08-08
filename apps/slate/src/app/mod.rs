@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 pub mod association;
 pub mod board;
+mod board_agent;
 mod board_color;
 pub mod board_crop;
 mod board_direct;
@@ -34,6 +35,9 @@ mod board_path;
 mod board_portal;
 mod board_snap;
 mod board_style;
+pub mod board_web;
+#[cfg(windows)]
+mod board_web_win;
 mod board_wire;
 pub mod canvas;
 pub mod chrome;
@@ -177,6 +181,11 @@ pub enum PickerMsg {
         portal: NodeId,
         path: Option<PathBuf>,
     },
+    /// File or folder picked as a web portal source (D19).
+    WebPortalSource {
+        portal: NodeId,
+        path: Option<PathBuf>,
+    },
 }
 
 pub enum ThumbState {
@@ -257,6 +266,11 @@ pub struct SlateApp {
 
     /// Repository Lens portal runtime (derived extract/layout cache).
     pub portals: board_portal::PortalRuntime,
+    /// Agent portal runtime (derived sessions/proposals; never journaled).
+    pub agents: board_agent::AgentRuntime,
+    /// Web portal runtime: live pool, poster cache, per-origin consent. All
+    /// derived — none of it is journaled or saved (D31, D32).
+    pub web: board_web::WebRuntime,
 
     /// Board tool definitions: the built-in kit plus any in the user's kit
     /// folder. Read once at startup — the board consults it per commit.
@@ -293,6 +307,9 @@ pub struct SlateApp {
     pub alt_down: bool,
     /// Shift modifier state this frame (3D viewport drag = pan).
     pub shift_down: bool,
+    /// Ctrl modifier state this frame (Ctrl+double-click opens a web portal's
+    /// page in the system browser).
+    pub ctrl_down: bool,
 
     /// The glow GL context, for offscreen 3D viewport rendering. `None` in
     /// the headless test harness (3D stays poster/thumbnail-only there).
@@ -407,8 +424,31 @@ impl SlateApp {
         association::ensure_file_association();
         let mut app = Self::with_ctx(&cc.egui_ctx, initial_doc);
         app.gl = cc.gl.clone();
+        app.install_web_host(cc);
         app
     }
+
+    /// Give web portals a real browser when this machine has one. Without it
+    /// the null host stays and portals report `NoRuntime` (D29).
+    #[cfg(windows)]
+    fn install_web_host(&mut self, cc: &eframe::CreationContext<'_>) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Ok(handle) = cc.window_handle() else {
+            return;
+        };
+        let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+            return;
+        };
+        let hwnd = windows::Win32::Foundation::HWND(win32.hwnd.get() as *mut std::ffi::c_void);
+        let user_data = atlas_core::index::data_dir().join("webview2");
+        let _ = std::fs::create_dir_all(&user_data);
+        if let Some(host) = board_web_win::Webview2Host::new(hwnd, &user_data) {
+            self.web.set_host(Box::new(host));
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn install_web_host(&mut self, _cc: &eframe::CreationContext<'_>) {}
 
     /// Full construction from a bare egui context. Used by `new` and by the
     /// headless test harness (no eframe window, no registry writes).
@@ -464,6 +504,8 @@ impl SlateApp {
             ai: atlas_ai::AiPanel::new(),
             lens: lens::LensState::default(),
             portals: board_portal::PortalRuntime::default(),
+            agents: board_agent::AgentRuntime::default(),
+            web: board_web::WebRuntime::default(),
             kits: kits::KitState::load(),
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
@@ -482,6 +524,7 @@ impl SlateApp {
             last_board_edit: None,
             alt_down: false,
             shift_down: false,
+            ctrl_down: false,
             gl: None,
             model3d: model3d::ModelSpace::default(),
             board_snap_guides: Vec::new(),
@@ -1183,6 +1226,9 @@ impl SlateApp {
     fn do_export(&mut self, dir: PathBuf) {
         // Freeze live 3D viewports so the export shows their latest poses.
         self.lock_all_models();
+        // Web portals: resolve local sources and capture whatever posters the
+        // pool can give us, before anything is written.
+        let (web_sources, web_posters) = self.export_web_maps();
         let safe: String = self
             .doc()
             .name
@@ -1200,6 +1246,8 @@ impl SlateApp {
             inline_assets: self.export_inline,
             thumbs: self.export_thumb_map(),
             model_posters: self.export_model_poster_map(),
+            web_sources,
+            web_posters,
         };
         match slate_artifact::export_html(self.doc(), &out, &opts) {
             Ok(rep) => {
@@ -1250,6 +1298,12 @@ impl SlateApp {
                         portal,
                         path: Some(path),
                     } => self.bind_portal_source(portal, path),
+                    PickerMsg::WebPortalSource {
+                        portal,
+                        path: Some(path),
+                    } => {
+                        self.bind_web_path(portal, path);
+                    }
                     _ => {}
                 }
             }
@@ -1270,6 +1324,7 @@ impl SlateApp {
         self.preview_reqs_this_frame = 0;
         self.alt_down = ctx.input(|i| i.modifiers.alt);
         self.shift_down = ctx.input(|i| i.modifiers.shift);
+        self.ctrl_down = ctx.input(|i| i.modifiers.command);
         self.frame_time = ctx.input(|i| i.time);
         self.drain_pickers();
         self.heartbeat_active_lease();
@@ -1281,6 +1336,8 @@ impl SlateApp {
         self.ai.poll();
         self.lens_pump(ctx);
         self.portal_pump(ctx);
+        self.agent_pump(ctx);
+        self.web_pump(ctx);
         self.ai_context_frame();
 
         // Dropped files land in the active workbook, uncategorized. On the
@@ -1298,13 +1355,24 @@ impl SlateApp {
                 self.leave_home();
                 self.ensure_work_tab();
             }
-            let items = self.add_paths(&dropped);
-            if self.doc().view.active_view == ViewKind::Board && !items.is_empty() {
-                let at = ctx
-                    .input(|i| i.pointer.hover_pos())
-                    .map(|p| self.board_xf().s2w(p))
-                    .unwrap_or_else(|| self.tab().cam.offset.to_pos2());
-                self.place_items_on_board(&items, at);
+            let at = ctx
+                .input(|i| i.pointer.hover_pos())
+                .map(|p| self.board_xf().s2w(p))
+                .unwrap_or_else(|| self.tab().cam.offset.to_pos2());
+            // An HTML page dropped on the board is a portal, not a snippet card
+            // (D01). Alt keeps the old text card, which is the only way back.
+            let alt = ctx.input(|i| i.modifiers.alt);
+            let on_board = self.doc().view.active_view == ViewKind::Board;
+            let dropped = if on_board && !alt {
+                self.divert_web_drops(&dropped, at)
+            } else {
+                dropped
+            };
+            if !dropped.is_empty() {
+                let items = self.add_paths(&dropped);
+                if on_board && !items.is_empty() {
+                    self.place_items_on_board(&items, at);
+                }
             }
         }
         // Dropped/added .slate files open as tabs, after placement above.

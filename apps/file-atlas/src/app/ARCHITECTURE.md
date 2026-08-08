@@ -30,7 +30,7 @@ Everything below the tab bar belongs to the **active tab** (`TabState`):
 
 | Region | Module | Role |
 |--------|--------|------|
-| Floating tools dock | `ui/tools.rs` + `atlas-shell::dock` | Left-centered squircle icons for Filters, Display, Workflow, AI. Popovers reuse the former sidebar bodies without reserving canvas space. Free-text tagging lives in Slate; Atlas keeps destination assignment only. See `crates/atlas-shell/DOCK.md`. |
+| Floating tools dock | `ui/tools.rs` + `atlas-shell::dock` | Left-centered squircle icons for Filters, Display, Mode, Workflow, AI. Popovers reuse the former sidebar bodies without reserving canvas space. Free-text tagging lives in Slate; Atlas keeps destination assignment only. See `crates/atlas-shell/DOCK.md`. |
 | Canvas | `mod.rs` (`canvas`) | Infinite map, selection, thumbnails. Draws the scanned tree only — the parent-folder chain above the mapped root was removed as clutter, so `map_bounds` is the tree's own bounds. Filters' *Zoom to matches* (`auto_zoom_after_filter`, on by default) flies the camera to the surviving files, edge-triggered on the framed bounds so scan batches do not yank it. |
 | Bottom readouts | `ui/readouts.rs` | Metrics, scan progress, cache status — read-only apart from the timeline below. Padding, item spacing, row height, text size, and separator rules come from `[readouts]` in `ui-tokens.toml`; `text_size` is an `override_font_id` for the whole row so the counts and the root path scale together |
 | Activity timeline | `ui/readouts.rs` + `atlas-shell::timeline` | Contribution graph **and** the date window on one axis: semantic zoom (weekday grid → staggered days → bucket strip → per-file dashes), range handles, discrete picks. Data is a cached `atlas_core::timeline::ActivityIndex`; the filter is a `TimePicks` set. Spec: `docs/keymap/specs/activity-timeline.md` |
@@ -88,11 +88,50 @@ them is an index-out-of-bounds crash the moment another tab's entries load:
    worse as the folder grows. `absorb_new_entries` folds appended files into the
    filter aggregates; everything heavier waits for the tree's rebuild cadence.
    See `docs/performance.md` and the `load_jitter` benchmark.
-7. **Tabs are referenced by stable `TabState::id` across async boundaries**
+7. **Watching a folder fill in is the feature; the lag is the bug.** Cards
+   appear from the first batch and previews land while discovery is still
+   running — on a slow root that *is* the experience, so never fix a stall by
+   holding population back (deferring the network worker pool until the scan
+   finished bought nothing and cost minutes of empty cards). Fix it where it
+   actually is: get blocking work off the frame loop, and put a per-frame budget
+   on anything whose volume the app does not control — texture uploads (24),
+   watcher events (`FS_EVENTS_PER_FRAME`), tree rebuilds (`tree_rebuild_due`).
+   Throttle *bulk* background work only: on-demand requests serve what is on
+   screen and are bounded by the screen, while `queue_cache_warming` sweeps the
+   whole corpus and is capped (`WARM_CONCURRENCY`) and deferred to scan end.
+   Guarded by `previews_stream_while_the_folder_is_still_arriving` and
+   `a_watcher_storm_is_spread_across_frames`.
+   *One exception, and only one:* `run_shell_drag` blocks inside Win32's
+   `DoDragDrop` while the user drags files out to another application.
+   Synchronous and thread-bound is what that API is; the block lasts exactly as
+   long as a gesture the user is physically performing, and it is not background
+   work. Anything else that wants to block must justify itself the same way.
+8. **Tabs are referenced by stable `TabState::id` across async boundaries**
    — indices shift when tabs close.
-8. **`active_tab` is always `< tabs.len()` and `tabs` is never empty** while
+9. **`active_tab` is always `< tabs.len()` and `tabs` is never empty** while
    not on the home shelf. `close_tab`/`switch_tab` maintain this;
    `active_chrome` clamps defensively.
+10. **Real filesystem edits are human-only, Edit-mode-only, and journaled.**
+    View is the default on launch and root changes. Edit-mode rename/move/copy,
+    new-folder, and delete dispatch through `atlas_core::fsops` off the frame
+    loop; completed changes produce `journal::Action::Fs*` entries. Drag release
+    on blank canvas or invalid folder targets is a null action with no journal
+    entry. Agents must not invoke these write paths.
+
+    Two ordering rules make the result visible and correct. **Claim the paths
+    before writing them** (`start_fs_op_unchecked` → `remember_own_write`): the
+    watcher can see a move land before the worker reports it, and an unclaimed
+    event kills the entry the result is about to relocate. And **a completed
+    edit forces the next rebuild** (`force_tree_rebuild`) rather than waiting on
+    the streaming-scan cadence — a delete whose card lingers reads as a delete
+    that failed.
+
+    A **copy is accounted before it starts**: `cloud::copy_cloud_cost` walks the
+    sources — every file, and every subtree of a dragged folder — reading
+    directory entries only, and a non-zero result raises the download
+    confirmation. The walk is I/O on a share, so it runs on its own thread
+    (`cloud_audit` → `poll_cloud_audit`) and the readout says "checking" while it
+    does; nothing about "would this download" may be asked on the frame loop.
 
 `src/app/tests.rs` drives the real frame loop headlessly (12-tab stress,
 mid-scan switches, picker routing, pointer torture) and asserts these
@@ -115,7 +154,7 @@ invariants after every frame. Run with `cargo test app::tests`.
 | `thumbs.rs` | Thumbnail workers + local + shared cache tiers (also read by Slate) |
 | `rasterthumb.rs` | Photo fast path: embedded EXIF preview, else scaled decode |
 | `tree.rs` | Layout + hit testing |
-| `export.rs` / `journal.rs` | Organizing workflow |
+| `export.rs` / `fsops.rs` / `journal.rs` | Organizing workflow and human-directed filesystem edit journal |
 
 ## Linked Slate sessions
 

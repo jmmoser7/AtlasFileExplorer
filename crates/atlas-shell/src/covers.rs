@@ -250,15 +250,13 @@ fn immediate_subdir_names(root: &Path, limit: usize) -> Vec<String> {
     let Ok(rd) = std::fs::read_dir(root) else {
         return Vec::new();
     };
+    let skip = atlas_core::skiplist::effective();
     let mut names: Vec<String> = rd
         .flatten()
         .filter_map(|e| {
             e.file_type().ok()?.is_dir().then_some(())?;
             let name = e.file_name().to_string_lossy().into_owned();
-            if atlas_core::scanner::SKIP_DIRS
-                .iter()
-                .any(|s| name.eq_ignore_ascii_case(s))
-            {
+            if skip.skips(&name) {
                 return None;
             }
             Some(name)
@@ -368,13 +366,25 @@ fn sample_media(root: &Path, limit: usize) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     let mut visited = 0usize;
+    let mut dirs_listed = 0usize;
+    let skip = atlas_core::skiplist::effective();
+    // A cover bake must never compete with discovery on a high-latency share.
+    // Listing one directory on `\\ngrimshaw…\Resources` costs several seconds;
+    // the old DFS visited up to 4000 entries and could pin the SMB link for
+    // minutes after the user merely opened the folder (which is what made Atlas
+    // look frozen even before they drilled into anything). One listing is
+    // enough to decide mosaic vs structure tile.
+    let network = atlas_core::thumbs::is_network_path(root);
+    let max_visited = if network { 256 } else { 4000 };
+    let max_dirs = if network { 1 } else { usize::MAX };
     while let Some(dir) = stack.pop() {
-        if out.len() >= limit || visited > 4000 {
+        if out.len() >= limit || visited > max_visited || dirs_listed >= max_dirs {
             break;
         }
         let Ok(rd) = std::fs::read_dir(&dir) else {
             continue;
         };
+        dirs_listed += 1;
         let mut dirs = Vec::new();
         for entry in rd.flatten() {
             visited += 1;
@@ -385,13 +395,12 @@ fn sample_media(root: &Path, limit: usize) -> Vec<PathBuf> {
             if ft.is_dir() {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if atlas_core::scanner::SKIP_DIRS
-                    .iter()
-                    .any(|s| name.eq_ignore_ascii_case(s))
-                {
+                if skip.skips(&name) {
                     continue;
                 }
-                dirs.push(path);
+                if !network {
+                    dirs.push(path);
+                }
             } else if ft.is_file() {
                 let ext = path
                     .extension()

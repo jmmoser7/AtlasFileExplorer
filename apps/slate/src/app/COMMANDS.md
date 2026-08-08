@@ -79,6 +79,11 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
   Grid/Snap buttons dispatch the same commands.
 - **Arrows with nothing selected** pan the board canvas (Shift = faster);
   nudge with a selection is unchanged.
+- **Agent portal** commands are registered alongside Repository Lens:
+  `board.portal.agent`, `portal.agent.send`, `portal.agent.provider`,
+  `portal.agent.reveal`, `portal.agent.launch`, `stage.accept`, and
+  `stage.reject`. They use the file-link/staging contract, so agent edits
+  remain visible and human-accepted.
 
 ### P1 simplifications (deliberate, revisit later)
 

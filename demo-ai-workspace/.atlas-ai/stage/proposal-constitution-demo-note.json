@@ -1,0 +1,50 @@
+{
+  "id": "proposal-constitution-demo-note",
+  "author": "cursor-sidecar-demo",
+  "title": "Add a live-demo reminder note to the final slide",
+  "created_at": 1785806442,
+  "target": {
+    "workbook": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\presentations\\atlas_constitution_ai_first.slate",
+    "format_version": 2
+  },
+  "session": "agent-constitution-demo",
+  "status": "pending",
+  "cmds": [
+    {
+      "add": {
+        "index": 999,
+        "node": {
+          "id": 153,
+          "rect": {
+            "x": 11330.0,
+            "y": 135.0,
+            "w": 310.0,
+            "h": 62.0
+          },
+          "rotation_deg": 0.0,
+          "opacity": 1.0,
+          "kind": {
+            "text": {
+              "text": "Agent proposal: add a live demo once API key is present",
+              "family": "sans",
+              "size": 16.0,
+              "color": [
+                70,
+                55,
+                20,
+                255
+              ],
+              "align": "center",
+              "fill": [
+                255,
+                235,
+                170,
+                255
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -389,6 +389,131 @@ Anything that deliberately re-decides collapse — a grip click, moving the port
 threshold in Display settings — must call `record_collapse_state()`, or the next
 rebuild will put it back.
 
+### A folder card's date and owner are not worth a stat
+
+`Tree::build` filled each `DirNode`'s `ctime` and `owner` by calling
+`std::fs::metadata` and `owner_short` on the directory. On a local disk that is
+invisible. On the reference machine's SharePoint roots it measured **five seconds
+per folder**, and it ran *on the UI thread*, inside the build — so opening a
+first-visit share froze the window for minutes with a progress bar and no canvas.
+Two labels on a card, paid for with the whole app.
+
+Both halves are now sourced honestly:
+
+- **The date is free.** A Windows `DirEntry`'s metadata comes from the
+  `FindFirstFile` data the walk already read, so the scanner harvests each
+  folder's `ctime` as it discovers it and ships it with the batch
+  (`ScanMsg::Dirs`). Instrumented across a 53k-file share this cost **0 µs** at
+  every checkpoint — it is the same bytes, already in hand.
+- **The owner is demand-driven.** It lives in the security descriptor, so it is a
+  round trip whatever else happens (measured 4.5–5.8 s per folder on that share).
+  `dirmeta.rs` resolves it off-thread for folders that are *in view and zoomed in
+  far enough to show it* (`lod >= 2`), and results land on the live tree in place
+  — a label refresh, no rebuild, no relayout.
+
+`Tree::build` now performs **no I/O at all**: it takes a `DirMetaMap` and reads
+what has already been learned. Keep it that way — it runs on the frame loop.
+
+### Opening a slow share must not freeze the window
+
+`R:\Cad\Rhino` (`\\ngrimshaw.int\Resources`) taught a second lesson: even the
+*shallow* open looked frozen for minutes, with Windows marking the process Not
+Responding, before the user had drilled into anything. Listing a single directory
+on that share costs **3–7 seconds** (18 ms for a local folder), and the UI thread
+was waiting on it rather than computing:
+
+1. **Watcher events were applied on the frame loop**, each one through
+   `stat_file` → `owner_short` — a security-descriptor round trip measured at
+   4.5–5.8 s on this share, so a handful of events was a minute of frozen window.
+2. **Cover-bake DFS of up to 4 000 entries** kicked off the moment the folder was
+   recorded as recent. At ~4 s per directory listing that alone can pin the link
+   for the length of the freeze — off-thread, so it never blocked the frame
+   directly, but it starved discovery. Network bakes now read the root only.
+3. **`create_dir_all` for the shared project cache** ran inline on open. Only
+   ~54 ms here, but it is a network write on the frame loop; it is spawned now.
+
+`stat_file` also stopped asking for the owner; the deferred owner pass fills it,
+and the frame loop applies at most `FS_EVENTS_PER_FRAME` events per frame,
+leaving the rest in `fs_backlog`.
+
+#### The fix that was not a fix
+
+The first pass at this also deferred growing the thumbnail pool to 24 workers
+until discovery finished, on the theory that warmers were competing with the
+walk. That was wrong twice over. It was not a cause: worker threads never touch
+the frame loop, and bulk warming does not start until `ScanMsg::Done`, so the
+extra workers only ever serve cards that are already on screen. And it broke the
+thing the app is for — previews stopped appearing until the scan ended, which on
+this share is minutes of empty cards.
+
+**Watching a folder populate is the feature, not the cost.** Fix a stall where it
+lives, on the frame loop; never by slowing down what the user is watching. See
+invariant 7 in `apps/file-atlas/src/app/ARCHITECTURE.md`.
+
+### When the folder itself is the problem
+
+After the above, a 53k-file share delivered **47,144 files in 6 seconds** with the
+canvas smooth throughout — and then crawled for five more minutes. Instrumentation
+ruled out every subsystem: `active_readers` stayed at 7–8 of 8 workers (no
+self-starvation), and `thumbs_pending` and `dir_meta_active` were both zero for the
+whole crawl (no contention). The walk was simply reading directories that took
+1.5–2.7 seconds each, and it named them:
+
+```
+21_Megascans Library\Downloaded\surface\brick_rough_uehgba0g\Thumbs\1k          2022ms
+21_Megascans Library\Downloaded\support\plugins\unreal\...\Private\Wrappers     2341ms
+```
+
+A Quixel Megascans library: a `Thumbs` folder per surface plus a vendored Unreal
+plugin source tree. Thousands of directories holding a handful of files each. At
+two seconds a read, eight workers clear about four directories a second, so **900
+of them cost 288 seconds and yielded 5,000 files** — after the real content had
+already arrived.
+
+Nothing in the code was wrong, so nothing in the code was the fix. Two changes,
+both about what the user sees rather than about throughput:
+
+- **The queue is breadth-first.** Taking directories from the back of the queue
+  made the walk dive down whichever branch it happened to open first. Level by
+  level, the shape of the folder arrives first and pathological depth is charged
+  last.
+- **A user-editable skip list** (`skiplist.rs`, `scan-skip.json`, edited in
+  **Advanced → Folders never scanned**), seeded with caches and build scaffolding
+  in the same spirit as the `node_modules` entry that was already there. Scanning,
+  pre-warming, and cover art all consult it, so a name listed once is invisible
+  everywhere. Our own `.atlas-cache` is *not* in that list: it is a hard floor in
+  the module, because indexing the app's own output is a correctness bug, not a
+  preference. Test: `scan_never_enters_our_own_cache`.
+
+The list is a judgement about what counts as content, which is why it is the
+user's and not ours. Resist the urge to grow the defaults by guessing.
+
+### Returning to a tab must not re-frame it
+
+Camera-follow (*Zoom to matches*, on by default) is edge-triggered on the bounds
+it last framed, held in `auto_zoom_last`. That value is per-root, was reset in
+`reset_workspace`, but was never carried in `ParkedWorkspace` — so switching tabs
+left the *other* tab's bounds in place, the first filter recompute after a restore
+read that as a new edge, and the camera flew away from the position the restore had
+just put back. Runtime evidence, from the tab whose tree is 958 units tall
+returning to find its neighbour's 694 still recorded:
+
+```
+auto_zoom_after_filter fires: last=Some([-12,0]-[346,694]) bounds=[-12,0]-[346,958])
+fly_to from=[77,-13] to=[623.4 91.2]
+```
+
+The bug predates the scan work; making builds fast is what made it reachable
+within a frame or two of the switch. `auto_zoom_last` is now parked with the tab.
+The lesson is the one `ARCHITECTURE.md` already states — per-root state belongs in
+*both* `reset_workspace` and `ParkedWorkspace` — and half of it is easy to forget
+because the symptom only appears when timing cooperates.
+
+The harness earned a matching correction: `pump_until_idle` now also waits for
+`anim`, because a camera in flight is not an idle canvas, and a test that plants a
+camera mid-fly is planting it into an animation that overwrites it next frame.
+Every real navigation cancels the fly first; only a test can reach past that.
+
 ## Diagnosing "this folder never loads a preview"
 
 `tests/folder_probe.rs` points the real pipeline at a real folder and reports,

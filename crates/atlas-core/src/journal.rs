@@ -3,6 +3,7 @@
 //! entry stores full before/after state, so every action is reversible.
 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 pub type AssignVal = Option<(String, Option<String>)>; // (dest_rel, new_name)
 
@@ -18,6 +19,21 @@ pub enum Action {
         manifest_path: String,
         copied: Vec<String>,
         created_dirs: Vec<String>,
+    },
+    FsRename {
+        from: PathBuf,
+        to: PathBuf,
+    },
+    FsMove {
+        moved: Vec<(PathBuf, PathBuf)>,
+    },
+    FsCopy {
+        created: Vec<PathBuf>,
+        created_dirs: Vec<PathBuf>,
+    },
+    FsDelete {
+        recycled: Vec<PathBuf>,
+        permanent: bool,
     },
 }
 

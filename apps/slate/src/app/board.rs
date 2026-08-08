@@ -22,14 +22,14 @@
 //!   gesture start).
 
 use super::{
-    board_crop, board_handles, board_icons, board_path, board_snap, kits, model3d, SlateApp,
-    ThumbState,
+    board_crop, board_handles, board_icons, board_path, board_snap, board_web, kits, model3d,
+    SlateApp, ThumbState,
 };
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
-    Corner, Crop, Dash, FontChoice, ImageAdjust, ImageNode, Node, NodeKind, Rgba, SceneCmd,
-    ShapeKind, StrokeCap, StrokeJoin, TextAlign, TextNode, WidthProfile, WorldRect,
-    REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W,
+    Corner, Crop, Dash, FontChoice, ImageAdjust, ImageNode, Node, NodeKind, PortalKind, PortalNode,
+    Rgba, SceneCmd, ShapeKind, StrokeCap, StrokeJoin, TextAlign, TextNode, WidthProfile, WorldRect,
+    PORTAL_DEFAULT_H, PORTAL_DEFAULT_W, REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W,
 };
 use slate_doc::{ItemId, NodeId};
 use std::collections::BTreeMap;
@@ -121,13 +121,18 @@ pub enum BoardTool {
     DirectSelect,
     /// Repository Lens portal placement (palette / Portals rail).
     RepoLens,
+    /// Local agent host portal placement (palette / Portals rail).
+    AgentPortal,
+    /// Web host portal placement — embedded page or local HTML dashboard
+    /// (palette / Portals rail). See `contracts/portal-web-embed.md`.
+    WebPortal,
 }
 
 impl BoardTool {
     /// Every tool, in declaration order. Kept beside [`BoardTool::grammar`],
     /// whose exhaustive match is the compiler-enforced reason a new variant
     /// cannot be added without being considered here too.
-    pub const ALL: [BoardTool; 17] = [
+    pub const ALL: [BoardTool; 19] = [
         BoardTool::Select,
         BoardTool::Pan,
         BoardTool::Frame,
@@ -145,6 +150,8 @@ impl BoardTool {
         BoardTool::Sticky,
         BoardTool::DirectSelect,
         BoardTool::RepoLens,
+        BoardTool::AgentPortal,
+        BoardTool::WebPortal,
     ];
 
     pub fn label(self) -> &'static str {
@@ -166,6 +173,8 @@ impl BoardTool {
             BoardTool::Sticky => "Sticky note",
             BoardTool::DirectSelect => "Direct select",
             BoardTool::RepoLens => "Repository Lens",
+            BoardTool::AgentPortal => "Agent portal",
+            BoardTool::WebPortal => "Web portal",
         }
     }
 
@@ -188,6 +197,8 @@ impl BoardTool {
             BoardTool::Sticky => board_icons::ToolIcon::Sticky,
             BoardTool::DirectSelect => board_icons::ToolIcon::DirectSelect,
             BoardTool::RepoLens => board_icons::ToolIcon::RepoLens,
+            BoardTool::AgentPortal => board_icons::ToolIcon::Portals,
+            BoardTool::WebPortal => board_icons::ToolIcon::WebPortal,
         }
     }
 
@@ -207,7 +218,7 @@ impl BoardTool {
             BoardTool::Eyedropper => "I",
             BoardTool::Sticky => "N",
             BoardTool::DirectSelect => "A",
-            BoardTool::RepoLens => "",
+            BoardTool::RepoLens | BoardTool::AgentPortal | BoardTool::WebPortal => "",
         }
     }
 
@@ -224,9 +235,12 @@ impl BoardTool {
             // Select's grammar slot because a kit can never reference it.
             BoardTool::Select | BoardTool::Pan => G::Select,
             BoardTool::DirectSelect => G::DirectSelect,
-            BoardTool::Frame | BoardTool::RectShape | BoardTool::Ellipse | BoardTool::RepoLens => {
-                G::DragRect
-            }
+            BoardTool::Frame
+            | BoardTool::RectShape
+            | BoardTool::Ellipse
+            | BoardTool::RepoLens
+            | BoardTool::AgentPortal
+            | BoardTool::WebPortal => G::DragRect,
             BoardTool::Line => G::TwoPoint,
             BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => G::MultiPoint,
             BoardTool::Pen | BoardTool::Brush => G::Freehand,
@@ -428,6 +442,17 @@ impl SlateApp {
         let cam = &mut self.tab_mut().cam;
         cam.z = z;
         cam.offset = bounds.center().to_vec2();
+    }
+
+    /// Frame one world rect in the viewport, with a little breathing room.
+    pub(crate) fn zoom_to_rect(&mut self, r: WorldRect) {
+        let canvas = self.canvas_rect;
+        let z = ((canvas.width() / r.w.max(1.0)).min(canvas.height() / r.h.max(1.0)) * 0.9)
+            .clamp(ZOOM_MIN, ZOOM_MAX);
+        let (cx, cy) = r.center();
+        let cam = &mut self.tab_mut().cam;
+        cam.z = z;
+        cam.offset = Vec2::new(cx, cy);
     }
 
     /// Switch the board tool through one place: the brush chain breaks on
@@ -1766,7 +1791,17 @@ impl SlateApp {
             }
             NodeKind::Portal(p) => {
                 let portal = p.clone();
-                self.paint_portal_node(ui, painter, xf, node, &portal, chrome);
+                match portal.kind {
+                    PortalKind::RepoLens => {
+                        self.paint_portal_node(ui, painter, xf, node, &portal, chrome);
+                    }
+                    PortalKind::Agent => {
+                        self.paint_agent_portal(painter, xf, node, &portal);
+                    }
+                    PortalKind::Web => {
+                        self.paint_web_portal(ui, painter, xf, node, &portal);
+                    }
+                }
             }
         }
     }
@@ -1853,6 +1888,12 @@ impl SlateApp {
         // (click = step, drag = zoom window); pans keep their buttons.
         let zoom_tool = self.zoom_tool_frame(ui, &resp, rect, space || panning || hand_pan);
 
+        // One web portal may hold the pointer and keyboard (D17/D22). Its
+        // chrome strip and a thin border band stay Slate targets, so the frame
+        // can always be grabbed and released; everything inside goes to the
+        // page and selects nothing on the board.
+        let web_capture = self.web_input_frame(ui, &xf, pointer);
+
         // Connector grips: Select tool, idle pointer near a node edge.
         if self.board_tool == BoardTool::Select
             && self.board_drag.is_none()
@@ -1910,6 +1951,7 @@ impl SlateApp {
             && !panning
             && !zoom_tool
             && !model_toolbar_captures
+            && !web_capture
             && self.board_tool != BoardTool::Line
         {
             let origin = ui.input(|i| i.pointer.press_origin()).or(pointer);
@@ -1944,7 +1986,7 @@ impl SlateApp {
         }
 
         // --- clicks (the armed zoom tool owns the primary button) ---
-        if resp.clicked() && !zoom_tool {
+        if resp.clicked() && !zoom_tool && !web_capture {
             if editing_text {
                 // Click-off commits the in-flight text edit (same path as
                 // Escape / lost focus), then still performs selection.
@@ -1970,7 +2012,7 @@ impl SlateApp {
                 self.board_click(w, mods);
             }
         }
-        if resp.double_clicked() && !zoom_tool {
+        if resp.double_clicked() && !zoom_tool && !web_capture {
             if let Some(w) = wp {
                 self.board_double_click(w);
             }
@@ -3374,7 +3416,9 @@ impl SlateApp {
             tool @ (BoardTool::Frame
             | BoardTool::RectShape
             | BoardTool::Ellipse
-            | BoardTool::RepoLens) => Some(BoardDrag::Draw {
+            | BoardTool::RepoLens
+            | BoardTool::AgentPortal
+            | BoardTool::WebPortal) => Some(BoardDrag::Draw {
                 start_world: world,
                 tool,
             }),
@@ -3845,6 +3889,10 @@ impl SlateApp {
                     self.place_frame_at(start_world);
                 } else if tool == BoardTool::RepoLens && !moved {
                     self.place_repo_lens_at(start_world);
+                } else if tool == BoardTool::AgentPortal && !moved {
+                    self.place_agent_portal_at(start_world);
+                } else if tool == BoardTool::WebPortal && !moved {
+                    self.place_web_portal_at(start_world);
                 } else {
                     self.finish_draw(start_world, world, tool, mods);
                 }
@@ -3950,7 +3998,7 @@ impl SlateApp {
     ) -> Rect {
         let world = if tool == BoardTool::Frame && !mods.shift {
             self.frame_drag_rect(start, end)
-        } else if tool == BoardTool::RepoLens {
+        } else if tool == BoardTool::RepoLens || tool == BoardTool::AgentPortal {
             self.repo_lens_drag_rect(start, end, mods.shift)
         } else {
             let square_tool = matches!(
@@ -4001,6 +4049,28 @@ impl SlateApp {
             center,
             (REPO_PORTAL_DEFAULT_W, REPO_PORTAL_DEFAULT_H),
         );
+    }
+
+    /// Click-to-place default Agent portal (host-class local agent link).
+    pub(crate) fn place_agent_portal_at(&mut self, center: Pos2) {
+        let rect = WorldRect::new(
+            center.x - REPO_PORTAL_DEFAULT_W * 0.5,
+            center.y - REPO_PORTAL_DEFAULT_H * 0.5,
+            REPO_PORTAL_DEFAULT_W,
+            REPO_PORTAL_DEFAULT_H,
+        );
+        self.add_agent_portal(rect, "placed");
+    }
+
+    /// Click-to-place default web portal, unbound (P2.PortalPlace.click).
+    pub(crate) fn place_web_portal_at(&mut self, center: Pos2) {
+        let rect = WorldRect::new(
+            center.x - PORTAL_DEFAULT_W * 0.5,
+            center.y - PORTAL_DEFAULT_H * 0.5,
+            PORTAL_DEFAULT_W,
+            PORTAL_DEFAULT_H,
+        );
+        self.add_web_portal(rect, None, "placed");
     }
 
     /// Place a tool's recipe centred on a point, at the recipe's own default
@@ -4070,7 +4140,10 @@ impl SlateApp {
         let raw = WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
         let r = if tool == BoardTool::Frame && !mods.shift {
             self.frame_drag_rect(a, b)
-        } else if tool == BoardTool::RepoLens {
+        } else if matches!(
+            tool,
+            BoardTool::RepoLens | BoardTool::AgentPortal | BoardTool::WebPortal
+        ) {
             self.repo_lens_drag_rect(a, b, mods.shift)
         } else {
             let square_tool = matches!(
@@ -4081,6 +4154,14 @@ impl SlateApp {
         };
         if r.w < MIN_DRAW && r.h < MIN_DRAW {
             self.board_tool = BoardTool::Select;
+            return;
+        }
+        if tool == BoardTool::AgentPortal {
+            self.add_agent_portal(r, "drawn");
+            return;
+        }
+        if tool == BoardTool::WebPortal {
+            self.add_web_portal(r, None, "drawn");
             return;
         }
         // What the gesture produces is the tool's recipe, read from the kit
@@ -4115,10 +4196,60 @@ impl SlateApp {
         match tool {
             BoardTool::Frame => Some("board.tool.frame"),
             BoardTool::RepoLens => Some("board.portal.repo_lens"),
+            BoardTool::AgentPortal => Some("board.portal.agent"),
+            BoardTool::WebPortal => Some("board.portal.web"),
             BoardTool::RectShape => Some("board.tool.rect"),
             BoardTool::Ellipse => Some("board.tool.ellipse"),
             _ => None,
         }
+    }
+
+    fn add_agent_portal(&mut self, rect: WorldRect, detail: &'static str) {
+        let node = self.doc_mut().scene.build_node(
+            rect,
+            NodeKind::Portal(PortalNode::unbound_agent("Agent portal", "cursor")),
+        );
+        let id = node.id;
+        self.add_nodes(vec![node]);
+        self.board_sel.clear();
+        self.board_sel.insert(id);
+        self.board_tool = BoardTool::Select;
+        self.push_history(
+            atlas_commands::CommandId("board.portal.agent"),
+            Some(detail.into()),
+        );
+    }
+
+    /// Commit one web portal. `locator` is `None` for the draw grammar, which
+    /// always commits unbound (D03), and `Some` for the drop-in entry paths of
+    /// D01, which bind at placement.
+    pub(crate) fn add_web_portal(
+        &mut self,
+        rect: WorldRect,
+        locator: Option<String>,
+        detail: &'static str,
+    ) -> NodeId {
+        let portal = match locator {
+            Some(locator) => {
+                let title = slate_doc::scene::web_display_locator(&locator);
+                PortalNode::bound_web(title, locator)
+            }
+            None => PortalNode::unbound_web("Web portal"),
+        };
+        let node = self
+            .doc_mut()
+            .scene
+            .build_node(rect, NodeKind::Portal(portal));
+        let id = node.id;
+        self.add_nodes(vec![node]);
+        self.board_sel.clear();
+        self.board_sel.insert(id);
+        self.board_tool = BoardTool::Select;
+        self.push_history(
+            atlas_commands::CommandId("board.portal.web"),
+            Some(detail.into()),
+        );
+        id
     }
 
     fn board_click(&mut self, world: Pos2, mods: egui::Modifiers) {
@@ -4248,6 +4379,22 @@ impl SlateApp {
         match &node.kind {
             NodeKind::Text(t) => {
                 self.text_edit = Some((id, t.text.clone()));
+            }
+            NodeKind::Portal(p) if p.kind == PortalKind::Web => {
+                // Ctrl hands the page to the real browser instead (D22).
+                if self.ctrl_down {
+                    self.board_sel.clear();
+                    self.board_sel.insert(id);
+                    self.web_open_external();
+                    return;
+                }
+                // Below the live threshold, zoom to fit first rather than
+                // refusing — the page is not too small, the view is (D23).
+                let screen_h = self.board_xf().rect_w2s(node.rect).height();
+                if board_web::lod_for(screen_h) != board_web::WebLod::Eligible {
+                    self.zoom_to_rect(node.rect);
+                }
+                self.web_focus(id);
             }
             NodeKind::Portal(_) => {
                 self.portal_enter_interactive(id);

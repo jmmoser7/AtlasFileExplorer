@@ -12,6 +12,7 @@ mod link;
 pub mod media;
 pub mod scene;
 mod spatial;
+pub mod stage;
 mod tags;
 mod view;
 
@@ -23,9 +24,13 @@ pub use lease::{Lease, LeaseInfo, LeaseState, LEASE_HEARTBEAT_SECS, LEASE_STALE_
 pub use link::{link_status, LinkStatus};
 pub use media::{media_kind, MediaKind};
 pub use scene::{
-    Node, NodeId, NodeKind, PortalClass, PortalKind, PortalNode, RepoPortalQuery, RepoTimeAxis,
-    Scene, SceneCmd, SceneJournal, SourceUri, WorldRect, REPO_PORTAL_DEFAULT_H,
-    REPO_PORTAL_DEFAULT_W,
+    AgentContextScope, AgentPortalRef, Node, NodeId, NodeKind, PortalClass, PortalKind, PortalNode,
+    RepoPortalQuery, RepoTimeAxis, Scene, SceneCmd, SceneJournal, SourceUri, WorldRect,
+    REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W,
+};
+pub use stage::{
+    accept, reject, Proposal, ProposalResult, ProposalStatus, ProposalTarget, StageWatcher,
+    StaleReason,
 };
 pub use tags::{Tag, TagGroup};
 pub use view::{ViewKind, ViewState};

@@ -10,7 +10,9 @@
 use atlas_commands::{
     cancel_target, CancelLayer, CmdAuthor, CommandId, History as CommandHistory, HistoryEntry,
 };
+use atlas_core::dirmeta::{DirMetaHandle, DirMetaMap, DirMetaMsg};
 use atlas_core::export::{self, ExportItem, ExportMsg};
+use atlas_core::fsops::{self, FsOp, FsOpMsg, FsOpResult, FsOutcome};
 use atlas_core::index::{AssignState, Db, DbCmd, LoadedRoot};
 use atlas_core::journal::{Action, AssignVal, Journal, JournalEntry};
 use atlas_core::owners::{OwnerHandle, OwnerMsg};
@@ -30,11 +32,12 @@ use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 mod chrome;
 mod commands;
+mod editprefs;
 #[cfg(test)]
 mod tests;
 mod ui;
@@ -48,6 +51,11 @@ const ZOOM_MIN: f32 = 0.02;
 const ZOOM_MAX: f32 = 32.0;
 const LOD_FULL_DEFAULT: usize = 20;
 const LOD_MID_DEFAULT: usize = 6;
+/// Zoom threshold (%) where a card can enter the detail LOD — full paths and
+/// a short paragraph of metadata. At this zoom a typical directory tag
+/// (`DIR_H` ≈ 44) is a few hundred screen pixels tall; the paint path also
+/// promotes lod 2 → detail when a single card fills most of the viewport.
+const LOD_DETAIL_DEFAULT: usize = 600;
 
 pub use atlas_core::types::wants_thumb;
 
@@ -61,6 +69,13 @@ pub(crate) enum ScanMode {
 pub(crate) enum FilterMode {
     Ghost,
     Hide,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum EditMode {
+    #[default]
+    View,
+    Edit,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -117,6 +132,82 @@ enum ThumbState {
 #[derive(Clone)]
 pub(crate) enum DragChip {
     Dest(String),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MenuTarget {
+    File(u32),
+    Dir(u32),
+    Canvas,
+}
+
+/// What an open context menu acts on, resolved once when it opens.
+struct MenuCache {
+    target: MenuTarget,
+    rels: Vec<String>,
+    paths: Vec<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+struct EditDrag {
+    paths: Vec<PathBuf>,
+    names: Vec<String>,
+    source_dir: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+enum NamePromptKind {
+    Rename(PathBuf),
+    NewDir(PathBuf),
+}
+
+#[derive(Clone, Debug)]
+struct NamePrompt {
+    kind: NamePromptKind,
+    text: String,
+    pos: Pos2,
+    error: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct DeletePlan {
+    paths: Vec<PathBuf>,
+    permanent: bool,
+    count: usize,
+    bytes: u64,
+    large_branch: bool,
+    suppress_next: bool,
+    /// Where the question was asked from, so the answer is where the eye is.
+    at: Pos2,
+}
+
+#[derive(Clone, Debug)]
+struct CloudCopyPlan {
+    op: FsOp,
+    label: String,
+    files: usize,
+    bytes: u64,
+    at: Pos2,
+}
+
+struct FsUiOp {
+    rx: Receiver<FsOpMsg>,
+    label: String,
+    op: FsOp,
+    done: usize,
+    total: usize,
+}
+
+/// A copy waiting on its cloud accounting.
+///
+/// Whether a copy would download placeholders can only be answered by walking
+/// the sources, and on a share every directory listing is a round trip — so the
+/// walk runs on its own thread and the copy waits for the answer.
+struct CloudAudit {
+    rx: Receiver<atlas_core::cloud::CloudCost>,
+    op: FsOp,
+    label: String,
+    at: Pos2,
 }
 
 struct ScanUi {
@@ -265,6 +356,26 @@ struct WarmPlan {
 /// roots keep the synchronous path so interactions stay latency-free.
 const ASYNC_TREE_THRESHOLD: usize = 8_000;
 
+/// How many on-screen folders one folder-metadata pass resolves. Small so the
+/// pass releases its network threads back to discovery promptly (see
+/// `queue_dir_meta`).
+const DIR_META_BATCH: usize = 24;
+
+/// Watcher events applied per frame. Each costs a `metadata` round trip, which
+/// is microseconds locally and milliseconds on a share, so this is a frame-time
+/// budget rather than a throughput limit — the rest wait in `fs_backlog`.
+const FS_EVENTS_PER_FRAME: usize = 32;
+
+/// Cap on undelivered watcher events. A storm past this is not worth queueing
+/// file by file; the quiet refresh re-verifies the folder anyway.
+const FS_BACKLOG_CAP: usize = 8_192;
+
+/// How many of Atlas's own writes are remembered for watcher de-duplication.
+/// Bounded because every watcher event scans the list (see `is_own_fs_write`);
+/// past the cap the duplicate work is one redundant `metadata` call, not a
+/// frame-time cliff.
+const OWN_FS_WRITE_MEMORY: usize = 512;
+
 /// A finished background tree build (see `rebuild_tree`).
 struct TreeBuild {
     generation: u64,
@@ -295,6 +406,14 @@ struct PrewarmWalkOpts {
 /// A canvas click handler that runs after the paint pass, once the borrows the
 /// hit-test held on the tree are released.
 type DeferredClick = Box<dyn FnOnce(&mut AtlasApp)>;
+
+fn remove_path_permanent(path: &Path) -> std::io::Result<()> {
+    if path.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    }
+}
 
 /// The shared progress counters a pre-warm walk writes into, plus the flag it
 /// polls to stop early. The dashboard reads the same atomics through
@@ -336,6 +455,7 @@ fn prewarm_walk(
         }
         _ => (std::sync::Arc::new(dir.clone()), None),
     };
+    let skip = atlas_core::skiplist::effective();
     let mut stack: Vec<(PathBuf, Ctx)> = vec![(dir, root_ctx)];
     while let Some((d, mut ctx)) = stack.pop() {
         if tally.cancel.load(Relaxed) {
@@ -357,10 +477,7 @@ fn prewarm_walk(
             if ft.is_dir() {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if scanner::SKIP_DIRS
-                    .iter()
-                    .any(|s| name.eq_ignore_ascii_case(s))
-                {
+                if skip.skips(&name) {
                     continue;
                 }
                 subdirs.push(entry.path());
@@ -496,6 +613,10 @@ pub struct AtlasApp {
     pub dock_side: atlas_shell::dock::DockSide,
     /// Dock panels pinned as persistent palettes (restored across sessions).
     pub dock_pins: Vec<String>,
+    /// Editing buffer for the never-scanned folder names (Advanced), one per
+    /// line. The list itself lives in `atlas_core::skiplist`; this is only the
+    /// text the user is typing, so it is not part of a workspace.
+    pub(crate) skip_edit: String,
     filter_mode: FilterMode,
     grid_cols: usize,
     portal_threshold: usize,
@@ -504,6 +625,8 @@ pub struct AtlasApp {
     root_folder_gap: usize,
     lod_mid: usize,
     lod_full: usize,
+    /// Deep-zoom LOD: wrapped full paths + paragraph of details on a tag.
+    lod_detail: usize,
     leader_style: LeaderStyle,
     cam: Camera,
     grid_fade: atlas_shell::grid_fade::GridFade,
@@ -525,6 +648,24 @@ pub struct AtlasApp {
     owner_tx: Sender<(u64, OwnerMsg)>,
     owner_rx: Receiver<(u64, OwnerMsg)>,
     owner_handle: Option<OwnerHandle>,
+    /// Deferred *folder* date/owner enrichment, for the same reason as above one
+    /// level up: `Tree::build` is on the frame path and re-runs throughout a
+    /// scan, so it cannot afford two filesystem round trips per directory. The
+    /// resolved values are cached by directory `rel` and re-applied to every
+    /// later tree, so the I/O happens once per folder rather than once per
+    /// rebuild.
+    dir_meta: DirMetaMap,
+    /// Directories already handed to the pass, so unreadable ones are not
+    /// re-queued forever.
+    dir_meta_asked: HashSet<String>,
+    dir_meta_tx: Sender<(u64, DirMetaMsg)>,
+    dir_meta_rx: Receiver<(u64, DirMetaMsg)>,
+    dir_meta_handle: Option<DirMetaHandle>,
+    /// Last painted canvas viewport in world space, and the detail level it was
+    /// drawn at. What the camera is showing decides which folders are worth a
+    /// metadata round trip (see `queue_dir_meta`).
+    view_world: Option<Rect>,
+    view_lod: u8,
     /// In-flight index load: the root it was requested for plus the reply
     /// channel. The root is checked on arrival so a late reply can never be
     /// ingested into a different tab's workspace.
@@ -567,6 +708,10 @@ pub struct AtlasApp {
     /// Bounds the last auto-zoom framed, so a filter recompute that lands on
     /// the same set — a scan batch, a repaint — does not re-fly the camera.
     auto_zoom_last: Option<Rect>,
+    /// Camera follow was held back because the tree was still filling. Kept for
+    /// one recompute past the end of a load so the finished tree does not spend
+    /// a last jump on a user who has been navigating the whole time.
+    auto_zoom_held: bool,
     /// All family checkboxes unchecked: draw the folder skeleton, no files.
     structure_only: bool,
     shown_count: usize,
@@ -649,6 +794,9 @@ pub struct AtlasApp {
     search_popup_open: bool,
     /// Frame stamp of the last frame the Filters-dock search field rendered.
     search_field_frame: u64,
+    /// Current safety mode: View refuses real filesystem mutations; Edit allows
+    /// human-directed Explorer-style writes.
+    edit_mode: EditMode,
 
     // selection & interaction
     selection: HashSet<u32>,
@@ -659,7 +807,26 @@ pub struct AtlasApp {
     hovered_dir_grip: Option<DirGrip>,
     last_selected_file: Option<u32>,
     drag_chip: Option<DragChip>,
-    menu_at: Option<(u32, Pos2)>,
+    edit_drag: Option<EditDrag>,
+    /// Folder the current edit drag would land in — the deepest folder the
+    /// cursor is inside, not the card under it (see `Tree::dir_at_point`).
+    edit_drop_dir: Option<u32>,
+    /// Last known pointer position, so confirmations open under the hand
+    /// that asked for them rather than wherever egui last left the window.
+    pointer_pos: Pos2,
+    menu_at: Option<(MenuTarget, Pos2)>,
+    menu_cache: Option<MenuCache>,
+    name_prompt: Option<NamePrompt>,
+    delete_plan: Option<DeletePlan>,
+    cloud_copy_plan: Option<CloudCopyPlan>,
+    cloud_audit: Option<CloudAudit>,
+    fs_op: Option<FsUiOp>,
+    suppress_delete_confirm: bool,
+    own_fs_writes: VecDeque<(PathBuf, Instant)>,
+    /// Folders created in Edit mode that hold no files yet. The canvas derives
+    /// folders from the files inside them, so without this a brand-new folder
+    /// would be invisible — and nothing could be dropped into it.
+    created_dirs: Vec<String>,
     detail: Option<u32>,
 
     // Linked Slate session (Atlas embedded as a second viewport of the Slate
@@ -687,8 +854,20 @@ pub struct AtlasApp {
     // export
     export_ui: Option<ExportUi>,
 
+    /// Files a right-drag has handed to Windows, run once the frame's UI is
+    /// built (`run_shell_drag`). The OLE call is modal, so it must not happen
+    /// half way through laying the canvas out.
+    pending_shell_drag: Option<Vec<PathBuf>>,
+
     // watcher
     watch: Option<FsWatch>,
+    /// Watcher events received but not yet applied.
+    ///
+    /// Applying one is a `metadata` round trip, so the frame loop takes
+    /// [`FS_EVENTS_PER_FRAME`] of them and leaves the rest here. Draining to
+    /// exhaustion meant a burst on a high-latency share stalled the frame for as
+    /// long as the burst was deep.
+    fs_backlog: VecDeque<FsChange>,
 
     // browser-style tabs: each remembers a folder + camera
     tabs: Vec<TabState>,
@@ -713,6 +892,8 @@ struct ParkedWorkspace {
     textures: HashMap<u32, (egui::TextureHandle, u64)>,
     tree: Option<Tree>,
     dir_collapsed: HashMap<String, bool>,
+    dir_meta: DirMetaMap,
+    dir_meta_asked: HashSet<String>,
     selection: HashSet<u32>,
     last_selected_file: Option<u32>,
     assign_state: AssignState,
@@ -735,6 +916,12 @@ struct ParkedWorkspace {
     any_filter: bool,
     structure_only: bool,
     cam: Camera,
+    edit_mode: EditMode,
+    /// Parked with the tab so returning does not read the *other* tab's framing
+    /// as a new one. Without it the first filter recompute after a restore sees
+    /// an edge, and camera-follow flies away from the position just restored.
+    auto_zoom_last: Option<Rect>,
+    auto_zoom_held: bool,
 }
 
 /// One open directory tab. The heavyweight state (entries, tree, textures)
@@ -750,6 +937,7 @@ struct TabState {
     /// single-folder open; several siblings share one map under `root`.
     folders: Vec<PathBuf>,
     cam: Option<Camera>,
+    edit_mode: EditMode,
     chrome: ChromeConfig,
     /// Parked canvas when this tab is inactive. `None` if never visited or
     /// cleared (e.g. empty tab / closed).
@@ -764,6 +952,7 @@ impl TabState {
             root: None,
             folders: Vec::new(),
             cam: None,
+            edit_mode: EditMode::View,
             chrome: chrome::default_chrome(),
             parked: None,
         }
@@ -853,10 +1042,12 @@ impl AtlasApp {
         let fam_default = !matches!(std::env::var("ATLAS_FAM").as_deref(), Ok("none"));
         let (scan_tx, scan_rx) = unbounded();
         let (owner_tx, owner_rx) = unbounded();
+        let (dir_meta_tx, dir_meta_rx) = unbounded();
         let chrome_prefs = atlas_shell::prefs::ChromePrefs::load(
             "file-atlas",
             atlas_shell::dock::DockSide::LeftCenter,
         );
+        let edit_prefs = editprefs::EditPrefs::load();
         let mut app = AtlasApp {
             db,
             thumbs: ThumbPool::new(),
@@ -889,6 +1080,7 @@ impl AtlasApp {
             dark_mode: true,
             dock_side: chrome_prefs.dock_side,
             dock_pins: chrome_prefs.pinned_panels,
+            skip_edit: skip_list_text(),
             filter_mode: FilterMode::Hide,
             grid_cols: 10,
             portal_threshold: 100,
@@ -897,6 +1089,7 @@ impl AtlasApp {
             root_folder_gap: 100,
             lod_mid: LOD_MID_DEFAULT,
             lod_full: LOD_FULL_DEFAULT,
+            lod_detail: LOD_DETAIL_DEFAULT,
             leader_style: LeaderStyle::Orthogonal,
             cam: Camera {
                 offset: Vec2::ZERO,
@@ -915,6 +1108,13 @@ impl AtlasApp {
             owner_tx,
             owner_rx,
             owner_handle: None,
+            dir_meta: DirMetaMap::new(),
+            dir_meta_asked: HashSet::new(),
+            dir_meta_tx,
+            dir_meta_rx,
+            dir_meta_handle: None,
+            view_world: None,
+            view_lod: 0,
             pending_load: None,
             picker_rx: None,
             export_picker_rx: None,
@@ -935,6 +1135,7 @@ impl AtlasApp {
             file_match: Vec::new(),
             auto_zoom_matches: true,
             auto_zoom_last: None,
+            auto_zoom_held: false,
             any_filter: false,
             structure_only: false,
             shown_count: 0,
@@ -973,6 +1174,7 @@ impl AtlasApp {
             focus_search_field: false,
             search_popup_open: false,
             search_field_frame: 0,
+            edit_mode: EditMode::View,
             selection: HashSet::new(),
             rubber_origin: None,
             turbo_pan: commands::TurboPanState::default(),
@@ -981,7 +1183,19 @@ impl AtlasApp {
             hovered_dir_grip: None,
             last_selected_file: None,
             drag_chip: None,
+            edit_drag: None,
+            edit_drop_dir: None,
+            pointer_pos: Pos2::ZERO,
             menu_at: None,
+            menu_cache: None,
+            name_prompt: None,
+            delete_plan: None,
+            cloud_copy_plan: None,
+            cloud_audit: None,
+            fs_op: None,
+            suppress_delete_confirm: edit_prefs.suppress_delete_confirm,
+            own_fs_writes: VecDeque::new(),
+            created_dirs: Vec::new(),
             detail: None,
             session: None,
             session_drag: None,
@@ -996,7 +1210,9 @@ impl AtlasApp {
             edit_dest_input: String::new(),
             edit_rename_input: String::new(),
             export_ui: None,
+            pending_shell_drag: None,
             watch: None,
+            fs_backlog: VecDeque::new(),
             tabs: vec![],
             active_tab: 0,
             pending_cam: None,
@@ -1448,12 +1664,16 @@ impl AtlasApp {
         self.avg_color = Vec::new();
         self.file_match = Vec::new();
         self.auto_zoom_last = None;
+        self.auto_zoom_held = false;
         self.rel_to_id = HashMap::new();
         self.textures = HashMap::new();
         self.tree = None;
         self.tree_dirty = false;
         self.tree_build_rx = None;
         self.dir_collapsed = HashMap::new();
+        self.dir_meta = DirMetaMap::new();
+        self.dir_meta_asked = HashSet::new();
+        self.dir_meta_handle = None;
         self.last_build_entries = 0;
 
         // Interaction state that carries entry ids or in-progress gestures.
@@ -1464,9 +1684,18 @@ impl AtlasApp {
         self.hovered_dir_grip = None;
         self.rubber_origin = None;
         self.drag_chip = None;
+        self.edit_drag = None;
         self.detail = None;
         self.menu_at = None;
+        self.name_prompt = None;
+        self.delete_plan = None;
+        self.cloud_copy_plan = None;
+        self.cloud_audit = None;
+        self.fs_op = None;
+        self.own_fs_writes.clear();
+        self.created_dirs.clear();
         self.edit_open = false;
+        self.edit_mode = EditMode::View;
         self.anim = None;
         self.pending_view = None;
         self.pending_cam = None;
@@ -1538,6 +1767,7 @@ impl AtlasApp {
         self.scan_seeds = folders.clone();
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.set_folders(folders.clone());
+            tab.edit_mode = EditMode::View;
         }
         if atlas_core::thumbs::is_network_path(&root)
             || folders
@@ -1545,15 +1775,25 @@ impl AtlasApp {
                 .any(|f| atlas_core::thumbs::is_network_path(f))
         {
             // Network shares are latency-bound: many parallel SMB requests
-            // multiply throughput without extra CPU cost.
+            // multiply throughput without extra CPU cost. This grows the pool
+            // *now*, while the folder is still streaming in, because watching
+            // previews land is the load — see `ARCHITECTURE.md` invariant 7.
+            // It cannot starve discovery: bulk warming is separately capped at
+            // `WARM_CONCURRENCY` and does not start until the scan is done, so
+            // the extra workers only ever serve on-screen cards.
             self.thumbs.ensure_workers(24);
         }
         // Shared per-project cache: keys become project-root-relative so
         // every machine opening any part of this project agrees on them.
+        // Creating the directory on a share is a network round trip — do it
+        // off the UI thread so a slow `R:` cannot freeze the window on open.
         if let Some(pc) = atlas_core::thumbs::discover_project_cache(&root) {
-            let _ = std::fs::create_dir_all(&pc.shared_dir);
             self.key_prefix = pc.key_prefix;
             self.shared_cache = Some(std::sync::Arc::new(pc.shared_dir.clone()));
+            let shared = pc.shared_dir.clone();
+            std::thread::spawn(move || {
+                let _ = std::fs::create_dir_all(&shared);
+            });
             self.toast(format!("Shared project cache: {}", pc.shared_dir.display()));
         }
 
@@ -1578,6 +1818,23 @@ impl AtlasApp {
         }
         self.watch = watcher::watch(root);
         self.record_recent_folders(&folders);
+    }
+
+    /// Commit the edited never-scanned list. Walks already in flight keep the
+    /// list they started with, so this only shapes the next scan — hence the
+    /// rescan offered alongside it.
+    pub(crate) fn apply_skip_list(&mut self) {
+        atlas_core::skiplist::set(self.skip_edit.lines().map(str::to_string).collect());
+        self.skip_edit = skip_list_text();
+    }
+
+    /// Re-open the current selection: the index snapshot paints immediately and
+    /// the refresh pass drops whatever the new list now excludes.
+    pub(crate) fn rescan_root(&mut self) {
+        let seeds = self.scan_seeds.clone();
+        if !seeds.is_empty() {
+            self.set_roots(seeds);
+        }
     }
 
     /// Return to the Cover Flow home (clear the active workspace).
@@ -1634,6 +1891,7 @@ impl AtlasApp {
         self.scan_seeds.clear();
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.set_folders(Vec::new());
+            tab.edit_mode = EditMode::View;
         }
     }
 
@@ -1668,6 +1926,7 @@ impl AtlasApp {
         let cam = self.anim.as_ref().map_or(self.cam, |a| a.to);
         if let Some(tab) = self.tabs.get_mut(i) {
             tab.cam = Some(cam);
+            tab.edit_mode = self.edit_mode;
             if self.scan_seeds.is_empty() {
                 if let Some(r) = &self.root {
                     tab.set_folders(vec![r.clone()]);
@@ -1723,6 +1982,8 @@ impl AtlasApp {
             textures: std::mem::take(&mut self.textures),
             tree: self.tree.take(),
             dir_collapsed: std::mem::take(&mut self.dir_collapsed),
+            dir_meta: std::mem::take(&mut self.dir_meta),
+            dir_meta_asked: std::mem::take(&mut self.dir_meta_asked),
             selection: std::mem::take(&mut self.selection),
             last_selected_file: self.last_selected_file.take(),
             assign_state: std::mem::replace(
@@ -1752,6 +2013,9 @@ impl AtlasApp {
             // `remember_active_tab_meta` above already resolved this tab's
             // camera; read it back so the two stores cannot disagree.
             cam: self.tabs[i].cam.unwrap_or(self.cam),
+            edit_mode: self.edit_mode,
+            auto_zoom_last: self.auto_zoom_last,
+            auto_zoom_held: self.auto_zoom_held,
         };
 
         // Clear interaction leftovers that reference entry ids.
@@ -1760,8 +2024,11 @@ impl AtlasApp {
         self.hovered_dir_grip = None;
         self.rubber_origin = None;
         self.drag_chip = None;
+        self.edit_drag = None;
         self.detail = None;
         self.menu_at = None;
+        self.name_prompt = None;
+        self.delete_plan = None;
         self.anim = None;
         self.pending_view = None;
         self.pending_cam = None;
@@ -1789,6 +2056,8 @@ impl AtlasApp {
         self.tree = parked.tree;
         self.last_build_entries = self.entries.len();
         self.dir_collapsed = parked.dir_collapsed;
+        self.dir_meta = parked.dir_meta;
+        self.dir_meta_asked = parked.dir_meta_asked;
         self.selection = parked.selection;
         self.last_selected_file = parked.last_selected_file;
         self.assign_state = parked.assign_state;
@@ -1811,6 +2080,9 @@ impl AtlasApp {
         self.any_filter = parked.any_filter;
         self.structure_only = parked.structure_only;
         self.cam = parked.cam;
+        self.edit_mode = parked.edit_mode;
+        self.auto_zoom_last = parked.auto_zoom_last;
+        self.auto_zoom_held = parked.auto_zoom_held;
         self.anim = None;
         self.pending_view = None;
         self.pending_cam = None;
@@ -1851,6 +2123,7 @@ impl AtlasApp {
         let target_root = self.tabs[i].root.clone();
         if target_folders.is_empty() && target_root.is_none() {
             self.reset_workspace();
+            self.edit_mode = self.tabs[i].edit_mode;
             self.root = None;
             self.scan_seeds.clear();
             return;
@@ -1949,6 +2222,20 @@ impl AtlasApp {
         &mut self.tabs[i].chrome
     }
 
+    pub(crate) fn set_edit_mode(&mut self, mode: EditMode) {
+        if self.edit_mode == mode {
+            return;
+        }
+        self.edit_mode = mode;
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.edit_mode = mode;
+        }
+        self.toast(match mode {
+            EditMode::View => "Mode: View",
+            EditMode::Edit => "Mode: Edit",
+        });
+    }
+
     /// Full-screen canvas: hide the tools rail and readout bar (View menu,
     /// the canvas mini menu ⛶, or F11).
     pub(super) fn toggle_canvas_fullscreen(&mut self) {
@@ -2019,6 +2306,42 @@ impl AtlasApp {
         ));
     }
 
+    /// Resolve owner labels for the folders the camera is actually showing.
+    ///
+    /// Strictly demand-driven, because a folder's owner lives in its security
+    /// descriptor: measured at 4.5–5.8 seconds per folder on a high-latency
+    /// share, against a payoff of one word in a subtitle that only renders at
+    /// `lod >= 2`. So nothing is asked for unless the user is zoomed in far
+    /// enough to read it, and then only for what is on screen — never a sweep of
+    /// the tree, which spent the entire length of a scan competing with discovery
+    /// for the same network. Folder *dates* are free and come from the scan.
+    ///
+    /// One pass at a time: each `Done` releases the slot for whatever the user
+    /// has panned to meanwhile.
+    fn queue_dir_meta(&mut self) {
+        if self.dir_meta_handle.is_some() || self.view_lod < 2 {
+            return;
+        }
+        let Some(view) = self.view_world else { return };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let Some(tree) = &self.tree else { return };
+        let todo =
+            tree.dirs_needing_meta_in_view(&root, view, &self.dir_meta_asked, DIR_META_BATCH);
+        if todo.is_empty() {
+            return;
+        }
+        for (rel, _) in &todo {
+            self.dir_meta_asked.insert(rel.clone());
+        }
+        self.dir_meta_handle = Some(atlas_core::dirmeta::start_dir_meta_pass(
+            todo,
+            self.generation,
+            self.dir_meta_tx.clone(),
+        ));
+    }
+
     /// After a scan completes, quietly pre-generate thumbnails for everything
     /// so cold network folders are already cached by the time they're opened.
     ///
@@ -2080,6 +2403,12 @@ impl AtlasApp {
                 requests,
             });
         });
+    }
+
+    /// Label of the copy waiting on its cloud accounting, if one is. A folder
+    /// walk on a share takes seconds, and silence would read as a lost copy.
+    pub(crate) fn cloud_audit_label(&self) -> Option<&str> {
+        self.cloud_audit.as_ref().map(|a| a.label.as_str())
     }
 
     /// Cache-audit progress for the readout bar: `(checked, total)` while the
@@ -2175,12 +2504,15 @@ impl AtlasApp {
             let hide = self.filter_mode == FilterMode::Hide && self.any_filter;
             let file_match = self.file_match.clone();
             let structure_only = self.structure_only;
+            let dir_meta = self.dir_meta.clone();
+            let empty_dirs = self.created_dirs.clone();
             let (tx, rx) = unbounded();
             self.tree_build_rx = Some(rx);
             self.tree_dirty = false;
             self.last_tree_build = Instant::now();
             std::thread::spawn(move || {
-                let mut t = Tree::build(&entries, &root_path, cfg);
+                let mut t =
+                    Tree::build_with_dirs(&entries, &root_path, cfg, &dir_meta, &empty_dirs);
                 if !collapsed.is_empty() {
                     for d in t.dirs.iter_mut() {
                         if let Some(&c) = collapsed.get(&d.rel) {
@@ -2199,7 +2531,13 @@ impl AtlasApp {
         }
 
         let root_path = self.root.clone().unwrap_or_else(|| PathBuf::from("root"));
-        let mut t = Tree::build(&self.entries, &root_path, self.layout_config());
+        let mut t = Tree::build_with_dirs(
+            &self.entries,
+            &root_path,
+            self.layout_config(),
+            &self.dir_meta,
+            &self.created_dirs,
+        );
         if !collapsed.is_empty() {
             for d in t.dirs.iter_mut() {
                 if let Some(&c) = collapsed.get(&d.rel) {
@@ -2342,6 +2680,8 @@ impl AtlasApp {
         }
 
         self.poll_cloud_download();
+        self.poll_cloud_audit();
+        self.poll_fs_op();
 
         // Pre-warm folder picker result
         if let Some(rx) = &self.prewarm_picker_rx {
@@ -2430,6 +2770,17 @@ impl AtlasApp {
             }
             let mode = self.scan_ui.as_ref().map(|s| s.mode);
             match msg {
+                // Folder dates, free from the walk that found them. Applied to
+                // the live tree immediately — a label, so no relayout — and kept
+                // so every later rebuild starts with them.
+                ScanMsg::Dirs(dirs) => {
+                    for (rel, ctime) in dirs {
+                        self.dir_meta.entry(rel).or_default().ctime = ctime;
+                    }
+                    if let Some(t) = &mut self.tree {
+                        t.apply_dir_meta(&self.dir_meta);
+                    }
+                }
                 ScanMsg::Batch(batch) => match mode {
                     Some(ScanMode::Refresh) => self.rescan_buffer.extend(batch),
                     _ => {
@@ -2577,6 +2928,32 @@ impl AtlasApp {
             }
         }
 
+        // Deferred folder date/owner results: a label refresh, so they land on
+        // the live tree in place — no rebuild, no relayout.
+        while let Ok((generation, msg)) = self.dir_meta_rx.try_recv() {
+            if generation != self.generation {
+                continue;
+            }
+            match msg {
+                DirMetaMsg::Batch(pairs) => {
+                    for (rel, meta) in pairs {
+                        // Merge, never replace: the date came from the scan and
+                        // this pass only knows the owner.
+                        let slot = self.dir_meta.entry(rel).or_default();
+                        if !meta.owner.is_empty() {
+                            slot.owner = meta.owner;
+                        }
+                    }
+                    if let Some(t) = &mut self.tree {
+                        t.apply_dir_meta(&self.dir_meta);
+                    }
+                }
+                DirMetaMsg::Done => {
+                    self.dir_meta_handle = None;
+                }
+            }
+        }
+
         // Throttled tree rebuild while a fresh scan streams in.
         if self.tree_dirty {
             let first = self.tree.is_none();
@@ -2584,6 +2961,10 @@ impl AtlasApp {
                 self.rebuild_tree(first);
             }
         }
+
+        // Folder dates/owners follow the camera, so this is checked per frame
+        // rather than per rebuild: panning reveals folders no rebuild announced.
+        self.queue_dir_meta();
 
         // Thumbnail results
         let mut uploads = 0;
@@ -2687,18 +3068,22 @@ impl AtlasApp {
             }
         }
 
-        // Watcher events
-        let mut fs_changes: Vec<FsChange> = Vec::new();
+        // Watcher events, applied on a budget (see `fs_backlog`).
         if let Some(w) = &self.watch {
-            while let Ok(ev) = w.rx.try_recv() {
-                fs_changes.push(ev);
-                if fs_changes.len() > 4096 {
-                    break;
-                }
+            while self.fs_backlog.len() < FS_BACKLOG_CAP {
+                let Ok(ev) = w.rx.try_recv() else { break };
+                self.fs_backlog.push_back(ev);
             }
         }
-        for ev in fs_changes {
+        for _ in 0..FS_EVENTS_PER_FRAME {
+            let Some(ev) = self.fs_backlog.pop_front() else {
+                break;
+            };
             self.apply_fs_change(ev);
+        }
+        if !self.fs_backlog.is_empty() {
+            // Nothing else may be animating; keep working through the backlog.
+            ctx.request_repaint();
         }
 
         // Export progress
@@ -2762,12 +3147,450 @@ impl AtlasApp {
         self.scan_seeds.iter().any(|s| path.starts_with(s))
     }
 
+    fn path_to_rel(&self, path: &Path) -> Option<String> {
+        let root = self.root.as_ref()?;
+        let rel = path.strip_prefix(root).ok()?.to_string_lossy().into_owned();
+        #[cfg(not(windows))]
+        let rel = rel.replace('/', "\\");
+        Some(rel)
+    }
+
+    /// Where an edit-mode question should appear: just off the cursor.
+    fn dialog_anchor(&self) -> Pos2 {
+        if self.pointer_pos == Pos2::ZERO {
+            self.canvas_rect.center()
+        } else {
+            self.pointer_pos + Vec2::new(14.0, 10.0)
+        }
+    }
+
+    /// A filesystem edit is a user watching for a card to appear or vanish, so
+    /// it skips the streaming-scan rebuild cadence and lands on the next frame.
+    fn force_tree_rebuild(&mut self) {
+        self.tree_dirty = true;
+        self.last_tree_build = Instant::now()
+            .checked_sub(Duration::from_secs(2))
+            .unwrap_or_else(Instant::now);
+    }
+
+    fn remember_own_write(&mut self, path: &Path) {
+        self.own_fs_writes
+            .push_back((path.to_path_buf(), Instant::now()));
+        // Every watcher event scans this list, so a thousand-file move must
+        // not turn each event into a thousand path comparisons.
+        while self.own_fs_writes.len() > OWN_FS_WRITE_MEMORY {
+            self.own_fs_writes.pop_front();
+        }
+    }
+
+    fn is_own_fs_write(&mut self, path: &Path) -> bool {
+        let stale = Duration::from_secs(8);
+        while self
+            .own_fs_writes
+            .front()
+            .is_some_and(|(_, t)| t.elapsed() > stale)
+        {
+            self.own_fs_writes.pop_front();
+        }
+        self.own_fs_writes
+            .iter()
+            .any(|(p, _)| path == p || path.starts_with(p) || p.starts_with(path))
+    }
+
+    fn rewrite_assign_prefix(&mut self, from_rel: &str, to_rel: &str) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let prefix = format!("{from_rel}\\");
+        let mut moved = Vec::new();
+        for (rel, val) in self.assign_state.assigns.clone() {
+            let new_rel = if rel == from_rel {
+                Some(to_rel.to_string())
+            } else {
+                rel.strip_prefix(&prefix)
+                    .map(|suffix| format!("{to_rel}\\{suffix}"))
+            };
+            if let Some(new_rel) = new_rel {
+                moved.push((rel, new_rel, val));
+            }
+        }
+        for (old_rel, new_rel, val) in moved {
+            self.assign_state.assigns.remove(&old_rel);
+            self.assign_state
+                .assigns
+                .insert(new_rel.clone(), val.clone());
+            self.db.send(DbCmd::SetAssign {
+                root: root.clone(),
+                rel: old_rel,
+                assign: None,
+            });
+            self.db.send(DbCmd::SetAssign {
+                root: root.clone(),
+                rel: new_rel,
+                assign: Some(val),
+            });
+        }
+        self.recount_assigns();
+    }
+
+    fn update_entry_path_prefix(&mut self, from: &Path, to: &Path) {
+        let Some(from_rel) = self.path_to_rel(from) else {
+            return;
+        };
+        let Some(to_rel) = self.path_to_rel(to) else {
+            return;
+        };
+        let prefix = format!("{from_rel}\\");
+        for (i, entry) in self.entries.iter_mut().enumerate() {
+            if entry.dead {
+                continue;
+            }
+            let new_rel = if entry.rel == from_rel {
+                Some(to_rel.clone())
+            } else {
+                entry
+                    .rel
+                    .strip_prefix(&prefix)
+                    .map(|suffix| format!("{to_rel}\\{suffix}"))
+            };
+            if let Some(new_rel) = new_rel {
+                let new_path = if let Some(root) = &self.root {
+                    root.join(&new_rel)
+                } else {
+                    to.to_path_buf()
+                };
+                let size = entry.size;
+                let mtime = entry.mtime;
+                let ctime = entry.ctime;
+                let owner = entry.owner.clone();
+                *entry = FileEntry::from_rel(
+                    self.root.as_deref().unwrap_or_else(|| Path::new("")),
+                    new_rel,
+                    size,
+                    mtime,
+                    ctime,
+                    owner,
+                );
+                entry.path = new_path;
+                self.textures.remove(&(i as u32));
+            }
+        }
+        for rel in self.created_dirs.iter_mut() {
+            if *rel == from_rel {
+                *rel = to_rel.clone();
+            } else if let Some(suffix) = rel.strip_prefix(&prefix) {
+                *rel = format!("{to_rel}\\{suffix}");
+            }
+        }
+        self.rebuild_rel_map();
+        self.rewrite_assign_prefix(&from_rel, &to_rel);
+        self.tree_dirty = true;
+        self.filter_dirty = true;
+    }
+
+    fn mark_deleted_path(&mut self, path: &Path) {
+        let Some(rel) = self.path_to_rel(path) else {
+            return;
+        };
+        let prefix = format!("{rel}\\");
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let persist_index = !self.is_multi_root();
+        for (i, entry) in self.entries.iter_mut().enumerate() {
+            if entry.rel == rel || entry.rel.starts_with(&prefix) {
+                entry.dead = true;
+                // A dead card never paints again: drop its texture and every
+                // reference that could still point the UI at it.
+                self.textures.remove(&(i as u32));
+                self.selection.remove(&(i as u32));
+                if self.last_selected_file == Some(i as u32) {
+                    self.last_selected_file = None;
+                }
+                if self.hovered_file == Some(i as u32) {
+                    self.hovered_file = None;
+                }
+                if self.detail == Some(i as u32) {
+                    self.detail = None;
+                }
+                if persist_index {
+                    self.db.send(DbCmd::RemoveFile {
+                        root: root.clone(),
+                        rel: entry.rel.clone(),
+                    });
+                }
+            }
+        }
+        self.assign_state
+            .assigns
+            .retain(|k, _| k != &rel && !k.starts_with(&prefix));
+        self.created_dirs
+            .retain(|k| k != &rel && !k.starts_with(&prefix));
+        self.recount_assigns();
+        self.tree_dirty = true;
+        self.filter_dirty = true;
+    }
+
+    fn add_created_path(&mut self, path: &Path) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        if let Some(fe) = scanner::stat_file(&root, path) {
+            if let Some(&i) = self.rel_to_id.get(&fe.rel) {
+                self.entries[i as usize] = fe;
+            } else {
+                self.rel_to_id
+                    .insert(fe.rel.clone(), self.entries.len() as u32);
+                self.entries.push(fe);
+                self.thumb_state.push(ThumbState::NotAsked);
+                self.avg_color.push(None);
+            }
+            self.tree_dirty = true;
+            self.filter_dirty = true;
+        } else {
+            // Directories with no files are not represented in the file-entry
+            // model; let the next scan/watcher pass reconcile visible contents.
+            self.tree_dirty = true;
+        }
+    }
+
+    fn dispatch_fs_op(&mut self, op: FsOp, label: String) {
+        if self.edit_mode != EditMode::Edit {
+            self.toast("Switch to Edit mode before changing files");
+            return;
+        }
+        if let FsOp::Copy { sources, .. } = &op {
+            if self.cloud_audit.is_some() || self.fs_op.is_some() {
+                self.toast("File operation already running");
+                return;
+            }
+            // Answering "would this download anything" means reading directory
+            // entries — one per selected file, and a whole subtree per selected
+            // folder. On a share that is seconds of I/O, so it happens on a
+            // thread and the copy resumes in `poll_cloud_audit`.
+            let (tx, rx) = unbounded();
+            let sources = sources.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(atlas_core::cloud::copy_cloud_cost(&sources));
+            });
+            self.cloud_audit = Some(CloudAudit {
+                rx,
+                op,
+                label,
+                at: self.dialog_anchor(),
+            });
+            return;
+        }
+        self.start_fs_op_unchecked(op, label);
+    }
+
+    /// Every path an operation is about to touch, source and destination.
+    fn op_paths(op: &FsOp) -> Vec<PathBuf> {
+        let dest_names = |sources: &[PathBuf], dest_dir: &Path| -> Vec<PathBuf> {
+            sources
+                .iter()
+                .map(|s| dest_dir.join(s.file_name().unwrap_or_default()))
+                .chain(sources.iter().cloned())
+                .collect()
+        };
+        match op {
+            FsOp::Rename { path, new_name } => vec![
+                path.clone(),
+                path.parent().unwrap_or(Path::new("")).join(new_name),
+            ],
+            FsOp::Move { sources, dest_dir } | FsOp::Copy { sources, dest_dir } => {
+                dest_names(sources, dest_dir)
+            }
+            FsOp::NewDir { parent, name } => vec![parent.join(name)],
+            FsOp::Delete { paths, .. } => paths.clone(),
+        }
+    }
+
+    fn start_fs_op_unchecked(&mut self, op: FsOp, label: String) {
+        if self.fs_op.is_some() {
+            self.toast("File operation already running");
+            return;
+        }
+        // Claim the paths *before* the write, not after it. The watcher can see
+        // a move land before the worker reports it, and an unclaimed event kills
+        // the entry the result is about to relocate.
+        for path in Self::op_paths(&op) {
+            self.remember_own_write(&path);
+        }
+        let total = match &op {
+            FsOp::Rename { .. } | FsOp::NewDir { .. } => 1,
+            FsOp::Move { sources, .. } | FsOp::Copy { sources, .. } => sources.len(),
+            FsOp::Delete { paths, .. } => paths.len(),
+        };
+        let handle = fsops::start(op.clone());
+        self.fs_op = Some(FsUiOp {
+            rx: handle.rx,
+            label,
+            op,
+            done: 0,
+            total,
+        });
+    }
+
+    /// Resume a copy once its cloud accounting comes back: confirm if it would
+    /// download placeholders, start it straight away if it would not.
+    fn poll_cloud_audit(&mut self) {
+        use crossbeam_channel::TryRecvError;
+
+        let Some(audit) = &self.cloud_audit else {
+            return;
+        };
+        let cost = match audit.rx.try_recv() {
+            Ok(cost) => cost,
+            // A dead thread cannot answer; treat it as "nothing to download"
+            // rather than silently dropping the user's copy.
+            Err(TryRecvError::Disconnected) => atlas_core::cloud::CloudCost::default(),
+            Err(TryRecvError::Empty) => return,
+        };
+        let Some(audit) = self.cloud_audit.take() else {
+            return;
+        };
+        if cost.is_free() {
+            self.start_fs_op_unchecked(audit.op, audit.label);
+        } else {
+            self.cloud_copy_plan = Some(CloudCopyPlan {
+                op: audit.op,
+                label: audit.label,
+                files: cost.files,
+                bytes: cost.bytes,
+                at: audit.at,
+            });
+        }
+    }
+
+    fn poll_fs_op(&mut self) {
+        let Some(op) = &mut self.fs_op else {
+            return;
+        };
+        while let Ok(msg) = op.rx.try_recv() {
+            match msg {
+                FsOpMsg::Progress { done, total } => {
+                    op.done = done;
+                    op.total = total;
+                }
+                FsOpMsg::Done(result) => {
+                    let label = op.label.clone();
+                    let source = op.op.clone();
+                    self.fs_op = None;
+                    self.apply_fs_result(source, result, label);
+                    return;
+                }
+                FsOpMsg::Failed(err) => {
+                    self.toast(format!("File operation failed: {err}"));
+                    self.fs_op = None;
+                    return;
+                }
+            }
+        }
+    }
+
+    fn apply_fs_result(&mut self, source: FsOp, result: FsOpResult, label: String) {
+        let mut renamed = None;
+        let mut moved = Vec::new();
+        let mut copied = Vec::new();
+        let mut created_dirs = Vec::new();
+        let mut deleted = Vec::new();
+        let mut skipped = 0usize;
+        let changed = result.changed_count();
+        for outcome in result.outcomes {
+            match outcome {
+                FsOutcome::Renamed { from, to } => {
+                    self.update_entry_path_prefix(&from, &to);
+                    renamed = Some((from, to));
+                }
+                FsOutcome::Moved { from, to } => {
+                    self.update_entry_path_prefix(&from, &to);
+                    moved.push((from, to));
+                }
+                FsOutcome::Copied { from: _, to } => {
+                    self.add_created_path(&to);
+                    copied.push(to);
+                }
+                FsOutcome::CreatedDir { path } => {
+                    if let Some(rel) = self.path_to_rel(&path) {
+                        if !self.created_dirs.contains(&rel) {
+                            self.created_dirs.push(rel);
+                        }
+                    }
+                    created_dirs.push(path);
+                    self.tree_dirty = true;
+                }
+                FsOutcome::Deleted { path, .. } => {
+                    self.mark_deleted_path(&path);
+                    deleted.push(path);
+                }
+                FsOutcome::Skipped { .. } => skipped += 1,
+            }
+        }
+        match source {
+            FsOp::Rename { .. } => {
+                if let Some((from, to)) = renamed {
+                    self.push_journal(label.clone(), Action::FsRename { from, to });
+                }
+            }
+            FsOp::Move { .. } => {
+                if !moved.is_empty() {
+                    self.push_journal(label.clone(), Action::FsMove { moved });
+                }
+            }
+            FsOp::Copy { .. } => {
+                if !copied.is_empty() || !created_dirs.is_empty() {
+                    self.push_journal(
+                        label.clone(),
+                        Action::FsCopy {
+                            created: copied,
+                            created_dirs,
+                        },
+                    );
+                }
+            }
+            FsOp::NewDir { .. } => {
+                if !created_dirs.is_empty() {
+                    self.push_journal(
+                        label.clone(),
+                        Action::FsCopy {
+                            created: Vec::new(),
+                            created_dirs,
+                        },
+                    );
+                }
+            }
+            FsOp::Delete { permanent, .. } => {
+                if !deleted.is_empty() {
+                    self.push_journal(
+                        label.clone(),
+                        Action::FsDelete {
+                            recycled: deleted,
+                            permanent,
+                        },
+                    );
+                }
+            }
+        }
+        if changed > 0 {
+            self.force_tree_rebuild();
+        }
+        if skipped == 0 {
+            self.toast(format!("{label}: {changed} item(s) changed"));
+        } else {
+            self.toast(format!("{label}: {changed} changed, {skipped} skipped"));
+        }
+    }
+
     fn apply_fs_change(&mut self, ev: FsChange) {
         let Some(root) = self.root.clone() else {
             return;
         };
         match ev {
             FsChange::Upsert(path) => {
+                if self.is_own_fs_write(&path) {
+                    return;
+                }
                 if !self.path_in_open_folders(&path) {
                     return;
                 }
@@ -2814,6 +3637,9 @@ impl AtlasApp {
                 }
             }
             FsChange::Remove(path) => {
+                if self.is_own_fs_write(&path) {
+                    return;
+                }
                 if !self.path_in_open_folders(&path) {
                     return;
                 }
@@ -3322,6 +4148,42 @@ impl AtlasApp {
         let Some(bounds) = self.framed_bounds() else {
             return;
         };
+        // A tree that is still filling grows its framing on every batch. That is
+        // the corpus changing, not the user's question, and following it makes
+        // the canvas impossible to navigate during a load — the whole point of
+        // streaming the scan is that the user can work while it arrives. Adopt
+        // each new framing as the baseline instead, and hold one recompute past
+        // the end so the completed tree does not spend a final jump either.
+        let loading = self.scan_ui.is_some() || self.pending_load.is_some();
+        let was_held = std::mem::replace(&mut self.auto_zoom_held, loading);
+        if loading || was_held {
+            // #region agent log
+            {
+                use std::sync::atomic::{AtomicU64, Ordering};
+                static N: AtomicU64 = AtomicU64::new(0);
+                let n = N.fetch_add(1, Ordering::Relaxed);
+                if n % 20 == 0 || !loading {
+                    agent_dbg(
+                        "H1",
+                        "mod.rs:auto_zoom_after_filter",
+                        "camera follow held while populating",
+                        &format!(
+                            "{{\"n\":{},\"loading\":{},\"was_held\":{},\"entries\":{},\"cam\":[{:.1},{:.1}],\"z\":{:.3}}}",
+                            n,
+                            loading,
+                            was_held,
+                            self.entries.len(),
+                            self.cam.offset.x,
+                            self.cam.offset.y,
+                            self.cam.z
+                        ),
+                    );
+                }
+            }
+            // #endregion
+            self.auto_zoom_last = Some(bounds);
+            return;
+        }
         let Some(last) = self.auto_zoom_last else {
             // No baseline yet: a folder just loaded, or a tab was just
             // restored. The camera there was placed deliberately — the home
@@ -3334,6 +4196,22 @@ impl AtlasApp {
         if rect_settled(last, bounds) {
             return;
         }
+        // #region agent log
+        agent_dbg(
+            "H2",
+            "mod.rs:auto_zoom_after_filter",
+            "camera follow FIRED",
+            &format!(
+                "{{\"scan_active\":{},\"pending_load\":{},\"entries\":{},\"any_filter\":{},\"cam\":[{:.1},{:.1}]}}",
+                self.scan_ui.is_some(),
+                self.pending_load.is_some(),
+                self.entries.len(),
+                self.any_filter,
+                self.cam.offset.x,
+                self.cam.offset.y
+            ),
+        );
+        // #endregion
         self.auto_zoom_last = Some(bounds);
         let cam = self.cam_for_bounds(bounds, 1.2);
         self.fly_to(cam);
@@ -3516,6 +4394,76 @@ impl AtlasApp {
                     self.toast("Redo of an export re-copies files: run Export again".to_string());
                 }
             }
+            Action::FsRename { from, to } => {
+                let (src, dst) = if forward { (from, to) } else { (to, from) };
+                self.remember_own_write(src);
+                self.remember_own_write(dst);
+                match std::fs::rename(src, dst) {
+                    Ok(()) => {
+                        self.update_entry_path_prefix(src, dst);
+                        self.force_tree_rebuild();
+                    }
+                    Err(e) => self.toast(format!("Could not restore rename: {e}")),
+                }
+            }
+            Action::FsMove { moved } => {
+                let pairs: Vec<(PathBuf, PathBuf)> = if forward {
+                    moved.clone()
+                } else {
+                    moved
+                        .iter()
+                        .map(|(from, to)| (to.clone(), from.clone()))
+                        .collect()
+                };
+                let mut ok = 0usize;
+                for (src, dst) in pairs {
+                    self.remember_own_write(&src);
+                    self.remember_own_write(&dst);
+                    match std::fs::rename(&src, &dst) {
+                        Ok(()) => {
+                            self.update_entry_path_prefix(&src, &dst);
+                            ok += 1;
+                        }
+                        Err(e) => self.toast(format!("Could not move {}: {e}", src.display())),
+                    }
+                }
+                if ok > 0 {
+                    self.force_tree_rebuild();
+                    self.toast(format!("Moved {ok} item(s)"));
+                }
+            }
+            Action::FsCopy {
+                created,
+                created_dirs,
+            } => {
+                if !forward {
+                    let mut removed = 0usize;
+                    for path in created.iter().chain(created_dirs.iter()) {
+                        self.remember_own_write(path);
+                        if remove_path_permanent(path).is_ok() {
+                            self.mark_deleted_path(path);
+                            removed += 1;
+                        }
+                    }
+                    if removed > 0 {
+                        self.force_tree_rebuild();
+                    }
+                    self.toast(format!("Removed {removed} copied item(s)"));
+                } else {
+                    self.toast("Redo of a copy re-copies files: run Copy again".to_string());
+                }
+            }
+            Action::FsDelete { permanent, .. } => {
+                if !forward {
+                    if *permanent {
+                        self.toast("Permanent deletes cannot be undone");
+                    } else {
+                        self.toast("Restore from Recycle Bin is not available yet");
+                    }
+                } else {
+                    self.toast("Redo of delete is disabled; delete the item again".to_string());
+                }
+            }
         }
         self.filter_dirty = true;
     }
@@ -3616,6 +4564,9 @@ impl AtlasApp {
     /// test harness can pump frames without an eframe window.
     fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
+        if let Some(p) = ctx.pointer_latest_pos() {
+            self.pointer_pos = p;
+        }
         if let Some(session) = &self.session {
             if let Ok(s) = session.lock() {
                 self.dark_mode = s.dark_mode;
@@ -3695,18 +4646,25 @@ impl AtlasApp {
                     self.canvas(ui);
                 }
             });
+        if self.edit_mode == EditMode::Edit && self.root.is_some() {
+            atlas_shell::chrome::canvas_mode_border(ctx, self.canvas_rect, &palette);
+        }
 
         if self.root.is_some() || (!self.at_home && !self.tabs.is_empty()) {
             self.draw_tools_rail(ctx);
         }
         self.edit_window(ctx);
         self.action_menu(ctx);
+        self.name_prompt_window(ctx);
+        self.delete_confirm_window(ctx);
+        self.cloud_copy_confirm_window(ctx);
         self.detail_window(ctx);
         self.cloud_confirm_window(ctx);
         self.drag_overlay(ctx);
         self.hover_tip(ctx);
         self.draw_toasts(ctx);
         self.evict_textures();
+        self.run_shell_drag(ctx);
 
         let busy = self.scan_ui.is_some()
             || self.thumbs_pending > 0
@@ -3719,7 +4677,9 @@ impl AtlasApp {
             || self.anim.is_some()
             || self.ai.picker_pending()
             || self.tree_dirty
-            || self.tree_build_rx.is_some();
+            || self.tree_build_rx.is_some()
+            || self.fs_op.is_some()
+            || self.cloud_audit.is_some();
         if busy {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else if self.warm_pending > 0 || self.prewarm.is_some() || self.warm_plan_rx.is_some() {
@@ -4047,6 +5007,14 @@ impl AtlasApp {
                 self.active_chrome_mut().advanced_open = true;
             }
             "app.history" => self.history_open = !self.history_open,
+            "atlas.mode_view" => {
+                self.set_edit_mode(EditMode::View);
+                detail = Some("View".into());
+            }
+            "atlas.mode_edit" => {
+                self.set_edit_mode(EditMode::Edit);
+                detail = Some("Edit".into());
+            }
             "canvas.fit" => self.pending_view = Some(ViewCmd::Fit),
             "canvas.zoom_in" => self.zoom_at(self.canvas_rect.center(), 1.3),
             "canvas.zoom_out" => self.zoom_at(self.canvas_rect.center(), 1.0 / 1.3),
@@ -4087,6 +5055,60 @@ impl AtlasApp {
                     return;
                 };
                 detail = Some(format!("{n} path(s)"));
+            }
+            "atlas.new_folder" => {
+                if self.edit_mode != EditMode::Edit {
+                    self.toast("Switch to Edit mode before creating folders");
+                    return;
+                }
+                let parent = self
+                    .hovered_dir
+                    .and_then(|d| self.dir_path(d))
+                    .or_else(|| self.root.clone());
+                if let Some(parent) = parent {
+                    let at = self.dialog_anchor();
+                    self.open_name_prompt(NamePromptKind::NewDir(parent), at);
+                    return;
+                }
+            }
+            "atlas.delete" | "atlas.delete_permanent" => {
+                if self.edit_mode != EditMode::Edit {
+                    self.toast("Switch to Edit mode before deleting files");
+                    return;
+                }
+                let mut paths: Vec<PathBuf> = self
+                    .selection
+                    .iter()
+                    .filter_map(|&i| self.entries.get(i as usize))
+                    .filter(|e| !e.dead)
+                    .map(|e| e.path.clone())
+                    .collect();
+                paths.sort();
+                // Nothing selected: Delete acts on what the cursor is over,
+                // which is how a folder (never part of a selection) is deleted
+                // from the keyboard. The root itself is not deletable.
+                if paths.is_empty() {
+                    if let Some(path) = self
+                        .hovered_file
+                        .and_then(|f| self.entries.get(f as usize))
+                        .filter(|e| !e.dead)
+                        .map(|e| e.path.clone())
+                        .or_else(|| {
+                            self.hovered_dir
+                                .filter(|&d| d != 0)
+                                .and_then(|d| self.dir_path(d))
+                        })
+                    {
+                        paths.push(path);
+                    }
+                }
+                if paths.is_empty() {
+                    self.toast("Select a file or point at one to delete");
+                    return;
+                }
+                let permanent = id.0 == "atlas.delete_permanent";
+                self.plan_delete(paths, permanent);
+                return;
             }
             "app.properties" => {
                 if !self.toggle_detail_for_selection() {
@@ -4311,7 +5333,7 @@ impl AtlasApp {
                 ui.horizontal(|ui| {
                     ui.spinner();
                     ui.label(format!(
-                        "Exporting {}/{} â€” {}",
+                        "Exporting {}/{} — {}",
                         exp.done, exp.total, exp.current
                     ));
                 });
@@ -4329,10 +5351,8 @@ impl AtlasApp {
                 ui.strong("Staging:");
                 if groups.is_empty() {
                     ui.label(
-                        egui::RichText::new(
-                            "no assignments yet â€” right-click files or drag chips",
-                        )
-                        .color(palette.sub),
+                        egui::RichText::new("no assignments yet — right-click files or drag chips")
+                            .color(palette.sub),
                     );
                 }
                 let mut assign_to: Option<String> = None;
@@ -4349,7 +5369,7 @@ impl AtlasApp {
                     if resp.clicked() && !self.selection.is_empty() {
                         assign_to = Some(dest.clone());
                     }
-                    resp.on_hover_text("Click: assign selection here Â· Drag onto files");
+                    resp.on_hover_text("Click: assign selection here · Drag onto files");
                 }
                 if let Some(dest) = assign_to {
                     let rels = self.selection_rels();
@@ -4357,7 +5377,7 @@ impl AtlasApp {
                     self.set_assign(
                         &rels,
                         Some((dest.clone(), None)),
-                        format!("Assign {n} file(s) â†’ {dest}"),
+                        format!("Assign {n} file(s) → {dest}"),
                     );
                 }
 
@@ -4365,7 +5385,7 @@ impl AtlasApp {
                     let total_assigned: usize = groups.values().sum();
                     ui.add_enabled_ui(total_assigned > 0, |ui| {
                         if ui
-                            .button(format!("Export {total_assigned} filesâ€¦"))
+                            .button(format!("Export {total_assigned} files…"))
                             .clicked()
                         {
                             self.pick_export_dest();
@@ -4414,15 +5434,13 @@ impl AtlasApp {
                         let applied = i < cursor;
                         let color = if applied { palette.ink } else { palette.sub };
                         ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(if applied { "â—" } else { "â—‹" }).color(
-                                    if applied {
-                                        Color32::from_rgb(0x7a, 0xc7, 0x8a)
-                                    } else {
-                                        palette.sub
-                                    },
-                                ),
-                            );
+                            ui.label(egui::RichText::new(if applied { "●" } else { "○" }).color(
+                                if applied {
+                                    Color32::from_rgb(0x7a, 0xc7, 0x8a)
+                                } else {
+                                    palette.sub
+                                },
+                            ));
                             ui.vertical(|ui| {
                                 ui.label(egui::RichText::new(&entry.label).color(color));
                                 ui.label(
@@ -4606,6 +5624,9 @@ impl AtlasApp {
 
         let pointer = ui.ctx().pointer_latest_pos();
         let shift = ui.input(|i| i.modifiers.shift);
+        // Ctrl keeps the secondary button on turbo pan, so the navigation
+        // gesture survives the card-drag binding below.
+        let ctrl_held = ui.input(|i| i.modifiers.ctrl);
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
         // Zoom tool (Z): while armed, the primary button belongs to the tool
@@ -4640,6 +5661,8 @@ impl AtlasApp {
                 self.zoom_marquee = pointer;
             } else if shift {
                 self.rubber_origin = pointer;
+            } else if self.edit_mode == EditMode::Edit {
+                self.edit_drag = self.edit_drag_from_hover();
             } else if self.session.is_some() {
                 // Linked session: click-hold-drag on a thumbnail carries the
                 // file(s) toward the Slate window instead of panning.
@@ -4656,6 +5679,42 @@ impl AtlasApp {
                 }
             }
         }
+        // Right-drag off a card hands the files to Windows, so they can be
+        // dropped into PowerPoint, Explorer, Slate — anything that accepts a
+        // drop from File Explorer. Ctrl still turbo-pans, and a right-drag that
+        // starts on empty canvas still pans, so navigation is intact.
+        if resp.drag_started_by(egui::PointerButton::Secondary) && !ctrl_held {
+            let paths = match (self.hovered_file, self.hovered_dir) {
+                (Some(f), _) => {
+                    let mut ids: Vec<u32> = if self.selection.contains(&f) {
+                        self.selection.iter().copied().collect()
+                    } else {
+                        vec![f]
+                    };
+                    ids.sort_unstable();
+                    ids.iter()
+                        .filter_map(|&i| self.entries.get(i as usize))
+                        .filter(|e| !e.dead)
+                        .take(atlas_core::shell_drag::MAX_DRAG_PATHS)
+                        .map(|e| e.path.clone())
+                        .collect()
+                }
+                // A folder drags as the folder, the way Explorer does it —
+                // one shell item, so the cost of starting the drag does not
+                // scale with how much is inside it.
+                (None, Some(d)) => self
+                    .tree
+                    .as_ref()
+                    .and_then(|t| t.dirs.get(d as usize))
+                    .zip(self.root.as_ref())
+                    .map(|(dir, root)| vec![root.join(&dir.rel)])
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            if !paths.is_empty() {
+                self.pending_shell_drag = Some(paths);
+            }
+        }
         if resp.drag_started() {
             self.anim = None;
         }
@@ -4670,8 +5729,10 @@ impl AtlasApp {
         if resp.dragged()
             && self.rubber_origin.is_none()
             && self.zoom_marquee.is_none()
+            && self.edit_drag.is_none()
             && !turbo_pan_active
             && self.session_drag.is_none()
+            && self.pending_shell_drag.is_none()
             && !(zoom_tool && resp.dragged_by(egui::PointerButton::Primary))
         {
             self.cam.offset += resp.drag_delta();
@@ -4720,19 +5781,35 @@ impl AtlasApp {
             }
         }
 
+        // --- edit-drag drop target ---
+        // Explorer drops into the folder the cursor is *inside*, so the target
+        // is the deepest containing folder rather than the card under the
+        // cursor: dropping onto a thumbnail inside a folder still means that
+        // folder, and the folder's whole rectangle is a target, not just its
+        // header.
+        self.edit_drop_dir = match (self.edit_drag.is_some(), pointer, &self.tree) {
+            (true, Some(p), Some(t)) if rect.contains(p) => t.dir_at_point(self.s2w(p)),
+            _ => None,
+        };
+
         // --- draw the tree ---
         self.ensure_folder_heat();
         let world_view = Rect::from_min_max(self.s2w(rect.min), self.s2w(rect.max));
         let z = self.cam.z;
         let lod_mid = self.lod_mid.min(self.lod_full.saturating_sub(1)).max(1) as f32 / 100.0;
         let lod_full = self.lod_full.max(self.lod_mid + 1) as f32 / 100.0;
+        let lod_detail = self.lod_detail.max(self.lod_full + 1) as f32 / 100.0;
         let lod = if z < lod_mid {
             0
         } else if z < lod_full {
             1
-        } else {
+        } else if z < lod_detail {
             2
+        } else {
+            3
         };
+        self.view_world = Some(world_view);
+        self.view_lod = lod;
         let mut requests: Vec<ThumbRequest> = Vec::new();
         let mut color_budget: i32 = 14;
         if self.tree.is_some() {
@@ -4748,13 +5825,14 @@ impl AtlasApp {
             );
             self.tree = Some(tree);
         }
+        self.draw_edit_drag_target(&painter);
         for r in requests {
             self.thumbs_pending += 1;
             self.thumbs.request(r);
         }
 
         // Dev harness: ATLAS_HITDEBUG=1 paints hit-test results across the
-        // viewport â€” green dot = file hit, blue = dir, nothing = miss.
+        // viewport — green dot = file hit, blue = dir, nothing = miss.
         if std::env::var("ATLAS_HITDEBUG").is_ok() {
             if let Some(t) = &self.tree {
                 let mut y = rect.min.y;
@@ -4814,6 +5892,17 @@ impl AtlasApp {
         let mut deferred: Vec<DeferredClick> = Vec::new();
 
         if resp.drag_stopped() {
+            if self.edit_drag.is_some() {
+                let alt_copy = ui.input(|i| i.modifiers.alt);
+                // Released over nothing droppable — blank canvas, the source
+                // folder, a descendant of what is being dragged — is a null
+                // action, deliberately.
+                if let Some(target_dir) = self.edit_drop_dir {
+                    self.finish_edit_drag(target_dir, alt_copy);
+                }
+                self.edit_drag = None;
+                self.edit_drop_dir = None;
+            }
             if let (Some(a), Some(p)) = (self.zoom_marquee, pointer) {
                 let r = Rect::from_two_pos(a, p);
                 if r.width() > 8.0 && r.height() > 8.0 {
@@ -4915,15 +6004,19 @@ impl AtlasApp {
                     self.selection.clear();
                     self.selection.insert(f);
                 }
-                self.menu_at = Some((f, p));
+                self.menu_at = Some((MenuTarget::File(f), p));
             } else if let (Some(d), Some(p)) = (self.hovered_dir, pointer) {
                 let ids = self.subtree_file_ids(d);
                 if let Some(&first) = ids.first() {
                     self.selection.clear();
                     self.selection.extend(ids);
                     self.last_selected_file = Some(first);
-                    self.menu_at = Some((first, p));
+                    self.menu_at = Some((MenuTarget::Dir(d), p));
+                } else {
+                    self.menu_at = Some((MenuTarget::Dir(d), p));
                 }
+            } else if let Some(p) = pointer {
+                self.menu_at = Some((MenuTarget::Canvas, p));
             }
         }
         self.turbo_pan.acknowledge_context_menu();
@@ -4942,7 +6035,7 @@ impl AtlasApp {
                                 app.set_assign(
                                     &rels,
                                     Some((d.clone(), None)),
-                                    format!("Assign {n} file(s) â†’ {d}"),
+                                    format!("Assign {n} file(s) → {d}"),
                                 );
                             }
                         }
@@ -4983,6 +6076,13 @@ impl AtlasApp {
         // Cursor feedback.
         if turbo_pan_active {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if self.edit_drag.is_some() {
+            let copy = ui.input(|i| i.modifiers.alt);
+            ui.ctx().set_cursor_icon(if copy {
+                egui::CursorIcon::Copy
+            } else {
+                egui::CursorIcon::Grabbing
+            });
         } else if self.zoom_armed {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         } else if self.hovered_file.is_some() || self.hovered_dir.is_some() {
@@ -4990,6 +6090,142 @@ impl AtlasApp {
         } else if resp.dragged() && self.rubber_origin.is_none() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
+    }
+
+    fn dir_path(&self, d: u32) -> Option<PathBuf> {
+        self.tree
+            .as_ref()
+            .and_then(|t| t.dirs.get(d as usize))
+            .zip(self.root.as_ref())
+            .map(|(dir, root)| root.join(&dir.rel))
+    }
+
+    fn edit_drag_from_hover(&self) -> Option<EditDrag> {
+        let mut paths = Vec::new();
+        let mut names = Vec::new();
+        let source_dir = match (self.hovered_file, self.hovered_dir) {
+            (Some(f), _) => {
+                let mut ids: Vec<u32> = if self.selection.contains(&f) {
+                    self.selection.iter().copied().collect()
+                } else {
+                    vec![f]
+                };
+                ids.sort_unstable();
+                for id in ids {
+                    if let Some(e) = self.entries.get(id as usize).filter(|e| !e.dead) {
+                        paths.push(e.path.clone());
+                        names.push(e.name.clone());
+                    }
+                }
+                paths
+                    .first()
+                    .and_then(|p| p.parent().map(Path::to_path_buf))
+            }
+            (None, Some(d)) => {
+                let path = self.dir_path(d)?;
+                names.push(
+                    path.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "folder".into()),
+                );
+                paths.push(path.clone());
+                path.parent().map(Path::to_path_buf)
+            }
+            _ => None,
+        };
+        (!paths.is_empty()).then_some(EditDrag {
+            paths,
+            names,
+            source_dir,
+        })
+    }
+
+    fn valid_edit_drop(&self, target_dir: u32) -> Option<PathBuf> {
+        let drag = self.edit_drag.as_ref()?;
+        let dest = self.dir_path(target_dir)?;
+        if drag.source_dir.as_ref() == Some(&dest) {
+            return None;
+        }
+        for src in &drag.paths {
+            if src == &dest || dest.starts_with(src) {
+                return None;
+            }
+        }
+        Some(dest)
+    }
+
+    fn finish_edit_drag(&mut self, target_dir: u32, copy: bool) {
+        let Some(dest_dir) = self.valid_edit_drop(target_dir) else {
+            return;
+        };
+        let Some(drag) = self.edit_drag.clone() else {
+            return;
+        };
+        let n = drag.paths.len();
+        let op = if copy {
+            FsOp::Copy {
+                sources: drag.paths,
+                dest_dir,
+            }
+        } else {
+            FsOp::Move {
+                sources: drag.paths,
+                dest_dir,
+            }
+        };
+        self.dispatch_fs_op(
+            op,
+            if copy {
+                format!("Copy {n} item(s)")
+            } else {
+                format!("Move {n} item(s)")
+            },
+        );
+    }
+
+    fn draw_edit_drag_target(&self, painter: &egui::Painter) {
+        if self.edit_drag.is_none() {
+            return;
+        }
+        let Some(d) = self.edit_drop_dir else {
+            return;
+        };
+        if self.valid_edit_drop(d).is_none() {
+            return;
+        }
+        let Some(dir) = self.tree.as_ref().and_then(|t| t.dirs.get(d as usize)) else {
+            return;
+        };
+        let r = self.w2s_rect(dir.bounds).expand(3.0);
+        let palette = self.palette();
+        painter.rect_filled(
+            r,
+            CornerRadius::same(10),
+            palette.accent.gamma_multiply(0.10),
+        );
+        painter.rect_stroke(
+            r,
+            CornerRadius::same(10),
+            Stroke::new(2.0_f32, palette.accent),
+            StrokeKind::Inside,
+        );
+    }
+
+    /// Name of the folder a release right now would drop into, for the
+    /// cursor label. `None` means the release is a null action.
+    fn edit_drop_label(&self) -> Option<String> {
+        let d = self.edit_drop_dir?;
+        self.valid_edit_drop(d)?;
+        let dir = self.tree.as_ref()?.dirs.get(d as usize)?;
+        Some(if dir.rel.is_empty() {
+            self.root
+                .as_ref()
+                .and_then(|r| r.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "root".into())
+        } else {
+            dir.name.clone()
+        })
     }
 
     /// Centered progress readout while the canvas has nothing to paint:
@@ -5426,7 +6662,7 @@ impl AtlasApp {
             // assign nested rails: because all same-side wires share the
             // port endpoint, their spans are strictly nested by run length,
             // so ranking by |breadth delta| and stacking rails outward-in
-            // is provably crossing-free â€” no collision detection needed.
+            // is provably crossing-free — no collision detection needed.
             // Left and right of the port get mirrored, independent stacks.
             let port = Pos2::new(px, py);
             let mut targets: Vec<Pos2> = Vec::new();
@@ -5680,7 +6916,7 @@ impl AtlasApp {
             }
         }
 
-        if d.collapsed && (hovered || lod == 2) {
+        if d.collapsed && (hovered || lod >= 2) {
             let (inc, full) = self.grip_positions(sr);
             let grip_r = (4.5 * z).clamp(3.0, 6.0);
             let inc_hover = self.hovered_dir == Some(di as u32)
@@ -5752,6 +6988,13 @@ impl AtlasApp {
             StrokeKind::Inside,
         );
 
+        // Detail LOD: the portal card itself carries the paragraph (full path
+        // + meta). Mid/full keep the mosaic and a compact footer strip.
+        if self.label_detail_active(lod, sr) {
+            self.paint_dir_labels_detail(painter, d, sr, &p);
+            return;
+        }
+
         let pad = 9.0 * z;
         let mos_h = sr.height() - 62.0 * z;
         let mos = Rect::from_min_size(
@@ -5798,8 +7041,6 @@ impl AtlasApp {
             }
         }
 
-        // Footer strip under the mosaic — same embedded / clipped rules as
-        // regular directory cards so labels never spill the portal frame.
         let footer = Rect::from_min_max(
             Pos2::new(
                 sr.min.x + pad,
@@ -5813,7 +7054,9 @@ impl AtlasApp {
     }
 
     /// Directory-card labels: scale with the node, clip inside it, reveal
-    /// more lines as screen-space room grows (close zoom = full LOD).
+    /// more lines as screen-space room grows. Detail LOD (deep zoom, or a
+    /// single tag filling most of the viewport) wraps a full path and a
+    /// short paragraph of metadata instead of ellipsizing one-liners.
     fn paint_dir_labels(
         &self,
         painter: &egui::Painter,
@@ -5822,6 +7065,11 @@ impl AtlasApp {
         lod: u8,
         p: &Palette,
     ) {
+        if self.label_detail_active(lod, sr) {
+            self.paint_dir_labels_detail(painter, d, sr, p);
+            return;
+        }
+
         let z = self.cam.z;
         let pad_l = 34.0 * z;
         let pad_r = 8.0 * z;
@@ -5934,6 +7182,125 @@ impl AtlasApp {
                 p.accent,
             );
         }
+    }
+
+    /// Detail LOD for a directory tag: readable wrapped body (full absolute
+    /// path + a short paragraph of counts / dates / owner), clipped to the card.
+    fn paint_dir_labels_detail(
+        &self,
+        painter: &egui::Painter,
+        d: &tree::DirNode,
+        sr: Rect,
+        p: &Palette,
+    ) {
+        let pad_l = (sr.width() * 0.06).clamp(12.0, 36.0);
+        let pad_r = (sr.width() * 0.04).clamp(8.0, 24.0);
+        let pad_y = (sr.height() * 0.08).clamp(8.0, 28.0);
+        let max_w = sr.width() - pad_l - pad_r;
+        let max_h = sr.height() - pad_y * 2.0;
+        if max_w < 40.0 || max_h < 24.0 {
+            return;
+        }
+
+        // Fractions of the host tag so type tracks the card through zoom —
+        // same rule as the mid/full LOD path. Floors keep a deep-zoomed tag
+        // readable; no ceiling, or the paragraph freezes while the tag grows.
+        let name_px = (max_h * 0.11).max(16.0);
+        let body_px = (max_h * 0.048).max(12.0);
+        let name_font = FontId::proportional(name_px);
+        let body_font = FontId::proportional(body_px);
+        let path_font = FontId::proportional((body_px * 0.95).max(11.0));
+
+        let abs = self.dir_abs_path(d);
+        let mut details = format!(
+            "{} files · {}",
+            group_digits(d.desc_files as u64),
+            human_size(d.desc_bytes)
+        );
+        if d.ctime > 0 {
+            details.push_str("\nCreated ");
+            details.push_str(&date_string(d.ctime));
+        }
+        if !d.owner.is_empty() {
+            details.push_str("\nOwner ");
+            details.push_str(&d.owner);
+        }
+        if d.collapsed {
+            details.push_str("\nCollapsed — expand to show contents");
+        }
+        if self.any_filter && d.desc_matches > 0 {
+            details.push_str("\n");
+            details.push_str(&group_digits(d.desc_matches as u64));
+            if d.desc_matches == 1 {
+                details.push_str(" filter match");
+            } else {
+                details.push_str(" filter matches");
+            }
+        }
+
+        let lp = painter.with_clip_rect(sr);
+        let x = sr.min.x + pad_l;
+        let mut y = sr.min.y + pad_y;
+        let gap = (body_px * 0.35).max(4.0);
+
+        let name_galley = painter.layout(d.name.clone(), name_font, p.ink, max_w);
+        let name_h = name_galley.size().y;
+        lp.galley(Pos2::new(x, y), name_galley, p.ink);
+        y += name_h + gap;
+
+        let remain = (sr.max.y - pad_y - y).max(0.0);
+        if remain < body_px * 1.2 || abs.is_empty() {
+            return;
+        }
+        // Path gets ~55% of remaining height; details take the rest.
+        let path_budget = (remain * 0.55).max(body_px * 2.0);
+        let path_galley = painter.layout(abs, path_font, p.sub.gamma_multiply(0.9), max_w);
+        let path_h = path_galley.size().y.min(path_budget);
+        let path_clip = Rect::from_min_size(Pos2::new(x, y), Vec2::new(max_w, path_budget));
+        painter.with_clip_rect(path_clip.intersect(sr)).galley(
+            Pos2::new(x, y),
+            path_galley,
+            p.sub.gamma_multiply(0.9),
+        );
+        y += path_h + gap;
+
+        let detail_budget = (sr.max.y - pad_y - y).max(0.0);
+        if detail_budget < body_px {
+            return;
+        }
+        let detail_galley = painter.layout(details, body_font, p.sub, max_w);
+        let detail_clip = Rect::from_min_size(Pos2::new(x, y), Vec2::new(max_w, detail_budget));
+        painter.with_clip_rect(detail_clip.intersect(sr)).galley(
+            Pos2::new(x, y),
+            detail_galley,
+            p.sub,
+        );
+    }
+
+    /// Absolute path for a directory node (root-joined `rel`), for detail LOD.
+    fn dir_abs_path(&self, d: &tree::DirNode) -> String {
+        match &self.root {
+            Some(root) if d.rel.is_empty() => root.display().to_string(),
+            Some(root) => root
+                .join(d.rel.replace('\\', std::path::MAIN_SEPARATOR_STR))
+                .display()
+                .to_string(),
+            None => d.rel.replace('\\', std::path::MAIN_SEPARATOR_STR),
+        }
+    }
+
+    /// Detail LOD is on when the camera bucket is 3, or when a lod≥2 card
+    /// already fills most of the canvas (one tag under the lens).
+    fn label_detail_active(&self, lod: u8, sr: Rect) -> bool {
+        lod >= 3 || (lod >= 2 && self.card_fills_majority(sr))
+    }
+
+    fn card_fills_majority(&self, sr: Rect) -> bool {
+        let ch = self.canvas_rect.height().max(1.0);
+        let cw = self.canvas_rect.width().max(1.0);
+        let h_frac = sr.height() / ch;
+        let area_frac = (sr.width() / cw) * (sr.height() / ch);
+        h_frac >= 0.55 || area_frac >= 0.40
     }
 
     fn paint_portal_labels(
@@ -6051,7 +7418,7 @@ impl AtlasApp {
                 });
             }
             ThumbState::Loaded if !self.textures.contains_key(&f) => {
-                // Evicted â€” ask again (disk cache makes this cheap).
+                // Evicted — ask again (disk cache makes this cheap).
                 self.thumb_state[i] = ThumbState::AskedFull;
                 requests.push(ThumbRequest {
                     id: f,
@@ -6172,12 +7539,22 @@ impl AtlasApp {
         };
         painter.rect_stroke(sr, cr, border, StrokeKind::Inside);
 
-        if lod == 2 {
-            // Thumb area.
-            let pad = 6.0 * z;
+        if lod >= 2 {
+            let detail = self.label_detail_active(lod, sr);
+            let pad = if detail {
+                (sr.width() * 0.04).clamp(8.0, 18.0)
+            } else {
+                6.0 * z
+            };
+            // Detail: leave ~half the card for a wrapped path + meta paragraph.
+            let thumb_h = if detail {
+                (sr.height() * 0.42).min(tree::THUMB_H * z * 1.15).max(24.0)
+            } else {
+                tree::THUMB_H * z
+            };
             let thumb = Rect::from_min_size(
                 sr.min + Vec2::splat(pad),
-                Vec2::new(sr.width() - pad * 2.0, tree::THUMB_H * z),
+                Vec2::new((sr.width() - pad * 2.0).max(1.0), thumb_h),
             );
             let tp = painter.with_clip_rect(thumb);
             tp.rect_filled(thumb, CornerRadius::ZERO, p.thumb_bg.gamma_multiply(alpha));
@@ -6200,7 +7577,7 @@ impl AtlasApp {
                         tp.text(
                             Pos2::new(c.x + r * 0.08, c.y),
                             Align2::CENTER_CENTER,
-                            "â–¶",
+                            "▶",
                             FontId::proportional(r),
                             p.ink,
                         );
@@ -6228,42 +7605,51 @@ impl AtlasApp {
                 }
             }
 
-            // Type tick + name + size — width-fit so deep zoom shows the full
-            // filename instead of a hard 20-character truncate.
-            let name_px = 11.0 * z;
-            if name_px >= 6.0 {
-                let text_max_w = (sr.width() - 20.0 * z).max(8.0);
-                painter.rect_filled(
-                    Rect::from_min_size(
-                        self.w2s(Pos2::new(world.min.x + 6.0, world.max.y - 25.0)),
-                        Vec2::new(3.0 * z, 11.0 * z),
-                    ),
-                    CornerRadius::ZERO,
-                    fam_color.gamma_multiply(alpha),
-                );
-                let name_font = FontId::proportional(name_px);
-                let name = ellipsize_to_width(painter, &e.name, &name_font, text_max_w);
-                painter.text(
-                    self.w2s(Pos2::new(world.min.x + 14.0, world.max.y - 19.0)),
-                    Align2::LEFT_CENTER,
-                    name,
-                    name_font,
-                    p.ink.gamma_multiply(alpha),
-                );
-                let mut meta = format!("{} · created {}", human_size(e.size), date_string(e.ctime));
-                if !e.owner.is_empty() {
-                    meta.push_str(" · ");
-                    meta.push_str(&e.owner);
+            if detail {
+                self.paint_file_labels_detail(painter, &e, sr, thumb, pad, fam_color, alpha, &p);
+            } else {
+                // Type as a fraction of the painted card — same zoom response
+                // as the host directory tag (`max_h * fraction`), so file and
+                // folder labels grow in lockstep. Width-fit so deep zoom shows
+                // the full filename instead of a hard character truncate.
+                let name_px = sr.height() * (11.0 / tree::FILE_H);
+                if name_px >= 6.0 {
+                    let text_max_w = (sr.width() - 20.0 * z).max(8.0);
+                    let tick_h = sr.height() * (11.0 / tree::FILE_H);
+                    painter.rect_filled(
+                        Rect::from_min_size(
+                            self.w2s(Pos2::new(world.min.x + 6.0, world.max.y - 25.0)),
+                            Vec2::new(sr.width() * (3.0 / tree::FILE_W), tick_h),
+                        ),
+                        CornerRadius::ZERO,
+                        fam_color.gamma_multiply(alpha),
+                    );
+                    let name_font = FontId::proportional(name_px);
+                    let name = ellipsize_to_width(painter, &e.name, &name_font, text_max_w);
+                    painter.text(
+                        self.w2s(Pos2::new(world.min.x + 14.0, world.max.y - 19.0)),
+                        Align2::LEFT_CENTER,
+                        name,
+                        name_font,
+                        p.ink.gamma_multiply(alpha),
+                    );
+                    let mut meta =
+                        format!("{} · created {}", human_size(e.size), date_string(e.ctime));
+                    if !e.owner.is_empty() {
+                        meta.push_str(" · ");
+                        meta.push_str(&e.owner);
+                    }
+                    let meta_font =
+                        FontId::proportional((sr.height() * (9.5 / tree::FILE_H)).max(6.0));
+                    let meta = ellipsize_to_width(painter, &meta, &meta_font, text_max_w);
+                    painter.text(
+                        self.w2s(Pos2::new(world.min.x + 14.0, world.max.y - 8.0)),
+                        Align2::LEFT_CENTER,
+                        meta,
+                        meta_font,
+                        p.sub.gamma_multiply(alpha),
+                    );
                 }
-                let meta_font = FontId::proportional((9.5 * z).max(6.0));
-                let meta = ellipsize_to_width(painter, &meta, &meta_font, text_max_w);
-                painter.text(
-                    self.w2s(Pos2::new(world.min.x + 14.0, world.max.y - 8.0)),
-                    Align2::LEFT_CENTER,
-                    meta,
-                    meta_font,
-                    p.sub.gamma_multiply(alpha),
-                );
             }
 
             // Staged underline.
@@ -6302,14 +7688,537 @@ impl AtlasApp {
         }
     }
 
+    /// Detail LOD for a file card: wrapped absolute path + paragraph of
+    /// size / dates / owner / type under the thumbnail.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_file_labels_detail(
+        &self,
+        painter: &egui::Painter,
+        e: &FileEntry,
+        sr: Rect,
+        thumb: Rect,
+        pad: f32,
+        fam_color: Color32,
+        alpha: f32,
+        p: &Palette,
+    ) {
+        let text_top = thumb.max.y + pad * 0.6;
+        let region = Rect::from_min_max(
+            Pos2::new(sr.min.x + pad, text_top),
+            Pos2::new(sr.max.x - pad, sr.max.y - pad),
+        );
+        let max_w = region.width();
+        let max_h = region.height();
+        if max_w < 24.0 || max_h < 18.0 {
+            return;
+        }
+
+        // Match host-tag detail sizing: fraction of the card region, floor
+        // only — type keeps tracking the host through zoom.
+        let name_px = (max_h * 0.16).max(14.0);
+        let body_px = (max_h * 0.09).max(11.0);
+        let name_font = FontId::proportional(name_px);
+        let body_font = FontId::proportional(body_px);
+        let path_font = FontId::proportional((body_px * 0.95).max(11.0));
+
+        let abs = e.path.display().to_string();
+        let mut details = format!("{} · {}", human_size(e.size), e.family.label());
+        if !e.ext.is_empty() {
+            details.push_str(" · .");
+            details.push_str(&e.ext);
+        }
+        if e.ctime > 0 {
+            details.push_str("\nCreated ");
+            details.push_str(&date_string(e.ctime));
+        }
+        if e.mtime > 0 {
+            details.push_str("\nModified ");
+            details.push_str(&date_string(e.mtime));
+        }
+        if !e.owner.is_empty() {
+            details.push_str("\nOwner ");
+            details.push_str(&e.owner);
+        }
+
+        let lp = painter.with_clip_rect(region.intersect(sr));
+        let x = region.min.x;
+        let mut y = region.min.y;
+        let gap = (body_px * 0.3).max(3.0);
+
+        // Type tick beside the name.
+        let tick_w = (name_px * 0.28).max(3.0);
+        let tick_h = (name_px * 0.85).max(8.0);
+        lp.rect_filled(
+            Rect::from_min_size(
+                Pos2::new(x, y + (name_px - tick_h) * 0.35),
+                Vec2::new(tick_w, tick_h),
+            ),
+            CornerRadius::ZERO,
+            fam_color.gamma_multiply(alpha),
+        );
+        let name_x = x + tick_w + gap;
+        let name_w = (max_w - tick_w - gap).max(8.0);
+        let name_galley = painter.layout(
+            e.name.clone(),
+            name_font,
+            p.ink.gamma_multiply(alpha),
+            name_w,
+        );
+        let name_h = name_galley.size().y;
+        lp.galley(
+            Pos2::new(name_x, y),
+            name_galley,
+            p.ink.gamma_multiply(alpha),
+        );
+        y += name_h + gap;
+
+        let remain = (region.max.y - y).max(0.0);
+        if remain < body_px {
+            return;
+        }
+        let path_budget = (remain * 0.55).max(body_px * 2.0);
+        let path_galley = painter.layout(abs, path_font, p.sub.gamma_multiply(0.9 * alpha), max_w);
+        let path_h = path_galley.size().y.min(path_budget);
+        let path_clip = Rect::from_min_size(Pos2::new(x, y), Vec2::new(max_w, path_budget));
+        painter.with_clip_rect(path_clip.intersect(region)).galley(
+            Pos2::new(x, y),
+            path_galley,
+            p.sub.gamma_multiply(0.9 * alpha),
+        );
+        y += path_h + gap;
+
+        let detail_budget = (region.max.y - y).max(0.0);
+        if detail_budget < body_px {
+            return;
+        }
+        let detail_galley = painter.layout(details, body_font, p.sub.gamma_multiply(alpha), max_w);
+        let detail_clip = Rect::from_min_size(Pos2::new(x, y), Vec2::new(max_w, detail_budget));
+        painter
+            .with_clip_rect(detail_clip.intersect(region))
+            .galley(Pos2::new(x, y), detail_galley, p.sub.gamma_multiply(alpha));
+    }
+
     // ---------- windows / overlays ----------
 
+    fn menu_rels(&self, target: MenuTarget) -> Vec<String> {
+        match target {
+            MenuTarget::File(id) => self.target_rels(Some(id)),
+            MenuTarget::Dir(d) => self
+                .subtree_file_ids(d)
+                .into_iter()
+                .filter_map(|id| self.entries.get(id as usize).map(|e| e.rel.clone()))
+                .collect(),
+            MenuTarget::Canvas => Vec::new(),
+        }
+    }
+
+    fn menu_paths(&self, target: MenuTarget) -> Vec<PathBuf> {
+        match target {
+            MenuTarget::File(id) => {
+                let ids: Vec<u32> = if self.selection.contains(&id) {
+                    self.selection.iter().copied().collect()
+                } else {
+                    vec![id]
+                };
+                ids.into_iter()
+                    .filter_map(|i| self.entries.get(i as usize))
+                    .filter(|e| !e.dead)
+                    .map(|e| e.path.clone())
+                    .collect()
+            }
+            MenuTarget::Dir(d) => self.dir_path(d).into_iter().collect(),
+            MenuTarget::Canvas => Vec::new(),
+        }
+    }
+
+    fn menu_parent_dir(&self, target: MenuTarget) -> Option<PathBuf> {
+        match target {
+            MenuTarget::Dir(d) => self.dir_path(d),
+            MenuTarget::File(id) => self
+                .entries
+                .get(id as usize)
+                .and_then(|e| e.path.parent().map(Path::to_path_buf)),
+            MenuTarget::Canvas => self.root.clone(),
+        }
+    }
+
+    fn open_name_prompt(&mut self, kind: NamePromptKind, pos: Pos2) {
+        let text = match &kind {
+            NamePromptKind::Rename(path) => path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            NamePromptKind::NewDir(_) => "New folder".into(),
+        };
+        self.name_prompt = Some(NamePrompt {
+            kind,
+            text,
+            pos,
+            error: None,
+        });
+    }
+
+    fn invalid_windows_name(name: &str) -> Option<&'static str> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Some("Name cannot be empty");
+        }
+        if trimmed.ends_with('.') || trimmed.ends_with(' ') {
+            return Some("Name cannot end with a space or period");
+        }
+        if trimmed
+            .chars()
+            .any(|c| matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'))
+        {
+            return Some("Name contains a character Windows does not allow");
+        }
+        None
+    }
+
+    fn commit_name_prompt(&mut self) -> bool {
+        let Some(prompt) = self.name_prompt.as_ref() else {
+            return false;
+        };
+        let name = prompt.text.trim().to_string();
+        if let Some(err) = Self::invalid_windows_name(&name) {
+            if let Some(prompt) = &mut self.name_prompt {
+                prompt.error = Some(err.into());
+            }
+            return false;
+        }
+        match &prompt.kind {
+            NamePromptKind::Rename(path) => {
+                let target = path.parent().unwrap_or_else(|| Path::new("")).join(&name);
+                if target.exists() && target != *path {
+                    if let Some(prompt) = &mut self.name_prompt {
+                        prompt.error = Some("Destination already exists".into());
+                    }
+                    return false;
+                }
+                self.dispatch_fs_op(
+                    FsOp::Rename {
+                        path: path.clone(),
+                        new_name: name,
+                    },
+                    "Rename".into(),
+                );
+            }
+            NamePromptKind::NewDir(parent) => {
+                let target = parent.join(&name);
+                if target.exists() {
+                    if let Some(prompt) = &mut self.name_prompt {
+                        prompt.error = Some("Folder already exists".into());
+                    }
+                    return false;
+                }
+                self.dispatch_fs_op(
+                    FsOp::NewDir {
+                        parent: parent.clone(),
+                        name,
+                    },
+                    "New folder".into(),
+                );
+            }
+        }
+        true
+    }
+
+    fn name_prompt_window(&mut self, ctx: &egui::Context) {
+        let Some(prompt) = &self.name_prompt else {
+            return;
+        };
+        let title = match prompt.kind {
+            NamePromptKind::Rename(_) => "Rename",
+            NamePromptKind::NewDir(_) => "Add subdirectory",
+        };
+        let pos = prompt.pos;
+        let mut close = false;
+        let mut commit = false;
+        egui::Area::new(egui::Id::new("atlas_name_prompt"))
+            .fixed_pos(pos)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_min_width(260.0);
+                    ui.label(egui::RichText::new(title).strong());
+                    let response = if let Some(prompt) = &mut self.name_prompt {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut prompt.text)
+                                .desired_width(240.0)
+                                .id(egui::Id::new("atlas_name_prompt_field")),
+                        )
+                    } else {
+                        return;
+                    };
+                    response.request_focus();
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        commit = true;
+                    }
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        close = true;
+                    }
+                    if let Some(prompt) = &self.name_prompt {
+                        if let Some(err) = &prompt.error {
+                            ui.label(
+                                egui::RichText::new(err)
+                                    .small()
+                                    .color(self.palette().staged),
+                            );
+                        }
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("OK").clicked() {
+                            commit = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            });
+        if commit && self.commit_name_prompt() {
+            self.name_prompt = None;
+        }
+        if close {
+            self.name_prompt = None;
+        }
+    }
+
+    fn delete_stats_for_path(&self, path: &Path) -> (usize, u64, bool) {
+        if let Some(rel) = self.path_to_rel(path) {
+            // A known file answers in one lookup; only a folder needs the tree
+            // (and only an unknown path needs the scan below).
+            if let Some(entry) = self
+                .rel_to_id
+                .get(&rel)
+                .and_then(|&i| self.entries.get(i as usize))
+                .filter(|e| !e.dead)
+            {
+                return (1, entry.size, false);
+            }
+            let prefix = format!("{rel}\\");
+            if let Some(dir) = self
+                .tree
+                .as_ref()
+                .and_then(|t| t.dirs.iter().find(|d| d.rel == rel))
+            {
+                return (
+                    dir.desc_files.max(1),
+                    dir.desc_bytes,
+                    !dir.child_dirs.is_empty()
+                        || dir.desc_files >= 200
+                        || dir.desc_bytes >= (1 << 30),
+                );
+            }
+            let mut count = 0usize;
+            let mut bytes = 0u64;
+            for e in &self.entries {
+                if !e.dead && (e.rel == rel || e.rel.starts_with(&prefix)) {
+                    count += 1;
+                    bytes += e.size;
+                }
+            }
+            return (count.max(1), bytes, false);
+        }
+        (1, 0, false)
+    }
+
+    fn plan_delete(&mut self, paths: Vec<PathBuf>, permanent: bool) {
+        if paths.is_empty() {
+            return;
+        }
+        let mut count = 0usize;
+        let mut bytes = 0u64;
+        let mut large_branch = paths.len() > 25;
+        for path in &paths {
+            let (c, b, large) = self.delete_stats_for_path(path);
+            count += c;
+            bytes += b;
+            large_branch |= large;
+        }
+        if !permanent && !large_branch && self.suppress_delete_confirm {
+            self.dispatch_fs_op(
+                FsOp::Delete { paths, permanent },
+                format!("Delete {count} item(s)"),
+            );
+            return;
+        }
+        self.delete_plan = Some(DeletePlan {
+            paths,
+            permanent,
+            count,
+            bytes,
+            large_branch,
+            suppress_next: false,
+            at: self.dialog_anchor(),
+        });
+    }
+
+    fn delete_confirm_window(&mut self, ctx: &egui::Context) {
+        let Some(plan) = &self.delete_plan else {
+            return;
+        };
+        let (count, bytes, permanent, large_branch, at) = (
+            plan.count,
+            plan.bytes,
+            plan.permanent,
+            plan.large_branch,
+            plan.at,
+        );
+        let mut open = true;
+        let mut confirm = false;
+        let mut cancel = false;
+        egui::Window::new(if permanent {
+            "Delete permanently?"
+        } else {
+            "Move to Recycle Bin?"
+        })
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .fixed_pos(at)
+        .constrain(true)
+        .default_width(420.0)
+        .show(ctx, |ui| {
+            ui.label(format!(
+                "{} item(s) selected, {} total.",
+                group_digits(count as u64),
+                human_size(bytes)
+            ));
+            ui.add_space(6.0);
+            ui.label(if permanent {
+                "This permanently deletes the selected files and folders."
+            } else {
+                "This moves the selected files and folders to the Recycle Bin."
+            });
+            if large_branch {
+                ui.label(
+                    egui::RichText::new("Large branch: Atlas will always ask before this delete.")
+                        .small()
+                        .color(self.palette().staged),
+                );
+            } else if !permanent {
+                if let Some(plan) = &mut self.delete_plan {
+                    ui.checkbox(
+                        &mut plan.suppress_next,
+                        "Don't ask me again for small deletes",
+                    );
+                }
+            }
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .button(if permanent {
+                        "Delete permanently"
+                    } else {
+                        "Delete"
+                    })
+                    .clicked()
+                {
+                    confirm = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    cancel = true;
+                }
+            });
+        });
+        if confirm {
+            if let Some(plan) = self.delete_plan.take() {
+                if plan.suppress_next && !plan.permanent && !plan.large_branch {
+                    self.suppress_delete_confirm = true;
+                    editprefs::EditPrefs {
+                        suppress_delete_confirm: true,
+                    }
+                    .save();
+                }
+                self.dispatch_fs_op(
+                    FsOp::Delete {
+                        paths: plan.paths,
+                        permanent: plan.permanent,
+                    },
+                    format!("Delete {} item(s)", plan.count),
+                );
+            }
+        } else if cancel || !open {
+            self.delete_plan = None;
+        }
+    }
+
+    fn cloud_copy_confirm_window(&mut self, ctx: &egui::Context) {
+        let Some(plan) = &self.cloud_copy_plan else {
+            return;
+        };
+        let (files, bytes, at) = (plan.files, plan.bytes, plan.at);
+        let mut open = true;
+        let mut accept = false;
+        let mut cancel = false;
+        egui::Window::new("Copy cloud-only files?")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .fixed_pos(at)
+            .constrain(true)
+            .default_width(430.0)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "{} selected file(s) are stored online only.",
+                    group_digits(files as u64)
+                ));
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Copying them will download about {} first.",
+                        human_size(bytes)
+                    ))
+                    .strong(),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("Atlas will not start this transfer unless you confirm.")
+                        .small()
+                        .color(self.palette().sub),
+                );
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Copy and download").clicked() {
+                        accept = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if accept {
+            if let Some(plan) = self.cloud_copy_plan.take() {
+                self.start_fs_op_unchecked(plan.op, plan.label);
+            }
+        } else if cancel || !open {
+            self.cloud_copy_plan = None;
+        }
+    }
+
     fn action_menu(&mut self, ctx: &egui::Context) {
-        let Some((id, pos)) = self.menu_at else {
+        let Some((target, pos)) = self.menu_at else {
+            self.menu_cache = None;
             return;
         };
         let mut close = false;
-        let rels = self.target_rels(Some(id));
+        // What the menu acts on is settled when it opens. Recomputing it per
+        // frame means walking (and cloning) a folder's whole subtree for as
+        // long as the menu is on screen.
+        if self.menu_cache.as_ref().map(|c| c.target) != Some(target) {
+            self.menu_cache = Some(MenuCache {
+                target,
+                rels: self.menu_rels(target),
+                paths: self.menu_paths(target),
+            });
+        }
+        let cache = self.menu_cache.take().unwrap_or(MenuCache {
+            target,
+            rels: Vec::new(),
+            paths: Vec::new(),
+        });
+        let MenuCache { rels, paths, .. } = &cache;
         let n = rels.len();
         let menu = egui::Area::new(egui::Id::new("action_menu"))
             .fixed_pos(pos)
@@ -6317,29 +8226,32 @@ impl AtlasApp {
             .show(ctx, |ui| {
                 let palette = self.palette();
                 egui::Frame::menu(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(190.0);
-                    ui.label(
-                        egui::RichText::new(format!("{n} file(s)"))
-                            .small()
-                            .color(palette.sub),
-                    );
-                    if ui.button("Assign data tag…").clicked() {
-                        self.open_edit_panel();
-                        close = true;
-                    }
-                    if ui.button("Clear assigned data tag").clicked() {
-                        self.set_assign(
-                            &rels,
-                            None,
-                            format!("Clear assigned data tag on {n} file(s)"),
-                        );
-                        close = true;
-                    }
-                    self.session_menu_section(ui, &rels);
-                    ui.separator();
-                    if ui.button("Copy path(s) for Slate").clicked() {
-                        self.copy_rels_paths(ctx, &rels);
-                        close = true;
+                    ui.set_min_width(210.0);
+                    let caption = match target {
+                        MenuTarget::File(_) => format!("{n} file(s)"),
+                        MenuTarget::Dir(_) => "Folder".into(),
+                        MenuTarget::Canvas => "Canvas".into(),
+                    };
+                    ui.label(egui::RichText::new(caption).small().color(palette.sub));
+                    if !rels.is_empty() {
+                        if ui.button("Assign data tag…").clicked() {
+                            self.open_edit_panel();
+                            close = true;
+                        }
+                        if ui.button("Clear assigned data tag").clicked() {
+                            self.set_assign(
+                                rels,
+                                None,
+                                format!("Clear assigned data tag on {n} file(s)"),
+                            );
+                            close = true;
+                        }
+                        self.session_menu_section(ui, rels);
+                        ui.separator();
+                        if ui.button("Copy path(s) for Slate").clicked() {
+                            self.copy_rels_paths(ctx, rels);
+                            close = true;
+                        }
                     }
                     if n == 1 {
                         if ui.button("Open").clicked() {
@@ -6359,10 +8271,44 @@ impl AtlasApp {
                             close = true;
                         }
                         if ui.button("Details").clicked() {
-                            self.detail = Some(id);
+                            if let MenuTarget::File(id) = target {
+                                self.detail = Some(id);
+                            }
                             self.push_history("app.properties", None);
                             close = true;
                         }
+                    }
+                    if self.edit_mode == EditMode::Edit {
+                        ui.separator();
+                        if paths.len() == 1 && ui.button("Rename…").clicked() {
+                            self.open_name_prompt(NamePromptKind::Rename(paths[0].clone()), pos);
+                            close = true;
+                        }
+                        if let Some(parent) = self.menu_parent_dir(target) {
+                            if ui.button("Add subdirectory…").clicked() {
+                                self.open_name_prompt(NamePromptKind::NewDir(parent), pos);
+                                close = true;
+                            }
+                        }
+                        if !paths.is_empty() {
+                            if ui.button("Delete").clicked() {
+                                self.plan_delete(paths.clone(), false);
+                                close = true;
+                            }
+                            if ui.button("Delete permanently").clicked() {
+                                self.plan_delete(paths.clone(), true);
+                                close = true;
+                            }
+                        }
+                    } else {
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new(
+                                "Switch to Edit mode for rename, new folder, or delete",
+                            )
+                            .small()
+                            .color(palette.sub),
+                        );
                     }
                 });
             });
@@ -6380,6 +8326,9 @@ impl AtlasApp {
             })
         {
             self.menu_at = None;
+            self.menu_cache = None;
+        } else {
+            self.menu_cache = Some(cache);
         }
     }
 
@@ -6612,7 +8561,7 @@ impl AtlasApp {
                         self.set_assign(
                             &rels,
                             Some((d.clone(), None)),
-                            format!("Assign {n} file(s) â†’ {d}"),
+                            format!("Assign {n} file(s) → {d}"),
                         );
                     }
                 });
@@ -6655,7 +8604,7 @@ impl AtlasApp {
                                 &rels,
                                 Some((dest, nn.clone())),
                                 match nn {
-                                    Some(n) => format!("Rename on export â†’ {n}"),
+                                    Some(n) => format!("Rename on export → {n}"),
                                     None => "Clear export rename".into(),
                                 },
                             );
@@ -6663,7 +8612,7 @@ impl AtlasApp {
                     });
                     ui.label(
                         egui::RichText::new(
-                            "Only the exported copy is renamed â€” the original is never touched.",
+                            "Only the exported copy is renamed — the original is never touched.",
                         )
                         .small()
                         .color(palette.sub),
@@ -6694,11 +8643,7 @@ impl AtlasApp {
                     ui.image((tex.id(), size * scale));
                 }
                 ui.add_space(4.0);
-                ui.label(format!(
-                    "{} Â· {}",
-                    human_size(e.size),
-                    date_string(e.mtime)
-                ));
+                ui.label(format!("{} · {}", human_size(e.size), date_string(e.mtime)));
                 ui.label(
                     egui::RichText::new(e.path.to_string_lossy())
                         .small()
@@ -6707,7 +8652,7 @@ impl AtlasApp {
                 if let Some((dest, nn)) = self.assign_state.assigns.get(&e.rel) {
                     ui.label(
                         egui::RichText::new(format!(
-                            "staged â†’ {dest}{}",
+                            "staged → {dest}{}",
                             nn.as_ref().map(|n| format!(" as {n}")).unwrap_or_default()
                         ))
                         .color(p.staged),
@@ -6762,7 +8707,78 @@ impl AtlasApp {
             });
     }
 
+    /// Hand a right-drag off to Windows and wait for the drop.
+    ///
+    /// This blocks the frame loop for as long as the user holds the button —
+    /// unavoidably, because `DoDragDrop` is synchronous and only works on the
+    /// thread owning the window (see `atlas_core::shell_drag`). It runs here,
+    /// at the very end of the frame, so the canvas the user is dragging away
+    /// from is already painted rather than half built.
+    fn run_shell_drag(&mut self, ctx: &egui::Context) {
+        let Some(paths) = self.pending_shell_drag.take() else {
+            return;
+        };
+        let n = paths.len();
+        let outcome =
+            atlas_core::shell_drag::drag_out(&paths, atlas_core::shell_drag::DragButton::Right);
+
+        // The drop consumed the button release, so egui never saw it and would
+        // otherwise believe the secondary button is still down — which reads as
+        // an endless pan the moment the mouse moves again.
+        ctx.input_mut(|i| i.pointer = egui::PointerState::default());
+
+        match outcome {
+            atlas_core::shell_drag::DragOutcome::Copied => {
+                self.toast(format!("Dropped {n} file(s)"));
+            }
+            atlas_core::shell_drag::DragOutcome::Linked => {
+                self.toast(format!("Linked {n} file(s)"));
+            }
+            atlas_core::shell_drag::DragOutcome::Failed => {
+                self.toast("Could not drag those files".to_string());
+            }
+            // Cancelled is the user changing their mind; say nothing.
+            _ => {}
+        }
+    }
+
     fn drag_overlay(&mut self, ctx: &egui::Context) {
+        if self.edit_drag.is_some() {
+            let dest = self.edit_drop_label();
+            let sub = self.palette().sub;
+            if let (Some(drag), Some(p)) = (&self.edit_drag, ctx.pointer_latest_pos()) {
+                let copy = ctx.input(|i| i.modifiers.alt);
+                let label = if drag.names.len() == 1 {
+                    drag.names[0].clone()
+                } else {
+                    format!("{} items", drag.names.len())
+                };
+                egui::Area::new(egui::Id::new("edit_drag_overlay"))
+                    .fixed_pos(p + Vec2::new(16.0, 12.0))
+                    .order(egui::Order::Tooltip)
+                    .interactable(false)
+                    .show(ctx, |ui| {
+                        ui.set_opacity(0.82);
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(if copy { "Copy" } else { "Move" });
+                                ui.label(egui::RichText::new(label).strong());
+                            });
+                            match &dest {
+                                Some(name) => {
+                                    ui.label(egui::RichText::new(format!("→ {name}")).small())
+                                }
+                                None => ui.label(
+                                    egui::RichText::new("release here does nothing")
+                                        .small()
+                                        .color(sub),
+                                ),
+                            };
+                        });
+                    });
+            }
+        }
+
         let Some(chipv) = &self.drag_chip else { return };
         if ctx.input(|i| i.pointer.any_released()) && self.hovered_file.is_none() {
             self.drag_chip = None;
@@ -7091,6 +9107,31 @@ fn group_digits(n: u64) -> String {
         out.push(c);
     }
     out
+}
+
+// #region agent log
+fn agent_dbg(hypothesis_id: &str, location: &str, message: &str, data_json: &str) {
+    use std::io::Write;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let line = format!(
+        "{{\"sessionId\":\"06e974\",\"hypothesisId\":\"{hypothesis_id}\",\"location\":\"{location}\",\"message\":\"{message}\",\"data\":{data_json},\"timestamp\":{ts}}}\n"
+    );
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(r"c:\Users\jmoser\source\repos\AtlasFileExplorer\debug-06e974.log")
+    {
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+// #endregion
+
+/// The never-scanned list as editable text, one folder name per line.
+fn skip_list_text() -> String {
+    atlas_core::skiplist::effective().names.join("\n")
 }
 
 fn set_subtree_collapsed(t: &mut Tree, di: usize, collapsed: bool) {

@@ -68,6 +68,22 @@ When you add or change any user-facing input binding:
 - **Ctrl+N** — new tab (alias of the menu New tab).
 - **F1** — Advanced → Commands & shortcuts. **Ctrl+Shift+P** — Advanced.
 - **F3** — toggle Details for the single selected file. **F2 stays Assign.**
+- **Mode dock → View / Edit** — View is the default safe browsing mode. Edit
+  enables human-directed filesystem rename, move, copy, new-folder, and delete
+  operations for the active tab.
+- **Edit mode drag:** left-drag a file or folder to a folder to move it; hold
+  **Alt** through release to copy it. The drop lands in the folder the cursor is
+  *inside*, so anywhere in that folder's rectangle works — including over the
+  files it already holds — and the drag ghost names the destination. Dropping on
+  blank canvas or an invalid target is a null action.
+- **Edit mode context menu:** right-click a file or folder for **Rename…**,
+  **Add subdirectory…**, and **Delete**. Right-click blank canvas offers root
+  subdirectory creation.
+- **Ctrl+Shift+N** — add a subdirectory. **Delete** moves the selection to the
+  Recycle Bin after the delete warning policy, or — with nothing selected — the
+  file or folder under the cursor, which is how a folder is deleted from the
+  keyboard. **Shift+Delete** asks for a permanent delete. Confirmations open at
+  the cursor.
 - **Command history** — Advanced → Command history (shared
   `atlas_shell::history_ui` overlay; Atlas has no F2 history window).
 - **File → Download cloud files…** (`atlas.download_cloud`) — no chord, and it
@@ -81,10 +97,32 @@ When you add or change any user-facing input binding:
 
 - **Left-drag** on empty canvas pans. On a thumbnail during a linked Slate
   session it starts the drag-to-Slate carry instead (standalone Atlas pans).
-- **Right-drag** pans from anywhere — including presses that land on a
-  thumbnail — so navigation is never blocked by dense canvases. A right-click
-  *without* dragging still opens the file context menu.
+- **Right-drag on empty canvas** pans. A right-click *without* dragging still
+  opens the file context menu.
+- **Right-drag from a file or folder** drags it out to Windows (see below), so
+  the one place right-drag no longer pans is on top of a card. **Ctrl +
+  right-drag** turbo-pans from anywhere, cards included, which is what keeps
+  navigation unblocked on a dense canvas.
 - **Shift + left-drag** rubber-band selects (left button only).
+- In **Edit** mode, left-drag starting on a file/folder belongs to filesystem
+  move/copy instead of Slate-session carry. Shift still wins for rubber-band
+  selection; right-drag shell drag-out is unchanged.
+
+## Dragging files out (reference)
+
+- **Binding:** right-drag starting on a file or folder card.
+- **Behavior:** hands the selection — or just the card under the cursor, if it
+  is not part of the selection — to Windows as a shell data object, so any drop
+  target that accepts a drag from File Explorer (PowerPoint, Explorer, Slate, a
+  browser) receives it identically. A folder drags as the folder itself, one
+  shell item, so starting the drag costs the same whatever is inside it. Esc
+  cancels.
+- **Copy and link only, never move.** A move accepted by a foreign target would
+  relocate files with no journal entry and no undo (Constitution Art. VI).
+- **The frame loop blocks for the duration of the gesture.** `DoDragDrop` is
+  synchronous and thread-bound; this is the documented exception to invariant 7
+  in `ARCHITECTURE.md`, and it lasts exactly as long as the user holds the
+  button. Implementation: `atlas_core::shell_drag`.
 
 ## Turbo pan (reference)
 
