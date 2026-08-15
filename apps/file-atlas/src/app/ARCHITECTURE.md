@@ -6,9 +6,9 @@ the matching layer instead of growing `mod.rs`.
 ## Layer 0 — Unified top bar (`ui/menubar.rs`)
 
 One Chrome-style strip replaces the old two-row header (title bar + tab strip).
-The app icon is a **menu portal**: hover or click reveals **File** and **View**;
-tabs sit inline to the right of the portal; window controls stay on the far
-right. All painting lives in `atlas-shell` (`menubar::unified_top_bar`,
+The app icon is a **menu portal** (chrome — not a Slate Art. V portal): hover or
+click reveals **File** and **View**; tabs sit inline to the right of the icon;
+window controls stay on the far right. All painting lives in `atlas-shell` (`menubar::unified_top_bar`,
 `tabs::tab_strip`) — see `crates/atlas-shell/TOPBAR.md`. This module only
 adapts `AtlasApp` state to `UnifiedTopBarModel` / `MenuSpec` / `TabSpec` and
 applies the returned actions.
@@ -31,7 +31,7 @@ Everything below the tab bar belongs to the **active tab** (`TabState`):
 | Region | Module | Role |
 |--------|--------|------|
 | Floating tools dock | `ui/tools.rs` + `atlas-shell::dock` | Left-centered squircle icons for Filters, Display, Mode, Workflow, AI. Popovers reuse the former sidebar bodies without reserving canvas space. Free-text tagging lives in Slate; Atlas keeps destination assignment only. See `crates/atlas-shell/DOCK.md`. |
-| Canvas | `mod.rs` (`canvas`) | Infinite map, selection, thumbnails. Draws the scanned tree only — the parent-folder chain above the mapped root was removed as clutter, so `map_bounds` is the tree's own bounds. Filters' *Zoom to matches* (`auto_zoom_after_filter`, on by default) flies the camera to the surviving files, edge-triggered on the framed bounds so scan batches do not yank it. |
+| Canvas | `mod.rs` (`canvas`) | Infinite map, selection, thumbnails. Draws the scanned tree only — the parent-folder chain above the mapped root was removed as clutter, so `map_bounds` is the tree's own bounds. Collapsed folders above the **stack threshold** paint as **group previews** (internal `portal_threshold` / `shows_portal` — not Slate portals). Filters' *Zoom to matches* (`auto_zoom_after_filter`, on by default) flies the camera to the surviving files, edge-triggered on the framed bounds so scan batches do not yank it. |
 | Bottom readouts | `ui/readouts.rs` | Metrics, scan progress, cache status — read-only apart from the timeline below. Padding, item spacing, row height, text size, and separator rules come from `[readouts]` in `ui-tokens.toml`; `text_size` is an `override_font_id` for the whole row so the counts and the root path scale together |
 | Activity timeline | `ui/readouts.rs` + `atlas-shell::timeline` | Contribution graph **and** the date window on one axis: semantic zoom (weekday grid → staggered days → bucket strip → per-file dashes), range handles, discrete picks. Data is a cached `atlas_core::timeline::ActivityIndex`; the filter is a `TimePicks` set. Spec: `docs/keymap/specs/activity-timeline.md` |
 | Pre-warm dashboard | `ui/readouts.rs` (`prewarm_dashboard`) | Temporary panel above the readouts while a pre-warm runs: discovery, progress, speed control, cancel |

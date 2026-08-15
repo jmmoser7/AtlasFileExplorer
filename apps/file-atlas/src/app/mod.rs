@@ -44,11 +44,11 @@ mod ui;
 
 pub use chrome::ChromeConfig;
 
-const TEXTURE_CAP: usize = 1100;
-const ZOOM_MIN: f32 = 0.02;
+const TEXTURE_CAP: usize = atlas_core::display::ATLAS_TEXTURES.resident_cap;
+const ZOOM_MIN: f32 = atlas_core::display::ATLAS_TREE.min;
 /// High enough that a directory tag (`DIR_H`) can fill a typical viewport
 /// height (~1080–1440px) so names and metadata are no longer cropped.
-const ZOOM_MAX: f32 = 32.0;
+const ZOOM_MAX: f32 = atlas_core::display::ATLAS_TREE.max;
 const LOD_FULL_DEFAULT: usize = 20;
 const LOD_MID_DEFAULT: usize = 6;
 /// Zoom threshold (%) where a card can enter the detail LOD — full paths and
@@ -59,7 +59,7 @@ const LOD_DETAIL_DEFAULT: usize = 600;
 
 pub use atlas_core::types::wants_thumb;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum ScanMode {
     Fresh,
     Refresh,
@@ -361,9 +361,9 @@ const ASYNC_TREE_THRESHOLD: usize = 8_000;
 /// `queue_dir_meta`).
 const DIR_META_BATCH: usize = 24;
 
-/// Watcher events applied per frame. Each costs a `metadata` round trip, which
-/// is microseconds locally and milliseconds on a share, so this is a frame-time
-/// budget rather than a throughput limit — the rest wait in `fs_backlog`.
+/// Watcher events *admitted* per frame. Applying an upsert no longer stats on
+/// the UI thread — that work is a generation-tagged worker — so this budget
+/// is how many path events we enqueue, not how many `metadata` calls we pay.
 const FS_EVENTS_PER_FRAME: usize = 32;
 
 /// Cap on undelivered watcher events. A storm past this is not worth queueing
@@ -863,11 +863,22 @@ pub struct AtlasApp {
     watch: Option<FsWatch>,
     /// Watcher events received but not yet applied.
     ///
-    /// Applying one is a `metadata` round trip, so the frame loop takes
+    /// Admission is cheap (a path + a channel send). The frame loop takes
     /// [`FS_EVENTS_PER_FRAME`] of them and leaves the rest here. Draining to
-    /// exhaustion meant a burst on a high-latency share stalled the frame for as
-    /// long as the burst was deep.
+    /// exhaustion used to mean a burst of `stat_file` calls on a share; the
+    /// stat now runs on `fs_stat_tx` and lands later, generation-tagged.
     fs_backlog: VecDeque<FsChange>,
+    /// Off-thread `stat_file` for watcher upserts: `(generation, root, path)`.
+    fs_stat_tx: Sender<(u64, PathBuf, PathBuf)>,
+    fs_stat_rx: Receiver<(u64, Option<FileEntry>)>,
+    /// One `ScanMsg::Batch` held because this frame already spent its budget.
+    scan_hold: Option<(u64, ScanMsg)>,
+    /// A quiet refresh is in flight or requested (Rescan / backlog overflow).
+    fs_rescan_armed: bool,
+    /// When the last scan finished. Watcher `Rescan` echoes (Linux inotify
+    /// `Other`/`Access`) are dropped for a short window so they cannot
+    /// restart the walk forever.
+    last_scan_done: Option<Instant>,
 
     // browser-style tabs: each remembers a folder + camera
     tabs: Vec<TabState>,
@@ -1043,6 +1054,19 @@ impl AtlasApp {
         let (scan_tx, scan_rx) = unbounded();
         let (owner_tx, owner_rx) = unbounded();
         let (dir_meta_tx, dir_meta_rx) = unbounded();
+        let (fs_stat_tx, fs_stat_job_rx) = unbounded::<(u64, PathBuf, PathBuf)>();
+        let (fs_stat_res_tx, fs_stat_rx) = unbounded::<(u64, Option<FileEntry>)>();
+        std::thread::Builder::new()
+            .name("atlas-fs-stat".into())
+            .spawn(move || {
+                while let Ok((generation, root, path)) = fs_stat_job_rx.recv() {
+                    let fe = scanner::stat_file(&root, &path);
+                    if fs_stat_res_tx.send((generation, fe)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .ok();
         let chrome_prefs = atlas_shell::prefs::ChromePrefs::load(
             "file-atlas",
             atlas_shell::dock::DockSide::LeftCenter,
@@ -1093,7 +1117,7 @@ impl AtlasApp {
             leader_style: LeaderStyle::Orthogonal,
             cam: Camera {
                 offset: Vec2::ZERO,
-                z: 0.6,
+                z: atlas_core::display::ATLAS_TREE.default_z,
             },
             grid_fade: atlas_shell::grid_fade::GridFade::default(),
             grid_fade_armed: false,
@@ -1213,6 +1237,11 @@ impl AtlasApp {
             pending_shell_drag: None,
             watch: None,
             fs_backlog: VecDeque::new(),
+            fs_stat_tx,
+            fs_stat_rx,
+            scan_hold: None,
+            fs_rescan_armed: false,
+            last_scan_done: None,
             tabs: vec![],
             active_tab: 0,
             pending_cam: None,
@@ -1353,7 +1382,7 @@ impl AtlasApp {
         let cancel = job.cancel.clone();
         self.prewarm = Some(job);
         if atlas_core::thumbs::is_network_path(&dir) {
-            self.thumbs.ensure_workers(24);
+            self.thumbs.ensure_workers(self.thumb_workers_for_network());
         }
         self.toast(format!("Pre-warming {} in the background", dir.display()));
         std::thread::spawn(move || {
@@ -1641,6 +1670,17 @@ impl AtlasApp {
         self.thumbs_pending = 0;
         self.warm_pending = 0;
         self.thumbs.retain_generation(self.generation);
+        self.scan_hold = None;
+    }
+
+    /// How many thumb workers a network root may grow to. Linked Slate+Atlas
+    /// share one process and one SMB link — cap below the standalone 24.
+    pub(crate) fn thumb_workers_for_network(&self) -> usize {
+        if self.session.is_some() {
+            atlas_core::display::THUMB_WORKERS_LINKED_ATLAS
+        } else {
+            atlas_core::display::THUMB_WORKERS_STANDALONE_NETWORK
+        }
     }
 
     /// Tear down everything belonging to the current root: entries and their
@@ -1729,6 +1769,9 @@ impl AtlasApp {
         self.scan_ui = None;
         self.pending_load = None;
         self.watch = None;
+        self.scan_hold = None;
+        self.fs_rescan_armed = false;
+        self.last_scan_done = None;
         self.shared_cache = None;
         self.key_prefix = String::new();
         self.warm_audit = None;
@@ -1781,7 +1824,7 @@ impl AtlasApp {
             // It cannot starve discovery: bulk warming is separately capped at
             // `WARM_CONCURRENCY` and does not start until the scan is done, so
             // the extra workers only ever serve on-screen cards.
-            self.thumbs.ensure_workers(24);
+            self.thumbs.ensure_workers(self.thumb_workers_for_network());
         }
         // Shared per-project cache: keys become project-root-relative so
         // every machine opening any part of this project agrees on them.
@@ -2763,127 +2806,32 @@ impl AtlasApp {
             }
         }
 
-        // Scan results
-        while let Ok((generation, msg)) = self.scan_rx.try_recv() {
+        // Scan results. Batches mutate the entry vec; cap them so a deep
+        // channel cannot own a frame. Dirs and Done always apply this frame.
+        let mut batches = 0usize;
+        loop {
+            let (generation, msg) = if let Some(held) = self.scan_hold.take() {
+                held
+            } else {
+                match self.scan_rx.try_recv() {
+                    Ok(m) => m,
+                    Err(_) => break,
+                }
+            };
             if generation != self.generation {
                 continue;
             }
-            let mode = self.scan_ui.as_ref().map(|s| s.mode);
-            match msg {
-                // Folder dates, free from the walk that found them. Applied to
-                // the live tree immediately — a label, so no relayout — and kept
-                // so every later rebuild starts with them.
-                ScanMsg::Dirs(dirs) => {
-                    for (rel, ctime) in dirs {
-                        self.dir_meta.entry(rel).or_default().ctime = ctime;
-                    }
-                    if let Some(t) = &mut self.tree {
-                        t.apply_dir_meta(&self.dir_meta);
-                    }
-                }
-                ScanMsg::Batch(batch) => match mode {
-                    Some(ScanMode::Refresh) => self.rescan_buffer.extend(batch),
-                    _ => {
-                        let first_new = self.entries.len();
-                        let mut replaced = false;
-                        for fe in batch {
-                            match self.rel_to_id.get(&fe.rel) {
-                                Some(&i) => {
-                                    self.entries[i as usize] = fe;
-                                    replaced = true;
-                                }
-                                None => {
-                                    self.rel_to_id
-                                        .insert(fe.rel.clone(), self.entries.len() as u32);
-                                    self.entries.push(fe);
-                                    self.thumb_state.push(ThumbState::NotAsked);
-                                    self.avg_color.push(None);
-                                }
-                            }
-                        }
-                        // The timeline index and folder-heat map are keyed on
-                        // `heatmap_data_rev`, and both are whole-corpus passes.
-                        // Bumping it per batch rebuilt them every frame of a
-                        // load; they ride the tree's cadence instead (see
-                        // `adopt_tree`), which is as often as the canvas they
-                        // annotate actually changes shape.
-                        //
-                        // A re-reported file can change size/date, so its
-                        // aggregates are no longer additive — that needs the
-                        // full pass. Appends do not.
-                        if replaced {
-                            self.filter_dirty = true;
-                        } else if self.entries.len() > first_new {
-                            self.absorb_new_entries(first_new);
-                        }
-                        self.tree_dirty = true;
-                    }
-                },
-                ScanMsg::Done { files, elapsed_ms } => {
-                    eprintln!(
-                        "[atlas] scan complete: {files} files in {elapsed_ms}ms (mode={})",
-                        match mode {
-                            Some(ScanMode::Refresh) => "refresh",
-                            _ => "fresh",
-                        }
-                    );
-                    if mode == Some(ScanMode::Refresh) {
-                        let mut buffer = std::mem::take(&mut self.rescan_buffer);
-                        // Owner is not part of identity — a rescan always
-                        // reports it empty because discovery no longer looks it
-                        // up, so comparing it here would declare every refresh a
-                        // change and throw the whole workspace away.
-                        let changed = buffer.len()
-                            != self.entries.iter().filter(|e| !e.dead).count()
-                            || buffer.iter().any(|fe| {
-                                self.rel_to_id
-                                    .get(&fe.rel)
-                                    .map(|&i| {
-                                        let e = &self.entries[i as usize];
-                                        e.dead
-                                            || e.size != fe.size
-                                            || e.mtime != fe.mtime
-                                            || e.ctime != fe.ctime
-                                    })
-                                    .unwrap_or(true)
-                            });
-                        if changed {
-                            // Carry forward the owners already resolved so the
-                            // facet does not empty out and get re-walked.
-                            for fe in &mut buffer {
-                                if let Some(&i) = self.rel_to_id.get(&fe.rel) {
-                                    let known = &self.entries[i as usize].owner;
-                                    if fe.owner.is_empty() && !known.is_empty() {
-                                        fe.owner = known.clone();
-                                    }
-                                }
-                            }
-                            self.entries = buffer;
-                            self.thumb_state = vec![ThumbState::NotAsked; self.entries.len()];
-                            self.avg_color = vec![None; self.entries.len()];
-                            self.textures.clear();
-                            self.rebuild_rel_map();
-                            self.selection.clear();
-                            self.new_epoch();
-                            self.heatmap_data_rev = self.heatmap_data_rev.wrapping_add(1);
-                            self.rebuild_tree(false);
-                        }
-                    } else {
-                        let first = self.tree.is_none();
-                        self.rebuild_tree(first);
-                        self.toast(format!(
-                            "Indexed {} files in {:.1}s",
-                            files,
-                            elapsed_ms as f64 / 1000.0
-                        ));
-                    }
-                    self.scan_ui = None;
-                    self.scan_handle = None;
-                    self.save_snapshot();
-                    self.queue_cache_warming();
-                    self.queue_owner_pass();
-                }
+            if matches!(msg, ScanMsg::Batch(_))
+                && batches >= atlas_core::display::SCAN_BATCHES_PER_FRAME
+            {
+                self.scan_hold = Some((generation, msg));
+                ctx.request_repaint();
+                break;
             }
+            if matches!(msg, ScanMsg::Batch(_)) {
+                batches += 1;
+            }
+            self.apply_scan_msg(msg);
         }
 
         // Deferred owner results.
@@ -2969,7 +2917,7 @@ impl AtlasApp {
         // Thumbnail results
         let mut uploads = 0;
         loop {
-            if uploads >= 24 {
+            if uploads >= atlas_core::display::ATLAS_TEXTURES.uploads_per_frame {
                 break;
             }
             let Ok(res) = self.thumbs.rx.try_recv() else {
@@ -3068,12 +3016,27 @@ impl AtlasApp {
             }
         }
 
-        // Watcher events, applied on a budget (see `fs_backlog`).
+        // Watcher events, admitted on a budget (see `fs_backlog`). Overflow
+        // or a Rescan arms one quiet refresh instead of a storm of upserts.
+        let mut overflow = false;
         if let Some(w) = &self.watch {
-            while self.fs_backlog.len() < FS_BACKLOG_CAP {
+            loop {
+                if self.fs_backlog.len() >= FS_BACKLOG_CAP {
+                    if w.rx.try_recv().is_ok() {
+                        overflow = true;
+                        while w.rx.try_recv().is_ok() {}
+                    }
+                    break;
+                }
                 let Ok(ev) = w.rx.try_recv() else { break };
+                if matches!(ev, FsChange::Rescan) && self.watcher_rescan_is_echo() {
+                    continue;
+                }
                 self.fs_backlog.push_back(ev);
             }
+        }
+        if overflow {
+            self.on_fs_backlog_overflow();
         }
         for _ in 0..FS_EVENTS_PER_FRAME {
             let Some(ev) = self.fs_backlog.pop_front() else {
@@ -3082,7 +3045,23 @@ impl AtlasApp {
             self.apply_fs_change(ev);
         }
         if !self.fs_backlog.is_empty() {
-            // Nothing else may be animating; keep working through the backlog.
+            ctx.request_repaint();
+        }
+        // Land generation-tagged stats from the watcher worker. Cheap: no I/O.
+        let mut stats = 0usize;
+        while stats < FS_EVENTS_PER_FRAME {
+            let Ok((generation, fe)) = self.fs_stat_rx.try_recv() else {
+                break;
+            };
+            stats += 1;
+            if generation != self.generation {
+                continue;
+            }
+            if let Some(fe) = fe {
+                self.apply_upserted_entry(fe);
+            }
+        }
+        if stats >= FS_EVENTS_PER_FRAME {
             ctx.request_repaint();
         }
 
@@ -3136,6 +3115,132 @@ impl AtlasApp {
                     ));
                 }
                 self.export_ui = None;
+            }
+        }
+    }
+
+    fn apply_scan_msg(&mut self, msg: ScanMsg) {
+        let mode = self.scan_ui.as_ref().map(|s| s.mode);
+        match msg {
+            // Folder dates, free from the walk that found them. Applied to
+            // the live tree immediately — a label, so no relayout — and kept
+            // so every later rebuild starts with them.
+            ScanMsg::Dirs(dirs) => {
+                for (rel, ctime) in dirs {
+                    self.dir_meta.entry(rel).or_default().ctime = ctime;
+                }
+                if let Some(t) = &mut self.tree {
+                    t.apply_dir_meta(&self.dir_meta);
+                }
+            }
+            ScanMsg::Batch(batch) => match mode {
+                Some(ScanMode::Refresh) => self.rescan_buffer.extend(batch),
+                _ => {
+                    let first_new = self.entries.len();
+                    let mut replaced = false;
+                    for fe in batch {
+                        match self.rel_to_id.get(&fe.rel) {
+                            Some(&i) => {
+                                self.entries[i as usize] = fe;
+                                replaced = true;
+                            }
+                            None => {
+                                self.rel_to_id
+                                    .insert(fe.rel.clone(), self.entries.len() as u32);
+                                self.entries.push(fe);
+                                self.thumb_state.push(ThumbState::NotAsked);
+                                self.avg_color.push(None);
+                            }
+                        }
+                    }
+                    // The timeline index and folder-heat map are keyed on
+                    // `heatmap_data_rev`, and both are whole-corpus passes.
+                    // Bumping it per batch rebuilt them every frame of a
+                    // load; they ride the tree's cadence instead (see
+                    // `adopt_tree`), which is as often as the canvas they
+                    // annotate actually changes shape.
+                    //
+                    // A re-reported file can change size/date, so its
+                    // aggregates are no longer additive — that needs the
+                    // full pass. Appends do not.
+                    if replaced {
+                        self.filter_dirty = true;
+                    } else if self.entries.len() > first_new {
+                        self.absorb_new_entries(first_new);
+                    }
+                    self.tree_dirty = true;
+                }
+            },
+            ScanMsg::Done { files, elapsed_ms } => {
+                eprintln!(
+                    "[atlas] scan complete: {files} files in {elapsed_ms}ms (mode={})",
+                    match mode {
+                        Some(ScanMode::Refresh) => "refresh",
+                        _ => "fresh",
+                    }
+                );
+                if mode == Some(ScanMode::Refresh) {
+                    let mut buffer = std::mem::take(&mut self.rescan_buffer);
+                    // Owner is not part of identity — a rescan always
+                    // reports it empty because discovery no longer looks it
+                    // up, so comparing it here would declare every refresh a
+                    // change and throw the whole workspace away.
+                    let changed = buffer.len()
+                        != self.entries.iter().filter(|e| !e.dead).count()
+                        || buffer.iter().any(|fe| {
+                            self.rel_to_id
+                                .get(&fe.rel)
+                                .map(|&i| {
+                                    let e = &self.entries[i as usize];
+                                    e.dead
+                                        || e.size != fe.size
+                                        || e.mtime != fe.mtime
+                                        || e.ctime != fe.ctime
+                                })
+                                .unwrap_or(true)
+                        });
+                    if changed {
+                        // Carry forward the owners already resolved so the
+                        // facet does not empty out and get re-walked.
+                        for fe in &mut buffer {
+                            if let Some(&i) = self.rel_to_id.get(&fe.rel) {
+                                let known = &self.entries[i as usize].owner;
+                                if fe.owner.is_empty() && !known.is_empty() {
+                                    fe.owner = known.clone();
+                                }
+                            }
+                        }
+                        self.entries = buffer;
+                        self.thumb_state = vec![ThumbState::NotAsked; self.entries.len()];
+                        self.avg_color = vec![None; self.entries.len()];
+                        self.textures.clear();
+                        self.rebuild_rel_map();
+                        self.selection.clear();
+                        self.new_epoch();
+                        self.heatmap_data_rev = self.heatmap_data_rev.wrapping_add(1);
+                        self.rebuild_tree(false);
+                    }
+                } else {
+                    let first = self.tree.is_none();
+                    self.rebuild_tree(first);
+                    self.toast(format!(
+                        "Indexed {} files in {:.1}s",
+                        files,
+                        elapsed_ms as f64 / 1000.0
+                    ));
+                }
+                self.scan_ui = None;
+                self.scan_handle = None;
+                self.fs_rescan_armed = false;
+                self.last_scan_done = Some(Instant::now());
+                // Notify often emits `Rescan` for Access/Other during the walk.
+                // Those are already reflected in this result; drop them so they
+                // cannot start a second walk the moment we go idle.
+                self.fs_backlog
+                    .retain(|e| !matches!(e, FsChange::Rescan));
+                self.save_snapshot();
+                self.queue_cache_warming();
+                self.queue_owner_pass();
             }
         }
     }
@@ -3582,6 +3687,71 @@ impl AtlasApp {
         }
     }
 
+    fn watcher_rescan_is_echo(&self) -> bool {
+        self.last_scan_done
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(2))
+    }
+
+    fn arm_quiet_refresh(&mut self) {
+        if self.scan_ui.is_some() || self.fs_rescan_armed {
+            self.fs_rescan_armed = true;
+            return;
+        }
+        self.fs_rescan_armed = true;
+        self.start_quiet_refresh();
+    }
+
+    fn on_fs_backlog_overflow(&mut self) {
+        self.fs_backlog.clear();
+        self.arm_quiet_refresh();
+    }
+
+    /// Apply a watcher upsert that has already been `stat_file`'d off-thread.
+    fn apply_upserted_entry(&mut self, fe: FileEntry) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        if !self.is_multi_root() {
+            self.db.send(DbCmd::UpsertFile {
+                root: root.clone(),
+                rel: fe.rel.clone(),
+                size: fe.size,
+                mtime: fe.mtime,
+                ctime: fe.ctime,
+                owner: fe.owner.clone(),
+            });
+        }
+        match self.rel_to_id.get(&fe.rel) {
+            Some(&i) => {
+                let slot = &mut self.entries[i as usize];
+                let content_changed = slot.size != fe.size
+                    || slot.mtime != fe.mtime
+                    || slot.ctime != fe.ctime
+                    || slot.owner != fe.owner
+                    || slot.dead;
+                let structural = slot.dead;
+                *slot = fe;
+                if content_changed {
+                    self.thumb_state[i as usize] = ThumbState::NotAsked;
+                    self.avg_color[i as usize] = None;
+                    self.textures.remove(&i);
+                }
+                if structural {
+                    self.tree_dirty = true;
+                }
+            }
+            None => {
+                self.rel_to_id
+                    .insert(fe.rel.clone(), self.entries.len() as u32);
+                self.entries.push(fe);
+                self.thumb_state.push(ThumbState::NotAsked);
+                self.avg_color.push(None);
+                self.tree_dirty = true;
+            }
+        }
+        self.filter_dirty = true;
+    }
+
     fn apply_fs_change(&mut self, ev: FsChange) {
         let Some(root) = self.root.clone() else {
             return;
@@ -3594,47 +3764,7 @@ impl AtlasApp {
                 if !self.path_in_open_folders(&path) {
                     return;
                 }
-                if let Some(fe) = scanner::stat_file(&root, &path) {
-                    if !self.is_multi_root() {
-                        self.db.send(DbCmd::UpsertFile {
-                            root: root.clone(),
-                            rel: fe.rel.clone(),
-                            size: fe.size,
-                            mtime: fe.mtime,
-                            ctime: fe.ctime,
-                            owner: fe.owner.clone(),
-                        });
-                    }
-                    match self.rel_to_id.get(&fe.rel) {
-                        Some(&i) => {
-                            let slot = &mut self.entries[i as usize];
-                            let content_changed = slot.size != fe.size
-                                || slot.mtime != fe.mtime
-                                || slot.ctime != fe.ctime
-                                || slot.owner != fe.owner
-                                || slot.dead;
-                            let structural = slot.dead;
-                            *slot = fe;
-                            if content_changed {
-                                self.thumb_state[i as usize] = ThumbState::NotAsked;
-                                self.avg_color[i as usize] = None;
-                                self.textures.remove(&i);
-                            }
-                            if structural {
-                                self.tree_dirty = true;
-                            }
-                        }
-                        None => {
-                            self.rel_to_id
-                                .insert(fe.rel.clone(), self.entries.len() as u32);
-                            self.entries.push(fe);
-                            self.thumb_state.push(ThumbState::NotAsked);
-                            self.avg_color.push(None);
-                            self.tree_dirty = true;
-                        }
-                    }
-                    self.filter_dirty = true;
-                }
+                let _ = self.fs_stat_tx.send((self.generation, root, path));
             }
             FsChange::Remove(path) => {
                 if self.is_own_fs_write(&path) {
@@ -3658,7 +3788,10 @@ impl AtlasApp {
                     }
                 }
             }
-            FsChange::Rescan => {}
+            FsChange::Rescan => {
+                self.fs_backlog.clear();
+                self.arm_quiet_refresh();
+            }
         }
     }
 
@@ -5635,7 +5768,7 @@ impl AtlasApp {
             let (scroll, zoom_delta) = ui.input(|i| (i.raw_scroll_delta, i.zoom_delta()));
             if let Some(p) = pointer {
                 if scroll.y.abs() > 0.0 && !shift {
-                    self.zoom_at(p, (scroll.y * 0.0021).exp());
+                    self.zoom_at(p, atlas_core::display::ATLAS_TREE.wheel_factor(scroll.y));
                     canvas_nav = true;
                 } else if shift && (scroll.y.abs() > 0.0 || scroll.x.abs() > 0.0) {
                     self.cam.offset.x -= scroll.y + scroll.x;

@@ -71,6 +71,9 @@ When you add or change any user-facing input binding:
 - **Mode dock → View / Edit** — View is the default safe browsing mode. Edit
   enables human-directed filesystem rename, move, copy, new-folder, and delete
   operations for the active tab.
+- **Display dock → stack threshold** — child-count at which a collapsed folder
+  paints as a **group preview**. This is not a Slate portal (Art. V); the
+  internal field is still `portal_threshold`.
 - **Edit mode drag:** left-drag a file or folder to a folder to move it; hold
   **Alt** through release to copy it. The drop lands in the folder the cursor is
   *inside*, so anywhere in that folder's rectangle works — including over the

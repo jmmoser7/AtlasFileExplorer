@@ -127,6 +127,22 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(6.0);
+            ui.label(egui::RichText::new("Thumbnail cache").small().strong());
+            ui.label(
+                egui::RichText::new(format!(
+                    "thumb cache v{}",
+                    atlas_core::thumbs::cache_epoch()
+                ))
+                .small()
+                .color(palette.sub),
+            )
+            .on_hover_text(
+                "Recipe epoch hashed into every key. v4 files in this folder \
+                 are ignored; they will be replaced as cards are viewed.",
+            );
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(6.0);
             skip_list_ui(app, ui, palette.sub);
             ui.add_space(12.0);
             ui.separator();
