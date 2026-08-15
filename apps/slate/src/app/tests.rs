@@ -2192,3 +2192,72 @@ fn a_recipe_driven_draw_is_a_single_undo_step() {
     assert_eq!(h.app.doc().scene.nodes.len(), 1);
     h.frame();
 }
+
+#[test]
+fn workbook_camera_round_trips_through_save() {
+    let mut h = Harness::new("cam_rt");
+    h.seed();
+    h.app.tab_mut().cam.offset = EVec2::new(120.0, -40.0);
+    h.app.tab_mut().cam.z = 1.6;
+    let path = h.base.join("cam.slate");
+    let tab_id = h.app.tab().id;
+    h.app.save_doc_to(tab_id, path.clone());
+
+    let mut h2 = Harness::new("cam_rt_load");
+    h2.app.open_doc_at(path);
+    assert!((h2.app.tab().cam.offset.x - 120.0).abs() < 1e-3);
+    assert!((h2.app.tab().cam.offset.y + 40.0).abs() < 1e-3);
+    assert!((h2.app.tab().cam.z - 1.6).abs() < 1e-3);
+}
+
+#[test]
+fn grid_layout_is_cached_across_unchanged_paints() {
+    let mut h = Harness::new("layout_cache");
+    h.seed();
+    h.app.doc_mut().view.active_view = ViewKind::Grid;
+    h.app.layout_cache = None;
+    h.app.layout_builds = 0;
+    h.frame();
+    h.frame();
+    assert_eq!(
+        h.app.layout_builds, 1,
+        "an unchanged doc + size must not rebuild Grid/Venn layout"
+    );
+}
+
+#[test]
+fn board_paint_culls_offscreen_nodes() {
+    let mut h = Harness::new("board_cull");
+    h.seed();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    for i in 0..200 {
+        add_rect(&mut h.app, (i as f32) * 400.0, 0.0);
+    }
+    h.app.canvas_rect = ERect::from_min_size(Pos2::ZERO, EVec2::new(1440.0, 900.0));
+    h.app.tab_mut().cam.offset = EVec2::ZERO;
+    h.app.tab_mut().cam.z = 1.0;
+    let painted = h.app.board_paint_nodes(h.app.canvas_rect);
+    assert!(
+        painted.len() < 200,
+        "viewport cull must drop off-screen nodes, got {}",
+        painted.len()
+    );
+    assert!(!painted.is_empty(), "the camera must still see nearby nodes");
+}
+
+#[test]
+fn slate_thumb_lru_caps_resident_textures() {
+    let mut h = Harness::new("thumb_lru");
+    let cap = atlas_core::display::SLATE_TEXTURES.resident_cap;
+    for i in 0..(cap + 100) {
+        let k = format!("k{i}");
+        h.app.textures.insert(k.clone(), ThumbState::Failed);
+        h.app
+            .thumb_pixels
+            .insert(k.clone(), egui::ColorImage::example());
+        h.app.thumb_used.insert(k, i as u64);
+    }
+    h.app.evict_thumbs();
+    assert!(h.app.textures.len() <= cap);
+    assert_eq!(h.app.textures.len(), h.app.thumb_pixels.len());
+}

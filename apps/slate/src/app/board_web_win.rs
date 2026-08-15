@@ -492,6 +492,10 @@ impl WebHost for Webview2Host {
             .or_else(|| self.views.get(&id).and_then(|v| v.last.clone()))
     }
 
+    fn last_frame(&self, id: NodeId) -> Option<egui::ColorImage> {
+        self.views.get(&id).and_then(|v| v.last.clone())
+    }
+
     fn send_input(&mut self, id: NodeId, input: WebInput) {
         let Some(comp) = self
             .views
