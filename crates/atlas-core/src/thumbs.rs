@@ -39,15 +39,27 @@ use windows::Win32::UI::Shell::{
 
 pub const THUMB_PX: i32 = 192;
 
-/// Bump when extraction logic changes so stale JPEGs (e.g. cached shell icons)
-/// are regenerated.
+/// Bump when *existing* `{key}.jpg` bytes would be wrong.
 ///
-/// `4` retires everything the shell-first era wrote. Those entries are not just
-/// slightly worse than what `rasterthumb` produces — an unknown number of them
-/// are generic file-type icons the shell substituted when it could not reach the
-/// pixels (a cloud placeholder, a missing codec), and because the key is
-/// `path + size + mtime` an icon cached once was served forever.
+/// The version suffix is hashed into every key, so a bump orphans the entire
+/// on-disk cache. That is the right move when a cached JPEG is a lie — the
+/// icon-as-preview episode that forced `3 → 4`. It is the wrong move when a
+/// new extractor is added for a format the old keys never covered (SVG in
+/// version 5). Adding a format is a miss on that extension, not a reason to
+/// re-extract every JPEG the user already warmed.
+///
+/// `4` retires everything the shell-first era wrote (icons cached as previews).
+/// `5` added the SVG extractor and, mistakenly, invalidated every other format.
+/// Machines on 5 must re-warm; do not dual-read v4 keys (opaque hashes, and
+/// they may still hold icons). Do not bump to 6 without a recipe change that
+/// would make current JPEGs incorrect.
 const CACHE_KEY_VERSION: &str = "5";
+
+/// The on-disk thumbnail recipe epoch. Shown in Advanced so a cold folder
+/// after a bump is diagnosable.
+pub fn cache_epoch() -> &'static str {
+    CACHE_KEY_VERSION
+}
 
 /// Max concurrent background cache-warming jobs. Keeps the sustained network
 /// load at roughly "one file copy running quietly", while on-demand requests
@@ -71,6 +83,11 @@ pub const PINNED_GENERATION: u64 = u64::MAX;
 /// and reported back as [`ThumbResult::dropped`] so the UI can reset those
 /// cards and simply re-request them if they are still on screen.
 pub const HOT_QUEUE_CAP: usize = 512;
+/// Background warm jobs after a scan. Oldest are dropped once the cap is hit;
+/// on-demand (hot) requests are unaffected.
+pub const WARM_QUEUE_CAP: usize = 4096;
+/// Overnight / explicit pre-warm queue.
+pub const SLOW_QUEUE_CAP: usize = 8192;
 
 #[derive(Clone)]
 pub struct ThumbRequest {
@@ -294,7 +311,13 @@ impl ThumbPool {
             return;
         }
         let mut q = self.shared.queue.lock().unwrap();
+        if q.warm.iter().any(|r| r.key == req.key) {
+            return;
+        }
         q.warm.push_back(req);
+        while q.warm.len() > WARM_QUEUE_CAP {
+            q.warm.pop_front();
+        }
         self.shared.cv.notify_one();
     }
 
@@ -303,6 +326,9 @@ impl ThumbPool {
     pub fn request_slow(&self, req: ThumbRequest) {
         let mut q = self.shared.queue.lock().unwrap();
         q.slow.push_back(req);
+        while q.slow.len() > SLOW_QUEUE_CAP {
+            q.slow.pop_front();
+        }
         self.shared.cv.notify_one();
     }
 
@@ -311,6 +337,9 @@ impl ThumbPool {
     pub fn request_slow_deferred(&self, req: ThumbRequest) {
         let mut q = self.shared.queue.lock().unwrap();
         q.slow_deferred.push_back(req);
+        while q.slow_deferred.len() > SLOW_QUEUE_CAP {
+            q.slow_deferred.pop_front();
+        }
         self.shared.cv.notify_one();
     }
 
@@ -1169,6 +1198,32 @@ mod tests {
         // Version suffix is baked into every key; bump CACHE_KEY_VERSION to
         // invalidate stale icon JPEGs after pipeline fixes.
         assert_eq!(a.len(), 32);
+    }
+
+    #[test]
+    fn cache_epoch_is_five() {
+        assert_eq!(cache_epoch(), "5");
+    }
+
+    #[test]
+    fn warm_queue_caps_and_dedupes_keys() {
+        let pool = ThumbPool::new();
+        let stub = |id: u32, key: &str| ThumbRequest {
+            id,
+            generation: pool.shared.active_generation.load(Ordering::Relaxed),
+            path: PathBuf::from("nonexistent"),
+            key: key.into(),
+            color_only: false,
+            shared_dir: None,
+            src_bytes: 0,
+            pdf_page: None,
+        };
+        for i in 0..(WARM_QUEUE_CAP + 50) {
+            pool.request_warm(stub(i as u32, &format!("k{i}")));
+        }
+        pool.request_warm(stub(1, "k1"));
+        let n = pool.shared.queue.lock().unwrap().warm.len();
+        assert!(n <= WARM_QUEUE_CAP, "warm queue grew to {n}");
     }
 
     /// The bug this guards: for months every cached thumbnail for a set of

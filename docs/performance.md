@@ -161,6 +161,20 @@ shell-first era wrote is suspect, because we could not tell an icon from a
 preview and cached both the same way. Re-warming is cheap now — that is the
 whole point of `rasterthumb`.
 
+### Version 5 was an SVG-only bump, and that was a mistake
+
+`dc3178c` (8 August 2026) added an SVG extractor and moved `CACHE_KEY_VERSION`
+from `4` to `5`. Keys are opaque hashes of `path + size + mtime + version`, so
+every previously warmed JPEG — PNG, photo, PDF, Office, 3dm — became an orphan
+overnight. Adding a format is a miss on that extension, not a reason to
+re-extract every card the user already paid for. The icon episode that forced
+`3 → 4` *was* a recipe change: existing `{key}.jpg` bytes were lies. SVG was
+not.
+
+Machines on epoch 5 must re-warm. Do not dual-read v4 keys (the hashes are
+opaque, and some still hold icons). Do not bump to 6 unless current JPEGs would
+be wrong. `thumbs::cache_epoch()` is the readout; Advanced shows `thumb cache v5`.
+
 ### Every derived-artifact cache needs a recipe version
 
 The icon episode above is a specific case of a general trap, and the home shelf's

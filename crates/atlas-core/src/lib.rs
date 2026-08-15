@@ -8,6 +8,7 @@
 
 pub mod cloud;
 pub mod dirmeta;
+pub mod display;
 pub mod export;
 pub mod folder_heat;
 pub mod fsops;
