@@ -1,10 +1,12 @@
-# Workplan — Audit №1 implementation
+# Workplan — Audit №1 implementation + Audit №3 Wave P
 
 **Inputs:** `audit-2026-07-25-protocols-collaboration-agents-api.md` (`c808966`)
 and the flexibility stress test (audit №2);
 `docs/audit/2026-07-25-decisions.md` (D1–D6),
 `docs/audit/2026-07-25-decisions-flexibility.md` (D7–D16),
-`docs/audit/amendments/2026-07-25-amendments.md` (unratified).
+`docs/audit/amendments/2026-07-25-amendments.md` (unratified);
+**audit №3** (`docs/audit/2026-08-15-health-executive.md`,
+`docs/audit/2026-08-15-health-marching-orders.md`) for Wave P.
 
 **Where the audits and the decisions disagree, the decisions win.** Audit №2's
 portal generalisation, its sealed-bundle model, its verdict on destructive
@@ -66,6 +68,14 @@ same owned file mean one of them broke its card.
 | **3** | Share: package, edges, shared file | Wave 2 merged + one week of daily use | WI-5, WI-4, WI-8 | 3 lanes |
 | **4** | **Live collaboration** | Wave 3 merged + S3 adopted | WI-9 | 2–3 lanes |
 | **5** | Web portals, dynamics, video scrub, Mode 2, control surfaces | audit №3 | — | — |
+| **P** | **Performance and seam hygiene** (audit №3) | none — Art. II, start now | P0.1–P2.5 | 4-wide on day one; see [wave-perf](tasks/wave-perf.md) |
+
+Wave P is the output of audit №3
+([`docs/audit/2026-08-15-health-marching-orders.md`](../audit/2026-08-15-health-marching-orders.md)).
+It does not wait on Wave 1/2. File ownership is in the card file; a Slate
+card in any other wave still may not edit `apps/file-atlas/**` or bump
+`CACHE_KEY_VERSION`. Web portals (the original Wave 5 headline) already
+shipped in `dc3178c` / `1dd849c` — Wave P pays the performance debt.
 
 Wave 4 is no longer a deferred maybe. Decision D11 makes simultaneous multi-user
 editing a core capability, which is why S3 exists and why it runs early: the
@@ -161,6 +171,11 @@ flowchart TD
 | T2.2 | WI-7 · collage + align/distribute commands | `apps/slate/src/app/{board,dispatch,commands}.rs` | M | [wave-2](tasks/wave-2.md#t22) |
 | T2.3 | Staging layer generalised from the Lens overlay | `crates/atlas-stage/` (new) | M | [wave-2](tasks/wave-2.md#t23) |
 | T2.4 | WI-6b · `atlas-mcp` exposing the command registry | `crates/atlas-mcp/` (new) | M | [wave-2](tasks/wave-2.md#t24) |
+| P0.1 | Cache epoch hygiene + revisit fast-path | `thumbs.rs` (no bump), `performance.md`, Atlas ingest | M | [wave-perf](tasks/wave-perf.md#p01) |
+| P0.2 | Web portal capture off-thread + LOD hysteresis | `board_web.rs`, `board_web_win.rs` | M | [wave-perf](tasks/wave-perf.md#p02) |
+| P0.3 | Watcher metadata off the frame loop | Atlas `apply_fs_change` / scan drain | M | [wave-perf](tasks/wave-perf.md#p03) |
+| P1.1–P1.6 | Slate LRU, path cache, paint cull, warm cap, grid cache, preview cancel | see card file | S–M | [wave-perf](tasks/wave-perf.md) |
+| P2.1–P2.5 | Display params, camera persist, worker cap, portal rename, metrics | see card file | XS–L | [wave-perf](tasks/wave-perf.md) |
 | — | Waves 3–5 | see [wave-3-plus](tasks/wave-3-plus.md) | — | sketch |
 
 ---
@@ -239,6 +254,21 @@ reviewable steps so that a mistake is caught at 300 lines rather than 900.
 T2.1 and T2.2 both touch `board.rs`. **T2.2 owns `board.rs`**; T2.1's board-side
 edits are limited to `item.path` reads and must be listed line-by-line in its
 PR, or deferred to a follow-up card if the diff exceeds ~30 lines there.
+
+### Wave P
+
+Full table: [`tasks/wave-perf.md`](tasks/wave-perf.md). Hard collisions
+with other waves:
+
+- `apps/slate/src/app/board.rs` — P1.3 owns the **paint loop only**.
+  T1.1c owns mutation helpers. T2.2 owns the rest of the file in Wave 2.
+  **P1.3 merges before T2.2 starts.** T1.1c may proceed if it does not
+  touch the paint loop.
+- `crates/atlas-core/src/thumbs.rs` — P0.1 then P1.4. No other wave
+  may bump `CACHE_KEY_VERSION`.
+- `apps/file-atlas/src/app/mod.rs` — P0.1 (`ingest_loaded`,
+  `maybe_request_full`) and P0.3 (`apply_fs_change`, scan/watcher drain).
+  Named functions only.
 
 ---
 
