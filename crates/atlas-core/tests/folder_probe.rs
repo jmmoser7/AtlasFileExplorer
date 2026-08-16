@@ -17,7 +17,10 @@ fn probe_folder() {
 
     let dir = std::env::var("ATLAS_PROBE_DIR").expect("set ATLAS_PROBE_DIR");
     let dir = std::path::PathBuf::from(dir);
-    println!("probing {}\n", dir.display());
+    let epoch = atlas_core::thumbs::cache_epoch();
+    let pool = atlas_core::thumbs::ThumbPool::new();
+    let cache_dir = atlas_core::index::data_dir().join("thumbs");
+    println!("probing {}\nthumb cache epoch {epoch}\n", dir.display());
 
     let mut entries: Vec<_> = std::fs::read_dir(&dir)
         .expect("read_dir")
@@ -94,8 +97,23 @@ fn probe_folder() {
             Some((w, h, _, false)) => format!("{w}x{h} ICON(not cached)"),
             None => "none".to_string(),
         };
+        let (size, mtime) = std::fs::metadata(&path)
+            .ok()
+            .map(|m| {
+                let mt = m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                (m.len(), mt)
+            })
+            .unwrap_or((0, 0));
+        let key = atlas_core::thumbs::cache_key(&name, size, mtime);
+        let has_local = pool.has_local(&key);
+        let icon_tier = cache_dir.join(format!("{key}.icon.jpg")).exists();
         println!(
-            "{name:<34} family={fam:?}\n    raster={:<10} ({:>7.1}ms)   shell={:<10} ({:>7.1}ms)   PIPELINE={:<22} ({:>7.1}ms)",
+            "{name:<34} family={fam:?}\n    raster={:<10} ({:>7.1}ms)   shell={:<10} ({:>7.1}ms)   PIPELINE={:<22} ({:>7.1}ms)\n    epoch={epoch} key={key} has_local={has_local} icon_tier={icon_tier}",
             show(&raster),
             t_raster.as_secs_f64() * 1000.0,
             show(&shell),

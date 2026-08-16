@@ -38,6 +38,8 @@ pub enum ToolIcon {
     RepoLens,
     /// Status Board portal subtype.
     StatusBoard,
+    /// Web portal subtype (embedded page / local HTML dashboard).
+    WebPortal,
 }
 
 impl ToolIcon {
@@ -71,6 +73,7 @@ impl ToolIcon {
             ToolIcon::Portals => "Portals",
             ToolIcon::RepoLens => "Repository Lens",
             ToolIcon::StatusBoard => "Status Board",
+            ToolIcon::WebPortal => "Web portal",
         }
     }
 }
@@ -377,6 +380,27 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
             );
             for (y, w) in [(0.32, 0.62), (0.50, 0.48), (0.68, 0.34)] {
                 painter.line_segment([pt(r, 0.26, y), pt(r, w, y)], s);
+            }
+        }
+        ToolIcon::WebPortal => {
+            // Globe: outline, one meridian, one equator — a page from elsewhere.
+            let c = pt(r, 0.5, 0.5);
+            let rad = r.width() * 0.34;
+            painter.circle_stroke(c, rad, s);
+            painter.line_segment([pt(r, 0.16, 0.5), pt(r, 0.84, 0.5)], s);
+            // Meridian as an ellipse approximated by two mirrored quadratics.
+            let top = pt(r, 0.5, 0.16);
+            let bottom = pt(r, 0.5, 0.84);
+            for side in [-1.0_f32, 1.0] {
+                let bulge = rad * 0.55 * side;
+                let mut pts = Vec::with_capacity(9);
+                for i in 0..=8 {
+                    let t = i as f32 / 8.0;
+                    let y = top.y + (bottom.y - top.y) * t;
+                    let x = c.x + bulge * (std::f32::consts::PI * t).sin();
+                    pts.push(Pos2::new(x, y));
+                }
+                painter.add(egui::Shape::line(pts, s));
             }
         }
     }

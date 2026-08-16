@@ -5,6 +5,9 @@
 //! parameterized by the panel counts. The toggle/expand mechanics are shared
 //! so the gear menus behave identically in every app.
 
+use crate::theme::Palette;
+use eframe::egui::{self, CornerRadius, Rect, Stroke, StrokeKind};
+
 /// Per-tab UI chrome configuration (nested inside the active tab's workspace).
 ///
 /// `T` = number of tool panels, `R` = number of readout panels. Panel enums
@@ -70,4 +73,27 @@ impl<const T: usize, const R: usize> ChromeConfig<T, R> {
     pub fn set_readout(&mut self, panel: impl Into<usize>, on: bool) {
         self.readouts[panel.into()] = on;
     }
+}
+
+/// Shared canvas mode cue: a thin danger border inside the canvas viewport.
+///
+/// The border says the canvas is armed for destructive work, so it is painted
+/// in [`Palette::danger`] rather than the accent — the accent is the colour of
+/// ordinary, safe emphasis everywhere else, and a mode that can delete files
+/// must not look like one of those. Apps decide when to show it; chrome owns
+/// the paint vocabulary.
+pub fn canvas_mode_border(ctx: &egui::Context, rect: Rect, palette: &Palette) {
+    if !rect.is_positive() {
+        return;
+    }
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("atlas_canvas_mode_border"),
+    ));
+    painter.rect_stroke(
+        rect.shrink(1.0),
+        CornerRadius::same(8),
+        Stroke::new(1.5_f32, palette.danger),
+        StrokeKind::Inside,
+    );
 }

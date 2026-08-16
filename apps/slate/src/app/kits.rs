@@ -107,11 +107,13 @@ mod tests {
                 BoardTool::DirectSelect => 15,
                 BoardTool::RepoLens => 16,
                 BoardTool::StatusBoard => 17,
+                BoardTool::AgentPortal => 18,
+                BoardTool::WebPortal => 19,
             }
         }
         let mut tags: Vec<u8> = BoardTool::ALL.into_iter().map(tag).collect();
         tags.sort_unstable();
-        assert_eq!(tags, (0..18).collect::<Vec<u8>>());
+        assert_eq!(tags, (0..20).collect::<Vec<u8>>());
     }
 
     #[test]
@@ -138,6 +140,8 @@ mod tests {
                 BoardTool::Ellipse,
                 BoardTool::RepoLens,
                 BoardTool::StatusBoard,
+                BoardTool::AgentPortal,
+                BoardTool::WebPortal,
             ],
             "begin_gesture's Draw arm and grammar() must agree"
         );

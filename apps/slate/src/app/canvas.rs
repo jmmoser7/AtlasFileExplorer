@@ -21,10 +21,11 @@ const CARD_PAD: f32 = 7.0;
 const VENN_ITEM_R: f32 = 9.0;
 /// Venn engine units → world units.
 const VENN_SCALE: f32 = 9.0;
-const ZOOM_MIN: f32 = 0.05;
-const ZOOM_MAX: f32 = 3.5;
+const ZOOM_MIN: f32 = atlas_core::display::SLATE_CANVAS.min;
+const ZOOM_MAX: f32 = atlas_core::display::SLATE_CANVAS.max;
 
 /// One laid-out thumbnail (world space).
+#[derive(Clone)]
 struct Placed {
     id: ItemId,
     rect: Rect,
@@ -32,13 +33,15 @@ struct Placed {
     circle_r: Option<f32>,
 }
 
+#[derive(Clone)]
 struct GridSection {
     label: String,
     chips: Vec<(String, [u8; 3])>,
     header_pos: Pos2,
 }
 
-struct Layout {
+#[derive(Clone)]
+pub(crate) struct Layout {
     placed: Vec<Placed>,
     sections: Vec<GridSection>,
     /// Venn set circles: (tag, name, color, circle, member count).
@@ -258,9 +261,54 @@ impl SlateApp {
         }
     }
 
+    fn layout_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::mem::discriminant(&self.doc().view.active_view).hash(&mut h);
+        self.cell.to_bits().hash(&mut h);
+        self.tab().id.hash(&mut h);
+        for t in &self.tab().venn_focus {
+            t.0.hash(&mut h);
+        }
+        self.doc().items.len().hash(&mut h);
+        for item in &self.doc().items {
+            item.id.0.hash(&mut h);
+            for (g, t) in &item.assignments {
+                g.0.hash(&mut h);
+                t.0.hash(&mut h);
+            }
+        }
+        h.finish()
+    }
+
+    fn cached_grid_venn_layout(&mut self) -> Layout {
+        let fp = self.layout_fingerprint();
+        if let Some((cached_fp, layout)) = &self.layout_cache {
+            if *cached_fp == fp {
+                return layout.clone();
+            }
+        }
+        #[cfg(test)]
+        {
+            self.layout_builds += 1;
+        }
+        let layout = match self.doc().view.active_view {
+            ViewKind::Venn => self.venn_layout_now(),
+            _ => self.grid_layout(),
+        };
+        self.layout_cache = Some((fp, layout.clone()));
+        layout
+    }
+
     /// The active Grid/Venn layout, recomputed on demand (cheap, and only
     /// runs on key events — search fly-to, Tab cycling, palette fit).
     fn layout_now(&self) -> Option<Layout> {
+        let fp = self.layout_fingerprint();
+        if let Some((cached_fp, layout)) = &self.layout_cache {
+            if *cached_fp == fp {
+                return Some(layout.clone());
+            }
+        }
         match self.doc().view.active_view {
             ViewKind::Grid => Some(self.grid_layout()),
             ViewKind::Venn => Some(self.venn_layout_now()),
@@ -461,10 +509,7 @@ impl SlateApp {
             return;
         }
 
-        let layout = match self.doc().view.active_view {
-            ViewKind::Venn => self.venn_layout_now(),
-            _ => self.grid_layout(),
-        };
+        let layout = self.cached_grid_venn_layout();
 
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         let pointer = ui.ctx().pointer_latest_pos();
@@ -484,7 +529,7 @@ impl SlateApp {
                     self.tab_mut().cam.offset.x -= scroll / z;
                     canvas_nav = true;
                 } else if let Some(p) = pointer {
-                    self.zoom_at(p, 1.0 + scroll * 0.0015);
+                    self.zoom_at(p, atlas_core::display::SLATE_CANVAS.wheel_factor(scroll));
                     canvas_nav = true;
                 }
             }

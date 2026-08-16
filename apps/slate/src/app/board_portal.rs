@@ -516,6 +516,7 @@ impl SlateApp {
             PortalKind::StatusBoard => {
                 p.title == "Status Board" || p.title.starts_with("Status Board")
             }
+            PortalKind::Agent | PortalKind::Web => false,
         };
         if rename {
             if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
@@ -816,6 +817,7 @@ impl SlateApp {
                     }
                 }
             },
+            PortalKind::Agent | PortalKind::Web => {}
         }
     }
 

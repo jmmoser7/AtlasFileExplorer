@@ -81,6 +81,7 @@ snapshot. Every row is mirrored in `decisions.json`.
 | D29 | Performance envelope | Parse + layout on a background thread, generation-tagged, drained once per frame. Budget: layout < 5 ms for the shipped snapshot; paint is a cached prim list (Art. II.2). No per-frame allocation of the snapshot | pattern | 85 |
 | D30 | Failure & honesty states | `Unbound` — "Choose status snapshot…". `Unknown` — unresolved locator, named, neutral marker (Art. IX.3). `Loading`. `Ready`. `Missing` — locator named, frame intact. `NotASnapshot` — bound to a file/folder that is not a status JSON, says why. `Unreadable(msg)` — permission or I/O; **no partial scores presented as complete** | pattern | 90 |
 | D31 | View-state ownership | P1.portal.sync. **Journaled:** frame rect, rotation, `source`, every `status` flag. **Derived, never journaled:** analysis status, cached snapshot, cached layout | pattern | 90 |
+| D32 | Trust, sandbox & consent | Nothing to consent to, and this is a property of the design rather than an omission: contents are parsed from a local `project-state.json` the human picked, no code from that file is ever executed, and remote URLs and hosted dashboards are refused as source kinds (D19, Art. I.4). The portal opens no network connection, so no origin permission exists. Restated from already-approved D15/D19/D27 when D32 joined the registry | pattern | 90 |
 
 Source values: stated (user), precedent (approved in `decisions.json` for an
 overlapping contract), pattern (catalog or constitution), research (source

@@ -62,3 +62,4 @@ Rules:
 | D29 | Performance envelope | Async/generation-tagging, caching keys, windowing, and the size budget the portal commits to (Art. II) | portal | portal-lens-repository |
 | D30 | Failure & honesty states | Every state the source can be in — missing, wrong kind, partial, unreachable — and what each one paints | portal | portal-lens-repository |
 | D31 | View-state ownership | Which knobs are journaled authored intent and which are per-peer derived state (Art. VI.3 / VIII.5) | portal | portal-lens-repository |
+| D32 | Trust, sandbox & consent | What foreign code or network access the contents are given, what sandbox holds them, and what the human must permit before the first fetch | portal | portal-web-embed |

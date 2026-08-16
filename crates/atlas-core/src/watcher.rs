@@ -27,6 +27,12 @@ fn in_own_cache(p: &std::path::Path) -> bool {
     })
 }
 
+/// Watch `root` for changes.
+///
+/// Note for callers: an event is cheap to *receive* and not necessarily cheap to
+/// *apply* — resolving one costs a `metadata` round trip, which on a high-latency
+/// share is milliseconds rather than microseconds. Drain this channel with a
+/// per-frame budget instead of to exhaustion (File Atlas: `FS_EVENTS_PER_FRAME`).
 pub fn watch(root: PathBuf) -> Option<FsWatch> {
     let (tx, rx) = unbounded::<FsChange>();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
@@ -60,4 +66,43 @@ pub fn watch(root: PathBuf) -> Option<FsWatch> {
         _watcher: watcher,
         rx,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn our_own_cache_writes_are_not_events() {
+        // Warming writes thumbnails inside the watched root; treating those as
+        // changes would rescan forever. Join with the host separator so Linux
+        // CI and the Windows reference machine exercise the same contract
+        // (`R:\…` is a single component on Unix and would miss the cache dir).
+        let cache = crate::thumbs::CACHE_DIR_NAME;
+        assert!(in_own_cache(
+            &PathBuf::from("Cad")
+                .join("Rhino")
+                .join(cache)
+                .join("ab.jpg")
+        ));
+        assert!(in_own_cache(
+            &PathBuf::from("Cad")
+                .join("Rhino")
+                .join(".ATLAS-CACHE")
+                .join("ab.jpg")
+        ));
+        assert!(!in_own_cache(
+            &PathBuf::from("Cad").join("Rhino").join("model.3dm")
+        ));
+        #[cfg(windows)]
+        {
+            assert!(in_own_cache(&PathBuf::from(
+                r"R:\Cad\Rhino\.atlas-cache\ab.jpg"
+            )));
+            assert!(in_own_cache(&PathBuf::from(
+                r"R:\Cad\Rhino\.ATLAS-CACHE\ab.jpg"
+            )));
+            assert!(!in_own_cache(&PathBuf::from(r"R:\Cad\Rhino\model.3dm")));
+        }
+    }
 }

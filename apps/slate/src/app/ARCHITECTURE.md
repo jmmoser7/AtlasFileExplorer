@@ -208,6 +208,34 @@ a length label, and accumulate completed measurements for the live session
 The `.3dm` reader currently exposes **render meshes only** (`rhino-mesh`), so
 point-to-point works now; curve/surface/volume modes need brep/NURBS metadata.
 
+### Web portals (`board_web.rs`, `board_web_win.rs`)
+
+A web portal is a host-class portal whose contents are a page — an `http(s)`
+URL, or a local `.html` file or folder. The frame, the locator, and the
+viewport parameters are journaled; the rendered page never is.
+
+`board_web.rs` is the whole feature except pixels: states, LOD buckets, pool
+admission, painting, entry paths, and the commands. It talks to a `WebHost`
+trait, and the default implementation is `NullHost`, which is why the feature
+builds and tests on Linux and on Windows machines with no Evergreen runtime —
+portals still place, bind, export, and bake there, and simply report
+`NoRuntime`. The golden-path tests drive a fake host, so the pool is exercised
+without a browser.
+
+`board_web_win.rs` is the one file that knows what a browser is. WebView2 has
+no render-to-texture API, so it hosts the browser through
+`CreateCoreWebView2CompositionController`, points it at a composition visual,
+captures that visual with `Windows.Graphics.Capture`, and reads the D3D11
+texture back into an `egui::ColorImage`. That readback is the expensive step,
+and it is what the two budgets exist for: at most `LIVE_POOL` webviews, and at
+most `UPLOADS_PER_FRAME` texture uploads per frame with the rest carried in a
+backlog. Keyboard is forwarded through DevTools rather than window focus, so
+egui still decides what reaches the page and Esc can peel focus off it.
+
+The page has no channel back into Slate — web messages and host objects are
+disabled — which is what makes Art. VII.4 structural rather than a promise.
+The contract is `docs/keymap/contracts/portal-web-embed.md`.
+
 ### Workbook-in-workbook guards
 
 Adding a `.slate` file to a workbook — file dialog, OS drop, Atlas drag, or

@@ -1,0 +1,11 @@
+{
+  "name": "slate-cursor-sidecar",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@cursor/sdk": "latest"
+  }
+}

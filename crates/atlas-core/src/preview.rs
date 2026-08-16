@@ -18,8 +18,9 @@
 //!
 //! Format routing mirrors the thumbnail extractors: rasters the bundled
 //! `image` build understands decode natively on every platform, PDFs render
-//! through the shared pdfium worker at the requested size, and everything
-//! else asks the platform shell (Windows) for a large extraction.
+//! through the shared pdfium worker at the requested size, SVGs rasterize
+//! via `resvg`, and everything else asks the platform shell (Windows) for a
+//! large extraction.
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::path::{Path, PathBuf};
@@ -99,7 +100,16 @@ impl PreviewPool {
 
     pub fn request(&self, req: PreviewRequest) {
         let mut q = self.shared.queue.lock().unwrap();
+        // A newer tier for the same key supersedes anything still waiting.
+        // In-flight decodes still finish; the caller discards a stale lower
+        // tier when it lands (`drain_previews`).
+        q.retain(|r| r.key != req.key);
         q.push(req);
+        const PREVIEW_QUEUE_CAP: usize = 64;
+        if q.len() > PREVIEW_QUEUE_CAP {
+            let drop = q.len() - PREVIEW_QUEUE_CAP;
+            q.drain(0..drop);
+        }
         self.shared.cv.notify_one();
     }
 }
@@ -156,6 +166,8 @@ pub fn decode_preview(
         "png" | "jpg" | "jpeg" => decode_raster(path, target_px),
         // PDFs render via the shared pdfium worker at the requested size.
         "pdf" => crate::pdf::thumbnail_page(path, pdf_page.unwrap_or(0), target_px as i32),
+        // SVGs rasterize via resvg (same extractor as the thumbnail path).
+        "svg" => crate::svg::thumbnail(path, target_px),
         // Everything else: the platform shell (Windows) often produces large
         // previews — video posters, HEIC/PSD with codec packs installed, …
         _ => crate::thumbs::shell_image_at(path, target_px as i32),
@@ -272,5 +284,38 @@ mod tests {
             }
         }
         assert!(got_big && got_tiny);
+    }
+
+    #[test]
+    fn a_newer_tier_for_the_same_key_drops_the_queued_one() {
+        let pool = PreviewPool::new();
+        let big = temp_png("supersede.png", 800, 800);
+        pool.request(PreviewRequest {
+            id: 1,
+            path: big.clone(),
+            key: "same".into(),
+            target_px: 256,
+            pdf_page: None,
+        });
+        pool.request(PreviewRequest {
+            id: 2,
+            path: big,
+            key: "same".into(),
+            target_px: 512,
+            pdf_page: None,
+        });
+        let res = pool
+            .rx
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("one result");
+        assert_eq!(res.id, 2, "the superseded 256 request must not decode");
+        let (w, h, _) = res.image.expect("512 decode");
+        assert_eq!((w, h), (512, 512));
+        assert!(
+            pool.rx
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_err(),
+            "no leftover result for the dropped tier"
+        );
     }
 }

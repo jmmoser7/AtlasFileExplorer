@@ -60,7 +60,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | E | Photoshop | **Eraser** — drag across strokes to remove them | Board | ✅ exists | Vector semantics: stroke-level erase (hit-tested whole-stroke delete) first; segment splitting is 🟡 P2. Journaled `Remove`s. |
 | F | Miro | **Frame tool** | Board | ✅ exists | Fit-view stays `Home` on Board, `F` elsewhere (existing, deliberate). |
 | G | Miro | **Toggle board grid** | Board | ✅ exists | Grid toggle exists in dock; this adds the key. `F7` = alias (Rhino muscle memory). |
-| H | Miro | **Hand tool** | Board | ✅ exists | Atlas needs no hand mode — every drag already pans (⛔ for Atlas, no-op value). |
+| H | Miro | **Hand tool** | Board | ✅ exists | Atlas needs no hand mode — right-drag pans from anywhere, cards included (⛔ for Atlas, no-op value). |
 | I | Photoshop | **Eyedropper** — sample color under cursor into foreground | Board | ✅ exists | Samples node fill/stroke/text color; image-pixel sampling 🟡 P2. Alt+click samples into background. |
 | L | Rhino | **Line** — parametric two-point line (click-move-click or press-drag-release) | Board | ✅ exists | Contract shipped 2026-07-23: `contracts/line.md` (P2.RhinoDraft grammar — Tab direction lock, typed length, one-shot; endpoint grips, no bbox). Replaced the bbox drag line; legacy `.slate` bbox lines convert on load. Also in the `P` precise-family flyout. |
 | M | Miro | **Minimap toggle** | **Both** | ✅ exists | Shared `atlas-shell` overlay widget (Art. X). Click/drag to navigate; viewport rectangle indicator. Atlas trees are huge — both apps win. |
@@ -81,7 +81,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Enter | Rhino | **Repeat last command** (idle only) | Both | 🔵 adapt | Only when no draft/crop/edit is active — Enter keeps finishing paths, crops, text. |
 | Esc | Rhino | **Cancel stack** | Both | ✅/🔵 | Already layered ad-hoc; formalized as an explicit cancel stack in the registry (tool op → draft → crop → selection → menus → tool=Select). |
 | Tab / Shift+Tab | Miro | **Cycle selection through objects** | Board + Atlas | ✅ exists | Board: reading-order traversal with camera nudge; groups count as one stop. Atlas: cycles filtered file matches. During a P2.RhinoDraft gesture, Tab instead locks the pending segment's direction (`contracts/line.md` D07). |
-| Delete | Rhino | **Delete object** | Board | ✅ exists | ⛔ for Atlas: Atlas never deletes real files (its mutations are assign/export only). |
+| Delete | Rhino | **Delete object / file** | Board + Atlas | ✅ exists | Atlas: Edit mode only; acts on the selection, or on the item under the cursor when nothing is selected. Warns before the Recycle Bin delete; Shift+Delete is permanent and always confirms. |
 | Arrows | Miro | **Nudge selection / pan canvas** | Both | 🔵 adapt | Board nudge exists (Shift = ×10). New: with nothing selected, arrows pan the canvas — and this is the Atlas behavior. |
 | [ / ] | Photoshop | **Brush width − / +** | Board | ✅ exists | Live width-circle cursor preview while stepping. Also steps the eraser while E is armed. |
 | , / . | Photoshop | **Previous / next brush preset** | Board | 🟡 adopt-P2 | Presets are user-space data assets (Art. VII.3). |
@@ -148,6 +148,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Ctrl+Shift+V | Photoshop | **Paste in place** | Board | ✅ exists | |
 | Ctrl+Shift+P | Grasshopper | **Preferences** — open Advanced window | Both | ✅ exists | |
 | Ctrl+Shift+H | Rhino | **Show all hidden** | Board | ✅ exists | Rhino's ShowSelected needs a "show ghosts" picker — 🟡 P2; show-all is the P1 form. |
+| Ctrl+Shift+N | Windows File Explorer | **New folder / subdirectory** | Atlas | ✅ exists | Edit mode only; creates under the hovered folder or root via an anchored name popup. |
 
 ## Alt & mouse + modifier
 
@@ -159,6 +160,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Ctrl+RMB drag | Rhino | Zoom view | — | ⛔ reject | **Ctrl+right-drag is turbo pan** — a shipped, documented, signature gesture in both apps. Zoom-drag lives on `Z`. |
 | Shift+RMB drag | Rhino | Pan | Both | ✅ exists | Right-drag already pans everywhere. |
 | Alt+drag | Miro | Duplicate object | Board | ✅ exists | |
+| Alt+LMB drag file/folder | Windows File Explorer | **Copy into folder** | Atlas | ✅ exists | Edit mode only. LMB drag with Alt held through release copies to the highlighted folder; no Alt moves. Blank release is a null action. |
 | Alt+scroll / Alt+RMB | Rhino | Pan perspective | — | ⛔ reject | 3D-viewport gesture; our placed `.3dm` viewports already implement Rhino nav internally. |
 | Ctrl+click | Rhino | Remove from selection | Both | ✅ exists | Ctrl+click toggles — removal included. |
 | Ctrl+MMB drag | Rhino | Pan | Board | ✅ exists | Middle-drag pans. |
@@ -215,5 +217,5 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | F12 DigClick | ⛔ | No digitizer domain (Art. III). |
 | Ctrl+P Print | ⛔ defer | Roadmap Phase 5 (print-faithful export) owns this. |
 | Ctrl+S (Atlas) | ⛔ | Atlas has no document; the index persists itself. |
-| Delete (Atlas) | ⛔ | Atlas never deletes user files — assign/export only. |
+| Delete outside Atlas Edit mode | ⛔ | View mode remains safe browsing; real file deletes require explicit Edit mode and human confirmation. |
 | Alt+scroll perspective pan | ⛔ | 3D-only; `.3dm` viewports already speak Rhino inside. |

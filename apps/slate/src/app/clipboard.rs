@@ -199,6 +199,14 @@ impl SlateApp {
     /// (`None` = paste in place at source coordinates). One journaled Add
     /// group; the copies become the selection. Returns pasted count.
     pub(crate) fn board_paste(&mut self, os_text: Option<&str>, at: Option<Pos2>) -> usize {
+        // A pasted URL is a page, not text (D01). Checked before the scene
+        // payload so copying nodes and copying a link never compete.
+        if let Some(text) = os_text {
+            let target = at.unwrap_or_else(|| self.tab().cam.offset.to_pos2());
+            if self.paste_web_url(text, target) {
+                return 1;
+            }
+        }
         let payload = self.paste_payload(os_text);
         if payload.is_empty() {
             return 0;

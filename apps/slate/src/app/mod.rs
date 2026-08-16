@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 pub mod association;
 pub mod board;
+mod board_agent;
 mod board_color;
 pub mod board_crop;
 mod board_direct;
@@ -34,6 +35,9 @@ mod board_path;
 mod board_portal;
 mod board_snap;
 mod board_style;
+pub mod board_web;
+#[cfg(windows)]
+mod board_web_win;
 mod board_wire;
 pub mod canvas;
 pub mod chrome;
@@ -83,7 +87,7 @@ impl Default for Camera {
     fn default() -> Self {
         Camera {
             offset: Vec2::ZERO,
-            z: 0.8,
+            z: atlas_core::display::SLATE_CANVAS.default_z,
         }
     }
 }
@@ -182,6 +186,11 @@ pub enum PickerMsg {
         portal: NodeId,
         path: Option<PathBuf>,
     },
+    /// File or folder picked as a web portal source (D19).
+    WebPortalSource {
+        portal: NodeId,
+        path: Option<PathBuf>,
+    },
 }
 
 pub enum ThumbState {
@@ -219,6 +228,12 @@ pub struct SlateApp {
 
     /// Texture cache keyed by thumbnail cache key.
     pub textures: HashMap<String, ThumbState>,
+    /// Last paint frame that needed each thumb key (LRU with `textures`).
+    pub(crate) thumb_used: HashMap<String, u64>,
+    /// Cached Grid/Venn layout; invalidated by a content fingerprint.
+    pub(crate) layout_cache: Option<(u64, canvas::Layout)>,
+    #[cfg(test)]
+    pub(crate) layout_builds: u32,
     /// Round-trip mapping for the thumb pool's u32 ids.
     thumb_slots: HashMap<u32, String>,
     next_thumb_slot: u32,
@@ -262,6 +277,11 @@ pub struct SlateApp {
 
     /// Repository Lens portal runtime (derived extract/layout cache).
     pub portals: board_portal::PortalRuntime,
+    /// Agent portal runtime (derived sessions/proposals; never journaled).
+    pub agents: board_agent::AgentRuntime,
+    /// Web portal runtime: live pool, poster cache, per-origin consent. All
+    /// derived — none of it is journaled or saved (D31, D32).
+    pub web: board_web::WebRuntime,
 
     /// Board tool definitions: the built-in kit plus any in the user's kit
     /// folder. Read once at startup — the board consults it per commit.
@@ -298,6 +318,9 @@ pub struct SlateApp {
     pub alt_down: bool,
     /// Shift modifier state this frame (3D viewport drag = pan).
     pub shift_down: bool,
+    /// Ctrl modifier state this frame (Ctrl+double-click opens a web portal's
+    /// page in the system browser).
+    pub ctrl_down: bool,
 
     /// The glow GL context, for offscreen 3D viewport rendering. `None` in
     /// the headless test harness (3D stays poster/thumbnail-only there).
@@ -412,8 +435,31 @@ impl SlateApp {
         association::ensure_file_association();
         let mut app = Self::with_ctx(&cc.egui_ctx, initial_doc);
         app.gl = cc.gl.clone();
+        app.install_web_host(cc);
         app
     }
+
+    /// Give web portals a real browser when this machine has one. Without it
+    /// the null host stays and portals report `NoRuntime` (D29).
+    #[cfg(windows)]
+    fn install_web_host(&mut self, cc: &eframe::CreationContext<'_>) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Ok(handle) = cc.window_handle() else {
+            return;
+        };
+        let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+            return;
+        };
+        let hwnd = windows::Win32::Foundation::HWND(win32.hwnd.get() as *mut std::ffi::c_void);
+        let user_data = atlas_core::index::data_dir().join("webview2");
+        let _ = std::fs::create_dir_all(&user_data);
+        if let Some(host) = board_web_win::Webview2Host::new(hwnd, &user_data) {
+            self.web.set_host(Box::new(host));
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn install_web_host(&mut self, _cc: &eframe::CreationContext<'_>) {}
 
     /// Full construction from a bare egui context. Used by `new` and by the
     /// headless test harness (no eframe window, no registry writes).
@@ -450,6 +496,10 @@ impl SlateApp {
             cell: 132.0,
             menu: None,
             textures: HashMap::new(),
+            thumb_used: HashMap::new(),
+            layout_cache: None,
+            #[cfg(test)]
+            layout_builds: 0,
             thumb_slots: HashMap::new(),
             next_thumb_slot: 0,
             previews: atlas_core::preview::PreviewPool::new(),
@@ -469,6 +519,8 @@ impl SlateApp {
             ai: atlas_ai::AiPanel::new(),
             lens: lens::LensState::default(),
             portals: board_portal::PortalRuntime::default(),
+            agents: board_agent::AgentRuntime::default(),
+            web: board_web::WebRuntime::default(),
             kits: kits::KitState::load(),
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
@@ -487,6 +539,7 @@ impl SlateApp {
             last_board_edit: None,
             alt_down: false,
             shift_down: false,
+            ctrl_down: false,
             gl: None,
             model3d: model3d::ModelSpace::default(),
             board_snap_guides: Vec::new(),
@@ -542,7 +595,8 @@ impl SlateApp {
             app.registry.validate()
         );
         app.thumbs.retain_generation(THUMB_GENERATION);
-        app.thumbs.ensure_workers(4);
+        app.thumbs
+            .ensure_workers(atlas_core::display::THUMB_WORKERS_SLATE);
         if let Some(path) = initial_doc {
             app.at_home = false;
             app.ensure_work_tab();
@@ -892,6 +946,9 @@ impl SlateApp {
                     tab.lease = lease;
                     tab.read_only = read_only;
                     tab.lease_holder = holder;
+                    let view = tab.doc.view.clone();
+                    tab.cam.offset = Vec2::new(view.cam_x, view.cam_y);
+                    tab.cam.z = atlas_core::display::SLATE_CANVAS.clamp(view.zoom);
                 }
                 self.selection.clear();
                 self.note_scene_change();
@@ -915,6 +972,13 @@ impl SlateApp {
         // Derive the workbook name from the file name on first save.
         if let Some(stem) = path.file_stem() {
             self.tabs[tab_idx].doc.name = stem.to_string_lossy().into_owned();
+        }
+        {
+            let cam = self.tabs[tab_idx].cam;
+            let view = &mut self.tabs[tab_idx].doc.view;
+            view.cam_x = cam.offset.x;
+            view.cam_y = cam.offset.y;
+            view.zoom = cam.z;
         }
         if let Err(e) = self.tabs[tab_idx].doc.save_to(&path) {
             self.toast(format!("Save failed: {e}"));
@@ -1098,7 +1162,12 @@ impl SlateApp {
     }
 
     fn drain_thumbs(&mut self, ctx: &egui::Context) {
-        while let Ok(res) = self.thumbs.rx.try_recv() {
+        let cap = atlas_core::display::SLATE_TEXTURES.uploads_per_frame;
+        let mut uploads = 0;
+        while uploads < cap {
+            let Ok(res) = self.thumbs.rx.try_recv() else {
+                break;
+            };
             let Some(key) = self.thumb_slots.remove(&res.id) else {
                 continue;
             };
@@ -1106,6 +1175,7 @@ impl SlateApp {
                 // Shed from an over-full hot queue: forget the pending marker
                 // so the paint pass re-requests it while the item is visible.
                 self.textures.remove(&key);
+                self.thumb_used.remove(&key);
                 continue;
             }
             let state = match res.image {
@@ -1120,12 +1190,37 @@ impl SlateApp {
                         img,
                         egui::TextureOptions::LINEAR,
                     );
+                    uploads += 1;
                     ThumbState::Ready(tex)
                 }
                 None => ThumbState::Failed,
             };
+            self.thumb_used.insert(key.clone(), self.frame_no);
             self.textures.insert(key, state);
             ctx.request_repaint();
+        }
+        if uploads >= cap {
+            ctx.request_repaint();
+        }
+        self.evict_thumbs();
+    }
+
+    fn evict_thumbs(&mut self) {
+        let cap = atlas_core::display::SLATE_TEXTURES.resident_cap;
+        if self.textures.len() <= cap {
+            return;
+        }
+        let mut by_age: Vec<(u64, String)> = self
+            .textures
+            .keys()
+            .map(|k| (self.thumb_used.get(k).copied().unwrap_or(0), k.clone()))
+            .collect();
+        by_age.sort_by_key(|(used, _)| *used);
+        let drop_n = self.textures.len() - cap + 64;
+        for (_, key) in by_age.into_iter().take(drop_n) {
+            self.textures.remove(&key);
+            self.thumb_pixels.remove(&key);
+            self.thumb_used.remove(&key);
         }
     }
 
@@ -1188,6 +1283,9 @@ impl SlateApp {
     fn do_export(&mut self, dir: PathBuf) {
         // Freeze live 3D viewports so the export shows their latest poses.
         self.lock_all_models();
+        // Web portals: resolve local sources and capture whatever posters the
+        // pool can give us, before anything is written.
+        let (web_sources, web_posters) = self.export_web_maps();
         let safe: String = self
             .doc()
             .name
@@ -1211,6 +1309,8 @@ impl SlateApp {
                 .as_ref()
                 .and_then(|p| p.parent())
                 .map(|p| p.to_path_buf()),
+            web_sources,
+            web_posters,
         };
         match slate_artifact::export_html(self.doc(), &out, &opts) {
             Ok(rep) => {
@@ -1265,6 +1365,12 @@ impl SlateApp {
                         portal,
                         path: Some(path),
                     } => self.bind_portal_source(portal, path),
+                    PickerMsg::WebPortalSource {
+                        portal,
+                        path: Some(path),
+                    } => {
+                        self.bind_web_path(portal, path);
+                    }
                     _ => {}
                 }
             }
@@ -1285,6 +1391,7 @@ impl SlateApp {
         self.preview_reqs_this_frame = 0;
         self.alt_down = ctx.input(|i| i.modifiers.alt);
         self.shift_down = ctx.input(|i| i.modifiers.shift);
+        self.ctrl_down = ctx.input(|i| i.modifiers.command);
         self.frame_time = ctx.input(|i| i.time);
         self.drain_pickers();
         self.heartbeat_active_lease();
@@ -1296,6 +1403,8 @@ impl SlateApp {
         self.ai.poll();
         self.lens_pump(ctx);
         self.portal_pump(ctx);
+        self.agent_pump(ctx);
+        self.web_pump(ctx);
         self.ai_context_frame();
 
         // Dropped files land in the active workbook, uncategorized. On the
@@ -1313,13 +1422,24 @@ impl SlateApp {
                 self.leave_home();
                 self.ensure_work_tab();
             }
-            let items = self.add_paths(&dropped);
-            if self.doc().view.active_view == ViewKind::Board && !items.is_empty() {
-                let at = ctx
-                    .input(|i| i.pointer.hover_pos())
-                    .map(|p| self.board_xf().s2w(p))
-                    .unwrap_or_else(|| self.tab().cam.offset.to_pos2());
-                self.place_items_on_board(&items, at);
+            let at = ctx
+                .input(|i| i.pointer.hover_pos())
+                .map(|p| self.board_xf().s2w(p))
+                .unwrap_or_else(|| self.tab().cam.offset.to_pos2());
+            // An HTML page dropped on the board is a portal, not a snippet card
+            // (D01). Alt keeps the old text card, which is the only way back.
+            let alt = ctx.input(|i| i.modifiers.alt);
+            let on_board = self.doc().view.active_view == ViewKind::Board;
+            let dropped = if on_board && !alt {
+                self.divert_web_drops(&dropped, at)
+            } else {
+                dropped
+            };
+            if !dropped.is_empty() {
+                let items = self.add_paths(&dropped);
+                if on_board && !items.is_empty() {
+                    self.place_items_on_board(&items, at);
+                }
             }
         }
         // Dropped/added .slate files open as tabs, after placement above.

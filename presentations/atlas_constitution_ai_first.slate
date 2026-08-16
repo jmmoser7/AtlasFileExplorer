@@ -1,0 +1,4723 @@
+{
+  "format_version": 2,
+  "name": "atlas_constitution_ai_first",
+  "groups": [],
+  "items": [],
+  "view": {
+    "active_view": "board",
+    "cam_x": 640.0,
+    "cam_y": 360.0,
+    "zoom": 0.8
+  },
+  "scene": {
+    "nodes": [
+      {
+        "id": 1,
+        "rect": {
+          "x": 0.0,
+          "y": 0.0,
+          "w": 1280.0,
+          "h": 720.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Atlas / Slate: an AI-first local canvas",
+            "order": 1,
+            "fill": [
+              246,
+              247,
+              244,
+              255
+            ],
+            "assignments": {}
+          }
+        }
+      },
+      {
+        "id": 2,
+        "rect": {
+          "x": 70.0,
+          "y": 55.0,
+          "w": 1140.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Atlas / Slate: an AI-first local canvas",
+            "family": "serif",
+            "size": 42.0,
+            "color": [
+              18,
+              24,
+              35,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "rect": {
+          "x": 76.0,
+          "y": 122.0,
+          "w": 1050.0,
+          "h": 46.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "A proof-of-concept deck authored as a Slate workbook by an agent using the new Agent portal pipeline.",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              80,
+              90,
+              110,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "rect": {
+          "x": 80.0,
+          "y": 210.0,
+          "w": 360.0,
+          "h": 44.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Core thesis",
+            "family": "sans",
+            "size": 24.0,
+            "color": [
+              50,
+              60,
+              76,
+              255
+            ],
+            "align": "left",
+            "fill": [
+              232,
+              238,
+              248,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 5,
+        "rect": {
+          "x": 90.0,
+          "y": 270.0,
+          "w": 560.0,
+          "h": 169.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "One lean native canvas replaces subscription monoliths by building only the 10% you actually use, then exposing the same command surface to humans and agents.",
+            "family": "sans",
+            "size": 30.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "rect": {
+          "x": 760.0,
+          "y": 220.0,
+          "w": 300.0,
+          "h": 64.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              233,
+              238,
+              247,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                145,
+                160,
+                190,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 14.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 7,
+        "rect": {
+          "x": 776.0,
+          "y": 232.0,
+          "w": 268.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "local-first",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              30,
+              45,
+              70,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 8,
+        "rect": {
+          "x": 760.0,
+          "y": 310.0,
+          "w": 300.0,
+          "h": 64.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              233,
+              238,
+              247,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                145,
+                160,
+                190,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 14.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 9,
+        "rect": {
+          "x": 776.0,
+          "y": 322.0,
+          "w": 268.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "journaled commands",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              30,
+              45,
+              70,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 10,
+        "rect": {
+          "x": 760.0,
+          "y": 400.0,
+          "w": 220.0,
+          "h": 64.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              233,
+              238,
+              247,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                145,
+                160,
+                190,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 14.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 11,
+        "rect": {
+          "x": 776.0,
+          "y": 412.0,
+          "w": 188.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "portals",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              30,
+              45,
+              70,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 12,
+        "rect": {
+          "x": 760.0,
+          "y": 490.0,
+          "w": 300.0,
+          "h": 64.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              233,
+              238,
+              247,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                145,
+                160,
+                190,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 14.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 13,
+        "rect": {
+          "x": 776.0,
+          "y": 502.0,
+          "w": 268.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "agents stage work",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              30,
+              45,
+              70,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 14,
+        "rect": {
+          "x": 1500.0,
+          "y": 0.0,
+          "w": 1280.0,
+          "h": 720.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Why a constitution exists",
+            "order": 2,
+            "fill": [
+              246,
+              247,
+              244,
+              255
+            ],
+            "assignments": {}
+          }
+        }
+      },
+      {
+        "id": 15,
+        "rect": {
+          "x": 1570.0,
+          "y": 55.0,
+          "w": 1140.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Why a constitution exists",
+            "family": "serif",
+            "size": 42.0,
+            "color": [
+              18,
+              24,
+              35,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 16,
+        "rect": {
+          "x": 1576.0,
+          "y": 122.0,
+          "w": 1050.0,
+          "h": 46.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "The project law: when code and constitution disagree, code is wrong.",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              80,
+              90,
+              110,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 17,
+        "rect": {
+          "x": 1580.0,
+          "y": 190.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 18,
+        "rect": {
+          "x": 1598.0,
+          "y": 208.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "I",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 19,
+        "rect": {
+          "x": 1650.0,
+          "y": 208.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Minimal core",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 20,
+        "rect": {
+          "x": 1865.0,
+          "y": 190.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 21,
+        "rect": {
+          "x": 1883.0,
+          "y": 208.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "II",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 22,
+        "rect": {
+          "x": 1935.0,
+          "y": 208.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Performance",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 23,
+        "rect": {
+          "x": 2150.0,
+          "y": 190.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 24,
+        "rect": {
+          "x": 2168.0,
+          "y": 208.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "III",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 25,
+        "rect": {
+          "x": 2220.0,
+          "y": 208.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "10% rule",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 26,
+        "rect": {
+          "x": 2435.0,
+          "y": 190.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 27,
+        "rect": {
+          "x": 2453.0,
+          "y": 208.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "IV",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 28,
+        "rect": {
+          "x": 2505.0,
+          "y": 208.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Honest models",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 29,
+        "rect": {
+          "x": 1580.0,
+          "y": 325.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 30,
+        "rect": {
+          "x": 1598.0,
+          "y": 343.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "V",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 31,
+        "rect": {
+          "x": 1650.0,
+          "y": 343.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "One universe / portals",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 32,
+        "rect": {
+          "x": 1865.0,
+          "y": 325.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 33,
+        "rect": {
+          "x": 1883.0,
+          "y": 343.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "VI",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 34,
+        "rect": {
+          "x": 1935.0,
+          "y": 343.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Journal-only mutation",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 35,
+        "rect": {
+          "x": 2150.0,
+          "y": 325.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 36,
+        "rect": {
+          "x": 2168.0,
+          "y": 343.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "VII",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 37,
+        "rect": {
+          "x": 2220.0,
+          "y": 343.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Command parity",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 38,
+        "rect": {
+          "x": 2435.0,
+          "y": 325.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 39,
+        "rect": {
+          "x": 2453.0,
+          "y": 343.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "VIII",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 40,
+        "rect": {
+          "x": 2505.0,
+          "y": 343.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Canvas is prompt",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 41,
+        "rect": {
+          "x": 1580.0,
+          "y": 460.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 42,
+        "rect": {
+          "x": 1598.0,
+          "y": 478.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "IX",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 43,
+        "rect": {
+          "x": 1650.0,
+          "y": 478.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Slate links, never absorbs",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 44,
+        "rect": {
+          "x": 1865.0,
+          "y": 460.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 45,
+        "rect": {
+          "x": 1883.0,
+          "y": 478.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "X",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 46,
+        "rect": {
+          "x": 1935.0,
+          "y": 478.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "No chrome divergence",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 47,
+        "rect": {
+          "x": 2150.0,
+          "y": 460.0,
+          "w": 250.0,
+          "h": 92.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                130,
+                145,
+                172,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 48,
+        "rect": {
+          "x": 2168.0,
+          "y": 478.0,
+          "w": 42.0,
+          "h": 40.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "XI",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              70,
+              95,
+              150,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 49,
+        "rect": {
+          "x": 2220.0,
+          "y": 478.0,
+          "w": 155.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Agent conduct",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 50,
+        "rect": {
+          "x": 1590.0,
+          "y": 610.0,
+          "w": 1050.0,
+          "h": 44.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "The constitution lets many agents work without eroding the product thesis.",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              74,
+              82,
+              98,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 51,
+        "rect": {
+          "x": 3000.0,
+          "y": 0.0,
+          "w": 1280.0,
+          "h": 720.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Architecture: durable core, thin interpreters",
+            "order": 3,
+            "fill": [
+              246,
+              247,
+              244,
+              255
+            ],
+            "assignments": {}
+          }
+        }
+      },
+      {
+        "id": 52,
+        "rect": {
+          "x": 3070.0,
+          "y": 55.0,
+          "w": 1140.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Architecture: durable core, thin interpreters",
+            "family": "serif",
+            "size": 42.0,
+            "color": [
+              18,
+              24,
+              35,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 53,
+        "rect": {
+          "x": 3076.0,
+          "y": 122.0,
+          "w": 1050.0,
+          "h": 46.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Pure crates own durable logic. Apps paint it and forward input as commands.",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              80,
+              90,
+              110,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 54,
+        "rect": {
+          "x": 3080.0,
+          "y": 210.0,
+          "w": 235.0,
+          "h": 120.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              236,
+              242,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                100,
+                130,
+                180,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 55,
+        "rect": {
+          "x": 3105.0,
+          "y": 240.0,
+          "w": 185.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "slate-doc\nscene + journal",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              24,
+              36,
+              58,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 56,
+        "rect": {
+          "x": 3365.0,
+          "y": 210.0,
+          "w": 235.0,
+          "h": 120.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              236,
+              242,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                100,
+                130,
+                180,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 57,
+        "rect": {
+          "x": 3390.0,
+          "y": 240.0,
+          "w": 185.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "atlas-commands\nregistry + history",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              24,
+              36,
+              58,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 58,
+        "rect": {
+          "x": 3650.0,
+          "y": 210.0,
+          "w": 235.0,
+          "h": 120.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              236,
+              242,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                100,
+                130,
+                180,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 59,
+        "rect": {
+          "x": 3675.0,
+          "y": 240.0,
+          "w": 185.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "atlas-ai\nfile link + providers",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              24,
+              36,
+              58,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 60,
+        "rect": {
+          "x": 3935.0,
+          "y": 210.0,
+          "w": 235.0,
+          "h": 120.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              236,
+              242,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                100,
+                130,
+                180,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 61,
+        "rect": {
+          "x": 3960.0,
+          "y": 240.0,
+          "w": 185.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "repo/code-lens\nderived analysis",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              24,
+              36,
+              58,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 62,
+        "rect": {
+          "x": 3210.0,
+          "y": 480.0,
+          "w": 240.0,
+          "h": 86.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              250,
+              246,
+              232,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                170,
+                140,
+                80,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 63,
+        "rect": {
+          "x": 3238.0,
+          "y": 508.0,
+          "w": 185.0,
+          "h": 32.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "apps/slate",
+            "family": "sans",
+            "size": 23.0,
+            "color": [
+              65,
+              52,
+              25,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 64,
+        "rect": {
+          "x": 3530.0,
+          "y": 480.0,
+          "w": 240.0,
+          "h": 86.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              250,
+              246,
+              232,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                170,
+                140,
+                80,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 65,
+        "rect": {
+          "x": 3558.0,
+          "y": 508.0,
+          "w": 185.0,
+          "h": 32.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "apps/file-atlas",
+            "family": "sans",
+            "size": 23.0,
+            "color": [
+              65,
+              52,
+              25,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 66,
+        "rect": {
+          "x": 3850.0,
+          "y": 480.0,
+          "w": 240.0,
+          "h": 86.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              250,
+              246,
+              232,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                170,
+                140,
+                80,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 67,
+        "rect": {
+          "x": 3878.0,
+          "y": 508.0,
+          "w": 185.0,
+          "h": 32.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "slate-artifact",
+            "family": "sans",
+            "size": 23.0,
+            "color": [
+              65,
+              52,
+              25,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 68,
+        "rect": {
+          "x": 3115.0,
+          "y": 620.0,
+          "w": 1040.0,
+          "h": 44.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Painter, exporter, and agent surface are interpreters of one model, not parallel worlds.",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              70,
+              76,
+              90,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 69,
+        "rect": {
+          "x": 4500.0,
+          "y": 0.0,
+          "w": 1280.0,
+          "h": 720.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Portals: one board, many live views",
+            "order": 4,
+            "fill": [
+              246,
+              247,
+              244,
+              255
+            ],
+            "assignments": {}
+          }
+        }
+      },
+      {
+        "id": 70,
+        "rect": {
+          "x": 4570.0,
+          "y": 55.0,
+          "w": 1140.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Portals: one board, many live views",
+            "family": "serif",
+            "size": 42.0,
+            "color": [
+              18,
+              24,
+              35,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 71,
+        "rect": {
+          "x": 4576.0,
+          "y": 122.0,
+          "w": 1050.0,
+          "h": 46.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "A portal is a journaled frame whose contents come from elsewhere and are never journaled.",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              80,
+              90,
+              110,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 72,
+        "rect": {
+          "x": 4610.0,
+          "y": 210.0,
+          "w": 320.0,
+          "h": 210.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              232,
+              246,
+              238,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                95,
+                110,
+                135,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 18.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 73,
+        "rect": {
+          "x": 4635.0,
+          "y": 235.0,
+          "w": 270.0,
+          "h": 36.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Generated",
+            "family": "sans",
+            "size": 30.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 74,
+        "rect": {
+          "x": 4645.0,
+          "y": 300.0,
+          "w": 250.0,
+          "h": 80.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "deterministic contents\nexports regenerated view",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              54,
+              64,
+              82,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 75,
+        "rect": {
+          "x": 4990.0,
+          "y": 210.0,
+          "w": 320.0,
+          "h": 210.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              238,
+              238,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                95,
+                110,
+                135,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 18.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 76,
+        "rect": {
+          "x": 5015.0,
+          "y": 235.0,
+          "w": 270.0,
+          "h": 36.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Document",
+            "family": "sans",
+            "size": 30.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 77,
+        "rect": {
+          "x": 5025.0,
+          "y": 300.0,
+          "w": 250.0,
+          "h": 80.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "child document owns edits\nexports rendered child",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              54,
+              64,
+              82,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 78,
+        "rect": {
+          "x": 5370.0,
+          "y": 210.0,
+          "w": 320.0,
+          "h": 210.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              252,
+              239,
+              230,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                95,
+                110,
+                135,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 18.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 79,
+        "rect": {
+          "x": 5395.0,
+          "y": 235.0,
+          "w": 270.0,
+          "h": 36.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Host",
+            "family": "sans",
+            "size": 30.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 80,
+        "rect": {
+          "x": 5405.0,
+          "y": 300.0,
+          "w": 250.0,
+          "h": 80.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "foreign surface owns runtime\nexports poster + pointer",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              54,
+              64,
+              82,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 81,
+        "rect": {
+          "x": 4630.0,
+          "y": 500.0,
+          "w": 1000.0,
+          "h": 86.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Repository Lens is generated. The new Agent portal is host-class: edits arrive as staged commands.",
+            "family": "sans",
+            "size": 26.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "center",
+            "fill": [
+              247,
+              249,
+              252,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 82,
+        "rect": {
+          "x": 6000.0,
+          "y": 0.0,
+          "w": 1280.0,
+          "h": 720.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Journal-only mutation: the audit surface",
+            "order": 5,
+            "fill": [
+              246,
+              247,
+              244,
+              255
+            ],
+            "assignments": {}
+          }
+        }
+      },
+      {
+        "id": 83,
+        "rect": {
+          "x": 6070.0,
+          "y": 55.0,
+          "w": 1140.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Journal-only mutation: the audit surface",
+            "family": "serif",
+            "size": 42.0,
+            "color": [
+              18,
+              24,
+              35,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 84,
+        "rect": {
+          "x": 6076.0,
+          "y": 122.0,
+          "w": 1050.0,
+          "h": 46.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Every mutation is a named, invertible command with an author: human or named agent.",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              80,
+              90,
+              110,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 85,
+        "rect": {
+          "x": 6070.0,
+          "y": 260.0,
+          "w": 190.0,
+          "h": 105.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              241,
+              245,
+              251,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                105,
+                125,
+                160,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 86,
+        "rect": {
+          "x": 6090.0,
+          "y": 280.0,
+          "w": 150.0,
+          "h": 26.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Input",
+            "family": "sans",
+            "size": 23.0,
+            "color": [
+              30,
+              45,
+              70,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 87,
+        "rect": {
+          "x": 6087.0,
+          "y": 318.0,
+          "w": 155.0,
+          "h": 42.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "mouse / key / voice / agent",
+            "family": "sans",
+            "size": 15.0,
+            "color": [
+              74,
+              84,
+              104,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 88,
+        "rect": {
+          "x": 6260.0,
+          "y": 310.0,
+          "w": 70.0,
+          "h": 0.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "path",
+            "fill": null,
+            "stroke": {
+              "width": 3.0,
+              "color": [
+                100,
+                115,
+                145,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "corner": "square",
+            "flip": false,
+            "path": {
+              "start": [
+                0.0,
+                0.0
+              ],
+              "segs": [
+                {
+                  "Line": {
+                    "to": [
+                      1.0,
+                      1.0
+                    ]
+                  }
+                }
+              ],
+              "closed": false
+            }
+          }
+        }
+      },
+      {
+        "id": 89,
+        "rect": {
+          "x": 6310.0,
+          "y": 260.0,
+          "w": 190.0,
+          "h": 105.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              241,
+              245,
+              251,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                105,
+                125,
+                160,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 90,
+        "rect": {
+          "x": 6330.0,
+          "y": 280.0,
+          "w": 150.0,
+          "h": 26.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Command",
+            "family": "sans",
+            "size": 23.0,
+            "color": [
+              30,
+              45,
+              70,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 91,
+        "rect": {
+          "x": 6327.0,
+          "y": 318.0,
+          "w": 155.0,
+          "h": 42.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "registered id + params",
+            "family": "sans",
+            "size": 15.0,
+            "color": [
+              74,
+              84,
+              104,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 92,
+        "rect": {
+          "x": 6500.0,
+          "y": 310.0,
+          "w": 70.0,
+          "h": 0.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "path",
+            "fill": null,
+            "stroke": {
+              "width": 3.0,
+              "color": [
+                100,
+                115,
+                145,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "corner": "square",
+            "flip": false,
+            "path": {
+              "start": [
+                0.0,
+                0.0
+              ],
+              "segs": [
+                {
+                  "Line": {
+                    "to": [
+                      1.0,
+                      1.0
+                    ]
+                  }
+                }
+              ],
+              "closed": false
+            }
+          }
+        }
+      },
+      {
+        "id": 93,
+        "rect": {
+          "x": 6550.0,
+          "y": 260.0,
+          "w": 190.0,
+          "h": 105.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              241,
+              245,
+              251,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                105,
+                125,
+                160,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 94,
+        "rect": {
+          "x": 6570.0,
+          "y": 280.0,
+          "w": 150.0,
+          "h": 26.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Journal",
+            "family": "sans",
+            "size": 23.0,
+            "color": [
+              30,
+              45,
+              70,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 95,
+        "rect": {
+          "x": 6567.0,
+          "y": 318.0,
+          "w": 155.0,
+          "h": 42.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "invertible group + author",
+            "family": "sans",
+            "size": 15.0,
+            "color": [
+              74,
+              84,
+              104,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 96,
+        "rect": {
+          "x": 6740.0,
+          "y": 310.0,
+          "w": 70.0,
+          "h": 0.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "path",
+            "fill": null,
+            "stroke": {
+              "width": 3.0,
+              "color": [
+                100,
+                115,
+                145,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "corner": "square",
+            "flip": false,
+            "path": {
+              "start": [
+                0.0,
+                0.0
+              ],
+              "segs": [
+                {
+                  "Line": {
+                    "to": [
+                      1.0,
+                      1.0
+                    ]
+                  }
+                }
+              ],
+              "closed": false
+            }
+          }
+        }
+      },
+      {
+        "id": 97,
+        "rect": {
+          "x": 6790.0,
+          "y": 260.0,
+          "w": 190.0,
+          "h": 105.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              241,
+              245,
+              251,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                105,
+                125,
+                160,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 98,
+        "rect": {
+          "x": 6810.0,
+          "y": 280.0,
+          "w": 150.0,
+          "h": 26.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Scene",
+            "family": "sans",
+            "size": 23.0,
+            "color": [
+              30,
+              45,
+              70,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 99,
+        "rect": {
+          "x": 6807.0,
+          "y": 318.0,
+          "w": 155.0,
+          "h": 42.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "authored board state",
+            "family": "sans",
+            "size": 15.0,
+            "color": [
+              74,
+              84,
+              104,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 100,
+        "rect": {
+          "x": 6980.0,
+          "y": 310.0,
+          "w": 70.0,
+          "h": 0.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "path",
+            "fill": null,
+            "stroke": {
+              "width": 3.0,
+              "color": [
+                100,
+                115,
+                145,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "corner": "square",
+            "flip": false,
+            "path": {
+              "start": [
+                0.0,
+                0.0
+              ],
+              "segs": [
+                {
+                  "Line": {
+                    "to": [
+                      1.0,
+                      1.0
+                    ]
+                  }
+                }
+              ],
+              "closed": false
+            }
+          }
+        }
+      },
+      {
+        "id": 101,
+        "rect": {
+          "x": 7030.0,
+          "y": 260.0,
+          "w": 190.0,
+          "h": 105.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              241,
+              245,
+              251,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                105,
+                125,
+                160,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 12.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 102,
+        "rect": {
+          "x": 7050.0,
+          "y": 280.0,
+          "w": 150.0,
+          "h": 26.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Undo/export",
+            "family": "sans",
+            "size": 23.0,
+            "color": [
+              30,
+              45,
+              70,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 103,
+        "rect": {
+          "x": 7047.0,
+          "y": 318.0,
+          "w": 155.0,
+          "h": 42.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "same command truth",
+            "family": "sans",
+            "size": 15.0,
+            "color": [
+              74,
+              84,
+              104,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 104,
+        "rect": {
+          "x": 6150.0,
+          "y": 500.0,
+          "w": 980.0,
+          "h": 80.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Agent work stages, waits for acceptance, then commits as CmdAuthor::Agent.",
+            "family": "sans",
+            "size": 28.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "center",
+            "fill": [
+              252,
+              244,
+              224,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 105,
+        "rect": {
+          "x": 7500.0,
+          "y": 0.0,
+          "w": 1280.0,
+          "h": 720.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Agent portal pipeline: live link, proposal by default",
+            "order": 6,
+            "fill": [
+              246,
+              247,
+              244,
+              255
+            ],
+            "assignments": {}
+          }
+        }
+      },
+      {
+        "id": 106,
+        "rect": {
+          "x": 7570.0,
+          "y": 55.0,
+          "w": 1140.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Agent portal pipeline: live link, proposal by default",
+            "family": "serif",
+            "size": 42.0,
+            "color": [
+              18,
+              24,
+              35,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 107,
+        "rect": {
+          "x": 7576.0,
+          "y": 122.0,
+          "w": 1050.0,
+          "h": 46.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "This slide includes a real Agent host portal node and seeded JSON files in the demo AI workspace.",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              80,
+              90,
+              110,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 108,
+        "rect": {
+          "x": 7570.0,
+          "y": 180.0,
+          "w": 240.0,
+          "h": 120.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              235,
+              242,
+              253,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                90,
+                120,
+                170,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 109,
+        "rect": {
+          "x": 7595.0,
+          "y": 205.0,
+          "w": 190.0,
+          "h": 28.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Slate",
+            "family": "sans",
+            "size": 25.0,
+            "color": [
+              24,
+              36,
+              58,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 110,
+        "rect": {
+          "x": 7600.0,
+          "y": 245.0,
+          "w": 180.0,
+          "h": 42.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "context.json\nrequest.json",
+            "family": "sans",
+            "size": 17.0,
+            "color": [
+              70,
+              82,
+              105,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 111,
+        "rect": {
+          "x": 7810.0,
+          "y": 240.0,
+          "w": 55.0,
+          "h": 0.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "path",
+            "fill": null,
+            "stroke": {
+              "width": 3.0,
+              "color": [
+                80,
+                100,
+                140,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "corner": "square",
+            "flip": false,
+            "path": {
+              "start": [
+                0.0,
+                0.0
+              ],
+              "segs": [
+                {
+                  "Line": {
+                    "to": [
+                      1.0,
+                      1.0
+                    ]
+                  }
+                }
+              ],
+              "closed": false
+            }
+          }
+        }
+      },
+      {
+        "id": 112,
+        "rect": {
+          "x": 7865.0,
+          "y": 180.0,
+          "w": 240.0,
+          "h": 120.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              235,
+              242,
+              253,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                90,
+                120,
+                170,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 113,
+        "rect": {
+          "x": 7890.0,
+          "y": 205.0,
+          "w": 190.0,
+          "h": 28.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Sidecar",
+            "family": "sans",
+            "size": 25.0,
+            "color": [
+              24,
+              36,
+              58,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 114,
+        "rect": {
+          "x": 7895.0,
+          "y": 245.0,
+          "w": 180.0,
+          "h": 42.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "@cursor/sdk\nlocal runtime",
+            "family": "sans",
+            "size": 17.0,
+            "color": [
+              70,
+              82,
+              105,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 115,
+        "rect": {
+          "x": 8105.0,
+          "y": 240.0,
+          "w": 55.0,
+          "h": 0.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "path",
+            "fill": null,
+            "stroke": {
+              "width": 3.0,
+              "color": [
+                80,
+                100,
+                140,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "corner": "square",
+            "flip": false,
+            "path": {
+              "start": [
+                0.0,
+                0.0
+              ],
+              "segs": [
+                {
+                  "Line": {
+                    "to": [
+                      1.0,
+                      1.0
+                    ]
+                  }
+                }
+              ],
+              "closed": false
+            }
+          }
+        }
+      },
+      {
+        "id": 116,
+        "rect": {
+          "x": 8160.0,
+          "y": 180.0,
+          "w": 240.0,
+          "h": 120.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              235,
+              242,
+              253,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                90,
+                120,
+                170,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 117,
+        "rect": {
+          "x": 8185.0,
+          "y": 205.0,
+          "w": 190.0,
+          "h": 28.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Stage",
+            "family": "sans",
+            "size": 25.0,
+            "color": [
+              24,
+              36,
+              58,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 118,
+        "rect": {
+          "x": 8190.0,
+          "y": 245.0,
+          "w": 180.0,
+          "h": 42.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "proposal.json\nresult.json",
+            "family": "sans",
+            "size": 17.0,
+            "color": [
+              70,
+              82,
+              105,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 119,
+        "rect": {
+          "x": 8400.0,
+          "y": 240.0,
+          "w": 55.0,
+          "h": 0.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "path",
+            "fill": null,
+            "stroke": {
+              "width": 3.0,
+              "color": [
+                80,
+                100,
+                140,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Round",
+              "join": "Round",
+              "profile": "Uniform"
+            },
+            "corner": "square",
+            "flip": false,
+            "path": {
+              "start": [
+                0.0,
+                0.0
+              ],
+              "segs": [
+                {
+                  "Line": {
+                    "to": [
+                      1.0,
+                      1.0
+                    ]
+                  }
+                }
+              ],
+              "closed": false
+            }
+          }
+        }
+      },
+      {
+        "id": 120,
+        "rect": {
+          "x": 8455.0,
+          "y": 180.0,
+          "w": 240.0,
+          "h": 120.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              235,
+              242,
+              253,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                90,
+                120,
+                170,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 121,
+        "rect": {
+          "x": 8480.0,
+          "y": 205.0,
+          "w": 190.0,
+          "h": 28.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Human",
+            "family": "sans",
+            "size": 25.0,
+            "color": [
+              24,
+              36,
+              58,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 122,
+        "rect": {
+          "x": 8485.0,
+          "y": 245.0,
+          "w": 180.0,
+          "h": 42.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Accept / Reject\none undo group",
+            "family": "sans",
+            "size": 17.0,
+            "color": [
+              70,
+              82,
+              105,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 123,
+        "rect": {
+          "x": 7688.0,
+          "y": 354.0,
+          "w": 920.0,
+          "h": 210.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "agent",
+            "title": "Live Agent Portal: Cursor sidecar",
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "agent": {
+              "provider": "cursor",
+              "session": "agent-constitution-demo",
+              "context": "board"
+            },
+            "fill": [
+              16,
+              22,
+              34,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 124,
+        "rect": {
+          "x": 7715.0,
+          "y": 455.0,
+          "w": 850.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Portal shows session status + staged proposal count. Inspector can Send, Launch, Reveal, Accept, Reject.",
+            "family": "sans",
+            "size": 24.0,
+            "color": [
+              232,
+              238,
+              248,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 125,
+        "rect": {
+          "x": 9000.0,
+          "y": 0.0,
+          "w": 1280.0,
+          "h": 720.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Performance and local-first are product features",
+            "order": 7,
+            "fill": [
+              246,
+              247,
+              244,
+              255
+            ],
+            "assignments": {}
+          }
+        }
+      },
+      {
+        "id": 126,
+        "rect": {
+          "x": 9070.0,
+          "y": 55.0,
+          "w": 1140.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Performance and local-first are product features",
+            "family": "serif",
+            "size": 42.0,
+            "color": [
+              18,
+              24,
+              35,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 127,
+        "rect": {
+          "x": 9076.0,
+          "y": 122.0,
+          "w": 1050.0,
+          "h": 46.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "The reference machine has cloud placeholders, huge folders, and no patience for frame drops.",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              80,
+              90,
+              110,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 128,
+        "rect": {
+          "x": 9090.0,
+          "y": 210.0,
+          "w": 460.0,
+          "h": 105.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              232,
+              246,
+              238,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                110,
+                124,
+                150,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 129,
+        "rect": {
+          "x": 9120.0,
+          "y": 230.0,
+          "w": 400.0,
+          "h": 30.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "60fps canvas",
+            "family": "sans",
+            "size": 27.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 130,
+        "rect": {
+          "x": 9130.0,
+          "y": 270.0,
+          "w": 380.0,
+          "h": 28.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "paint paths cache geometry",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              75,
+              85,
+              104,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 131,
+        "rect": {
+          "x": 9650.0,
+          "y": 210.0,
+          "w": 460.0,
+          "h": 105.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              252,
+              239,
+              230,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                110,
+                124,
+                150,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 132,
+        "rect": {
+          "x": 9680.0,
+          "y": 230.0,
+          "w": 400.0,
+          "h": 30.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "No mass hydration",
+            "family": "sans",
+            "size": 27.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 133,
+        "rect": {
+          "x": 9690.0,
+          "y": 270.0,
+          "w": 380.0,
+          "h": 28.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "cloud bytes are guarded",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              75,
+              85,
+              104,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 134,
+        "rect": {
+          "x": 9090.0,
+          "y": 365.0,
+          "w": 460.0,
+          "h": 105.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              238,
+              238,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                110,
+                124,
+                150,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 135,
+        "rect": {
+          "x": 9120.0,
+          "y": 385.0,
+          "w": 400.0,
+          "h": 30.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Async heavy work",
+            "family": "sans",
+            "size": 27.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 136,
+        "rect": {
+          "x": 9130.0,
+          "y": 425.0,
+          "w": 380.0,
+          "h": 28.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "generation tags discard stale",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              75,
+              85,
+              104,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 137,
+        "rect": {
+          "x": 9650.0,
+          "y": 365.0,
+          "w": 460.0,
+          "h": 105.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              246,
+              248,
+              232,
+              255
+            ],
+            "stroke": {
+              "width": 2.0,
+              "color": [
+                110,
+                124,
+                150,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 16.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 138,
+        "rect": {
+          "x": 9680.0,
+          "y": 385.0,
+          "w": 400.0,
+          "h": 30.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Local-first",
+            "family": "sans",
+            "size": 27.0,
+            "color": [
+              25,
+              28,
+              36,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 139,
+        "rect": {
+          "x": 9690.0,
+          "y": 425.0,
+          "w": 380.0,
+          "h": 28.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "no account required for core",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              75,
+              85,
+              104,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 140,
+        "rect": {
+          "x": 9145.0,
+          "y": 585.0,
+          "w": 990.0,
+          "h": 50.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Agents extend the workspace with data and out-of-process servers, never native in-process binaries.",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              60,
+              70,
+              90,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      },
+      {
+        "id": 141,
+        "rect": {
+          "x": 10500.0,
+          "y": 0.0,
+          "w": 1280.0,
+          "h": 720.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "What the proof demonstrates",
+            "order": 8,
+            "fill": [
+              246,
+              247,
+              244,
+              255
+            ],
+            "assignments": {}
+          }
+        }
+      },
+      {
+        "id": 142,
+        "rect": {
+          "x": 10570.0,
+          "y": 55.0,
+          "w": 1140.0,
+          "h": 70.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "What the proof demonstrates",
+            "family": "serif",
+            "size": 42.0,
+            "color": [
+              18,
+              24,
+              35,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 143,
+        "rect": {
+          "x": 10576.0,
+          "y": 122.0,
+          "w": 1050.0,
+          "h": 46.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Slate can be a sandbox and harness for agents without surrendering the document model.",
+            "family": "sans",
+            "size": 20.0,
+            "color": [
+              80,
+              90,
+              110,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 144,
+        "rect": {
+          "x": 10620.0,
+          "y": 185.0,
+          "w": 1040.0,
+          "h": 72.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              244,
+              247,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                135,
+                150,
+                178,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 14.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 145,
+        "rect": {
+          "x": 10650.0,
+          "y": 205.0,
+          "w": 980.0,
+          "h": 34.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "1. The canvas is the prompt: selection, viewport, spatial arrangement.",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              28,
+              36,
+              52,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 146,
+        "rect": {
+          "x": 10620.0,
+          "y": 290.0,
+          "w": 1040.0,
+          "h": 72.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              244,
+              247,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                135,
+                150,
+                178,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 14.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 147,
+        "rect": {
+          "x": 10650.0,
+          "y": 310.0,
+          "w": 980.0,
+          "h": 34.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "2. The portal is a live local-agent surface, but host-class and honest on export.",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              28,
+              36,
+              52,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 148,
+        "rect": {
+          "x": 10620.0,
+          "y": 395.0,
+          "w": 1040.0,
+          "h": 72.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              244,
+              247,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                135,
+                150,
+                178,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 14.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 149,
+        "rect": {
+          "x": 10650.0,
+          "y": 415.0,
+          "w": 980.0,
+          "h": 34.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "3. The stage layer makes agent edits visible, attributed, rejectable.",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              28,
+              36,
+              52,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 150,
+        "rect": {
+          "x": 10620.0,
+          "y": 500.0,
+          "w": 1040.0,
+          "h": 72.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "shape": {
+            "shape": "rect",
+            "fill": [
+              244,
+              247,
+              252,
+              255
+            ],
+            "stroke": {
+              "width": 1.0,
+              "color": [
+                135,
+                150,
+                178,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "corner": {
+              "rounded": {
+                "radius": 14.0
+              }
+            },
+            "flip": false,
+            "path": null
+          }
+        }
+      },
+      {
+        "id": 151,
+        "rect": {
+          "x": 10650.0,
+          "y": 520.0,
+          "w": 980.0,
+          "h": 34.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "4. The same .slate scene remains a local file, exportable and undoable.",
+            "family": "sans",
+            "size": 22.0,
+            "color": [
+              28,
+              36,
+              52,
+              255
+            ],
+            "align": "left"
+          }
+        }
+      },
+      {
+        "id": 152,
+        "rect": {
+          "x": 10640.0,
+          "y": 620.0,
+          "w": 1000.0,
+          "h": 48.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Morning narrative: conceived as a personal daily driver, governed by a constitution, and designed so agents share the same command surface as humans.",
+            "family": "sans",
+            "size": 21.0,
+            "color": [
+              70,
+              78,
+              94,
+              255
+            ],
+            "align": "center"
+          }
+        }
+      }
+    ],
+    "next_node_id": 153,
+    "next_group_key": 0
+  },
+  "lens_root": null,
+  "next_group_id": 1,
+  "next_tag_id": 1,
+  "next_item_id": 1
+}

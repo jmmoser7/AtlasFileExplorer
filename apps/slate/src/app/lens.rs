@@ -760,7 +760,7 @@ impl SlateApp {
                     self.tab_mut().cam.offset.x -= scroll / z;
                     canvas_nav = true;
                 } else if let Some(p) = pointer {
-                    self.zoom_at(p, 1.0 + scroll * 0.0015);
+                    self.zoom_at(p, atlas_core::display::SLATE_CANVAS.wheel_factor(scroll));
                     canvas_nav = true;
                 }
             }

@@ -1274,6 +1274,9 @@ pub struct ThemeSlots {
     pub thumb_bg: Hex,
     pub select: Hex,
     pub staged: Hex,
+    /// Armed-for-destruction cue: the Edit-mode canvas border and chip. Read as
+    /// a warning at a glance, which is why it is never the accent.
+    pub danger: Hex,
     /// `Visuals::panel_fill`.
     pub panel: Hex,
     /// `Visuals::window_fill`.
@@ -1305,6 +1308,7 @@ impl ThemeSlots {
         "thumb_bg",
         "select",
         "staged",
+        "danger",
         "panel",
         "window",
         "extreme_bg",
@@ -1329,6 +1333,7 @@ impl ThemeSlots {
             thumb_bg: Hex::rgb(0xee, 0xf0, 0xf2),
             select: Hex::rgb(0x1f, 0x6f, 0xb2),
             staged: Hex::rgb(0xc4, 0x84, 0x1d),
+            danger: Hex::rgb(0x9b, 0x1c, 0x1c),
             panel: Hex::rgb(0xf8, 0xf9, 0xfb),
             window: Hex::rgb(0xff, 0xff, 0xff),
             extreme_bg: Hex::rgb(0xee, 0xf0, 0xf2),
@@ -1354,6 +1359,7 @@ impl ThemeSlots {
             thumb_bg: Hex::rgb(0x15, 0x18, 0x1c),
             select: Hex::rgb(0x6f, 0xb7, 0xff),
             staged: Hex::rgb(0xe0, 0xa8, 0x3c),
+            danger: Hex::rgb(0xb3, 0x26, 0x1e),
             panel: Hex::rgb(0x14, 0x16, 0x1a),
             window: Hex::rgb(0x1a, 0x1d, 0x23),
             extreme_bg: Hex::rgb(0x0e, 0x10, 0x13),
@@ -1381,6 +1387,7 @@ impl ThemeSlots {
             "thumb_bg" => &mut self.thumb_bg,
             "select" => &mut self.select,
             "staged" => &mut self.staged,
+            "danger" => &mut self.danger,
             "panel" => &mut self.panel,
             "window" => &mut self.window,
             "extreme_bg" => &mut self.extreme_bg,

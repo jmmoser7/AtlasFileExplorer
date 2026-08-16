@@ -60,6 +60,7 @@ fn discovery_and_owner_pass_are_timed_separately() {
                 first_batch.get_or_insert_with(|| t.elapsed());
                 entries.extend(b);
             }
+            (_, ScanMsg::Dirs(_)) => {}
             (_, ScanMsg::Done { files, elapsed_ms }) => {
                 println!(
                     "discovery:        {files} files in {elapsed_ms} ms  (first batch at {:?})",

@@ -64,10 +64,16 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         DockItem {
             id: "tool.portals",
             label: "Portals",
-            description: "Drop a generated portal onto the board (Repository Lens, Status Board).",
+            description: "Drop a generated or host portal onto the board (Repository Lens, Status Board, Agent, or Web).",
             icon: DockIcon::Custom(icon_portals),
             kind: DockItemKind::Tool,
-            active: matches!(tool, BoardTool::RepoLens | BoardTool::StatusBoard),
+            active: matches!(
+                tool,
+                BoardTool::RepoLens
+                    | BoardTool::StatusBoard
+                    | BoardTool::AgentPortal
+                    | BoardTool::WebPortal
+            ),
             visible: board,
             gap_before: false,
         },
@@ -234,6 +240,32 @@ fn portals_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     .clicked()
     {
         app.set_board_tool(BoardTool::StatusBoard);
+    }
+    if board_icons::tool_menu_row(
+        ui,
+        ToolIcon::Portals,
+        "Agent portal",
+        None,
+        app.board_tool == BoardTool::AgentPortal,
+        theme.ink,
+        theme.sub,
+    )
+    .clicked()
+    {
+        app.set_board_tool(BoardTool::AgentPortal);
+    }
+    if board_icons::tool_menu_row(
+        ui,
+        ToolIcon::WebPortal,
+        "Web portal",
+        None,
+        app.board_tool == BoardTool::WebPortal,
+        theme.ink,
+        theme.sub,
+    )
+    .clicked()
+    {
+        app.set_board_tool(BoardTool::WebPortal);
     }
 }
 

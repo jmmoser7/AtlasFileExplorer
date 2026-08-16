@@ -79,6 +79,11 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
   Grid/Snap buttons dispatch the same commands.
 - **Arrows with nothing selected** pan the board canvas (Shift = faster);
   nudge with a selection is unchanged.
+- **Agent portal** commands are registered alongside Repository Lens:
+  `board.portal.agent`, `portal.agent.send`, `portal.agent.provider`,
+  `portal.agent.reveal`, `portal.agent.launch`, `stage.accept`, and
+  `stage.reject`. They use the file-link/staging contract, so agent edits
+  remain visible and human-accepted.
 
 ### P1 simplifications (deliberate, revisit later)
 
@@ -303,6 +308,9 @@ Camera-only — never journaled, never repeatable.
 - **Status Board** binds a local `project-state.json` (or a folder containing
   one). Inspector section toggles are journaled `Patch`es. Refresh reloads
   the file; Bake copies authored Text/Shape nodes and leaves the portal live.
+- **Web portal** is a host portal: bind a URL, an `.html` file, or a folder
+  with an entry file. That can embed the standalone HTML dashboard; it is
+  not a substitute for the generated Status Board (JSON → native layout).
 
 ## Lens gestures (reference)
 

@@ -1,0 +1,262 @@
+{
+  "date": "2026-08-15",
+  "commit": "20d7a8d",
+  "totals": {
+    "lines_total": 93741,
+    "lines_code": 79043,
+    "pure_lines_code": 20798,
+    "renderer_lines_code": 58245,
+    "pure_ratio": 0.263,
+    "crates": 17,
+    "tests": 743,
+    "unsafe_blocks": 70,
+    "direct_dependencies": 25
+  },
+  "crates": [
+    {
+      "name": "atlas-ai",
+      "kind": "lib",
+      "renderer": true,
+      "lines_total": 947,
+      "lines_code": 779,
+      "tests": 6,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/agent.rs",
+        "lines": 360
+      }
+    },
+    {
+      "name": "atlas-commands",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 986,
+      "lines_code": 717,
+      "tests": 19,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/spec.rs",
+        "lines": 319
+      }
+    },
+    {
+      "name": "atlas-core",
+      "kind": "lib",
+      "renderer": true,
+      "lines_total": 9721,
+      "lines_code": 7759,
+      "tests": 115,
+      "unsafe_blocks": 21,
+      "longest_file": {
+        "path": "src/thumbs.rs",
+        "lines": 1346
+      }
+    },
+    {
+      "name": "atlas-session",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 120,
+      "lines_code": 69,
+      "tests": 0,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/lib.rs",
+        "lines": 120
+      }
+    },
+    {
+      "name": "atlas-shell",
+      "kind": "lib",
+      "renderer": true,
+      "lines_total": 11256,
+      "lines_code": 9429,
+      "tests": 62,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/timeline.rs",
+        "lines": 1581
+      }
+    },
+    {
+      "name": "circle-pack",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 1185,
+      "lines_code": 987,
+      "tests": 14,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/venn.rs",
+        "lines": 641
+      }
+    },
+    {
+      "name": "code-lens",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 3944,
+      "lines_code": 3541,
+      "tests": 37,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/layout.rs",
+        "lines": 1150
+      }
+    },
+    {
+      "name": "collage",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 1010,
+      "lines_code": 803,
+      "tests": 17,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "tests/layout.rs",
+        "lines": 597
+      }
+    },
+    {
+      "name": "native-file-atlas",
+      "kind": "bin",
+      "renderer": true,
+      "lines_total": 13626,
+      "lines_code": 11695,
+      "tests": 40,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/app/mod.rs",
+        "lines": 9551
+      }
+    },
+    {
+      "name": "repo-graph",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 786,
+      "lines_code": 697,
+      "tests": 4,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/extract.rs",
+        "lines": 256
+      }
+    },
+    {
+      "name": "rhino-mesh",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 1551,
+      "lines_code": 1136,
+      "tests": 29,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/lib.rs",
+        "lines": 431
+      }
+    },
+    {
+      "name": "slate",
+      "kind": "bin",
+      "renderer": true,
+      "lines_total": 33068,
+      "lines_code": 28583,
+      "tests": 168,
+      "unsafe_blocks": 49,
+      "longest_file": {
+        "path": "src/app/board.rs",
+        "lines": 5209
+      }
+    },
+    {
+      "name": "slate-artifact",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 2904,
+      "lines_code": 2537,
+      "tests": 33,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/render.rs",
+        "lines": 1301
+      }
+    },
+    {
+      "name": "slate-doc",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 5514,
+      "lines_code": 4432,
+      "tests": 79,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/scene.rs",
+        "lines": 2812
+      }
+    },
+    {
+      "name": "slate-kit",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 2359,
+      "lines_code": 1854,
+      "tests": 61,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/resolve.rs",
+        "lines": 556
+      }
+    },
+    {
+      "name": "vector-ink",
+      "kind": "lib",
+      "renderer": false,
+      "lines_total": 2077,
+      "lines_code": 1762,
+      "tests": 29,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/edit.rs",
+        "lines": 763
+      }
+    },
+    {
+      "name": "xtask",
+      "kind": "bin",
+      "renderer": false,
+      "lines_total": 2687,
+      "lines_code": 2263,
+      "tests": 30,
+      "unsafe_blocks": 0,
+      "longest_file": {
+        "path": "src/contracts.rs",
+        "lines": 850
+      }
+    }
+  ],
+  "model": {
+    "format_version": 2,
+    "node_kinds": 6,
+    "node_kind_names": [
+      "frame",
+      "image",
+      "shape",
+      "text",
+      "connector",
+      "portal"
+    ],
+    "edge_roles": 0,
+    "edge_role_names": [],
+    "scene_cmd_variants": 3
+  },
+  "commands": {
+    "slate": 138,
+    "file-atlas": 55
+  },
+  "deviations": {
+    "open": 9,
+    "accepted": 0,
+    "closed": 8
+  }
+}

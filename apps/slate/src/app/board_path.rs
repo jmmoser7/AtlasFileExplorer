@@ -7,7 +7,7 @@ use slate_doc::scene::{
 };
 use slate_doc::{Node, NodeId, NodeKind};
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
 use vector_ink::{flatten, hit_stroke, stroke_mesh, Cap, InkMesh, Join, StrokeStyle};
@@ -47,18 +47,28 @@ pub(crate) struct CachedInkMesh {
 #[derive(Default)]
 pub struct PathMeshCache {
     map: HashMap<(NodeId, u64), CachedInkMesh>,
+    order: VecDeque<(NodeId, u64)>,
+    fills: HashMap<(NodeId, u64), Vec<[f32; 2]>>,
+    fill_order: VecDeque<(NodeId, u64)>,
 }
 
 impl PathMeshCache {
+    fn evict_lru<V>(map: &mut HashMap<(NodeId, u64), V>, order: &mut VecDeque<(NodeId, u64)>) {
+        while map.len() > CACHE_CAP {
+            if let Some(old) = order.pop_front() {
+                map.remove(&old);
+            } else {
+                break;
+            }
+        }
+    }
+
     pub(crate) fn get_or_tessellate(
         &mut self,
         node_id: NodeId,
         key: u64,
         build: impl FnOnce() -> InkMesh,
     ) -> CachedInkMesh {
-        if self.map.len() > CACHE_CAP {
-            self.map.clear();
-        }
         if let Some(c) = self.map.get(&(node_id, key)) {
             return c.clone();
         }
@@ -69,7 +79,30 @@ impl PathMeshCache {
             indices: ink.indices,
         };
         self.map.insert((node_id, key), cached.clone());
+        self.order.push_back((node_id, key));
+        Self::evict_lru(&mut self.map, &mut self.order);
         cached
+    }
+
+    pub(crate) fn get_or_flatten(
+        &mut self,
+        node_id: NodeId,
+        key: u64,
+        build: impl FnOnce() -> Vec<[f32; 2]>,
+    ) -> Vec<[f32; 2]> {
+        if let Some(pts) = self.fills.get(&(node_id, key)) {
+            return pts.clone();
+        }
+        let pts = build();
+        self.fills.insert((node_id, key), pts.clone());
+        self.fill_order.push_back((node_id, key));
+        Self::evict_lru(&mut self.fills, &mut self.fill_order);
+        pts
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stroke_len(&self) -> usize {
+        self.map.len()
     }
 }
 
@@ -307,9 +340,76 @@ pub fn stroke_style_world(stroke: &Stroke, zoom: f32) -> StrokeStyle {
     }
 }
 
+fn hash_f32(h: &mut impl Hasher, v: f32) {
+    v.to_bits().hash(h);
+}
+
+fn hash_xy(h: &mut impl Hasher, p: [f32; 2]) {
+    hash_f32(h, p[0]);
+    hash_f32(h, p[1]);
+}
+
+fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
+    hash_xy(h, path.start);
+    path.closed.hash(h);
+    path.segs.len().hash(h);
+    for seg in &path.segs {
+        match seg {
+            PathSeg::Line { to } => {
+                0u8.hash(h);
+                hash_xy(h, *to);
+            }
+            PathSeg::Quad { ctrl, to } => {
+                1u8.hash(h);
+                hash_xy(h, *ctrl);
+                hash_xy(h, *to);
+            }
+            PathSeg::Cubic { c1, c2, to } => {
+                2u8.hash(h);
+                hash_xy(h, *c1);
+                hash_xy(h, *c2);
+                hash_xy(h, *to);
+            }
+        }
+    }
+}
+
+fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
+    hash_f32(h, stroke.width);
+    stroke.color.0.hash(h);
+    (stroke.dash as u8).hash(h);
+    (stroke.cap as u8).hash(h);
+    (stroke.join as u8).hash(h);
+    match stroke.profile {
+        WidthProfile::Uniform => 0u8.hash(h),
+        WidthProfile::Taper { start, end } => {
+            1u8.hash(h);
+            hash_f32(h, start);
+            hash_f32(h, end);
+        }
+    }
+}
+
 fn path_content_hash(path: &PathData, stroke: &Stroke, rect: WorldRect, bucket: i64) -> u64 {
     let mut h = DefaultHasher::new();
-    format!("{path:?}{stroke:?}{rect:?}{bucket}").hash(&mut h);
+    hash_path_data(&mut h, path);
+    hash_stroke(&mut h, stroke);
+    hash_f32(&mut h, rect.x);
+    hash_f32(&mut h, rect.y);
+    hash_f32(&mut h, rect.w);
+    hash_f32(&mut h, rect.h);
+    bucket.hash(&mut h);
+    h.finish()
+}
+
+fn path_fill_hash(path: &PathData, rect: WorldRect, rotation_deg: f32) -> u64 {
+    let mut h = DefaultHasher::new();
+    hash_path_data(&mut h, path);
+    hash_f32(&mut h, rect.x);
+    hash_f32(&mut h, rect.y);
+    hash_f32(&mut h, rect.w);
+    hash_f32(&mut h, rect.h);
+    hash_f32(&mut h, rotation_deg);
     h.finish()
 }
 
@@ -691,7 +791,10 @@ pub fn paint_path_shape(
     }
     let bez = path_data_to_world_bez(path, node.rect, node.rotation_deg);
     if shape.fill.is_some() && path.closed {
-        let flat = flatten(&bez, 0.25);
+        let fill_key = path_fill_hash(path, node.rect, node.rotation_deg);
+        let flat = app
+            .path_mesh_cache
+            .get_or_flatten(node.id, fill_key, || flatten(&bez, 0.25));
         if flat.len() >= 3 {
             let pts: Vec<Pos2> = flat
                 .iter()
@@ -1129,5 +1232,39 @@ mod tests {
         assert!(shape_uses_stroke_pick(&node, shape));
         assert!(hit_shape_stroke(&node, shape, 50.0, 50.0, 1.0));
         assert!(!hit_shape_stroke(&node, shape, 50.0, 10.0, 1.0));
+    }
+
+    #[test]
+    fn path_content_hash_is_stable_and_bucket_sensitive() {
+        let path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
+            closed: false,
+        };
+        let stroke = default_curve_stroke(Rgba::BLACK);
+        let rect = WorldRect::new(0.0, 0.0, 10.0, 10.0);
+        let a = path_content_hash(&path, &stroke, rect, 8);
+        let b = path_content_hash(&path, &stroke, rect, 8);
+        let c = path_content_hash(&path, &stroke, rect, 9);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn path_mesh_cache_evicts_oldest_instead_of_clearing() {
+        let mut cache = PathMeshCache::default();
+        let empty = || InkMesh {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+        for i in 0..300u64 {
+            cache.get_or_tessellate(NodeId(i), i, empty);
+        }
+        let n = cache.stroke_len();
+        assert!(n <= CACHE_CAP, "cache grew to {n}");
+        assert!(
+            n > 0,
+            "nuclear clear would leave the cache empty after a burst"
+        );
     }
 }

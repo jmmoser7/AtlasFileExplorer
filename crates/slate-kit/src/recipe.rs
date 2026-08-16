@@ -155,6 +155,7 @@ impl PortalKindRef {
         match self.0.as_str() {
             "repo_lens" => Some(PortalKind::RepoLens),
             "status_board" => Some(PortalKind::StatusBoard),
+            "web" => Some(PortalKind::Web),
             _ => None,
         }
     }
@@ -234,8 +235,18 @@ impl Recipe {
                     PortalKind::StatusBoard => PortalNode::unbound_status_board(
                         p.title.clone().unwrap_or_else(|| "Status Board".into()),
                     ),
+                    PortalKind::Agent => PortalNode::unbound_agent(
+                        p.title.clone().unwrap_or_else(|| "Agent portal".into()),
+                        "cursor",
+                    ),
+                    PortalKind::Web => PortalNode::unbound_web(
+                        p.title.clone().unwrap_or_else(|| "Web portal".into()),
+                    ),
                 };
-                node.class = PortalClass::Generated;
+                node.class = match kind {
+                    PortalKind::RepoLens | PortalKind::StatusBoard => PortalClass::Generated,
+                    PortalKind::Agent | PortalKind::Web => PortalClass::Host,
+                };
                 node.query = p.query.clone();
                 node.source = p.source.clone().map(|locator| SourceUri { locator });
                 if let Some(f) = p.fill {

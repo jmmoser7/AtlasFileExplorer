@@ -1,0 +1,1 @@
+Slate writes `graph.json` here as the deterministic codebase graph for the active Lens view. Cursor agents should read that file and write `overlay.json` with semantic cluster labels, summaries, and colors. See `docs/lens-agent-contract.md` in the repository for the full schema and selector rules.

@@ -68,6 +68,25 @@ When you add or change any user-facing input binding:
 - **Ctrl+N** — new tab (alias of the menu New tab).
 - **F1** — Advanced → Commands & shortcuts. **Ctrl+Shift+P** — Advanced.
 - **F3** — toggle Details for the single selected file. **F2 stays Assign.**
+- **Mode dock → View / Edit** — View is the default safe browsing mode. Edit
+  enables human-directed filesystem rename, move, copy, new-folder, and delete
+  operations for the active tab.
+- **Display dock → stack threshold** — child-count at which a collapsed folder
+  paints as a **group preview**. This is not a Slate portal (Art. V); the
+  internal field is still `portal_threshold`.
+- **Edit mode drag:** left-drag a file or folder to a folder to move it; hold
+  **Alt** through release to copy it. The drop lands in the folder the cursor is
+  *inside*, so anywhere in that folder's rectangle works — including over the
+  files it already holds — and the drag ghost names the destination. Dropping on
+  blank canvas or an invalid target is a null action.
+- **Edit mode context menu:** right-click a file or folder for **Rename…**,
+  **Add subdirectory…**, and **Delete**. Right-click blank canvas offers root
+  subdirectory creation.
+- **Ctrl+Shift+N** — add a subdirectory. **Delete** moves the selection to the
+  Recycle Bin after the delete warning policy, or — with nothing selected — the
+  file or folder under the cursor, which is how a folder is deleted from the
+  keyboard. **Shift+Delete** asks for a permanent delete. Confirmations open at
+  the cursor.
 - **Command history** — Advanced → Command history (shared
   `atlas_shell::history_ui` overlay; Atlas has no F2 history window).
 - **File → Download cloud files…** (`atlas.download_cloud`) — no chord, and it
@@ -77,14 +96,45 @@ When you add or change any user-facing input binding:
   folder. Cancel lives in Advanced; progress shows in the readout bar. Background
   work never triggers this — see `crates/atlas-core/src/cloud.rs`.
 
-## Pan buttons (reference)
+## Mouse buttons (reference)
 
-- **Left-drag** on empty canvas pans. On a thumbnail during a linked Slate
-  session it starts the drag-to-Slate carry instead (standalone Atlas pans).
-- **Right-drag** pans from anywhere — including presses that land on a
-  thumbnail — so navigation is never blocked by dense canvases. A right-click
+**The left button acts on what is under the cursor; the right button moves the
+view.** That split is the whole rule, and it is worth holding: panning is the
+gesture the hand repeats all day, and on a folder packed edge to edge there is
+almost no empty canvas left to aim it at. An earlier build made right-drag on a
+card a drag-out and left pan the exception, which meant pan failed wherever the
+canvas was busiest — exactly where it is needed most.
+
+- **Right-drag** (or middle-drag) pans, from anywhere, cards included. Nothing
+  takes it away: no mode, no hover target, no other gesture. A right-click
   *without* dragging still opens the file context menu.
-- **Shift + left-drag** rubber-band selects (left button only).
+- **Ctrl + right-drag** turbo-pans (see below).
+- **Left-drag on empty canvas** rubber-band selects. **Shift + left-drag**
+  starts a band even from on top of a card, which is the only way to sweep one
+  out in a dense folder; **Ctrl** while releasing adds to the selection.
+- **Left-drag from a file or folder card** picks it up. What that means depends
+  on context, in this order: **Edit** mode moves or copies it on the filesystem;
+  a linked Slate session carries it to the Slate window; otherwise it drags out
+  to Windows (below).
+- **Z armed:** the left button belongs to the zoom tool (click steps, drag is a
+  zoom window). The right button still pans.
+
+## Dragging files out (reference)
+
+- **Binding:** left-drag starting on a file or folder card, in View mode,
+  outside a linked Slate session.
+- **Behavior:** hands the selection — or just the card under the cursor, if it
+  is not part of the selection — to Windows as a shell data object, so any drop
+  target that accepts a drag from File Explorer (PowerPoint, Explorer, Slate, a
+  browser) receives it identically. A folder drags as the folder itself, one
+  shell item, so starting the drag costs the same whatever is inside it. Esc
+  cancels.
+- **Copy and link only, never move.** A move accepted by a foreign target would
+  relocate files with no journal entry and no undo (Constitution Art. VI).
+- **The frame loop blocks for the duration of the gesture.** `DoDragDrop` is
+  synchronous and thread-bound; this is the documented exception to invariant 7
+  in `ARCHITECTURE.md`, and it lasts exactly as long as the user holds the
+  button. Implementation: `atlas_core::shell_drag`.
 
 ## Turbo pan (reference)
 

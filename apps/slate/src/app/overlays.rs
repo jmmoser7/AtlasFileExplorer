@@ -249,6 +249,14 @@ impl SlateApp {
                 self.place_status_board_at(world);
                 self.connect_pending_wire_to_selection();
             }
+            "board.portal.web" => {
+                self.place_web_portal_at(world);
+                self.connect_pending_wire_to_selection();
+            }
+            "board.portal.agent" => {
+                self.place_agent_portal_at(world);
+                self.connect_pending_wire_to_selection();
+            }
             "board.tool.text" => {
                 self.place_text_at(world);
                 self.push_history(item.id, Some("placed".into()));

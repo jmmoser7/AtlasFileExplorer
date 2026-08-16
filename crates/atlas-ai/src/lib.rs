@@ -18,6 +18,7 @@
 //!
 //! Both apps hold one [`AiPanel`] and call [`AiPanel::poll`] every frame.
 
+pub mod agent;
 pub mod config;
 pub mod context;
 pub mod launch;

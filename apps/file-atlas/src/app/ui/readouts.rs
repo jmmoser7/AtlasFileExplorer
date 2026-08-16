@@ -1,6 +1,6 @@
 //! Bottom readout bar — metrics and future status panels.
 
-use super::super::{AtlasApp, DateFilterField, ScanMode};
+use super::super::{AtlasApp, DateFilterField, EditMode, ScanMode};
 use crate::app::chrome::ReadoutPanel;
 use atlas_core::types::human_size;
 use atlas_shell::sidebar::SidebarTheme;
@@ -71,6 +71,15 @@ fn metrics_row(app: &mut AtlasApp, ui: &mut egui::Ui) {
         ui.label("Opening index…");
     } else if app.root.is_some() {
         let dirs = app.tree.as_ref().map(|t| t.total_dirs).unwrap_or(0);
+        if app.edit_mode == EditMode::Edit {
+            ui.label(
+                egui::RichText::new("EDIT")
+                    .strong()
+                    .color(palette.on_danger())
+                    .background_color(palette.danger),
+            )
+            .on_hover_text("Real filesystem edits are enabled for this tab.");
+        }
         ui.label(format!(
             "{} files · {} folders · {}",
             group_digits(app.alive_count as u64),
@@ -98,6 +107,24 @@ fn metrics_row(app: &mut AtlasApp, ui: &mut egui::Ui) {
                 egui::RichText::new(format!("· {} thumbs loading", app.thumbs_pending))
                     .color(palette.sub),
             );
+        }
+        if let Some(op) = &app.fs_op {
+            ui.label(
+                egui::RichText::new(format!(
+                    "· {} {} / {}",
+                    op.label,
+                    group_digits(op.done as u64),
+                    group_digits(op.total as u64)
+                ))
+                .color(palette.staged),
+            );
+        }
+        if let Some(label) = app.cloud_audit_label() {
+            ui.label(egui::RichText::new(format!("· {label} — checking")).color(palette.sub))
+                .on_hover_text(
+                    "Reading directory entries to see whether this copy would \
+                     download cloud-only files. No file content is read.",
+                );
         }
         if let Some((done, total)) = app.warm_audit_progress() {
             ui.label(
