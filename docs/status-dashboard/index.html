@@ -1,0 +1,2092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Atlas ecosystem — status bundle (copy this file)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg: #0e1114;
+  --bg-elev: #161b20;
+  --bg-panel: #1a2128;
+  --line: #2a333c;
+  --ink: #d8d4c8;
+  --muted: #8a9188;
+  --teal: #3d9b8f;
+  --teal-dim: #2a6b63;
+  --amber: #c49a6c;
+  --coral: #c45c4a;
+  --ok: #6a9f7a;
+  --grid: rgba(216,212,200,0.04);
+  --radius: 6px;
+  --font: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(61,155,143,0.12), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(196,154,108,0.08), transparent 50%),
+    var(--bg);
+  line-height: 1.45;
+  min-height: 100vh;
+}
+body::before {
+  content: "";
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, #000 0%, #000 40%, transparent 100%);
+}
+a { color: var(--teal); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 0 20px 80px; }
+
+.bundle-bar {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  margin: 0 -20px;
+  background: rgba(14,17,20,0.94);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.bundle-bar .left { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.bundle-bar .brand {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--teal); margin-right: 8px;
+}
+.bundle-bar a, .bundle-bar button.navlink {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--muted);
+  padding: 6px 10px; border-radius: 999px; border: 0; background: transparent;
+  cursor: pointer; text-decoration: none;
+}
+.bundle-bar a:hover, .bundle-bar button.navlink:hover { color: var(--ink); background: var(--bg-elev); }
+.btn-copy {
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 8px 14px; border-radius: 6px; border: 1px solid var(--teal);
+  background: rgba(61,155,143,0.18); color: var(--teal); cursor: pointer;
+}
+.btn-copy:hover { background: rgba(61,155,143,0.3); }
+.btn-copy.ok { border-color: var(--ok); color: var(--ok); background: rgba(106,159,122,0.18); }
+
+.hero { padding: 36px 0 28px; }
+.eyebrow {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--teal); margin: 0 0 12px;
+}
+.hero h1 {
+  font-size: clamp(2rem, 4vw, 2.75rem); font-weight: 700;
+  letter-spacing: -0.03em; margin: 0 0 12px; line-height: 1.1;
+}
+.verdict { font-size: 1.125rem; max-width: 40em; margin: 0 0 8px; }
+.verdict strong { color: var(--amber); font-weight: 600; }
+.meta-line { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 0 0 28px; }
+
+.kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
+@media (max-width: 720px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
+.kpi {
+  background: var(--bg-elev); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 14px 16px;
+}
+.kpi .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.kpi .value { font-size: 1.75rem; font-weight: 600; letter-spacing: -0.02em; margin-top: 4px; }
+.kpi .hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.kpi.warn .value { color: var(--coral); }
+.kpi.ok .value { color: var(--ok); }
+.kpi.signal .value { color: var(--teal); }
+
+.score-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 720px) { .score-row { grid-template-columns: 1fr; } }
+.score-card {
+  background: var(--bg-panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 18px 20px;
+}
+.score-card h3 {
+  margin: 0 0 14px; font-size: 13px; font-family: var(--mono);
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 500;
+}
+.bar-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.bar-row .name { width: 72px; font-family: var(--mono); font-size: 12px; color: var(--muted); flex-shrink: 0; }
+.bar-track { flex: 1; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; border: 1px solid var(--line); }
+.bar-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--teal-dim), var(--teal)); border-radius: 4px; transition: width 0.9s cubic-bezier(.2,.8,.2,1); }
+.bar-fill.amber { background: linear-gradient(90deg, #8a6a42, var(--amber)); }
+.bar-fill.low { background: linear-gradient(90deg, #5a3a35, var(--coral)); }
+.bar-row .pct { width: 40px; text-align: right; font-family: var(--mono); font-size: 12px; }
+
+section { padding: 36px 0 8px; scroll-margin-top: 64px; }
+section > h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 0 0 6px; display: flex; align-items: baseline; gap: 12px; }
+section > h2 .tag { font-family: var(--mono); font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: 0.06em; }
+section > .lede { color: var(--muted); margin: 0 0 20px; max-width: 52em; font-size: 0.95rem; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.chip {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+  padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.chip:hover { border-color: var(--muted); color: var(--ink); }
+.chip.active { background: rgba(61,155,143,0.15); border-color: var(--teal); color: var(--teal); }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+.panel { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+.panel h3 { margin: 0 0 8px; font-size: 1.05rem; }
+.panel p, .panel li { font-size: 0.9rem; color: var(--muted); }
+.panel ul { margin: 8px 0 0; padding-left: 1.1em; }
+.badge {
+  display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted);
+}
+.badge.done { color: var(--ok); border-color: rgba(106,159,122,0.45); background: rgba(106,159,122,0.1); }
+.badge.partial, .badge.core_landed, .badge.early_groundwork { color: var(--amber); border-color: rgba(196,154,108,0.45); background: rgba(196,154,108,0.1); }
+.badge.open, .badge.not_started, .badge.sketched, .badge.deferred { color: var(--coral); border-color: rgba(196,92,74,0.4); background: rgba(196,92,74,0.08); }
+.badge.critical { color: var(--amber); border-color: var(--amber); }
+
+.timeline { display: flex; flex-direction: column; gap: 10px; }
+.t-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-elev); overflow: hidden; transition: border-color 0.2s ease; }
+.t-card:hover { border-color: var(--teal-dim); }
+.t-card.critical-path { border-color: rgba(196,154,108,0.55); box-shadow: inset 3px 0 0 var(--amber); }
+.t-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; cursor: pointer; user-select: none; }
+.t-head .id { font-family: var(--mono); font-size: 12px; color: var(--teal); min-width: 36px; }
+.t-head .title { font-weight: 600; flex: 1; min-width: 140px; }
+.t-head .prog { width: 120px; height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; border: 1px solid var(--line); }
+.t-head .prog > i { display: block; height: 100%; width: 0; background: var(--teal); transition: width 0.8s cubic-bezier(.2,.8,.2,1); }
+.t-body { display: none; padding: 0 16px 16px; border-top: 1px solid var(--line); background: var(--bg-panel); }
+.t-card.open .t-body { display: block; animation: fadeIn 0.25s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.t-body .summary { color: var(--muted); font-size: 0.9rem; margin: 12px 0; }
+.task-list { list-style: none; padding: 0; margin: 0; }
+.task-list li {
+  display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; align-items: start;
+  padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 0.88rem;
+}
+.task-list li:last-child { border-bottom: 0; }
+.task-list .tid { font-family: var(--mono); font-size: 11px; color: var(--teal); }
+.task-list .meta { font-family: var(--mono); font-size: 10px; color: var(--muted); text-align: right; }
+
+.art-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.art-card {
+  background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; min-height: 120px; transition: transform 0.2s ease, border-color 0.2s ease;
+}
+.art-card:hover { transform: translateY(-2px); border-color: var(--teal-dim); }
+.art-card .aid { font-family: var(--mono); font-size: 11px; color: var(--teal); letter-spacing: 0.08em; }
+.art-card h3 { margin: 4px 0 8px; font-size: 0.98rem; }
+.art-card p { margin: 0; font-size: 0.82rem; color: var(--muted); }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); background: var(--bg-panel); font-weight: 500;
+}
+tr:last-child td { border-bottom: 0; }
+tr:hover td { background: rgba(61,155,143,0.04); }
+td.mono, .mono { font-family: var(--mono); font-size: 0.8rem; }
+.status-open { color: var(--coral); }
+.status-closed { color: var(--ok); }
+
+.crate-bars { display: flex; flex-direction: column; gap: 6px; }
+.crate-row { display: grid; grid-template-columns: 140px 1fr 56px; gap: 10px; align-items: center; font-size: 12px; }
+.crate-row .cname { font-family: var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crate-row .cbar { height: 7px; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.crate-row .cbar > i { display: block; height: 100%; background: var(--teal); transition: width 0.8s cubic-bezier(.2,.8,.2,1); }
+.crate-row .cbar > i.app { background: var(--amber); }
+.crate-row .cbar > i.chrome { background: #7a8fa3; }
+.crate-row .cloc { font-family: var(--mono); text-align: right; }
+
+.next-list { counter-reset: next; list-style: none; padding: 0; margin: 0; }
+.next-list li {
+  counter-increment: next; display: grid; grid-template-columns: 36px 1fr; gap: 12px;
+  padding: 14px 0; border-bottom: 1px solid var(--line);
+}
+.next-list li::before {
+  content: counter(next); font-family: var(--mono); font-size: 1.25rem; color: var(--teal); font-weight: 600;
+}
+.next-list h4 { margin: 0 0 4px; font-size: 1rem; }
+.next-list p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+
+.callout {
+  border-left: 3px solid var(--amber); background: rgba(196,154,108,0.08);
+  padding: 12px 16px; margin: 16px 0; font-size: 0.9rem;
+}
+.callout strong { color: var(--amber); }
+
+.handoff-doc h1 { font-size: 1.5rem; margin: 0 0 12px; }
+.handoff-doc h2 { font-size: 1.2rem; margin: 28px 0 10px; color: var(--ink); }
+.handoff-doc h3 { font-size: 1.05rem; margin: 20px 0 8px; }
+.handoff-doc p, .handoff-doc li { color: var(--muted); font-size: 0.92rem; }
+.handoff-doc code { font-family: var(--mono); font-size: 0.85em; color: var(--teal); }
+.handoff-doc .codeblock, .codeblock {
+  font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px 14px; overflow-x: auto; color: var(--ink);
+  white-space: pre-wrap; margin: 12px 0;
+}
+.handoff-doc hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
+.handoff-doc ul { padding-left: 1.2em; }
+.handoff-doc strong { color: var(--ink); }
+
+.raw-box {
+  width: 100%; min-height: 220px; font-family: var(--mono); font-size: 11px;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px; resize: vertical;
+}
+.footer {
+  margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+}
+@media print {
+  body::before, .bundle-bar { display: none; }
+  .t-body { display: block !important; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bundle-bar">
+    <div class="left">
+      <span class="brand">Atlas status bundle</span>
+      <a href="#hero">Overview</a>
+      <a href="#roadmap">Roadmap</a>
+      <a href="#waves">Workplan</a>
+      <a href="#law">Law</a>
+      <a href="#deviations">Deviations</a>
+      <a href="#metrics">Metrics</a>
+      <a href="#next">Next</a>
+      <a href="#handoff">Handoff plan</a>
+      <a href="#raw">Raw JSON</a>
+    </div>
+    <button class="btn-copy" id="copyBtn" type="button" title="Copy handoff + full JSON to clipboard">Copy all for agent</button>
+  </div>
+
+  <header class="hero" id="hero"></header>
+  <main id="main"></main>
+
+  <section id="handoff">
+    <h2>Handoff plan <span class="tag">for the next agent</span></h2>
+    <p class="lede">This section is the build brief. The button above copies this plan plus the full JSON.</p>
+    <div class="panel handoff-doc">
+<h1>Atlas ecosystem — status dashboard handoff</h1>
+<p><strong>Audience:</strong> an agent (or human) building or refining the interactive project</p>
+<p>status dashboard. <strong>You do not need the source repository.</strong> Everything required</p>
+<p>is in this folder.</p>
+<div class="table-wrap"><table>
+<tr><th>File</th><th>Role</th></tr>
+<tr><td><a href="project-state.json"><code>project-state.json</code></a></td><td>Canonical research snapshot (thesis, law, roadmap, workplan, deviations, metrics, crates, next actions)</td></tr>
+<tr><td><a href="index.html"><code>index.html</code></a></td><td>Working interactive dashboard — open in any browser (file:// or static host)</td></tr>
+<tr><td><strong>This file</strong></td><td>Build brief, UX plan, acceptance criteria, update protocol</td></tr>
+</table></div>
+<p><strong>Snapshot date:</strong> 2026-08-05 · <strong>HEAD at capture:</strong> <code>664e2e1</code>  </p>
+<p><strong>Research verdict:</strong> Wave 0 + ratification (G0) are complete. Wave 1 (convergent</p>
+<p>journal) is the critical path and is unblocked. Roadmap Phase 2 core landed;</p>
+<p>Phases 3–6 and workplan Waves 1–5 are largely ahead.</p>
+<hr />
+<h2>1. What this dashboard must do</h2>
+<p>Three jobs, one composition:</p>
+<p>1. <strong>Visualization</strong> — architecture, products, crates, capability inventory.</p>
+<p>2. <strong>Roadmap</strong> — Constitution phases (P1–P6) *and* audit workplan waves (W0–W5 + spikes), with dependency context.</p>
+<p>3. <strong>Progress evaluation</strong> — scored phases/waves, open constitutional deviations, metrics baseline vs approx current, “what to do next.”</p>
+<p>It is a <strong>status instrument for orchestrators</strong>, not a marketing site and not a</p>
+<p>substitute for <code>CONSTITUTION.md</code>.</p>
+<hr />
+<h2>2. Non-negotiable content (already in JSON)</h2>
+<p>Do not invent progress. Read <code>project-state.json</code> and render it. If you rebuild</p>
+<p>the UI, keep these sections:</p>
+<p>1. <strong>At a glance</strong> — overall scores, HEAD, open deviations, format_version, gate status (G0 open for Wave 1).</p>
+<p>2. <strong>Thesis</strong> — one-liner + 10% rule + horizon.</p>
+<p>3. <strong>Products</strong> — File Atlas vs Slate capability lists.</p>
+<p>4. <strong>Roadmap phases P1–P6</strong> — status, progress bar, open items.</p>
+<p>5. <strong>Workplan waves</strong> — task cards with status; critical-path highlight on W1.</p>
+<p>6. <strong>Constitution articles</strong> — I–XI short summaries (filterable).</p>
+<p>7. <strong>Decisions D1–D18</strong> — one-line impact each.</p>
+<p>8. <strong>Deviations ledger</strong> — open/closed filter; Art. + closes_with.</p>
+<p>9. <strong>Metrics</strong> — baseline 2026-07-25 vs approx 2026-08-05; crate LOC bars.</p>
+<p>10. <strong>Architecture</strong> — crate roles; missing planned crates; hard rules.</p>
+<p>11. <strong>Next actions</strong> — prioritized critical path from <code>capabilities_inventory.next_critical</code>.</p>
+<p>12. <strong>Out of scope</strong> — explicit cuts so agents do not re-propose them.</p>
+<p>13. <strong>Audit trail</strong> — what to bring to audit №3.</p>
+<hr />
+<h2>3. UX / visual plan</h2>
+<h3>Composition</h3>
+<ul>
+<li>One scrollable page with a sticky subnav (jump links), not a multi-page app.</li>
+<li>First viewport = <strong>status hero</strong>: product name “Atlas ecosystem”, one verdict</li>
+</ul>
+<p>  sentence, overall progress ring/bars, four KPI chips (open DVs, format v,</p>
+<p>  tests, crates). No marketing clutter.</p>
+<ul>
+<li>Below: sectioned instrument panels. Prefer dense information design over cards-for-cards’-sake.</li>
+</ul>
+<h3>Visual direction (avoid AI-default looks)</h3>
+<ul>
+<li><strong>Direction:</strong> cartographic night board — charcoal <code>#0e1114</code>, ink <code>#d8d4c8</code>,</li>
+</ul>
+<p>  signal teal <code>#3d9b8f</code>, caution amber <code>#c49a6c</code>, danger coral <code>#c45c4a</code>,</p>
+<p>  muted grid lines. Not purple-gradient, not cream+terracotta, not broadsheet.</p>
+<ul>
+<li>Typography: distinctive pair — e.g. <strong>IBM Plex Sans</strong> + <strong>IBM Plex Mono</strong></li>
+</ul>
+<p>  (or Fraunces + JetBrains Mono). No Inter/Roboto/Arial/system-only stacks.</p>
+<ul>
+<li>Atmosphere: subtle dotted grid or topo-line background, not flat fill.</li>
+<li>Motion: 2–3 intentional motions only — progress bars fill on enter, phase</li>
+</ul>
+<p>  nodes light on hover, filter chips cross-fade content. No glow spam.</p>
+<h3>Interaction</h3>
+<ul>
+<li>Filter chips: wave status / deviation status / article.</li>
+<li>Click a wave → expand task list with depends/closes badges.</li>
+<li>Click a deviation → show article + closing task.</li>
+<li>Hover crate bar → role tooltip.</li>
+<li>Optional: <code>?section=</code> deep link; print stylesheet that collapses filters.</li>
+</ul>
+<h3>Technical constraints for the builder</h3>
+<ul>
+<li><strong>Single-file or two-file</strong> preferred (<code>index.html</code> + optional JSON). Works on</li>
+</ul>
+<p>  <code>file://</code> — if fetch fails, embed JSON inline (current <code>index.html</code> does this).</p>
+<ul>
+<li>No build step, no React/Vite required unless you deliberately upgrade and</li>
+</ul>
+<p>  document how to regenerate the static artifact.</p>
+<ul>
+<li>No network dependency for core function (fonts may CDN with local fallbacks).</li>
+<li>All copy that asserts facts must come from the JSON, not hard-coded prose that</li>
+</ul>
+<p>  can drift.</p>
+<hr />
+<h2>4. Research conclusions the UI must surface</h2>
+<p>These are the evaluation findings — highlight them, do not bury them:</p>
+<div class="table-wrap"><table>
+<tr><th>Finding</th><th>Detail</th></tr>
+<tr><td><strong>Critical path is Wave 1</strong></td><td>G0 ratified (<code>1b88e8e</code>); Wave 0 merged. Start T1.1a (ZOrder/v3) and T1.2 (atlas-ai split) in parallel.</td></tr>
+<tr><td><strong>Journal still positional</strong></td><td><code>SceneCmd</code> is still <code>Add{index}/Remove{index}/Patch</code> — DV-01 open. <code>format_version</code> still <strong>2</strong>.</td></tr>
+<tr><td><strong>Collage half-done</strong></td><td><code>crates/collage</code> shipped; command wiring is T2.2 (DV-05 still open).</td></tr>
+<tr><td><strong>Portal groundwork early</strong></td><td><code>NodeKind::Portal</code> + RepoLens exist before S1 taxonomy — risk of wrong assumptions; S1 is high-value.</td></tr>
+<tr><td><strong>Agent surface is a seed</strong></td><td>Beacon + Cursor launch exist; no staging layer, no <code>atlas-mcp</code>, atlas-ai still renderer-bound (DV-02).</td></tr>
+<tr><td><strong>Deviation debt</strong></td><td><strong>8 open / 4 closed.</strong> DV-12 (dead Selection/Lens docks) opened after clippy sweep.</td></tr>
+<tr><td><strong>Metrics baseline stale</strong></td><td>Last <code>cargo xtask metrics</code> is 2026-07-25; codebase grew (slate-kit, repo-graph, portal, kits). Re-run before audit №3.</td></tr>
+<tr><td><strong>Stale doc trap</strong></td><td><code>docs/audit/amendments/2026-07-25-amendments.md</code> still says UNRATIFIED — ignore it; constitution amendment log wins.</td></tr>
+</table></div>
+<h3>Progress scores (from JSON)</h3>
+<ul>
+<li>Overall roadmap ≈ <strong>28%</strong></li>
+<li>Workplan through Wave 2 ≈ <strong>22%</strong></li>
+<li>P1 100% · P2 ~70% · P3 ~15% · P4 ~5% · P5/P6 0%</li>
+<li>W0 100% · W1 0% · Spikes 0% · W2 ~5%</li>
+</ul>
+<hr />
+<h2>5. Acceptance criteria for a “done” dashboard</h2>
+<ul>
+<li>[ ] Opens offline; all sections render from embedded/linked state data.</li>
+<li>[ ] Verdict sentence matches research (Wave 1 unblocked / journal not convergent yet).</li>
+<li>[ ] Every open deviation appears; closed ones filterable but present.</li>
+<li>[ ] Every workplan task T0.1–T2.4 + spikes + W3–W5 sketches appears with status.</li>
+<li>[ ] Roadmap P1–P6 and workplan waves are both visible (not collapsed into one vague timeline).</li>
+<li>[ ] Next-actions list matches <code>next_critical</code> order.</li>
+<li>[ ] Out-of-scope list is visible.</li>
+<li>[ ] No fabricated ship dates or calendar ETAs (phases are dependency-ordered).</li>
+<li>[ ] Visual direction follows §3 (not purple SaaS / cream editorial / broadsheet).</li>
+<li>[ ] Handoff note in PR: how to refresh JSON after the next wave merges.</li>
+</ul>
+<hr />
+<h2>6. How to refresh after the repo moves</h2>
+<p>When you *do* have repo access later:</p>
+<p>1. Re-read <code>ROADMAP.md</code>, <code>docs/workplan/README.md</code>, <code>docs/audit/deviations.md</code>.</p>
+<p>2. Probe: <code>SlateDoc::CURRENT</code>, <code>SceneCmd</code> shape, presence of <code>order.rs</code> /</p>
+<p>   <code>source.rs</code> / <code>atlas-mcp</code> / <code>docs/portal-contract.md</code>.</p>
+<p>3. Run <code>cargo xtask metrics</code> and replace <code>metrics.baseline</code> or add a new dated</p>
+<p>   snapshot column.</p>
+<p>4. Update task <code>status</code> fields in JSON; recompute <code>progress_scores</code>.</p>
+<p>5. Bump <code>meta.generated</code> / <code>meta.head_commit</code>.</p>
+<p>6. Regenerate or re-embed JSON into <code>index.html</code>.</p>
+<p>Without repo access: only edit JSON if a human supplies a new snapshot.</p>
+<hr />
+<h2>7. Suggested build modes for the implementing agent</h2>
+<p><strong>Mode A (default) — polish the shipped <code>index.html</code>.</strong>  </p>
+<p>Improve layout, accessibility, print CSS, and micro-interactions. Do not change</p>
+<p>facts without updating JSON first.</p>
+<p><strong>Mode B — rebuild in another stack.</strong>  </p>
+<p>Allowed if the static artifact remains one (or two) files and still embeds the</p>
+<p>full JSON. React/Svelte/etc. must ship a built static result into this folder.</p>
+<p><strong>Mode C — Miro / FigJam board.</strong>  </p>
+<p>Only if the user asks. Mirror the same section inventory; attach or paste the</p>
+<p>JSON summary so the board is not source-dependent. (Miro MCP may require user</p>
+<p>auth.)</p>
+<hr />
+<h2>8. Dispatch prompt (copy-paste)</h2>
+<pre class="codeblock">
+You are building / refining the Atlas ecosystem status dashboard.
+You do NOT have repository access.
+
+Read in order:
+  1. docs/status-dashboard/HANDOFF.md
+  2. docs/status-dashboard/project-state.json
+  3. docs/status-dashboard/index.html
+
+Execute Mode A unless told otherwise. Preserve all facts from the JSON.
+Meet every acceptance criterion in HANDOFF §5. Do not invent calendar
+timelines. Open a PR that only touches docs/status-dashboard/ unless
+asked to publish elsewhere.
+</pre>
+<hr />
+<h2>9. Glossary (for agents new to the project)</h2>
+<div class="table-wrap"><table>
+<tr><th>Term</th><th>Meaning</th></tr>
+<tr><td><strong>File Atlas</strong></td><td>Folder-tree visual organizer app</td></tr>
+<tr><td><strong>Slate</strong></td><td>Workbook app (.slate) — tags, board, lens, export</td></tr>
+<tr><td><strong>Board</strong></td><td>Authored infinite canvas; frames = slides</td></tr>
+<tr><td><strong>Portal</strong></td><td>Journaled frame whose contents come from elsewhere</td></tr>
+<tr><td><strong>Journal / SceneCmd</strong></td><td>Invertible command log; only legal mutation path</td></tr>
+<tr><td><strong>Capability</strong></td><td>Everything outside the minimal canvas core</td></tr>
+<tr><td><strong>Wave</strong></td><td>Swarm workplan batch from 2026-07-25 audits</td></tr>
+<tr><td><strong>Phase</strong></td><td>Long-horizon ROADMAP.md sequence</td></tr>
+<tr><td><strong>Deviation (DV-)</strong></td><td>Known constitution-vs-code gap</td></tr>
+<tr><td><strong>G0</strong></td><td>User ratification of constitutional amendments</td></tr>
+<tr><td><strong>Beacon</strong></td><td>JSON files under AI workspace for agent context</td></tr>
+<tr><td><strong>10% rule</strong></td><td>Art. III — build the fraction actually used</td></tr>
+</table></div>
+    </div>
+  </section>
+
+  <section id="raw">
+    <h2>Raw project-state.json <span class="tag">canonical data</span></h2>
+    <p class="lede">Same data that drives the dashboard. Select-all works in the box; or use <strong>Copy all for agent</strong>.</p>
+    <textarea class="raw-box" id="rawJson" readonly></textarea>
+  </section>
+
+  <footer class="footer" id="footer"></footer>
+</div>
+
+<script id="state" type="application/json">
+{
+  "meta": {
+    "generated": "2026-08-05",
+    "head_commit": "664e2e1",
+    "head_summary": "Declarative board tools: gesture grammar (code) + result recipe (data) (#38)",
+    "head_date": "2026-08-03",
+    "snapshot_note": "Self-contained research snapshot for agents without repo access. Counts marked 'approx' were recomputed 2026-08-05; baseline metrics are from cargo xtask metrics on 2026-07-25 (commit 4d40a33).",
+    "repo": "Atlas ecosystem (native File Atlas + Slate)",
+    "stack": "Rust + egui/eframe, Windows reference platform, Linux CI floor",
+    "license": "MIT"
+  },
+
+  "thesis": {
+    "one_liner": "One lean native daily driver that replaces a suite of subscription tools for viewing, composing, and eventually editing every kind of document its user works with.",
+    "anti_bloat": "Professionals use ~10% of each monolith. Build that fraction excellently; everything else must earn its place (Constitution Art. III).",
+    "product_loop": "Thought → action → completion, as tight as the substrate allows — for the human and for agents on the same canvas.",
+    "horizon": "Two-plus years, vibe-coded. Invest first in contracts, schemas, and tests — implementations get cheaper to regenerate."
+  },
+
+  "products": [
+    {
+      "id": "file-atlas",
+      "name": "File Atlas",
+      "binary": "native-file-atlas",
+      "path": "apps/file-atlas",
+      "role": "Folder scanning, tree canvas, destination assignment / export workflow. Visual organization of tens of thousands of files.",
+      "key_capabilities": [
+        "Parallel streaming directory scan (~500k files/sec local)",
+        "SQLite index + instant revisit",
+        "Infinite pan/zoom branching folder tree with LOD (color blocks → cards)",
+        "Thumbnails via Win32 shell + built-in PDF/Office/.3dm fallbacks",
+        "Shared project cache tier under firm template path",
+        "Structure-only map, overnight pre-warm dashboard",
+        "Non-destructive staging/export with JSON manifest",
+        "Journal undo/redo; activity timeline / date filter",
+        "Linked-session tag offer from Slate via atlas-session"
+      ]
+    },
+    {
+      "id": "slate",
+      "name": "Slate",
+      "binary": "slate",
+      "path": "apps/slate",
+      "role": "Tag-driven workbooks (.slate) that link files (never copies). Grid, Venn, Board, Lens views. Presentation + HTML artifact export.",
+      "key_capabilities": [
+        "Faceted tag groups (mutex within group, free across)",
+        "Grid + literal Venn presentations (circle-pack)",
+        "Authored Board: frames-as-slides, shapes, text, images, paths, connectors",
+        "Presentation mode + slate-artifact HTML export (serialization, not conversion)",
+        "Lens: deterministic cargo/Rust code graph (code-lens) + agent overlay beacon",
+        "Rhino .3dm 3D board viewports (rhino-mesh)",
+        "Declarative board tools via slate-kit (grammar + recipe)",
+        "Workbook lease / read-only mode when another holder is live",
+        "Repository Lens portal node groundwork (NodeKind::Portal)",
+        "Hosts File Atlas as second viewport in linked sessions"
+      ]
+    }
+  ],
+
+  "constitution": {
+    "status": "Founding 2026-07-19; amendments A,B,C,E,F ratified 2026-07-25 (commit 1b88e8e)",
+    "note": "docs/audit/amendments/2026-07-25-amendments.md still says UNRATIFIED — that file is stale; CONSTITUTION.md amendment log is authoritative.",
+    "articles": [
+      {
+        "id": "I",
+        "title": "Minimal core",
+        "summary": "Core = canvas paradigm (camera, tabs, journal, chrome, command registry). All else is a capability. No document/geometry/capability logic may depend on egui or a model provider. Windows reference; pure crates must build on Linux. Local-first; self-hosted relay OK; no required accounts."
+      },
+      {
+        "id": "II",
+        "title": "Performance is a feature",
+        "summary": "60fps canvas; no per-frame alloc/tessellation in paint; heavy work async + generation-tagged; glanceability matters."
+      },
+      {
+        "id": "III",
+        "title": "The 10% rule",
+        "summary": "Implement the deliberately chosen fraction of a domain that is actually used. 'Photoshop has it' is not a reason."
+      },
+      {
+        "id": "IV",
+        "title": "Honest models",
+        "summary": "Exports are serializations; graphs are extracted never hallucinated; board styling ceiling is SVG-expressible; egui painter and artifact writer are two interpreters of one model."
+      },
+      {
+        "id": "V",
+        "title": "One universe, portals",
+        "summary": "Board is the only universe. Portals = journaled frames with non-journaled contents. Classes: Generated / Document / Host. Membership is derived geometry (topmost containing frame). Tab ViewKinds retire as portal parity is reached."
+      },
+      {
+        "id": "VI",
+        "title": "Journal-only mutation",
+        "summary": "Every mutation is a named invertible journaled command with author. Address by stable identity; property-scoped. Derived state never journaled; bake promotes it."
+      },
+      {
+        "id": "VII",
+        "title": "Command parity (agent-native)",
+        "summary": "Humans and agents share the command surface. Agents extend with data not code; proposal-by-default staging; skills are declarative command recipes; extension ladder: assets → out-of-process MCP → (future amendment) sandboxed scripts. No native in-process binary plugins."
+      },
+      {
+        "id": "VIII",
+        "title": "Bandwidth",
+        "summary": "Canvas is the prompt. Every modality compiles to commands. Human never blocked on agent. Intent ink and presence are ephemeral, never journaled."
+      },
+      {
+        "id": "IX",
+        "title": "Slate is a linker, never a database",
+        "summary": "Link via Source abstraction; relative-first locators; link health Ok/Missing/Unknown; packages are permanent forks with provenance; write-back is explicit, human-only, never agent."
+      },
+      {
+        "id": "X",
+        "title": "No chrome divergence",
+        "summary": "All chrome painting lives in atlas-shell. Apps pass data and handle actions."
+      },
+      {
+        "id": "XI",
+        "title": "Agent conduct",
+        "summary": "Pushback mandate on constitutional conflict. Amendments only by user edit to CONSTITUTION.md. Constitution wins over other docs."
+      }
+    ]
+  },
+
+  "roadmap_phases": [
+    {
+      "id": "P1",
+      "name": "Ratify",
+      "status": "done",
+      "date": "2026-07-19",
+      "summary": "CONSTITUTION, rules, ROADMAP, facet taxonomy. Law locked.",
+      "progress": 1.0
+    },
+    {
+      "id": "P2",
+      "name": "Draw",
+      "status": "core_landed",
+      "date": "2026-07-19",
+      "summary": "vector-ink, Path model, Polyline/Arc/Bezier/Pen tools, cached mesh paint, SVG artifact serialization.",
+      "progress": 0.7,
+      "open": [
+        "Taper/cap/join inspector UI",
+        "Intent-ink layer (Art. VIII) — feeds atlas-ai beacon",
+        "Blend modes (deferred — epaint has no per-shape blend; revisit with GPU renderer in P6)"
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Unify (portals)",
+      "status": "early_groundwork",
+      "summary": "Fold Grid → Venn → Lens into board portals; retire tab ViewKinds at parity. Multi-lens dashboards. Longer: folder portal unifying Atlas canvas.",
+      "progress": 0.15,
+      "done_early": [
+        "NodeKind::Portal in slate-doc (Repo Lens unbound portal)",
+        "BoardTool::RepoLens",
+        "Draft portal-lens-repository contract + machine-checked contract system (#37)",
+        "Portal groundwork shipped with dock UX (5a9ea0b)"
+      ],
+      "blocked_on": ["S1 portal taxonomy contract (not written)", "Wave 3 WI-4 Edge extraction as graph prerequisite"]
+    },
+    {
+      "id": "P4",
+      "name": "Speak (agent surface)",
+      "status": "not_started",
+      "summary": "MCP server on command surface; canvas-as-prompt two-way channel; agent-authored declarative assets.",
+      "progress": 0.05,
+      "partial": [
+        "atlas-ai context beacon exists (one-way file write)",
+        "Cursor launcher + AI panel body",
+        "Lens overlay pattern is the staging precursor"
+      ],
+      "blocked_on": ["Wave 1 T1.2 Provider split", "Wave 2 T2.3 staging + T2.4 atlas-mcp"]
+    },
+    {
+      "id": "P5",
+      "name": "Reach (sources, facets, formats)",
+      "status": "not_started",
+      "summary": "Source abstraction beyond local; facet-matrix refactor; print-faithful PDF; AEC on-ramp (IFC, point clouds; USD later; glTF pragmatic).",
+      "progress": 0.0,
+      "blocked_on": ["Wave 2 T2.1 SourceUri identity"]
+    },
+    {
+      "id": "P6",
+      "name": "Ascend (substrate and beyond)",
+      "status": "not_started",
+      "summary": "GPU vector renderer (Vello) as port; Mac/iPad spikes; Miro-style multiplayer on journal streams; revisit script amendment.",
+      "progress": 0.0,
+      "blocked_on": ["Wave 4 live collab", "Article I hedge holding"]
+    }
+  ],
+
+  "workplan": {
+    "name": "Audit №1/№2 implementation swarm",
+    "docs": [
+      "docs/workplan/README.md",
+      "docs/workplan/agent-brief.md",
+      "docs/workplan/tasks/wave-0.md … wave-3-plus.md",
+      "docs/workplan/tasks/spikes.md"
+    ],
+    "execution_model": "One agent per task card; own git worktree; file ownership table prevents conflicts; implementer ≠ reviewer; human/orchestrator merges.",
+    "gates": [
+      {
+        "id": "G0",
+        "name": "Ratify amendments A,B,C,E,F",
+        "status": "done",
+        "commit": "1b88e8e",
+        "note": "Wave 1+ gate is open."
+      }
+    ],
+    "waves": [
+      {
+        "id": "W0",
+        "name": "Guardrails + first wins",
+        "status": "done",
+        "progress": 1.0,
+        "theme": "CI, metrics, lease, collage solver, membership, palette tokens, spatial index, EXTENDING.md",
+        "tasks": [
+          {"id": "T0.1", "title": "GitHub Actions CI", "status": "done", "closes": []},
+          {"id": "T0.2", "title": "cargo xtask metrics + baseline", "status": "done", "closes": []},
+          {"id": "T0.3", "title": "Migration fixture harness", "status": "done", "closes": []},
+          {"id": "T0.4", "title": "Workbook lease + read-only", "status": "done", "closes": ["DV-06"]},
+          {"id": "T0.5", "title": "crates/collage pure solver", "status": "done", "closes": []},
+          {"id": "T0.6", "title": "Membership determinism (one frame)", "status": "done", "closes": ["DV-04"]},
+          {"id": "T0.7", "title": "Palette → ui-tokens.toml", "status": "done", "closes": ["DV-09"]},
+          {"id": "T0.8", "title": "Spatial index over node AABBs", "status": "done", "closes": ["DV-10"]},
+          {"id": "T0.9", "title": "EXTENDING.md + false-affordances", "status": "done", "closes": []}
+        ],
+        "done_means": "Two people can open same workbook without losing work; CI blocks broken PRs; metrics baseline exists; collage can be computed; one node one slide; theme is a text file; 10k-node hit-test viable; strangers can self-triage via EXTENDING.md."
+      },
+      {
+        "id": "W1",
+        "name": "Convergent foundations",
+        "status": "not_started",
+        "progress": 0.0,
+        "gate": "G0 + Wave 0 (both satisfied — READY TO START)",
+        "theme": "ZOrder + id-addressed + property-scoped journal; atlas-ai renderer-free + Provider trait",
+        "tasks": [
+          {"id": "T1.1a", "title": "ZOrder fractional index, format v3, journal cap", "status": "not_started", "closes": ["DV-08"], "size": "M"},
+          {"id": "T1.1b", "title": "Id-addressed SceneCmd + SceneReject", "status": "not_started", "closes": [], "size": "M", "depends": ["T1.1a"]},
+          {"id": "T1.1c", "title": "Property-scoped SetProp (PropKey ≤16)", "status": "not_started", "closes": ["DV-01"], "size": "L", "depends": ["T1.1b"]},
+          {"id": "T1.2", "title": "atlas-ai renderer-free; Provider trait; AI panel → atlas-shell", "status": "not_started", "closes": ["DV-02"], "size": "M"},
+          {"id": "T1.3", "title": "App marquee/pick on spatial index", "status": "partial", "closes": [], "size": "S", "note": "Commit 86d2498 exists on a branch; not confirmed on main. Pure-crate index (T0.8) is merged; app call sites may still linear-scan."}
+        ],
+        "done_means": "Two independently-authored command streams replay identically in either order; undo/redo unchanged; AI crate renderer-free.",
+        "critical_path": true
+      },
+      {
+        "id": "S",
+        "name": "Design spikes",
+        "status": "not_started",
+        "progress": 0.0,
+        "theme": "Contracts + prototypes only — no app wiring",
+        "tasks": [
+          {"id": "S1", "title": "Portal taxonomy contract → docs/portal-contract.md", "status": "not_started", "size": "M"},
+          {"id": "S2", "title": "Canvas clock + crates/dynamics prototype", "status": "not_started", "size": "L"},
+          {"id": "S3", "title": "Collab protocol + crates/atlas-collab prototype", "status": "not_started", "size": "L", "depends": ["T1.1c"], "gates": ["Wave 4"]}
+        ]
+      },
+      {
+        "id": "W2",
+        "name": "Identity + collage shipping",
+        "status": "not_started",
+        "progress": 0.05,
+        "gate": "Wave 1 merged",
+        "theme": "SourceUri; collage/align commands; staging layer; atlas-mcp",
+        "tasks": [
+          {"id": "T2.1", "title": "SourceUri + ContentId + tri-state health, v4", "status": "not_started", "closes": ["DV-03"], "size": "L"},
+          {"id": "T2.2", "title": "Collage + align/distribute as commands", "status": "not_started", "closes": ["DV-05"], "size": "M", "note": "crates/collage exists; board.align registered but no dispatch (DV-05)"},
+          {"id": "T2.3", "title": "Staging layer (agent propose / human accept)", "status": "not_started", "size": "M"},
+          {"id": "T2.4", "title": "atlas-mcp (commands_list, context_read, board_propose)", "status": "not_started", "size": "M"}
+        ],
+        "done_means": "Select 30 images → collage in one undo; MCP client can propose same command staged + attributed."
+      },
+      {
+        "id": "W3",
+        "name": "Share",
+        "status": "sketched",
+        "progress": 0.0,
+        "gate": "Wave 2 + one week daily use",
+        "tasks": [
+          {"id": "T3.0", "title": "Delete SlateItem.path mirror", "status": "not_started"},
+          {"id": "WI-5", "title": ".slatepack package (InDesign model / permanent fork)", "status": "not_started", "closes": ["DV-07"]},
+          {"id": "WI-4", "title": "Extract Edge from Connector, format v5", "status": "not_started", "closes": ["DV-11"]},
+          {"id": "WI-8", "title": "Product B shared-file (lease request, reload, authorship)", "status": "not_started"}
+        ]
+      },
+      {
+        "id": "W4",
+        "name": "Live collaboration",
+        "status": "sketched",
+        "progress": 0.0,
+        "gate": "Wave 3 + S3 adopted (D11: core feature)",
+        "tasks": [
+          {"id": "WI-9a", "title": "slate-relay binary", "status": "not_started"},
+          {"id": "WI-9b", "title": "Session client (atlas-collab transport)", "status": "not_started"},
+          {"id": "WI-9c", "title": "Presence UI (never journaled)", "status": "not_started"},
+          {"id": "WI-9d", "title": "Session asset delivery", "status": "not_started"}
+        ],
+        "done_means": "Dozen hybrid participants edit via firm-run relay; see cursors + images; relay death leaves coherent local copies."
+      },
+      {
+        "id": "W5",
+        "name": "After audit №3",
+        "status": "deferred",
+        "progress": 0.0,
+        "items": [
+          "Web-view host portals (D15)",
+          "Dynamics layer (D12/S2)",
+          "Filmstrip video scrub (D13)",
+          "Extension package format (D14)",
+          "Generative image nodes (D16)",
+          "Agent Mode 2 — agent nodes",
+          "ControlSurface + PanelSpec (unratified Amendment D)",
+          "Full portals migration (Roadmap P3)",
+          "Canvas painting of staged proposals",
+          "Journal persistence only if named use appears"
+        ]
+      }
+    ]
+  },
+
+  "decisions": [
+    {"id": "D1", "title": "Sharing is daily; meetings are large", "wave_impact": "Lease, relative locators, convergent journal, Product B promoted"},
+    {"id": "D2", "title": "Autodesk / Tier-2 adapters out", "wave_impact": "No Source trait/opendal now; keep SourceUri identity model"},
+    {"id": "D3", "title": "Frame membership stays geometric", "wave_impact": "No Membership edge; T0.6 one-frame rule; announce changes in collab"},
+    {"id": "D4", "title": "First agent task = collage", "wave_impact": "collage crate + arrange commands = agent-surface proof harness; Mode 1 first"},
+    {"id": "D5", "title": "Windows reference platform", "wave_impact": "Linux CI floor; no Mac/Linux port work planned"},
+    {"id": "D6", "title": "Metrics baseline for audits", "wave_impact": "cargo xtask metrics"},
+    {"id": "D7", "title": "Portals have three classes", "wave_impact": "Generated / Document / Host — S1 contract"},
+    {"id": "D8", "title": "Derived state + canvas clock", "wave_impact": "S2 dynamics; bake command"},
+    {"id": "D9", "title": "Write-back explicit, human-only", "wave_impact": "Agents never write back"},
+    {"id": "D10", "title": "Package is a fork, not sealed snapshot", "wave_impact": "WI-5 simplified (InDesign Package)"},
+    {"id": "D11", "title": "Live collaboration is a core feature", "wave_impact": "Wave 4 promoted; self-hosted relay; supersedes C0/C1 tiering as deferral"},
+    {"id": "D12", "title": "Interactive nodes with forces", "wave_impact": "S2 / Wave 5 dynamics"},
+    {"id": "D13", "title": "Video viewports (Frame.io style)", "wave_impact": "Wave 5 filmstrip scrub"},
+    {"id": "D14", "title": "Extensions = declarative assets + MCP", "wave_impact": "No native plugins"},
+    {"id": "D15", "title": "Host portals: web first", "wave_impact": "Wave 5; OS window embed cut"},
+    {"id": "D16", "title": "Generative images are authored content", "wave_impact": "Wave 5 with provenance"},
+    {"id": "D17", "title": "Nested workbooks: tab first, in-place later", "wave_impact": "S1 Document class"},
+    {"id": "D18", "title": "Relay persists session log", "wave_impact": "S3 / Wave 4"}
+  ],
+
+  "deviations": {
+    "open": 8,
+    "closed": 4,
+    "accepted": 0,
+    "rows": [
+      {"id": "DV-01", "article": "VI", "status": "open", "summary": "SceneCmd Add/Remove by usize index; Patch replaces whole Node — journal cannot converge", "closes_with": "WI-2 / T1.1c"},
+      {"id": "DV-02", "article": "I", "status": "open", "summary": "atlas-ai depends on eframe/atlas-shell — agent surface renderer-bound", "closes_with": "WI-6a / T1.2"},
+      {"id": "DV-03", "article": "IX", "status": "open", "summary": "SlateItem identity is absolute PathBuf — workbook not portable across mount points", "closes_with": "WI-3 / T2.1"},
+      {"id": "DV-04", "article": "IV", "status": "closed", "summary": "members_of could put one node on two slides", "closed": "7ede2ae (T0.6)"},
+      {"id": "DV-05", "article": "VII.1", "status": "open", "summary": "board.align registered but no dispatch; align/distribute have zero call sites", "closes_with": "T2.2"},
+      {"id": "DV-06", "article": "II", "status": "closed", "summary": "No concurrent-write guard on .slate", "closed": "fd21497 (T0.4)"},
+      {"id": "DV-07", "article": "IV.1", "status": "open", "summary": "No golden board-vs-artifact parity test", "closes_with": "T3.1 / WI-5"},
+      {"id": "DV-08", "article": "II.3", "status": "open", "summary": "SceneJournal unbounded", "closes_with": "WI-2 / T1.1a"},
+      {"id": "DV-09", "article": "X", "status": "closed", "summary": "Palette hardcoded vs ui-tokens", "closed": "96f2b03 (T0.7)"},
+      {"id": "DV-10", "article": "II", "status": "closed", "summary": "No spatial index — linear hit-test", "closed": "41ef2bb (T0.8)"},
+      {"id": "DV-11", "article": "IV", "status": "open", "summary": "Two wire routers (lens orthogonal vs connector_bezier)", "closes_with": "Wave 3 WI-4"},
+      {"id": "DV-12", "article": "VII.1", "status": "open", "summary": "Selection + Lens dock panels toggle but never draw (~1.3k dead lines)", "closes_with": "Wave 2 chrome pass"}
+    ]
+  },
+
+  "metrics": {
+    "baseline": {
+      "date": "2026-07-25",
+      "commit": "4d40a33",
+      "lines_total": 67962,
+      "lines_code": 57920,
+      "pure_lines_code": 16084,
+      "renderer_lines_code": 41836,
+      "pure_ratio": 0.278,
+      "crates": 15,
+      "tests": 470,
+      "unsafe_blocks": 13,
+      "direct_dependencies": 18,
+      "format_version": 2,
+      "node_kinds": 5,
+      "scene_cmd_variants": 3,
+      "commands_slate": 112,
+      "commands_file_atlas": 40,
+      "deviations_open": 7,
+      "deviations_closed": 4
+    },
+    "approx_2026_08_05": {
+      "note": "Recomputed by file walk / regex — not cargo xtask metrics. Re-run xtask for audit-grade numbers.",
+      "commit": "664e2e1",
+      "lines_code_sum": 68981,
+      "crates": 17,
+      "tests": 653,
+      "format_version": 2,
+      "node_kinds": 6,
+      "node_kind_names": ["Frame", "Image", "Shape", "Text", "Connector", "Portal"],
+      "scene_cmd_variants": 3,
+      "scene_cmd_shape": "Add{index}/Remove{index}/Patch{before,after} — still positional (DV-01)",
+      "commands_slate_approx": 122,
+      "commands_file_atlas_approx": 27,
+      "deviations_open": 8,
+      "deviations_closed": 4,
+      "new_crates_since_baseline": ["slate-kit", "repo-graph", "collage was in baseline"]
+    },
+    "crate_loc_approx": [
+      {"name": "slate", "lines_code": 23841, "kind": "app"},
+      {"name": "atlas-shell", "lines_code": 9367, "kind": "chrome"},
+      {"name": "native-file-atlas", "lines_code": 9143, "kind": "app"},
+      {"name": "atlas-core", "lines_code": 6250, "kind": "pure-ish"},
+      {"name": "slate-doc", "lines_code": 3769, "kind": "pure"},
+      {"name": "code-lens", "lines_code": 3541, "kind": "pure"},
+      {"name": "slate-artifact", "lines_code": 2334, "kind": "pure"},
+      {"name": "xtask", "lines_code": 2263, "kind": "tool"},
+      {"name": "slate-kit", "lines_code": 1843, "kind": "pure"},
+      {"name": "vector-ink", "lines_code": 1762, "kind": "pure"},
+      {"name": "rhino-mesh", "lines_code": 1136, "kind": "pure"},
+      {"name": "circle-pack", "lines_code": 987, "kind": "pure"},
+      {"name": "collage", "lines_code": 803, "kind": "pure"},
+      {"name": "atlas-commands", "lines_code": 717, "kind": "pure"},
+      {"name": "repo-graph", "lines_code": 697, "kind": "pure"},
+      {"name": "atlas-ai", "lines_code": 459, "kind": "renderer-bound"},
+      {"name": "atlas-session", "lines_code": 69, "kind": "bridge"}
+    ]
+  },
+
+  "architecture": {
+    "workspace_members": [
+      "crates/atlas-core", "crates/atlas-shell", "crates/atlas-session", "crates/atlas-ai",
+      "crates/atlas-commands", "crates/slate-doc", "crates/slate-kit", "crates/slate-artifact",
+      "crates/circle-pack", "crates/collage", "crates/vector-ink", "crates/code-lens",
+      "crates/repo-graph", "crates/rhino-mesh", "apps/file-atlas", "apps/slate", "xtask"
+    ],
+    "missing_planned_crates": ["atlas-mcp", "atlas-stage", "atlas-collab", "dynamics", "slate-relay"],
+    "crates": [
+      {"name": "atlas-core", "role": "UI-free backend: scanner, SQLite index, thumbs, tree layout, journal, export, watcher, timeline", "renderer": false},
+      {"name": "atlas-shell", "role": "Shared chrome: theme, top bar, tabs, dock, sidebar, widgets, timeline paint, command reference UI", "renderer": true},
+      {"name": "atlas-session", "role": "In-process Slate⇄Atlas bridge (SharedSession)", "renderer": false},
+      {"name": "atlas-ai", "role": "AI workspace config, Cursor launcher, context beacon — still has ui.rs + eframe (DV-02)", "renderer": true},
+      {"name": "atlas-commands", "role": "Shared command registry types", "renderer": false},
+      {"name": "slate-doc", "role": ".slate model: tags, items, scene graph, SceneCmd journal, lease, spatial index", "renderer": false},
+      {"name": "slate-kit", "role": "Declarative board tools: 9 gesture grammars (code) + result recipes (data/.slatekit)", "renderer": false},
+      {"name": "slate-artifact", "role": "HTML artifact writer: scene→slides, styles→CSS, JS runtime", "renderer": false},
+      {"name": "circle-pack", "role": "Circle packing + Venn layout geometry", "renderer": false},
+      {"name": "collage", "role": "Justified/grid/masonry layout solver (std only)", "renderer": false},
+      {"name": "vector-ink", "role": "kurbo path engine: flatten, variable-width AA meshes, SVG outlines, hit-test, freehand fit", "renderer": false},
+      {"name": "code-lens", "role": "Cargo/Rust graph extraction, semantic zoom layout, agent overlay contract", "renderer": false},
+      {"name": "repo-graph", "role": "Repository history graph support for Lens portal", "renderer": false},
+      {"name": "rhino-mesh", "role": "Pure-Rust .3dm cached render mesh reader", "renderer": false},
+      {"name": "xtask", "role": "metrics, contracts check, kits check", "renderer": false}
+    ],
+    "hard_rules": [
+      "Chrome only in atlas-shell (Art. X)",
+      "Mutate board only via journaled helpers (Art. VI)",
+      "Tagging is Slate-only; Atlas surfaces Slate tags in linked sessions",
+      "AI panel body shared — currently atlas_ai::ui::ai_body (should move to atlas-shell per T1.2)",
+      "Workspace dep versions pinned once; members use { workspace = true }",
+      "Every user-facing binding registered in app commands.rs SPECS",
+      "Never bulk-read dehydrated OneDrive/SharePoint files (cloud::is_dehydrated gate)"
+    ]
+  },
+
+  "capabilities_inventory": {
+    "shipped": [
+      {"area": "Atlas scan/tree/thumbs", "detail": "Streaming scan, tidy tree, LOD, portals for large folders, multi-tier cache, cloud dehydration guard"},
+      {"area": "Shared chrome", "detail": "Unified top bar, floating docks, readouts, themes via ui-tokens.toml, Advanced command reference"},
+      {"area": "Slate tags + Grid/Venn", "detail": "Faceted tags, combination buckets, circle-pack Venn"},
+      {"area": "Board authoring", "detail": "Frames, shapes, text, images, paths, brush/eraser, connectors, crop/adjust, snap, present mode"},
+      {"area": "Vector draw (P2 core)", "detail": "vector-ink + Polyline/Arc/Bezier/Pen + mesh cache"},
+      {"area": "Tool kits", "detail": "slate-kit grammar+recipe; builtin/core.slatekit (#38)"},
+      {"area": "HTML export", "detail": "slate-artifact serialization of board as slides"},
+      {"area": "Lens", "detail": "code-lens analysis + overlay beacon files"},
+      {"area": "3D", "detail": "Rhino mesh viewports on board"},
+      {"area": "Linked sessions", "detail": "egui multi-viewport Atlas hosted by Slate"},
+      {"area": "AI seed", "detail": "Workspace config, Cursor launch, context JSON beacon"},
+      {"area": "Lease", "detail": ".slate.lock heartbeat; read-only second opener"},
+      {"area": "Collage math", "detail": "crates/collage — not yet wired to a command"},
+      {"area": "Spatial index", "detail": "slate-doc query_rect/query_point"},
+      {"area": "Portal groundwork", "detail": "NodeKind::Portal + RepoLens tool + draft contract"},
+      {"area": "Contracts system", "detail": "docs/keymap/contracts + cargo xtask contracts"},
+      {"area": "CI", "detail": "fmt, clippy -D warnings, test on Linux; check on Windows"}
+    ],
+    "next_critical": [
+      {"priority": 1, "item": "T1.1a→c convergent journal (v3)", "why": "Gates collaboration math + closes DV-01/DV-08"},
+      {"priority": 2, "item": "T1.2 atlas-ai split + Provider", "why": "Closes DV-02; unlocks staging/MCP"},
+      {"priority": 3, "item": "S1 portal taxonomy", "why": "Prevent Phase 3 baking wrong determinism assumption"},
+      {"priority": 4, "item": "T2.2 collage command", "why": "Named weekly use + agent proof harness"},
+      {"priority": 5, "item": "T2.1 SourceUri", "why": "Shared workbooks across mount points (D1)"},
+      {"priority": 6, "item": "T2.3 + T2.4 staging + MCP", "why": "Command parity becomes real"}
+    ],
+    "explicitly_out_of_scope": [
+      "Autodesk ACC/APS and Tier-2 platform adapters",
+      "Google Docs / iCloud native sources",
+      "Source trait + opendal backend (deferred, no named use)",
+      "Hyperedges",
+      "Mac/Linux/iPad as supported products (CI Linux only)",
+      "Native in-process binary plugins",
+      "Agent-initiated write-back",
+      "Ratifying Amendment D (control surfaces) before implementation"
+    ]
+  },
+
+  "model_snapshot": {
+    "format_version": 2,
+    "format_ledger": [
+      {"v": 2, "status": "current", "adds": "board scene"},
+      {"v": 3, "status": "reserved T1.1a", "adds": "Node.z: ZOrder"},
+      {"v": 4, "status": "reserved T2.1", "adds": "SlateItem.uri SourceUri + content ContentId"},
+      {"v": 5, "status": "reserved WI-4", "adds": "Scene.edges Vec<Edge>"},
+      {"v": "6+", "status": "unclaimed", "adds": "—"}
+    ],
+    "view_kinds_tab_level": ["Grid", "Venn", "Board", "Lens"],
+    "board_tools": [
+      "Select", "Pan", "Frame", "RectShape", "Ellipse", "Line", "Arc", "Polyline",
+      "BezierSpan", "Pen", "Text", "Brush", "Eraser", "Eyedropper", "Sticky",
+      "DirectSelect", "RepoLens"
+    ],
+    "facets": ["Raster", "Vector", "Text", "Paged", "Spatial3D", "Timeline", "Structured", "Composition"],
+    "media_kind_note": "Still MediaKind-based; Phase 5 migrates to facets(path)->FacetSet"
+  },
+
+  "progress_scores": {
+    "overall_roadmap": 0.28,
+    "overall_workplan_through_w2": 0.22,
+    "phase_scores": {
+      "P1_Ratify": 1.0,
+      "P2_Draw": 0.7,
+      "P3_Unify": 0.15,
+      "P4_Speak": 0.05,
+      "P5_Reach": 0.0,
+      "P6_Ascend": 0.0
+    },
+    "wave_scores": {
+      "W0": 1.0,
+      "G0": 1.0,
+      "W1": 0.0,
+      "Spikes": 0.0,
+      "W2": 0.05,
+      "W3": 0.0,
+      "W4": 0.0,
+      "W5": 0.0
+    },
+    "health": {
+      "deviation_debt": 8,
+      "pure_ratio_baseline": 0.278,
+      "pure_ratio_trend": "watch — should not fall (Art. I canary)",
+      "format_version_stuck_at": 2,
+      "biggest_risk": "Swarm outruns review; or Wave 1 journal refactor regresses undo",
+      "biggest_opportunity": "Wave 1 ready now (G0+W0 done) — unblocks collab + agent surface"
+    }
+  },
+
+  "audit_trail": {
+    "audit_1": "audit-2026-07-25-protocols-collaboration-agents-api.md (c808966)",
+    "audit_2": "audit-02-2026-07-25-flexibility-stress-test.md",
+    "decisions": [
+      "docs/audit/2026-07-25-decisions.md (D1–D6)",
+      "docs/audit/2026-07-25-decisions-flexibility.md (D7–D18)"
+    ],
+    "next_audit_needs": [
+      "Fresh cargo xtask metrics vs 2026-07-25 baseline",
+      "Deviation ledger delta",
+      "Which cards shipped / escalated / were wrong",
+      "Real daily-use answers: collage weekly? how many simultaneous editors? what broke first?",
+      "If public: stranger request distribution by EXTENDING.md flexibility class"
+    ]
+  }
+}
+
+</script>
+<script id="copy-payload" type="text/plain">
+# ATLAS ECOSYSTEM — STATUS BUNDLE (self-contained handoff)
+# Open the .html file in a browser for the interactive dashboard.
+# Everything below is also embedded in that HTML.
+
+# Atlas ecosystem — status dashboard handoff
+
+**Audience:** an agent (or human) building or refining the interactive project
+status dashboard. **You do not need the source repository.** Everything required
+is in this folder.
+
+| File | Role |
+|------|------|
+| [`project-state.json`](project-state.json) | Canonical research snapshot (thesis, law, roadmap, workplan, deviations, metrics, crates, next actions) |
+| [`index.html`](index.html) | Working interactive dashboard — open in any browser (file:// or static host) |
+| **This file** | Build brief, UX plan, acceptance criteria, update protocol |
+
+**Snapshot date:** 2026-08-05 · **HEAD at capture:** `664e2e1`  
+**Research verdict:** Wave 0 + ratification (G0) are complete. Wave 1 (convergent
+journal) is the critical path and is unblocked. Roadmap Phase 2 core landed;
+Phases 3–6 and workplan Waves 1–5 are largely ahead.
+
+---
+
+## 1. What this dashboard must do
+
+Three jobs, one composition:
+
+1. **Visualization** — architecture, products, crates, capability inventory.
+2. **Roadmap** — Constitution phases (P1–P6) *and* audit workplan waves (W0–W5 + spikes), with dependency context.
+3. **Progress evaluation** — scored phases/waves, open constitutional deviations, metrics baseline vs approx current, “what to do next.”
+
+It is a **status instrument for orchestrators**, not a marketing site and not a
+substitute for `CONSTITUTION.md`.
+
+---
+
+## 2. Non-negotiable content (already in JSON)
+
+Do not invent progress. Read `project-state.json` and render it. If you rebuild
+the UI, keep these sections:
+
+1. **At a glance** — overall scores, HEAD, open deviations, format_version, gate status (G0 open for Wave 1).
+2. **Thesis** — one-liner + 10% rule + horizon.
+3. **Products** — File Atlas vs Slate capability lists.
+4. **Roadmap phases P1–P6** — status, progress bar, open items.
+5. **Workplan waves** — task cards with status; critical-path highlight on W1.
+6. **Constitution articles** — I–XI short summaries (filterable).
+7. **Decisions D1–D18** — one-line impact each.
+8. **Deviations ledger** — open/closed filter; Art. + closes_with.
+9. **Metrics** — baseline 2026-07-25 vs approx 2026-08-05; crate LOC bars.
+10. **Architecture** — crate roles; missing planned crates; hard rules.
+11. **Next actions** — prioritized critical path from `capabilities_inventory.next_critical`.
+12. **Out of scope** — explicit cuts so agents do not re-propose them.
+13. **Audit trail** — what to bring to audit №3.
+
+---
+
+## 3. UX / visual plan
+
+### Composition
+
+- One scrollable page with a sticky subnav (jump links), not a multi-page app.
+- First viewport = **status hero**: product name “Atlas ecosystem”, one verdict
+  sentence, overall progress ring/bars, four KPI chips (open DVs, format v,
+  tests, crates). No marketing clutter.
+- Below: sectioned instrument panels. Prefer dense information design over cards-for-cards’-sake.
+
+### Visual direction (avoid AI-default looks)
+
+- **Direction:** cartographic night board — charcoal `#0e1114`, ink `#d8d4c8`,
+  signal teal `#3d9b8f`, caution amber `#c49a6c`, danger coral `#c45c4a`,
+  muted grid lines. Not purple-gradient, not cream+terracotta, not broadsheet.
+- Typography: distinctive pair — e.g. **IBM Plex Sans** + **IBM Plex Mono**
+  (or Fraunces + JetBrains Mono). No Inter/Roboto/Arial/system-only stacks.
+- Atmosphere: subtle dotted grid or topo-line background, not flat fill.
+- Motion: 2–3 intentional motions only — progress bars fill on enter, phase
+  nodes light on hover, filter chips cross-fade content. No glow spam.
+
+### Interaction
+
+- Filter chips: wave status / deviation status / article.
+- Click a wave → expand task list with depends/closes badges.
+- Click a deviation → show article + closing task.
+- Hover crate bar → role tooltip.
+- Optional: `?section=` deep link; print stylesheet that collapses filters.
+
+### Technical constraints for the builder
+
+- **Single-file or two-file** preferred (`index.html` + optional JSON). Works on
+  `file://` — if fetch fails, embed JSON inline (current `index.html` does this).
+- No build step, no React/Vite required unless you deliberately upgrade and
+  document how to regenerate the static artifact.
+- No network dependency for core function (fonts may CDN with local fallbacks).
+- All copy that asserts facts must come from the JSON, not hard-coded prose that
+  can drift.
+
+---
+
+## 4. Research conclusions the UI must surface
+
+These are the evaluation findings — highlight them, do not bury them:
+
+| Finding | Detail |
+|---------|--------|
+| **Critical path is Wave 1** | G0 ratified (`1b88e8e`); Wave 0 merged. Start T1.1a (ZOrder/v3) and T1.2 (atlas-ai split) in parallel. |
+| **Journal still positional** | `SceneCmd` is still `Add{index}/Remove{index}/Patch` — DV-01 open. `format_version` still **2**. |
+| **Collage half-done** | `crates/collage` shipped; command wiring is T2.2 (DV-05 still open). |
+| **Portal groundwork early** | `NodeKind::Portal` + RepoLens exist before S1 taxonomy — risk of wrong assumptions; S1 is high-value. |
+| **Agent surface is a seed** | Beacon + Cursor launch exist; no staging layer, no `atlas-mcp`, atlas-ai still renderer-bound (DV-02). |
+| **Deviation debt** | **8 open / 4 closed.** DV-12 (dead Selection/Lens docks) opened after clippy sweep. |
+| **Metrics baseline stale** | Last `cargo xtask metrics` is 2026-07-25; codebase grew (slate-kit, repo-graph, portal, kits). Re-run before audit №3. |
+| **Stale doc trap** | `docs/audit/amendments/2026-07-25-amendments.md` still says UNRATIFIED — ignore it; constitution amendment log wins. |
+
+### Progress scores (from JSON)
+
+- Overall roadmap ≈ **28%**
+- Workplan through Wave 2 ≈ **22%**
+- P1 100% · P2 ~70% · P3 ~15% · P4 ~5% · P5/P6 0%
+- W0 100% · W1 0% · Spikes 0% · W2 ~5%
+
+---
+
+## 5. Acceptance criteria for a “done” dashboard
+
+- [ ] Opens offline; all sections render from embedded/linked state data.
+- [ ] Verdict sentence matches research (Wave 1 unblocked / journal not convergent yet).
+- [ ] Every open deviation appears; closed ones filterable but present.
+- [ ] Every workplan task T0.1–T2.4 + spikes + W3–W5 sketches appears with status.
+- [ ] Roadmap P1–P6 and workplan waves are both visible (not collapsed into one vague timeline).
+- [ ] Next-actions list matches `next_critical` order.
+- [ ] Out-of-scope list is visible.
+- [ ] No fabricated ship dates or calendar ETAs (phases are dependency-ordered).
+- [ ] Visual direction follows §3 (not purple SaaS / cream editorial / broadsheet).
+- [ ] Handoff note in PR: how to refresh JSON after the next wave merges.
+
+---
+
+## 6. How to refresh after the repo moves
+
+When you *do* have repo access later:
+
+1. Re-read `ROADMAP.md`, `docs/workplan/README.md`, `docs/audit/deviations.md`.
+2. Probe: `SlateDoc::CURRENT`, `SceneCmd` shape, presence of `order.rs` /
+   `source.rs` / `atlas-mcp` / `docs/portal-contract.md`.
+3. Run `cargo xtask metrics` and replace `metrics.baseline` or add a new dated
+   snapshot column.
+4. Update task `status` fields in JSON; recompute `progress_scores`.
+5. Bump `meta.generated` / `meta.head_commit`.
+6. Regenerate or re-embed JSON into `index.html`.
+
+Without repo access: only edit JSON if a human supplies a new snapshot.
+
+---
+
+## 7. Suggested build modes for the implementing agent
+
+**Mode A (default) — polish the shipped `index.html`.**  
+Improve layout, accessibility, print CSS, and micro-interactions. Do not change
+facts without updating JSON first.
+
+**Mode B — rebuild in another stack.**  
+Allowed if the static artifact remains one (or two) files and still embeds the
+full JSON. React/Svelte/etc. must ship a built static result into this folder.
+
+**Mode C — Miro / FigJam board.**  
+Only if the user asks. Mirror the same section inventory; attach or paste the
+JSON summary so the board is not source-dependent. (Miro MCP may require user
+auth.)
+
+---
+
+## 8. Dispatch prompt (copy-paste)
+
+```
+You are building / refining the Atlas ecosystem status dashboard.
+You do NOT have repository access.
+
+Read in order:
+  1. docs/status-dashboard/HANDOFF.md
+  2. docs/status-dashboard/project-state.json
+  3. docs/status-dashboard/index.html
+
+Execute Mode A unless told otherwise. Preserve all facts from the JSON.
+Meet every acceptance criterion in HANDOFF §5. Do not invent calendar
+timelines. Open a PR that only touches docs/status-dashboard/ unless
+asked to publish elsewhere.
+```
+
+---
+
+## 9. Glossary (for agents new to the project)
+
+| Term | Meaning |
+|------|---------|
+| **File Atlas** | Folder-tree visual organizer app |
+| **Slate** | Workbook app (.slate) — tags, board, lens, export |
+| **Board** | Authored infinite canvas; frames = slides |
+| **Portal** | Journaled frame whose contents come from elsewhere |
+| **Journal / SceneCmd** | Invertible command log; only legal mutation path |
+| **Capability** | Everything outside the minimal canvas core |
+| **Wave** | Swarm workplan batch from 2026-07-25 audits |
+| **Phase** | Long-horizon ROADMAP.md sequence |
+| **Deviation (DV-)** | Known constitution-vs-code gap |
+| **G0** | User ratification of constitutional amendments |
+| **Beacon** | JSON files under AI workspace for agent context |
+| **10% rule** | Art. III — build the fraction actually used |
+
+
+---
+
+# project-state.json
+
+```json
+{
+  "meta": {
+    "generated": "2026-08-05",
+    "head_commit": "664e2e1",
+    "head_summary": "Declarative board tools: gesture grammar (code) + result recipe (data) (#38)",
+    "head_date": "2026-08-03",
+    "snapshot_note": "Self-contained research snapshot for agents without repo access. Counts marked 'approx' were recomputed 2026-08-05; baseline metrics are from cargo xtask metrics on 2026-07-25 (commit 4d40a33).",
+    "repo": "Atlas ecosystem (native File Atlas + Slate)",
+    "stack": "Rust + egui/eframe, Windows reference platform, Linux CI floor",
+    "license": "MIT"
+  },
+
+  "thesis": {
+    "one_liner": "One lean native daily driver that replaces a suite of subscription tools for viewing, composing, and eventually editing every kind of document its user works with.",
+    "anti_bloat": "Professionals use ~10% of each monolith. Build that fraction excellently; everything else must earn its place (Constitution Art. III).",
+    "product_loop": "Thought → action → completion, as tight as the substrate allows — for the human and for agents on the same canvas.",
+    "horizon": "Two-plus years, vibe-coded. Invest first in contracts, schemas, and tests — implementations get cheaper to regenerate."
+  },
+
+  "products": [
+    {
+      "id": "file-atlas",
+      "name": "File Atlas",
+      "binary": "native-file-atlas",
+      "path": "apps/file-atlas",
+      "role": "Folder scanning, tree canvas, destination assignment / export workflow. Visual organization of tens of thousands of files.",
+      "key_capabilities": [
+        "Parallel streaming directory scan (~500k files/sec local)",
+        "SQLite index + instant revisit",
+        "Infinite pan/zoom branching folder tree with LOD (color blocks → cards)",
+        "Thumbnails via Win32 shell + built-in PDF/Office/.3dm fallbacks",
+        "Shared project cache tier under firm template path",
+        "Structure-only map, overnight pre-warm dashboard",
+        "Non-destructive staging/export with JSON manifest",
+        "Journal undo/redo; activity timeline / date filter",
+        "Linked-session tag offer from Slate via atlas-session"
+      ]
+    },
+    {
+      "id": "slate",
+      "name": "Slate",
+      "binary": "slate",
+      "path": "apps/slate",
+      "role": "Tag-driven workbooks (.slate) that link files (never copies). Grid, Venn, Board, Lens views. Presentation + HTML artifact export.",
+      "key_capabilities": [
+        "Faceted tag groups (mutex within group, free across)",
+        "Grid + literal Venn presentations (circle-pack)",
+        "Authored Board: frames-as-slides, shapes, text, images, paths, connectors",
+        "Presentation mode + slate-artifact HTML export (serialization, not conversion)",
+        "Lens: deterministic cargo/Rust code graph (code-lens) + agent overlay beacon",
+        "Rhino .3dm 3D board viewports (rhino-mesh)",
+        "Declarative board tools via slate-kit (grammar + recipe)",
+        "Workbook lease / read-only mode when another holder is live",
+        "Repository Lens portal node groundwork (NodeKind::Portal)",
+        "Hosts File Atlas as second viewport in linked sessions"
+      ]
+    }
+  ],
+
+  "constitution": {
+    "status": "Founding 2026-07-19; amendments A,B,C,E,F ratified 2026-07-25 (commit 1b88e8e)",
+    "note": "docs/audit/amendments/2026-07-25-amendments.md still says UNRATIFIED — that file is stale; CONSTITUTION.md amendment log is authoritative.",
+    "articles": [
+      {
+        "id": "I",
+        "title": "Minimal core",
+        "summary": "Core = canvas paradigm (camera, tabs, journal, chrome, command registry). All else is a capability. No document/geometry/capability logic may depend on egui or a model provider. Windows reference; pure crates must build on Linux. Local-first; self-hosted relay OK; no required accounts."
+      },
+      {
+        "id": "II",
+        "title": "Performance is a feature",
+        "summary": "60fps canvas; no per-frame alloc/tessellation in paint; heavy work async + generation-tagged; glanceability matters."
+      },
+      {
+        "id": "III",
+        "title": "The 10% rule",
+        "summary": "Implement the deliberately chosen fraction of a domain that is actually used. 'Photoshop has it' is not a reason."
+      },
+      {
+        "id": "IV",
+        "title": "Honest models",
+        "summary": "Exports are serializations; graphs are extracted never hallucinated; board styling ceiling is SVG-expressible; egui painter and artifact writer are two interpreters of one model."
+      },
+      {
+        "id": "V",
+        "title": "One universe, portals",
+        "summary": "Board is the only universe. Portals = journaled frames with non-journaled contents. Classes: Generated / Document / Host. Membership is derived geometry (topmost containing frame). Tab ViewKinds retire as portal parity is reached."
+      },
+      {
+        "id": "VI",
+        "title": "Journal-only mutation",
+        "summary": "Every mutation is a named invertible journaled command with author. Address by stable identity; property-scoped. Derived state never journaled; bake promotes it."
+      },
+      {
+        "id": "VII",
+        "title": "Command parity (agent-native)",
+        "summary": "Humans and agents share the command surface. Agents extend with data not code; proposal-by-default staging; skills are declarative command recipes; extension ladder: assets → out-of-process MCP → (future amendment) sandboxed scripts. No native in-process binary plugins."
+      },
+      {
+        "id": "VIII",
+        "title": "Bandwidth",
+        "summary": "Canvas is the prompt. Every modality compiles to commands. Human never blocked on agent. Intent ink and presence are ephemeral, never journaled."
+      },
+      {
+        "id": "IX",
+        "title": "Slate is a linker, never a database",
+        "summary": "Link via Source abstraction; relative-first locators; link health Ok/Missing/Unknown; packages are permanent forks with provenance; write-back is explicit, human-only, never agent."
+      },
+      {
+        "id": "X",
+        "title": "No chrome divergence",
+        "summary": "All chrome painting lives in atlas-shell. Apps pass data and handle actions."
+      },
+      {
+        "id": "XI",
+        "title": "Agent conduct",
+        "summary": "Pushback mandate on constitutional conflict. Amendments only by user edit to CONSTITUTION.md. Constitution wins over other docs."
+      }
+    ]
+  },
+
+  "roadmap_phases": [
+    {
+      "id": "P1",
+      "name": "Ratify",
+      "status": "done",
+      "date": "2026-07-19",
+      "summary": "CONSTITUTION, rules, ROADMAP, facet taxonomy. Law locked.",
+      "progress": 1.0
+    },
+    {
+      "id": "P2",
+      "name": "Draw",
+      "status": "core_landed",
+      "date": "2026-07-19",
+      "summary": "vector-ink, Path model, Polyline/Arc/Bezier/Pen tools, cached mesh paint, SVG artifact serialization.",
+      "progress": 0.7,
+      "open": [
+        "Taper/cap/join inspector UI",
+        "Intent-ink layer (Art. VIII) — feeds atlas-ai beacon",
+        "Blend modes (deferred — epaint has no per-shape blend; revisit with GPU renderer in P6)"
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Unify (portals)",
+      "status": "early_groundwork",
+      "summary": "Fold Grid → Venn → Lens into board portals; retire tab ViewKinds at parity. Multi-lens dashboards. Longer: folder portal unifying Atlas canvas.",
+      "progress": 0.15,
+      "done_early": [
+        "NodeKind::Portal in slate-doc (Repo Lens unbound portal)",
+        "BoardTool::RepoLens",
+        "Draft portal-lens-repository contract + machine-checked contract system (#37)",
+        "Portal groundwork shipped with dock UX (5a9ea0b)"
+      ],
+      "blocked_on": ["S1 portal taxonomy contract (not written)", "Wave 3 WI-4 Edge extraction as graph prerequisite"]
+    },
+    {
+      "id": "P4",
+      "name": "Speak (agent surface)",
+      "status": "not_started",
+      "summary": "MCP server on command surface; canvas-as-prompt two-way channel; agent-authored declarative assets.",
+      "progress": 0.05,
+      "partial": [
+        "atlas-ai context beacon exists (one-way file write)",
+        "Cursor launcher + AI panel body",
+        "Lens overlay pattern is the staging precursor"
+      ],
+      "blocked_on": ["Wave 1 T1.2 Provider split", "Wave 2 T2.3 staging + T2.4 atlas-mcp"]
+    },
+    {
+      "id": "P5",
+      "name": "Reach (sources, facets, formats)",
+      "status": "not_started",
+      "summary": "Source abstraction beyond local; facet-matrix refactor; print-faithful PDF; AEC on-ramp (IFC, point clouds; USD later; glTF pragmatic).",
+      "progress": 0.0,
+      "blocked_on": ["Wave 2 T2.1 SourceUri identity"]
+    },
+    {
+      "id": "P6",
+      "name": "Ascend (substrate and beyond)",
+      "status": "not_started",
+      "summary": "GPU vector renderer (Vello) as port; Mac/iPad spikes; Miro-style multiplayer on journal streams; revisit script amendment.",
+      "progress": 0.0,
+      "blocked_on": ["Wave 4 live collab", "Article I hedge holding"]
+    }
+  ],
+
+  "workplan": {
+    "name": "Audit №1/№2 implementation swarm",
+    "docs": [
+      "docs/workplan/README.md",
+      "docs/workplan/agent-brief.md",
+      "docs/workplan/tasks/wave-0.md … wave-3-plus.md",
+      "docs/workplan/tasks/spikes.md"
+    ],
+    "execution_model": "One agent per task card; own git worktree; file ownership table prevents conflicts; implementer ≠ reviewer; human/orchestrator merges.",
+    "gates": [
+      {
+        "id": "G0",
+        "name": "Ratify amendments A,B,C,E,F",
+        "status": "done",
+        "commit": "1b88e8e",
+        "note": "Wave 1+ gate is open."
+      }
+    ],
+    "waves": [
+      {
+        "id": "W0",
+        "name": "Guardrails + first wins",
+        "status": "done",
+        "progress": 1.0,
+        "theme": "CI, metrics, lease, collage solver, membership, palette tokens, spatial index, EXTENDING.md",
+        "tasks": [
+          {"id": "T0.1", "title": "GitHub Actions CI", "status": "done", "closes": []},
+          {"id": "T0.2", "title": "cargo xtask metrics + baseline", "status": "done", "closes": []},
+          {"id": "T0.3", "title": "Migration fixture harness", "status": "done", "closes": []},
+          {"id": "T0.4", "title": "Workbook lease + read-only", "status": "done", "closes": ["DV-06"]},
+          {"id": "T0.5", "title": "crates/collage pure solver", "status": "done", "closes": []},
+          {"id": "T0.6", "title": "Membership determinism (one frame)", "status": "done", "closes": ["DV-04"]},
+          {"id": "T0.7", "title": "Palette → ui-tokens.toml", "status": "done", "closes": ["DV-09"]},
+          {"id": "T0.8", "title": "Spatial index over node AABBs", "status": "done", "closes": ["DV-10"]},
+          {"id": "T0.9", "title": "EXTENDING.md + false-affordances", "status": "done", "closes": []}
+        ],
+        "done_means": "Two people can open same workbook without losing work; CI blocks broken PRs; metrics baseline exists; collage can be computed; one node one slide; theme is a text file; 10k-node hit-test viable; strangers can self-triage via EXTENDING.md."
+      },
+      {
+        "id": "W1",
+        "name": "Convergent foundations",
+        "status": "not_started",
+        "progress": 0.0,
+        "gate": "G0 + Wave 0 (both satisfied — READY TO START)",
+        "theme": "ZOrder + id-addressed + property-scoped journal; atlas-ai renderer-free + Provider trait",
+        "tasks": [
+          {"id": "T1.1a", "title": "ZOrder fractional index, format v3, journal cap", "status": "not_started", "closes": ["DV-08"], "size": "M"},
+          {"id": "T1.1b", "title": "Id-addressed SceneCmd + SceneReject", "status": "not_started", "closes": [], "size": "M", "depends": ["T1.1a"]},
+          {"id": "T1.1c", "title": "Property-scoped SetProp (PropKey ≤16)", "status": "not_started", "closes": ["DV-01"], "size": "L", "depends": ["T1.1b"]},
+          {"id": "T1.2", "title": "atlas-ai renderer-free; Provider trait; AI panel → atlas-shell", "status": "not_started", "closes": ["DV-02"], "size": "M"},
+          {"id": "T1.3", "title": "App marquee/pick on spatial index", "status": "partial", "closes": [], "size": "S", "note": "Commit 86d2498 exists on a branch; not confirmed on main. Pure-crate index (T0.8) is merged; app call sites may still linear-scan."}
+        ],
+        "done_means": "Two independently-authored command streams replay identically in either order; undo/redo unchanged; AI crate renderer-free.",
+        "critical_path": true
+      },
+      {
+        "id": "S",
+        "name": "Design spikes",
+        "status": "not_started",
+        "progress": 0.0,
+        "theme": "Contracts + prototypes only — no app wiring",
+        "tasks": [
+          {"id": "S1", "title": "Portal taxonomy contract → docs/portal-contract.md", "status": "not_started", "size": "M"},
+          {"id": "S2", "title": "Canvas clock + crates/dynamics prototype", "status": "not_started", "size": "L"},
+          {"id": "S3", "title": "Collab protocol + crates/atlas-collab prototype", "status": "not_started", "size": "L", "depends": ["T1.1c"], "gates": ["Wave 4"]}
+        ]
+      },
+      {
+        "id": "W2",
+        "name": "Identity + collage shipping",
+        "status": "not_started",
+        "progress": 0.05,
+        "gate": "Wave 1 merged",
+        "theme": "SourceUri; collage/align commands; staging layer; atlas-mcp",
+        "tasks": [
+          {"id": "T2.1", "title": "SourceUri + ContentId + tri-state health, v4", "status": "not_started", "closes": ["DV-03"], "size": "L"},
+          {"id": "T2.2", "title": "Collage + align/distribute as commands", "status": "not_started", "closes": ["DV-05"], "size": "M", "note": "crates/collage exists; board.align registered but no dispatch (DV-05)"},
+          {"id": "T2.3", "title": "Staging layer (agent propose / human accept)", "status": "not_started", "size": "M"},
+          {"id": "T2.4", "title": "atlas-mcp (commands_list, context_read, board_propose)", "status": "not_started", "size": "M"}
+        ],
+        "done_means": "Select 30 images → collage in one undo; MCP client can propose same command staged + attributed."
+      },
+      {
+        "id": "W3",
+        "name": "Share",
+        "status": "sketched",
+        "progress": 0.0,
+        "gate": "Wave 2 + one week daily use",
+        "tasks": [
+          {"id": "T3.0", "title": "Delete SlateItem.path mirror", "status": "not_started"},
+          {"id": "WI-5", "title": ".slatepack package (InDesign model / permanent fork)", "status": "not_started", "closes": ["DV-07"]},
+          {"id": "WI-4", "title": "Extract Edge from Connector, format v5", "status": "not_started", "closes": ["DV-11"]},
+          {"id": "WI-8", "title": "Product B shared-file (lease request, reload, authorship)", "status": "not_started"}
+        ]
+      },
+      {
+        "id": "W4",
+        "name": "Live collaboration",
+        "status": "sketched",
+        "progress": 0.0,
+        "gate": "Wave 3 + S3 adopted (D11: core feature)",
+        "tasks": [
+          {"id": "WI-9a", "title": "slate-relay binary", "status": "not_started"},
+          {"id": "WI-9b", "title": "Session client (atlas-collab transport)", "status": "not_started"},
+          {"id": "WI-9c", "title": "Presence UI (never journaled)", "status": "not_started"},
+          {"id": "WI-9d", "title": "Session asset delivery", "status": "not_started"}
+        ],
+        "done_means": "Dozen hybrid participants edit via firm-run relay; see cursors + images; relay death leaves coherent local copies."
+      },
+      {
+        "id": "W5",
+        "name": "After audit №3",
+        "status": "deferred",
+        "progress": 0.0,
+        "items": [
+          "Web-view host portals (D15)",
+          "Dynamics layer (D12/S2)",
+          "Filmstrip video scrub (D13)",
+          "Extension package format (D14)",
+          "Generative image nodes (D16)",
+          "Agent Mode 2 — agent nodes",
+          "ControlSurface + PanelSpec (unratified Amendment D)",
+          "Full portals migration (Roadmap P3)",
+          "Canvas painting of staged proposals",
+          "Journal persistence only if named use appears"
+        ]
+      }
+    ]
+  },
+
+  "decisions": [
+    {"id": "D1", "title": "Sharing is daily; meetings are large", "wave_impact": "Lease, relative locators, convergent journal, Product B promoted"},
+    {"id": "D2", "title": "Autodesk / Tier-2 adapters out", "wave_impact": "No Source trait/opendal now; keep SourceUri identity model"},
+    {"id": "D3", "title": "Frame membership stays geometric", "wave_impact": "No Membership edge; T0.6 one-frame rule; announce changes in collab"},
+    {"id": "D4", "title": "First agent task = collage", "wave_impact": "collage crate + arrange commands = agent-surface proof harness; Mode 1 first"},
+    {"id": "D5", "title": "Windows reference platform", "wave_impact": "Linux CI floor; no Mac/Linux port work planned"},
+    {"id": "D6", "title": "Metrics baseline for audits", "wave_impact": "cargo xtask metrics"},
+    {"id": "D7", "title": "Portals have three classes", "wave_impact": "Generated / Document / Host — S1 contract"},
+    {"id": "D8", "title": "Derived state + canvas clock", "wave_impact": "S2 dynamics; bake command"},
+    {"id": "D9", "title": "Write-back explicit, human-only", "wave_impact": "Agents never write back"},
+    {"id": "D10", "title": "Package is a fork, not sealed snapshot", "wave_impact": "WI-5 simplified (InDesign Package)"},
+    {"id": "D11", "title": "Live collaboration is a core feature", "wave_impact": "Wave 4 promoted; self-hosted relay; supersedes C0/C1 tiering as deferral"},
+    {"id": "D12", "title": "Interactive nodes with forces", "wave_impact": "S2 / Wave 5 dynamics"},
+    {"id": "D13", "title": "Video viewports (Frame.io style)", "wave_impact": "Wave 5 filmstrip scrub"},
+    {"id": "D14", "title": "Extensions = declarative assets + MCP", "wave_impact": "No native plugins"},
+    {"id": "D15", "title": "Host portals: web first", "wave_impact": "Wave 5; OS window embed cut"},
+    {"id": "D16", "title": "Generative images are authored content", "wave_impact": "Wave 5 with provenance"},
+    {"id": "D17", "title": "Nested workbooks: tab first, in-place later", "wave_impact": "S1 Document class"},
+    {"id": "D18", "title": "Relay persists session log", "wave_impact": "S3 / Wave 4"}
+  ],
+
+  "deviations": {
+    "open": 8,
+    "closed": 4,
+    "accepted": 0,
+    "rows": [
+      {"id": "DV-01", "article": "VI", "status": "open", "summary": "SceneCmd Add/Remove by usize index; Patch replaces whole Node — journal cannot converge", "closes_with": "WI-2 / T1.1c"},
+      {"id": "DV-02", "article": "I", "status": "open", "summary": "atlas-ai depends on eframe/atlas-shell — agent surface renderer-bound", "closes_with": "WI-6a / T1.2"},
+      {"id": "DV-03", "article": "IX", "status": "open", "summary": "SlateItem identity is absolute PathBuf — workbook not portable across mount points", "closes_with": "WI-3 / T2.1"},
+      {"id": "DV-04", "article": "IV", "status": "closed", "summary": "members_of could put one node on two slides", "closed": "7ede2ae (T0.6)"},
+      {"id": "DV-05", "article": "VII.1", "status": "open", "summary": "board.align registered but no dispatch; align/distribute have zero call sites", "closes_with": "T2.2"},
+      {"id": "DV-06", "article": "II", "status": "closed", "summary": "No concurrent-write guard on .slate", "closed": "fd21497 (T0.4)"},
+      {"id": "DV-07", "article": "IV.1", "status": "open", "summary": "No golden board-vs-artifact parity test", "closes_with": "T3.1 / WI-5"},
+      {"id": "DV-08", "article": "II.3", "status": "open", "summary": "SceneJournal unbounded", "closes_with": "WI-2 / T1.1a"},
+      {"id": "DV-09", "article": "X", "status": "closed", "summary": "Palette hardcoded vs ui-tokens", "closed": "96f2b03 (T0.7)"},
+      {"id": "DV-10", "article": "II", "status": "closed", "summary": "No spatial index — linear hit-test", "closed": "41ef2bb (T0.8)"},
+      {"id": "DV-11", "article": "IV", "status": "open", "summary": "Two wire routers (lens orthogonal vs connector_bezier)", "closes_with": "Wave 3 WI-4"},
+      {"id": "DV-12", "article": "VII.1", "status": "open", "summary": "Selection + Lens dock panels toggle but never draw (~1.3k dead lines)", "closes_with": "Wave 2 chrome pass"}
+    ]
+  },
+
+  "metrics": {
+    "baseline": {
+      "date": "2026-07-25",
+      "commit": "4d40a33",
+      "lines_total": 67962,
+      "lines_code": 57920,
+      "pure_lines_code": 16084,
+      "renderer_lines_code": 41836,
+      "pure_ratio": 0.278,
+      "crates": 15,
+      "tests": 470,
+      "unsafe_blocks": 13,
+      "direct_dependencies": 18,
+      "format_version": 2,
+      "node_kinds": 5,
+      "scene_cmd_variants": 3,
+      "commands_slate": 112,
+      "commands_file_atlas": 40,
+      "deviations_open": 7,
+      "deviations_closed": 4
+    },
+    "approx_2026_08_05": {
+      "note": "Recomputed by file walk / regex — not cargo xtask metrics. Re-run xtask for audit-grade numbers.",
+      "commit": "664e2e1",
+      "lines_code_sum": 68981,
+      "crates": 17,
+      "tests": 653,
+      "format_version": 2,
+      "node_kinds": 6,
+      "node_kind_names": ["Frame", "Image", "Shape", "Text", "Connector", "Portal"],
+      "scene_cmd_variants": 3,
+      "scene_cmd_shape": "Add{index}/Remove{index}/Patch{before,after} — still positional (DV-01)",
+      "commands_slate_approx": 122,
+      "commands_file_atlas_approx": 27,
+      "deviations_open": 8,
+      "deviations_closed": 4,
+      "new_crates_since_baseline": ["slate-kit", "repo-graph", "collage was in baseline"]
+    },
+    "crate_loc_approx": [
+      {"name": "slate", "lines_code": 23841, "kind": "app"},
+      {"name": "atlas-shell", "lines_code": 9367, "kind": "chrome"},
+      {"name": "native-file-atlas", "lines_code": 9143, "kind": "app"},
+      {"name": "atlas-core", "lines_code": 6250, "kind": "pure-ish"},
+      {"name": "slate-doc", "lines_code": 3769, "kind": "pure"},
+      {"name": "code-lens", "lines_code": 3541, "kind": "pure"},
+      {"name": "slate-artifact", "lines_code": 2334, "kind": "pure"},
+      {"name": "xtask", "lines_code": 2263, "kind": "tool"},
+      {"name": "slate-kit", "lines_code": 1843, "kind": "pure"},
+      {"name": "vector-ink", "lines_code": 1762, "kind": "pure"},
+      {"name": "rhino-mesh", "lines_code": 1136, "kind": "pure"},
+      {"name": "circle-pack", "lines_code": 987, "kind": "pure"},
+      {"name": "collage", "lines_code": 803, "kind": "pure"},
+      {"name": "atlas-commands", "lines_code": 717, "kind": "pure"},
+      {"name": "repo-graph", "lines_code": 697, "kind": "pure"},
+      {"name": "atlas-ai", "lines_code": 459, "kind": "renderer-bound"},
+      {"name": "atlas-session", "lines_code": 69, "kind": "bridge"}
+    ]
+  },
+
+  "architecture": {
+    "workspace_members": [
+      "crates/atlas-core", "crates/atlas-shell", "crates/atlas-session", "crates/atlas-ai",
+      "crates/atlas-commands", "crates/slate-doc", "crates/slate-kit", "crates/slate-artifact",
+      "crates/circle-pack", "crates/collage", "crates/vector-ink", "crates/code-lens",
+      "crates/repo-graph", "crates/rhino-mesh", "apps/file-atlas", "apps/slate", "xtask"
+    ],
+    "missing_planned_crates": ["atlas-mcp", "atlas-stage", "atlas-collab", "dynamics", "slate-relay"],
+    "crates": [
+      {"name": "atlas-core", "role": "UI-free backend: scanner, SQLite index, thumbs, tree layout, journal, export, watcher, timeline", "renderer": false},
+      {"name": "atlas-shell", "role": "Shared chrome: theme, top bar, tabs, dock, sidebar, widgets, timeline paint, command reference UI", "renderer": true},
+      {"name": "atlas-session", "role": "In-process Slate⇄Atlas bridge (SharedSession)", "renderer": false},
+      {"name": "atlas-ai", "role": "AI workspace config, Cursor launcher, context beacon — still has ui.rs + eframe (DV-02)", "renderer": true},
+      {"name": "atlas-commands", "role": "Shared command registry types", "renderer": false},
+      {"name": "slate-doc", "role": ".slate model: tags, items, scene graph, SceneCmd journal, lease, spatial index", "renderer": false},
+      {"name": "slate-kit", "role": "Declarative board tools: 9 gesture grammars (code) + result recipes (data/.slatekit)", "renderer": false},
+      {"name": "slate-artifact", "role": "HTML artifact writer: scene→slides, styles→CSS, JS runtime", "renderer": false},
+      {"name": "circle-pack", "role": "Circle packing + Venn layout geometry", "renderer": false},
+      {"name": "collage", "role": "Justified/grid/masonry layout solver (std only)", "renderer": false},
+      {"name": "vector-ink", "role": "kurbo path engine: flatten, variable-width AA meshes, SVG outlines, hit-test, freehand fit", "renderer": false},
+      {"name": "code-lens", "role": "Cargo/Rust graph extraction, semantic zoom layout, agent overlay contract", "renderer": false},
+      {"name": "repo-graph", "role": "Repository history graph support for Lens portal", "renderer": false},
+      {"name": "rhino-mesh", "role": "Pure-Rust .3dm cached render mesh reader", "renderer": false},
+      {"name": "xtask", "role": "metrics, contracts check, kits check", "renderer": false}
+    ],
+    "hard_rules": [
+      "Chrome only in atlas-shell (Art. X)",
+      "Mutate board only via journaled helpers (Art. VI)",
+      "Tagging is Slate-only; Atlas surfaces Slate tags in linked sessions",
+      "AI panel body shared — currently atlas_ai::ui::ai_body (should move to atlas-shell per T1.2)",
+      "Workspace dep versions pinned once; members use { workspace = true }",
+      "Every user-facing binding registered in app commands.rs SPECS",
+      "Never bulk-read dehydrated OneDrive/SharePoint files (cloud::is_dehydrated gate)"
+    ]
+  },
+
+  "capabilities_inventory": {
+    "shipped": [
+      {"area": "Atlas scan/tree/thumbs", "detail": "Streaming scan, tidy tree, LOD, portals for large folders, multi-tier cache, cloud dehydration guard"},
+      {"area": "Shared chrome", "detail": "Unified top bar, floating docks, readouts, themes via ui-tokens.toml, Advanced command reference"},
+      {"area": "Slate tags + Grid/Venn", "detail": "Faceted tags, combination buckets, circle-pack Venn"},
+      {"area": "Board authoring", "detail": "Frames, shapes, text, images, paths, brush/eraser, connectors, crop/adjust, snap, present mode"},
+      {"area": "Vector draw (P2 core)", "detail": "vector-ink + Polyline/Arc/Bezier/Pen + mesh cache"},
+      {"area": "Tool kits", "detail": "slate-kit grammar+recipe; builtin/core.slatekit (#38)"},
+      {"area": "HTML export", "detail": "slate-artifact serialization of board as slides"},
+      {"area": "Lens", "detail": "code-lens analysis + overlay beacon files"},
+      {"area": "3D", "detail": "Rhino mesh viewports on board"},
+      {"area": "Linked sessions", "detail": "egui multi-viewport Atlas hosted by Slate"},
+      {"area": "AI seed", "detail": "Workspace config, Cursor launch, context JSON beacon"},
+      {"area": "Lease", "detail": ".slate.lock heartbeat; read-only second opener"},
+      {"area": "Collage math", "detail": "crates/collage — not yet wired to a command"},
+      {"area": "Spatial index", "detail": "slate-doc query_rect/query_point"},
+      {"area": "Portal groundwork", "detail": "NodeKind::Portal + RepoLens tool + draft contract"},
+      {"area": "Contracts system", "detail": "docs/keymap/contracts + cargo xtask contracts"},
+      {"area": "CI", "detail": "fmt, clippy -D warnings, test on Linux; check on Windows"}
+    ],
+    "next_critical": [
+      {"priority": 1, "item": "T1.1a→c convergent journal (v3)", "why": "Gates collaboration math + closes DV-01/DV-08"},
+      {"priority": 2, "item": "T1.2 atlas-ai split + Provider", "why": "Closes DV-02; unlocks staging/MCP"},
+      {"priority": 3, "item": "S1 portal taxonomy", "why": "Prevent Phase 3 baking wrong determinism assumption"},
+      {"priority": 4, "item": "T2.2 collage command", "why": "Named weekly use + agent proof harness"},
+      {"priority": 5, "item": "T2.1 SourceUri", "why": "Shared workbooks across mount points (D1)"},
+      {"priority": 6, "item": "T2.3 + T2.4 staging + MCP", "why": "Command parity becomes real"}
+    ],
+    "explicitly_out_of_scope": [
+      "Autodesk ACC/APS and Tier-2 platform adapters",
+      "Google Docs / iCloud native sources",
+      "Source trait + opendal backend (deferred, no named use)",
+      "Hyperedges",
+      "Mac/Linux/iPad as supported products (CI Linux only)",
+      "Native in-process binary plugins",
+      "Agent-initiated write-back",
+      "Ratifying Amendment D (control surfaces) before implementation"
+    ]
+  },
+
+  "model_snapshot": {
+    "format_version": 2,
+    "format_ledger": [
+      {"v": 2, "status": "current", "adds": "board scene"},
+      {"v": 3, "status": "reserved T1.1a", "adds": "Node.z: ZOrder"},
+      {"v": 4, "status": "reserved T2.1", "adds": "SlateItem.uri SourceUri + content ContentId"},
+      {"v": 5, "status": "reserved WI-4", "adds": "Scene.edges Vec<Edge>"},
+      {"v": "6+", "status": "unclaimed", "adds": "—"}
+    ],
+    "view_kinds_tab_level": ["Grid", "Venn", "Board", "Lens"],
+    "board_tools": [
+      "Select", "Pan", "Frame", "RectShape", "Ellipse", "Line", "Arc", "Polyline",
+      "BezierSpan", "Pen", "Text", "Brush", "Eraser", "Eyedropper", "Sticky",
+      "DirectSelect", "RepoLens"
+    ],
+    "facets": ["Raster", "Vector", "Text", "Paged", "Spatial3D", "Timeline", "Structured", "Composition"],
+    "media_kind_note": "Still MediaKind-based; Phase 5 migrates to facets(path)->FacetSet"
+  },
+
+  "progress_scores": {
+    "overall_roadmap": 0.28,
+    "overall_workplan_through_w2": 0.22,
+    "phase_scores": {
+      "P1_Ratify": 1.0,
+      "P2_Draw": 0.7,
+      "P3_Unify": 0.15,
+      "P4_Speak": 0.05,
+      "P5_Reach": 0.0,
+      "P6_Ascend": 0.0
+    },
+    "wave_scores": {
+      "W0": 1.0,
+      "G0": 1.0,
+      "W1": 0.0,
+      "Spikes": 0.0,
+      "W2": 0.05,
+      "W3": 0.0,
+      "W4": 0.0,
+      "W5": 0.0
+    },
+    "health": {
+      "deviation_debt": 8,
+      "pure_ratio_baseline": 0.278,
+      "pure_ratio_trend": "watch — should not fall (Art. I canary)",
+      "format_version_stuck_at": 2,
+      "biggest_risk": "Swarm outruns review; or Wave 1 journal refactor regresses undo",
+      "biggest_opportunity": "Wave 1 ready now (G0+W0 done) — unblocks collab + agent surface"
+    }
+  },
+
+  "audit_trail": {
+    "audit_1": "audit-2026-07-25-protocols-collaboration-agents-api.md (c808966)",
+    "audit_2": "audit-02-2026-07-25-flexibility-stress-test.md",
+    "decisions": [
+      "docs/audit/2026-07-25-decisions.md (D1–D6)",
+      "docs/audit/2026-07-25-decisions-flexibility.md (D7–D18)"
+    ],
+    "next_audit_needs": [
+      "Fresh cargo xtask metrics vs 2026-07-25 baseline",
+      "Deviation ledger delta",
+      "Which cards shipped / escalated / were wrong",
+      "Real daily-use answers: collage weekly? how many simultaneous editors? what broke first?",
+      "If public: stranger request distribution by EXTENDING.md flexibility class"
+    ]
+  }
+}
+
+```
+
+</script>
+<script>
+const S = JSON.parse(document.getElementById('state').textContent);
+document.getElementById('rawJson').value = JSON.stringify(S, null, 2);
+
+const copyBtn = document.getElementById('copyBtn');
+copyBtn.addEventListener('click', async () => {
+  const text = document.getElementById('copy-payload').textContent.replace(/^\\n/, '');
+  try {
+    await navigator.clipboard.writeText(text);
+    copyBtn.textContent = 'Copied — paste into the other agent';
+    copyBtn.classList.add('ok');
+    setTimeout(() => {
+      copyBtn.textContent = 'Copy all for agent';
+      copyBtn.classList.remove('ok');
+    }, 2500);
+  } catch (e) {
+    // Fallback: select the raw payload via a temp textarea
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    copyBtn.textContent = 'Copied (fallback)';
+    copyBtn.classList.add('ok');
+  }
+});
+
+function pct(x) { return Math.round((x || 0) * 100); }
+function barClass(p) {
+  if (p >= 0.85) return '';
+  if (p >= 0.35) return 'amber';
+  return 'low';
+}
+function badge(status) {
+  const s = (status || 'unknown').replace(/\\s+/g, '_');
+  return `<span class="badge ${s}">${status}</span>`;
+}
+function esc(t) {
+  return String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function barRow(name, v) {
+  const p = pct(v);
+  return `<div class="bar-row"><span class="name">${esc(name)}</span>
+    <div class="bar-track"><div class="bar-fill ${barClass(v)}" data-w="${p}"></div></div>
+    <span class="pct">${p}%</span></div>`;
+}
+function animate() {
+  requestAnimationFrame(() => {
+    document.querySelectorAll('[data-w]').forEach(el => { el.style.width = el.dataset.w + '%'; });
+  });
+}
+
+function renderHero() {
+  const p = S.progress_scores;
+  const m = S.meta;
+  document.getElementById('hero').innerHTML = `
+    <p class="eyebrow">Single-file handoff bundle · ${esc(m.generated)}</p>
+    <h1>Atlas ecosystem</h1>
+    <p class="verdict">Wave 0 and constitutional ratification are <strong>done</strong>.
+      The critical path is <strong>Wave 1 — convergent journal</strong> (unblocked).
+      Board draw core landed; portals, agent surface, and live collab are still ahead.</p>
+    <p class="meta-line">HEAD ${esc(m.head_commit)} · ${esc(m.head_date)} · ${esc(m.head_summary)}</p>
+    <div class="kpi-row">
+      <div class="kpi signal"><div class="label">Roadmap</div><div class="value">${pct(p.overall_roadmap)}%</div><div class="hint">Phases P1–P6</div></div>
+      <div class="kpi"><div class="label">Workplan → W2</div><div class="value">${pct(p.overall_workplan_through_w2)}%</div><div class="hint">Audit swarm progress</div></div>
+      <div class="kpi warn"><div class="label">Open deviations</div><div class="value">${S.deviations.open}</div><div class="hint">${S.deviations.closed} closed · Art. debt</div></div>
+      <div class="kpi ok"><div class="label">format_version</div><div class="value">v${S.model_snapshot.format_version}</div><div class="hint">v3 reserved for T1.1a</div></div>
+    </div>
+    <div class="score-row">
+      <div class="score-card"><h3>Roadmap phases</h3>
+        ${Object.entries(p.phase_scores).map(([k,v]) => barRow(k.replace(/_/g,' '), v)).join('')}</div>
+      <div class="score-card"><h3>Workplan waves</h3>
+        ${Object.entries(p.wave_scores).map(([k,v]) => barRow(k, v)).join('')}</div>
+    </div>
+    <div class="callout" style="margin-top:20px">
+      <strong>How to hand off:</strong> click <em>Copy all for agent</em> (handoff plan + full JSON),
+      or send this entire .html file. No repository access required.
+    </div>
+    <div class="callout">
+      <strong>Health:</strong> ${esc(S.progress_scores.health.biggest_opportunity)}
+      Risk: ${esc(S.progress_scores.health.biggest_risk)}
+    </div>`;
+}
+
+function renderMain() {
+  document.getElementById('main').innerHTML = [
+    secThesis(), secProducts(), secRoadmap(), secWaves(), secLaw(),
+    secDecisions(), secDeviations(), secMetrics(), secArch(), secNext(),
+    secOut(), secAudit(),
+  ].join('');
+  document.querySelectorAll('.t-card .t-head').forEach(h => {
+    h.addEventListener('click', () => h.parentElement.classList.toggle('open'));
+  });
+  const crit = document.querySelector('.t-card.critical-path');
+  if (crit) crit.classList.add('open');
+  const filters = document.getElementById('dev-filters');
+  if (filters) {
+    filters.addEventListener('click', e => {
+      const btn = e.target.closest('.chip');
+      if (!btn) return;
+      filters.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      const f = btn.dataset.f;
+      document.querySelectorAll('#dev-body tr').forEach(tr => {
+        tr.style.display = (f === 'all' || tr.dataset.status === f) ? '' : 'none';
+      });
+    });
+  }
+  animate();
+}
+
+function secThesis() {
+  const t = S.thesis;
+  return `<section id="thesis"><h2>Thesis <span class="tag">why this exists</span></h2>
+    <p class="lede">${esc(t.one_liner)}</p>
+    <div class="grid-2">
+      <div class="panel"><h3>Anti-bloat</h3><p>${esc(t.anti_bloat)}</p></div>
+      <div class="panel"><h3>Horizon</h3><p>${esc(t.horizon)}</p><p style="margin-top:8px">${esc(t.product_loop)}</p></div>
+    </div></section>`;
+}
+function secProducts() {
+  return `<section id="products"><h2>Products <span class="tag">two apps · one chrome</span></h2>
+    <p class="lede">Shared atlas-shell chrome. Tagging is Slate-only; Atlas offers Slate tags in linked sessions.</p>
+    <div class="grid-2">${S.products.map(p => `
+      <div class="panel"><h3>${esc(p.name)} <span class="badge">${esc(p.binary)}</span></h3>
+        <p>${esc(p.role)}</p>
+        <ul>${p.key_capabilities.map(c => `<li>${esc(c)}</li>`).join('')}</ul>
+      </div>`).join('')}</div></section>`;
+}
+function secRoadmap() {
+  return `<section id="roadmap"><h2>Roadmap <span class="tag">dependency-ordered</span></h2>
+    <p class="lede">Long-horizon phases. No calendar ETAs.</p>
+    <div class="timeline">${S.roadmap_phases.map(ph => `
+      <article class="t-card"><div class="t-head">
+        <span class="id">${esc(ph.id)}</span><span class="title">${esc(ph.name)}</span>
+        ${badge(ph.status)}<div class="prog"><i data-w="${pct(ph.progress)}"></i></div>
+        <span class="mono">${pct(ph.progress)}%</span></div>
+        <div class="t-body"><p class="summary">${esc(ph.summary)}</p>
+          ${ph.open ? `<p><strong>Open:</strong></p><ul>${ph.open.map(o=>`<li>${esc(o)}</li>`).join('')}</ul>` : ''}
+          ${ph.done_early ? `<p><strong>Early groundwork:</strong></p><ul>${ph.done_early.map(o=>`<li>${esc(o)}</li>`).join('')}</ul>` : ''}
+          ${ph.partial ? `<p><strong>Partial:</strong></p><ul>${ph.partial.map(o=>`<li>${esc(o)}</li>`).join('')}</ul>` : ''}
+          ${ph.blocked_on ? `<p class="mono" style="color:var(--amber)">Blocked on: ${esc(ph.blocked_on.join(' · '))}</p>` : ''}
+        </div></article>`).join('')}</div></section>`;
+}
+function secWaves() {
+  return `<section id="waves"><h2>Workplan waves <span class="tag">audit swarm</span></h2>
+    <p class="lede">${esc(S.workplan.execution_model)} Gate G0: <strong style="color:var(--ok)">ratified</strong> — Wave 1 is ready.</p>
+    <div class="timeline">${S.workplan.waves.map(w => `
+      <article class="t-card ${w.critical_path ? 'critical-path' : ''}">
+        <div class="t-head"><span class="id">${esc(w.id)}</span>
+          <span class="title">${esc(w.name)} ${w.critical_path ? '<span class="badge critical">critical path</span>' : ''}</span>
+          ${badge(w.status)}<div class="prog"><i data-w="${pct(w.progress)}"></i></div>
+          <span class="mono">${pct(w.progress)}%</span></div>
+        <div class="t-body">
+          <p class="summary">${esc(w.theme || (w.items||[]).join('; '))}</p>
+          ${w.gate ? `<p class="mono">Gate: ${esc(w.gate)}</p>` : ''}
+          ${w.done_means ? `<p><em>Done means:</em> ${esc(w.done_means)}</p>` : ''}
+          ${w.tasks ? `<ul class="task-list">${w.tasks.map(t => `
+            <li><span class="tid">${esc(t.id)}</span>
+              <span>${esc(t.title)}${t.note ? `<div class="mono" style="color:var(--amber);margin-top:4px">${esc(t.note)}</div>` : ''}</span>
+              <span class="meta">${badge(t.status)}${t.closes && t.closes.length ? `<div style="margin-top:4px">closes ${t.closes.map(esc).join(', ')}</div>` : ''}</span>
+            </li>`).join('')}</ul>` : ''}
+          ${w.items ? `<ul>${w.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>` : ''}
+        </div></article>`).join('')}</div></section>`;
+}
+function secLaw() {
+  return `<section id="law"><h2>Constitution <span class="tag">${esc(S.constitution.status)}</span></h2>
+    <p class="lede">${esc(S.constitution.note)}</p>
+    <div class="art-grid">${S.constitution.articles.map(a => `
+      <div class="art-card"><div class="aid">Article ${esc(a.id)}</div>
+        <h3>${esc(a.title)}</h3><p>${esc(a.summary)}</p></div>`).join('')}
+    </div></section>`;
+}
+function secDecisions() {
+  return `<section id="decisions"><h2>Binding decisions <span class="tag">D1–D18</span></h2>
+    <p class="lede">Decisions beat audits; constitution beats decisions.</p>
+    <div class="table-wrap"><table><thead><tr><th>ID</th><th>Decision</th><th>Impact</th></tr></thead>
+      <tbody>${S.decisions.map(d => `<tr><td class="mono">${esc(d.id)}</td><td>${esc(d.title)}</td><td>${esc(d.wave_impact)}</td></tr>`).join('')}
+      </tbody></table></div></section>`;
+}
+function secDeviations() {
+  return `<section id="deviations"><h2>Deviations <span class="tag">${S.deviations.open} open · ${S.deviations.closed} closed</span></h2>
+    <p class="lede">Constitution-vs-code gaps.</p>
+    <div class="filters" id="dev-filters">
+      <button class="chip active" data-f="all">All</button>
+      <button class="chip" data-f="open">Open</button>
+      <button class="chip" data-f="closed">Closed</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>ID</th><th>Art.</th><th>Status</th><th>Summary</th><th>Closes with</th></tr></thead>
+      <tbody id="dev-body">${S.deviations.rows.map(r => `
+        <tr data-status="${esc(r.status)}">
+          <td class="mono">${esc(r.id)}</td><td class="mono">${esc(r.article)}</td>
+          <td class="status-${esc(r.status)}">${esc(r.status)}</td>
+          <td>${esc(r.summary)}</td>
+          <td class="mono">${esc(r.closes_with || r.closed || '—')}</td>
+        </tr>`).join('')}</tbody></table></div></section>`;
+}
+function secMetrics() {
+  const b = S.metrics.baseline, a = S.metrics.approx_2026_08_05;
+  const maxLoc = Math.max(...S.metrics.crate_loc_approx.map(c => c.lines_code));
+  return `<section id="metrics"><h2>Metrics <span class="tag">Art. I pure_ratio canary</span></h2>
+    <p class="lede">Baseline from cargo xtask metrics (${esc(b.date)}). Approx is a file-walk recompute.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Metric</th><th>Baseline ${esc(b.date)}</th><th>Approx ${esc(a.commit)}</th></tr></thead>
+      <tbody>
+        <tr><td>lines_code</td><td class="mono">${b.lines_code.toLocaleString()}</td><td class="mono">${a.lines_code_sum.toLocaleString()} (sum)</td></tr>
+        <tr><td>pure_ratio</td><td class="mono">${b.pure_ratio}</td><td class="mono">— (re-run xtask)</td></tr>
+        <tr><td>crates</td><td class="mono">${b.crates}</td><td class="mono">${a.crates}</td></tr>
+        <tr><td>tests</td><td class="mono">${b.tests}</td><td class="mono">${a.tests}</td></tr>
+        <tr><td>format_version</td><td class="mono">${b.format_version}</td><td class="mono">${a.format_version}</td></tr>
+        <tr><td>node_kinds</td><td class="mono">${b.node_kinds}</td><td class="mono">${a.node_kinds} (${esc(a.node_kind_names.join(', '))})</td></tr>
+        <tr><td>scene_cmd</td><td class="mono">${b.scene_cmd_variants}</td><td class="mono">${esc(a.scene_cmd_shape)}</td></tr>
+        <tr><td>deviations open</td><td class="mono">${b.deviations_open}</td><td class="mono">${a.deviations_open}</td></tr>
+      </tbody></table></div>
+    <h3 style="margin:24px 0 12px;font-size:1rem">Crate LOC (approx)</h3>
+    <div class="crate-bars">${S.metrics.crate_loc_approx.map(c => {
+      const w = Math.round(c.lines_code / maxLoc * 100);
+      const cls = c.kind === 'app' ? 'app' : c.kind === 'chrome' ? 'chrome' : '';
+      return `<div class="crate-row" title="${esc(c.kind)}"><span class="cname">${esc(c.name)}</span>
+        <div class="cbar"><i class="${cls}" data-w="${w}"></i></div>
+        <span class="cloc">${c.lines_code.toLocaleString()}</span></div>`;
+    }).join('')}</div></section>`;
+}
+function secArch() {
+  return `<section id="arch"><h2>Architecture <span class="tag">${S.architecture.workspace_members.length} members</span></h2>
+    <p class="lede">Missing planned: ${esc(S.architecture.missing_planned_crates.join(', '))}.</p>
+    <div class="table-wrap"><table><thead><tr><th>Crate</th><th>Role</th><th>Renderer?</th></tr></thead>
+      <tbody>${S.architecture.crates.map(c => `
+        <tr><td class="mono">${esc(c.name)}</td><td>${esc(c.role)}</td>
+        <td class="${c.renderer ? 'status-open' : 'status-closed'}">${c.renderer ? 'yes' : 'pure'}</td></tr>`).join('')}
+      </tbody></table></div>
+    <h3 style="margin:24px 0 12px;font-size:1rem">Hard rules</h3>
+    <ul>${S.architecture.hard_rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+    <div class="grid-2" style="margin-top:16px">
+      <div class="panel"><h3>format_version ledger</h3>
+        <ul>${S.model_snapshot.format_ledger.map(v =>
+          `<li class="mono">v${esc(v.v)} · ${esc(v.status)} — ${esc(v.adds)}</li>`).join('')}</ul></div>
+      <div class="panel"><h3>Board tools / views</h3>
+        <p>Views: ${esc(S.model_snapshot.view_kinds_tab_level.join(', '))}</p>
+        <p style="margin-top:8px;font-size:0.85rem">${esc(S.model_snapshot.board_tools.join(' · '))}</p></div>
+    </div></section>`;
+}
+function secNext() {
+  return `<section id="next"><h2>Next actions <span class="tag">priority order</span></h2>
+    <ol class="next-list">${S.capabilities_inventory.next_critical.map(n => `
+      <li><div><h4>${esc(n.item)}</h4><p>${esc(n.why)}</p></div></li>`).join('')}</ol>
+    <h3 style="margin:28px 0 12px;font-size:1rem">Already shipped (selected)</h3>
+    <div class="art-grid">${S.capabilities_inventory.shipped.map(s => `
+      <div class="art-card"><div class="aid">${esc(s.area)}</div><p>${esc(s.detail)}</p></div>`).join('')}
+    </div></section>`;
+}
+function secOut() {
+  return `<section id="out"><h2>Explicitly out of scope</h2>
+    <p class="lede">Re-adding requires a named weekly use (Art. III).</p>
+    <ul>${S.capabilities_inventory.explicitly_out_of_scope.map(x => `<li>${esc(x)}</li>`).join('')}</ul></section>`;
+}
+function secAudit() {
+  const a = S.audit_trail;
+  return `<section id="audit"><h2>Audit trail</h2>
+    <div class="panel">
+      <p>Audit №1: <span class="mono">${esc(a.audit_1)}</span></p>
+      <p>Audit №2: <span class="mono">${esc(a.audit_2)}</span></p>
+      <p style="margin-top:12px"><strong>Bring to audit №3:</strong></p>
+      <ul>${a.next_audit_needs.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+    </div></section>`;
+}
+
+document.getElementById('footer').textContent =
+  `Single-file bundle · ${S.meta.generated} · HEAD ${S.meta.head_commit} · Copy this .html file, or use “Copy all for agent”.`;
+
+renderHero();
+renderMain();
+</script>
+</body>
+</html>

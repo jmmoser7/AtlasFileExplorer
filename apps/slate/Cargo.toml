@@ -20,6 +20,7 @@ slate-artifact = { workspace = true }
 circle-pack = { workspace = true }
 code-lens = { workspace = true }
 repo-graph = { workspace = true }
+status-board = { workspace = true }
 rhino-mesh = { workspace = true }
 vector-ink = { workspace = true }
 native-file-atlas = { workspace = true }

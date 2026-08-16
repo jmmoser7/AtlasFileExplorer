@@ -20,7 +20,7 @@ pub enum Grammar {
     /// Anchor / handle editing on paths.
     DirectSelect,
     /// Press-drag-release a bounding box; a click places a default size.
-    /// Frame, Rect, Ellipse, and the Repository Lens portal all use this.
+    /// Frame, Rect, Ellipse, and generated board portals all use this.
     DragRect,
     /// `P2.RhinoDraft`: click-move-click or press-drag-release, with a
     /// direction lock and typed magnitude. The architect's grammar.

@@ -106,13 +106,14 @@ mod tests {
                 BoardTool::Sticky => 14,
                 BoardTool::DirectSelect => 15,
                 BoardTool::RepoLens => 16,
-                BoardTool::AgentPortal => 17,
-                BoardTool::WebPortal => 18,
+                BoardTool::StatusBoard => 17,
+                BoardTool::AgentPortal => 18,
+                BoardTool::WebPortal => 19,
             }
         }
         let mut tags: Vec<u8> = BoardTool::ALL.into_iter().map(tag).collect();
         tags.sort_unstable();
-        assert_eq!(tags, (0..19).collect::<Vec<u8>>());
+        assert_eq!(tags, (0..20).collect::<Vec<u8>>());
     }
 
     #[test]
@@ -138,6 +139,7 @@ mod tests {
                 BoardTool::RectShape,
                 BoardTool::Ellipse,
                 BoardTool::RepoLens,
+                BoardTool::StatusBoard,
                 BoardTool::AgentPortal,
                 BoardTool::WebPortal,
             ],

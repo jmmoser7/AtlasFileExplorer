@@ -99,34 +99,62 @@ text- or image-producing tool appears.
 
 ### P1.portal — portal nodes (generated / document / host)
 
-Promoted when `portal-web-embed` became the third portal contract. The two
-older contracts (`portal-lens-repository`, `portal-agent-link`) still state
-these rules inline — they are the source the rules were lifted from, and
-rewriting an already-approved matrix cell is a worse cost than the duplication.
-New portal contracts reference these and add only deviations.
+Promoted when `portal-web-embed` became the third portal contract, then
+extended when `portal-status-board` became the second generated subtype
+(2026-08-16). Older contracts may still state some of these rules inline —
+rewriting an already-approved matrix cell is a worse cost than the
+duplication. New portal contracts reference these and add only deviations.
 
-- **P1.portal.frame** the frame — rect, source, query/parameters, title, fill —
-  is journaled authored data; contents come from elsewhere and are never
-  journaled (Art. V.1, VI.3).
+- **P1.portal.frame** the frame — rect, class, kind, title, source,
+  query/parameters, fill — is journaled authored data; contents come from
+  elsewhere and are never journaled (Art. V.1, V.3, VI.3). Journaled acts
+  are frame-only: place, move, resize, rebind, re-query, delete, bake.
+- **P1.portal.place** `Armed → Dragging(rect) → Committed(unbound)`.
+  Press-drag-release defines the frame; travel below `draft.drag_threshold`
+  (4 px) places the subtype's `default_size` centred on the click
+  (**deviates P2.DragShape**, which discards sub-`MIN_DRAW`). Unmodified
+  drag is free-aspect; Shift locks 16:9 (**deviates P1.shape.aspect**).
+  Binding is a separate, non-modal step — no file dialog opens inside a
+  draw gesture. One-shot: commit returns to Select (P0.4). Placement
+  details also live in **P2.PortalPlace**.
+- **P1.portal.bind** One `SourceUri` stored relative-first (Art. IX.2).
+  Rebinding is a journaled `Patch` and discards cached contents. Generated
+  portals refuse remote URLs and hosted APIs (Art. I.4); host web portals
+  accept `http(s)` per their own contract.
 - **P1.portal.health** source health is the tri-state `Ok` / `Unknown` /
   `Missing`, resolved without blocking any user-facing operation, and every
   unresolved or missing state **names the locator it tried** so it does not read
   as a bug (Art. IX.3).
 - **P1.portal.enter** click selects the frame; double-click (or Enter on the
-  selection) enters the contents; Esc leaves. No board tool reaches the
-  contents from outside the frame.
+  selection) enters the contents when the subtype has enterable contents;
+  Esc leaves. Generated instruments (Repository Lens, Status Board) have no
+  contents-focus mode — double-click stays on the frame. No board tool
+  reaches the contents from outside the frame.
 - **P1.portal.determinism** determinism is required of **generated** portals
   only (Art. V.3); Art. IV.2 governs extracted graphs. Host and document
   portals answer D28 with *provenance* — what is being shown and when it was
-  obtained — and do not claim reproducibility. Promoted specifically so no
-  further non-generated portal has to re-litigate the point.
+  obtained — and do not claim reproducibility.
 - **P1.portal.style** portals paint from `Palette::portal` and the portal token
   block; they never consume `BoardLastStyle` and never become the last
   single-node edit. **Deviates P1.shape.style** — analysis and host surfaces
   stay identical between boards and between the two apps (Art. X).
+- **P1.portal.pick** The frame picks on its rect, including marquee.
+  Contents expose no grips and are not selectable as board nodes. Resize
+  re-lays-out a generated portal; it does not scale a picture.
+- **P1.portal.export** Both interpreters of a generated portal consume the
+  same layout function (Art. IV). No script, no fetch on that path.
 - **P1.portal.export-honesty** whatever the artifact writer emits carries a
   caption saying what it is and when it was obtained; an unbound or `Missing`
   portal exports its state card, never an empty rectangle (Art. IV.1).
+- **P1.portal.bake** An explicit bake command copies authored nodes
+  matching the current contents and leaves the portal live (Art. VI.3).
+  Bake copies; it does not convert.
+- **P1.portal.sync** Frame, source, and query sync as journal deltas.
+  Contents are per-peer and never transmitted. Focus and hover are
+  presence (Art. VIII.5).
+- **P1.portal.agent** Placement and bind/refresh/bake commands are
+  registry SPECs. Agent-issued frame/source/query mutations stage for
+  acceptance (Art. VII.6). Agents never write the source.
 
 ## L2 — Tool-family archetypes
 

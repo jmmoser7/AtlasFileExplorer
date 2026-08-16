@@ -39,6 +39,7 @@ shared crates:
 | `crates/vector-ink` | Pure vector geometry engine (kurbo): path flattening, variable-width stroking to feathered AA meshes, stroke outlines for SVG export, hit-testing, freehand fitting. No renderer deps (Constitution Art. I) | Yes |
 | `crates/code-lens` | UI-free codebase analysis for Slate's Lens view: cargo workspace + Rust source extraction to a code graph, semantic-zoom layout, agent overlay/beacon contract | Yes |
 | `crates/rhino-mesh` | Pure-Rust reader for cached render meshes in Rhino `.3dm` files (Slate's 3D board viewports) | Yes |
+| `crates/status-board` | UI-free parse + deterministic layout for Status Board portals (`project-state.json` → prims) | Yes |
 | `apps/file-atlas` | Atlas app: canvas + app state (`src/app/mod.rs` is the integration point) | Coordinate on `mod.rs` |
 | `apps/slate` | Slate app: canvas, tagging sidebar, session host | Coordinate on `app/mod.rs` |
 

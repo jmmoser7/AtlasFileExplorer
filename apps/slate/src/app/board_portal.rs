@@ -12,7 +12,7 @@ use repo_graph::{
 };
 use slate_doc::scene::{
     Node, NodeId, NodeKind, PortalKind, PortalNode, RepoPortalQuery, RepoTimeAxis, Rgba, SceneCmd,
-    SourceUri, WorldRect,
+    SourceUri, StatusPortalQuery, WorldRect,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -26,8 +26,16 @@ struct PortalReady {
     layout: RepoLayout,
 }
 
+struct StatusReady {
+    portal: NodeId,
+    generation: u64,
+    snap: status_board::Snapshot,
+    layout: status_board::StatusLayout,
+}
+
 enum PortalMsg {
     Ready(Box<PortalReady>),
+    StatusReady(Box<StatusReady>),
     Error {
         portal: NodeId,
         generation: u64,
@@ -67,11 +75,41 @@ impl PortalCache {
     }
 }
 
+struct StatusCache {
+    generation: u64,
+    source_key: String,
+    query: StatusPortalQuery,
+    frame: (u32, u32),
+    status: PortalStatus,
+    snap: Option<status_board::Snapshot>,
+    layout: Option<status_board::StatusLayout>,
+}
+
+impl StatusCache {
+    fn fresh(
+        generation: u64,
+        source_key: String,
+        query: StatusPortalQuery,
+        frame: (u32, u32),
+    ) -> Self {
+        Self {
+            generation,
+            source_key,
+            query,
+            frame,
+            status: PortalStatus::Idle,
+            snap: None,
+            layout: None,
+        }
+    }
+}
+
 /// App-wide Repository Lens portal runtime (derived; not journaled).
 pub struct PortalRuntime {
     tx: Sender<PortalMsg>,
     rx: Receiver<PortalMsg>,
     caches: HashMap<NodeId, PortalCache>,
+    status_caches: HashMap<NodeId, StatusCache>,
     /// Portal currently in interactive focus (dims the rest of the board).
     pub interactive: Option<NodeId>,
     next_generation: u64,
@@ -84,6 +122,7 @@ impl Default for PortalRuntime {
             tx,
             rx,
             caches: HashMap::new(),
+            status_caches: HashMap::new(),
             interactive: None,
             next_generation: 1,
         }
@@ -93,6 +132,23 @@ impl Default for PortalRuntime {
 impl PortalRuntime {
     pub fn has_commit_focus(&self) -> bool {
         self.caches.values().any(|c| c.focus_oid.is_some())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn status_caption(&self, id: NodeId) -> Option<String> {
+        self.status_caches
+            .get(&id)
+            .and_then(|c| c.layout.as_ref().map(|l| l.caption.clone()))
+    }
+}
+
+pub fn to_status_query(q: &StatusPortalQuery) -> status_board::StatusQuery {
+    status_board::StatusQuery {
+        show_overview: q.show_overview,
+        show_phases: q.show_phases,
+        show_waves: q.show_waves,
+        show_deviations: q.show_deviations,
+        show_next: q.show_next,
     }
 }
 
@@ -148,6 +204,15 @@ impl SlateApp {
                         }
                     }
                 }
+                PortalMsg::StatusReady(ready) => {
+                    if let Some(cache) = self.portals.status_caches.get_mut(&ready.portal) {
+                        if cache.generation == ready.generation {
+                            cache.snap = Some(ready.snap);
+                            cache.layout = Some(ready.layout);
+                            cache.status = PortalStatus::Ready;
+                        }
+                    }
+                }
                 PortalMsg::Error {
                     portal,
                     generation,
@@ -155,8 +220,15 @@ impl SlateApp {
                 } => {
                     if let Some(cache) = self.portals.caches.get_mut(&portal) {
                         if cache.generation == generation {
-                            cache.status = PortalStatus::Error(msg);
+                            cache.status = PortalStatus::Error(msg.clone());
                             cache.graph = None;
+                            cache.layout = None;
+                        }
+                    }
+                    if let Some(cache) = self.portals.status_caches.get_mut(&portal) {
+                        if cache.generation == generation {
+                            cache.status = PortalStatus::Error(msg);
+                            cache.snap = None;
                             cache.layout = None;
                         }
                     }
@@ -170,30 +242,37 @@ impl SlateApp {
 
     fn ensure_portal_extractions(&mut self) {
         let workbook = self.tab().path.clone();
-        let portals: Vec<(NodeId, Option<SourceUri>, RepoPortalQuery, WorldRect)> = self
-            .doc()
-            .scene
-            .nodes
-            .iter()
-            .filter_map(|n| match &n.kind {
+        let mut repo: Vec<(NodeId, Option<SourceUri>, RepoPortalQuery, WorldRect)> = Vec::new();
+        let mut status: Vec<(NodeId, Option<SourceUri>, StatusPortalQuery, WorldRect)> = Vec::new();
+        for n in &self.doc().scene.nodes {
+            match &n.kind {
                 NodeKind::Portal(p) if matches!(p.kind, PortalKind::RepoLens) => {
-                    Some((n.id, p.source.clone(), p.query.clone(), n.rect))
+                    repo.push((n.id, p.source.clone(), p.query.clone(), n.rect));
                 }
-                _ => None,
-            })
-            .collect();
+                NodeKind::Portal(p) if matches!(p.kind, PortalKind::StatusBoard) => {
+                    status.push((n.id, p.source.clone(), p.status.clone(), n.rect));
+                }
+                _ => {}
+            }
+        }
 
-        let live: std::collections::HashSet<NodeId> = portals.iter().map(|(id, ..)| *id).collect();
-        self.portals.caches.retain(|id, _| live.contains(id));
+        let live_repo: std::collections::HashSet<NodeId> =
+            repo.iter().map(|(id, ..)| *id).collect();
+        let live_status: std::collections::HashSet<NodeId> =
+            status.iter().map(|(id, ..)| *id).collect();
+        self.portals.caches.retain(|id, _| live_repo.contains(id));
+        self.portals
+            .status_caches
+            .retain(|id, _| live_status.contains(id));
         if self
             .portals
             .interactive
-            .is_some_and(|id| !live.contains(&id))
+            .is_some_and(|id| !live_repo.contains(&id) && !live_status.contains(&id))
         {
             self.portals.interactive = None;
         }
 
-        for (id, source, query, rect) in portals {
+        for (id, source, query, rect) in repo {
             let Some(src) = source else {
                 self.portals.caches.remove(&id);
                 continue;
@@ -212,6 +291,48 @@ impl SlateApp {
                 continue;
             }
             self.start_portal_extract(id, root, key, query, rect);
+        }
+
+        for (id, source, query, rect) in status {
+            let Some(src) = source else {
+                self.portals.status_caches.remove(&id);
+                continue;
+            };
+            let root = resolve_source(workbook.as_deref(), &src.locator);
+            let key = root.to_string_lossy().into_owned();
+            let frame = (rect.w.max(1.0) as u32, rect.h.max(1.0) as u32);
+            if let Some(cache) = self.portals.status_caches.get_mut(&id) {
+                if cache.source_key == key
+                    && cache.query == query
+                    && cache.snap.is_some()
+                    && cache.frame != frame
+                {
+                    if let Some(snap) = &cache.snap {
+                        cache.layout = Some(status_board::layout_status(
+                            snap,
+                            &to_status_query(&query),
+                            status_board::Size {
+                                w: rect.w.max(1.0),
+                                h: rect.h.max(1.0),
+                            },
+                        ));
+                        cache.frame = frame;
+                    }
+                    continue;
+                }
+            }
+            let needs = match self.portals.status_caches.get(&id) {
+                None => true,
+                Some(c) => {
+                    c.source_key != key
+                        || c.query != query
+                        || matches!(c.status, PortalStatus::Idle)
+                }
+            };
+            if !needs {
+                continue;
+            }
+            self.start_status_extract(id, root, key, query, rect);
         }
     }
 
@@ -262,6 +383,47 @@ impl SlateApp {
         });
     }
 
+    fn start_status_extract(
+        &mut self,
+        portal: NodeId,
+        root: PathBuf,
+        source_key: String,
+        query: StatusPortalQuery,
+        rect: WorldRect,
+    ) {
+        let generation = self.portals.next_generation;
+        self.portals.next_generation = self.portals.next_generation.wrapping_add(1).max(1);
+        let frame = (rect.w.max(1.0) as u32, rect.h.max(1.0) as u32);
+        let mut cache = StatusCache::fresh(generation, source_key, query.clone(), frame);
+        cache.status = PortalStatus::Loading;
+        self.portals.status_caches.insert(portal, cache);
+
+        let tx = self.portals.tx.clone();
+        let size = status_board::Size {
+            w: rect.w.max(1.0),
+            h: rect.h.max(1.0),
+        };
+        let status_query = to_status_query(&query);
+        std::thread::spawn(move || match status_board::load_snapshot(&root) {
+            Ok(snap) => {
+                let layout = status_board::layout_status(&snap, &status_query, size);
+                let _ = tx.send(PortalMsg::StatusReady(Box::new(StatusReady {
+                    portal,
+                    generation,
+                    snap,
+                    layout,
+                })));
+            }
+            Err(err) => {
+                let _ = tx.send(PortalMsg::Error {
+                    portal,
+                    generation,
+                    msg: err.to_string(),
+                });
+            }
+        });
+    }
+
     pub(crate) fn portal_refresh_selected(&mut self) -> bool {
         let ids: Vec<NodeId> = self
             .board_sel
@@ -274,6 +436,7 @@ impl SlateApp {
         }
         for id in ids {
             self.portals.caches.remove(&id);
+            self.portals.status_caches.remove(&id);
         }
         true
     }
@@ -287,7 +450,13 @@ impl SlateApp {
         let Some(portal) = portal else {
             return false;
         };
-        self.pick_repo_for_portal(portal);
+        match self.doc().scene.node(portal).and_then(|n| match &n.kind {
+            NodeKind::Portal(p) => Some(p.kind),
+            _ => None,
+        }) {
+            Some(PortalKind::StatusBoard) => self.pick_status_for_portal(portal),
+            _ => self.pick_repo_for_portal(portal),
+        }
         true
     }
 
@@ -308,6 +477,24 @@ impl SlateApp {
         });
     }
 
+    pub(crate) fn pick_status_for_portal(&mut self, portal: NodeId) {
+        if self.picker_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = unbounded();
+        self.picker_rx = Some(rx);
+        std::thread::spawn(move || {
+            let picked = rfd::FileDialog::new()
+                .set_title("Choose status snapshot")
+                .add_filter("Status snapshot", &["json"])
+                .pick_file();
+            let _ = tx.send(PickerMsg::StatusPortalSource {
+                portal,
+                path: picked,
+            });
+        });
+    }
+
     pub(crate) fn bind_portal_source(&mut self, portal: NodeId, path: PathBuf) {
         let workbook = self.tab().path.clone();
         let locator = source_locator(workbook.as_deref(), &path);
@@ -322,8 +509,17 @@ impl SlateApp {
             return;
         };
         p.source = Some(SourceUri { locator });
-        if p.title == "Repository Lens" || p.title.starts_with("Repository Lens") {
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        let rename = match p.kind {
+            PortalKind::RepoLens => {
+                p.title == "Repository Lens" || p.title.starts_with("Repository Lens")
+            }
+            PortalKind::StatusBoard => {
+                p.title == "Status Board" || p.title.starts_with("Status Board")
+            }
+            PortalKind::Agent | PortalKind::Web => false,
+        };
+        if rename {
+            if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
                 p.title = name.to_string();
             }
         }
@@ -332,6 +528,7 @@ impl SlateApp {
             after: Box::new(after),
         }]) {
             self.portals.caches.remove(&portal);
+            self.portals.status_caches.remove(&portal);
         }
     }
 
@@ -350,6 +547,9 @@ impl SlateApp {
         let NodeKind::Portal(p) = &node.kind else {
             return false;
         };
+        if matches!(p.kind, PortalKind::StatusBoard) {
+            return self.bake_status_board(portal, &node, p);
+        }
         let (graph, layout) = match self.portals.caches.get(&portal) {
             Some(cache) => match (&cache.graph, &cache.layout) {
                 (Some(g), Some(l)) => (g.clone(), l.clone()),
@@ -435,6 +635,99 @@ impl SlateApp {
         true
     }
 
+    fn bake_status_board(&mut self, portal: NodeId, node: &Node, p: &PortalNode) -> bool {
+        let Some(layout) = self
+            .portals
+            .status_caches
+            .get(&portal)
+            .and_then(|c| c.layout.clone())
+        else {
+            self.toast("Nothing to bake — bind and wait for the snapshot.");
+            return true;
+        };
+        let origin = node.rect;
+        let label_color = Rgba::opaque(228, 230, 235);
+        let mut kinds: Vec<(WorldRect, NodeKind)> = Vec::new();
+        for prim in &layout.prims {
+            match prim {
+                status_board::Prim::Fill { rect, rgba } => {
+                    kinds.push((
+                        WorldRect::new(origin.x + rect.x, origin.y + rect.y, rect.w, rect.h),
+                        NodeKind::Shape(slate_doc::scene::ShapeNode {
+                            shape: slate_doc::scene::ShapeKind::Rect,
+                            fill: Some(Rgba(*rgba)),
+                            stroke: slate_doc::scene::Stroke::default(),
+                            corner: slate_doc::scene::Corner::Square,
+                            flip: false,
+                            path: None,
+                        }),
+                    ));
+                }
+                status_board::Prim::Bar { rect, frac, rgba } => {
+                    let w = rect.w * frac.clamp(0.0, 1.0);
+                    if w > 0.5 {
+                        kinds.push((
+                            WorldRect::new(origin.x + rect.x, origin.y + rect.y, w, rect.h),
+                            NodeKind::Shape(slate_doc::scene::ShapeNode {
+                                shape: slate_doc::scene::ShapeKind::Rect,
+                                fill: Some(Rgba(*rgba)),
+                                stroke: slate_doc::scene::Stroke::default(),
+                                corner: slate_doc::scene::Corner::Square,
+                                flip: false,
+                                path: None,
+                            }),
+                        ));
+                    }
+                }
+                status_board::Prim::Text {
+                    x,
+                    y,
+                    text,
+                    size,
+                    rgba,
+                    ..
+                } => {
+                    kinds.push((
+                        WorldRect::new(origin.x + *x, origin.y + *y, 320.0, size + 6.0),
+                        NodeKind::Text(slate_doc::scene::TextNode {
+                            text: text.clone(),
+                            family: slate_doc::scene::FontChoice::Sans,
+                            size: *size,
+                            color: Rgba(*rgba),
+                            align: slate_doc::scene::TextAlign::Left,
+                            fill: None,
+                        }),
+                    ));
+                }
+                status_board::Prim::Stroke { .. } => {}
+            }
+        }
+        kinds.push((
+            WorldRect::new(
+                origin.x + 16.0,
+                origin.y + 4.0,
+                (origin.w - 32.0).max(40.0),
+                20.0,
+            ),
+            NodeKind::Text(slate_doc::scene::TextNode {
+                text: format!("{} (baked)", p.title),
+                family: slate_doc::scene::FontChoice::Sans,
+                size: 14.0,
+                color: label_color,
+                align: slate_doc::scene::TextAlign::Left,
+                fill: None,
+            }),
+        ));
+        let nodes: Vec<Node> = kinds
+            .into_iter()
+            .map(|(rect, kind)| self.doc_mut().scene.build_node(rect, kind))
+            .collect();
+        let ids = self.add_nodes(nodes);
+        self.board_sel = ids.into_iter().collect();
+        self.toast(format!("Baked {} authored node(s).", self.board_sel.len()));
+        true
+    }
+
     pub(crate) fn portal_clear_focus(&mut self) -> bool {
         let had = self.portals.interactive.is_some()
             || self.portals.caches.values().any(|c| c.focus_oid.is_some());
@@ -484,29 +777,83 @@ impl SlateApp {
         }
 
         let clipped = painter.with_clip_rect(srect.intersect(painter.clip_rect()));
+        match portal.kind {
+            PortalKind::StatusBoard => {
+                self.paint_status_portal(&clipped, ui, xf, node, portal, alpha)
+            }
+            PortalKind::RepoLens => match &portal.source {
+                None => {
+                    self.paint_portal_empty(&clipped, ui, srect, node.id, alpha, EmptyPrompt::Repo);
+                }
+                Some(_) => {
+                    let status = self
+                        .portals
+                        .caches
+                        .get(&node.id)
+                        .map(|c| c.status.clone())
+                        .unwrap_or(PortalStatus::Idle);
+                    match status {
+                        PortalStatus::Loading | PortalStatus::Idle => {
+                            clipped.text(
+                                srect.center(),
+                                Align2::CENTER_CENTER,
+                                "Loading repository…",
+                                FontId::proportional(14.0),
+                                Color32::from_white_alpha((180.0 * alpha) as u8),
+                            );
+                        }
+                        PortalStatus::Error(msg) => {
+                            clipped.text(
+                                srect.center(),
+                                Align2::CENTER_CENTER,
+                                msg,
+                                FontId::proportional(13.0),
+                                Color32::from_rgb(240, 120, 100).gamma_multiply(alpha),
+                            );
+                        }
+                        PortalStatus::Ready => {
+                            self.paint_portal_graph(&clipped, xf, node, alpha);
+                        }
+                    }
+                }
+            },
+            PortalKind::Agent | PortalKind::Web => {}
+        }
+    }
+
+    fn paint_status_portal(
+        &mut self,
+        painter: &egui::Painter,
+        ui: &egui::Ui,
+        xf: &super::board::BoardXf,
+        node: &Node,
+        portal: &PortalNode,
+        alpha: f32,
+    ) {
+        let srect = xf.rect_w2s(node.rect);
         match &portal.source {
             None => {
-                self.paint_portal_empty(&clipped, ui, srect, node.id, alpha);
+                self.paint_portal_empty(painter, ui, srect, node.id, alpha, EmptyPrompt::Status);
             }
             Some(_) => {
                 let status = self
                     .portals
-                    .caches
+                    .status_caches
                     .get(&node.id)
                     .map(|c| c.status.clone())
                     .unwrap_or(PortalStatus::Idle);
                 match status {
                     PortalStatus::Loading | PortalStatus::Idle => {
-                        clipped.text(
+                        painter.text(
                             srect.center(),
                             Align2::CENTER_CENTER,
-                            "Loading repository…",
+                            "Loading snapshot…",
                             FontId::proportional(14.0),
                             Color32::from_white_alpha((180.0 * alpha) as u8),
                         );
                     }
                     PortalStatus::Error(msg) => {
-                        clipped.text(
+                        painter.text(
                             srect.center(),
                             Align2::CENTER_CENTER,
                             msg,
@@ -515,8 +862,78 @@ impl SlateApp {
                         );
                     }
                     PortalStatus::Ready => {
-                        self.paint_portal_graph(&clipped, xf, node, alpha);
+                        self.paint_status_layout(painter, xf, node, alpha);
                     }
+                }
+            }
+        }
+    }
+
+    fn paint_status_layout(
+        &self,
+        painter: &egui::Painter,
+        xf: &super::board::BoardXf,
+        node: &Node,
+        alpha: f32,
+    ) {
+        let Some(layout) = self
+            .portals
+            .status_caches
+            .get(&node.id)
+            .and_then(|c| c.layout.as_ref())
+        else {
+            return;
+        };
+        let fade = |c: [u8; 4]| {
+            Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]).gamma_multiply(alpha)
+        };
+        let to_screen = |r: status_board::Rect| {
+            xf.rect_w2s(WorldRect::new(
+                node.rect.x + r.x,
+                node.rect.y + r.y,
+                r.w,
+                r.h,
+            ))
+        };
+        for prim in &layout.prims {
+            match prim {
+                status_board::Prim::Fill { rect, rgba } => {
+                    painter.rect_filled(to_screen(*rect), 0.0, fade(*rgba));
+                }
+                status_board::Prim::Stroke { rect, rgba, width } => {
+                    painter.rect_stroke(
+                        to_screen(*rect),
+                        0.0,
+                        Stroke::new(*width * xf.z.max(0.35), fade(*rgba)),
+                        StrokeKind::Inside,
+                    );
+                }
+                status_board::Prim::Bar { rect, frac, rgba } => {
+                    let mut bar = *rect;
+                    bar.w *= frac.clamp(0.0, 1.0);
+                    painter.rect_filled(to_screen(bar), 0.0, fade(*rgba));
+                }
+                status_board::Prim::Text {
+                    x,
+                    y,
+                    text,
+                    size,
+                    rgba,
+                    align,
+                } => {
+                    let screen = xf.w2s(Pos2::new(node.rect.x + *x, node.rect.y + *y));
+                    let align2 = match align {
+                        status_board::Align::Left => Align2::LEFT_TOP,
+                        status_board::Align::Center => Align2::CENTER_TOP,
+                        status_board::Align::Right => Align2::RIGHT_TOP,
+                    };
+                    painter.text(
+                        screen,
+                        align2,
+                        text,
+                        FontId::proportional(*size * xf.z.max(0.5)),
+                        fade(*rgba),
+                    );
                 }
             }
         }
@@ -529,11 +946,12 @@ impl SlateApp {
         srect: Rect,
         portal: NodeId,
         alpha: f32,
+        kind: EmptyPrompt,
     ) {
         painter.text(
             srect.center() - Vec2::new(0.0, 18.0),
             Align2::CENTER_CENTER,
-            "Choose repository…",
+            kind.prompt(),
             FontId::proportional(15.0),
             Color32::from_white_alpha((200.0 * alpha) as u8),
         );
@@ -553,10 +971,13 @@ impl SlateApp {
         );
         // Hit-test only when this portal is selected (avoids stealing board clicks).
         if self.board_sel.contains(&portal) {
-            let id = ui.id().with("repo_portal_browse").with(portal.0);
+            let id = ui.id().with("portal_browse").with(portal.0);
             let resp = ui.interact(btn, id, Sense::click());
             if resp.clicked() {
-                self.pick_repo_for_portal(portal);
+                match kind {
+                    EmptyPrompt::Repo => self.pick_repo_for_portal(portal),
+                    EmptyPrompt::Status => self.pick_status_for_portal(portal),
+                }
             }
         }
     }
@@ -722,6 +1143,21 @@ impl SlateApp {
     }
 }
 
+#[derive(Clone, Copy)]
+enum EmptyPrompt {
+    Repo,
+    Status,
+}
+
+impl EmptyPrompt {
+    fn prompt(self) -> &'static str {
+        match self {
+            EmptyPrompt::Repo => "Choose repository…",
+            EmptyPrompt::Status => "Choose status snapshot…",
+        }
+    }
+}
+
 fn layout_scale(layout: &RepoLayout, rect: WorldRect, pad: f32) -> (f32, f32) {
     let bw = layout.bounds.w.max(1.0);
     let bh = layout.bounds.h.max(1.0);
@@ -750,6 +1186,14 @@ mod tests {
             to_repo_query(&chrono).axis,
             TimeAxis::Chronological
         ));
+    }
+
+    #[test]
+    fn status_query_defaults_map() {
+        let q = StatusPortalQuery::default();
+        let sq = to_status_query(&q);
+        assert!(sq.show_overview && sq.show_phases && sq.show_waves);
+        assert!(sq.show_deviations && sq.show_next);
     }
 
     #[test]

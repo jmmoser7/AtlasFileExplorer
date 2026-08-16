@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-08-08",
+  "updated": "2026-08-16",
   "tools": {
     "text": {
       "status": "proposed",
@@ -280,6 +280,7 @@
       "inherits": [
         "P0.*",
         "P1.node",
+        "P1.portal",
         "P2.DragShape"
       ],
       "canvas": "portal-lens-repository-tool-contract",
@@ -1112,6 +1113,245 @@
           "confidence": 90,
           "verdict": "approved",
           "decided": "2026-08-08"
+        }
+      }
+    },
+    "portal-status-board": {
+      "status": "shipped",
+      "family": "portal",
+      "portal_class": "generated",
+      "reference": "docs/status-dashboard snapshot instrument",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.portal",
+        "P2.DragShape"
+      ],
+      "canvas": null,
+      "decisions": {
+        "D01": {
+          "behavior": "Palette 'status board' + Enter (aliases: status portal, project status, roadmap portal); tools-rail Portals flyout; command board.portal.status_board, board tabs only. No single-key chord.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D02": {
+          "behavior": "P1.portal.place / P0.4: one-shot, commit returns to Select; Space/Enter re-arms.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D03": {
+          "behavior": "P1.portal.place: Armed -> Dragging(rect) -> Committed(unbound). Release paints 'Choose status snapshot...'. Binding is a separate, non-modal step.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D04": {
+          "behavior": "P1.portal.place. Travel > draft.drag_threshold (4 px) = dragged rect; below it places portal.status.default_size (960x720 world units) centred on the click. Deviates P2.DragShape. Taller than Repository Lens because the instrument is a stacked readout.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D05": {
+          "behavior": "P1.portal.place: Shift during the drag locks 16:9; unmodified drags are free-aspect. Ctrl/Alt unassigned in v1.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D06": {
+          "behavior": "F9 grid snap and smart guides apply to the frame rect as for a Frame node (P1.node.move); F8 ortho is n/a. Contents never snap.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D07": {
+          "behavior": "n/a - no directional parameter in a rect placement.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D08": {
+          "behavior": "n/a in v1; typed frame dimensions are a non-goal (D15).",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D09": {
+          "behavior": "Drag: frame outline in Palette::portal + live w x h in the dock readout. Bound and idle: HEAD short, generated date, roadmap %, open deviations, health.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D10": {
+          "behavior": "Crosshair while armed. Arrow over an unfocused or focused portal. No contents hit-targets in v1 (D22).",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D11": {
+          "behavior": "One journaled Add of a portal node { rect, class: Generated, kind: StatusBoard, source: None, status: StatusPortalQuery::default() }. Frame, source, and query journaled; contents never (P1.portal.frame). One gesture = one undo. No style state consumed.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D12": {
+          "behavior": "Esc peels one layer per press (P0.1): drag draft -> armed tool -> selection. No contents-focus layer in v1 (D22).",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D13": {
+          "behavior": "P1.portal.pick. Frame selects with standard handles. Contents expose no grips. Resize re-lays-out (LOD keys on frame height). Rotation rotates the painted result.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D14": {
+          "behavior": "Re-edit through the Portal sidebar section or the portal.status.* commands; each edit is a journaled Patch of source/status, and contents regenerate from it.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D15": {
+          "behavior": "Cut (Art. III): live git/CI polling, editing the snapshot, hallucinating scores the JSON does not contain, a fifth tab-level ViewKind, authenticated host APIs, typed frame dimensions, a portal-local minimap, contents hit-testing, write-back to the snapshot. Not cut: human bind, refresh, bake, and section toggles.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D16": {
+          "behavior": "P1.portal.style: No. The frame does not consume BoardLastStyle.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D17": {
+          "behavior": "P1.portal.pick. The frame picks on its rect, including marquee. Contents are not interactive in v1. Double-click selects the frame; it does not enter a contents-focus mode.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D18": {
+          "behavior": "P1.portal.frame. Generated. Contents = layout_status(snapshot, query, frame).",
+          "source": "pattern",
+          "confidence": 95,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D19": {
+          "behavior": "One SourceUri naming a project-state.json file or a folder containing one, relative-first (Art. IX.2). Bound by portal.status.source (file picker, empty-state button, or sidebar). A folder resolves to project-state.json inside it. Refused: remote URLs, hosted dashboards, live git (Art. I.4).",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D20": {
+          "behavior": "StatusPortalQuery { show_overview, show_phases, show_waves, show_deviations, show_next } \u2014 all true by default. Each flag is a journaled section shutter, not a live filter over a changing corpus.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D21": {
+          "behavior": "Recompute on bind, status patch, frame resize, portal.status.refresh. Generation-tagged; stale results discarded (Art. II.3). Resize re-lays-out from the cached snapshot without re-reading the file. While loading, last-good contents stay painted when present; otherwise a loading card.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D22": {
+          "behavior": "None in v1. Hover, click, and double-click act on the frame. No board tool reaches the contents.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D23": {
+          "behavior": "LOD buckets key on frame height in world units. < portal.status.lod_compact (220): caption + KPI row. 220-portal.status.lod_detail (420): + phase/wave bars. >= 420: + next actions and open deviations. Layout function owns the buckets so both interpreters agree.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D24": {
+          "behavior": "P1.portal.export. slate-artifact emits the regenerated contents as SVG from status_board::layout_status, plus the provenance caption. Unbound or Missing exports the state card.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D25": {
+          "behavior": "P1.portal.bake. portal.status.bake emits one journaled Add batch of authored Text/Shape nodes matching the current prims, plus a provenance Text node. The portal stays live.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D26": {
+          "behavior": "P1.portal.sync. Each peer regenerates from its own snapshot file. A peer that cannot resolve the locator paints Unknown naming the locator.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D27": {
+          "behavior": "board.portal.status_board and portal.status.* are registry SPECs; agent-issued frame/source/query mutations stage for acceptance. The beacon may carry the locator, HEAD, and scores. An agent may never write the snapshot file (Art. IX.5).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D28": {
+          "behavior": "Same snapshot bytes + same status query + same quantized frame size => byte-identical layout (status_board::fingerprint). Wall-clock notes on the snapshot are excluded from the fingerprint key. Caption states HEAD + generated date.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D29": {
+          "behavior": "Parse + layout on a background thread, generation-tagged, drained once per frame. Budget: layout < 5 ms for the shipped snapshot; paint is a cached prim list. No per-frame allocation of the snapshot.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D30": {
+          "behavior": "Unbound ('Choose status snapshot...'); Unknown (unresolved locator, named, neutral marker); Loading; Ready; Missing (locator named, frame intact); NotASnapshot (says why); Unreadable(msg) (no partial scores presented as complete).",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D31": {
+          "behavior": "P1.portal.sync. Journaled: frame rect, rotation, source, every status flag. Derived and never journaled: analysis status, cached snapshot, cached layout.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D32": {
+          "behavior": "Nothing to consent to, and this is a property of the design rather than an omission: contents are parsed from a local project-state.json the human picked, no code from that file is ever executed, and remote URLs and hosted dashboards are refused as source kinds (D19, Art. I.4). The portal opens no network connection, so no origin permission exists. Restated from already-approved D15/D19/D27 when D32 joined the registry.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
         }
       }
     }

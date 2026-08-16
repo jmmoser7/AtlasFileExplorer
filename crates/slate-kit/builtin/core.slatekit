@@ -14,9 +14,9 @@ name = "Slate core"
 doc = "The board's default tools."
 
 # ---------------------------------------------------------------------------
-# The DragRect family: one grammar, four results. This is the whole argument
+# The DragRect family: one grammar, five results. This is the whole argument
 # for keeping grammar and recipe apart — press-drag-release is identical in
-# all four, and only the recipe differs.
+# all five, and only the recipe differs.
 # ---------------------------------------------------------------------------
 
 [[tool]]
@@ -73,6 +73,21 @@ doc = "A generated portal onto a git repository's history."
   # No `source`: a portal placed from the palette is unbound until the user
   # chooses a repository. A kit that shipped a source would name a path that
   # only exists on its author's machine (Art. IX.2).
+
+[[tool]]
+id = "portal-status-board"
+name = "Status Board"
+grammar = "drag_rect"
+icon = "status_board"
+doc = "A generated portal onto a project-status snapshot."
+
+  [tool.recipe]
+  kind = "portal"
+  portal = "status_board"
+  title = "Status Board"
+  default_size = [960.0, 720.0]
+  # No `source`: a shared kit must not name a path from the author's machine
+  # (Art. IX.2). Bind `project-state.json` after placement.
 
 # The dock's own grouping stays in the app for now; a `[[bar]]` here would be a
 # second, competing description of the same rail. Kits gain bars once the dock

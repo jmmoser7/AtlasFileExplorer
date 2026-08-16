@@ -175,7 +175,13 @@ mod tests {
     #[test]
     fn the_builtin_kit_carries_the_tools_finish_draw_used_to_hardcode() {
         let reg = Registry::build(&[(Scope::Builtin, builtin_kit())]);
-        for id in ["frame", "rect", "ellipse", "portal-repo-lens"] {
+        for id in [
+            "frame",
+            "rect",
+            "ellipse",
+            "portal-repo-lens",
+            "portal-status-board",
+        ] {
             assert!(reg.get(id).is_some(), "built-in kit is missing `{id}`");
         }
     }

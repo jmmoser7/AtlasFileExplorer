@@ -5,6 +5,18 @@ bound and why) and `ARCHITECTURE.md` (how it is built); per-app binding
 tables live in each app's `commands.rs` (`SPECS`) and render in
 **Advanced → Commands & shortcuts**.
 
+## 2026-08-16 — Status Board portal (second generated portal)
+
+- **`portal-status-board`** lands as a generated portal: journaled frame +
+  local `project-state.json` source + section query; contents come from
+  `crates/status-board` (`layout_status`) and are never journaled. Placement
+  reuses `drag_rect` (click = 960×720, drag free-aspect, Shift locks 16:9).
+  Commands: `board.portal.status_board`, `portal.status.source` /
+  `refresh` / `bake`. No single-key chord.
+- **`P1.portal` extended.** Generated-portal rules (place, bind, pick, bake,
+  sync) sit beside the host-portal rules promoted with `portal-web-embed`
+  (health, enter, determinism, export-honesty).
+
 ## 2026-08-08 — Web portal hardening (post-ship)
 
 - **Deferred WebView2 admit no longer sticks on Loading.** Admission is

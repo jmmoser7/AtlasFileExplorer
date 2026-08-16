@@ -25,8 +25,9 @@ pub use link::{link_status, LinkStatus};
 pub use media::{media_kind, MediaKind};
 pub use scene::{
     AgentContextScope, AgentPortalRef, Node, NodeId, NodeKind, PortalClass, PortalKind, PortalNode,
-    RepoPortalQuery, RepoTimeAxis, Scene, SceneCmd, SceneJournal, SourceUri, WorldRect,
-    REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W,
+    RepoPortalQuery, RepoTimeAxis, Scene, SceneCmd, SceneJournal, SourceUri, StatusPortalQuery,
+    WorldRect, REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W, STATUS_PORTAL_DEFAULT_H,
+    STATUS_PORTAL_DEFAULT_W,
 };
 pub use stage::{
     accept, reject, Proposal, ProposalResult, ProposalStatus, ProposalTarget, StageWatcher,

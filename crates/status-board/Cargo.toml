@@ -1,0 +1,9 @@
+[package]
+name = "status-board"
+version.workspace = true
+edition.workspace = true
+description = "UI-free parse + deterministic layout for Status Board portals"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
