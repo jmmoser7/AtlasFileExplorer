@@ -31,7 +31,7 @@ execution, MCP transport, and a canvas overlay for staged geometry.
 | D06 | Constraints & snapping | Grid snap and smart guides apply to the frame rect; agent contents never snap. | pattern | 80 |
 | D07 | Direction / value locks | n/a: no directional parameter. | pattern | 85 |
 | D08 | Numeric / manual entry | n/a in v1; dimensions are edited by resizing the frame. | guess | 55 |
-| D09 | Preview & readouts | Drag preview shows the frame. Unbound: Cover Flow. Bound: a Cursor-like composer (header + live chip + transcript + input). The live chip is green/blue when the Cursor **IDE** is running — that is the visual "Cursor is live" signal, independent of sidecar `session.json`. Transcript shows file-link turns (and optimistic local sends). All of it follows P0.9. | stated | 100 |
+| D09 | Preview & readouts | Drag preview shows the frame. Unbound: Cover Flow. Bound: a Cursor-like composer (header + status chip + transcript + input). After Send the chip and a transcript row animate **Thinking** / **Responding** (pulsing dots, P0.9). The idle chip is green when the Cursor **IDE** is running — that is the visual "Cursor is live" signal, independent of sidecar `session.json`. Transcript shows file-link turns and optimistic local sends. All of it follows P0.9. | stated | 100 |
 | D10 | Cursor | Crosshair while armed; normal board cursor after placement. Unbound Cover Flow is interactive only in contents-focus or maximize (**P1.portal.contents-focus**). Bound poster is not independently selectable. | pattern | 80 |
 | D11 | Commit | One journaled `Add` of `PortalNode { class: Host, kind: Agent, agent: Some(..) }`. Session/status/turns are derived. | stated | 100 |
 | D12 | Cancel | Esc peels one layer per press (P0.1): maximize → contents focus → drag draft → armed tool → selection. Releasing contents focus leaves the shelf / poster intact. Agent sidecar work is out-of-process and is not cancelled by board Esc. | pattern | 80 |
@@ -52,7 +52,7 @@ execution, MCP transport, and a canvas overlay for staged geometry.
 | D27 | Agent surface | Agent may read context/request and write session/proposal files. It may never edit the workbook or journal directly; Slate accepts proposals as attributed commands. | stated | 100 |
 | D28 | Determinism & provenance | Host portal contents are not deterministic. Provenance is the provider id, session id, request ids, proposal author, and stage result. | pattern | 80 |
 | D29 | Performance envelope | All file I/O is throttled and mtime/fingerprint gated. No agent work runs on the UI thread. Portal paint is bounded to a few text rows. | pattern | 85 |
-| D30 | Failure & honesty states | Unbound; Cursor not found; Cursor not running; Cursor running; file-link missing / idle / thinking / error; no saved chats; pending / stale proposal. **IDE status and sidecar status are separate lines.** A missing `session.json` is "no sidecar session", never "Cursor is offline" while the IDE is running. Each state names what it tried. | stated | 100 |
+| D30 | Failure & honesty states | Unbound; Cursor not found; Cursor not running; Cursor running; file-link missing / idle / thinking / responding / error; no saved chats; pending / stale proposal. **A failed send is never a blank transcript.** The chip reads **Unreachable** and the transcript names the cause (missing workspace, missing `CURSOR_API_KEY`, Node/sidecar not found, sidecar exit + log tail, or sidecar error). **IDE status and sidecar status are separate lines.** A missing `session.json` is "no sidecar session", never "Cursor is offline" while the IDE is running. | stated | 100 |
 | D31 | View-state ownership | Journaled: frame and `AgentPortalRef`. Derived: prompt draft, transcript, request state, staged-proposal list, sidecar status. | pattern | 90 |
 | D32 | Trust, sandbox & consent | Slate may launch the Cursor **IDE** the human already installed, on a bound folder. It still does not embed a Cursor runtime or attach to a live chat thread (D15, Art. VII.8). The file-link sidecar remains user-run and is reached only through JSON under the AI workspace. Staged proposals are the acceptance gate (D27, Art. VII.6). | pattern | 85 |
 | D33 | Portal chrome | **No identity tab** (web-only). Maximize is the four-corner square in the upper-right. Right-click: Maximize, Open in Cursor, Switch chat, Enter/Leave contents. | stated | 100 |
@@ -66,6 +66,7 @@ execution, MCP transport, and a canvas overlay for staged geometry.
 | `agent.link.poll_secs` | Minimum read/write poll interval | `1.0` |
 | `agent.portal.default_size` | Click placement size | `960 x 540` |
 | `agent.portal.turns_painted` | Recent turns painted in poster | `3` |
+| `agent.await.sent_timeout_secs` | Named failure if Send never reaches a live sidecar | `20` |
 
 ## Golden paths
 
@@ -75,7 +76,10 @@ execution, MCP transport, and a canvas overlay for staged geometry.
    Double-click (or Enter) takes contents focus; then the shelf and Select
    folder pill respond.
 2. **GP2 — prompt:** Select portal -> type prompt -> Send -> `request.json`
-   appears under the session folder.
+   appears under the session folder. The composer shows animated Thinking
+   immediately. A reply updates to Responding, then the assistant turn. If
+   the sidecar cannot be reached, the chip reads Unreachable and the
+   transcript names the failure — never a blank.
 3. **GP3 — transcript:** Sidecar writes `session.json` -> portal poster updates
    status/turns within two poll intervals.
 4. **GP4 — staged edit:** Sidecar writes `stage/<id>.json` -> inspector shows

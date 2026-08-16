@@ -2053,6 +2053,24 @@ fn an_agent_channel_survives_save_and_reopen() {
     );
 }
 
+#[test]
+fn a_failed_agent_send_names_the_failure() {
+    let mut h = agent_board("agent_named_fail");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    *h.app.agents.prompt_mut(id) = "what is 2+2?".into();
+    h.app.send_agent_prompt(id);
+    let reason = h
+        .app
+        .agent_failure_reason(id)
+        .expect("failure must be a named state, never a blank");
+    assert!(
+        reason.contains("AI workspace"),
+        "named the missing workspace: {reason}"
+    );
+    assert!(!h.app.agent_is_awaiting(id));
+}
+
 /// GP2 — dropping an HTML file on the board makes a portal, not a text card,
 /// and the locator is stored workbook-relative (D01, Art. IX.2).
 #[test]
