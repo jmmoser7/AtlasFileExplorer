@@ -100,7 +100,16 @@ impl PreviewPool {
 
     pub fn request(&self, req: PreviewRequest) {
         let mut q = self.shared.queue.lock().unwrap();
+        // A newer tier for the same key supersedes anything still waiting.
+        // In-flight decodes still finish; the caller discards a stale lower
+        // tier when it lands (`drain_previews`).
+        q.retain(|r| r.key != req.key);
         q.push(req);
+        const PREVIEW_QUEUE_CAP: usize = 64;
+        if q.len() > PREVIEW_QUEUE_CAP {
+            let drop = q.len() - PREVIEW_QUEUE_CAP;
+            q.drain(0..drop);
+        }
         self.shared.cv.notify_one();
     }
 }
@@ -275,5 +284,38 @@ mod tests {
             }
         }
         assert!(got_big && got_tiny);
+    }
+
+    #[test]
+    fn a_newer_tier_for_the_same_key_drops_the_queued_one() {
+        let pool = PreviewPool::new();
+        let big = temp_png("supersede.png", 800, 800);
+        pool.request(PreviewRequest {
+            id: 1,
+            path: big.clone(),
+            key: "same".into(),
+            target_px: 256,
+            pdf_page: None,
+        });
+        pool.request(PreviewRequest {
+            id: 2,
+            path: big,
+            key: "same".into(),
+            target_px: 512,
+            pdf_page: None,
+        });
+        let res = pool
+            .rx
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("one result");
+        assert_eq!(res.id, 2, "the superseded 256 request must not decode");
+        let (w, h, _) = res.image.expect("512 decode");
+        assert_eq!((w, h), (512, 512));
+        assert!(
+            pool.rx
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_err(),
+            "no leftover result for the dropped tier"
+        );
     }
 }

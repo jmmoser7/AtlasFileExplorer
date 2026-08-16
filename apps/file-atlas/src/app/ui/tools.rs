@@ -48,7 +48,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         DockItem {
             id: "display",
             label: "Display settings",
-            description: "Layout density, portals, leader lines, and fit controls.",
+            description: "Layout density, group previews, leader lines, and fit controls.",
             icon: DockIcon::Display,
             kind: DockItemKind::Dashboard,
             active: false,
@@ -488,7 +488,7 @@ fn display_settings_body(
             ui,
             &mut app.portal_threshold,
             10..=1000,
-            "portal threshold",
+            "stack threshold",
             "items",
             "Child-count threshold where collapsed folders become group previews",
             theme.sub,

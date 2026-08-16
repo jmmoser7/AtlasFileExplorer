@@ -40,12 +40,15 @@ pub const LOD_STRIP_PX: f32 = 96.0;
 /// 0.6 — the page looked broken rather than budgeted. An explicitly focused
 /// portal ignores this entirely (see [`admit`]).
 pub const LIVE_MIN_PX: f32 = 160.0;
+/// Stay live down to this height if the portal was already admitted (Schmitt
+/// trigger). Crossing 160 px every frame must not create/destroy WebView2.
+pub const LIVE_DEMOTE_PX: f32 = 128.0;
 /// Webviews alive at once, across the whole board.
 pub const LIVE_POOL: usize = 6;
 /// Render rate for pooled portals that do not hold input focus.
 pub const IDLE_FPS: f32 = 5.0;
 /// Contents textures uploaded per frame; the rest wait in the backlog.
-pub const UPLOADS_PER_FRAME: usize = 2;
+pub const UPLOADS_PER_FRAME: usize = atlas_core::display::WEB_UPLOADS_PER_FRAME;
 /// Border band that stays a Slate target while a portal holds input focus.
 pub const BORDER_HIT_PX: f32 = 6.0;
 /// Floor on how often a local source's mtime is checked, on a worker.
@@ -258,8 +261,13 @@ pub trait WebHost {
     fn evict(&mut self, id: NodeId);
     /// The newest frame, if one arrived since the last call.
     fn take_frame(&mut self, id: NodeId) -> Option<egui::ColorImage>;
-    /// A one-off capture for the poster cache (D21).
+    /// A one-off capture for the poster cache (D21). Must not be called from
+    /// `web_pump` on demotion — that path uses [`WebHost::last_frame`].
     fn capture_poster(&mut self, id: NodeId) -> Option<egui::ColorImage>;
+    /// Last uploaded/captured frame, no GPU readback.
+    fn last_frame(&self, _id: NodeId) -> Option<egui::ColorImage> {
+        None
+    }
     fn send_input(&mut self, id: NodeId, input: WebInput);
     /// The cursor the page is asking for, while it holds input focus (D10).
     fn cursor(&self, id: NodeId) -> Option<egui::CursorIcon>;
@@ -303,6 +311,9 @@ impl WebHost for NullHost {
         None
     }
     fn capture_poster(&mut self, _id: NodeId) -> Option<egui::ColorImage> {
+        None
+    }
+    fn last_frame(&self, _id: NodeId) -> Option<egui::ColorImage> {
         None
     }
     fn send_input(&mut self, _id: NodeId, _input: WebInput) {}
@@ -488,6 +499,8 @@ pub struct Candidate {
     pub last_focus: Option<Instant>,
     /// A portal that cannot render (unbound, blocked, refused) never competes.
     pub renderable: bool,
+    /// Already holding a pool slot last frame — hysteresis uses this.
+    pub was_live: bool,
 }
 
 /// Chooses which portals hold the pool's webviews this frame (D29).
@@ -502,9 +515,7 @@ pub struct Candidate {
 pub fn admit(candidates: &[Candidate], pool: usize) -> Vec<NodeId> {
     let mut eligible: Vec<&Candidate> = candidates
         .iter()
-        .filter(|c| {
-            c.renderable && c.on_screen && (c.focused || lod_for(c.height_px) == WebLod::Eligible)
-        })
+        .filter(|c| c.renderable && c.on_screen && size_keeps_slot(c))
         .collect();
     eligible.sort_by(|a, b| {
         b.focused
@@ -517,6 +528,16 @@ pub fn admit(candidates: &[Candidate], pool: usize) -> Vec<NodeId> {
             .then_with(|| b.last_focus.cmp(&a.last_focus))
     });
     eligible.into_iter().take(pool).map(|c| c.id).collect()
+}
+
+fn size_keeps_slot(c: &Candidate) -> bool {
+    if c.focused {
+        return true;
+    }
+    if lod_for(c.height_px) == WebLod::Eligible {
+        return true;
+    }
+    c.was_live && c.height_px >= LIVE_DEMOTE_PX
 }
 
 // ---------------------------------------------------------------------------
@@ -627,6 +648,7 @@ impl SlateApp {
                 focused: self.web.focused == Some(*id),
                 last_focus: view.last_focus,
                 renderable,
+                was_live: view.live,
             });
         }
 
@@ -650,9 +672,9 @@ impl SlateApp {
                     }
                 }
             } else if was_live {
-                // Capture on the way out, so a demoted portal degrades to its
-                // last frame instead of blanking (D29).
-                if let Some(img) = self.web.host.capture_poster(*id) {
+                // Last uploaded frame only — no D3D11 readback on the frame
+                // loop (D21). Live frames already land through the upload budget.
+                if let Some(img) = self.web.host.last_frame(*id) {
                     self.upload_poster(ctx, *id, img);
                 }
                 self.web.host.evict(*id);
@@ -681,6 +703,11 @@ impl SlateApp {
             }
         }
         if !carried.is_empty() {
+            let cap = atlas_core::display::WEB_BACKLOG_CAP;
+            if carried.len() > cap {
+                let drop = carried.len() - cap;
+                carried.drain(0..drop);
+            }
             self.web.backlog = carried;
             ctx.request_repaint();
         }
@@ -1791,12 +1818,9 @@ pub fn is_web_drop(path: &Path) -> bool {
 /// Prefer `index.html`, then `index.htm`. Returns `None` when the folder is
 /// not a page, so a drop of a photo album stays a photo album.
 pub fn web_entry_for_dir(path: &Path) -> Option<&'static str> {
-    for entry in [slate_doc::scene::WEB_DEFAULT_ENTRY, "index.htm"] {
-        if path.join(entry).is_file() {
-            return Some(entry);
-        }
-    }
-    None
+    [slate_doc::scene::WEB_DEFAULT_ENTRY, "index.htm"]
+        .into_iter()
+        .find(|entry| path.join(entry).is_file())
 }
 
 /// Recursive copy for packaging a dashboard folder.
@@ -1917,6 +1941,7 @@ mod tests {
             focused: false,
             last_focus: None,
             renderable: true,
+            was_live: false,
         }
     }
 
@@ -1964,6 +1989,31 @@ mod tests {
         all[0].focused = true;
         let admitted = admit(&all, LIVE_POOL);
         assert_eq!(admitted[0], NodeId(0));
+    }
+
+    #[test]
+    fn oscillating_height_around_the_live_gate_does_not_evict() {
+        let mut was_live = false;
+        let mut evicts = 0;
+        for height in [161.0, 159.0, 161.0, 159.0, 150.0] {
+            let mut c = candidate(1, height, 10_000.0);
+            c.was_live = was_live;
+            let now_live = !admit(&[c], LIVE_POOL).is_empty();
+            if was_live && !now_live {
+                evicts += 1;
+            }
+            was_live = now_live;
+        }
+        assert_eq!(
+            evicts, 0,
+            "Schmitt trigger must hold the slot across 160 px"
+        );
+        let mut demoted = candidate(1, 120.0, 10_000.0);
+        demoted.was_live = true;
+        assert!(
+            admit(&[demoted], LIVE_POOL).is_empty(),
+            "below LIVE_DEMOTE_PX a live portal must yield"
+        );
     }
 
     #[test]

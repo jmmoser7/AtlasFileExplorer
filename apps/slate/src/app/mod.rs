@@ -87,7 +87,7 @@ impl Default for Camera {
     fn default() -> Self {
         Camera {
             offset: Vec2::ZERO,
-            z: 0.8,
+            z: atlas_core::display::SLATE_CANVAS.default_z,
         }
     }
 }
@@ -223,6 +223,12 @@ pub struct SlateApp {
 
     /// Texture cache keyed by thumbnail cache key.
     pub textures: HashMap<String, ThumbState>,
+    /// Last paint frame that needed each thumb key (LRU with `textures`).
+    pub(crate) thumb_used: HashMap<String, u64>,
+    /// Cached Grid/Venn layout; invalidated by a content fingerprint.
+    pub(crate) layout_cache: Option<(u64, canvas::Layout)>,
+    #[cfg(test)]
+    pub(crate) layout_builds: u32,
     /// Round-trip mapping for the thumb pool's u32 ids.
     thumb_slots: HashMap<u32, String>,
     next_thumb_slot: u32,
@@ -485,6 +491,10 @@ impl SlateApp {
             cell: 132.0,
             menu: None,
             textures: HashMap::new(),
+            thumb_used: HashMap::new(),
+            layout_cache: None,
+            #[cfg(test)]
+            layout_builds: 0,
             thumb_slots: HashMap::new(),
             next_thumb_slot: 0,
             previews: atlas_core::preview::PreviewPool::new(),
@@ -580,7 +590,8 @@ impl SlateApp {
             app.registry.validate()
         );
         app.thumbs.retain_generation(THUMB_GENERATION);
-        app.thumbs.ensure_workers(4);
+        app.thumbs
+            .ensure_workers(atlas_core::display::THUMB_WORKERS_SLATE);
         if let Some(path) = initial_doc {
             app.at_home = false;
             app.ensure_work_tab();
@@ -930,6 +941,9 @@ impl SlateApp {
                     tab.lease = lease;
                     tab.read_only = read_only;
                     tab.lease_holder = holder;
+                    let view = tab.doc.view.clone();
+                    tab.cam.offset = Vec2::new(view.cam_x, view.cam_y);
+                    tab.cam.z = atlas_core::display::SLATE_CANVAS.clamp(view.zoom);
                 }
                 self.selection.clear();
                 self.note_scene_change();
@@ -953,6 +967,13 @@ impl SlateApp {
         // Derive the workbook name from the file name on first save.
         if let Some(stem) = path.file_stem() {
             self.tabs[tab_idx].doc.name = stem.to_string_lossy().into_owned();
+        }
+        {
+            let cam = self.tabs[tab_idx].cam;
+            let view = &mut self.tabs[tab_idx].doc.view;
+            view.cam_x = cam.offset.x;
+            view.cam_y = cam.offset.y;
+            view.zoom = cam.z;
         }
         if let Err(e) = self.tabs[tab_idx].doc.save_to(&path) {
             self.toast(format!("Save failed: {e}"));
@@ -1136,7 +1157,12 @@ impl SlateApp {
     }
 
     fn drain_thumbs(&mut self, ctx: &egui::Context) {
-        while let Ok(res) = self.thumbs.rx.try_recv() {
+        let cap = atlas_core::display::SLATE_TEXTURES.uploads_per_frame;
+        let mut uploads = 0;
+        while uploads < cap {
+            let Ok(res) = self.thumbs.rx.try_recv() else {
+                break;
+            };
             let Some(key) = self.thumb_slots.remove(&res.id) else {
                 continue;
             };
@@ -1144,6 +1170,7 @@ impl SlateApp {
                 // Shed from an over-full hot queue: forget the pending marker
                 // so the paint pass re-requests it while the item is visible.
                 self.textures.remove(&key);
+                self.thumb_used.remove(&key);
                 continue;
             }
             let state = match res.image {
@@ -1158,12 +1185,37 @@ impl SlateApp {
                         img,
                         egui::TextureOptions::LINEAR,
                     );
+                    uploads += 1;
                     ThumbState::Ready(tex)
                 }
                 None => ThumbState::Failed,
             };
+            self.thumb_used.insert(key.clone(), self.frame_no);
             self.textures.insert(key, state);
             ctx.request_repaint();
+        }
+        if uploads >= cap {
+            ctx.request_repaint();
+        }
+        self.evict_thumbs();
+    }
+
+    fn evict_thumbs(&mut self) {
+        let cap = atlas_core::display::SLATE_TEXTURES.resident_cap;
+        if self.textures.len() <= cap {
+            return;
+        }
+        let mut by_age: Vec<(u64, String)> = self
+            .textures
+            .keys()
+            .map(|k| (self.thumb_used.get(k).copied().unwrap_or(0), k.clone()))
+            .collect();
+        by_age.sort_by_key(|(used, _)| *used);
+        let drop_n = self.textures.len() - cap + 64;
+        for (_, key) in by_age.into_iter().take(drop_n) {
+            self.textures.remove(&key);
+            self.thumb_pixels.remove(&key);
+            self.thumb_used.remove(&key);
         }
     }
 

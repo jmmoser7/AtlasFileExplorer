@@ -38,8 +38,8 @@ use std::time::{Duration, Instant};
 /// (group, tag list of (id, name, color)) rows for tag menus.
 type TagRows = Vec<(slate_doc::TagId, String, [u8; 3])>;
 
-const ZOOM_MIN: f32 = 0.05;
-const ZOOM_MAX: f32 = 3.5;
+const ZOOM_MIN: f32 = atlas_core::display::SLATE_CANVAS.min;
+const ZOOM_MAX: f32 = atlas_core::display::SLATE_CANVAS.max;
 pub(crate) const MIN_DRAW: f32 = 8.0;
 /// Coalescing window for continuous inspector edits (one undo step).
 const COALESCE: Duration = Duration::from_millis(1500);
@@ -413,6 +413,29 @@ impl SlateApp {
             offset: cam.offset,
             z: cam.z,
         }
+    }
+
+    /// Nodes whose AABB intersects `screen` (plus a margin for strokes).
+    pub(crate) fn board_paint_nodes(&self, screen: Rect) -> Vec<Node> {
+        let xf = self.board_xf();
+        let a = xf.s2w(screen.min);
+        let b = xf.s2w(screen.max);
+        let pad = 80.0 / xf.z.max(0.05);
+        let world = WorldRect::new(
+            a.x.min(b.x) - pad,
+            a.y.min(b.y) - pad,
+            (a.x - b.x).abs() + pad * 2.0,
+            (a.y - b.y).abs() + pad * 2.0,
+        );
+        self.doc()
+            .scene
+            .query_rect(world)
+            .into_iter()
+            .filter_map(|id| {
+                let n = self.doc().scene.node(id)?;
+                (!n.hidden).then(|| n.clone())
+            })
+            .collect()
     }
 
     fn scene_bounds(&self) -> Option<Rect> {
@@ -1850,7 +1873,7 @@ impl SlateApp {
                     self.tab_mut().cam.offset.x -= scroll / zc;
                     canvas_nav = true;
                 } else if let Some(p) = pointer {
-                    self.board_zoom_at(p, 1.0 + scroll * 0.0015);
+                    self.board_zoom_at(p, atlas_core::display::SLATE_CANVAS.wheel_factor(scroll));
                     canvas_nav = true;
                 }
             }
@@ -2146,14 +2169,9 @@ impl SlateApp {
         // --- paint scene ---
         // Hidden nodes are skipped everywhere (paint, hit-test, marquee,
         // cycling, present, export) — scene-flags semantics matrix.
-        let mut nodes: Vec<Node> = self
-            .doc()
-            .scene
-            .nodes
-            .iter()
-            .filter(|n| !n.hidden)
-            .cloned()
-            .collect();
+        // Viewport cull uses the spatial index (Art. II); off-screen nodes
+        // are not cloned or painted.
+        let mut nodes = self.board_paint_nodes(rect);
         // Ctrl+F: dim non-matching nodes to ~35% at paint time only — the
         // opacity tweak lives on this per-frame clone, never in the scene
         // and never in the journal.

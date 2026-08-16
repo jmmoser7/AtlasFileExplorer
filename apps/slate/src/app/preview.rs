@@ -112,7 +112,10 @@ impl SlateApp {
             return Some(e.tex.clone());
         }
         match self.textures.get(&key) {
-            Some(ThumbState::Ready(t)) => Some(t.clone()),
+            Some(ThumbState::Ready(t)) => {
+                self.thumb_used.insert(key, self.frame_no);
+                Some(t.clone())
+            }
             _ => None,
         }
     }

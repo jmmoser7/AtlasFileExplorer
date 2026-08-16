@@ -469,18 +469,13 @@ pub enum RepoTimeAxis {
 }
 
 /// Scope of board context an agent portal publishes to its linked local agent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentContextScope {
+    #[default]
     Selection,
     Frame,
     Board,
-}
-
-impl Default for AgentContextScope {
-    fn default() -> Self {
-        Self::Selection
-    }
 }
 
 /// Journaled agent-portal binding. The provider is resolved by name from user

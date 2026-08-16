@@ -908,6 +908,58 @@ fn a_watcher_storm_is_spread_across_frames() {
     }
 }
 
+#[test]
+fn rescan_requests_a_quiet_refresh() {
+    let mut h = Harness::new("fs_rescan");
+    let root = make_tree(&h._base.join("rescan"), 3);
+    h.app.set_root(root);
+    h.pump_until_idle();
+    assert!(h.app.scan_ui.is_none());
+    h.app.apply_fs_change(FsChange::Rescan);
+    assert!(
+        h.app.scan_ui.is_some(),
+        "FsChange::Rescan must start a quiet refresh"
+    );
+    assert_eq!(
+        h.app.scan_ui.as_ref().map(|s| s.mode),
+        Some(ScanMode::Refresh)
+    );
+}
+
+#[test]
+fn watcher_backlog_overflow_requests_a_quiet_refresh() {
+    let mut h = Harness::new("fs_overflow");
+    let root = make_tree(&h._base.join("overflow"), 2);
+    h.app.set_root(root);
+    h.pump_until_idle();
+    assert!(h.app.scan_ui.is_none());
+    h.app.on_fs_backlog_overflow();
+    assert!(
+        h.app.scan_ui.is_some(),
+        "a watcher storm past FS_BACKLOG_CAP must refresh once, not upsert"
+    );
+    assert_eq!(
+        h.app.scan_ui.as_ref().map(|s| s.mode),
+        Some(ScanMode::Refresh)
+    );
+    assert!(h.app.fs_backlog.is_empty());
+}
+
+#[test]
+fn linked_session_caps_atlas_thumb_workers() {
+    let h = Harness::new("workers");
+    assert_eq!(
+        h.app.thumb_workers_for_network(),
+        atlas_core::display::THUMB_WORKERS_STANDALONE_NETWORK
+    );
+    let mut h = h;
+    h.app.session = Some(atlas_session::new_session());
+    assert_eq!(
+        h.app.thumb_workers_for_network(),
+        atlas_core::display::THUMB_WORKERS_LINKED_ATLAS
+    );
+}
+
 /// Populating is the product: the user watches a folder fill in. Previews must
 /// therefore stream *during* discovery, not wait behind it — deferring the
 /// network worker pool until the scan finished meant minutes of empty cards on a
@@ -1347,6 +1399,10 @@ fn edit_mode_drag_moves_a_file_into_the_folder_under_the_cursor() {
 /// Delete works on what the cursor is over, and the card has to leave the
 /// canvas as soon as the file leaves the disk — a delete you cannot see is
 /// indistinguishable from one that failed.
+///
+/// Recycle Bin is a Windows shell verb (`FOF_ALLOWUNDO`). Linux stubs that
+/// path as unsupported, so this test is the Windows proof.
+#[cfg(windows)]
 #[test]
 fn delete_key_removes_the_card_under_the_cursor() {
     let mut h = Harness::new("edit_delete");
