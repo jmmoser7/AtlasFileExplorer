@@ -411,6 +411,10 @@ pub struct FrameNode {
 pub const REPO_PORTAL_DEFAULT_W: f32 = 960.0;
 pub const REPO_PORTAL_DEFAULT_H: f32 = 540.0;
 
+/// Default Status Board portal size (world units) for click-to-place (D04).
+pub const STATUS_PORTAL_DEFAULT_W: f32 = 960.0;
+pub const STATUS_PORTAL_DEFAULT_H: f32 = 720.0;
+
 /// Portal mutation authority class (Constitution Art. V.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -424,6 +428,7 @@ pub enum PortalClass {
 #[serde(rename_all = "snake_case")]
 pub enum PortalKind {
     RepoLens,
+    StatusBoard,
 }
 
 /// Local-filesystem locator stub until full `SourceUri` (T2.1) lands.
@@ -460,6 +465,30 @@ pub enum RepoTimeAxis {
     Chronological,
 }
 
+/// Authored Status Board query (journaled). Snapshot contents are derived
+/// and never stored on the node.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StatusPortalQuery {
+    pub show_overview: bool,
+    pub show_phases: bool,
+    pub show_waves: bool,
+    pub show_deviations: bool,
+    pub show_next: bool,
+}
+
+impl Default for StatusPortalQuery {
+    fn default() -> Self {
+        Self {
+            show_overview: true,
+            show_phases: true,
+            show_waves: true,
+            show_deviations: true,
+            show_next: true,
+        }
+    }
+}
+
 /// A journaled portal frame. Contents are derived from `source` + `query`
 /// (generated class) and never serialized here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -472,6 +501,9 @@ pub struct PortalNode {
     pub source: Option<SourceUri>,
     #[serde(default)]
     pub query: RepoPortalQuery,
+    /// Status Board section knobs. Defaulted so v2 RepoLens nodes still load.
+    #[serde(default)]
+    pub status: StatusPortalQuery,
     pub fill: Rgba,
 }
 
@@ -484,7 +516,21 @@ impl PortalNode {
             title: title.into(),
             source: None,
             query: RepoPortalQuery::default(),
+            status: StatusPortalQuery::default(),
             fill: Rgba([18, 20, 24, 255]),
+        }
+    }
+
+    /// Fresh unbound Status Board portal.
+    pub fn unbound_status_board(title: impl Into<String>) -> Self {
+        Self {
+            class: PortalClass::Generated,
+            kind: PortalKind::StatusBoard,
+            title: title.into(),
+            source: None,
+            query: RepoPortalQuery::default(),
+            status: StatusPortalQuery::default(),
+            fill: Rgba([14, 17, 20, 255]),
         }
     }
 }
@@ -1988,6 +2034,62 @@ mod tests {
         assert!(!out.contains("hidden"));
         assert!(!out.contains("group"));
         assert!(!out.contains("fill"));
+    }
+
+    #[test]
+    fn status_board_portal_round_trips_unbound() {
+        let node = Node {
+            id: NodeId(2),
+            rect: WorldRect::new(0.0, 0.0, STATUS_PORTAL_DEFAULT_W, STATUS_PORTAL_DEFAULT_H),
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            kind: NodeKind::Portal(PortalNode::unbound_status_board("Status Board")),
+        };
+        let json = serde_json::to_string(&node).unwrap();
+        assert!(json.contains("\"status_board\""));
+        assert!(!json.contains("\"source\""));
+        let back: Node = serde_json::from_str(&json).unwrap();
+        match back.kind {
+            NodeKind::Portal(p) => {
+                assert!(p.source.is_none());
+                assert_eq!(p.title, "Status Board");
+                assert!(matches!(p.class, PortalClass::Generated));
+                assert!(matches!(p.kind, PortalKind::StatusBoard));
+                assert!(p.status.show_overview);
+            }
+            _ => panic!("expected portal"),
+        }
+    }
+
+    #[test]
+    fn legacy_repo_lens_json_defaults_status_query() {
+        let node = Node {
+            id: NodeId(1),
+            rect: WorldRect::new(0.0, 0.0, REPO_PORTAL_DEFAULT_W, REPO_PORTAL_DEFAULT_H),
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            kind: NodeKind::Portal(PortalNode::unbound_repo_lens("Repository Lens")),
+        };
+        let mut value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&node).unwrap()).unwrap();
+        value["kind"]["portal"]
+            .as_object_mut()
+            .unwrap()
+            .remove("status");
+        let back: Node = serde_json::from_value(value).unwrap();
+        match back.kind {
+            NodeKind::Portal(p) => {
+                assert!(matches!(p.kind, PortalKind::RepoLens));
+                assert_eq!(p.status, StatusPortalQuery::default());
+            }
+            _ => panic!("expected portal"),
+        }
     }
 
     #[test]

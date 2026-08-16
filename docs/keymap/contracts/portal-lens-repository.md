@@ -14,9 +14,7 @@ Reference: GitKraken Desktop & GitLens commit graph, GitHub's network graph,
 `git log --graph` — see `docs/keymap/research/git-history.md`
 Command: `board.portal.repo_lens` (placement) · Key: none in v1 (OQ3) ·
 Palette: "repository lens" (aliases: repo lens, git graph, history portal)
-Inherits: P0.* (all), P1.node, **P2.DragShape** — deviations flagged below.
-Portal-class rules stay L3 here until a second portal contract exists
-(P1.portal, promotion rule).
+Inherits: P0.* (all), P1.node, **P1.portal**, **P2.DragShape** — deviations flagged below.
 
 ## What it is, and the 10% it implements
 

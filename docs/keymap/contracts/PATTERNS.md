@@ -99,13 +99,43 @@ text- or image-producing tool appears.
 
 ### P1.portal — portal nodes (generated / document / host)
 
-Exists as a class (Constitution Art. V.3, decision D7), with no rules promoted
-into it yet: `portal-lens-repository` is the first portal contract, so its
-rules stay L3 by the promotion rule. When the second portal contract lands —
-the code Lens folding into a portal is the likely candidate — the shared rules
-(frame is journaled, contents are derived; click selects the frame and
-double-click enters the contents; the source-health tri-state; export marks)
-promote here and both contracts replace their copy with a reference.
+Promoted from `portal-lens-repository` + `portal-status-board` (2026-08-16).
+These rules hold for every generated portal subtype; a contract lists only
+deviations and the knobs that are unique to its source.
+
+- **P1.portal.frame** The journaled object is a frame (`rect`, `class`,
+  `kind`, `title`, `source`, query knobs). Contents are a deterministic
+  function of (resolved source, query, frame size) and are never journaled
+  (Art. V.3, VI.3). Journaled acts are frame-only: place, move, resize,
+  rebind, re-query, delete, bake.
+- **P1.portal.place** `Armed → Dragging(rect) → Committed(unbound)`.
+  Press-drag-release defines the frame; travel below `draft.drag_threshold`
+  (4 px) places the subtype's `default_size` centred on the click
+  (**deviates P2.DragShape**, which discards sub-`MIN_DRAW`). Unmodified
+  drag is free-aspect; Shift locks 16:9 (**deviates P1.shape.aspect**).
+  Binding is a separate, non-modal step — no file dialog opens inside a
+  draw gesture. One-shot: commit returns to Select (P0.4).
+- **P1.portal.bind** One `SourceUri` stored relative-first (Art. IX.2).
+  Rebinding is a journaled `Patch` and discards cached contents. Remote
+  URLs and hosted APIs are refused (Art. I.4).
+- **P1.portal.style** The frame paints from `Palette::portal`; it does not
+  consume or become `BoardLastStyle` (**deviates P1.shape.style**).
+- **P1.portal.pick** The frame picks on its rect, including marquee.
+  Contents expose no grips and are not selectable as board nodes. Resize
+  re-lays-out; it does not scale a picture.
+- **P1.portal.export** Both interpreters consume the same layout function
+  (Art. IV). Unbound or Missing exports a state card, not an empty
+  rectangle. No script, no fetch.
+- **P1.portal.bake** An explicit bake command copies authored nodes
+  matching the current contents and leaves the portal live (Art. VI.3).
+  Bake copies; it does not convert.
+- **P1.portal.sync** Frame, source, and query sync as journal deltas.
+  Contents are per-peer and never transmitted. Health is `Ok` / `Missing`
+  / `Unknown` naming the locator (Art. IX.3). Focus and hover are
+  presence (Art. VIII.5).
+- **P1.portal.agent** Placement and bind/refresh/bake commands are
+  registry SPECs. Agent-issued frame/source/query mutations stage for
+  acceptance (Art. VII.6). Agents never write the source.
 
 ## L2 — Tool-family archetypes
 

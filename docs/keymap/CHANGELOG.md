@@ -5,6 +5,19 @@ bound and why) and `ARCHITECTURE.md` (how it is built); per-app binding
 tables live in each app's `commands.rs` (`SPECS`) and render in
 **Advanced → Commands & shortcuts**.
 
+## 2026-08-16 — Status Board portal (second generated portal)
+
+- **`portal-status-board`** lands as a generated portal: journaled frame +
+  local `project-state.json` source + section query; contents come from
+  `crates/status-board` (`layout_status`) and are never journaled. Placement
+  reuses `drag_rect` (click = 960×720, drag free-aspect, Shift locks 16:9).
+  Commands: `board.portal.status_board`, `portal.status.source` /
+  `refresh` / `bake`. No single-key chord.
+- **`P1.portal` promoted.** Shared generated-portal rules (frame vs
+  contents, unbound place-then-bind, relative-first source, export state
+  card, bake-copies) move from L3 into PATTERNS.md; both portal contracts
+  inherit them.
+
 ## 2026-08-01 — One time axis: the activity timeline
 
 - **The stacked pair became one control.** File Atlas' contribution graph and

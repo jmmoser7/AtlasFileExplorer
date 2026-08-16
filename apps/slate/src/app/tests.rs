@@ -1411,6 +1411,80 @@ fn a_placed_repository_lens_portal_is_unbound_at_the_recipe_size() {
     h.frame();
 }
 
+/// A click-placed Status Board portal takes the recipe's default size and
+/// stays unbound — a kit must not ship a path from its author's machine.
+#[test]
+fn a_placed_status_board_portal_is_unbound_at_the_recipe_size() {
+    let mut h = kit_board("kit_status_portal", board::BoardTool::StatusBoard);
+    h.app.place_status_board_at(Pos2::new(0.0, 0.0));
+
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let node = &h.app.doc().scene.nodes[0];
+    let NodeKind::Portal(p) = &node.kind else {
+        panic!("expected a portal node");
+    };
+    assert_eq!(p.class, slate_doc::scene::PortalClass::Generated);
+    assert_eq!(p.kind, slate_doc::scene::PortalKind::StatusBoard);
+    assert!(
+        p.source.is_none(),
+        "unbound until the user chooses a snapshot"
+    );
+    assert_eq!(p.status, slate_doc::scene::StatusPortalQuery::default());
+    assert_eq!(
+        (node.rect.w, node.rect.h),
+        (
+            slate_doc::scene::STATUS_PORTAL_DEFAULT_W,
+            slate_doc::scene::STATUS_PORTAL_DEFAULT_H
+        )
+    );
+    h.frame();
+}
+
+/// Binding a fixture snapshot is a journaled Patch; contents regenerate and
+/// undo restores the unbound frame (GP2 / GP3).
+#[test]
+fn a_bound_status_board_lays_out_the_fixture_and_undo_is_frame_only() {
+    let mut h = kit_board("kit_status_bind", board::BoardTool::StatusBoard);
+    h.app.place_status_board_at(Pos2::new(0.0, 0.0));
+    let id = h.app.doc().scene.nodes[0].id;
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/status-board/tests/fixtures/project-state.json");
+    assert!(fixture.is_file(), "missing fixture {}", fixture.display());
+    h.app.bind_portal_source(id, fixture);
+
+    let NodeKind::Portal(p) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected a portal");
+    };
+    assert!(p.source.is_some(), "bind writes a locator");
+    assert!(matches!(p.kind, slate_doc::scene::PortalKind::StatusBoard));
+
+    let mut caption = None;
+    for _ in 0..80 {
+        h.frame();
+        caption = h.app.portals.status_caption(id);
+        if caption.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    let caption = caption.expect("status layout should arrive");
+    assert!(
+        caption.contains("664e2e1"),
+        "layout caption should name the fixture HEAD: {caption}"
+    );
+
+    h.app.board_undo();
+    let NodeKind::Portal(p) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected a portal after undo");
+    };
+    assert!(
+        p.source.is_none(),
+        "undo is frame-only — source returns to None"
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "no orphan baked nodes");
+    h.frame();
+}
+
 /// One completed draw is one undo step, and undo removes the node.
 #[test]
 fn a_recipe_driven_draw_is_a_single_undo_step() {

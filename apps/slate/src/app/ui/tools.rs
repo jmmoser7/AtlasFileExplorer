@@ -64,10 +64,10 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         DockItem {
             id: "tool.portals",
             label: "Portals",
-            description: "Drop a generated or host portal onto the board (Repository Lens).",
+            description: "Drop a generated portal onto the board (Repository Lens, Status Board).",
             icon: DockIcon::Custom(icon_portals),
             kind: DockItemKind::Tool,
-            active: tool == BoardTool::RepoLens,
+            active: matches!(tool, BoardTool::RepoLens | BoardTool::StatusBoard),
             visible: board,
             gap_before: false,
         },
@@ -151,11 +151,8 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             app.dispatch(ctx, CommandId("board.tool.frame"), Some("dock".into()));
         }
         Some("tool.portals") => {
-            app.dispatch(
-                ctx,
-                CommandId("board.portal.repo_lens"),
-                Some("dock".into()),
-            );
+            // Flyout is the picker; do not auto-arm a subtype now that two
+            // generated portals share the chip (P1.portal).
         }
         Some("tool.shapes") => {
             // Open on the last shape-family tool, defaulting to rect.
@@ -224,6 +221,19 @@ fn portals_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     .clicked()
     {
         app.set_board_tool(BoardTool::RepoLens);
+    }
+    if board_icons::tool_menu_row(
+        ui,
+        ToolIcon::StatusBoard,
+        "Status Board",
+        None,
+        app.board_tool == BoardTool::StatusBoard,
+        theme.ink,
+        theme.sub,
+    )
+    .clicked()
+    {
+        app.set_board_tool(BoardTool::StatusBoard);
     }
 }
 

@@ -1018,64 +1018,125 @@ fn portal_controls(
         .small()
         .color(theme.sub),
     );
+    let (source_cmd, refresh_cmd, bake_cmd) = match p.kind {
+        slate_doc::scene::PortalKind::RepoLens => (
+            "portal.repo.source",
+            "portal.repo.refresh",
+            "portal.repo.bake",
+        ),
+        slate_doc::scene::PortalKind::StatusBoard => (
+            "portal.status.source",
+            "portal.status.refresh",
+            "portal.status.bake",
+        ),
+    };
     ui.horizontal(|ui| {
         if ui.button(RichText::new("Choose…").small()).clicked() {
-            app.dispatch(
-                ui.ctx(),
-                atlas_commands::CommandId("portal.repo.source"),
-                None,
-            );
+            app.dispatch(ui.ctx(), atlas_commands::CommandId(source_cmd), None);
         }
         if ui.button(RichText::new("Refresh").small()).clicked() {
-            app.dispatch(
-                ui.ctx(),
-                atlas_commands::CommandId("portal.repo.refresh"),
-                None,
-            );
+            app.dispatch(ui.ctx(), atlas_commands::CommandId(refresh_cmd), None);
         }
         if ui.button(RichText::new("Bake").small()).clicked() {
-            app.dispatch(
-                ui.ctx(),
-                atlas_commands::CommandId("portal.repo.bake"),
-                None,
-            );
+            app.dispatch(ui.ctx(), atlas_commands::CommandId(bake_cmd), None);
         }
     });
-    let mut remotes = p.query.include_remotes;
-    if ui
-        .checkbox(&mut remotes, RichText::new("Include remotes").small())
-        .changed()
-    {
-        app.patch_nodes(ids, move |n| {
-            if let NodeKind::Portal(p) = &mut n.kind {
-                p.query.include_remotes = remotes;
+    match p.kind {
+        slate_doc::scene::PortalKind::StatusBoard => {
+            let mut overview = p.status.show_overview;
+            if ui
+                .checkbox(&mut overview, RichText::new("Overview").small())
+                .changed()
+            {
+                app.patch_nodes(ids, move |n| {
+                    if let NodeKind::Portal(p) = &mut n.kind {
+                        p.status.show_overview = overview;
+                    }
+                });
             }
-        });
+            let mut phases = p.status.show_phases;
+            if ui
+                .checkbox(&mut phases, RichText::new("Phases").small())
+                .changed()
+            {
+                app.patch_nodes(ids, move |n| {
+                    if let NodeKind::Portal(p) = &mut n.kind {
+                        p.status.show_phases = phases;
+                    }
+                });
+            }
+            let mut waves = p.status.show_waves;
+            if ui
+                .checkbox(&mut waves, RichText::new("Waves").small())
+                .changed()
+            {
+                app.patch_nodes(ids, move |n| {
+                    if let NodeKind::Portal(p) = &mut n.kind {
+                        p.status.show_waves = waves;
+                    }
+                });
+            }
+            let mut deviations = p.status.show_deviations;
+            if ui
+                .checkbox(&mut deviations, RichText::new("Deviations").small())
+                .changed()
+            {
+                app.patch_nodes(ids, move |n| {
+                    if let NodeKind::Portal(p) = &mut n.kind {
+                        p.status.show_deviations = deviations;
+                    }
+                });
+            }
+            let mut next = p.status.show_next;
+            if ui
+                .checkbox(&mut next, RichText::new("Next").small())
+                .changed()
+            {
+                app.patch_nodes(ids, move |n| {
+                    if let NodeKind::Portal(p) = &mut n.kind {
+                        p.status.show_next = next;
+                    }
+                });
+            }
+        }
+        slate_doc::scene::PortalKind::RepoLens => {
+            let mut remotes = p.query.include_remotes;
+            if ui
+                .checkbox(&mut remotes, RichText::new("Include remotes").small())
+                .changed()
+            {
+                app.patch_nodes(ids, move |n| {
+                    if let NodeKind::Portal(p) = &mut n.kind {
+                        p.query.include_remotes = remotes;
+                    }
+                });
+            }
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Axis").small().color(theme.sub));
+                let topo = matches!(p.query.axis, slate_doc::scene::RepoTimeAxis::Topological);
+                if ui
+                    .selectable_label(topo, RichText::new("Topological").small())
+                    .clicked()
+                {
+                    app.patch_nodes(ids, move |n| {
+                        if let NodeKind::Portal(p) = &mut n.kind {
+                            p.query.axis = slate_doc::scene::RepoTimeAxis::Topological;
+                        }
+                    });
+                }
+                if ui
+                    .selectable_label(!topo, RichText::new("Chronological").small())
+                    .clicked()
+                {
+                    app.patch_nodes(ids, move |n| {
+                        if let NodeKind::Portal(p) = &mut n.kind {
+                            p.query.axis = slate_doc::scene::RepoTimeAxis::Chronological;
+                        }
+                    });
+                }
+            });
+        }
     }
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Axis").small().color(theme.sub));
-        let topo = matches!(p.query.axis, slate_doc::scene::RepoTimeAxis::Topological);
-        if ui
-            .selectable_label(topo, RichText::new("Topological").small())
-            .clicked()
-        {
-            app.patch_nodes(ids, move |n| {
-                if let NodeKind::Portal(p) = &mut n.kind {
-                    p.query.axis = slate_doc::scene::RepoTimeAxis::Topological;
-                }
-            });
-        }
-        if ui
-            .selectable_label(!topo, RichText::new("Chronological").small())
-            .clicked()
-        {
-            app.patch_nodes(ids, move |n| {
-                if let NodeKind::Portal(p) = &mut n.kind {
-                    p.query.axis = slate_doc::scene::RepoTimeAxis::Chronological;
-                }
-            });
-        }
-    });
 }
 
 fn frame_controls(

@@ -292,6 +292,18 @@ Camera-only — never journaled, never repeatable.
   always beat orbit. Camera poses journal as one undo step when the viewport
   locks (padlock click, 30 s idle, tab switch, present, or export).
 
+## Board portals
+
+- **Repository Lens** and **Status Board** are generated portals (Art. V.3):
+  the frame, source, and query are journaled; contents are derived and never
+  stored. Place from the canvas palette or the Portals dock flyout — no
+  single-key chord. Click places a default size; drag is free-aspect; Shift
+  locks 16:9. Binding is a later, non-modal step (empty-state Browse or
+  inspector Choose…).
+- **Status Board** binds a local `project-state.json` (or a folder containing
+  one). Inspector section toggles are journaled `Patch`es. Refresh reloads
+  the file; Bake copies authored Text/Shape nodes and leaves the portal live.
+
 ## Lens gestures (reference)
 
 - **Pan / zoom** reuse the Grid/Venn camera: left- or right-drag to pan,

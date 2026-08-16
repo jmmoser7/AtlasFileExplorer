@@ -154,6 +154,7 @@ impl PortalKindRef {
         // and can never introduce one.
         match self.0.as_str() {
             "repo_lens" => Some(PortalKind::RepoLens),
+            "status_board" => Some(PortalKind::StatusBoard),
             _ => None,
         }
     }
@@ -229,6 +230,9 @@ impl Recipe {
                 let mut node = match kind {
                     PortalKind::RepoLens => PortalNode::unbound_repo_lens(
                         p.title.clone().unwrap_or_else(|| "Repository Lens".into()),
+                    ),
+                    PortalKind::StatusBoard => PortalNode::unbound_status_board(
+                        p.title.clone().unwrap_or_else(|| "Status Board".into()),
                     ),
                 };
                 node.class = PortalClass::Generated;
@@ -443,6 +447,27 @@ mod tests {
         assert_eq!(p.source.as_ref().unwrap().locator, ".");
         assert_eq!(p.query.max_commits, 500);
         assert_eq!(p.query.axis, slate_doc::scene::RepoTimeAxis::Chronological);
+    }
+
+    #[test]
+    fn a_status_board_recipe_places_an_unbound_generated_portal() {
+        let recipe: Recipe = toml::from_str(
+            r#"
+            kind = "portal"
+            portal = "status_board"
+            title = "Status Board"
+            default_size = [960.0, 720.0]
+        "#,
+        )
+        .unwrap();
+        let specs = recipe.instantiate(r(), &ctx());
+        let NodeKind::Portal(p) = &specs[0].kind else {
+            panic!("expected a portal");
+        };
+        assert_eq!(p.class, PortalClass::Generated);
+        assert_eq!(p.kind, PortalKind::StatusBoard);
+        assert!(p.source.is_none());
+        assert_eq!(p.status, slate_doc::scene::StatusPortalQuery::default());
     }
 
     #[test]

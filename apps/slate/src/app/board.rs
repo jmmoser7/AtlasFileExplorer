@@ -121,13 +121,15 @@ pub enum BoardTool {
     DirectSelect,
     /// Repository Lens portal placement (palette / Portals rail).
     RepoLens,
+    /// Status Board portal placement (palette / Portals rail).
+    StatusBoard,
 }
 
 impl BoardTool {
     /// Every tool, in declaration order. Kept beside [`BoardTool::grammar`],
     /// whose exhaustive match is the compiler-enforced reason a new variant
     /// cannot be added without being considered here too.
-    pub const ALL: [BoardTool; 17] = [
+    pub const ALL: [BoardTool; 18] = [
         BoardTool::Select,
         BoardTool::Pan,
         BoardTool::Frame,
@@ -145,6 +147,7 @@ impl BoardTool {
         BoardTool::Sticky,
         BoardTool::DirectSelect,
         BoardTool::RepoLens,
+        BoardTool::StatusBoard,
     ];
 
     pub fn label(self) -> &'static str {
@@ -166,6 +169,7 @@ impl BoardTool {
             BoardTool::Sticky => "Sticky note",
             BoardTool::DirectSelect => "Direct select",
             BoardTool::RepoLens => "Repository Lens",
+            BoardTool::StatusBoard => "Status Board",
         }
     }
 
@@ -188,6 +192,7 @@ impl BoardTool {
             BoardTool::Sticky => board_icons::ToolIcon::Sticky,
             BoardTool::DirectSelect => board_icons::ToolIcon::DirectSelect,
             BoardTool::RepoLens => board_icons::ToolIcon::RepoLens,
+            BoardTool::StatusBoard => board_icons::ToolIcon::StatusBoard,
         }
     }
 
@@ -207,7 +212,7 @@ impl BoardTool {
             BoardTool::Eyedropper => "I",
             BoardTool::Sticky => "N",
             BoardTool::DirectSelect => "A",
-            BoardTool::RepoLens => "",
+            BoardTool::RepoLens | BoardTool::StatusBoard => "",
         }
     }
 
@@ -224,9 +229,11 @@ impl BoardTool {
             // Select's grammar slot because a kit can never reference it.
             BoardTool::Select | BoardTool::Pan => G::Select,
             BoardTool::DirectSelect => G::DirectSelect,
-            BoardTool::Frame | BoardTool::RectShape | BoardTool::Ellipse | BoardTool::RepoLens => {
-                G::DragRect
-            }
+            BoardTool::Frame
+            | BoardTool::RectShape
+            | BoardTool::Ellipse
+            | BoardTool::RepoLens
+            | BoardTool::StatusBoard => G::DragRect,
             BoardTool::Line => G::TwoPoint,
             BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => G::MultiPoint,
             BoardTool::Pen | BoardTool::Brush => G::Freehand,
@@ -245,6 +252,7 @@ impl BoardTool {
             BoardTool::RectShape => Some("rect"),
             BoardTool::Ellipse => Some("ellipse"),
             BoardTool::RepoLens => Some("portal-repo-lens"),
+            BoardTool::StatusBoard => Some("portal-status-board"),
             _ => None,
         }
     }
@@ -3374,7 +3382,8 @@ impl SlateApp {
             tool @ (BoardTool::Frame
             | BoardTool::RectShape
             | BoardTool::Ellipse
-            | BoardTool::RepoLens) => Some(BoardDrag::Draw {
+            | BoardTool::RepoLens
+            | BoardTool::StatusBoard) => Some(BoardDrag::Draw {
                 start_world: world,
                 tool,
             }),
@@ -3845,6 +3854,8 @@ impl SlateApp {
                     self.place_frame_at(start_world);
                 } else if tool == BoardTool::RepoLens && !moved {
                     self.place_repo_lens_at(start_world);
+                } else if tool == BoardTool::StatusBoard && !moved {
+                    self.place_status_board_at(start_world);
                 } else {
                     self.finish_draw(start_world, world, tool, mods);
                 }
@@ -3950,8 +3961,8 @@ impl SlateApp {
     ) -> Rect {
         let world = if tool == BoardTool::Frame && !mods.shift {
             self.frame_drag_rect(start, end)
-        } else if tool == BoardTool::RepoLens {
-            self.repo_lens_drag_rect(start, end, mods.shift)
+        } else if matches!(tool, BoardTool::RepoLens | BoardTool::StatusBoard) {
+            self.portal_drag_rect(start, end, mods.shift)
         } else {
             let square_tool = matches!(
                 tool,
@@ -3966,8 +3977,8 @@ impl SlateApp {
         xf.rect_w2s(world)
     }
 
-    /// Repo Lens drag: free aspect by default; Shift locks 16:9 (D05).
-    fn repo_lens_drag_rect(&self, start: Pos2, end: Pos2, shift_169: bool) -> WorldRect {
+    /// Generated-portal drag: free aspect by default; Shift locks 16:9 (P1.portal.place).
+    fn portal_drag_rect(&self, start: Pos2, end: Pos2, shift_169: bool) -> WorldRect {
         let dx = end.x - start.x;
         let dy = end.y - start.y;
         if shift_169 {
@@ -4000,6 +4011,18 @@ impl SlateApp {
             BoardTool::RepoLens,
             center,
             (REPO_PORTAL_DEFAULT_W, REPO_PORTAL_DEFAULT_H),
+        );
+    }
+
+    /// Click-to-place default Status Board portal (960×720, unbound).
+    pub(crate) fn place_status_board_at(&mut self, center: Pos2) {
+        self.place_from_recipe(
+            BoardTool::StatusBoard,
+            center,
+            (
+                slate_doc::scene::STATUS_PORTAL_DEFAULT_W,
+                slate_doc::scene::STATUS_PORTAL_DEFAULT_H,
+            ),
         );
     }
 
@@ -4070,8 +4093,8 @@ impl SlateApp {
         let raw = WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
         let r = if tool == BoardTool::Frame && !mods.shift {
             self.frame_drag_rect(a, b)
-        } else if tool == BoardTool::RepoLens {
-            self.repo_lens_drag_rect(a, b, mods.shift)
+        } else if matches!(tool, BoardTool::RepoLens | BoardTool::StatusBoard) {
+            self.portal_drag_rect(a, b, mods.shift)
         } else {
             let square_tool = matches!(
                 tool,
@@ -4115,6 +4138,7 @@ impl SlateApp {
         match tool {
             BoardTool::Frame => Some("board.tool.frame"),
             BoardTool::RepoLens => Some("board.portal.repo_lens"),
+            BoardTool::StatusBoard => Some("board.portal.status_board"),
             BoardTool::RectShape => Some("board.tool.rect"),
             BoardTool::Ellipse => Some("board.tool.ellipse"),
             _ => None,

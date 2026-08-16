@@ -97,7 +97,7 @@ expression, and the only one there is.
 
 ### `kind = "portal"`
 
-`portal` names an existing portal kind (`repo_lens` today) and the recipe
+`portal` names an existing portal kind (`repo_lens`, `status_board`) and the recipe
 presets its `title`, `source`, and `query`. Five preset lenses over one
 repository are five kit entries and no new code.
 

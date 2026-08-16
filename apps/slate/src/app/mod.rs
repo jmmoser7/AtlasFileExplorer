@@ -177,6 +177,11 @@ pub enum PickerMsg {
         portal: NodeId,
         path: Option<PathBuf>,
     },
+    /// File or folder picked as a Status Board snapshot.
+    StatusPortalSource {
+        portal: NodeId,
+        path: Option<PathBuf>,
+    },
 }
 
 pub enum ThumbState {
@@ -1200,6 +1205,12 @@ impl SlateApp {
             inline_assets: self.export_inline,
             thumbs: self.export_thumb_map(),
             model_posters: self.export_model_poster_map(),
+            workbook_dir: self
+                .tab()
+                .path
+                .as_ref()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf()),
         };
         match slate_artifact::export_html(self.doc(), &out, &opts) {
             Ok(rep) => {
@@ -1247,6 +1258,10 @@ impl SlateApp {
                         self.lens_rescan();
                     }
                     PickerMsg::RepoPortalSource {
+                        portal,
+                        path: Some(path),
+                    } => self.bind_portal_source(portal, path),
+                    PickerMsg::StatusPortalSource {
                         portal,
                         path: Some(path),
                     } => self.bind_portal_source(portal, path),

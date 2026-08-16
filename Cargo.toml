@@ -14,6 +14,7 @@ members = [
     "crates/vector-ink",
     "crates/code-lens",
     "crates/repo-graph",
+    "crates/status-board",
     "crates/rhino-mesh",
     "apps/file-atlas",
     "apps/slate",
@@ -62,6 +63,7 @@ circle-pack = { path = "crates/circle-pack" }
 vector-ink = { path = "crates/vector-ink" }
 code-lens = { path = "crates/code-lens" }
 repo-graph = { path = "crates/repo-graph" }
+status-board = { path = "crates/status-board" }
 rhino-mesh = { path = "crates/rhino-mesh" }
 native-file-atlas = { path = "apps/file-atlas" }
 

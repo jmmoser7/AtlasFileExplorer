@@ -285,9 +285,15 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::RepoLens);
                 true
             }
-            "portal.repo.source" => self.portal_pick_source_for_selection(),
-            "portal.repo.refresh" => self.portal_refresh_selected(),
-            "portal.repo.bake" => self.portal_bake_selected(),
+            "board.portal.status_board" => {
+                self.set_board_tool(board::BoardTool::StatusBoard);
+                true
+            }
+            "portal.repo.source" | "portal.status.source" => {
+                self.portal_pick_source_for_selection()
+            }
+            "portal.repo.refresh" | "portal.status.refresh" => self.portal_refresh_selected(),
+            "portal.repo.bake" | "portal.status.bake" => self.portal_bake_selected(),
             "portal.repo.focus" => {
                 // Focus is driven by pointer clicks inside an interactive portal;
                 // the command clears focus when already set (Esc / palette).

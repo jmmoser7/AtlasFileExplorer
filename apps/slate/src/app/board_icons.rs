@@ -36,6 +36,8 @@ pub enum ToolIcon {
     Portals,
     /// Repository Lens portal subtype.
     RepoLens,
+    /// Status Board portal subtype.
+    StatusBoard,
 }
 
 impl ToolIcon {
@@ -68,6 +70,7 @@ impl ToolIcon {
             ToolIcon::Colors => "Colors",
             ToolIcon::Portals => "Portals",
             ToolIcon::RepoLens => "Repository Lens",
+            ToolIcon::StatusBoard => "Status Board",
         }
     }
 }
@@ -362,6 +365,18 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
                 pt(r, 0.82, 0.72),
             ] {
                 painter.circle_filled(p, r.width() * 0.055, color);
+            }
+        }
+        ToolIcon::StatusBoard => {
+            // KPI bars: three stacked progress marks.
+            painter.rect_stroke(
+                Rect::from_min_max(pt(r, 0.16, 0.16), pt(r, 0.84, 0.84)),
+                1.5,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            for (y, w) in [(0.32, 0.62), (0.50, 0.48), (0.68, 0.34)] {
+                painter.line_segment([pt(r, 0.26, y), pt(r, w, y)], s);
             }
         }
     }

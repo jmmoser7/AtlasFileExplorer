@@ -13,6 +13,11 @@ is in this folder.
 | **This file** | Build brief source (included inside both bundles). |
 
 **Snapshot date:** 2026-08-05 · **HEAD at capture:** `664e2e1`  
+**On the board:** the same snapshot is now a generated Slate portal
+(`PortalKind::StatusBoard`, crate `status-board`). Place from the Portals
+flyout or palette "status board"; bind `project-state.json` after placement.
+These HTML/MD bundles remain the offline handoff for agents without the repo.
+
 **Research verdict:** Wave 0 + ratification (G0) are complete. Wave 1 (convergent
 journal) is the critical path and is unblocked. Roadmap Phase 2 core landed;
 Phases 3–6 and workplan Waves 1–5 are largely ahead.

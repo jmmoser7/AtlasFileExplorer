@@ -1,7 +1,10 @@
+use std::path::Path;
+
 use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
-    connector_bezier, ConnectorNode, Corner, Dash, Node, NodeId, NodeKind, PathData, PathSeg, Rgba,
-    Scene, ShapeKind, StrokeCap, StrokeJoin, TextAlign, WidthProfile, WireDisplay, WorldRect,
+    connector_bezier, ConnectorNode, Corner, Dash, Node, NodeId, NodeKind, PathData, PathSeg,
+    PortalKind, PortalNode, Rgba, Scene, ShapeKind, StrokeCap, StrokeJoin, TextAlign, WidthProfile,
+    WireDisplay, WorldRect,
 };
 use slate_doc::SlateDoc;
 use vector_ink::kurbo::{BezPath, PathEl, Point};
@@ -87,6 +90,16 @@ struct SlideSpec {
 
 /// Renders a complete HTML document for `doc` using resolved asset URLs.
 pub fn render_html(doc: &SlateDoc, assets: &AssetMap) -> String {
+    render_html_with_workbook(doc, assets, None)
+}
+
+/// Same as [`render_html`], with a workbook directory so relative portal
+/// locators can resolve (Art. IX.2).
+pub fn render_html_with_workbook(
+    doc: &SlateDoc,
+    assets: &AssetMap,
+    workbook_dir: Option<&Path>,
+) -> String {
     let slides = collect_slides(&doc.scene);
     let slide_count = slides.len();
     let mut html = String::new();
@@ -105,7 +118,7 @@ pub fn render_html(doc: &SlateDoc, assets: &AssetMap) -> String {
     } else {
         html.push_str("<div id=\"deck\">\n");
         for (i, spec) in slides.iter().enumerate() {
-            render_slide(&mut html, doc, assets, spec, i == 0);
+            render_slide(&mut html, doc, assets, spec, i == 0, workbook_dir);
         }
         html.push_str("</div>\n");
         if slide_count == 1 {
@@ -205,6 +218,7 @@ fn render_slide(
     assets: &AssetMap,
     spec: &SlideSpec,
     active: bool,
+    workbook_dir: Option<&Path>,
 ) {
     html.push_str("<section class=\"slide");
     if active {
@@ -224,7 +238,15 @@ fn render_slide(
 
     for id in &spec.member_ids {
         if let Some(node) = doc.scene.node(*id) {
-            render_node(html, doc, assets, node, spec.origin_x, spec.origin_y);
+            render_node(
+                html,
+                doc,
+                assets,
+                node,
+                spec.origin_x,
+                spec.origin_y,
+                workbook_dir,
+            );
         }
     }
 
@@ -238,6 +260,7 @@ fn render_node(
     node: &Node,
     origin_x: f32,
     origin_y: f32,
+    workbook_dir: Option<&Path>,
 ) {
     // Export honesty (Art. IV): hidden nodes are not part of what the board
     // shows, so they never reach the artifact.
@@ -253,22 +276,171 @@ fn render_node(
             render_connector(html, &doc.scene, node, conn, origin_x, origin_y)
         }
         NodeKind::Frame(_) => {}
-        // Generated portal contents are derived; export a poster shell. Bake
-        // to promote graph geometry into authored nodes the writer serializes.
-        NodeKind::Portal(p) => {
-            let mut style = geometry_style(rel, node.rotation_deg);
-            append_opacity(&mut style, node.opacity);
-            style.push_str("background:");
-            style.push_str(&p.fill.css());
-            style.push_str(";display:flex;align-items:center;justify-content:center;");
-            style.push_str("color:rgba(228,230,235,0.85);font:14px system-ui,sans-serif;");
-            html.push_str("<div class=\"node portal\" style=\"");
-            html.push_str(&style);
-            html.push_str("\">");
-            html.push_str(&escape_html(&p.title));
-            html.push_str("</div>\n");
+        NodeKind::Portal(p) => render_portal(html, node, p, rel, workbook_dir),
+    }
+}
+
+fn render_portal(
+    html: &mut String,
+    node: &Node,
+    portal: &PortalNode,
+    rel: WorldRect,
+    workbook_dir: Option<&Path>,
+) {
+    let mut style = geometry_style(rel, node.rotation_deg);
+    append_opacity(&mut style, node.opacity);
+    style.push_str("background:");
+    style.push_str(&portal.fill.css());
+    style.push_str(";overflow:hidden;");
+    html.push_str("<div class=\"node portal\" style=\"");
+    html.push_str(&style);
+    html.push_str("\">");
+
+    match portal.kind {
+        PortalKind::StatusBoard => render_status_board(html, portal, node.rect, workbook_dir),
+        PortalKind::RepoLens => {
+            // Repository Lens still exports a poster shell; bake to promote
+            // graph geometry into authored nodes the writer serializes.
+            html.push_str(
+                "<div style=\"width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:rgba(228,230,235,0.85);font:14px system-ui,sans-serif;\">",
+            );
+            html.push_str(&escape_html(&portal.title));
+            html.push_str("</div>");
         }
     }
+
+    html.push_str("</div>\n");
+}
+
+fn render_status_board(
+    html: &mut String,
+    portal: &PortalNode,
+    frame: WorldRect,
+    workbook_dir: Option<&Path>,
+) {
+    let Some(src) = &portal.source else {
+        html.push_str(
+            "<div style=\"width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:rgba(228,230,235,0.85);font:14px system-ui,sans-serif;\">Choose status snapshot…</div>",
+        );
+        return;
+    };
+    let path = resolve_export_source(workbook_dir, &src.locator);
+    match status_board::load_snapshot(&path) {
+        Ok(snap) => {
+            let query = status_board::StatusQuery {
+                show_overview: portal.status.show_overview,
+                show_phases: portal.status.show_phases,
+                show_waves: portal.status.show_waves,
+                show_deviations: portal.status.show_deviations,
+                show_next: portal.status.show_next,
+            };
+            let layout = status_board::layout_status(
+                &snap,
+                &query,
+                status_board::Size {
+                    w: frame.w.max(1.0),
+                    h: frame.h.max(1.0),
+                },
+            );
+            html.push_str(&status_layout_svg(&layout));
+        }
+        Err(err) => {
+            html.push_str(
+                "<div style=\"width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:rgba(228,230,235,0.85);font:13px system-ui,sans-serif;padding:16px;text-align:center;\">",
+            );
+            html.push_str(&escape_html(&err.to_string()));
+            html.push_str("</div>");
+        }
+    }
+}
+
+fn resolve_export_source(workbook_dir: Option<&Path>, locator: &str) -> std::path::PathBuf {
+    let p = Path::new(locator);
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+    if let Some(dir) = workbook_dir {
+        return dir.join(p);
+    }
+    p.to_path_buf()
+}
+
+fn status_layout_svg(layout: &status_board::StatusLayout) -> String {
+    let mut svg = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"0 0 {} {}\" preserveAspectRatio=\"none\">",
+        layout.bounds.w, layout.bounds.h
+    );
+    for prim in &layout.prims {
+        match prim {
+            status_board::Prim::Fill { rect, rgba } => {
+                svg.push_str(&format!(
+                    "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"{}\"/>",
+                    rect.x,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    css_rgba(*rgba)
+                ));
+            }
+            status_board::Prim::Stroke { rect, rgba, width } => {
+                svg.push_str(&format!(
+                    "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.2}\"/>",
+                    rect.x,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    css_rgba(*rgba),
+                    width
+                ));
+            }
+            status_board::Prim::Bar { rect, frac, rgba } => {
+                let w = rect.w * frac.clamp(0.0, 1.0);
+                svg.push_str(&format!(
+                    "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"{}\"/>",
+                    rect.x,
+                    rect.y,
+                    w,
+                    rect.h,
+                    css_rgba(*rgba)
+                ));
+            }
+            status_board::Prim::Text {
+                x,
+                y,
+                text,
+                size,
+                rgba,
+                align,
+            } => {
+                let anchor = match align {
+                    status_board::Align::Left => "start",
+                    status_board::Align::Center => "middle",
+                    status_board::Align::Right => "end",
+                };
+                svg.push_str(&format!(
+                    "<text x=\"{:.2}\" y=\"{:.2}\" fill=\"{}\" font-size=\"{:.1}\" font-family=\"system-ui,sans-serif\" text-anchor=\"{}\" dominant-baseline=\"hanging\">{}</text>",
+                    x,
+                    y,
+                    css_rgba(*rgba),
+                    size,
+                    anchor,
+                    escape_html(text)
+                ));
+            }
+        }
+    }
+    svg.push_str("</svg>");
+    svg
+}
+
+fn css_rgba(rgba: [u8; 4]) -> String {
+    format!(
+        "rgba({},{},{},{:.3})",
+        rgba[0],
+        rgba[1],
+        rgba[2],
+        rgba[3] as f32 / 255.0
+    )
 }
 
 fn render_image(
@@ -1143,6 +1315,43 @@ mod tests {
             escape_html(r#"<script>"a" & 'b'</script>"#),
             "&lt;script&gt;&quot;a&quot; &amp; &#39;b&#39;&lt;/script&gt;"
         );
+    }
+
+    #[test]
+    fn status_board_export_contains_layout_caption() {
+        use slate_doc::scene::{
+            NodeKind, PortalNode, STATUS_PORTAL_DEFAULT_H, STATUS_PORTAL_DEFAULT_W,
+        };
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/status-board/tests/fixtures/project-state.json");
+        let mut portal = PortalNode::unbound_status_board("Status Board");
+        portal.source = Some(slate_doc::scene::SourceUri {
+            locator: fixture.to_string_lossy().into_owned(),
+        });
+        let mut doc = SlateDoc::new("status export");
+        let node = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, STATUS_PORTAL_DEFAULT_W, STATUS_PORTAL_DEFAULT_H),
+            NodeKind::Portal(portal),
+        );
+        doc.scene.nodes.push(node);
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(html.contains("STATUS BOARD"), "{html}");
+        assert!(html.contains("664e2e1"), "{html}");
+    }
+
+    #[test]
+    fn unbound_status_board_exports_a_state_card() {
+        use slate_doc::scene::{
+            NodeKind, PortalNode, STATUS_PORTAL_DEFAULT_H, STATUS_PORTAL_DEFAULT_W,
+        };
+        let mut doc = SlateDoc::new("unbound status");
+        let node = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, STATUS_PORTAL_DEFAULT_W, STATUS_PORTAL_DEFAULT_H),
+            NodeKind::Portal(PortalNode::unbound_status_board("Status Board")),
+        );
+        doc.scene.nodes.push(node);
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(html.contains("Choose status snapshot"), "{html}");
     }
 
     #[test]
