@@ -28,7 +28,9 @@
 //! Atlas's back, with no journal entry and no undo, which Article VI forbids.
 //! Files leave Atlas by copy, or by a journaled export.
 
-use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// What the drop target did with the files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

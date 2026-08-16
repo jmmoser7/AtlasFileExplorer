@@ -43,6 +43,7 @@ pub struct GripHover {
 }
 
 /// A live wire gesture (registered as `CancelLayer::ActiveOperation`).
+#[allow(clippy::large_enum_variant)]
 pub enum WireMode {
     /// Drag from a grip: rubber-band a new connector.
     Add { from: (NodeId, Side, f32) },

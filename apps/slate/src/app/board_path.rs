@@ -53,10 +53,7 @@ pub struct PathMeshCache {
 }
 
 impl PathMeshCache {
-    fn evict_lru<V>(
-        map: &mut HashMap<(NodeId, u64), V>,
-        order: &mut VecDeque<(NodeId, u64)>,
-    ) {
+    fn evict_lru<V>(map: &mut HashMap<(NodeId, u64), V>, order: &mut VecDeque<(NodeId, u64)>) {
         while map.len() > CACHE_CAP {
             if let Some(old) = order.pop_front() {
                 map.remove(&old);
@@ -1265,6 +1262,9 @@ mod tests {
         }
         let n = cache.stroke_len();
         assert!(n <= CACHE_CAP, "cache grew to {n}");
-        assert!(n > 0, "nuclear clear would leave the cache empty after a burst");
+        assert!(
+            n > 0,
+            "nuclear clear would leave the cache empty after a burst"
+        );
     }
 }

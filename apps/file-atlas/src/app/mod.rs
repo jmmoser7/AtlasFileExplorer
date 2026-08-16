@@ -3185,8 +3185,7 @@ impl AtlasApp {
                     // reports it empty because discovery no longer looks it
                     // up, so comparing it here would declare every refresh a
                     // change and throw the whole workspace away.
-                    let changed = buffer.len()
-                        != self.entries.iter().filter(|e| !e.dead).count()
+                    let changed = buffer.len() != self.entries.iter().filter(|e| !e.dead).count()
                         || buffer.iter().any(|fe| {
                             self.rel_to_id
                                 .get(&fe.rel)
@@ -3236,8 +3235,7 @@ impl AtlasApp {
                 // Notify often emits `Rescan` for Access/Other during the walk.
                 // Those are already reflected in this result; drop them so they
                 // cannot start a second walk the moment we go idle.
-                self.fs_backlog
-                    .retain(|e| !matches!(e, FsChange::Rescan));
+                self.fs_backlog.retain(|e| !matches!(e, FsChange::Rescan));
                 self.save_snapshot();
                 self.queue_cache_warming();
                 self.queue_owner_pass();
@@ -4295,7 +4293,7 @@ impl AtlasApp {
                 use std::sync::atomic::{AtomicU64, Ordering};
                 static N: AtomicU64 = AtomicU64::new(0);
                 let n = N.fetch_add(1, Ordering::Relaxed);
-                if n % 20 == 0 || !loading {
+                if n.is_multiple_of(20) || !loading {
                     agent_dbg(
                         "H1",
                         "mod.rs:auto_zoom_after_filter",
@@ -7359,7 +7357,7 @@ impl AtlasApp {
             details.push_str("\nCollapsed — expand to show contents");
         }
         if self.any_filter && d.desc_matches > 0 {
-            details.push_str("\n");
+            details.push('\n');
             details.push_str(&group_digits(d.desc_matches as u64));
             if d.desc_matches == 1 {
                 details.push_str(" filter match");

@@ -70,7 +70,7 @@ impl SlateApp {
                 continue;
             };
             let context = self.agent_context_for(&agent.session, &agent.provider, agent.context);
-            let link = self.agents.links.entry(id).or_insert_with(AgentLink::new);
+            let link = self.agents.links.entry(id).or_default();
             if link.tick_write_context(&ws, &agent.session, &context) {
                 ctx.request_repaint();
             }
@@ -156,11 +156,7 @@ impl SlateApp {
             prompt,
             at: atlas_ai::context::now_secs(),
         };
-        let link = self
-            .agents
-            .links
-            .entry(portal)
-            .or_insert_with(AgentLink::new);
+        let link = self.agents.links.entry(portal).or_default();
         match link.send_request(&ws, &session, &req) {
             Ok(()) => {
                 self.agents.prompt_mut(portal).clear();

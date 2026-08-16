@@ -75,13 +75,34 @@ mod tests {
     #[test]
     fn our_own_cache_writes_are_not_events() {
         // Warming writes thumbnails inside the watched root; treating those as
-        // changes would rescan forever.
-        assert!(in_own_cache(&PathBuf::from(
-            r"R:\Cad\Rhino\.atlas-cache\ab.jpg"
-        )));
-        assert!(in_own_cache(&PathBuf::from(
-            r"R:\Cad\Rhino\.ATLAS-CACHE\ab.jpg"
-        )));
-        assert!(!in_own_cache(&PathBuf::from(r"R:\Cad\Rhino\model.3dm")));
+        // changes would rescan forever. Join with the host separator so Linux
+        // CI and the Windows reference machine exercise the same contract
+        // (`R:\…` is a single component on Unix and would miss the cache dir).
+        let cache = crate::thumbs::CACHE_DIR_NAME;
+        assert!(in_own_cache(
+            &PathBuf::from("Cad")
+                .join("Rhino")
+                .join(cache)
+                .join("ab.jpg")
+        ));
+        assert!(in_own_cache(
+            &PathBuf::from("Cad")
+                .join("Rhino")
+                .join(".ATLAS-CACHE")
+                .join("ab.jpg")
+        ));
+        assert!(!in_own_cache(
+            &PathBuf::from("Cad").join("Rhino").join("model.3dm")
+        ));
+        #[cfg(windows)]
+        {
+            assert!(in_own_cache(&PathBuf::from(
+                r"R:\Cad\Rhino\.atlas-cache\ab.jpg"
+            )));
+            assert!(in_own_cache(&PathBuf::from(
+                r"R:\Cad\Rhino\.ATLAS-CACHE\ab.jpg"
+            )));
+            assert!(!in_own_cache(&PathBuf::from(r"R:\Cad\Rhino\model.3dm")));
+        }
     }
 }

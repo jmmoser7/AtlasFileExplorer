@@ -2242,7 +2242,10 @@ fn board_paint_culls_offscreen_nodes() {
         "viewport cull must drop off-screen nodes, got {}",
         painted.len()
     );
-    assert!(!painted.is_empty(), "the camera must still see nearby nodes");
+    assert!(
+        !painted.is_empty(),
+        "the camera must still see nearby nodes"
+    );
 }
 
 #[test]

@@ -1818,12 +1818,9 @@ pub fn is_web_drop(path: &Path) -> bool {
 /// Prefer `index.html`, then `index.htm`. Returns `None` when the folder is
 /// not a page, so a drop of a photo album stays a photo album.
 pub fn web_entry_for_dir(path: &Path) -> Option<&'static str> {
-    for entry in [slate_doc::scene::WEB_DEFAULT_ENTRY, "index.htm"] {
-        if path.join(entry).is_file() {
-            return Some(entry);
-        }
-    }
-    None
+    [slate_doc::scene::WEB_DEFAULT_ENTRY, "index.htm"]
+        .into_iter()
+        .find(|entry| path.join(entry).is_file())
 }
 
 /// Recursive copy for packaging a dashboard folder.
@@ -2007,7 +2004,10 @@ mod tests {
             }
             was_live = now_live;
         }
-        assert_eq!(evicts, 0, "Schmitt trigger must hold the slot across 160 px");
+        assert_eq!(
+            evicts, 0,
+            "Schmitt trigger must hold the slot across 160 px"
+        );
         let mut demoted = candidate(1, 120.0, 10_000.0);
         demoted.was_live = true;
         assert!(

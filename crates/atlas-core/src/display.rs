@@ -101,20 +101,14 @@ mod tests {
     #[test]
     fn wheel_formulas_match_the_apps_they_replaced() {
         let scroll = 80.0;
-        assert_eq!(
-            ATLAS_TREE.wheel_factor(scroll),
-            (scroll * 0.0021_f32).exp()
-        );
-        assert_eq!(
-            SLATE_CANVAS.wheel_factor(scroll),
-            1.0 + scroll * 0.0015
-        );
+        assert_eq!(ATLAS_TREE.wheel_factor(scroll), (scroll * 0.0021_f32).exp());
+        assert_eq!(SLATE_CANVAS.wheel_factor(scroll), 1.0 + scroll * 0.0015);
     }
 
     #[test]
     fn profiles_stay_distinct() {
-        assert!(ATLAS_TREE.max > SLATE_CANVAS.max);
-        assert!(ATLAS_TREE.min < SLATE_CANVAS.min);
+        const { assert!(ATLAS_TREE.max > SLATE_CANVAS.max) };
+        const { assert!(ATLAS_TREE.min < SLATE_CANVAS.min) };
         assert_ne!(ATLAS_TREE.default_z, SLATE_CANVAS.default_z);
     }
 }
