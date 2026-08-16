@@ -17,13 +17,14 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Stroke, StrokeKind};
+use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect};
 use slate_doc::scene::{
     classify_web_locator, web_display_locator, web_origin, Node, NodeId, NodeKind, PortalKind,
     PortalNode, SceneCmd, SourceUri, WebPortalRef, WebRefusal, WebSourceKind, WebZoom,
 };
 
-use super::board::{rgba32, BoardXf};
+use super::board::{self, rgba32, BoardXf};
+use super::board_portal_chrome::{layout_portal_chrome, PortalChromeLayout};
 use super::SlateApp;
 
 // ---------------------------------------------------------------------------
@@ -655,6 +656,16 @@ impl SlateApp {
         let admitted = admit(&candidates, LIVE_POOL);
         let admitted_set: HashSet<NodeId> = admitted.iter().copied().collect();
         for (id, portal, rect) in &portals {
+            if self.portal_chrome.maximized == Some(*id) {
+                let screen = ctx.screen_rect();
+                let collapsed = self.portal_chrome_collapsed(*id);
+                let layout = layout_portal_chrome(screen, collapsed, true, 1.0);
+                if let Some(v) = self.web.views.get_mut(id) {
+                    v.height_px = layout.body.height();
+                    v.area_px = layout.body.width() * layout.body.height();
+                    v.on_screen = true;
+                }
+            }
             let want_live = admitted_set.contains(id);
             let was_live = self.web.views.get(id).is_some_and(|v| v.live);
             if want_live {
@@ -662,7 +673,8 @@ impl SlateApp {
                 // asynchronous, and a one-shot call that lands before it is
                 // ready would otherwise leave the portal stuck on Loading with
                 // `live` already true and no further admit.
-                if let Some(req) = self.web_request(portal, workbook.as_deref(), *rect) {
+                let layout_rect = self.web_layout_world(*id, *rect, ctx);
+                if let Some(req) = self.web_request(portal, workbook.as_deref(), layout_rect) {
                     self.web.host.admit(*id, &req);
                     if let Some(v) = self.web.views.get_mut(id) {
                         v.live = true;
@@ -905,6 +917,116 @@ impl SlateApp {
             width_css,
             height_css,
         })
+    }
+
+    /// While maximized the page is laid out at the screen's aspect, not the
+    /// authored frame's (P1.portal.maximize).
+    fn web_layout_world(
+        &self,
+        id: NodeId,
+        node_rect: slate_doc::scene::WorldRect,
+        ctx: &egui::Context,
+    ) -> slate_doc::scene::WorldRect {
+        if self.portal_chrome.maximized != Some(id) {
+            return node_rect;
+        }
+        let screen = ctx.screen_rect();
+        let layout = layout_portal_chrome(screen, self.portal_chrome_collapsed(id), true, 1.0);
+        slate_doc::scene::WorldRect::new(
+            0.0,
+            0.0,
+            layout.body.width().max(1.0),
+            layout.body.height().max(1.0),
+        )
+    }
+
+    pub(crate) fn web_visiting_label(&self, id: NodeId, portal: &PortalNode) -> Option<String> {
+        self.web
+            .host
+            .current_url(id)
+            .filter(|url| {
+                portal
+                    .source
+                    .as_ref()
+                    .is_none_or(|s| !same_page(&s.locator, url))
+            })
+            .map(|url| web_display_locator(&url))
+            .or_else(|| {
+                portal
+                    .source
+                    .as_ref()
+                    .map(|s| web_display_locator(&s.locator))
+            })
+    }
+
+    /// The locator shown on the tab / copied by `portal.web.copy_url`.
+    pub(crate) fn web_display_url(&self, id: NodeId) -> Option<String> {
+        if let Some(url) = self.web.host.current_url(id) {
+            return Some(url);
+        }
+        self.doc().scene.node(id).and_then(|n| match &n.kind {
+            NodeKind::Portal(p) => p.source.as_ref().map(|s| s.locator.clone()),
+            _ => None,
+        })
+    }
+
+    fn web_url_target(&self, id: Option<NodeId>) -> Option<NodeId> {
+        id.or(self.portal_chrome.maximized)
+            .or(self.web.focused)
+            .or_else(|| self.selected_web_portal())
+    }
+
+    pub(crate) fn web_copy_url(&mut self, ctx: &egui::Context) -> bool {
+        self.web_copy_url_of(ctx, None)
+    }
+
+    pub(crate) fn web_copy_url_of(&mut self, ctx: &egui::Context, id: Option<NodeId>) -> bool {
+        let Some(id) = self.web_url_target(id) else {
+            return false;
+        };
+        let Some(url) = self.web_display_url(id) else {
+            self.toast("This portal has no URL yet.");
+            return true;
+        };
+        ctx.copy_text(url);
+        self.toast("Copied URL");
+        true
+    }
+
+    pub(crate) fn web_paste_url_text(&mut self, text: &str) -> bool {
+        self.web_paste_url_text_of(None, text)
+    }
+
+    pub(crate) fn web_paste_url_text_of(&mut self, id: Option<NodeId>, text: &str) -> bool {
+        let Some(id) = self.web_url_target(id) else {
+            return false;
+        };
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        if classify_web_locator(trimmed, false).is_err() && web_origin(trimmed).is_none() {
+            self.toast("Clipboard is not a URL or HTML path.");
+            return true;
+        }
+        self.bind_web_source(id, trimmed.to_string())
+    }
+
+    pub(crate) fn web_paste_url(&mut self) -> bool {
+        self.web_paste_url_of(None)
+    }
+
+    pub(crate) fn web_paste_url_of(&mut self, id: Option<NodeId>) -> bool {
+        let text = self
+            .pending_paste_text
+            .clone()
+            .or_else(os_clipboard_text)
+            .unwrap_or_default();
+        if text.trim().is_empty() {
+            self.toast("Clipboard is empty.");
+            return true;
+        }
+        self.web_paste_url_text_of(id, &text)
     }
 
     /// Record what the board just painted, so the next pump's admission has
@@ -1452,9 +1574,10 @@ impl SlateApp {
 
     /// Route this frame's pointer and keyboard to the focused portal's page.
     ///
-    /// Returns whether the board should stand down for this frame. The chrome
-    /// strip and a `BORDER_HIT_PX` band stay Slate's, so a focused portal can
-    /// always be grabbed by its edge and moved (D17).
+    /// Returns whether the board should stand down for this frame. The identity
+    /// tab and a border band stay Slate's, so a focused portal can always be
+    /// grabbed by its edge and moved (D17). Right-click is Slate's too — it
+    /// opens the portal menu rather than the page's.
     pub(crate) fn web_input_frame(
         &mut self,
         ui: &egui::Ui,
@@ -1464,36 +1587,85 @@ impl SlateApp {
         let Some(id) = self.web.focused else {
             return false;
         };
-        // Page CSS coordinates, so the host never has to know about the board
-        // camera.
-        let Some((rect, web)) = self.doc().scene.node(id).and_then(|n| match &n.kind {
-            NodeKind::Portal(portal) => Some((n.rect, portal.web_ref())),
-            _ => None,
-        }) else {
+        let Some(node) = self.doc().scene.node(id).cloned() else {
             self.web.focused = None;
             return false;
         };
-        let srect = xf.rect_w2s(rect);
-        let strip_h = 26.0_f32.min(srect.height());
-        let page = Rect::from_min_max(
-            Pos2::new(srect.left() + BORDER_HIT_PX, srect.top() + strip_h),
-            Pos2::new(
-                srect.right() - BORDER_HIT_PX,
-                srect.bottom() - BORDER_HIT_PX,
-            ),
-        );
+        let NodeKind::Portal(ref portal) = node.kind else {
+            self.web.focused = None;
+            return false;
+        };
+        if self.portal_chrome.maximized == Some(id) {
+            return false;
+        }
+        let srect = xf.rect_w2s(node.rect);
+        let layout = layout_portal_chrome(srect, self.portal_chrome_collapsed(id), false, xf.z);
+        if pointer.is_some_and(|p| layout.pointer_on_chrome(p)) {
+            return false;
+        }
+        if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+            if let Some(p) = pointer {
+                if srect.contains(p) {
+                    self.board_menu = Some((id, p));
+                    return true;
+                }
+            }
+        }
+        self.web_input_in_layout(ui, id, &node, portal, &layout)
+    }
+
+    /// Pointer/keyboard for a focused page whose screen layout is already known.
+    pub(crate) fn web_input_in_layout(
+        &mut self,
+        ui: &egui::Ui,
+        id: NodeId,
+        node: &Node,
+        portal: &PortalNode,
+        layout: &PortalChromeLayout,
+    ) -> bool {
+        let web = portal.web_ref();
+        let pointer = ui.ctx().pointer_latest_pos();
+        if pointer.is_some_and(|p| layout.pointer_on_chrome(p)) {
+            return false;
+        }
+        if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+            if let Some(p) = pointer {
+                if layout.frame.contains(p) {
+                    self.board_menu = Some((id, p));
+                    return true;
+                }
+            }
+        }
+        let css_rect = if self.portal_chrome.maximized == Some(id) {
+            slate_doc::scene::WorldRect::new(
+                0.0,
+                0.0,
+                layout.body.width().max(1.0),
+                layout.body.height().max(1.0),
+            )
+        } else {
+            node.rect
+        };
+        self.web_input_page(ui, id, &web, css_rect, layout, pointer)
+    }
+
+    fn web_input_page(
+        &mut self,
+        ui: &egui::Ui,
+        id: NodeId,
+        web: &WebPortalRef,
+        css_rect: slate_doc::scene::WorldRect,
+        layout: &PortalChromeLayout,
+        pointer: Option<Pos2>,
+    ) -> bool {
+        let page = layout.page;
         let inside = pointer.is_some_and(|p| page.contains(p));
-        // A press that started inside the page keeps the pointer until release,
-        // the way a browser does: leaving the frame mid-drag must not hand the
-        // rest of a text selection back to the board.
         let dragging = self.web.pointer_down != 0;
         if !inside && !dragging {
             if std::mem::take(&mut self.web.pointer_inside) {
                 self.web.host.send_input(id, WebInput::Leave);
                 self.web.pointer_down = 0;
             }
-            // Keyboard still belongs to the focused page even when the pointer
-            // has wandered off it (D22).
             let keys = self.web_keyboard_events(ui);
             for event in keys {
                 self.web.host.send_input(id, event);
@@ -1502,7 +1674,7 @@ impl SlateApp {
         }
         self.web.pointer_inside = true;
 
-        let (css_w, css_h) = css_size(&web, rect);
+        let (css_w, css_h) = css_size(web, css_rect);
         let p = pointer.unwrap_or(page.center());
         let u = ((p.x - page.left()) / page.width().max(1.0)).clamp(0.0, 1.0);
         let v = ((p.y - page.top()) / page.height().max(1.0)).clamp(0.0, 1.0);
@@ -1514,7 +1686,6 @@ impl SlateApp {
         ui.input(|i| {
             for (button, bit) in [
                 (egui::PointerButton::Primary, 1u8),
-                (egui::PointerButton::Secondary, 2),
                 (egui::PointerButton::Middle, 4),
             ] {
                 if i.pointer.button_pressed(button) {
@@ -1525,12 +1696,10 @@ impl SlateApp {
                 }
             }
             events.push(WebInput::Move { x, y, buttons });
-            for (button, bit, code) in [
-                (egui::PointerButton::Primary, 1u8, 0u8),
-                (egui::PointerButton::Secondary, 2, 1),
-                (egui::PointerButton::Middle, 4, 2),
+            for (button, code) in [
+                (egui::PointerButton::Primary, 0u8),
+                (egui::PointerButton::Middle, 2),
             ] {
-                let _ = bit;
                 if i.pointer.button_pressed(button) {
                     events.push(WebInput::Down { x, y, button: code });
                 }
@@ -1538,8 +1707,6 @@ impl SlateApp {
                     events.push(WebInput::Up { x, y, button: code });
                 }
             }
-            // Ctrl+wheel stays the camera zoom, so P0.5 survives; the plain
-            // wheel is the one thing this frame surrenders (D22).
             if !i.modifiers.command {
                 let d = i.raw_scroll_delta;
                 if d.y != 0.0 {
@@ -1611,142 +1778,80 @@ impl SlateApp {
     ) {
         let srect = xf.rect_w2s(node.rect);
         self.note_web_geometry(node.id, srect, ui.clip_rect());
+        let collapsed = self.portal_chrome_collapsed(node.id);
+        let layout = layout_portal_chrome(srect, collapsed, false, xf.z);
+        self.paint_web_portal_in_rect(ui, painter, node, portal, &layout, xf.z);
+        let visiting = self.web_visiting_label(node.id, portal);
+        self.paint_portal_identity_chrome(ui, &layout, node.id, portal, visiting.as_deref());
+        let focused = self.web.focused == Some(node.id);
+        let alpha = node.opacity.clamp(0.0, 1.0);
+        let border = if focused {
+            Color32::from_rgb(120, 170, 255)
+        } else {
+            Color32::from_rgba_unmultiplied(140, 150, 175, 150)
+        };
+        self.paint_portal_frame_stroke(
+            painter,
+            &layout,
+            border.gamma_multiply(alpha),
+            focused,
+            xf.z,
+        );
+    }
 
+    pub(crate) fn paint_web_portal_in_rect(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        node: &Node,
+        portal: &PortalNode,
+        layout: &PortalChromeLayout,
+        zoom: f32,
+    ) {
         let alpha = node.opacity.clamp(0.0, 1.0);
         let fade = |c: Color32| c.gamma_multiply(alpha);
         let state = self.web.state(node.id);
         let focused = self.web.focused == Some(node.id);
         let live = self.web.is_live(node.id);
+        self.note_web_geometry(node.id, layout.frame, ui.clip_rect());
 
-        painter.rect(
-            srect,
-            8.0,
-            fade(rgba32(portal.fill)),
-            Stroke::new(
-                if focused { 2.0_f32 } else { 1.0 },
-                fade(if focused {
-                    Color32::from_rgb(120, 170, 255)
-                } else {
-                    Color32::from_rgba_unmultiplied(140, 150, 175, 150)
-                }),
-            ),
-            StrokeKind::Outside,
-        );
-
-        let strip_h = 26.0_f32.min(srect.height());
-        let strip = Rect::from_min_max(
-            srect.left_top(),
-            Pos2::new(srect.right(), srect.top() + strip_h),
-        );
-        // Where the page has actually got to, once the human follows a link.
-        let visiting = self
-            .web
-            .host
-            .current_url(node.id)
-            .filter(|url| {
-                portal
-                    .source
-                    .as_ref()
-                    .is_none_or(|s| !same_page(&s.locator, url))
-            })
-            .map(|url| web_display_locator(&url));
-        self.paint_web_strip(
+        self.paint_portal_frame_fill(
             painter,
-            strip,
-            portal,
-            &state,
-            live,
-            alpha,
-            visiting.as_deref(),
+            layout,
+            fade(rgba32(portal.fill)),
+            Color32::TRANSPARENT,
+            focused,
         );
 
-        if lod_for(srect.height()) == WebLod::Strip {
+        if lod_for(layout.frame.height()) == WebLod::Strip {
             return;
         }
 
-        let body = Rect::from_min_max(
-            Pos2::new(srect.left(), srect.top() + strip_h),
-            srect.right_bottom(),
-        );
+        let body = layout.body;
+        if body.width() < 2.0 || body.height() < 2.0 {
+            return;
+        }
+        let clip = layout.page.intersect(body);
         let poster = self.web.views.get(&node.id).and_then(|v| v.poster.clone());
         if let Some(tex) = poster {
             let stale = !live;
             let tint =
                 Color32::WHITE.gamma_multiply(if stale { STALE_ALPHA * alpha } else { alpha });
-            painter.image(
-                tex.id(),
-                body,
-                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                tint,
-            );
+            let outline = board::portal_content_outline(layout.frame, clip, layout.radius);
+            if !outline.is_empty() {
+                board::textured_polygon(
+                    painter,
+                    &tex,
+                    &outline,
+                    clip,
+                    slate_doc::scene::Crop::full(),
+                    tint,
+                );
+            }
         } else {
-            self.paint_web_empty_state(painter, body, &state, alpha);
+            let clipped = painter.with_clip_rect(clip.intersect(painter.clip_rect()));
+            self.paint_web_empty_state(&clipped, clip, &state, alpha, zoom);
         }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn paint_web_strip(
-        &self,
-        painter: &egui::Painter,
-        strip: Rect,
-        portal: &PortalNode,
-        state: &WebState,
-        live: bool,
-        alpha: f32,
-        visiting: Option<&str>,
-    ) {
-        let fade = |c: Color32| c.gamma_multiply(alpha);
-        painter.rect_filled(
-            strip,
-            0.0,
-            fade(Color32::from_rgba_unmultiplied(10, 12, 16, 190)),
-        );
-        let locator = match visiting {
-            // The bound page is still what the workbook says; the arrow marks
-            // where the reader has navigated to since.
-            Some(url) => format!("{url}  ↩"),
-            None => portal
-                .source
-                .as_ref()
-                .map(|s| web_display_locator(&s.locator))
-                .unwrap_or_else(|| "unbound".into()),
-        };
-        let remote = portal
-            .source
-            .as_ref()
-            .is_some_and(|s| web_origin(&s.locator).is_some());
-        let glyph = if remote { "🌐" } else { "▤" };
-        painter.circle_filled(
-            Pos2::new(strip.left() + 12.0, strip.center().y),
-            3.5,
-            fade(state.health().color()),
-        );
-        painter.text(
-            Pos2::new(strip.left() + 24.0, strip.center().y),
-            Align2::LEFT_CENTER,
-            format!("{glyph}  {locator}"),
-            FontId::proportional(12.0),
-            fade(Color32::from_rgb(214, 222, 236)),
-        );
-        if live {
-            // The dot says "this frame is rendering"; the border says "this
-            // frame has my keyboard" (D09).
-            painter.circle_filled(
-                Pos2::new(strip.right() - 12.0, strip.center().y),
-                3.0,
-                fade(Color32::from_rgb(120, 220, 150)),
-            );
-        }
-        painter.text(
-            Pos2::new(
-                strip.right() - (if live { 24.0 } else { 12.0 }),
-                strip.center().y,
-            ),
-            Align2::RIGHT_CENTER,
-            state.label(),
-            FontId::proportional(11.0),
-            fade(Color32::from_rgb(158, 170, 190)),
-        );
     }
 
     /// Every failure says itself in the frame rather than blanking it (D30).
@@ -1756,6 +1861,7 @@ impl SlateApp {
         body: Rect,
         state: &WebState,
         alpha: f32,
+        zoom: f32,
     ) {
         let fade = |c: Color32| c.gamma_multiply(alpha);
         let (headline, detail) = match state {
@@ -1781,21 +1887,29 @@ impl SlateApp {
             WebState::Loading => ("Loading…".to_string(), String::new()),
             _ => ("Resolving…".to_string(), String::new()),
         };
-        painter.text(
-            body.center() - egui::vec2(0.0, 10.0),
-            Align2::CENTER_CENTER,
-            headline,
-            FontId::proportional(15.0),
-            fade(Color32::from_rgb(198, 208, 224)),
-        );
-        if !detail.is_empty() {
-            painter.text(
-                body.center() + egui::vec2(0.0, 12.0),
+        let head = atlas_shell::canvas_scale::px(15.0, zoom);
+        if atlas_shell::canvas_text::legible(head) {
+            atlas_shell::canvas_text::text(
+                painter,
+                body.center() - egui::vec2(0.0, atlas_shell::canvas_scale::px(10.0, zoom)),
                 Align2::CENTER_CENTER,
-                detail,
-                FontId::proportional(12.0),
-                fade(Color32::from_rgb(150, 162, 182)),
+                headline,
+                FontId::proportional(head),
+                fade(Color32::from_rgb(198, 208, 224)),
             );
+        }
+        if !detail.is_empty() {
+            let sub = atlas_shell::canvas_scale::px(12.0, zoom);
+            if atlas_shell::canvas_text::legible(sub) {
+                atlas_shell::canvas_text::text(
+                    painter,
+                    body.center() + egui::vec2(0.0, atlas_shell::canvas_scale::px(12.0, zoom)),
+                    Align2::CENTER_CENTER,
+                    detail,
+                    FontId::proportional(sub),
+                    fade(Color32::from_rgb(150, 162, 182)),
+                );
+            }
         }
     }
 }
@@ -1821,6 +1935,17 @@ pub fn web_entry_for_dir(path: &Path) -> Option<&'static str> {
     [slate_doc::scene::WEB_DEFAULT_ENTRY, "index.htm"]
         .into_iter()
         .find(|entry| path.join(entry).is_file())
+}
+
+fn os_clipboard_text() -> Option<String> {
+    #[cfg(windows)]
+    {
+        clipboard_win::get_clipboard_string().ok()
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
 }
 
 /// Recursive copy for packaging a dashboard folder.

@@ -3,9 +3,10 @@
 use kurbo::{BezPath, PathEl};
 
 use crate::dash::dash_on_runs;
-use crate::flatten::flatten;
+use crate::flatten::{flatten, flatten_contours};
 use crate::geom::{from_kurbo, half_width_at, is_finite_pt, to_kurbo, EPS};
 use crate::mesh::tessellate_run;
+use crate::trim::Polygon;
 use crate::{InkMesh, StrokeStyle};
 
 pub(crate) fn valid_style(style: &StrokeStyle) -> bool {
@@ -135,6 +136,27 @@ pub fn stroke_outline(path: &BezPath, style: &StrokeStyle, tolerance: f64) -> Be
         append_run_outline(&mut outline, &sub.points, style, sub.closed);
     }
     outline
+}
+
+/// Closed region of a stroked open polyline (round-cap ribbon). Used by
+/// Join when an open curve unions with a filled shape.
+pub fn stroke_ribbon(pts: &[[f32; 2]], style: &StrokeStyle) -> Option<Polygon> {
+    if pts.len() < 2 || !valid_style(style) {
+        return None;
+    }
+    let mut bez = BezPath::new();
+    bez.move_to(to_kurbo(pts[0]));
+    for p in &pts[1..] {
+        bez.line_to(to_kurbo(*p));
+    }
+    let outline = stroke_outline(&bez, style, 0.35);
+    let contours = flatten_contours(&outline, 0.35);
+    let contours: Polygon = contours.into_iter().filter(|c| c.len() >= 3).collect();
+    if contours.is_empty() {
+        None
+    } else {
+        Some(contours)
+    }
 }
 
 fn append_run_outline(out: &mut BezPath, points: &[[f32; 2]], style: &StrokeStyle, closed: bool) {
@@ -336,6 +358,39 @@ mod tests {
     }
 
     #[test]
+    fn round_cap_extends_half_width_not_full_width() {
+        let path = line_path(0.0, 0.0, 80.0, 0.0);
+        let style = StrokeStyle {
+            width: 8.0,
+            cap: Cap::Round,
+            join: Join::Miter,
+            taper: None,
+            dash: None,
+        };
+        let mesh = stroke_mesh(&path, &style, 0.0, 0.01);
+        let min_x = mesh
+            .vertices
+            .iter()
+            .map(|v| v.pos[0])
+            .fold(f32::MAX, f32::min);
+        let max_y = mesh
+            .vertices
+            .iter()
+            .map(|v| v.pos[1].abs())
+            .fold(0.0f32, f32::max);
+        // Diameter of a round cap equals the stroke width, so the start
+        // extends ~4 world units past x=0 — not ~8 (the old double offset).
+        assert!(
+            min_x > -5.25 && min_x < -3.25,
+            "round cap should extend half-width past the end, got min_x={min_x}"
+        );
+        assert!(
+            max_y < 4.75,
+            "round cap should not be fatter than the stroke, got half={max_y}"
+        );
+    }
+
+    #[test]
     fn round_cap_more_vertices_than_butt() {
         let path = line_path(0.0, 0.0, 50.0, 0.0);
         let butt = StrokeStyle {
@@ -423,5 +478,20 @@ mod tests {
         let pad = style.width * 0.5 + feather * 0.5;
         assert!((min[1] - (-pad)).abs() < 0.01);
         assert!((max[1] - pad).abs() < 0.01);
+    }
+
+    #[test]
+    fn ribbon_covers_the_stroke_centerline() {
+        let style = StrokeStyle {
+            width: 8.0,
+            cap: Cap::Round,
+            join: Join::Round,
+            taper: None,
+            dash: None,
+        };
+        let poly = stroke_ribbon(&[[0.0, 0.0], [40.0, 0.0]], &style).expect("ribbon");
+        assert!(crate::point_in_polygon(&poly, [20.0, 0.0]));
+        assert!(crate::point_in_polygon(&poly, [20.0, 3.0]));
+        assert!(!crate::point_in_polygon(&poly, [20.0, 20.0]));
     }
 }

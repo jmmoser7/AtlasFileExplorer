@@ -49,6 +49,10 @@ pub struct SlateSettings {
     /// Board ortho constraint toggle (F8). The toggle + readout land now;
     /// the 45° gesture math arrives with the board-tools wave.
     pub board_ortho: bool,
+    /// Persistent object-snap set (Document Settings). Session aid, not journaled.
+    pub board_osnap: slate_doc::ObjectSnapSet,
+    /// Board wire display: bezier span or orthogonal wrap. Session aid, not journaled.
+    pub board_wire_routing: slate_doc::WireRouting,
     /// Board foreground color (brush strokes, wires). `None` = theme
     /// default ink, resolved at startup / on `D` (reset defaults).
     pub board_fg: Option<[u8; 4]>,
@@ -65,6 +69,8 @@ impl Default for SlateSettings {
         SlateSettings {
             preview: PreviewSettings::default(),
             board_ortho: false,
+            board_osnap: slate_doc::ObjectSnapSet::default(),
+            board_wire_routing: slate_doc::WireRouting::default(),
             board_fg: None,
             board_bg: None,
             brush_width: BRUSH_WIDTH_DEFAULT,
@@ -125,6 +131,8 @@ mod tests {
 
         let s: SlateSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(s, SlateSettings::default());
+        assert!(s.board_osnap.enabled);
+        assert!(s.board_osnap.end);
     }
 
     #[test]

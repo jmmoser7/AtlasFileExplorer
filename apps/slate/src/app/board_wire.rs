@@ -4,24 +4,25 @@
 //! derived-AABB sync that keeps `Node.rect` fresh for marquee/hit systems.
 //!
 //! See `docs/keymap/specs/connectors.md`. Geometry is derived, never stored
-//! (`slate_doc::connector_bezier`); one gesture = one journaled step.
+//! (`slate_doc::connector_route`); one gesture = one journaled step.
 
 use super::board::{rgba32, BoardXf};
 use super::{board_path, SlateApp};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
-    connector_anchor_point, connector_bezier, ConnectorBezier, ConnectorEnd, ConnectorNode, Dash,
-    Node, NodeKind, Scene, SceneCmd, Side, Stroke, StrokeCap, StrokeJoin, WidthProfile,
-    WireDisplay, WorldRect,
+    connector_anchor_point, ConnectorBezier, ConnectorEnd, ConnectorNode, Dash, Node, NodeKind,
+    Scene, SceneCmd, Side, Stroke, StrokeCap, StrokeJoin, WidthProfile, WireDisplay, WorldRect,
+};
+use slate_doc::wire::{
+    connector_aabb_routed, connector_route, filleted_polyline, scene_wire_obstacles, ConnectorPath,
+    PathCmd, WireRouting, ORTHO_CORNER_RADIUS,
 };
 use slate_doc::NodeId;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use vector_ink::kurbo::BezPath;
 
-/// Reveal the 4 side grips when the pointer is this close to a node edge.
-pub const GRIP_REVEAL_PX: f32 = 8.0;
-/// Press-hit radius on a grip dot.
+/// Press-hit / hover-preview radius on a grip dot (screen px slop).
 pub const GRIP_HIT_PX: f32 = 8.0;
 /// Snap radius while dragging a wire (screen px) to a grip or edge.
 pub const WIRE_SNAP_PX: f32 = 14.0;
@@ -134,17 +135,44 @@ pub(crate) fn connector_kurbo(bez: &ConnectorBezier) -> BezPath {
     path
 }
 
-/// Mesh-cache key: the *geometry* (all four control points) + stroke +
-/// display + zoom bucket, so a moved endpoint node invalidates the cached
-/// tessellation by construction (Art. II — tessellate on change only).
+fn path_cmds_to_kurbo(cmds: &[PathCmd]) -> BezPath {
+    let mut path = BezPath::new();
+    for cmd in cmds {
+        match *cmd {
+            PathCmd::Move(p) => path.move_to((p[0] as f64, p[1] as f64)),
+            PathCmd::Line(p) => path.line_to((p[0] as f64, p[1] as f64)),
+            PathCmd::Cubic { c1, c2, to } => path.curve_to(
+                (c1[0] as f64, c1[1] as f64),
+                (c2[0] as f64, c2[1] as f64),
+                (to[0] as f64, to[1] as f64),
+            ),
+        }
+    }
+    path
+}
+
+pub(crate) fn connector_path_kurbo(path: &ConnectorPath) -> BezPath {
+    match path {
+        ConnectorPath::Bezier(bez) => connector_kurbo(bez),
+        ConnectorPath::Orthogonal(pts) => {
+            path_cmds_to_kurbo(&filleted_polyline(pts, ORTHO_CORNER_RADIUS))
+        }
+    }
+}
+
+/// Mesh-cache key: the *geometry* + routing + stroke + display + zoom
+/// bucket, so a moved endpoint or a style toggle invalidates the cache
+/// (Art. II — tessellate on change only).
 pub(crate) fn connector_cache_key(
-    bez: &ConnectorBezier,
+    path: &ConnectorPath,
+    routing: WireRouting,
     stroke: &Stroke,
     display: WireDisplay,
     bucket: i64,
 ) -> u64 {
     let mut h = DefaultHasher::new();
-    for p in [bez.p0, bez.c1, bez.c2, bez.p3] {
+    std::mem::discriminant(&routing).hash(&mut h);
+    for p in path.points() {
         p[0].to_bits().hash(&mut h);
         p[1].to_bits().hash(&mut h);
     }
@@ -155,15 +183,23 @@ pub(crate) fn connector_cache_key(
 
 /// Stroke hit-test for connectors (used by the shared point pick). Skips
 /// connectors whose anchored node is hidden — they are not painted either.
-pub fn hit_connector(scene: &Scene, conn: &ConnectorNode, wx: f32, wy: f32, zoom: f32) -> bool {
+pub fn hit_connector_routed(
+    scene: &Scene,
+    conn: &ConnectorNode,
+    wx: f32,
+    wy: f32,
+    zoom: f32,
+    routing: WireRouting,
+) -> bool {
     let rect_of = |id: NodeId| scene.node(id).filter(|n| !n.hidden).map(|n| n.rect);
-    let Some(bez) = connector_bezier(&conn.a, &conn.b, rect_of) else {
+    let obstacles = scene_wire_obstacles(scene);
+    let Some(path) = connector_route(&conn.a, &conn.b, rect_of, routing, &obstacles) else {
         return false;
     };
-    let path = connector_kurbo(&bez);
+    let kurbo = connector_path_kurbo(&path);
     let style = board_path::stroke_style_world(&conn.stroke, zoom);
     let slop = CONNECTOR_PICK_PX / zoom.max(0.05);
-    vector_ink::hit_stroke(&path, &style, [wx, wy], slop)
+    vector_ink::hit_stroke(&kurbo, &style, [wx, wy], slop)
 }
 
 /// The world point of one connector end (anchored ends resolve through the
@@ -196,72 +232,90 @@ impl SlateApp {
         }
     }
 
-    /// The derived curve of a connector for painting/interacting (skipping
-    /// hidden anchors, matching the artifact's hidden-anchor rule).
-    pub(crate) fn connector_bez_visible(&self, conn: &ConnectorNode) -> Option<ConnectorBezier> {
+    pub(crate) fn persist_wire_routing(&mut self) {
+        self.settings.board_wire_routing = self.board_wire_routing;
+        self.settings.save();
+        self.connector_sync_gen = 0;
+    }
+
+    pub(crate) fn connector_path_visible(&self, conn: &ConnectorNode) -> Option<ConnectorPath> {
         let scene = &self.doc().scene;
-        connector_bezier(&conn.a, &conn.b, |id| {
-            scene.node(id).filter(|n| !n.hidden).map(|n| n.rect)
-        })
+        let obstacles = scene_wire_obstacles(scene);
+        connector_route(
+            &conn.a,
+            &conn.b,
+            |id| scene.node(id).filter(|n| !n.hidden).map(|n| n.rect),
+            self.board_wire_routing,
+            &obstacles,
+        )
     }
 
     // ----- grips -----
 
-    /// Per-frame grip hover: with the Select tool, the topmost visible
-    /// non-connector node whose edge is within ~8 px of the pointer shows
-    /// its 4 side grips (locked nodes included — wires may anchor to them).
-    pub(crate) fn update_wire_grips(&mut self, pointer: Option<Pos2>, xf: &BoardXf) {
-        self.wire_grips = None;
-        let Some(p) = pointer else { return };
-        let w = xf.s2w(p);
-        let reveal = GRIP_REVEAL_PX / xf.z.max(0.05);
+    /// Grip under `screen`, independent of hover state. Topmost node wins;
+    /// a body under the pointer occludes grips behind it. Used by both the
+    /// hover preview and press-to-wire so a drag that has already left the
+    /// dot still starts a wire from the press origin (resize must not win).
+    pub(crate) fn wire_grip_at(&self, screen: Pos2, xf: &BoardXf) -> Option<(NodeId, Side)> {
+        let w = xf.s2w(screen);
         for n in self.doc().scene.nodes.iter().rev() {
             if n.hidden || matches!(n.kind, NodeKind::Connector(_)) {
                 continue;
             }
-            if rect_edge_dist(n.rect, w) <= reveal {
-                let hovered = ALL_SIDES.into_iter().find(|side| {
-                    let g = xf.w2s(grip_point(n.rect, *side));
-                    g.distance(p) <= GRIP_HIT_PX
-                });
-                self.wire_grips = Some(GripHover {
-                    node: n.id,
-                    hovered,
-                });
-                return;
+            let hovered = ALL_SIDES.into_iter().find(|side| {
+                let g = xf.w2s(grip_point(n.rect, *side));
+                g.distance(screen) <= GRIP_HIT_PX
+            });
+            if let Some(side) = hovered {
+                return Some((n.id, side));
             }
-            // A node body fully under the pointer occludes edges behind it.
             if n.rect.contains_rotated(w.x, w.y, n.rotation_deg) {
-                return;
+                return None;
             }
+        }
+        None
+    }
+
+    /// Per-frame grip hover: with the Select tool, only the grip whose
+    /// midpoint is within [`GRIP_HIT_PX`] of the pointer previews (locked
+    /// nodes included — wires may anchor to them). An edge between grips
+    /// is inert. A node body under the pointer occludes grips behind it.
+    pub(crate) fn update_wire_grips(&mut self, pointer: Option<Pos2>, xf: &BoardXf) {
+        self.wire_grips = None;
+        let Some(p) = pointer else { return };
+        if let Some((node, side)) = self.wire_grip_at(p, xf) {
+            self.wire_grips = Some(GripHover {
+                node,
+                hovered: Some(side),
+            });
         }
     }
 
     pub(crate) fn paint_wire_grips(&self, painter: &egui::Painter, xf: &BoardXf) {
         let Some(grips) = self.wire_grips else { return };
+        let Some(side) = grips.hovered else { return };
         let Some(n) = self.doc().scene.node(grips.node) else {
             return;
         };
         let palette = self.palette();
-        for side in ALL_SIDES {
-            let g = xf.w2s(grip_point(n.rect, side));
-            let hovered = grips.hovered == Some(side);
-            let r = if hovered { 6.0 } else { 4.0 };
-            painter.circle_filled(g, r, palette.bg);
-            painter.circle_stroke(
-                g,
-                r,
-                EStroke::new(if hovered { 2.0_f32 } else { 1.4_f32 }, palette.accent),
-            );
-        }
+        let g = xf.w2s(grip_point(n.rect, side));
+        let r = atlas_shell::canvas_scale::px(6.0, xf.z);
+        painter.circle_filled(g, r, palette.bg);
+        painter.circle_stroke(
+            g,
+            r,
+            EStroke::new(atlas_shell::canvas_scale::px(2.0, xf.z), palette.accent),
+        );
     }
 
     // ----- gesture begin / update / end -----
 
     /// Wire-drag start checks, called from `begin_gesture` (Select tool,
-    /// after resize/group handles): endpoint dots of a selected connector
-    /// first (FigJam-style detach), then edge grips with the modifier
-    /// grammar. Returns `None` when the press is not a wire gesture.
+    /// before resize): endpoint dots of a selected connector first
+    /// (FigJam-style detach), then the edge grip under the press origin.
+    /// Hit-tests `screen` directly so a drag that has left the preview
+    /// dot still starts a wire. Returns `None` when the press is not a
+    /// wire gesture.
     pub(crate) fn try_begin_wire_drag(
         &mut self,
         screen: Pos2,
@@ -295,14 +349,9 @@ impl SlateApp {
             }
         }
 
-        // Grip press on the currently gripped node.
-        let grips = self.wire_grips?;
-        let node = self.doc().scene.node(grips.node)?;
-        let rect = node.rect;
-        let side = ALL_SIDES
-            .into_iter()
-            .find(|side| xf.w2s(grip_point(rect, *side)).distance(screen) <= GRIP_HIT_PX)?;
-        let from = (grips.node, side, 0.5f32);
+        // Press origin on a side-midpoint grip — not the live hover cache.
+        let (node_id, side) = self.wire_grip_at(screen, &xf)?;
+        let from = (node_id, side, 0.5f32);
 
         // Ends currently anchored to this grip (node + side).
         let ends: Vec<(NodeId, bool, Node)> = self
@@ -314,9 +363,9 @@ impl SlateApp {
                 let NodeKind::Connector(c) = &n.kind else {
                     return None;
                 };
-                if is_on_grip(&c.a, grips.node, side) {
+                if is_on_grip(&c.a, node_id, side) {
                     Some((n.id, false, n.clone()))
-                } else if is_on_grip(&c.b, grips.node, side) {
+                } else if is_on_grip(&c.b, node_id, side) {
                     Some((n.id, true, n.clone()))
                 } else {
                     None
@@ -416,6 +465,19 @@ impl SlateApp {
             _ => None,
         };
         wd.snap = self.wire_snap_target(cursor, exclude);
+        if wd.snap.is_none() {
+            let from = match &wd.mode {
+                WireMode::Add { from } => self
+                    .doc()
+                    .scene
+                    .node(from.0)
+                    .map(|n| grip_point(n.rect, from.1)),
+                _ => None,
+            };
+            let skip: Vec<NodeId> = exclude.into_iter().collect();
+            cursor = self.resolve_point_snap(cursor, &skip, from, false, from.is_some());
+            wd.cursor = cursor;
+        }
 
         // Detached ends follow the cursor (or preview-anchor onto the snap).
         let live_end = |snap: Option<(NodeId, Side, f32)>, cursor: Pos2| match snap {
@@ -656,28 +718,20 @@ impl SlateApp {
                 },
             };
             let scene = &self.doc().scene;
-            if let Some(bez) = connector_bezier(&a, &b, |id| {
-                scene.node(id).filter(|n| !n.hidden).map(|n| n.rect)
-            }) {
+            let obstacles = scene_wire_obstacles(scene);
+            if let Some(path) = connector_route(
+                &a,
+                &b,
+                |id| scene.node(id).filter(|n| !n.hidden).map(|n| n.rect),
+                self.board_wire_routing,
+                &obstacles,
+            ) {
                 let color = rgba32(self.board_colors.fg).gamma_multiply(if wd.snap.is_some() {
                     1.0
                 } else {
                     0.55
                 });
-                let pts = [
-                    xf.w2s(Pos2::new(bez.p0[0], bez.p0[1])),
-                    xf.w2s(Pos2::new(bez.c1[0], bez.c1[1])),
-                    xf.w2s(Pos2::new(bez.c2[0], bez.c2[1])),
-                    xf.w2s(Pos2::new(bez.p3[0], bez.p3[1])),
-                ];
-                painter.add(egui::Shape::CubicBezier(
-                    egui::epaint::CubicBezierShape::from_points_stroke(
-                        pts,
-                        false,
-                        Color32::TRANSPARENT,
-                        EStroke::new(2.0_f32, color),
-                    ),
-                ));
+                paint_route_preview(painter, xf, &path, EStroke::new(2.0_f32, color));
             }
         }
         // Snap highlight.
@@ -721,7 +775,7 @@ impl SlateApp {
     ) {
         // Hidden-anchor rule: unresolvable connectors are skipped entirely
         // (matches the artifact writer).
-        let Some(bez) = self.connector_bez_visible(conn) else {
+        let Some(path) = self.connector_path_visible(conn) else {
             return;
         };
         let opacity = (node.opacity
@@ -735,12 +789,18 @@ impl SlateApp {
 
         if !conn.stroke.is_none() {
             let bucket = board_path::zoom_bucket(xf.z);
-            let key = connector_cache_key(&bez, &conn.stroke, conn.display, bucket);
+            let key = connector_cache_key(
+                &path,
+                self.board_wire_routing,
+                &conn.stroke,
+                conn.display,
+                bucket,
+            );
             let style = board_path::stroke_style_world(&conn.stroke, xf.z);
             let feather = board_path::FEATHER_PX / xf.z.max(0.05);
-            let path = connector_kurbo(&bez);
+            let kurbo = connector_path_kurbo(&path);
             let cached = self.path_mesh_cache.get_or_tessellate(node.id, key, || {
-                vector_ink::stroke_mesh(&path, &style, feather, 0.25)
+                vector_ink::stroke_mesh(&kurbo, &style, feather, 0.25)
             });
             let mesh = board_path::ink_mesh_to_epaint(&cached, xf, base, |c| c);
             painter.add(egui::Shape::mesh(mesh));
@@ -766,10 +826,10 @@ impl SlateApp {
             ));
         };
         if conn.arrow_a {
-            arrow(bez.p0, bez.start_dir());
+            arrow(path.start(), path.start_dir());
         }
         if conn.arrow_b {
-            arrow(bez.p3, bez.end_dir());
+            arrow(path.end(), path.end_dir());
         }
 
         // Label at the curve midpoint (skipped while its inline edit is up).
@@ -781,14 +841,18 @@ impl SlateApp {
             return;
         }
         if let Some(label) = conn.label.as_deref().filter(|l| !l.is_empty()) {
-            let m = bez.midpoint();
-            painter.text(
-                xf.w2s(Pos2::new(m[0], m[1])),
-                Align2::CENTER_CENTER,
-                label,
-                FontId::proportional((CONNECTOR_LABEL_SIZE * xf.z).max(5.0)),
-                base,
-            );
+            let size = atlas_shell::canvas_scale::px(CONNECTOR_LABEL_SIZE, xf.z);
+            if atlas_shell::canvas_text::legible(size) {
+                let m = path.midpoint();
+                atlas_shell::canvas_text::text(
+                    painter,
+                    xf.w2s(Pos2::new(m[0], m[1])),
+                    Align2::CENTER_CENTER,
+                    label,
+                    FontId::proportional(size),
+                    base,
+                );
+            }
         }
     }
 
@@ -803,27 +867,28 @@ impl SlateApp {
         let NodeKind::Connector(conn) = &node.kind else {
             return;
         };
-        let Some(bez) = self.connector_bez_visible(conn) else {
+        let Some(path) = self.connector_path_visible(conn) else {
             return;
         };
         let palette = self.palette();
-        let pts = [
-            xf.w2s(Pos2::new(bez.p0[0], bez.p0[1])),
-            xf.w2s(Pos2::new(bez.c1[0], bez.c1[1])),
-            xf.w2s(Pos2::new(bez.c2[0], bez.c2[1])),
-            xf.w2s(Pos2::new(bez.p3[0], bez.p3[1])),
+        paint_route_preview(
+            painter,
+            xf,
+            &path,
+            EStroke::new(atlas_shell::canvas_scale::px(1.5, xf.z), palette.select),
+        );
+        let r = atlas_shell::canvas_scale::px(4.5, xf.z);
+        let ends = [
+            xf.w2s(Pos2::new(path.start()[0], path.start()[1])),
+            xf.w2s(Pos2::new(path.end()[0], path.end()[1])),
         ];
-        painter.add(egui::Shape::CubicBezier(
-            egui::epaint::CubicBezierShape::from_points_stroke(
-                pts,
-                false,
-                Color32::TRANSPARENT,
-                EStroke::new(1.5_f32, palette.select),
-            ),
-        ));
-        for p in [pts[0], pts[3]] {
-            painter.circle_filled(p, 4.5, palette.bg);
-            painter.circle_stroke(p, 4.5, EStroke::new(2.0_f32, palette.select));
+        for p in ends {
+            painter.circle_filled(p, r, palette.bg);
+            painter.circle_stroke(
+                p,
+                r,
+                EStroke::new(atlas_shell::canvas_scale::px(2.0, xf.z), palette.select),
+            );
         }
     }
 
@@ -839,7 +904,9 @@ impl SlateApp {
             return;
         }
         self.connector_sync_gen = self.scene_gen;
+        let routing = self.board_wire_routing;
         let scene = &self.doc().scene;
+        let obstacles = scene_wire_obstacles(scene);
         let updates: Vec<(NodeId, WorldRect)> = scene
             .nodes
             .iter()
@@ -847,8 +914,12 @@ impl SlateApp {
                 let NodeKind::Connector(c) = &n.kind else {
                     return None;
                 };
-                let aabb =
-                    slate_doc::scene::connector_aabb(c, |id| scene.node(id).map(|node| node.rect))?;
+                let aabb = connector_aabb_routed(
+                    c,
+                    |id| scene.node(id).map(|node| node.rect),
+                    routing,
+                    &obstacles,
+                )?;
                 (aabb != n.rect).then_some((n.id, aabb))
             })
             .collect();
@@ -884,11 +955,11 @@ impl SlateApp {
             self.wire_label_edit = None;
             return;
         };
-        let Some(bez) = self.connector_bez_visible(&conn) else {
+        let Some(path) = self.connector_path_visible(&conn) else {
             self.wire_label_edit = None;
             return;
         };
-        let m = bez.midpoint();
+        let m = path.midpoint();
         let mid = xf.w2s(Pos2::new(m[0], m[1]));
         let mut commit = false;
         egui::Area::new(egui::Id::new(("slate_wire_label", id.0)))
@@ -937,6 +1008,41 @@ impl SlateApp {
     }
 }
 
+fn paint_route_preview(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    path: &ConnectorPath,
+    stroke: EStroke,
+) {
+    match path {
+        ConnectorPath::Bezier(bez) => {
+            let pts = [
+                xf.w2s(Pos2::new(bez.p0[0], bez.p0[1])),
+                xf.w2s(Pos2::new(bez.c1[0], bez.c1[1])),
+                xf.w2s(Pos2::new(bez.c2[0], bez.c2[1])),
+                xf.w2s(Pos2::new(bez.p3[0], bez.p3[1])),
+            ];
+            painter.add(egui::Shape::CubicBezier(
+                egui::epaint::CubicBezierShape::from_points_stroke(
+                    pts,
+                    false,
+                    Color32::TRANSPARENT,
+                    stroke,
+                ),
+            ));
+        }
+        ConnectorPath::Orthogonal(pts) => {
+            let screen: Vec<Pos2> = pts.iter().map(|p| xf.w2s(Pos2::new(p[0], p[1]))).collect();
+            atlas_shell::dock::rounded_route(
+                painter,
+                &screen,
+                atlas_shell::canvas_scale::px(ORTHO_CORNER_RADIUS, xf.z),
+                stroke,
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -963,25 +1069,41 @@ mod tests {
 
     #[test]
     fn cache_key_is_stable_and_geometry_sensitive() {
-        let a = bez([0.0, 0.0], [100.0, 0.0]);
-        let k1 = connector_cache_key(&a, &stroke(), WireDisplay::Default, 8);
-        let k2 = connector_cache_key(&a, &stroke(), WireDisplay::Default, 8);
+        let a = ConnectorPath::Bezier(bez([0.0, 0.0], [100.0, 0.0]));
+        let k1 = connector_cache_key(&a, WireRouting::Bezier, &stroke(), WireDisplay::Default, 8);
+        let k2 = connector_cache_key(&a, WireRouting::Bezier, &stroke(), WireDisplay::Default, 8);
         assert_eq!(k1, k2, "same geometry → same key (cache hit)");
 
         // An endpoint node's rect moved → different endpoint → new key.
-        let moved = bez([0.0, 0.0], [120.0, 5.0]);
+        let moved = ConnectorPath::Bezier(bez([0.0, 0.0], [120.0, 5.0]));
         assert_ne!(
             k1,
-            connector_cache_key(&moved, &stroke(), WireDisplay::Default, 8)
+            connector_cache_key(
+                &moved,
+                WireRouting::Bezier,
+                &stroke(),
+                WireDisplay::Default,
+                8
+            )
         );
-        // Faint and zoom bucket also key the tessellation.
+        // Faint, zoom bucket, and routing also key the tessellation.
         assert_ne!(
             k1,
-            connector_cache_key(&a, &stroke(), WireDisplay::Faint, 8)
+            connector_cache_key(&a, WireRouting::Bezier, &stroke(), WireDisplay::Faint, 8)
         );
         assert_ne!(
             k1,
-            connector_cache_key(&a, &stroke(), WireDisplay::Default, 9)
+            connector_cache_key(&a, WireRouting::Bezier, &stroke(), WireDisplay::Default, 9)
+        );
+        assert_ne!(
+            k1,
+            connector_cache_key(
+                &a,
+                WireRouting::Orthogonal,
+                &stroke(),
+                WireDisplay::Default,
+                8
+            )
         );
     }
 

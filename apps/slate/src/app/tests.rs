@@ -3,9 +3,9 @@
 //! the tag model, both presentations, tabs, and workbook save/load.
 
 use super::lens::LensStatus;
-use super::*;
+use super::{board_align, board_handles, board_place, board_wire, *};
 use eframe::egui::{Pos2, Rect as ERect, Vec2 as EVec2};
-use slate_doc::ViewKind;
+use slate_doc::{NodeId, ViewKind};
 
 struct Harness {
     ctx: egui::Context,
@@ -709,6 +709,7 @@ fn path_node_add_undo_via_journal() {
                 start: [0.0, 0.5],
                 segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
                 closed: false,
+                ..Default::default()
             }),
         }),
     );
@@ -738,6 +739,7 @@ fn add_stroke(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
                 start: [0.0, 0.5],
                 segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
                 closed: false,
+                ..Default::default()
             }),
         }),
     );
@@ -1206,6 +1208,131 @@ fn line_pick_stroke_not_bbox() {
     h.frame();
 }
 
+// ---------- Object snaps (contracts/object-snap.md GP1–GP4) ----------
+
+fn osnap_board(tag: &str) -> Harness {
+    let mut h = Harness::new(tag);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.board_snap_grid = false;
+    h.app.board_osnap = slate_doc::ObjectSnapSet::default();
+    h
+}
+
+fn add_ellipse(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> NodeId {
+    use slate_doc::scene::{ShapeKind, ShapeNode};
+    let rect = slate_doc::scene::WorldRect::new(x, y, w, h);
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Ellipse,
+            fill: None,
+            stroke: slate_doc::scene::Stroke::default(),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: None,
+        }),
+    );
+    app.add_nodes(vec![node])[0]
+}
+
+fn only_kind(kind: slate_doc::SnapKind) -> slate_doc::ObjectSnapSet {
+    let mut set = slate_doc::ObjectSnapSet {
+        enabled: true,
+        end: false,
+        mid: false,
+        center: false,
+        near: false,
+        intersection: false,
+        quadrant: false,
+        perpendicular: false,
+        tangent: false,
+    };
+    set.set(kind, true);
+    set
+}
+
+/// GP1 — End: cursor near a rect corner snaps to that corner.
+#[test]
+fn osnap_gp1_end_on_rect_corner() {
+    let mut h = osnap_board("osnap_gp1");
+    add_rect(&mut h.app, 200.0, 80.0);
+    h.app.board_osnap = only_kind(slate_doc::SnapKind::End);
+    let p = h
+        .app
+        .resolve_point_snap(Pos2::new(202.0, 82.0), &[], None, false, false);
+    assert!((p.x - 200.0).abs() < 0.01 && (p.y - 80.0).abs() < 0.01);
+    assert_eq!(
+        h.app.board_osnap_hit.map(|hit| hit.kind),
+        Some(slate_doc::SnapKind::End)
+    );
+    h.frame();
+}
+
+/// GP2 — Tangent is inert on the first pick (no prior point).
+#[test]
+fn osnap_gp2_tan_inert_on_first_pick() {
+    let mut h = osnap_board("osnap_gp2");
+    add_ellipse(&mut h.app, 0.0, 0.0, 100.0, 100.0);
+    h.app.board_osnap = only_kind(slate_doc::SnapKind::Tangent);
+    let cursor = Pos2::new(102.0, 50.0);
+    let p = h.app.resolve_point_snap(cursor, &[], None, false, false);
+    assert!((p.x - cursor.x).abs() < 0.01 && (p.y - cursor.y).abs() < 0.01);
+    assert!(h.app.board_osnap_hit.is_none());
+    h.frame();
+}
+
+/// GP3 — Tangent from a prior point onto a circle.
+#[test]
+fn osnap_gp3_tan_from_prior_point() {
+    let mut h = osnap_board("osnap_gp3");
+    add_ellipse(&mut h.app, 0.0, 0.0, 100.0, 100.0);
+    h.app.board_osnap = only_kind(slate_doc::SnapKind::Tangent);
+    let from = Pos2::new(200.0, 50.0);
+    let pts = slate_doc::osnap::tangents_on_ellipse(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 100.0),
+        0.0,
+        [from.x, from.y],
+    );
+    assert_eq!(pts.len(), 2);
+    let target = Pos2::new(pts[0][0], pts[0][1]);
+    let cursor = Pos2::new(target.x + 1.0, target.y + 1.0);
+    let p = h
+        .app
+        .resolve_point_snap(cursor, &[], Some(from), false, false);
+    assert_eq!(
+        h.app.board_osnap_hit.map(|hit| hit.kind),
+        Some(slate_doc::SnapKind::Tangent)
+    );
+    let dx = p.x - 50.0;
+    let dy = p.y - 50.0;
+    let rad = (dx * dx + dy * dy).sqrt();
+    assert!(
+        (rad - 50.0).abs() < 0.8,
+        "tangent snap left the circle: {p:?} r={rad}"
+    );
+    h.frame();
+}
+
+/// GP4 — master disable remembers End but does not fire.
+#[test]
+fn osnap_gp4_master_disable() {
+    let mut h = osnap_board("osnap_gp4");
+    add_rect(&mut h.app, 200.0, 80.0);
+    h.app.board_osnap = only_kind(slate_doc::SnapKind::End);
+    h.app.board_osnap.enabled = false;
+    assert!(h
+        .app
+        .board_osnap
+        .is_kind_remembered(slate_doc::SnapKind::End));
+    let cursor = Pos2::new(202.0, 82.0);
+    let p = h.app.resolve_point_snap(cursor, &[], None, false, false);
+    assert!((p.x - cursor.x).abs() < 0.01 && (p.y - cursor.y).abs() < 0.01);
+    assert!(h.app.board_osnap_hit.is_none());
+    h.frame();
+}
+
 // ---------- tool kits: the result of a gesture comes from data ----------
 
 fn kit_board(tag: &str, tool: board::BoardTool) -> Harness {
@@ -1447,6 +1574,177 @@ fn a_placed_status_board_portal_is_unbound_at_the_recipe_size() {
     h.frame();
 }
 
+// ---------- Tool arming preview (contracts/tool-arming.md GP1–GP6) ----------
+
+fn arming_board(tag: &str, tool: board::BoardTool) -> Harness {
+    kit_board(tag, tool)
+}
+
+/// GP1 — arming Frame starts GhostFollow: silhouette kind is live, no node.
+#[test]
+fn arming_gp1_frame_ghost_follows_without_a_node() {
+    let mut h = arming_board("arming_gp1", board::BoardTool::Frame);
+    assert_eq!(
+        board_place::ghost_kind(h.app.board_tool),
+        Some(board_place::GhostKind::RoundedRect)
+    );
+    assert!(h.app.doc().scene.nodes.is_empty(), "ghost never commits");
+    h.frame();
+}
+
+/// GP2 — arm Web portal, then click-place: default size, one-shot, ghost gone.
+#[test]
+fn arming_gp2_web_portal_click_place_clears_the_ghost() {
+    let mut h = arming_board("arming_gp2", board::BoardTool::WebPortal);
+    assert_eq!(
+        board_place::ghost_kind(h.app.board_tool),
+        Some(board_place::GhostKind::Portal)
+    );
+    h.app.place_web_portal_at(Pos2::new(0.0, 0.0));
+    assert_eq!(h.app.board_tool, board::BoardTool::Select, "one-shot");
+    assert!(board_place::ghost_kind(h.app.board_tool).is_none());
+    let node = &h.app.doc().scene.nodes[0];
+    assert_eq!(
+        (node.rect.w, node.rect.h),
+        (
+            slate_doc::scene::PORTAL_DEFAULT_W,
+            slate_doc::scene::PORTAL_DEFAULT_H
+        )
+    );
+    h.frame();
+}
+
+/// A click (no drag) places the kit default size, centred on the press.
+#[test]
+fn rect_and_ellipse_click_place_default_size() {
+    let mut h = arming_board("click_place_rect", board::BoardTool::RectShape);
+    h.app.board_drag = Some(board::BoardDrag::Draw {
+        start_world: Pos2::new(40.0, 30.0),
+        tool: board::BoardTool::RectShape,
+    });
+    h.app
+        .end_gesture_for_test(Pos2::new(40.0, 30.0), None, egui::Modifiers::default());
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let r = h.app.doc().scene.nodes[0].rect;
+    assert!(
+        (r.w - board_place::place_tokens::RECT_DEFAULT_W).abs() < 0.01
+            && (r.h - board_place::place_tokens::RECT_DEFAULT_H).abs() < 0.01,
+        "rect click-place size, got {}×{}",
+        r.w,
+        r.h
+    );
+    assert!((r.x + r.w * 0.5 - 40.0).abs() < 0.01);
+    assert!((r.y + r.h * 0.5 - 30.0).abs() < 0.01);
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+
+    let mut h = arming_board("click_place_ellipse", board::BoardTool::Ellipse);
+    h.app
+        .place_default_at(board::BoardTool::Ellipse, Pos2::new(0.0, 0.0));
+    let e = h.app.doc().scene.nodes[0].rect;
+    assert!(
+        (e.w - board_place::place_tokens::ELLIPSE_DEFAULT_W).abs() < 0.01
+            && (e.h - board_place::place_tokens::ELLIPSE_DEFAULT_H).abs() < 0.01
+    );
+    let NodeKind::Shape(s) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected an ellipse");
+    };
+    assert_eq!(s.shape, slate_doc::scene::ShapeKind::Ellipse);
+    h.frame();
+}
+
+/// GP3 — Rect DragScale + Shift goes through PlaceConstraint (square).
+#[test]
+fn arming_gp3_rect_shift_drag_is_square() {
+    let mut h = arming_board("arming_gp3", board::BoardTool::RectShape);
+    let mut mods = egui::Modifiers::default();
+    mods.shift = true;
+    h.app.finish_draw(
+        Pos2::new(0.0, 0.0),
+        Pos2::new(120.0, 40.0),
+        board::BoardTool::RectShape,
+        mods,
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let r = h.app.doc().scene.nodes[0].rect;
+    assert!(
+        (r.w - r.h).abs() < 0.01,
+        "Shift locks square, got {}×{}",
+        r.w,
+        r.h
+    );
+    assert!((r.w - 120.0).abs() < 0.01);
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+    assert!(board_place::ghost_kind(h.app.board_tool).is_none());
+    h.frame();
+}
+
+/// GP4 — Ellipse drag uses the same place_rect; tool returns to Select.
+#[test]
+fn arming_gp4_ellipse_drag_commits_and_disarms() {
+    let mut h = arming_board("arming_gp4", board::BoardTool::Ellipse);
+    assert_eq!(
+        board_place::ghost_kind(h.app.board_tool),
+        Some(board_place::GhostKind::Ellipse)
+    );
+    h.app.finish_draw(
+        Pos2::new(0.0, 0.0),
+        Pos2::new(80.0, 50.0),
+        board::BoardTool::Ellipse,
+        egui::Modifiers::default(),
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let NodeKind::Shape(s) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected an ellipse");
+    };
+    assert_eq!(s.shape, slate_doc::scene::ShapeKind::Ellipse);
+    let r = h.app.doc().scene.nodes[0].rect;
+    assert!((r.w - 80.0).abs() < 0.01 && (r.h - 50.0).abs() < 0.01);
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+    h.frame();
+}
+
+/// GP5 — Esc while GhostFollow disarms to Select, no node (P0.1 Mode).
+#[test]
+fn arming_gp5_escape_disarms_without_a_node() {
+    let mut h = arming_board("arming_gp5", board::BoardTool::Frame);
+    let ctx = h.ctx.clone();
+    assert!(h
+        .app
+        .dispatch(&ctx, atlas_commands::CommandId("app.cancel"), None));
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+    assert!(h.app.doc().scene.nodes.is_empty());
+    assert!(board_place::ghost_kind(h.app.board_tool).is_none());
+    h.frame();
+}
+
+/// GP6 — switching tools mid-ghost swaps the silhouette, still no node.
+#[test]
+fn arming_gp6_tool_switch_swaps_the_silhouette() {
+    let mut h = arming_board("arming_gp6", board::BoardTool::RectShape);
+    assert_eq!(
+        board_place::ghost_kind(h.app.board_tool),
+        Some(board_place::GhostKind::RoundedRect)
+    );
+    h.app.set_board_tool(board::BoardTool::Ellipse);
+    assert_eq!(
+        board_place::ghost_kind(h.app.board_tool),
+        Some(board_place::GhostKind::Ellipse)
+    );
+    assert!(h.app.doc().scene.nodes.is_empty());
+    h.app.set_board_tool(board::BoardTool::Text);
+    assert_eq!(
+        board_place::ghost_kind(h.app.board_tool),
+        Some(board_place::GhostKind::TextBox)
+    );
+    h.app.set_board_tool(board::BoardTool::Sticky);
+    assert_eq!(
+        board_place::ghost_kind(h.app.board_tool),
+        Some(board_place::GhostKind::Sticky)
+    );
+    assert!(h.app.doc().scene.nodes.is_empty());
+    h.frame();
+}
+
 // ---------------------------------------------------------------------------
 // Web portal golden paths (contracts/portal-web-embed.md)
 // ---------------------------------------------------------------------------
@@ -1632,6 +1930,127 @@ fn a_bound_status_board_lays_out_the_fixture_and_undo_is_frame_only() {
     );
     assert_eq!(h.app.doc().scene.nodes.len(), 1, "no orphan baked nodes");
     h.frame();
+}
+
+fn agent_board(tag: &str) -> Harness {
+    let mut h = Harness::new(tag);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h
+}
+
+#[test]
+fn a_placed_agent_portal_has_no_identity_tab_and_no_folder() {
+    let mut h = agent_board("agent_place");
+    h.app.place_agent_portal_at(Pos2::new(0.0, 0.0));
+    let node = &h.app.doc().scene.nodes[0];
+    let NodeKind::Portal(p) = &node.kind else {
+        panic!("expected a portal");
+    };
+    assert_eq!(p.kind, slate_doc::scene::PortalKind::Agent);
+    assert!(p.source.is_none(), "a new agent portal is unbound");
+    assert!(
+        !super::board_portal_chrome::uses_identity_tab(p.kind),
+        "the web identity tab must not land on agent portals"
+    );
+    h.frame();
+}
+
+#[test]
+fn binding_an_agent_portal_folder_survives_save_and_reopen() {
+    let mut h = agent_board("agent_bind");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    let folder = h.base.join("climate-grid");
+    std::fs::create_dir_all(&folder).unwrap();
+    h.app.bind_agent_project(id, folder.clone());
+
+    let NodeKind::Portal(p) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected a portal");
+    };
+    assert!(p.source.is_some(), "bind journals a locator");
+    assert_eq!(p.title, "climate-grid");
+
+    let path = h.base.join("book.slate");
+    let tab = h.app.tab().id;
+    h.app.save_doc_to(tab, path.clone());
+
+    let mut h2 = Harness::new("agent_reopen");
+    h2.app.open_doc_at(path);
+    h2.app.doc_mut().view.active_view = ViewKind::Board;
+    h2.frame();
+    let NodeKind::Portal(p) = &h2.app.doc().scene.nodes[0].kind else {
+        panic!("expected a portal after reopen");
+    };
+    assert_eq!(p.kind, slate_doc::scene::PortalKind::Agent);
+    let locator = p
+        .source
+        .as_ref()
+        .expect("saved workbook remembers the folder")
+        .locator
+        .as_str();
+    let resolved = super::board_portal::resolve_source(h2.app.tab().path.as_deref(), locator);
+    let got = std::fs::canonicalize(&resolved).unwrap_or(resolved);
+    let want = std::fs::canonicalize(&folder).unwrap_or(folder);
+    assert_eq!(got, want);
+}
+
+#[test]
+fn selecting_an_agent_portal_does_not_capture_the_wheel() {
+    let mut h = agent_board("agent_select_no_capture");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.board_sel = std::iter::once(id).collect();
+    h.frame();
+    let xf = h.app.board_xf();
+    let center = xf.rect_w2s(h.app.doc().scene.nodes[0].rect).center();
+    assert!(
+        !h.app.agent_shelf_captures(&xf, Some(center)),
+        "selection is not contents-focus — the board keeps the wheel"
+    );
+}
+
+#[test]
+fn a_focused_agent_portal_captures_the_wheel() {
+    let mut h = agent_board("agent_focus_captures");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.agent_focus(id);
+    h.frame();
+    let xf = h.app.board_xf();
+    let center = xf.rect_w2s(h.app.doc().scene.nodes[0].rect).center();
+    assert!(
+        h.app.agent_shelf_captures(&xf, Some(center)),
+        "contents-focus hands the wheel to the shelf"
+    );
+    assert!(h.app.agent_blur());
+    assert!(
+        !h.app.agent_shelf_captures(&xf, Some(center)),
+        "Esc peels focus and the board keeps the wheel again"
+    );
+}
+
+#[test]
+fn an_agent_channel_survives_save_and_reopen() {
+    let mut h = agent_board("agent_channel");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.set_agent_channel(id, Some("composer-1".into()));
+    let path = h.base.join("book.slate");
+    let tab = h.app.tab().id;
+    h.app.save_doc_to(tab, path.clone());
+    let mut h2 = Harness::new("agent_channel_reopen");
+    h2.app.open_doc_at(path);
+    h2.app.doc_mut().view.active_view = ViewKind::Board;
+    h2.frame();
+    let NodeKind::Portal(p) = &h2.app.doc().scene.nodes[0].kind else {
+        panic!("expected a portal after reopen");
+    };
+    assert_eq!(
+        p.agent.as_ref().and_then(|a| a.channel.as_deref()),
+        Some("composer-1")
+    );
 }
 
 /// GP2 — dropping an HTML file on the board makes a portal, not a text card,
@@ -1828,6 +2247,66 @@ fn gp4_releasing_input_focus_leaves_the_page_running() {
     assert!(
         h.app.web.is_live(id),
         "the page keeps rendering after focus leaves"
+    );
+}
+
+/// Maximize is derived: the node rect is untouched, Esc restores, and the
+/// page keeps its focus (P1.portal.maximize).
+#[test]
+fn maximize_covers_the_window_without_mutating_the_frame() {
+    let mut h = web_board("web_maximize");
+    with_fake_host(&mut h);
+    h.app.paste_web_url("https://example.com/a", Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    h.app.web_maximize(id);
+    assert_eq!(h.app.portal_chrome.maximized, Some(id));
+    assert_eq!(h.app.web.focused, Some(id));
+    assert_eq!(
+        h.app.doc().scene.node(id).unwrap().rect,
+        rect,
+        "maximize is not a journaled resize"
+    );
+    h.app.web_restore();
+    assert!(h.app.portal_chrome.maximized.is_none());
+    assert_eq!(h.app.web.focused, Some(id), "restore keeps page focus");
+}
+
+/// Identity-tab fold is per-portal derived state (P1.portal.chrome).
+#[test]
+fn portal_tab_fold_toggles_without_a_journal_entry() {
+    let mut h = web_board("web_tab_fold");
+    h.app.place_web_portal_at(Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    assert!(!h.app.portal_chrome_collapsed(id));
+    assert!(h.app.portal_toggle_chrome(id));
+    assert!(h.app.portal_chrome_collapsed(id));
+    assert_eq!(
+        h.app.doc().scene.node(id).unwrap().rect,
+        rect,
+        "folding the tab is not a frame mutation"
+    );
+}
+
+/// Right-click paste rebinds that portal (journaled Patch).
+#[test]
+fn paste_url_rebinds_the_selected_portal() {
+    let mut h = web_board("web_paste_url");
+    h.app.paste_web_url("https://example.com/a", Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    h.app.board_sel = std::iter::once(id).collect();
+    assert!(h.app.web_paste_url_text("https://example.com/b"));
+    let (_, p) = only_portal(&h);
+    assert_eq!(
+        p.source.as_ref().map(|s| s.locator.as_str()),
+        Some("https://example.com/b")
+    );
+    h.app.board_undo();
+    let (_, p) = only_portal(&h);
+    assert_eq!(
+        p.source.as_ref().map(|s| s.locator.as_str()),
+        Some("https://example.com/a")
     );
 }
 
@@ -2337,4 +2816,982 @@ fn slate_thumb_lru_caps_resident_textures() {
     h.app.evict_thumbs();
     assert!(h.app.textures.len() <= cap);
     assert_eq!(h.app.textures.len(), h.app.thumb_pixels.len());
+}
+
+/// Wire grips preview only at the handle under the pointer — not the whole edge.
+#[test]
+fn wire_grips_preview_only_the_handle_under_the_pointer() {
+    let mut h = web_board("wire_grip_prox");
+    add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let n = h.app.doc().scene.nodes[0].clone();
+    // Midway along the top edge, well away from the side-midpoint grip.
+    let between = xf.w2s(Pos2::new(n.rect.x + 12.0, n.rect.y));
+    h.app.update_wire_grips(Some(between), &xf);
+    assert!(
+        h.app.wire_grips.is_none(),
+        "an edge between grips must not preview a wire handle"
+    );
+
+    let grip = xf.w2s(board_wire::grip_point(n.rect, slate_doc::scene::Side::Top));
+    h.app.update_wire_grips(Some(grip), &xf);
+    assert_eq!(
+        h.app.wire_grips.map(|g| (g.node, g.hovered)),
+        Some((n.id, Some(slate_doc::scene::Side::Top))),
+        "only the grip under the pointer previews"
+    );
+}
+
+/// A press on the displayed wire handle starts a wire, even when that
+/// point is also on the resize band and the live hover cache has cleared
+/// (egui's drag threshold often leaves the 8 px dot before drag_started).
+#[test]
+fn wire_grip_press_beats_edge_resize() {
+    let mut h = web_board("wire_grip_beats_resize");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let grip = xf.w2s(board_wire::grip_point(rect, slate_doc::scene::Side::Top));
+    let world = xf.s2w(grip);
+
+    // Simulate the live pointer having already left the dot.
+    h.app.wire_grips = None;
+    let mods = egui::Modifiers::default();
+    let drag = h.app.begin_gesture_for_test(grip, world, mods);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Wire(_))),
+        "press on the wire handle must start a wire"
+    );
+    assert!(
+        h.app.begin_transform_drag(grip, world).is_none(),
+        "resize must stay suppressed on the wire handle"
+    );
+
+    let edge = xf.w2s(Pos2::new(rect.x + 12.0, rect.y));
+    let edge_world = xf.s2w(edge);
+    let edge_drag = h.app.begin_gesture_for_test(edge, edge_world, mods);
+    assert!(
+        matches!(edge_drag, Some(board::BoardDrag::Resize { .. })),
+        "the rest of the edge must still resize"
+    );
+}
+
+/// Bounding-box chrome is live on hover — no prior selection (P1.node.transform).
+#[test]
+fn bbox_chrome_is_live_without_selection() {
+    let mut h = web_board("bbox_chrome");
+    add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let n = h.app.doc().scene.nodes[0].clone();
+    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+
+    let hit = h.app.transform_hit_at(geom.edges[1]);
+    assert!(
+        matches!(
+            hit,
+            Some((
+                Some(_),
+                board_handles::BoardHitTarget::Resize(board_handles::ResizeHandle::E)
+            ))
+        ),
+        "right-edge hover must resize without a selection, got {hit:?}"
+    );
+
+    let hit = h.app.transform_hit_at(geom.rotate_points[0]);
+    assert!(
+        matches!(hit, Some((_, board_handles::BoardHitTarget::Rotate(_)))),
+        "outside-corner hover must rotate a shape, got {hit:?}"
+    );
+
+    // Press the edge away from the wire-grip midpoint so resize, not a
+    // wire, is the gesture (P1.node.transform).
+    let edge = xf.w2s(Pos2::new(n.rect.x + n.rect.w, n.rect.y + 12.0));
+    let world = xf.s2w(edge);
+    let drag = h.app.begin_transform_drag(edge, world);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Resize { .. })),
+        "pressing an edge on an unselected node starts resize"
+    );
+    assert!(
+        h.app.board_sel.contains(&n.id),
+        "starting a resize selects the node"
+    );
+}
+
+/// Edge hover changes the cursor target only — no body highlight (and
+/// therefore no selection-look tab / handle chrome).
+#[test]
+fn edge_hover_does_not_arm_a_body_highlight() {
+    let mut h = web_board("edge_hover_cursor");
+    add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let n = h.app.doc().scene.nodes[0].clone();
+    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+    let ctx = h.ctx.clone();
+    h.app
+        .hover_transform_chrome(Some(geom.edges[1]), &xf, &ctx, false);
+    assert!(
+        matches!(
+            h.app.board_hover_hit,
+            Some(board_handles::BoardHitTarget::Resize(_))
+        ),
+        "edge hover must still be a resize hit"
+    );
+    let world = xf.s2w(geom.edges[1]);
+    assert!(
+        h.app.hover_preview_target(Some(world)).is_none(),
+        "edge hover must not highlight the node like a selection"
+    );
+}
+
+/// Interior hover is the eased preview target; the node is still unselected.
+#[test]
+fn body_hover_targets_the_unselected_node() {
+    let mut h = web_board("body_hover_preview");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let n = h.app.doc().scene.node(id).unwrap();
+    let center = xf.w2s(Pos2::new(
+        n.rect.x + n.rect.w * 0.5,
+        n.rect.y + n.rect.h * 0.5,
+    ));
+    let ctx = h.ctx.clone();
+    h.app.hover_transform_chrome(Some(center), &xf, &ctx, false);
+    assert!(
+        h.app.board_hover_hit.is_none(),
+        "the interior is not resize chrome"
+    );
+    let world = xf.s2w(center);
+    assert_eq!(h.app.hover_preview_target(Some(world)), Some(id));
+    assert!(h.app.board_sel.is_empty(), "hover never selects");
+}
+
+/// Selection outline follows painted geometry — fillets and ellipses, not the AABB.
+#[test]
+fn selection_outline_follows_silhouette() {
+    let mut h = web_board("sel_silhouette");
+    let square = add_rect(&mut h.app, 0.0, 0.0);
+    let rounded = {
+        use slate_doc::scene::{ShapeKind, ShapeNode};
+        let rect = slate_doc::scene::WorldRect::new(100.0, 0.0, 80.0, 60.0);
+        let node = h.app.doc_mut().scene.build_node(
+            rect,
+            slate_doc::scene::NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Rect,
+                fill: Some(slate_doc::scene::Rgba::WHITE),
+                stroke: slate_doc::scene::Stroke::none(),
+                corner: slate_doc::scene::Corner::Rounded { radius: 12.0 },
+                flip: false,
+                path: None,
+            }),
+        );
+        h.app.add_nodes(vec![node])[0]
+    };
+    let ellipse = {
+        use slate_doc::scene::{ShapeKind, ShapeNode};
+        let rect = slate_doc::scene::WorldRect::new(200.0, 0.0, 80.0, 60.0);
+        let node = h.app.doc_mut().scene.build_node(
+            rect,
+            slate_doc::scene::NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Ellipse,
+                fill: Some(slate_doc::scene::Rgba::WHITE),
+                stroke: slate_doc::scene::Stroke::none(),
+                corner: slate_doc::scene::Corner::Square,
+                flip: false,
+                path: None,
+            }),
+        );
+        h.app.add_nodes(vec![node])[0]
+    };
+    h.app.place_web_portal_at(Pos2::new(400.0, 40.0));
+    h.frame();
+    let xf = h.app.board_xf();
+    let sq = h.app.doc().scene.node(square).unwrap();
+    assert_eq!(h.app.node_screen_outline(&xf, sq).len(), 4);
+
+    let rd = h.app.doc().scene.node(rounded).unwrap();
+    let rd_pts = h.app.node_screen_outline(&xf, rd);
+    assert!(
+        rd_pts.len() > 4,
+        "a filleted rect must not highlight as a sharp box"
+    );
+    let srect = xf.rect_w2s(rd.rect);
+    let sharp = srect.left_top();
+    assert!(
+        rd_pts.iter().all(|p| p.distance(sharp) > 2.0),
+        "the highlight must leave the sharp corner empty"
+    );
+
+    let el = h.app.doc().scene.node(ellipse).unwrap();
+    assert!(
+        h.app.node_screen_outline(&xf, el).len() > 4,
+        "an ellipse highlight must be circular, not a box"
+    );
+
+    let portal = h.app.doc().scene.nodes.iter().rev().next().unwrap();
+    let p_pts = h.app.node_screen_outline(&xf, portal);
+    assert!(
+        p_pts.len() > 4,
+        "a portal highlight must follow the shared fillet"
+    );
+}
+
+/// Portals stay axis-aligned: no rotate chrome, but edges still resize.
+#[test]
+fn portals_do_not_rotate() {
+    let mut h = web_board("portal_norot");
+    h.app.place_web_portal_at(Pos2::new(0.0, 0.0));
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let n = h.app.doc().scene.nodes[0].clone();
+    assert!(
+        !SlateApp::node_allows_rotation(&n),
+        "portals must not offer rotation"
+    );
+
+    let xf = h.app.board_xf();
+    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+
+    let hit = h.app.transform_hit_at(geom.rotate_points[0]);
+    assert!(
+        !matches!(hit, Some((_, board_handles::BoardHitTarget::Rotate(_)))),
+        "outside-corner hover must not rotate a portal, got {hit:?}"
+    );
+
+    let hit = h.app.transform_hit_at(geom.edges[1]);
+    assert!(
+        matches!(
+            hit,
+            Some((
+                Some(_),
+                board_handles::BoardHitTarget::Resize(board_handles::ResizeHandle::E)
+            ))
+        ),
+        "portal edges still resize, got {hit:?}"
+    );
+}
+
+// ---------- Align widget golden paths (contracts/align-widget.md GP1–GP5) ----------
+
+fn align_board(tag: &str) -> Harness {
+    let mut h = Harness::new(tag);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    h
+}
+
+fn select_ids(app: &mut SlateApp, ids: &[NodeId]) {
+    app.board_sel = ids.iter().copied().collect();
+}
+
+/// GP1 — two offset rects · align left → both share x = 0.
+#[test]
+fn align_gp1_align_left() {
+    let mut h = align_board("align_gp1");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 40.0, 30.0);
+    select_ids(&mut h.app, &[a, b]);
+    assert!(h.app.align_board_selection(board::BoardAlign::Left));
+    let ra = h.app.doc().scene.node(a).unwrap().rect;
+    let rb = h.app.doc().scene.node(b).unwrap().rect;
+    assert!((ra.x - 0.0).abs() < 1e-4, "left datum, got {}", ra.x);
+    assert!((rb.x - 0.0).abs() < 1e-4, "left datum, got {}", rb.x);
+    assert!((ra.y - 0.0).abs() < 1e-4, "y must not change");
+    assert!((rb.y - 30.0).abs() < 1e-4, "y must not change");
+}
+
+/// GP2 — same rects · align bottom → both bottom edges share y+h = 90.
+#[test]
+fn align_gp2_align_bottom() {
+    let mut h = align_board("align_gp2");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 40.0, 30.0);
+    select_ids(&mut h.app, &[a, b]);
+    assert!(h.app.align_board_selection(board::BoardAlign::Bottom));
+    let ra = h.app.doc().scene.node(a).unwrap().rect;
+    let rb = h.app.doc().scene.node(b).unwrap().rect;
+    assert!(((ra.y + ra.h) - 90.0).abs() < 1e-4);
+    assert!(((rb.y + rb.h) - 90.0).abs() < 1e-4);
+}
+
+/// GP3 — three rects · distribute horizontal → ends stay, equal gaps.
+#[test]
+fn align_gp3_distribute_horizontal() {
+    let mut h = align_board("align_gp3");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 100.0, 0.0);
+    let c = add_rect(&mut h.app, 400.0, 0.0);
+    select_ids(&mut h.app, &[a, b, c]);
+    assert!(h
+        .app
+        .distribute_board_selection(board::DistributeAxis::Horizontal));
+    let ra = h.app.doc().scene.node(a).unwrap().rect;
+    let rb = h.app.doc().scene.node(b).unwrap().rect;
+    let rc = h.app.doc().scene.node(c).unwrap().rect;
+    assert!((ra.x - 0.0).abs() < 1e-3);
+    assert!((rc.x - 400.0).abs() < 1e-3);
+    let g0 = rb.x - (ra.x + ra.w);
+    let g1 = rc.x - (rb.x + rb.w);
+    assert!((g0 - g1).abs() < 1e-3, "gaps {g0} vs {g1}");
+}
+
+/// GP4 — align is one undo step.
+#[test]
+fn align_gp4_one_undo() {
+    let mut h = align_board("align_gp4");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 40.0, 30.0);
+    select_ids(&mut h.app, &[a, b]);
+    assert!(h.app.align_board_selection(board::BoardAlign::Left));
+    h.app.board_undo();
+    let ra = h.app.doc().scene.node(a).unwrap().rect;
+    let rb = h.app.doc().scene.node(b).unwrap().rect;
+    assert!((ra.x - 0.0).abs() < 1e-4 && (ra.y - 0.0).abs() < 1e-4);
+    assert!((rb.x - 40.0).abs() < 1e-4 && (rb.y - 30.0).abs() < 1e-4);
+}
+
+/// GP5 — icons sit outside the group box; the inner bottom edge is not an align hit.
+#[test]
+fn align_gp5_widget_hit_misses_the_box() {
+    let mut h = align_board("align_gp5");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 120.0, 40.0);
+    select_ids(&mut h.app, &[a, b]);
+    h.frame();
+    let xf = h.app.board_xf();
+    let gb = h.app.board_group_bounds().expect("group bounds");
+    let bbox = xf.rect_w2s(gb);
+    let inner_bottom = Pos2::new(bbox.center().x, bbox.bottom());
+    assert_eq!(
+        h.app.align_action_at(inner_bottom),
+        None,
+        "inner bottom edge is resize, not align"
+    );
+    let cluster = 4.0 * board_align::ICON_PX + 3.0 * board_align::ICON_GAP_PX;
+    let icon = Pos2::new(
+        bbox.center().x - cluster * 0.5 + board_align::ICON_PX * 0.5,
+        bbox.bottom() + board_align::FRAME_OUTSET_PX,
+    );
+    assert_eq!(
+        h.app.align_action_at(icon),
+        Some(board_align::AlignAction::Align(board::BoardAlign::Left))
+    );
+    let old_top = Pos2::new(
+        bbox.center().x - cluster * 0.5 + board_align::ICON_PX * 0.5,
+        bbox.top() - board_align::FRAME_OUTSET_PX,
+    );
+    assert_eq!(h.app.align_action_at(old_top), None, "top cluster is gone");
+}
+
+/// Ctrl+Alt+Shift on a group edge: members keep size and only translate.
+#[test]
+fn group_reposition_keeps_member_size() {
+    let mut h = align_board("group_reposition");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 120.0, 0.0);
+    select_ids(&mut h.app, &[a, b]);
+    let gb = h.app.board_group_bounds().expect("group bounds");
+    let before: Vec<_> = [a, b]
+        .iter()
+        .map(|id| h.app.doc().scene.node(*id).unwrap().clone())
+        .collect();
+    h.app.board_drag = Some(board::BoardDrag::GroupResize {
+        ids: vec![a, b],
+        before,
+        group_before: gb,
+        handle: board_handles::ResizeHandle::E as u8,
+    });
+    let mut mods = egui::Modifiers::default();
+    mods.ctrl = true;
+    mods.alt = true;
+    mods.shift = true;
+    h.app.update_gesture_for_test(Pos2::new(300.0, 30.0), mods);
+    let ra = h.app.doc().scene.node(a).unwrap().rect;
+    let rb = h.app.doc().scene.node(b).unwrap().rect;
+    assert!((ra.w - 80.0).abs() < 1e-3 && (ra.h - 60.0).abs() < 1e-3);
+    assert!((rb.w - 80.0).abs() < 1e-3 && (rb.h - 60.0).abs() < 1e-3);
+    assert!((ra.x - 0.0).abs() < 1e-2, "left item stays, got {}", ra.x);
+    assert!(
+        (rb.x - 180.0).abs() < 1e-2,
+        "right item translates, got {}",
+        rb.x
+    );
+}
+
+/// After a 180° rotate, grabbing the visual top edge must move that edge
+/// — not the far (visual bottom) edge. Rotation is about the live center,
+/// so local AABB math alone walks the opposite world edge.
+#[test]
+fn rotated_180_resize_moves_the_grabbed_edge() {
+    let mut h = web_board("rot180_resize");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    if let Some(n) = h.app.doc_mut().scene.node_mut(id) {
+        n.rect = slate_doc::scene::WorldRect::new(0.0, 0.0, 80.0, 80.0);
+        n.rotation_deg = 180.0;
+    }
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let n = h.app.doc().scene.node(id).unwrap().clone();
+    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+    // After 180°, corners[2]→[3] (local S) is the visual top. Stay off the
+    // midpoint so a wire grip does not swallow the press.
+    let screen = geom.corners[2] + (geom.corners[3] - geom.corners[2]) * 0.25;
+    let world = xf.s2w(screen);
+    let drag = h.app.begin_transform_drag(screen, world);
+    let ok = matches!(&drag, Some(board::BoardDrag::Resize { handle: 5, .. }));
+    assert!(ok, "visual top after 180° is local S");
+    h.app.board_drag = drag;
+
+    let top0 = n
+        .rect
+        .corners_rotated(n.rotation_deg)
+        .into_iter()
+        .map(|c| c.1)
+        .fold(f32::INFINITY, f32::min);
+    let bot0 = n
+        .rect
+        .corners_rotated(n.rotation_deg)
+        .into_iter()
+        .map(|c| c.1)
+        .fold(f32::NEG_INFINITY, f32::max);
+    let (cx, _) = n.rect.center();
+    let mut mods = egui::Modifiers::default();
+    mods.alt = true; // skip object-snap so the pin is the only translation
+    h.app
+        .update_gesture_for_test(Pos2::new(cx, top0 - 20.0), mods);
+
+    let after = h.app.doc().scene.node(id).unwrap();
+    let top1 = after
+        .rect
+        .corners_rotated(after.rotation_deg)
+        .into_iter()
+        .map(|c| c.1)
+        .fold(f32::INFINITY, f32::min);
+    let bot1 = after
+        .rect
+        .corners_rotated(after.rotation_deg)
+        .into_iter()
+        .map(|c| c.1)
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert!(
+        (bot1 - bot0).abs() < 0.05,
+        "visual bottom walked: {bot0} → {bot1}"
+    );
+    assert!(
+        (top1 - (top0 - 20.0)).abs() < 0.05,
+        "visual top should follow the pointer: {top0} → {top1}"
+    );
+}
+
+/// A wide 2+ group box still offers a 45° corner-resize cursor (P1.node.transform).
+#[test]
+fn group_box_corner_is_diagonal_resize() {
+    let mut h = web_board("group_corner_cursor");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 160.0, 0.0);
+    select_ids(&mut h.app, &[a, b]);
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let gb = h.app.board_group_bounds().expect("group bounds");
+    let geom = board_handles::selection_geom(&xf, gb, 0.0);
+    let hit = h.app.transform_hit_at(geom.corners[0]);
+    assert!(
+        matches!(
+            hit,
+            Some((
+                None,
+                board_handles::BoardHitTarget::Resize(board_handles::ResizeHandle::Nw)
+            ))
+        ),
+        "group-box corner must be a corner resize, got {hit:?}"
+    );
+    assert_eq!(
+        board_handles::cursor_for_resize(board_handles::ResizeHandle::Nw, &geom),
+        egui::CursorIcon::ResizeNorthWest
+    );
+}
+
+// ---------- Trim golden paths (contracts/trim.md GP1–GP6) ----------
+
+fn trim_board(tag: &str) -> Harness {
+    let mut h = Harness::new(tag);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h
+}
+
+fn add_seg(app: &mut SlateApp, a: Pos2, b: Pos2) -> NodeId {
+    use slate_doc::scene::{ShapeKind, ShapeNode};
+    let (rect, path) = board_path::points_to_path_data(&[a, b], false);
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: Some(path),
+        }),
+    );
+    app.add_nodes(vec![node])[0]
+}
+
+fn add_filled_rect(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> NodeId {
+    use slate_doc::scene::{ShapeKind, ShapeNode};
+    let rect = slate_doc::scene::WorldRect::new(x, y, w, h);
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Rect,
+            fill: Some(slate_doc::scene::Rgba::WHITE),
+            stroke: slate_doc::scene::Stroke::none(),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: None,
+        }),
+    );
+    app.add_nodes(vec![node])[0]
+}
+
+fn add_filled_ellipse(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> NodeId {
+    use slate_doc::scene::{ShapeKind, ShapeNode};
+    let rect = slate_doc::scene::WorldRect::new(x, y, w, h);
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Ellipse,
+            fill: Some(slate_doc::scene::Rgba::WHITE),
+            stroke: slate_doc::scene::Stroke::none(),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: None,
+        }),
+    );
+    app.add_nodes(vec![node])[0]
+}
+
+fn select_trim(app: &mut SlateApp, ids: &[NodeId]) {
+    app.board_sel.clear();
+    for id in ids {
+        app.board_sel.insert(*id);
+    }
+}
+
+/// GP1 — two crossing lines, preselect, click one half of the horizontal.
+#[test]
+fn trim_gp1_crossing_lines() {
+    let mut h = trim_board("trim_gp1");
+    let horiz = add_seg(&mut h.app, Pos2::new(0.0, 50.0), Pos2::new(100.0, 50.0));
+    let vert = add_seg(&mut h.app, Pos2::new(50.0, 0.0), Pos2::new(50.0, 100.0));
+    select_trim(&mut h.app, &[horiz, vert]);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert_eq!(h.app.board_tool, board::BoardTool::Trim);
+    assert!(h.app.trim.as_ref().is_some_and(|s| s.cutters.len() == 2));
+    assert!(h.app.trim_click(Pos2::new(25.0, 50.0), false));
+    let n = h.app.doc().scene.node(horiz).expect("horizontal remains");
+    match &n.kind {
+        slate_doc::scene::NodeKind::Shape(s) => {
+            assert_eq!(s.shape, slate_doc::scene::ShapeKind::Path);
+            let path = s.path.as_ref().unwrap();
+            assert!(!path.closed);
+            // Remaining half should live on the right of the crossing.
+            assert!(n.rect.x + n.rect.w > 50.0);
+            assert!(n.rect.x >= 49.0);
+        }
+        _ => panic!("expected a path"),
+    }
+    h.app.board_undo();
+    let restored = h.app.doc().scene.node(horiz).unwrap();
+    assert!(restored.rect.x < 1.0);
+    h.frame();
+}
+
+/// GP2 — rect cut by a vertical line; click the left half.
+#[test]
+fn trim_gp2_rect_cut_by_line() {
+    let mut h = trim_board("trim_gp2");
+    let rect = add_filled_rect(&mut h.app, 0.0, 0.0, 100.0, 80.0);
+    let line = add_seg(&mut h.app, Pos2::new(50.0, -10.0), Pos2::new(50.0, 90.0));
+    select_trim(&mut h.app, &[rect, line]);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert!(h.app.trim_click(Pos2::new(20.0, 40.0), false));
+    let n = h.app.doc().scene.node(rect).expect("rect remains");
+    match &n.kind {
+        slate_doc::scene::NodeKind::Shape(s) => {
+            assert_eq!(s.shape, slate_doc::scene::ShapeKind::Path);
+            assert!(s.path.as_ref().is_some_and(|p| p.closed));
+        }
+        _ => panic!("expected a path"),
+    }
+    assert!(
+        n.rect.x >= 49.0,
+        "left half should be gone, rect={:?}",
+        n.rect
+    );
+    h.frame();
+}
+
+/// GP3 — circle inside a rect; click the circle punches a hole.
+#[test]
+fn trim_gp3_hole_punch() {
+    let mut h = trim_board("trim_gp3");
+    let rect = add_filled_rect(&mut h.app, 0.0, 0.0, 100.0, 100.0);
+    let circle = add_filled_ellipse(&mut h.app, 30.0, 30.0, 40.0, 40.0);
+    select_trim(&mut h.app, &[rect, circle]);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert!(h.app.trim_click(Pos2::new(50.0, 50.0), false));
+    let n = h.app.doc().scene.node(rect).expect("rect remains");
+    match &n.kind {
+        slate_doc::scene::NodeKind::Shape(s) => {
+            let path = s.path.as_ref().expect("rewritten path");
+            assert!(
+                !path.extra.is_empty()
+                    || matches!(path.fill_rule, slate_doc::scene::PathFillRule::EvenOdd),
+                "hole punch must be a compound even-odd path"
+            );
+            let bez = board_path::path_data_to_world_bez(path, n.rect, n.rotation_deg);
+            let contours = vector_ink::flatten_contours(&bez, 0.35);
+            assert!(
+                vector_ink::point_in_polygon(&contours, [5.0, 5.0]),
+                "rect corner must remain"
+            );
+            assert!(
+                !vector_ink::point_in_polygon(&contours, [50.0, 50.0]),
+                "circle centre must be a hole"
+            );
+        }
+        _ => panic!("expected a path"),
+    }
+    h.frame();
+}
+
+/// GP4 — Ctrl+T arms Trim; Ctrl+N still opens a tab.
+#[test]
+fn trim_gp4_ctrl_n_still_new_tab() {
+    let mut h = trim_board("trim_gp4");
+    h.app
+        .dispatch(&h.ctx, atlas_commands::CommandId("board.tool.trim"), None);
+    assert_eq!(h.app.board_tool, board::BoardTool::Trim);
+    let before = h.app.tabs.len();
+    h.app
+        .dispatch(&h.ctx, atlas_commands::CommandId("app.new_tab"), None);
+    assert_eq!(h.app.tabs.len(), before + 1);
+    h.frame();
+}
+
+/// GP5 — two clicks, one undo restores only the last.
+#[test]
+fn trim_gp5_per_click_undo() {
+    let mut h = trim_board("trim_gp5");
+    let a = add_seg(&mut h.app, Pos2::new(0.0, 0.0), Pos2::new(100.0, 0.0));
+    let c1 = add_seg(&mut h.app, Pos2::new(30.0, -10.0), Pos2::new(30.0, 10.0));
+    let c2 = add_seg(&mut h.app, Pos2::new(70.0, -10.0), Pos2::new(70.0, 10.0));
+    select_trim(&mut h.app, &[a, c1, c2]);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert!(h.app.trim_click(Pos2::new(15.0, 0.0), false));
+    let after_first = h.app.doc().scene.node(a).unwrap().rect;
+    assert!(h.app.trim_click(Pos2::new(85.0, 0.0), false));
+    let after_second = h.app.doc().scene.node(a).map(|n| n.rect);
+    h.app.board_undo();
+    let undone = h.app.doc().scene.node(a).unwrap().rect;
+    assert_eq!(undone, after_first, "one undo peels one click");
+    let _ = after_second;
+    h.frame();
+}
+
+/// GP6 — Esc peels TrimParts → PickCutters → Select.
+#[test]
+fn trim_gp6_esc_stack() {
+    let mut h = trim_board("trim_gp6");
+    let cutter = add_filled_rect(&mut h.app, 0.0, 0.0, 40.0, 40.0);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert_eq!(
+        h.app.trim.as_ref().unwrap().phase,
+        super::board_trim::TrimPhase::PickCutters
+    );
+    assert!(h.app.trim_click(Pos2::new(20.0, 20.0), false));
+    assert!(h.app.trim.as_ref().unwrap().cutters.contains(&cutter));
+    h.app.trim_enter();
+    assert_eq!(
+        h.app.trim.as_ref().unwrap().phase,
+        super::board_trim::TrimPhase::TrimParts
+    );
+    h.app.trim_cancel_step();
+    assert_eq!(
+        h.app.trim.as_ref().unwrap().phase,
+        super::board_trim::TrimPhase::PickCutters
+    );
+    h.app.trim_cancel_step();
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+    assert!(h.app.trim.is_none());
+    h.frame();
+}
+
+/// Text + circle: the circle chops a hole in the text's clip (D11).
+#[test]
+fn trim_text_clip_punches_a_hole() {
+    use slate_doc::scene::{FontChoice, TextAlign, TextNode};
+    let mut h = trim_board("trim_text_clip");
+    let text = {
+        let rect = slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 40.0);
+        let node = h.app.doc_mut().scene.build_node(
+            rect,
+            slate_doc::scene::NodeKind::Text(TextNode {
+                text: "HELLO".into(),
+                family: FontChoice::Sans,
+                size: 24.0,
+                color: slate_doc::scene::Rgba::BLACK,
+                align: TextAlign::Left,
+                fill: None,
+            }),
+        );
+        h.app.add_nodes(vec![node])[0]
+    };
+    let circle = add_filled_ellipse(&mut h.app, 30.0, 0.0, 40.0, 40.0);
+    select_trim(&mut h.app, &[text, circle]);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert!(h.app.trim_click(Pos2::new(50.0, 20.0), false));
+    let n = h.app.doc().scene.node(text).expect("text remains");
+    let clip = n.clip.as_ref().expect("text clip after punch");
+    let bez = board_path::path_data_to_world_bez(clip, n.rect, n.rotation_deg);
+    let contours = vector_ink::flatten_contours(&bez, 0.35);
+    assert!(vector_ink::point_in_polygon(&contours, [5.0, 20.0]));
+    assert!(!vector_ink::point_in_polygon(&contours, [50.0, 20.0]));
+    h.frame();
+}
+
+// ---------- Join golden paths (contracts/join.md GP1–GP6) ----------
+
+fn join_board(tag: &str) -> Harness {
+    trim_board(tag)
+}
+
+fn joined_contours(app: &SlateApp) -> (slate_doc::scene::WorldRect, Vec<Vec<[f32; 2]>>) {
+    assert_eq!(app.doc().scene.nodes.len(), 1, "join should leave one node");
+    let n = &app.doc().scene.nodes[0];
+    let path = match &n.kind {
+        slate_doc::scene::NodeKind::Shape(s) => s.path.as_ref().expect("joined path"),
+        _ => panic!("joined node must be a shape"),
+    };
+    let bez = board_path::path_data_to_world_bez(path, n.rect, n.rotation_deg);
+    (n.rect, vector_ink::flatten_contours(&bez, 0.35))
+}
+
+/// GP1 — two open segments join at nearest ends (existing style rule).
+#[test]
+fn join_gp1_open_paths() {
+    join_two_open_paths_keeps_first_style();
+}
+
+/// GP2 — overlapping filled rects union into one region.
+#[test]
+fn join_gp2_closed_union() {
+    let mut h = join_board("join_gp2");
+    let a = add_filled_rect(&mut h.app, 0.0, 0.0, 80.0, 80.0);
+    let b = add_filled_rect(&mut h.app, 40.0, 40.0, 80.0, 80.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    assert!(h.app.cmd_join());
+    let (_, contours) = joined_contours(&h.app);
+    assert!(vector_ink::point_in_polygon(&contours, [10.0, 10.0]));
+    assert!(vector_ink::point_in_polygon(&contours, [100.0, 100.0]));
+    assert!(vector_ink::point_in_polygon(&contours, [50.0, 50.0]));
+    assert!(!vector_ink::point_in_polygon(&contours, [10.0, 100.0]));
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 2);
+    h.frame();
+}
+
+/// GP3 — open stroke + filled rect: the ribbon outside the rect is kept.
+#[test]
+fn join_gp3_open_plus_closed() {
+    let mut h = join_board("join_gp3");
+    let rect = add_filled_rect(&mut h.app, 40.0, 20.0, 40.0, 40.0);
+    let line = add_seg(&mut h.app, Pos2::new(0.0, 40.0), Pos2::new(140.0, 40.0));
+    h.app.board_sel = [rect, line].into_iter().collect();
+    assert!(h.app.cmd_join());
+    let (_, contours) = joined_contours(&h.app);
+    assert!(
+        vector_ink::point_in_polygon(&contours, [10.0, 40.0]),
+        "stroke ribbon left of the rect must remain"
+    );
+    assert!(vector_ink::point_in_polygon(&contours, [60.0, 40.0]));
+    h.frame();
+}
+
+/// GP4 — nested rects union to the outer (no hole).
+#[test]
+fn join_gp4_nested_union() {
+    let mut h = join_board("join_gp4");
+    let outer = add_filled_rect(&mut h.app, 0.0, 0.0, 100.0, 100.0);
+    let inner = add_filled_rect(&mut h.app, 30.0, 30.0, 20.0, 20.0);
+    h.app.board_sel = [outer, inner].into_iter().collect();
+    assert!(h.app.cmd_join());
+    let (_, contours) = joined_contours(&h.app);
+    assert!(vector_ink::point_in_polygon(&contours, [10.0, 10.0]));
+    assert!(
+        vector_ink::point_in_polygon(&contours, [40.0, 40.0]),
+        "inner rect must not become a hole"
+    );
+    h.frame();
+}
+
+/// GP5 — disjoint rects stay two filled regions on one path.
+#[test]
+fn join_gp5_disjoint_compound() {
+    let mut h = join_board("join_gp5");
+    let a = add_filled_rect(&mut h.app, 0.0, 0.0, 20.0, 20.0);
+    let b = add_filled_rect(&mut h.app, 80.0, 80.0, 20.0, 20.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    assert!(h.app.cmd_join());
+    let (_, contours) = joined_contours(&h.app);
+    assert!(vector_ink::point_in_polygon(&contours, [10.0, 10.0]));
+    assert!(vector_ink::point_in_polygon(&contours, [90.0, 90.0]));
+    assert!(!vector_ink::point_in_polygon(&contours, [50.0, 50.0]));
+    h.frame();
+}
+
+/// GP6 — typed / dock command is the same as Ctrl+J.
+#[test]
+fn join_gp6_command_id() {
+    let mut h = join_board("join_gp6");
+    let a = add_filled_rect(&mut h.app, 0.0, 0.0, 40.0, 40.0);
+    let b = add_filled_rect(&mut h.app, 20.0, 20.0, 40.0, 40.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("board.path.join"), None));
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    h.frame();
+}
+
+/// One closed shape alone is a no-op (inferred D11).
+#[test]
+fn join_one_closed_is_noop() {
+    let mut h = join_board("join_one_closed");
+    let a = add_filled_rect(&mut h.app, 0.0, 0.0, 40.0, 40.0);
+    h.app.board_sel = [a].into_iter().collect();
+    assert!(!h.app.cmd_join());
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    h.frame();
+}
+
+/// Text is skipped; two rects still union (P2.RhinoJoin.skip).
+#[test]
+fn join_skips_text() {
+    use slate_doc::scene::{FontChoice, TextAlign, TextNode};
+    let mut h = join_board("join_skips_text");
+    let a = add_filled_rect(&mut h.app, 0.0, 0.0, 40.0, 40.0);
+    let b = add_filled_rect(&mut h.app, 20.0, 20.0, 40.0, 40.0);
+    let text = {
+        let rect = slate_doc::scene::WorldRect::new(200.0, 0.0, 80.0, 24.0);
+        let node = h.app.doc_mut().scene.build_node(
+            rect,
+            slate_doc::scene::NodeKind::Text(TextNode {
+                text: "keep".into(),
+                family: FontChoice::Sans,
+                size: 14.0,
+                color: slate_doc::scene::Rgba::BLACK,
+                align: TextAlign::Left,
+                fill: None,
+            }),
+        );
+        h.app.add_nodes(vec![node])[0]
+    };
+    h.app.board_sel = [a, b, text].into_iter().collect();
+    assert!(h.app.cmd_join());
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        2,
+        "text remains, rects union"
+    );
+    assert!(h.app.doc().scene.node(text).is_some());
+    h.frame();
+}
+
+/// A click on a host selects the host, not the wire painted underneath it.
+#[test]
+fn wire_under_node_does_not_steal_pick() {
+    use slate_doc::scene::{ConnectorEnd, Side};
+    let mut h = Harness::new("wire_under");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 200.0, 0.0);
+    h.app
+        .add_connector(
+            ConnectorEnd::Anchored {
+                node: a,
+                side: Side::Right,
+                t: 0.5,
+            },
+            ConnectorEnd::Anchored {
+                node: b,
+                side: Side::Left,
+                t: 0.5,
+            },
+        )
+        .expect("wire");
+    let hit = board_path::board_pick_node_routed(
+        &h.app.doc().scene,
+        40.0,
+        30.0,
+        1.0,
+        false,
+        h.app.board_wire_routing,
+    );
+    assert_eq!(hit, Some(a), "host under the pointer beats the wire");
+}
+
+#[test]
+fn wire_routing_toggle_is_session_not_journaled() {
+    let mut h = Harness::new("wire_routing");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    assert_eq!(h.app.board_wire_routing, slate_doc::WireRouting::Bezier);
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.wire.orthogonal"),
+        None
+    ));
+    assert_eq!(h.app.board_wire_routing, slate_doc::WireRouting::Orthogonal);
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.wire.routing"),
+        None
+    ));
+    assert_eq!(h.app.board_wire_routing, slate_doc::WireRouting::Bezier);
 }

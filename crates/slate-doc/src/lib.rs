@@ -10,11 +10,13 @@ mod item;
 pub mod lease;
 mod link;
 pub mod media;
+pub mod osnap;
 pub mod scene;
 mod spatial;
 pub mod stage;
 mod tags;
 mod view;
+pub mod wire;
 
 pub use doc::{SlateDoc, SLATE_EXTENSION};
 pub use error::SlateLoadError;
@@ -23,6 +25,10 @@ pub use item::SlateItem;
 pub use lease::{Lease, LeaseInfo, LeaseState, LEASE_HEARTBEAT_SECS, LEASE_STALE_SECS};
 pub use link::{link_status, LinkStatus};
 pub use media::{media_kind, MediaKind};
+pub use osnap::{
+    discrete_anchors, node_facets, ObjectSnapSet, RejectedSnap, SnapAnchor, SnapFacet, SnapKind,
+    SnapReject,
+};
 pub use scene::{
     AgentContextScope, AgentPortalRef, Node, NodeId, NodeKind, PortalClass, PortalKind, PortalNode,
     RepoPortalQuery, RepoTimeAxis, Scene, SceneCmd, SceneJournal, SourceUri, StatusPortalQuery,
@@ -35,3 +41,8 @@ pub use stage::{
 };
 pub use tags::{Tag, TagGroup};
 pub use view::{ViewKind, ViewState};
+pub use wire::{
+    connector_aabb_routed, connector_ortho_path, connector_route, filleted_polyline,
+    nearest_on_polyline, scene_wire_obstacles, ConnectorPath, PathCmd, WireRouting,
+    ORTHO_CLEARANCE, ORTHO_CORNER_RADIUS,
+};

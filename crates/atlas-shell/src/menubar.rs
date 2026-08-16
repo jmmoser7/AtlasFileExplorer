@@ -9,13 +9,15 @@
 //! supplies [`MenuSpec`]s, [`TabSpec`]s (via [`crate::tabs`]), and reacts to
 //! the returned [`UnifiedTopBarResult`]. All geometry and colors live here.
 
+use crate::menu;
 use crate::tabs::{self, TabAction, TabChromeColors, TabSpec};
 use crate::theme::Palette;
-use crate::tokens::{PortalMenuThemeTokens, PortalMenuTokens, TopBarTokens};
+use crate::tokens::TopBarTokens;
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, CursorIcon, FontId, Margin, Pos2, Rect, Sense, Shadow,
-    Stroke, StrokeKind, Vec2, ViewportCommand,
+    self, Color32, CursorIcon, Margin, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2, ViewportCommand,
 };
+
+pub use crate::menu::MenuIcon;
 
 /// Thickness of the invisible resize border on an undecorated window.
 const RESIZE_EDGE: f32 = 5.0;
@@ -30,6 +32,7 @@ pub struct MenuItem {
     pub enabled: bool,
     pub checked: Option<bool>,
     pub separator_before: bool,
+    pub icon: MenuIcon,
 }
 
 impl MenuItem {
@@ -41,7 +44,13 @@ impl MenuItem {
             enabled: true,
             checked: None,
             separator_before: false,
+            icon: MenuIcon::None,
         }
+    }
+
+    pub fn icon(mut self, icon: MenuIcon) -> Self {
+        self.icon = icon;
+        self
     }
 
     pub fn shortcut(mut self, s: &'static str) -> Self {
@@ -68,6 +77,7 @@ impl MenuItem {
 /// One top-level menu (title + its dropdown items).
 pub struct MenuSpec {
     pub title: &'static str,
+    pub icon: MenuIcon,
     pub items: Vec<MenuItem>,
 }
 
@@ -172,155 +182,18 @@ fn paint_bar_background(painter: &egui::Painter, rect: Rect, colors: TabChromeCo
     tabs::paint_vertical_gradient(painter, rect, colors.bar_top, colors.bar);
 }
 
-fn portal_theme<'a>(palette: &Palette, portal: &'a PortalMenuTokens) -> &'a PortalMenuThemeTokens {
-    if palette.bg.r() > 128 {
-        &portal.light
-    } else {
-        &portal.dark
-    }
+fn portal_is_dark(palette: &Palette) -> bool {
+    palette.bg.r() <= 128
 }
 
-fn portal_frame(portal: &PortalMenuTokens, theme: &PortalMenuThemeTokens) -> egui::Frame {
-    egui::Frame::new()
-        .fill(theme.fill_color())
-        .stroke(Stroke::new(1.0_f32, theme.border_color()))
-        .corner_radius(CornerRadius::same(
-            portal.corner_radius.clamp(0.0, 255.0) as u8
-        ))
-        .shadow(Shadow {
-            offset: [
-                portal.shadow_offset_x.clamp(-127.0, 127.0) as i8,
-                portal.shadow_offset_y.clamp(-127.0, 127.0) as i8,
-            ],
-            blur: portal.shadow_blur.clamp(0.0, 255.0) as u8,
-            spread: portal.shadow_spread.clamp(0.0, 255.0) as u8,
-            color: Color32::from_black_alpha((portal.shadow_opacity.clamp(0.0, 1.0) * 255.0) as u8),
-        })
-        .inner_margin(Margin::same(portal.panel_padding.clamp(0.0, 127.0) as i8))
-}
-
-fn portal_header(
-    ui: &mut egui::Ui,
-    title: &str,
-    portal: &PortalMenuTokens,
-    theme: &PortalMenuThemeTokens,
-) {
-    let (rect, _) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width(), portal.row_height),
-        Sense::hover(),
-    );
-    ui.painter().text(
-        Pos2::new(rect.left(), rect.center().y),
-        Align2::LEFT_CENTER,
-        title,
-        FontId::proportional(portal.header_text_size),
-        theme.text_color(),
-    );
-}
-
-fn portal_separator(ui: &mut egui::Ui, portal: &PortalMenuTokens, theme: &PortalMenuThemeTokens) {
-    ui.add_space(portal.separator_gap * 0.5);
-    let y = ui.cursor().top();
-    ui.painter().line_segment(
-        [
-            Pos2::new(ui.max_rect().left(), y),
-            Pos2::new(ui.max_rect().right(), y),
-        ],
-        Stroke::new(1.0_f32, theme.border_color().gamma_multiply(0.65)),
-    );
-    ui.add_space(portal.separator_gap * 0.5);
-}
-
-fn portal_category_row(
-    ui: &mut egui::Ui,
-    title: &str,
-    has_submenu: bool,
-    selected: bool,
-    portal: &PortalMenuTokens,
-    theme: &PortalMenuThemeTokens,
-) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width(), portal.row_height),
-        Sense::click(),
-    );
-    if response.hovered() || selected {
-        ui.painter().rect_filled(
-            rect,
-            CornerRadius::same((portal.corner_radius * 0.42).clamp(0.0, 255.0) as u8),
-            theme.hover_color(),
-        );
+fn portal_item_row(ui: &mut egui::Ui, item: &MenuItem, dark: bool) -> egui::Response {
+    let mut spec = menu::Row::new(item.icon, &item.label)
+        .shortcut(item.shortcut)
+        .enabled(item.enabled);
+    if let Some(on) = item.checked {
+        spec = spec.checked(on);
     }
-    let text_color = if has_submenu {
-        theme.text_color()
-    } else {
-        theme.muted_text_color()
-    };
-    ui.painter().text(
-        Pos2::new(rect.left() + 3.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        title,
-        FontId::proportional(portal.row_text_size),
-        text_color,
-    );
-    if has_submenu {
-        ui.painter().text(
-            Pos2::new(rect.right() - 3.0, rect.center().y),
-            Align2::RIGHT_CENTER,
-            "›",
-            FontId::proportional(portal.chevron_text_size),
-            theme.muted_text_color(),
-        );
-    }
-    response
-}
-
-fn portal_item_row(
-    ui: &mut egui::Ui,
-    item: &MenuItem,
-    portal: &PortalMenuTokens,
-    theme: &PortalMenuThemeTokens,
-) -> egui::Response {
-    let sense = if item.enabled {
-        Sense::click()
-    } else {
-        Sense::hover()
-    };
-    let (rect, response) =
-        ui.allocate_exact_size(Vec2::new(ui.available_width(), portal.row_height), sense);
-    if item.enabled && response.hovered() {
-        ui.painter().rect_filled(
-            rect,
-            CornerRadius::same((portal.corner_radius * 0.42).clamp(0.0, 255.0) as u8),
-            theme.hover_color(),
-        );
-    }
-    let text_color = if item.enabled {
-        theme.text_color()
-    } else {
-        theme.muted_text_color().gamma_multiply(0.65)
-    };
-    let prefix = match item.checked {
-        Some(true) => "✓  ",
-        Some(false) => "    ",
-        None => "",
-    };
-    ui.painter().text(
-        Pos2::new(rect.left() + 3.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        format!("{prefix}{}", item.label),
-        FontId::proportional(portal.row_text_size),
-        text_color,
-    );
-    if !item.shortcut.is_empty() {
-        ui.painter().text(
-            Pos2::new(rect.right() - 3.0, rect.center().y),
-            Align2::RIGHT_CENTER,
-            item.shortcut,
-            FontId::proportional(portal.shortcut_text_size),
-            theme.muted_text_color(),
-        );
-    }
-    response
+    menu::row(ui, spec, dark)
 }
 
 fn show_portal_menu(
@@ -332,7 +205,8 @@ fn show_portal_menu(
     state: &mut PortalMenuState,
 ) -> PortalMenuResponse {
     let portal = &metrics.portal;
-    let theme = portal_theme(palette, portal);
+    let dark = portal_is_dark(palette);
+    let pad = menu::tokens().panel_padding;
     let mut active_row_rect = Rect::NOTHING;
 
     let main = egui::Area::new(egui::Id::new(("portal_main", model.app_title)))
@@ -343,29 +217,30 @@ fn show_portal_menu(
         ))
         .show(ctx, |ui| {
             ui.set_width(portal.width);
-            portal_frame(portal, theme).show(ui, |ui| {
-                ui.set_width((portal.width - portal.panel_padding * 2.0).max(1.0));
-                portal_header(ui, model.app_title, portal, theme);
-                portal_separator(ui, portal, theme);
+            menu::frame(dark).show(ui, |ui| {
+                ui.set_width((portal.width - pad * 2.0).max(1.0));
+                menu::heading(ui, model.app_title, dark);
+                menu::separator(ui, dark);
 
-                for (index, menu) in model.menus.iter().enumerate() {
-                    if menu.title == "Preferences" {
-                        portal_separator(ui, portal, theme);
+                for (index, spec) in model.menus.iter().enumerate() {
+                    if spec.title == "Preferences" {
+                        menu::separator(ui, dark);
                     }
                     let selected = state.active_menu == Some(index);
-                    let response = portal_category_row(
-                        ui,
-                        menu.title,
-                        !menu.items.is_empty(),
-                        selected,
-                        portal,
-                        theme,
-                    );
+                    let response = if spec.items.is_empty() {
+                        menu::row(
+                            ui,
+                            menu::Row::new(spec.icon, spec.title).enabled(false),
+                            dark,
+                        )
+                    } else {
+                        menu::submenu(ui, spec.icon, spec.title, selected, dark)
+                    };
                     if selected {
                         active_row_rect = response.rect;
                     }
                     if response.hovered() {
-                        state.active_menu = if menu.items.is_empty() {
+                        state.active_menu = if spec.items.is_empty() {
                             None
                         } else {
                             Some(index)
@@ -379,26 +254,24 @@ fn show_portal_menu(
     let mut clicked = None;
     let mut submenu_rect = Rect::NOTHING;
     if let Some(index) = state.active_menu {
-        if let Some(menu) = model.menus.get(index) {
-            if !menu.items.is_empty() && active_row_rect.is_positive() {
+        if let Some(spec) = model.menus.get(index) {
+            if !spec.items.is_empty() && active_row_rect.is_positive() {
                 let submenu =
                     egui::Area::new(egui::Id::new(("portal_submenu", model.app_title, index)))
                         .order(egui::Order::Foreground)
                         .fixed_pos(Pos2::new(
                             main.response.rect.right() + portal.submenu_gap,
-                            active_row_rect.top() - portal.panel_padding,
+                            active_row_rect.top() - pad,
                         ))
                         .show(ctx, |ui| {
                             ui.set_width(portal.submenu_width);
-                            portal_frame(portal, theme).show(ui, |ui| {
-                                ui.set_width(
-                                    (portal.submenu_width - portal.panel_padding * 2.0).max(1.0),
-                                );
-                                for item in &menu.items {
+                            menu::frame(dark).show(ui, |ui| {
+                                ui.set_width((portal.submenu_width - pad * 2.0).max(1.0));
+                                for item in &spec.items {
                                     if item.separator_before {
-                                        portal_separator(ui, portal, theme);
+                                        menu::separator(ui, dark);
                                     }
-                                    if portal_item_row(ui, item, portal, theme).clicked() {
+                                    if portal_item_row(ui, item, dark).clicked() {
                                         clicked = Some(item.id);
                                     }
                                 }
@@ -611,20 +484,7 @@ fn window_buttons(
     if hover {
         ui.painter().rect_filled(maxi, 0.0, colors.inactive_hover);
     }
-    let c = maxi.center();
-    let s = Stroke::new(1.2_f32, palette.ink);
-    if maximized {
-        let r = Rect::from_center_size(c + Vec2::new(-1.0, 1.0), Vec2::splat(8.0));
-        let back = r.translate(Vec2::new(2.5, -2.5));
-        ui.painter()
-            .line_segment([back.left_top(), back.right_top()], s);
-        ui.painter()
-            .line_segment([back.right_top(), back.right_bottom()], s);
-        ui.painter().rect_stroke(r, 1.0, s, StrokeKind::Middle);
-    } else {
-        let r = Rect::from_center_size(c, Vec2::splat(9.0));
-        ui.painter().rect_stroke(r, 1.0, s, StrokeKind::Middle);
-    }
+    tabs::paint_maximize_glyph(ui.painter(), maxi, palette.ink, maximized);
     if resp.clicked() {
         ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
     }

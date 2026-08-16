@@ -4,6 +4,13 @@
 //! button starts a fresh workspace. Both apps drive the same [`HomeScreen`]
 //! — covers, textures, motion, and painting are identical by construction.
 //! Geometry and motion are tunable via `[home]` in `ui-tokens.toml`.
+//!
+//! Title-faces (folders without artwork) are laid out once, then each glyph
+//! is projected as a short strip so stems do not ripple under yaw. Do not
+//! `galley` at the projected midpoint, and do not blit the whole title onto
+//! the artwork mesh. Embeds that must not steal the host's wheel set
+//! [`HomeModel::interactive`] to false until contents-focus
+//! (`P1.portal.contents-focus`).
 
 use crate::recent::{cover_cache_path, RecentEntry, RecentList};
 use crate::theme::Palette;
@@ -67,10 +74,15 @@ impl HomeScreen {
             ui,
             palette,
             HomeModel {
-                id_salt: self.id_salt,
+                id: Id::new(self.id_salt),
                 new_label: "New",
                 covers: &covers,
                 focus: self.focus,
+                backdrop: true,
+                honor_cover_limits: true,
+                cta: HomeCta::Bottom,
+                host: None,
+                interactive: true,
             },
         );
         self.focus = result.focus;
@@ -137,14 +149,35 @@ pub enum HomeAction {
     New,
 }
 
+/// Where the sole CTA (New / Select folder) sits on the shelf.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum HomeCta {
+    /// Home screen: above the bottom edge, clear of the focused album.
+    Bottom,
+    /// Empty embed (no recents): the pill is the whole invitation.
+    Center,
+}
+
 pub struct HomeModel<'a> {
-    /// Salts interaction ids (Atlas vs Slate).
-    pub id_salt: &'a str,
-    /// Label for the sole bottom CTA (e.g. "New").
+    /// Salts interaction ids (Atlas vs Slate vs a specific portal).
+    pub id: Id,
+    /// Label for the sole CTA (e.g. "New", "Select folder").
     pub new_label: &'a str,
     pub covers: &'a [HomeCover],
     /// Index of the focused cover in the flow.
     pub focus: usize,
+    /// Home paints a mesh gradient; an embed sits on the host's own fill.
+    pub backdrop: bool,
+    /// Home honors `[home]` cover min/max. An embed must track the host
+    /// rect (P0.9) and ignores those window-sized clamps.
+    pub honor_cover_limits: bool,
+    pub cta: HomeCta,
+    /// `None` uses the UI's available rect (home). `Some` embeds the shelf
+    /// in a host (agent portal body) without taking the whole canvas.
+    pub host: Option<Rect>,
+    /// When false the shelf paints but does not take the wheel, drag, or
+    /// clicks — the host keeps navigation (P1.portal.contents-focus).
+    pub interactive: bool,
 }
 
 /// Result of interacting with the home surface this frame.
@@ -441,15 +474,27 @@ fn normalize_position(position: &mut f32, count: usize) {
 }
 
 /// Draw the Cover Flow home into `ui`'s full available rect.
-pub fn cover_flow_home(ui: &mut Ui, palette: &Palette, model: HomeModel<'_>) -> HomeResult {
-    let rect = ui.available_rect_before_wrap();
-    let resp = ui.allocate_rect(rect, Sense::click_and_drag());
+pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> HomeResult {
+    let rect = model
+        .host
+        .unwrap_or_else(|| ui.available_rect_before_wrap());
+    let resp = ui.interact(
+        rect,
+        model.id.with("home_flow_hit"),
+        if model.interactive {
+            Sense::click_and_drag()
+        } else {
+            Sense::hover()
+        },
+    );
     let painter = ui.painter_at(rect);
     let count = model.covers.len();
     let mut action = None;
 
     // Background: subtle mesh gradient (soft color blobs over the theme bg).
-    paint_mesh_gradient(&painter, rect, palette);
+    if model.backdrop {
+        paint_mesh_gradient(&painter, rect, palette);
+    }
 
     // Square covers (album-art aspect), sized and centered by the live tokens.
     let home_tokens = tokens::current().home;
@@ -457,12 +502,16 @@ pub fn cover_flow_home(ui: &mut Ui, palette: &Palette, model: HomeModel<'_>) -> 
         rect.center().x,
         rect.min.y + rect.height() * home_tokens.center_y_frac,
     );
-    let cover = (rect.height() * home_tokens.cover_frac)
-        .clamp(home_tokens.cover_min, home_tokens.cover_max);
+    let raw_cover = rect.height() * home_tokens.cover_frac;
+    let cover = if model.honor_cover_limits {
+        raw_cover.clamp(home_tokens.cover_min, home_tokens.cover_max)
+    } else {
+        raw_cover
+    };
     let (cover_w, cover_h) = (cover, cover);
     let tuning = CoverFlowTuning::from_tokens(&home_tokens, cover);
 
-    let state_id = Id::new(("home_flow_state", model.id_salt));
+    let state_id = model.id.with("home_flow_state");
     let mut flow = ui.ctx().data_mut(|d| {
         d.get_temp_mut_or_insert_with(state_id, CoverFlowState::default)
             .clone()
@@ -493,9 +542,10 @@ pub fn cover_flow_home(ui: &mut Ui, palette: &Palette, model: HomeModel<'_>) -> 
     }
 
     let dt = ui.input(|i| i.stable_dt).clamp(1.0 / 240.0, 1.0 / 20.0);
-    let pointer_down = resp.is_pointer_button_down_on();
-    let pointer_pressed =
-        resp.hovered() && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+    let pointer_down = model.interactive && resp.is_pointer_button_down_on();
+    let pointer_pressed = model.interactive
+        && resp.hovered()
+        && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
 
     // Fresh press during motion stops immediately (iPod behavior) and the
     // release must not open a cover.
@@ -511,7 +561,7 @@ pub fn cover_flow_home(ui: &mut Ui, palette: &Palette, model: HomeModel<'_>) -> 
         flow.stop_gesture = true;
     }
 
-    if count > 0 {
+    if model.interactive && count > 0 {
         // Wheel / trackpad: accumulate px, then step the target one detent at
         // a time so every advance is spring-animated (never a teleport).
         if resp.hovered() {
@@ -625,6 +675,7 @@ pub fn cover_flow_home(ui: &mut Ui, palette: &Palette, model: HomeModel<'_>) -> 
                 &tuning,
                 cover.texture,
                 cover.placeholder,
+                &cover.title,
             );
             if let Some(p) = pointer {
                 if point_in_quad(p, &quad) {
@@ -648,7 +699,7 @@ pub fn cover_flow_home(ui: &mut Ui, palette: &Palette, model: HomeModel<'_>) -> 
         }
 
         // Click / tap — suppressed when the press only stopped momentum.
-        if resp.clicked() && !flow.stop_gesture {
+        if model.interactive && resp.clicked() && !flow.stop_gesture {
             if let Some((_slot, logical)) = hit {
                 if logical == focus {
                     action = Some(HomeAction::Open(logical));
@@ -668,16 +719,21 @@ pub fn cover_flow_home(ui: &mut Ui, palette: &Palette, model: HomeModel<'_>) -> 
 
     ui.ctx().data_mut(|d| d.insert_temp(state_id, flow));
 
-    // Sole CTA — New. Opening is the album flow.
-    if !model.new_label.is_empty() {
-        let cta_y = rect.max.y - 52.0;
+    // Sole CTA — New / Select folder. Opening is the album flow.
+    if model.interactive && !model.new_label.is_empty() {
+        let type_px = rect.height() * (14.0 / 780.0);
+        let cta = match model.cta {
+            HomeCta::Bottom => Pos2::new(rect.center().x, rect.max.y - type_px * 3.7),
+            HomeCta::Center => rect.center(),
+        };
         if pill_button(
             ui,
             &painter,
-            Pos2::new(rect.center().x, cta_y),
+            cta,
             model.new_label,
             palette.accent,
             Color32::WHITE,
+            type_px,
         ) {
             action = Some(HomeAction::New);
         }
@@ -872,8 +928,35 @@ fn fillet_outline(hw: f32, hh: f32, radius: f32) -> Vec<(f32, f32)> {
     out
 }
 
+/// Display size for a title painted on a cover face. Fraction of the
+/// apparent card width so the type belongs to the album (P0.9).
+pub fn title_face_font_px(card_w: f32, title_chars: usize) -> f32 {
+    let base = card_w * 0.22;
+    if title_chars <= 8 {
+        base
+    } else if title_chars <= 16 {
+        base * 0.78
+    } else {
+        base * 0.62
+    }
+}
+
+/// Tracking for a title-face: short names open up, long names stay tighter.
+pub fn title_face_tracking(font_px: f32, title_chars: usize) -> f32 {
+    let t = if title_chars <= 6 {
+        0.08
+    } else if title_chars <= 14 {
+        0.05
+    } else {
+        0.03
+    };
+    font_px * t
+}
+
 /// Minimal cover: artwork (or a quiet card) on a beveled silhouette, seated
 /// on a computed ambient-occlusion halo — no borders, headers, or drop glow.
+/// Folders without a baked image get a title-face (the same path home and
+/// agent-portal embeds use — do not fork a second cover painter).
 #[allow(clippy::too_many_arguments)]
 fn paint_cover(
     painter: &egui::Painter,
@@ -885,6 +968,7 @@ fn paint_cover(
     tuning: &CoverFlowTuning,
     texture: Option<TextureId>,
     placeholder: bool,
+    title: &str,
 ) {
     let hw = card_w * 0.5;
     let hh = card_h * 0.5;
@@ -917,6 +1001,166 @@ fn paint_cover(
             fill,
             Stroke::NONE,
         ));
+        paint_title_glyphs(
+            painter,
+            palette.ink,
+            flow_center,
+            card_w,
+            card_h,
+            slot_offset,
+            tuning,
+            title,
+        );
+    }
+}
+
+/// Layout space for a title-face. Positions are cached in this square and
+/// mapped onto the card; the font is never re-fit to apparent width.
+const TITLE_FACE_PX: f32 = 56.0;
+const TITLE_FACE_DIM: f32 = 512.0;
+/// Columns across one glyph. A letter is a few millimetres of face, so this
+/// many keeps affine UV error off the stems (see PAINT.md).
+const TITLE_GLYPH_COLS: usize = 8;
+
+#[derive(Clone)]
+struct TitleGlyph {
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    u0: f32,
+    v0: f32,
+    u1: f32,
+    v1: f32,
+}
+
+#[derive(Clone)]
+struct TitleFace {
+    glyphs: Vec<TitleGlyph>,
+}
+
+fn title_face(ctx: &egui::Context, title: &str) -> Option<TitleFace> {
+    let title = title.trim();
+    if title.is_empty() {
+        return None;
+    }
+    let atlas = ctx.fonts(|f| f.font_image_size());
+    let key = Id::new(("cover_title_glyphs", title, atlas));
+    if let Some(face) = ctx.data(|d| d.get_temp::<TitleFace>(key)) {
+        return Some(face);
+    }
+    let face = layout_title_face(ctx, title)?;
+    ctx.data_mut(|d| d.insert_temp(key, face.clone()));
+    Some(face)
+}
+
+fn layout_title_face(ctx: &egui::Context, title: &str) -> Option<TitleFace> {
+    ctx.fonts(|fonts| {
+        let chars = title.chars().count();
+        let font_px = title_face_font_px(TITLE_FACE_DIM * 0.76, chars).max(TITLE_FACE_PX);
+        let mut job = egui::text::LayoutJob::default();
+        job.wrap.max_width = TITLE_FACE_DIM * 0.76;
+        job.halign = egui::Align::Center;
+        job.append(
+            title,
+            0.0,
+            egui::TextFormat {
+                font_id: FontId::proportional(font_px),
+                extra_letter_spacing: title_face_tracking(font_px, chars),
+                color: Color32::WHITE,
+                line_height: Some(font_px * 1.15),
+                ..Default::default()
+            },
+        );
+        let galley = fonts.layout_job(job);
+        if galley.rows.is_empty() {
+            return None;
+        }
+        let [aw, ah] = fonts.font_image_size();
+        let (aw, ah) = (aw.max(1) as f32, ah.max(1) as f32);
+        let origin = Pos2::new(
+            TITLE_FACE_DIM * 0.5,
+            (TITLE_FACE_DIM - galley.size().y) * 0.5,
+        );
+        let mut glyphs = Vec::new();
+        for row in &galley.rows {
+            for g in &row.glyphs {
+                let uv = g.uv_rect;
+                if uv.is_nothing() {
+                    continue;
+                }
+                glyphs.push(TitleGlyph {
+                    x0: origin.x + g.pos.x + uv.offset.x,
+                    y0: origin.y + g.pos.y + uv.offset.y,
+                    x1: origin.x + g.pos.x + uv.offset.x + uv.size.x,
+                    y1: origin.y + g.pos.y + uv.offset.y + uv.size.y,
+                    u0: uv.min[0] as f32 / aw,
+                    v0: uv.min[1] as f32 / ah,
+                    u1: uv.max[0] as f32 / aw,
+                    v1: uv.max[1] as f32 / ah,
+                });
+            }
+        }
+        if glyphs.is_empty() {
+            None
+        } else {
+            Some(TitleFace { glyphs })
+        }
+    })
+}
+
+/// Project each cached glyph as a short column strip. Same `project_point` as
+/// the card; much smaller patches than a full-face title texture.
+fn paint_title_glyphs(
+    painter: &egui::Painter,
+    ink: Color32,
+    flow_center: Pos2,
+    card_w: f32,
+    card_h: f32,
+    slot_offset: f32,
+    tuning: &CoverFlowTuning,
+    title: &str,
+) {
+    let Some(face) = title_face(painter.ctx(), title) else {
+        return;
+    };
+    let mut mesh = Mesh::with_texture(TextureId::default());
+    let verts = face.glyphs.len() * (TITLE_GLYPH_COLS + 1) * 2;
+    mesh.vertices.reserve(verts);
+    mesh.indices
+        .reserve(face.glyphs.len() * TITLE_GLYPH_COLS * 6);
+    for g in &face.glyphs {
+        let x0 = (g.x0 / TITLE_FACE_DIM - 0.5) * card_w;
+        let x1 = (g.x1 / TITLE_FACE_DIM - 0.5) * card_w;
+        let y0 = (g.y0 / TITLE_FACE_DIM - 0.5) * card_h;
+        let y1 = (g.y1 / TITLE_FACE_DIM - 0.5) * card_h;
+        if (x1 - x0).abs() < 0.15 || (y1 - y0).abs() < 0.15 {
+            continue;
+        }
+        let base = mesh.vertices.len() as u32;
+        for i in 0..=TITLE_GLYPH_COLS {
+            let t = i as f32 / TITLE_GLYPH_COLS as f32;
+            let lx = x0 + (x1 - x0) * t;
+            let u = g.u0 + (g.u1 - g.u0) * t;
+            mesh.vertices.push(Vertex {
+                pos: project_point(flow_center, lx, y0, slot_offset, tuning),
+                uv: egui::pos2(u, g.v0),
+                color: ink,
+            });
+            mesh.vertices.push(Vertex {
+                pos: project_point(flow_center, lx, y1, slot_offset, tuning),
+                uv: egui::pos2(u, g.v1),
+                color: ink,
+            });
+        }
+        for i in 0..TITLE_GLYPH_COLS as u32 {
+            let a = base + i * 2;
+            mesh.add_triangle(a, a + 1, a + 3);
+            mesh.add_triangle(a, a + 3, a + 2);
+        }
+    }
+    if !mesh.is_empty() {
+        painter.add(egui::Shape::mesh(mesh));
     }
 }
 
@@ -1111,15 +1355,19 @@ fn point_in_tri(p: Pos2, a: Pos2, b: Pos2, c: Pos2) -> bool {
 }
 
 fn pill_button(
-    ui: &mut Ui,
+    ui: &Ui,
     painter: &egui::Painter,
     center: Pos2,
     label: &str,
     fill: Color32,
     text: Color32,
+    type_px: f32,
 ) -> bool {
-    let galley = painter.layout_no_wrap(label.to_owned(), FontId::proportional(14.0), text);
-    let pad = Vec2::new(18.0, 8.0);
+    if type_px < crate::canvas_text::consts::MIN_RENDER_PX {
+        return false;
+    }
+    let galley = painter.layout_no_wrap(label.to_owned(), FontId::proportional(type_px), text);
+    let pad = Vec2::new(type_px * 1.28, type_px * 0.57);
     let size = galley.size() + pad * 2.0;
     let rect = Rect::from_center_size(center, size);
     let id = ui.id().with(("home_pill", label));
@@ -1129,7 +1377,8 @@ fn pill_button(
     } else {
         fill
     };
-    painter.rect_filled(rect, CornerRadius::same(16), fill);
+    let radius = (type_px * 1.14).round().clamp(4.0, 32.0) as u8;
+    painter.rect_filled(rect, CornerRadius::same(radius), fill);
     painter.galley(rect.center() - galley.size() * 0.5, galley, text);
     resp.clicked()
 }
@@ -1144,6 +1393,34 @@ mod tests {
     /// texture and the card's perspective is how finely the face is subdivided.
     /// This measures that directly: how far the mesh's piecewise-affine mapping
     /// drifts from the true projection across a yawed card.
+    #[test]
+    fn a_title_face_grows_with_the_card() {
+        let small = title_face_font_px(120.0, 8);
+        let large = title_face_font_px(240.0, 8);
+        assert!((large / small - 2.0).abs() < 0.01, "{small} → {large}");
+        assert!(title_face_tracking(24.0, 4) > title_face_tracking(24.0, 20));
+    }
+
+    /// Layout is cached in a fixed square; glyphs have area so they can be
+    /// projected as strips instead of a full-face texture.
+    #[test]
+    fn a_title_face_lays_out_glyphs_once() {
+        let ctx = egui::Context::default();
+        let mut face = None;
+        let _ = ctx.run(Default::default(), |ctx| {
+            face = layout_title_face(ctx, "Climate");
+        });
+        let face = face.expect("fonts must produce a title face");
+        assert!(
+            !face.glyphs.is_empty(),
+            "the title must produce at least one glyph"
+        );
+        assert!(
+            face.glyphs.iter().all(|g| g.x1 > g.x0 && g.y1 > g.y0),
+            "each glyph needs a dest rect"
+        );
+    }
+
     #[test]
     fn artwork_tracks_the_card_projection_at_a_hard_yaw() {
         let mut tuning = CoverFlowTuning::for_cover(260.0);

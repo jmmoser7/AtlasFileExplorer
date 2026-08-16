@@ -33,7 +33,7 @@ shared crates:
 | `crates/atlas-session` | In-process bridge for linked Slate⇄Atlas sessions | Yes |
 | `crates/atlas-ai` | AI / Cursor integration: shared AI-workspace config, Cursor launcher, live-link context beacon, the sidebar AI panel body | Yes |
 | `crates/slate-doc` | `.slate` document model: faceted tag system + the board scene graph (`scene.rs`: nodes, SVG-ceiling styles, invertible + authored `SceneCmd` journal) | Yes |
-| `crates/slate-kit` | Declarative board tools: gesture grammar (code, closed set of 9) + result recipe (data). `.slatekit` model, loader, and scope resolver; `builtin/core.slatekit` holds the board's own tool results. See `KITS.md` | Yes |
+| `crates/slate-kit` | Declarative board tools: gesture grammar (code, closed set of 10) + result recipe (data). `.slatekit` model, loader, and scope resolver; `builtin/core.slatekit` holds the board's own tool results. See `KITS.md` | Yes |
 | `crates/slate-artifact` | HTML artifact writer: scene → slides, styles → CSS, embedded JS slide runtime. Export is serialization, not conversion | Yes |
 | `crates/circle-pack` | Pure geometry: circle packing + Venn layout | Yes |
 | `crates/vector-ink` | Pure vector geometry engine (kurbo): path flattening, variable-width stroking to feathered AA meshes, stroke outlines for SVG export, hit-testing, freehand fitting. No renderer deps (Constitution Art. I) | Yes |
@@ -81,6 +81,21 @@ Interaction contracts for canvas tools and portal subtypes live in
 contract) and are governed by the `.cursor/skills/tool-contract` skill.
 `cargo xtask contracts` checks that the three artifacts agree — it also runs
 inside `cargo test --workspace`.
+
+## Canvas-space scale (P0.9)
+
+Objects on a Slate board **and** a File Atlas canvas scale with zoom exactly
+as a shape does (`world × zoom`). Text, icons, badges, borders, and
+node-local tabs are canvas objects — they must not hold a constant screen
+size while the camera moves. Window chrome in `atlas-shell` and
+pointer-attached ghosts (`P2.GhostFollow`) are the named exceptions.
+Always-apply rule: `.cursor/rules/canvas-scale.mdc`. Pattern: **P0.9** in
+`docs/keymap/contracts/PATTERNS.md`. Type: `atlas-shell::canvas_text`.
+Cover Flow (home and any embed, including unbound agent portals):
+`atlas-shell::home::cover_flow_home` — never a second copy. Type on a
+yawed album face is per-glyph projected strips (not a full-face texture
+and not a live `galley`). Interactive portal embeds set
+`HomeModel.interactive` only in contents-focus (`P1.portal.contents-focus`).
 
 ## Board tools: grammar and recipe
 
@@ -225,6 +240,19 @@ Release binaries: `target/release/native-file-atlas.exe` and
 previews. Slate registers the `.slate` file association (per-user, HKCU) on
 first run and embeds `apps/slate/assets/slate.ico`.
 
+## Session activity log (read this before asking what froze)
+
+Both apps record frame time and named work to
+`%LOCALAPPDATA%\NativeFileAtlas\session-log\` (`file-atlas.jsonl` /
+`slate.jsonl`, plus `*-latest.json`). Stalls (app time ≥ 33 ms or delivered
+interval ≥ 50 ms) write a snapshot of what was on the stack — scan ingest,
+tree rebuild, scene commit, board paint, tessellation misses. **F4** drops a
+bookmark at the moment the user felt the hitch. When diagnosing "Atlas locked
+up while loading" or "Slate hitch after editing a large board", read
+`*-latest.json` first, then the tail of the jsonl. Do not ask the user to
+reconstruct the timeline. `ATLAS_SESSION_LOG=0` disables disk writes. The AI
+context beacon includes the log paths and last stall when a workspace is set.
+
 ## Linked sessions (Slate ⇄ Atlas)
 
 "Open File Atlas" inside Slate hosts Atlas as a **second viewport of the
@@ -248,7 +276,7 @@ identical in both apps — extend it there, never per-app. The crate owns:
 
 ## The Board (Slate's presentation generator)
 
-Two structural rules keep the board honest — hold both when extending it:
+Three structural rules keep the board honest — hold all three when extending it:
 
 1. **The scene model is constrained to the SVG ceiling.** `slate-doc::scene`
    only holds styling that SVG (including CSS) can express — the
@@ -263,6 +291,14 @@ Two structural rules keep the board honest — hold both when extending it:
    tab's `SceneJournal` (undo/redo now; the MCP agent surface later). UI code
    must not mutate `doc.scene` outside a journaled path
    (`patch_nodes` / `add_nodes` / `delete_board_nodes` / `commit_scene`).
+3. **Portal-local UI stays on the portal (`P1.portal.local-ui`).**
+   Document Settings is canvas-scoped (grid, board object snaps). A
+   portal that needs a unique interface with its source — Rhino view
+   snaps, web consent, repo query knobs — owns that UI on the portal
+   (Selection inspector / Set portal / portal chrome). Do not add
+   per-kind rows to board-wide panels. New portal contracts answer
+   **D35**. Exception only when the user explicitly says a control is
+   canvas-wide.
 
 Frames are slides (geometric membership, `order` = deck sequence, optional
 tag assignments inherited by dropped images). Presentation mode

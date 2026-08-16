@@ -4,6 +4,7 @@
 //! geometry is derived here and never journaled (Constitution Art. V / VI.3).
 
 use super::{PickerMsg, SlateApp};
+use atlas_shell::{canvas_scale, canvas_text};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 use repo_graph::{
@@ -455,6 +456,7 @@ impl SlateApp {
             _ => None,
         }) {
             Some(PortalKind::StatusBoard) => self.pick_status_for_portal(portal),
+            Some(PortalKind::Agent) => self.pick_agent_project(portal),
             _ => self.pick_repo_for_portal(portal),
         }
         true
@@ -516,7 +518,8 @@ impl SlateApp {
             PortalKind::StatusBoard => {
                 p.title == "Status Board" || p.title.starts_with("Status Board")
             }
-            PortalKind::Agent | PortalKind::Web => false,
+            PortalKind::Web => false,
+            PortalKind::Agent => p.title == "Agent portal" || p.title.starts_with("Agent portal"),
         };
         if rename {
             if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
@@ -756,34 +759,36 @@ impl SlateApp {
             portal.fill.0[2],
             portal.fill.0[3],
         ));
-        painter.rect_filled(srect, 4.0, fill);
-        let border = self.palette().border_strong;
-        painter.rect_stroke(
-            srect,
-            4.0,
-            Stroke::new(1.0_f32, fade(border)),
-            StrokeKind::Inside,
-        );
+        let collapsed = self.portal_chrome_collapsed(node.id);
+        let layout = if chrome {
+            super::board_portal_chrome::layout_for_portal(
+                portal.kind,
+                srect,
+                collapsed,
+                false,
+                xf.z,
+            )
+        } else {
+            super::board_portal_chrome::layout_portal_contents_only(srect)
+        };
+        self.paint_portal_frame_fill(painter, &layout, fill, Color32::TRANSPARENT, false);
 
-        if chrome {
-            let palette = self.palette();
-            painter.text(
-                srect.left_top() + Vec2::new(6.0, -6.0),
-                Align2::LEFT_BOTTOM,
-                format!("◇ {}", portal.title),
-                FontId::proportional(12.0),
-                palette.sub,
-            );
-        }
-
-        let clipped = painter.with_clip_rect(srect.intersect(painter.clip_rect()));
+        let clipped = painter.with_clip_rect(layout.body.intersect(painter.clip_rect()));
         match portal.kind {
             PortalKind::StatusBoard => {
                 self.paint_status_portal(&clipped, ui, xf, node, portal, alpha)
             }
             PortalKind::RepoLens => match &portal.source {
                 None => {
-                    self.paint_portal_empty(&clipped, ui, srect, node.id, alpha, EmptyPrompt::Repo);
+                    self.paint_portal_empty(
+                        &clipped,
+                        ui,
+                        srect,
+                        node.id,
+                        alpha,
+                        EmptyPrompt::Repo,
+                        xf.z,
+                    );
                 }
                 Some(_) => {
                     let status = self
@@ -794,22 +799,30 @@ impl SlateApp {
                         .unwrap_or(PortalStatus::Idle);
                     match status {
                         PortalStatus::Loading | PortalStatus::Idle => {
-                            clipped.text(
-                                srect.center(),
-                                Align2::CENTER_CENTER,
-                                "Loading repository…",
-                                FontId::proportional(14.0),
-                                Color32::from_white_alpha((180.0 * alpha) as u8),
-                            );
+                            let size = canvas_scale::px(14.0, xf.z);
+                            if canvas_text::legible(size) {
+                                canvas_text::text(
+                                    &clipped,
+                                    srect.center(),
+                                    Align2::CENTER_CENTER,
+                                    "Loading repository…",
+                                    FontId::proportional(size),
+                                    Color32::from_white_alpha((180.0 * alpha) as u8),
+                                );
+                            }
                         }
                         PortalStatus::Error(msg) => {
-                            clipped.text(
-                                srect.center(),
-                                Align2::CENTER_CENTER,
-                                msg,
-                                FontId::proportional(13.0),
-                                Color32::from_rgb(240, 120, 100).gamma_multiply(alpha),
-                            );
+                            let size = canvas_scale::px(13.0, xf.z);
+                            if canvas_text::legible(size) {
+                                canvas_text::text(
+                                    &clipped,
+                                    srect.center(),
+                                    Align2::CENTER_CENTER,
+                                    msg,
+                                    FontId::proportional(size),
+                                    Color32::from_rgb(240, 120, 100).gamma_multiply(alpha),
+                                );
+                            }
                         }
                         PortalStatus::Ready => {
                             self.paint_portal_graph(&clipped, xf, node, alpha);
@@ -818,6 +831,12 @@ impl SlateApp {
                 }
             },
             PortalKind::Agent | PortalKind::Web => {}
+        }
+        super::board::paint_fillet_masks(painter, layout.frame, layout.radius, fill);
+        if chrome {
+            self.paint_portal_identity_chrome(ui, &layout, node.id, portal, None);
+            let border = fade(self.palette().border_strong);
+            self.paint_portal_frame_stroke(painter, &layout, border, false, xf.z);
         }
     }
 
@@ -833,7 +852,15 @@ impl SlateApp {
         let srect = xf.rect_w2s(node.rect);
         match &portal.source {
             None => {
-                self.paint_portal_empty(painter, ui, srect, node.id, alpha, EmptyPrompt::Status);
+                self.paint_portal_empty(
+                    painter,
+                    ui,
+                    srect,
+                    node.id,
+                    alpha,
+                    EmptyPrompt::Status,
+                    xf.z,
+                );
             }
             Some(_) => {
                 let status = self
@@ -844,22 +871,30 @@ impl SlateApp {
                     .unwrap_or(PortalStatus::Idle);
                 match status {
                     PortalStatus::Loading | PortalStatus::Idle => {
-                        painter.text(
-                            srect.center(),
-                            Align2::CENTER_CENTER,
-                            "Loading snapshot…",
-                            FontId::proportional(14.0),
-                            Color32::from_white_alpha((180.0 * alpha) as u8),
-                        );
+                        let size = canvas_scale::px(14.0, xf.z);
+                        if canvas_text::legible(size) {
+                            canvas_text::text(
+                                painter,
+                                srect.center(),
+                                Align2::CENTER_CENTER,
+                                "Loading snapshot…",
+                                FontId::proportional(size),
+                                Color32::from_white_alpha((180.0 * alpha) as u8),
+                            );
+                        }
                     }
                     PortalStatus::Error(msg) => {
-                        painter.text(
-                            srect.center(),
-                            Align2::CENTER_CENTER,
-                            msg,
-                            FontId::proportional(13.0),
-                            Color32::from_rgb(240, 120, 100).gamma_multiply(alpha),
-                        );
+                        let size = canvas_scale::px(13.0, xf.z);
+                        if canvas_text::legible(size) {
+                            canvas_text::text(
+                                painter,
+                                srect.center(),
+                                Align2::CENTER_CENTER,
+                                msg,
+                                FontId::proportional(size),
+                                Color32::from_rgb(240, 120, 100).gamma_multiply(alpha),
+                            );
+                        }
                     }
                     PortalStatus::Ready => {
                         self.paint_status_layout(painter, xf, node, alpha);
@@ -904,7 +939,7 @@ impl SlateApp {
                     painter.rect_stroke(
                         to_screen(*rect),
                         0.0,
-                        Stroke::new(*width * xf.z.max(0.35), fade(*rgba)),
+                        Stroke::new(canvas_scale::px(*width, xf.z), fade(*rgba)),
                         StrokeKind::Inside,
                     );
                 }
@@ -927,13 +962,17 @@ impl SlateApp {
                         status_board::Align::Center => Align2::CENTER_TOP,
                         status_board::Align::Right => Align2::RIGHT_TOP,
                     };
-                    painter.text(
-                        screen,
-                        align2,
-                        text,
-                        FontId::proportional(*size * xf.z.max(0.5)),
-                        fade(*rgba),
-                    );
+                    let px = canvas_scale::px(*size, xf.z);
+                    if canvas_text::legible(px) {
+                        canvas_text::text(
+                            painter,
+                            screen,
+                            align2,
+                            text,
+                            FontId::proportional(px),
+                            fade(*rgba),
+                        );
+                    }
                 }
             }
         }
@@ -947,28 +986,46 @@ impl SlateApp {
         portal: NodeId,
         alpha: f32,
         kind: EmptyPrompt,
+        zoom: f32,
     ) {
-        painter.text(
-            srect.center() - Vec2::new(0.0, 18.0),
-            Align2::CENTER_CENTER,
-            kind.prompt(),
-            FontId::proportional(15.0),
-            Color32::from_white_alpha((200.0 * alpha) as u8),
-        );
+        let prompt = canvas_scale::px(15.0, zoom);
+        if canvas_text::legible(prompt) {
+            canvas_text::text(
+                painter,
+                srect.center() - Vec2::new(0.0, canvas_scale::px(18.0, zoom)),
+                Align2::CENTER_CENTER,
+                kind.prompt(),
+                FontId::proportional(prompt),
+                Color32::from_white_alpha((200.0 * alpha) as u8),
+            );
+        }
         let btn = Rect::from_center_size(
-            srect.center() + Vec2::new(0.0, 16.0),
-            Vec2::new(148.0, 28.0),
+            srect.center() + Vec2::new(0.0, canvas_scale::px(16.0, zoom)),
+            Vec2::new(canvas_scale::px(148.0, zoom), canvas_scale::px(28.0, zoom)),
         );
         let accent = self.palette().accent.gamma_multiply(alpha);
-        painter.rect_filled(btn, 4.0, accent.gamma_multiply(0.35));
-        painter.rect_stroke(btn, 4.0, Stroke::new(1.0_f32, accent), StrokeKind::Inside);
-        painter.text(
-            btn.center(),
-            Align2::CENTER_CENTER,
-            "Browse…",
-            FontId::proportional(13.0),
-            Color32::WHITE.gamma_multiply(alpha),
+        painter.rect_filled(
+            btn,
+            canvas_scale::px(4.0, zoom),
+            accent.gamma_multiply(0.35),
         );
+        painter.rect_stroke(
+            btn,
+            canvas_scale::px(4.0, zoom),
+            Stroke::new(canvas_scale::px(1.0, zoom), accent),
+            StrokeKind::Inside,
+        );
+        let browse = canvas_scale::px(13.0, zoom);
+        if canvas_text::legible(browse) {
+            canvas_text::text(
+                painter,
+                btn.center(),
+                Align2::CENTER_CENTER,
+                "Browse…",
+                FontId::proportional(browse),
+                Color32::WHITE.gamma_multiply(alpha),
+            );
+        }
         // Hit-test only when this portal is selected (avoids stealing board clicks).
         if self.board_sel.contains(&portal) {
             let id = ui.id().with("portal_browse").with(portal.0);
@@ -1027,7 +1084,7 @@ impl SlateApp {
             );
             let screen = xf.w2s(world);
             let is_focus = focus == Some(placed.oid.as_str());
-            let r = if is_focus { 5.0 } else { 3.0 } * xf.z.max(0.35);
+            let r = canvas_scale::px(if is_focus { 5.0 } else { 3.0 }, xf.z);
             let col = if focus.is_some() && !is_focus {
                 dim
             } else {
@@ -1037,13 +1094,17 @@ impl SlateApp {
             if is_focus {
                 if let Some(c) = graph.commits.get(placed.ix) {
                     let summary: String = c.summary.chars().take(48).collect();
-                    painter.text(
-                        screen + Vec2::new(8.0, -2.0),
-                        Align2::LEFT_CENTER,
-                        summary,
-                        FontId::proportional(11.0),
-                        Color32::WHITE.gamma_multiply(alpha),
-                    );
+                    let size = canvas_scale::px(11.0, xf.z);
+                    if canvas_text::legible(size) {
+                        canvas_text::text(
+                            painter,
+                            screen + Vec2::new(8.0 * xf.z, -2.0 * xf.z),
+                            Align2::LEFT_CENTER,
+                            summary,
+                            FontId::proportional(size),
+                            Color32::WHITE.gamma_multiply(alpha),
+                        );
+                    }
                 }
             }
         }
@@ -1053,33 +1114,45 @@ impl SlateApp {
                 node.rect.x + pad + label.x * sx,
                 node.rect.y + pad + label.y * sy - 10.0,
             ));
-            painter.text(
-                screen,
-                Align2::LEFT_BOTTOM,
-                &label.name,
-                FontId::proportional(10.0),
-                palette.sub.gamma_multiply(alpha),
-            );
+            let size = canvas_scale::px(10.0, xf.z);
+            if canvas_text::legible(size) {
+                canvas_text::text(
+                    painter,
+                    screen,
+                    Align2::LEFT_BOTTOM,
+                    &label.name,
+                    FontId::proportional(size),
+                    palette.sub.gamma_multiply(alpha),
+                );
+            }
         }
 
         if let Some(shallow) = graph.shallow {
-            painter.text(
-                xf.rect_w2s(node.rect).left_bottom() + Vec2::new(8.0, -8.0),
-                Align2::LEFT_BOTTOM,
-                format!("shallow · depth {shallow}"),
-                FontId::proportional(10.0),
-                Color32::from_rgb(0xe0, 0xa8, 0x3c).gamma_multiply(alpha),
-            );
+            let size = canvas_scale::px(10.0, xf.z);
+            if canvas_text::legible(size) {
+                canvas_text::text(
+                    painter,
+                    xf.rect_w2s(node.rect).left_bottom() + Vec2::new(8.0 * xf.z, -8.0 * xf.z),
+                    Align2::LEFT_BOTTOM,
+                    format!("shallow · depth {shallow}"),
+                    FontId::proportional(size),
+                    Color32::from_rgb(0xe0, 0xa8, 0x3c).gamma_multiply(alpha),
+                );
+            }
         }
         if !graph.remotes.is_empty() {
             let names: Vec<&str> = graph.remotes.iter().map(|r| r.name.as_str()).collect();
-            painter.text(
-                xf.rect_w2s(node.rect).right_bottom() + Vec2::new(-8.0, -8.0),
-                Align2::RIGHT_BOTTOM,
-                format!("remotes: {}", names.join(", ")),
-                FontId::proportional(10.0),
-                palette.sub.gamma_multiply(alpha),
-            );
+            let size = canvas_scale::px(10.0, xf.z);
+            if canvas_text::legible(size) {
+                canvas_text::text(
+                    painter,
+                    xf.rect_w2s(node.rect).right_bottom() + Vec2::new(-8.0 * xf.z, -8.0 * xf.z),
+                    Align2::RIGHT_BOTTOM,
+                    format!("remotes: {}", names.join(", ")),
+                    FontId::proportional(size),
+                    palette.sub.gamma_multiply(alpha),
+                );
+            }
         }
     }
 
@@ -1136,9 +1209,19 @@ impl SlateApp {
     }
 
     pub(crate) fn portal_enter_interactive(&mut self, id: NodeId) {
-        if self.doc().scene.node(id).is_some_and(|n| n.is_portal()) {
-            self.portals.interactive = Some(id);
-            self.board_sel = std::iter::once(id).collect();
+        let Some(kind) = self.doc().scene.node(id).and_then(|n| match &n.kind {
+            NodeKind::Portal(p) => Some(p.kind),
+            _ => None,
+        }) else {
+            return;
+        };
+        match kind {
+            PortalKind::Agent => self.agent_focus(id),
+            PortalKind::Web => self.web_focus(id),
+            _ => {
+                self.portals.interactive = Some(id);
+                self.board_sel = std::iter::once(id).collect();
+            }
         }
     }
 }

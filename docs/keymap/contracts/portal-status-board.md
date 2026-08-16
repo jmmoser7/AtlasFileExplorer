@@ -62,7 +62,7 @@ snapshot. Every row is mirrored in `decisions.json`.
 | D10 | Cursor | Crosshair while armed. Over an unfocused or focused portal: arrow. No contents hit-targets in v1 (D22) | precedent | 80 |
 | D11 | Commit | One journaled `Add` of a portal node: `{ rect, class: Generated, kind: StatusBoard, source: None, status: StatusPortalQuery::default() }`. Frame, source, and query are journaled; contents never are (P1.portal.frame). One gesture = one undo. No style state consumed (D16) | pattern | 90 |
 | D12 | Cancel | Esc peels, one layer per press (P0.1): drag draft → armed tool → selection. No contents-focus layer in v1 (D22) | pattern | 80 |
-| D13 | Selected presentation | P1.portal.pick. Frame selects with standard handles. Contents expose no grips. Resize re-lays-out (LOD keys on frame height). Rotation rotates the painted result | pattern | 90 |
+| D13 | Selected presentation | P1.portal.pick / P1.node.transform. Windows-style hover resize — no prior selection. Contents expose no grips. Resize re-lays-out (LOD keys on frame height). Portals stay axis-aligned: no rotate chrome | stated | 100 |
 | D14 | Post-edit | Re-edit through the **Portal** sidebar section (visible when a Status Board is selected) or the `portal.status.*` commands; each edit is a journaled `Patch` of `source`/`status` on the node, and contents regenerate from it | pattern | 85 |
 | D15 | Non-goals | Cut (Art. III): live git/CI polling, editing the snapshot, hallucinating scores the JSON does not contain, a fifth tab-level `ViewKind`, authenticated host APIs, typed frame dimensions, a portal-local minimap, contents hit-testing, write-back to the snapshot. **Not cut:** human bind, refresh, bake, and section toggles | stated | 100 |
 | D16 | Create-style inheritance | P1.portal.style: **No.** The frame does not consume `BoardLastStyle` | pattern | 90 |
@@ -82,6 +82,9 @@ snapshot. Every row is mirrored in `decisions.json`.
 | D30 | Failure & honesty states | `Unbound` — "Choose status snapshot…". `Unknown` — unresolved locator, named, neutral marker (Art. IX.3). `Loading`. `Ready`. `Missing` — locator named, frame intact. `NotASnapshot` — bound to a file/folder that is not a status JSON, says why. `Unreadable(msg)` — permission or I/O; **no partial scores presented as complete** | pattern | 90 |
 | D31 | View-state ownership | P1.portal.sync. **Journaled:** frame rect, rotation, `source`, every `status` flag. **Derived, never journaled:** analysis status, cached snapshot, cached layout | pattern | 90 |
 | D32 | Trust, sandbox & consent | Nothing to consent to, and this is a property of the design rather than an omission: contents are parsed from a local `project-state.json` the human picked, no code from that file is ever executed, and remote URLs and hosted dashboards are refused as source kinds (D19, Art. I.4). The portal opens no network connection, so no origin permission exists. Restated from already-approved D15/D19/D27 when D32 joined the registry | pattern | 90 |
+| D33 | Portal chrome | **No identity tab** (web-only). Maximize is the four-corner square in the upper-right. Right-click: Maximize. | stated | 100 |
+| D34 | Portal maximize | **P1.portal.maximize.** Fills the window at the screen aspect; Esc restores. | stated | 100 |
+| D35 | Portal-local UI | **P1.portal.local-ui.** Section toggles and bind/refresh/bake live on this portal's inspector. None appear in Document Settings. | stated | 100 |
 
 Source values: stated (user), precedent (approved in `decisions.json` for an
 overlapping contract), pattern (catalog or constitution), research (source

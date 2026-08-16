@@ -1,11 +1,16 @@
 //! Selection handles, hover cursors, and rotate zones for the Board canvas.
 
 use super::board::BoardXf;
+use atlas_shell::canvas_scale;
 use eframe::egui::{self, Color32, CursorIcon, Pos2, Rect, Stroke as EStroke, Vec2};
 use slate_doc::scene::WorldRect;
 
 /// Screen-px half-size of resize handles (matches board.rs).
 pub const HANDLE_PX: f32 = 5.0;
+/// Windows-style corner hit (diagonal resize).
+pub const CORNER_HIT_PX: f32 = 12.0;
+/// Windows-style edge-band hit (axis resize).
+pub const EDGE_BAND_PX: f32 = 6.0;
 /// Radius of the rotate hit zone outside each corner.
 pub const ROTATE_ZONE_PX: f32 = 12.0;
 /// How far outside the corner the rotate affordance sits (screen px).
@@ -49,6 +54,7 @@ pub struct SelectionGeom {
     pub corners: [Pos2; 4],
     pub edges: [Pos2; 4],
     pub rotate_points: [Pos2; 4],
+    pub zoom: f32,
 }
 
 pub fn selection_geom(xf: &BoardXf, rect: WorldRect, rotation_deg: f32) -> SelectionGeom {
@@ -63,17 +69,18 @@ pub fn selection_geom(xf: &BoardXf, rect: WorldRect, rotation_deg: f32) -> Selec
     let center = corners[0] + (corners[2] - corners[0]) * 0.5;
     let rotate_points = corners.map(|c| {
         let outward = (c - center).normalized();
-        c + outward * ROTATE_OFFSET_PX
+        c + outward * canvas_scale::px(ROTATE_OFFSET_PX, xf.z)
     });
     SelectionGeom {
         corners,
         edges,
         rotate_points,
+        zoom: xf.z,
     }
 }
 
 fn handle_rects(geom: &SelectionGeom) -> [(ResizeHandle, Rect); 8] {
-    let h = Vec2::splat(HANDLE_PX);
+    let h = Vec2::splat(canvas_scale::px(HANDLE_PX, geom.zoom));
     [
         (
             ResizeHandle::Nw,
@@ -115,42 +122,102 @@ fn handle_rects(geom: &SelectionGeom) -> [(ResizeHandle, Rect); 8] {
 pub fn hit_test_resize_handles(screen: Pos2, geom: &SelectionGeom) -> Option<ResizeHandle> {
     handle_rects(geom)
         .into_iter()
-        .find(|(_, rect)| rect.expand(2.0).contains(screen))
+        .find(|(_, rect)| {
+            rect.expand(canvas_scale::HIT_SLOP_PX * 0.25)
+                .contains(screen)
+        })
         .map(|(handle, _)| handle)
 }
 
-pub fn hit_test_selection(screen: Pos2, geom: &SelectionGeom) -> Option<BoardHitTarget> {
-    for (i, rp) in geom.rotate_points.iter().enumerate() {
-        if screen.distance(*rp) <= ROTATE_ZONE_PX + 2.0 {
-            return Some(BoardHitTarget::Rotate(i as u8));
+fn dist_to_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
+    let ab = b - a;
+    let len2 = ab.length_sq();
+    if len2 < 1e-8 {
+        return p.distance(a);
+    }
+    let t = ((p - a).dot(ab) / len2).clamp(0.0, 1.0);
+    (p - (a + ab * t)).length()
+}
+
+/// Windows-window chrome: corners first, then the full edge band.
+pub fn hit_test_resize_bands(screen: Pos2, geom: &SelectionGeom) -> Option<ResizeHandle> {
+    let corner_handles = [
+        ResizeHandle::Nw,
+        ResizeHandle::Ne,
+        ResizeHandle::Se,
+        ResizeHandle::Sw,
+    ];
+    let corner_hit = canvas_scale::hit_px(CORNER_HIT_PX, geom.zoom);
+    for (i, corner) in geom.corners.iter().enumerate() {
+        if screen.distance(*corner) <= corner_hit {
+            return Some(corner_handles[i]);
         }
     }
-    for (handle, rect) in handle_rects(geom) {
-        if rect.expand(2.0).contains(screen) {
-            return Some(BoardHitTarget::Resize(handle));
+    let edge_spans = [
+        (ResizeHandle::N, geom.corners[0], geom.corners[1]),
+        (ResizeHandle::E, geom.corners[1], geom.corners[2]),
+        (ResizeHandle::S, geom.corners[2], geom.corners[3]),
+        (ResizeHandle::W, geom.corners[3], geom.corners[0]),
+    ];
+    let edge_hit = canvas_scale::hit_px(EDGE_BAND_PX, geom.zoom);
+    let mut best: Option<(ResizeHandle, f32)> = None;
+    for (handle, a, b) in edge_spans {
+        let d = dist_to_segment(screen, a, b);
+        if d <= edge_hit && best.map(|(_, bd)| d < bd).unwrap_or(true) {
+            best = Some((handle, d));
+        }
+    }
+    best.map(|(h, _)| h)
+}
+
+pub fn hit_test_selection(screen: Pos2, geom: &SelectionGeom) -> Option<BoardHitTarget> {
+    hit_test_chrome(screen, geom, true)
+}
+
+/// Same as [`hit_test_selection`], but portals and other non-rotatable
+/// kinds pass `allow_rotate = false` so the outside-corner halo is inert.
+pub fn hit_test_chrome(
+    screen: Pos2,
+    geom: &SelectionGeom,
+    allow_rotate: bool,
+) -> Option<BoardHitTarget> {
+    if let Some(handle) = hit_test_resize_bands(screen, geom) {
+        return Some(BoardHitTarget::Resize(handle));
+    }
+    if allow_rotate {
+        for (i, rp) in geom.rotate_points.iter().enumerate() {
+            if screen.distance(*rp) <= canvas_scale::hit_px(ROTATE_ZONE_PX, geom.zoom) {
+                return Some(BoardHitTarget::Rotate(i as u8));
+            }
         }
     }
     None
 }
 
-/// Resize cursor from the handle's actual screen-space direction, so arrows
-/// stay perpendicular to the edge (or along the diagonal) on rotated nodes.
-/// Corner handles use the corner-minus-center diagonal; edge handles use the
-/// edge midpoint minus center, which is the outward edge normal on a
-/// rectangle. The angle is quantized to the nearest of 8 compass directions.
+/// Resize cursor from the handle's screen-space direction, so arrows stay
+/// perpendicular to the edge (or along the box diagonal) on rotated nodes.
+///
+/// Edge handles use the outward edge normal (midpoint − center). Corner
+/// handles add the two adjacent *unit* edge normals so the arrow is 45° to
+/// the box edges even when the box is a wide or tall rectangle — the raw
+/// corner−center vector of a wide group box is nearly horizontal and would
+/// otherwise show an axis arrow.
 pub fn cursor_for_resize(handle: ResizeHandle, geom: &SelectionGeom) -> CursorIcon {
     let center = geom.corners[0] + (geom.corners[2] - geom.corners[0]) * 0.5;
-    let point = match handle {
-        ResizeHandle::Nw => geom.corners[0],
-        ResizeHandle::N => geom.edges[0],
-        ResizeHandle::Ne => geom.corners[1],
-        ResizeHandle::E => geom.edges[1],
-        ResizeHandle::Se => geom.corners[2],
-        ResizeHandle::S => geom.edges[2],
-        ResizeHandle::Sw => geom.corners[3],
-        ResizeHandle::W => geom.edges[3],
+    let n = unit(geom.edges[0] - center);
+    let e = unit(geom.edges[1] - center);
+    let s = unit(geom.edges[2] - center);
+    let w = unit(geom.edges[3] - center);
+    let v = match handle {
+        ResizeHandle::N => n,
+        ResizeHandle::E => e,
+        ResizeHandle::S => s,
+        ResizeHandle::W => w,
+        ResizeHandle::Nw => n + w,
+        ResizeHandle::Ne => n + e,
+        ResizeHandle::Se => s + e,
+        ResizeHandle::Sw => s + w,
     };
-    let v = point - center;
     if v.length_sq() < 1e-6 {
         return CursorIcon::Move;
     }
@@ -172,19 +239,28 @@ pub fn cursor_for_resize(handle: ResizeHandle, geom: &SelectionGeom) -> CursorIc
     }
 }
 
+fn unit(v: Vec2) -> Vec2 {
+    let len = v.length();
+    if len < 1e-6 {
+        Vec2::ZERO
+    } else {
+        v / len
+    }
+}
+
 /// egui exposes no native rotate cursor: hide the OS cursor over rotate
 /// zones and paint [`paint_rotate_cursor`] at the pointer instead.
 pub fn cursor_for_rotate() -> CursorIcon {
     CursorIcon::None
 }
 
-/// Custom rotate-cursor glyph: a ~270° circular arrow with an arrowhead,
-/// painted at the pointer position (pair with `CursorIcon::None`).
+/// Windows-style 90° corner rotate cursor: a quarter-arc with an arrowhead,
+/// painted at the pointer (pair with `CursorIcon::None`).
 pub fn paint_rotate_cursor(painter: &egui::Painter, pos: Pos2, color: Color32) {
-    let r = 7.0;
-    let n = 20;
-    let start = 100.0f32.to_radians();
-    let sweep = 270.0f32.to_radians();
+    let r = 8.0;
+    let n = 12;
+    let start = 200.0f32.to_radians();
+    let sweep = 90.0f32.to_radians();
     let pts: Vec<Pos2> = (0..=n)
         .map(|i| {
             let a = start + sweep * i as f32 / n as f32;
@@ -216,22 +292,20 @@ pub fn paint_rotate_cursor(painter: &egui::Painter, pos: Pos2, color: Color32) {
 pub fn paint_selection(
     painter: &egui::Painter,
     geom: &SelectionGeom,
+    outline: &[Pos2],
     color: Color32,
     hover: Option<BoardHitTarget>,
+    outline_w: f32,
 ) {
-    let outline: Vec<Pos2> = geom.corners.to_vec();
+    let pts = if outline.is_empty() {
+        geom.corners.to_vec()
+    } else {
+        outline.to_vec()
+    };
     painter.add(egui::Shape::closed_line(
-        outline.clone(),
-        EStroke::new(1.5_f32, color),
+        pts,
+        EStroke::new(outline_w, color),
     ));
-
-    for (handle, rect) in handle_rects(geom) {
-        let fill = match hover {
-            Some(BoardHitTarget::Resize(h)) if h == handle => color,
-            _ => color.gamma_multiply(0.85),
-        };
-        painter.rect_filled(rect, 1.0, fill);
-    }
 
     if let Some(BoardHitTarget::Rotate(i)) = hover {
         paint_rotate_affordance(
@@ -251,7 +325,7 @@ pub fn paint_rotate_affordance(
     color: Color32,
 ) {
     let center = corner;
-    let radius = corner.distance(rotate_point).max(8.0);
+    let radius = corner.distance(rotate_point);
     let base = (rotate_point - corner).angle();
     let n = 14;
     let pts: Vec<Pos2> = (0..=n)
@@ -311,6 +385,112 @@ mod tests {
         assert_eq!(
             cursor_for_resize(ResizeHandle::N, &geom0),
             CursorIcon::ResizeNorth
+        );
+    }
+
+    #[test]
+    fn wide_box_corner_uses_diagonal_cursor() {
+        let xf = BoardXf {
+            center: Pos2::ZERO,
+            offset: Vec2::ZERO,
+            z: 1.0,
+        };
+        // A wide group AABB: corner−center is nearly horizontal, but the
+        // cursor must stay 45° (Windows / single-object convention).
+        let geom = selection_geom(&xf, WorldRect::new(0.0, 0.0, 200.0, 40.0), 0.0);
+        assert_eq!(
+            cursor_for_resize(ResizeHandle::Nw, &geom),
+            CursorIcon::ResizeNorthWest
+        );
+        assert_eq!(
+            cursor_for_resize(ResizeHandle::Se, &geom),
+            CursorIcon::ResizeSouthEast
+        );
+        assert_eq!(
+            cursor_for_resize(ResizeHandle::Ne, &geom),
+            CursorIcon::ResizeNorthEast
+        );
+        assert_eq!(
+            cursor_for_resize(ResizeHandle::Sw, &geom),
+            CursorIcon::ResizeSouthWest
+        );
+    }
+
+    #[test]
+    fn edge_band_hits_between_handles() {
+        let xf = BoardXf {
+            center: Pos2::ZERO,
+            offset: Vec2::ZERO,
+            z: 1.0,
+        };
+        let geom = selection_geom(&xf, WorldRect::new(0.0, 0.0, 100.0, 50.0), 0.0);
+        // Midway along the top edge, well outside the N handle square.
+        let on_edge = Pos2::new(25.0, 0.0);
+        assert_eq!(hit_test_resize_bands(on_edge, &geom), Some(ResizeHandle::N));
+        assert_eq!(
+            hit_test_chrome(on_edge, &geom, true),
+            Some(BoardHitTarget::Resize(ResizeHandle::N))
+        );
+    }
+
+    #[test]
+    fn rotate_zone_is_outside_the_corner() {
+        let xf = BoardXf {
+            center: Pos2::ZERO,
+            offset: Vec2::ZERO,
+            z: 1.0,
+        };
+        let geom = selection_geom(&xf, WorldRect::new(0.0, 0.0, 100.0, 50.0), 0.0);
+        assert_eq!(
+            hit_test_chrome(geom.rotate_points[0], &geom, true),
+            Some(BoardHitTarget::Rotate(0))
+        );
+        assert_eq!(
+            hit_test_chrome(geom.rotate_points[0], &geom, false),
+            None,
+            "portals and other non-rotatable kinds must not offer rotate"
+        );
+        // The corner itself stays diagonal resize so aspect keys still apply.
+        assert_eq!(
+            hit_test_chrome(geom.corners[0], &geom, true),
+            Some(BoardHitTarget::Resize(ResizeHandle::Nw))
+        );
+    }
+
+    #[test]
+    fn handle_squares_and_rotate_offset_track_zoom() {
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 50.0);
+        let g1 = selection_geom(
+            &BoardXf {
+                center: Pos2::ZERO,
+                offset: Vec2::ZERO,
+                z: 1.0,
+            },
+            rect,
+            0.0,
+        );
+        let g2 = selection_geom(
+            &BoardXf {
+                center: Pos2::ZERO,
+                offset: Vec2::ZERO,
+                z: 2.0,
+            },
+            rect,
+            0.0,
+        );
+        let a = handle_rects(&g1)[0].1;
+        let b = handle_rects(&g2)[0].1;
+        assert!(
+            (b.width() - a.width() * 2.0).abs() < 1e-3,
+            "handle square froze: {} → {}",
+            a.width(),
+            b.width()
+        );
+        let off1 = g1.rotate_points[0].distance(g1.corners[0]);
+        let off2 = g2.rotate_points[0].distance(g2.corners[0]);
+        assert!(
+            (off2 - off1 * 2.0).abs() < 1e-3,
+            "rotate offset froze: {off1} → {off2}"
         );
     }
 }

@@ -2,17 +2,19 @@
 
 use super::super::chrome::ReadoutPanel;
 use super::super::SlateApp;
-use atlas_shell::widgets::{gear_menu, group_digits};
+use atlas_shell::menu;
+use atlas_shell::widgets::{gear_menu, group_digits, menu_check_row};
 use eframe::egui::{self, RichText};
 use slate_doc::{link_status, LinkStatus};
 
 fn readouts_gear(app: &mut SlateApp, ui: &mut egui::Ui) {
     gear_menu(ui, "slate_readouts_gear", |ui| {
-        ui.label(RichText::new("Visible readouts").small().strong());
-        ui.separator();
+        let dark = app.dark_mode;
+        menu::heading(ui, "Visible readouts", dark);
+        menu::separator(ui, dark);
         for panel in ReadoutPanel::ALL {
             let mut on = app.tab().chrome.readout(panel);
-            if ui.checkbox(&mut on, panel.label()).changed() {
+            if menu_check_row(ui, &mut on, panel.label()) {
                 app.tab_mut().chrome.set_readout(panel, on);
             }
         }

@@ -71,6 +71,9 @@ Selection-driven, journaled:
    bridge with a straight closing segment.
 3. **Two+ open Path nodes selected** (V): join nearest endpoint pairs
    iteratively (Illustrator object-level join).
+4. **Any closed operand** (rect, ellipse, closed path): region union
+   instead. Open curves in that set become ribbons of their stroke
+   weight (`join.hairline` if width ≤ 0). See `contracts/join.md`.
 
 Corner points by default; no tolerance dialog (auto-average within snap
 radius covers it — research §6 recommendation).

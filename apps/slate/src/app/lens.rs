@@ -5,6 +5,7 @@
 //! `LensState` is app-wide today (could become per-tab later).
 
 use super::SlateApp;
+use atlas_shell::{canvas_scale, canvas_text};
 use code_lens::model::EdgeStats;
 use code_lens::{
     analyze_workspace, layout_graph, match_cluster, CodeGraph, EdgeKind, ItemKind, LensBeacon,
@@ -1111,17 +1112,16 @@ impl SlateApp {
         style: &LensPaintStyle<'_>,
     ) {
         let fade = |c: Color32| c.gamma_multiply(style.alpha);
-        let radius =
-            CornerRadius::same((CONTAINER_RADIUS * style.z.max(0.5)).clamp(4.0, 12.0) as u8);
+        let radius = CONTAINER_RADIUS * style.z;
         painter.rect_filled(rect, radius, fade(style.palette.card));
         painter.rect_stroke(
             rect,
             radius,
-            Stroke::new(1.0_f32, fade(style.palette.border)),
+            Stroke::new(canvas_scale::px(1.0, style.z), fade(style.palette.border)),
             StrokeKind::Outside,
         );
 
-        let header_h = (HEADER_STRIP_H * style.z).clamp(18.0, 36.0);
+        let header_h = HEADER_STRIP_H * style.z;
         let header = Rect::from_min_max(rect.min, Pos2::new(rect.max.x, rect.min.y + header_h));
         let header_fill = if let Some(c) = style.cluster.and_then(|cl| cl.color) {
             let accent = Color32::from_rgb(c[0], c[1], c[2]);
@@ -1131,57 +1131,63 @@ impl SlateApp {
         };
         painter.rect_filled(
             Rect::from_min_max(header.min, Pos2::new(header.max.x, header.max.y + 1.0)),
-            CornerRadius {
-                nw: radius.nw,
-                ne: radius.ne,
-                sw: 0,
-                se: 0,
-            },
+            radius,
             header_fill,
         );
 
-        let font = FontId::proportional((12.0 * style.z).clamp(10.0, 16.0));
-        if style.expandable {
-            painter.text(
-                header.left_center() + Vec2::new(8.0, 0.0),
+        let z = style.z;
+        let font = canvas_scale::font(12.0, z);
+        if style.expandable && canvas_text::legible(font.size) {
+            canvas_text::text(
+                painter,
+                header.left_center() + Vec2::new(8.0 * z, 0.0),
                 Align2::LEFT_CENTER,
                 if style.expanded { "▾" } else { "▸" },
                 font.clone(),
                 fade(style.palette.accent),
             );
         }
-        painter.text(
-            header.left_center() + Vec2::new(if style.expandable { 21.0 } else { 8.0 }, 0.0),
-            Align2::LEFT_CENTER,
-            &node.name,
-            font.clone(),
-            fade(style.palette.ink),
-        );
-        painter.text(
-            header.right_center() + Vec2::new(-8.0, 0.0),
-            Align2::RIGHT_CENTER,
-            format!("{} LOC", node.loc),
-            font,
-            fade(style.palette.sub),
-        );
+        if canvas_text::legible(font.size) {
+            canvas_text::text(
+                painter,
+                header.left_center()
+                    + Vec2::new(if style.expandable { 21.0 } else { 8.0 } * z, 0.0),
+                Align2::LEFT_CENTER,
+                &node.name,
+                font.clone(),
+                fade(style.palette.ink),
+            );
+            canvas_text::text(
+                painter,
+                header.right_center() + Vec2::new(-8.0 * z, 0.0),
+                Align2::RIGHT_CENTER,
+                format!("{} LOC", node.loc),
+                font,
+                fade(style.palette.sub),
+            );
+        }
 
         if let Some(cl) = style.cluster {
             let tag = Rect::from_min_size(
-                header.min + Vec2::new(8.0, 2.0),
+                header.min + Vec2::new(8.0 * z, 2.0 * z),
                 Vec2::new(
-                    (cl.title.len() as f32 * 5.5 + 12.0).min(header.width() * 0.45),
-                    12.0,
+                    (cl.title.len() as f32 * 5.5 * z + 12.0 * z).min(header.width() * 0.45),
+                    12.0 * z,
                 ),
             );
-            if tag.max.x < header.max.x - 60.0 {
-                painter.rect_filled(tag, CornerRadius::same(3), fade(style.palette.portal));
-                painter.text(
-                    tag.center(),
-                    Align2::CENTER_CENTER,
-                    &cl.title,
-                    FontId::proportional(9.0),
-                    fade(style.palette.ink),
-                );
+            if tag.max.x < header.max.x - 60.0 * z {
+                painter.rect_filled(tag, 3.0 * z, fade(style.palette.portal));
+                let tag_px = canvas_scale::px(9.0, z);
+                if canvas_text::legible(tag_px) {
+                    canvas_text::text(
+                        painter,
+                        tag.center(),
+                        Align2::CENTER_CENTER,
+                        &cl.title,
+                        FontId::proportional(tag_px),
+                        fade(style.palette.ink),
+                    );
+                }
             }
         }
 
@@ -1198,7 +1204,8 @@ impl SlateApp {
         style: &LensPaintStyle<'_>,
     ) {
         let fade = |c: Color32| c.gamma_multiply(style.alpha);
-        let radius = CornerRadius::same((CHIP_RADIUS * style.z.max(0.5)).clamp(3.0, 10.0) as u8);
+        let z = style.z;
+        let radius = CHIP_RADIUS * z;
         let fill = if let Some(c) = style.cluster.and_then(|cl| cl.color) {
             Color32::from_rgb(c[0], c[1], c[2]).gamma_multiply(0.18 * style.alpha)
         } else {
@@ -1208,37 +1215,42 @@ impl SlateApp {
         painter.rect_stroke(
             rect,
             radius,
-            Stroke::new(1.0_f32, fade(style.palette.border)),
+            Stroke::new(canvas_scale::px(1.0, z), fade(style.palette.border)),
             StrokeKind::Outside,
         );
 
         let glyph = node_glyph(node.kind);
-        let font = FontId::proportional((11.0 * style.z).clamp(9.0, 14.0));
-        if style.expandable {
-            painter.text(
-                rect.left_center() + Vec2::new(8.0, 0.0),
+        let font = canvas_scale::font(11.0, z);
+        if canvas_text::legible(font.size) {
+            if style.expandable {
+                canvas_text::text(
+                    painter,
+                    rect.left_center() + Vec2::new(8.0 * z, 0.0),
+                    Align2::LEFT_CENTER,
+                    if style.expanded { "▾" } else { "▸" },
+                    font.clone(),
+                    fade(style.palette.accent),
+                );
+            }
+            let glyph_x = if style.expandable { 20.0 } else { 10.0 };
+            canvas_text::text(
+                painter,
+                rect.left_center() + Vec2::new(glyph_x * z, 0.0),
                 Align2::LEFT_CENTER,
-                if style.expanded { "▾" } else { "▸" },
+                glyph,
                 font.clone(),
                 fade(style.palette.accent),
             );
+            let name_x = if style.expandable { 32.0 } else { 22.0 };
+            canvas_text::text(
+                painter,
+                rect.left_center() + Vec2::new(name_x * z, 0.0),
+                Align2::LEFT_CENTER,
+                &node.name,
+                font,
+                fade(style.palette.ink),
+            );
         }
-        let glyph_x = if style.expandable { 20.0 } else { 10.0 };
-        painter.text(
-            rect.left_center() + Vec2::new(glyph_x, 0.0),
-            Align2::LEFT_CENTER,
-            glyph,
-            font.clone(),
-            fade(style.palette.accent),
-        );
-        let name_x = if style.expandable { 32.0 } else { 22.0 };
-        painter.text(
-            rect.left_center() + Vec2::new(name_x, 0.0),
-            Align2::LEFT_CENTER,
-            &node.name,
-            font,
-            fade(style.palette.ink),
-        );
 
         if let Some(stroke) = interaction_stroke(style) {
             painter.rect_stroke(rect, radius, stroke, StrokeKind::Outside);
@@ -1272,14 +1284,17 @@ impl SlateApp {
         let to = self.world_to_screen(self.lens_wire_point(wire.to, wire.to_pt));
         let (color, base_w, dashed) = wire_kind_style(wire.kind, palette);
         let fade = color.gamma_multiply(alpha);
-        let w = (base_w + (wire.weight.max(1) as f32).log2()).clamp(1.0, 4.0)
-            * self.tab().cam.z.max(0.4);
+        let z = self.tab().cam.z;
+        let w = canvas_scale::px(
+            (base_w + (wire.weight.max(1) as f32).log2()).clamp(1.0, 4.0),
+            z,
+        );
         let stroke = Stroke::new(w, fade);
 
         match self.lens.wire_style {
             LensWireStyle::Orthogonal => {
                 let pts = lens_orthogonal_route(from, to);
-                let radius = (9.0 * self.tab().cam.z).clamp(2.0, 11.0);
+                let radius = canvas_scale::px(9.0, z);
                 if dashed {
                     paint_dashed_polyline(painter, &pts, stroke);
                 } else {

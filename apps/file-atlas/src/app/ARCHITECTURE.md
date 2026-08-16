@@ -20,9 +20,9 @@ folder mapped, the central panel is the shared Cover Flow (`atlas_shell::home`)
 
 - The top bar is registered first so it remains outermost and spans the full
   viewport width; side and bottom panels begin below it.
-- **Full-screen canvas** (`ChromeConfig::canvas_fullscreen`, toggled by F11,
-  View → Full-screen canvas, or ⛶ in the canvas mini menu) suppresses the
-  tools rail and readout bar; the unified top bar stays.
+- **Hide readout bar** (`ChromeConfig::canvas_fullscreen`, toggled by F11,
+  View → Hide readout bar, or the lower-left chevron) collapses the bottom
+  readout strip; the unified top bar and tools rail stay.
 
 ## Layer 1 — Tab workspace
 

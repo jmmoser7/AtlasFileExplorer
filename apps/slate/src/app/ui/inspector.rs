@@ -1349,6 +1349,40 @@ fn agent_portal_controls(
         );
         return;
     };
+    let source = p.source.clone();
+    let bind_label = if source.is_some() {
+        "Change folder"
+    } else {
+        "Select folder"
+    };
+    if let Some(src) = &source {
+        ui.label(
+            RichText::new(format!("Folder: {}", src.locator))
+                .small()
+                .color(theme.sub),
+        );
+    }
+    if ui.button(RichText::new(bind_label).small()).clicked() {
+        app.dispatch(
+            ui.ctx(),
+            atlas_commands::CommandId("portal.agent.bind"),
+            None,
+        );
+    }
+    if source.is_some() && ui.button(RichText::new("Switch chat").small()).clicked() {
+        app.dispatch(
+            ui.ctx(),
+            atlas_commands::CommandId("portal.agent.switch_chat"),
+            None,
+        );
+    }
+    if let Some(channel) = &agent.channel {
+        ui.label(
+            RichText::new(format!("Saved chat: {channel}"))
+                .small()
+                .color(theme.sub),
+        );
+    }
 
     ui.label(
         RichText::new(format!("Session: {}", agent.session))

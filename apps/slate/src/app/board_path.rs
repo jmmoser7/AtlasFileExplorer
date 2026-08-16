@@ -50,6 +50,11 @@ pub struct PathMeshCache {
     order: VecDeque<(NodeId, u64)>,
     fills: HashMap<(NodeId, u64), Vec<[f32; 2]>>,
     fill_order: VecDeque<(NodeId, u64)>,
+    /// Compound (holed) fills: cached earcut verts + indices.
+    tris: HashMap<(NodeId, u64), (Vec<[f32; 2]>, Vec<u32>)>,
+    tris_order: VecDeque<(NodeId, u64)>,
+    /// Cache misses this paint — reset at the start of `board_canvas`.
+    pub tess_misses: u32,
 }
 
 impl PathMeshCache {
@@ -72,6 +77,7 @@ impl PathMeshCache {
         if let Some(c) = self.map.get(&(node_id, key)) {
             return c.clone();
         }
+        self.tess_misses = self.tess_misses.saturating_add(1);
         let ink = build();
         let cached = CachedInkMesh {
             vertices: ink.vertices.iter().map(|v| v.pos).collect(),
@@ -93,11 +99,29 @@ impl PathMeshCache {
         if let Some(pts) = self.fills.get(&(node_id, key)) {
             return pts.clone();
         }
+        self.tess_misses = self.tess_misses.saturating_add(1);
         let pts = build();
         self.fills.insert((node_id, key), pts.clone());
         self.fill_order.push_back((node_id, key));
         Self::evict_lru(&mut self.fills, &mut self.fill_order);
         pts
+    }
+
+    pub(crate) fn get_or_fill_tris(
+        &mut self,
+        node_id: NodeId,
+        key: u64,
+        build: impl FnOnce() -> (Vec<[f32; 2]>, Vec<u32>),
+    ) -> (Vec<[f32; 2]>, Vec<u32>) {
+        if let Some(t) = self.tris.get(&(node_id, key)) {
+            return t.clone();
+        }
+        self.tess_misses = self.tess_misses.saturating_add(1);
+        let t = build();
+        self.tris.insert((node_id, key), t.clone());
+        self.tris_order.push_back((node_id, key));
+        Self::evict_lru(&mut self.tris, &mut self.tris_order);
+        t
     }
 
     #[cfg(test)]
@@ -170,6 +194,33 @@ pub fn path_data_to_world_bez(path: &PathData, rect: WorldRect, rotation_deg: f3
     if path.closed {
         bez.close_path();
     }
+    for extra in &path.extra {
+        let start = rotate_world(denorm(extra.start, rect), rect, rotation_deg);
+        bez.move_to(to_k(start));
+        for seg in &extra.segs {
+            match *seg {
+                PathSeg::Line { to } => {
+                    bez.line_to(to_k(rotate_world(denorm(to, rect), rect, rotation_deg)));
+                }
+                PathSeg::Quad { ctrl, to } => {
+                    bez.quad_to(
+                        to_k(rotate_world(denorm(ctrl, rect), rect, rotation_deg)),
+                        to_k(rotate_world(denorm(to, rect), rect, rotation_deg)),
+                    );
+                }
+                PathSeg::Cubic { c1, c2, to } => {
+                    bez.curve_to(
+                        to_k(rotate_world(denorm(c1, rect), rect, rotation_deg)),
+                        to_k(rotate_world(denorm(c2, rect), rect, rotation_deg)),
+                        to_k(rotate_world(denorm(to, rect), rect, rotation_deg)),
+                    );
+                }
+            }
+        }
+        if extra.closed {
+            bez.close_path();
+        }
+    }
     bez
 }
 
@@ -230,6 +281,7 @@ pub fn bezpath_to_path_data(bez: &BezPath, closed: bool) -> (WorldRect, PathData
                 start: [0.0, 0.0],
                 segs: vec![],
                 closed,
+                ..Default::default()
             },
         );
     }
@@ -270,6 +322,7 @@ pub fn bezpath_to_path_data(bez: &BezPath, closed: bool) -> (WorldRect, PathData
             start: start_n,
             segs,
             closed,
+            ..Default::default()
         },
     )
 }
@@ -287,6 +340,7 @@ pub fn points_to_path_data(points: &[Pos2], closed: bool) -> (WorldRect, PathDat
                 },
                 segs: vec![],
                 closed,
+                ..Default::default()
             },
         );
     }
@@ -352,6 +406,7 @@ fn hash_xy(h: &mut impl Hasher, p: [f32; 2]) {
 fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
     hash_xy(h, path.start);
     path.closed.hash(h);
+    (path.fill_rule as u8).hash(h);
     path.segs.len().hash(h);
     for seg in &path.segs {
         match seg {
@@ -369,6 +424,31 @@ fn hash_path_data(h: &mut impl Hasher, path: &PathData) {
                 hash_xy(h, *c1);
                 hash_xy(h, *c2);
                 hash_xy(h, *to);
+            }
+        }
+    }
+    path.extra.len().hash(h);
+    for extra in &path.extra {
+        hash_xy(h, extra.start);
+        extra.closed.hash(h);
+        extra.segs.len().hash(h);
+        for seg in &extra.segs {
+            match seg {
+                PathSeg::Line { to } => {
+                    0u8.hash(h);
+                    hash_xy(h, *to);
+                }
+                PathSeg::Quad { ctrl, to } => {
+                    1u8.hash(h);
+                    hash_xy(h, *ctrl);
+                    hash_xy(h, *to);
+                }
+                PathSeg::Cubic { c1, c2, to } => {
+                    2u8.hash(h);
+                    hash_xy(h, *c1);
+                    hash_xy(h, *c2);
+                    hash_xy(h, *to);
+                }
             }
         }
     }
@@ -636,20 +716,32 @@ pub fn board_pick_node_ex(
     zoom: f32,
     include_locked: bool,
 ) -> Option<NodeId> {
-    for n in scene.nodes.iter().rev() {
-        if n.hidden || (n.locked && !include_locked) {
-            continue;
-        }
-        if n.is_frame() {
+    board_pick_node_routed(
+        scene,
+        wx,
+        wy,
+        zoom,
+        include_locked,
+        slate_doc::WireRouting::Bezier,
+    )
+}
+
+/// Point pick with the session wire routing. Hosts beat wires so a click
+/// on a node never selects the connector painted underneath it.
+pub fn board_pick_node_routed(
+    scene: &slate_doc::scene::Scene,
+    wx: f32,
+    wy: f32,
+    zoom: f32,
+    include_locked: bool,
+    routing: slate_doc::WireRouting,
+) -> Option<NodeId> {
+    let eligible = |n: &Node| !n.hidden && (!n.locked || include_locked) && !n.is_frame();
+    for n in scene.nodes.iter().rev().filter(|n| eligible(n)) {
+        if matches!(n.kind, NodeKind::Connector(_)) {
             continue;
         }
         match &n.kind {
-            NodeKind::Connector(c) => {
-                if super::board_wire::hit_connector(scene, c, wx, wy, zoom) {
-                    return Some(n.id);
-                }
-                continue;
-            }
             NodeKind::Shape(s) => {
                 if shape_uses_stroke_pick(n, s) {
                     if hit_shape_stroke(n, s, wx, wy, zoom) {
@@ -667,6 +759,14 @@ pub fn board_pick_node_ex(
             _ => {}
         }
         if n.rect.contains_rotated(wx, wy, n.rotation_deg) {
+            return Some(n.id);
+        }
+    }
+    for n in scene.nodes.iter().rev().filter(|n| eligible(n)) {
+        let NodeKind::Connector(c) = &n.kind else {
+            continue;
+        };
+        if super::board_wire::hit_connector_routed(scene, c, wx, wy, zoom, routing) {
             return Some(n.id);
         }
     }
@@ -792,21 +892,45 @@ pub fn paint_path_shape(
     let bez = path_data_to_world_bez(path, node.rect, node.rotation_deg);
     if shape.fill.is_some() && path.closed {
         let fill_key = path_fill_hash(path, node.rect, node.rotation_deg);
-        let flat = app
-            .path_mesh_cache
-            .get_or_flatten(node.id, fill_key, || flatten(&bez, 0.25));
-        if flat.len() >= 3 {
-            let pts: Vec<Pos2> = flat
-                .iter()
-                .map(|[x, y]| xf.w2s(Pos2::new(*x, *y)))
-                .collect();
-            if let Some(fill) = shape.fill {
-                painter.add(Shape::Path(egui::epaint::PathShape {
-                    points: pts,
-                    closed: true,
-                    fill: fade(rgba32(fill)),
-                    stroke: egui::epaint::PathStroke::NONE,
-                }));
+        if !path.extra.is_empty()
+            || matches!(path.fill_rule, slate_doc::scene::PathFillRule::EvenOdd)
+        {
+            let (verts, idx) = app.path_mesh_cache.get_or_fill_tris(node.id, fill_key, || {
+                let contours = vector_ink::flatten_contours(&bez, 0.25);
+                vector_ink::fill_triangles(&contours)
+            });
+            if !idx.is_empty() {
+                if let Some(fill) = shape.fill {
+                    let mut mesh = egui::Mesh::default();
+                    let color = fade(rgba32(fill));
+                    for v in &verts {
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: xf.w2s(Pos2::new(v[0], v[1])),
+                            uv: Pos2::ZERO,
+                            color,
+                        });
+                    }
+                    mesh.indices = idx;
+                    painter.add(Shape::mesh(mesh));
+                }
+            }
+        } else {
+            let flat = app
+                .path_mesh_cache
+                .get_or_flatten(node.id, fill_key, || flatten(&bez, 0.25));
+            if flat.len() >= 3 {
+                let pts: Vec<Pos2> = flat
+                    .iter()
+                    .map(|[x, y]| xf.w2s(Pos2::new(*x, *y)))
+                    .collect();
+                if let Some(fill) = shape.fill {
+                    painter.add(Shape::Path(egui::epaint::PathShape {
+                        points: pts,
+                        closed: true,
+                        fill: fade(rgba32(fill)),
+                        stroke: egui::epaint::PathStroke::NONE,
+                    }));
+                }
             }
         }
     }
@@ -1000,16 +1124,13 @@ impl SlateApp {
     pub(crate) fn path_tool_click(&mut self, world: Pos2) {
         // Ortho (F8, Shift inverts): draft segments snap to 45° from the
         // last anchor (constraints spec §1).
-        let world = if super::board_snap::effective_ortho(self.board_ortho, self.shift_down) {
-            match &self.board_path_draft {
-                Some(BoardPathDraft::Polyline { points }) if !points.is_empty() => {
-                    super::board_snap::ortho_snap_point(*points.last().unwrap(), world)
-                }
-                _ => world,
-            }
-        } else {
-            world
+        let from = match &self.board_path_draft {
+            Some(BoardPathDraft::Polyline { points }) => points.last().copied(),
+            Some(BoardPathDraft::Arc { points }) => points.last().copied(),
+            Some(BoardPathDraft::Bezier { anchors, .. }) => anchors.last().map(|(p, _)| *p),
+            None => None,
         };
+        let world = self.resolve_point_snap(world, &[], from, self.shift_down, from.is_some());
         match self.board_tool {
             super::board::BoardTool::Polyline => {
                 if let Some(BoardPathDraft::Polyline { points }) = &mut self.board_path_draft {
@@ -1149,6 +1270,7 @@ mod tests {
             locked: false,
             hidden: false,
             group: None,
+            clip: None,
             kind: NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Path,
                 fill: None,
@@ -1178,6 +1300,7 @@ mod tests {
             locked: false,
             hidden: false,
             group: None,
+            clip: None,
             kind: NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Path,
                 fill: None,
@@ -1216,6 +1339,7 @@ mod tests {
             locked: false,
             hidden: false,
             group: None,
+            clip: None,
             kind: NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Line,
                 fill: None,
@@ -1240,6 +1364,7 @@ mod tests {
             start: [0.0, 0.0],
             segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
             closed: false,
+            ..Default::default()
         };
         let stroke = default_curve_stroke(Rgba::BLACK);
         let rect = WorldRect::new(0.0, 0.0, 10.0, 10.0);

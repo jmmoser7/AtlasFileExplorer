@@ -305,6 +305,47 @@ Place at cursor; if opened from wire drag, auto-connect first compatible anchor.
 
 ---
 
+## 11. Align widget (canvas chrome)
+
+Enabled under **Display → Canvas Widgets → Align**. Selecting **two or more**
+components draws a **dashed bounding box** around the selection. Each edge
+carries **four small buttons** clustered at the midpoint:
+
+| Edge | Buttons (along the edge) |
+|------|--------------------------|
+| Top / bottom | Align left · vertical-center (stack on a shared X) · align right · **distribute horizontally** |
+| Left / right | Align top · horizontal-center (stack on a shared Y) · align bottom · **distribute vertically** |
+
+Opposite edges duplicate the same four actions so the nearest cluster is
+always a short reach.
+
+**Happy path.** Marquee or shift-select a run of components → dashed frame
+appears → hover an icon (it highlights) → click. Components jump; the frame
+shrinks to the new union. Center-align on a scattered set collapses them
+onto one axis (a known beginner foot-gun; Grasshopper does not preview the
+landing positions).
+
+**Distribute.** The first and last component along that axis stay put; the
+ones in between are given equal gaps *inside the current frame*. If the
+frame is tight, the button appears to do nothing — users first drag one
+component outward to grow the box, then click distribute (BIM Corner,
+McNeel “Distribute objects vertically”).
+
+**Hover / feedback.** Icon highlight only; no ghost outlines in GH1. No
+modifier variants. The widget is not a tool — it is selection chrome and
+vanishes when the selection drops below two. It can be toggled off in the
+Display menu; Slate keeps it always-on (Art. III — one less setting).
+
+**Slate adaptation.** Same four-per-edge layout and press-to-commit loop.
+Icons sit *outside* the group-box outline (no second dashed frame; no
+corner/midspan squares on the group box) so they do not share a hit target
+with resize. Hover adds an axis guide and ghost outlines (the GH foot-gun,
+made visible). Commands:
+`board.align.{left,center_h,right,top,middle_v,bottom}` and
+`board.distribute.{horizontal,vertical}`.
+
+---
+
 ## References (abbreviated)
 
 - McNeel — *What hotkeys and shortcuts are available in Grasshopper?* (David Rutten, authoritative mouse combos)

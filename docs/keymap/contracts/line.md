@@ -35,7 +35,7 @@ below is approved in `decisions.json` and is precedent for future tools.
 | D03 | Gesture grammar | `Armed → FirstPoint → SecondPoint → Commit`. Both grammars: click-move-click **and** press-drag-release (P2.RhinoDraft.gesture) | stated | 100 |
 | D04 | Click vs drag rule | Cursor travel > `draft.drag_threshold` before release = drag grammar; otherwise click grammar | research | 75 |
 | D05 | Modifiers | Held Shift inverts F8 ortho for the pending segment, 45° steps (P2.RhinoDraft.ortho) | stated | 100 |
-| D06 | Constraints & snapping | F8 ortho + F9 grid snap apply to both endpoints; endpoint object-snap to node edges/anchors within `draft.osnap_radius` | guess | 55 |
+| D06 | Constraints & snapping | F8 ortho + F9 grid snap apply to both endpoints. Object snaps follow **P1.node.osnap** (`ObjectSnapSet`, `draft.osnap_radius` / `osnap.radius`). Defaults End+Mid+Center match the previous hardcoded edge/anchor snap. | pattern | 85 |
 | D07 | Direction / value locks | Tab locks the segment direction at its current angle; movement only changes length; Tab again unlocks; Shift/ortho ignored while locked | stated | 100 |
 | D08 | Numeric / manual entry | After the first point, typed digits set length; Enter or the committing click places the end point at that distance along the current cursor direction. Backspace edits (P2.RhinoDraft.numeric) | stated | 100 |
 | D09 | Preview & readouts | Rubber band from first point (constraint-resolved); dock readout shows live length + angle; numeric entry echoes next to the readout | guess | 50 |

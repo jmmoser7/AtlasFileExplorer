@@ -516,6 +516,7 @@ fn v2_document() -> SlateDoc {
                     },
                 ],
                 closed: false,
+                ..Default::default()
             }),
         }),
     );

@@ -6,10 +6,10 @@
 //! inside them (`circle-pack` crate does the geometry).
 
 use super::{SlateApp, ThumbState};
+use atlas_shell::menu::{self, MenuIcon};
+use atlas_shell::{canvas_scale, canvas_text};
 use circle_pack::{venn_layout, Circle, VennItem, VennSet};
-use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2,
-};
+use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 use slate_doc::{link_status, ItemId, LinkStatus, TagId, ViewKind};
 use std::collections::BTreeMap;
 
@@ -482,6 +482,7 @@ impl SlateApp {
     // ----- main entry -------------------------------------------------------------
 
     pub fn canvas(&mut self, ui: &mut egui::Ui) {
+        let _span = atlas_core::session_log::span("slate.canvas");
         let rect = ui.available_rect_before_wrap();
         self.canvas_rect = rect;
         let palette = self.palette();
@@ -493,8 +494,8 @@ impl SlateApp {
         // input/paint loop (see `board.rs`).
         if self.doc().view.active_view == ViewKind::Board {
             self.board_canvas(ui, rect);
-            // The board owns its own camera; the mini menu only offers the
-            // full-screen toggle here (zoom lives in the board toolbar keys).
+            // The board owns its own camera; the lower-left chevron only
+            // collapses the readout strip here (zoom is on the board keys).
             self.mini_menu(ui.ctx(), rect, None);
             return;
         }
@@ -681,12 +682,14 @@ impl SlateApp {
         }
     }
 
-    /// Lower-left canvas mini menu (shared chrome): ⛶ full-screen toggle +
-    /// zoom controls when the shared camera is in charge (`fit_bounds` set).
+    /// Lower-left canvas chrome: readout-collapse chevron + zoom when the
+    /// shared camera is in charge (`fit_bounds` set).
     pub(crate) fn mini_menu(&mut self, ctx: &egui::Context, rect: Rect, fit_bounds: Option<Rect>) {
         use atlas_shell::widgets::{canvas_mini_menu, MiniMenuAction, MiniMenuModel};
+        let palette = self.palette();
         let action = canvas_mini_menu(
             ctx,
+            &palette,
             "slate",
             rect,
             MiniMenuModel {
@@ -799,14 +802,22 @@ impl SlateApp {
             let r = c.r * z;
             let accent = Color32::from_rgb(color[0], color[1], color[2]);
             painter.circle_filled(center, r, accent.gamma_multiply(0.055));
-            painter.circle_stroke(center, r, Stroke::new(2.0_f32, accent.gamma_multiply(0.8)));
-            painter.text(
-                center - Vec2::new(0.0, r + 12.0),
-                Align2::CENTER_BOTTOM,
-                name,
-                FontId::proportional((13.0 * z.max(0.8)).clamp(11.0, 20.0)),
-                accent,
+            painter.circle_stroke(
+                center,
+                r,
+                Stroke::new(canvas_scale::px(2.0, z), accent.gamma_multiply(0.8)),
             );
+            let label = canvas_scale::px(13.0, z);
+            if canvas_text::legible(label) {
+                canvas_text::text(
+                    painter,
+                    center - Vec2::new(0.0, r + canvas_scale::px(12.0, z)),
+                    Align2::CENTER_BOTTOM,
+                    name,
+                    FontId::proportional(label),
+                    accent,
+                );
+            }
         }
     }
 
@@ -822,17 +833,25 @@ impl SlateApp {
             let mut x = pos.x;
             for (name, color) in &s.chips {
                 let accent = Color32::from_rgb(color[0], color[1], color[2]);
-                painter.circle_filled(Pos2::new(x + 4.0, pos.y + 8.0), 4.0 * z.max(0.6), accent);
-                x += 12.0 * z.max(0.6);
+                painter.circle_filled(
+                    Pos2::new(x + 4.0 * z, pos.y + 8.0 * z),
+                    canvas_scale::px(4.0, z),
+                    accent,
+                );
+                x += canvas_scale::px(12.0, z);
                 let _ = name;
             }
-            painter.text(
-                Pos2::new(x + 4.0, pos.y + 8.0),
-                Align2::LEFT_CENTER,
-                &s.label,
-                FontId::proportional((13.0 * z).clamp(10.0, 22.0)),
-                palette.ink,
-            );
+            let label = canvas_scale::px(13.0, z);
+            if canvas_text::legible(label) {
+                canvas_text::text(
+                    painter,
+                    Pos2::new(x + 4.0 * z, pos.y + 8.0 * z),
+                    Align2::LEFT_CENTER,
+                    &s.label,
+                    FontId::proportional(label),
+                    palette.ink,
+                );
+            }
         }
     }
 
@@ -886,17 +905,20 @@ impl SlateApp {
                         }
                     }
                     let ring = if selected {
-                        Stroke::new(2.5_f32, palette.select)
+                        Stroke::new(canvas_scale::px(2.5, z), palette.select)
                     } else if is_hovered {
-                        Stroke::new(1.5_f32, palette.ink.gamma_multiply(0.7))
+                        Stroke::new(canvas_scale::px(1.5, z), palette.ink.gamma_multiply(0.7))
                     } else {
-                        Stroke::new(1.0_f32, palette.border_strong.gamma_multiply(fade))
+                        Stroke::new(
+                            canvas_scale::px(1.0, z),
+                            palette.border_strong.gamma_multiply(fade),
+                        )
                     };
                     painter.circle_stroke(center, r, ring);
                     if missing {
                         painter.circle_filled(
                             center + Vec2::new(r * 0.6, -r * 0.6),
-                            (4.0 * z).clamp(3.0, 7.0),
+                            canvas_scale::px(4.0, z),
                             Color32::from_rgb(0xe0, 0x6c, 0x5c),
                         );
                     }
@@ -907,13 +929,14 @@ impl SlateApp {
                     } else {
                         palette.card
                     };
-                    painter.rect_filled(srect, CornerRadius::same(4), fill.gamma_multiply(fade));
+                    let cr = canvas_scale::px(4.0, z);
+                    painter.rect_filled(srect, cr, fill.gamma_multiply(fade));
                     let stroke = if selected {
-                        Stroke::new(2.0_f32, palette.select)
+                        Stroke::new(canvas_scale::px(2.0, z), palette.select)
                     } else {
-                        Stroke::new(1.0_f32, palette.border)
+                        Stroke::new(canvas_scale::px(1.0, z), palette.border)
                     };
-                    painter.rect_stroke(srect, CornerRadius::same(4), stroke, StrokeKind::Inside);
+                    painter.rect_stroke(srect, cr, stroke, StrokeKind::Inside);
 
                     let pad = CARD_PAD * z;
                     let label_h = if z > 0.45 { 15.0 * z } else { 0.0 };
@@ -937,35 +960,43 @@ impl SlateApp {
                         None => {
                             painter.rect_filled(
                                 thumb_rect,
-                                CornerRadius::same(3),
+                                canvas_scale::px(3.0, z),
                                 palette.thumb_bg.gamma_multiply(fade),
                             );
                             let ext = std::path::Path::new(&name)
                                 .extension()
                                 .map(|e| e.to_string_lossy().to_uppercase())
                                 .unwrap_or_default();
-                            painter.text(
-                                thumb_rect.center(),
-                                Align2::CENTER_CENTER,
-                                ext,
-                                FontId::proportional((12.0 * z).clamp(9.0, 18.0)),
+                            let ext_px = canvas_scale::px(12.0, z);
+                            if canvas_text::legible(ext_px) {
+                                canvas_text::text(
+                                    painter,
+                                    thumb_rect.center(),
+                                    Align2::CENTER_CENTER,
+                                    ext,
+                                    FontId::proportional(ext_px),
+                                    palette.sub,
+                                );
+                            }
+                        }
+                    }
+                    if label_h > 0.0 {
+                        let name_px = canvas_scale::px(10.5, z);
+                        if canvas_text::legible(name_px) {
+                            canvas_text::text(
+                                painter,
+                                Pos2::new(srect.center().x, srect.max.y - pad),
+                                Align2::CENTER_BOTTOM,
+                                atlas_shell::widgets::trunc(&name, 20),
+                                FontId::proportional(name_px),
                                 palette.sub,
                             );
                         }
                     }
-                    if label_h > 0.0 {
-                        painter.text(
-                            Pos2::new(srect.center().x, srect.max.y - pad),
-                            Align2::CENTER_BOTTOM,
-                            atlas_shell::widgets::trunc(&name, 20),
-                            FontId::proportional((10.5 * z).clamp(8.0, 14.0)),
-                            palette.sub,
-                        );
-                    }
                     if missing {
                         painter.circle_filled(
-                            srect.right_top() + Vec2::new(-8.0, 8.0),
-                            4.0,
+                            srect.right_top() + Vec2::new(-8.0 * z, 8.0 * z),
+                            canvas_scale::px(4.0, z),
                             Color32::from_rgb(0xe0, 0x6c, 0x5c),
                         );
                     }
@@ -985,7 +1016,7 @@ impl SlateApp {
 
     // ----- context menu -----------------------------------------------------------
 
-    fn action_menu(&mut self, ctx: &egui::Context, palette: &atlas_shell::theme::Palette) {
+    fn action_menu(&mut self, ctx: &egui::Context, _palette: &atlas_shell::theme::Palette) {
         let Some((item_id, pos)) = self.menu else {
             return;
         };
@@ -1009,32 +1040,20 @@ impl SlateApp {
 
         let mut close = false;
         let mut dismiss = false;
-        egui::Area::new(egui::Id::new("slate_action_menu"))
+        let dark = self.dark_mode;
+        let menu_rect = egui::Area::new(egui::Id::new("slate_action_menu"))
             .fixed_pos(pos)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(190.0);
-                    ui.label(
-                        egui::RichText::new(format!("{} file(s)", targets.len()))
-                            .small()
-                            .color(palette.sub),
-                    );
-                    ui.separator();
+                menu::frame(dark).show(ui, |ui| {
+                    ui.set_min_width(menu::tokens().min_width);
+                    menu::heading(ui, format!("{} file(s)", targets.len()), dark);
+                    menu::separator(ui, dark);
                     if groups.is_empty() {
-                        ui.label(
-                            egui::RichText::new("No tags yet — create groups in the Tags panel")
-                                .small()
-                                .color(palette.sub),
-                        );
+                        menu::note(ui, "No tags yet — create groups in the Tags panel", dark);
                     }
                     for (group_id, group_name, tags) in &groups {
-                        ui.label(
-                            egui::RichText::new(group_name)
-                                .small()
-                                .strong()
-                                .color(palette.ink),
-                        );
+                        menu::heading(ui, group_name, dark);
                         for (tag_id, name, color) in tags {
                             let all_have = targets.iter().all(|t| {
                                 self.doc()
@@ -1043,25 +1062,16 @@ impl SlateApp {
                                     .unwrap_or(false)
                             });
                             let accent = Color32::from_rgb(color[0], color[1], color[2]);
-                            let label = egui::RichText::new(format!(
-                                "{} {}",
-                                if all_have { "◉" } else { "○" },
-                                name
-                            ))
-                            .color(accent);
-                            if ui.selectable_label(false, label).clicked() {
+                            if menu::item_swatch(ui, accent, name, all_have, dark).clicked() {
                                 if all_have {
                                     self.unassign_group(&targets, *group_id);
                                 } else {
                                     self.assign_tag(&targets, *tag_id);
                                 }
-                                // Keep the menu open: multi-tag assignment in
-                                // one right-click instance.
                             }
                         }
-                        ui.add_space(2.0);
                     }
-                    ui.separator();
+                    menu::separator(ui, dark);
                     let pdf_targets: Vec<ItemId> = targets
                         .iter()
                         .copied()
@@ -1074,34 +1084,35 @@ impl SlateApp {
                                 .unwrap_or(false)
                         })
                         .collect();
-                    if pdf_targets.len() == 1 && ui.button("Explode PDF into pages…").clicked() {
+                    if pdf_targets.len() == 1
+                        && menu::item(ui, MenuIcon::File, "Explode PDF into pages…", dark).clicked()
+                    {
                         self.explode_pdf(pdf_targets[0]);
                         close = true;
                     }
-                    if ui.button("Place on board").clicked() {
+                    if menu::item(ui, MenuIcon::Image, "Place on board", dark).clicked() {
                         let center = self.tab().cam.offset.to_pos2();
                         self.place_items_on_board(&targets, center);
                         self.doc_mut().view.active_view = ViewKind::Board;
                         close = true;
                     }
-                    if ui.button("Remove from workbook").clicked() {
+                    if menu::item_danger(ui, MenuIcon::Trash, "Remove from workbook", dark)
+                        .clicked()
+                    {
                         for t in &targets {
                             self.doc_mut().remove_item(*t);
                             self.selection.remove(t);
                         }
                         close = true;
                     }
-                    if ui.button("Done").clicked() {
-                        close = true;
-                    }
                 });
-            });
-        // Dismiss when clicking elsewhere.
+            })
+            .response
+            .rect;
         ctx.input(|i| {
             if i.pointer.any_pressed() {
                 if let Some(p) = i.pointer.interact_pos() {
-                    let near = Rect::from_min_size(pos, Vec2::new(230.0, 420.0)).expand(8.0);
-                    if !near.contains(p) {
+                    if !menu_rect.expand(8.0).contains(p) {
                         dismiss = true;
                     }
                 }

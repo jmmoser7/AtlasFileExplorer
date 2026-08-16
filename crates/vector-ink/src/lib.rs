@@ -12,6 +12,7 @@ mod geom;
 mod hit;
 mod mesh;
 mod stroke;
+mod trim;
 
 pub use kurbo;
 
@@ -66,6 +67,12 @@ pub use edit::{
     move_handle, segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
 };
 pub use fit::fit_polyline;
-pub use flatten::flatten;
+pub use flatten::{flatten, flatten_contours};
 pub use hit::hit_stroke;
-pub use stroke::{stroke_bounds, stroke_mesh, stroke_outline};
+pub use stroke::{stroke_bounds, stroke_mesh, stroke_outline, stroke_ribbon};
+pub use trim::{
+    boolean_difference, boolean_intersection, boolean_union, boolean_union_all,
+    closest_polyline_span, extend_polyline_end, fill_triangles, infinite_line, point_in_polygon,
+    slice_closed_by_line, split_open_at_cutters, trim_closed_at_click, Cutter, Polygon, SpanHit,
+    TrimPolys,
+};

@@ -58,17 +58,10 @@ Future categories extend `MenuSpec` in each app's `ui/menubar.rs` adapter.
 
 ### Portal visual language
 
-- Rounded floating main panel and submenu with a fine border.
-- Soft, broad drop shadow; no hard detached outline.
-- Compact vertical rows with generous left/right breathing room.
-- Hover uses a low-contrast rounded row fill.
-- Labels align left; shortcuts align right; submenu chevrons use the right
-  edge.
-- Light mode uses a translucent near-white surface and dark neutral text.
-- Dark mode uses a near-black neutral surface and slightly warm off-white
-  text.
-- Geometry, typography, shadow, close delay, and all light/dark colors live
-  under `topbar.portal` in `ui-tokens.toml`.
+The portal is a menu. It uses the shared language in `MENUS.md` / `[menu]`:
+filleted panel, no border, soft shadow, inset section rules, icon + label +
+chevron. `[topbar.portal]` only places the flyout (width, submenu width,
+offset, gap, close delay).
 
 Apps must **not** add a second always-visible File/View row or paint their own
 portal panels.
@@ -100,6 +93,23 @@ apps.
 - A subtle 1 px vertical divider appears **between adjacent inactive tabs**
   only (not beside the active tab).
 
+### Portal identity tab
+
+Slate **web** portal frames reuse this same tab language — one active tab,
+no `+`, painted by `tabs::portal_tab_bar`. The strip is slimmer than this
+dashboard bar (`portal_frame.tab_height_scale`, 40%) and follows the
+portal fillet so its corners do not oversail the frame. On the canvas the
+bar already carries zoom; type and padding fit the slim strip (P0.9).
+Maximized, the tab is window chrome and stays screen-sized. The
+four-corner maximize square (`tabs::paint_maximize_glyph`) sits in the
+bar's window-control slot, the same place as this strip's □ — hover
+brightens the glyph only, with no button fill. Other portal kinds have
+no tab; their maximize icon floats in the node's upper-right. Folding is
+a context-menu action, not a second toolbar icon; a folded tab is
+recovered from a reveal strip on the portal's top interior
+(`tabs::portal_reveal_hint`). Feel constants live under `[portal_frame]`
+in `ui-tokens.toml`. Apps must not paint a second tab shape.
+
 ### Bar background
 
 - Subtle top-to-bottom gradient (`bar_top` → `bar`), distinct from the active
@@ -127,10 +137,12 @@ pub fn top_bar(app: &mut MyApp, ctx: &egui::Context) {
 `ui/mod.rs` exposes `draw_top_bar` only. Do not reintroduce separate
 `draw_menu_bar` / `draw_top_chrome` calls.
 
-## Full-screen canvas
+## Hide readout bar
 
-When `ChromeConfig::canvas_fullscreen` is true (F11 / View menu / ⛶), the
-tools rail and readout bar hide. The unified top bar **always** remains.
+When `ChromeConfig::canvas_fullscreen` is true (F11 / View menu / the
+lower-left chevron just above the strip), the bottom readout bar hides.
+The unified top bar and tools rail stay. The chevron points down while
+the strip is open and up while it is collapsed.
 
 ## Manual tokens and live tuning
 
@@ -159,8 +171,9 @@ The dashboard opens automatically and provides:
 - sliders with numeric entry for geometry, typography, and effects;
 - color picker plus explicit R/G/B/A entries for both themes;
 - live preview;
-- **Lock portal preview open** at the start of every portal tuning section,
-  with a File/View/Preferences submenu selector;
+- **Lock menu preview open** at the start of every Menus (and portal
+  placement) section, with a selector for Portal · File / View / Preferences
+  or a sample right-click. Same lock-open pattern as dock popovers;
 - **Revert to build defaults** (the TOML embedded by the current executable);
 - **Factory reset** (safe unsaved defaults);
 - **Save as project defaults** (writes `ui-tokens.toml`; rebuild to embed).

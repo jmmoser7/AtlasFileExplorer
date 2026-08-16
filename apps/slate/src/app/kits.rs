@@ -109,11 +109,12 @@ mod tests {
                 BoardTool::StatusBoard => 17,
                 BoardTool::AgentPortal => 18,
                 BoardTool::WebPortal => 19,
+                BoardTool::Trim => 20,
             }
         }
         let mut tags: Vec<u8> = BoardTool::ALL.into_iter().map(tag).collect();
         tags.sort_unstable();
-        assert_eq!(tags, (0..20).collect::<Vec<u8>>());
+        assert_eq!(tags, (0..21).collect::<Vec<u8>>());
     }
 
     #[test]

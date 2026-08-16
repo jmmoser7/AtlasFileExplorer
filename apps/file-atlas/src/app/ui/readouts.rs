@@ -3,6 +3,7 @@
 use super::super::{AtlasApp, DateFilterField, EditMode, ScanMode};
 use crate::app::chrome::ReadoutPanel;
 use atlas_core::types::human_size;
+use atlas_shell::menu;
 use atlas_shell::sidebar::SidebarTheme;
 use atlas_shell::timeline::{ActivityTimeline, TimelineSelection};
 use atlas_shell::widgets::{gear_menu, group_digits, menu_check_row};
@@ -10,8 +11,8 @@ use eframe::egui;
 
 fn readouts_gear(app: &mut AtlasApp, ui: &mut egui::Ui) {
     gear_menu(ui, "readouts_gear", |ui| {
-        ui.label(egui::RichText::new("Visible readouts").small().strong());
-        ui.separator();
+        menu::heading(ui, "Visible readouts", app.dark_mode);
+        menu::separator(ui, app.dark_mode);
         for panel in ReadoutPanel::ALL {
             let mut on = app.active_chrome().readout(panel);
             if menu_check_row(ui, &mut on, panel.label()) {

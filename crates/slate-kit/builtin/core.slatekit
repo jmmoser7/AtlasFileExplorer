@@ -45,6 +45,7 @@ icon = "rect"
   node = "rect"
   fill = "accent@60"
   stroke = { width = 2.0, color = "accent" }
+  default_size = [180.0, 120.0]
 
 [[tool]]
 id = "ellipse"
@@ -57,6 +58,7 @@ icon = "ellipse"
   node = "ellipse"
   fill = "accent@60"
   stroke = { width = 2.0, color = "accent" }
+  default_size = [160.0, 160.0]
 
 [[tool]]
 id = "portal-repo-lens"

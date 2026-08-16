@@ -2,7 +2,7 @@
 # Edit directly, or run either app with `--features ui-tuner` for live editing.
 # Saved tuner values are embedded by the next build.
 
-schema_version = 4
+schema_version = 7
 
 [topbar]
 height = 31.0
@@ -205,6 +205,7 @@ dashboard_describe_delay = 1.2000000476837158
 describe_fade_duration = 0.2800000011920929
 panel_open_duration = 0.18000000715255737
 hover_chip_gap = 6.0
+flyout_icon_scale = 0.6499999761581421
 
 [dock.light]
 icon_fill = [
@@ -338,6 +339,15 @@ item_gap = 6.5
 row_height = 6.0
 text_size = 12.0
 separators = true
+chevron_size = 8.0
+chevron_hit = 16.0
+chevron_inset_x = 5.0
+chevron_inset_y = 3.0
+chevron_stroke = 1.15
+chevron_idle_opacity = 0.38
+chevron_hover_opacity = 0.92
+chevron_hover_fill = 0.1
+chevron_emboss = 0.22
 
 [activity_heatmap]
 out_of_range_opacity = 0.3799999952316284
@@ -381,6 +391,154 @@ zoom_per_notch = 1.1799999475479126
 pan_per_notch = 0.11999999731779099
 pan_invert = false
 zoom_ease = 0.11999999731779099
+
+[portal_frame]
+corner_radius = 8.0
+reveal_strip_px = 14.0
+chrome_button_px = 22.0
+border_hit_px = 6.0
+tab_height_scale = 0.4
+
+[board_preview]
+select_line_weight = 1.5
+select_opacity = 1.0
+hover_line_weight = 1.25
+hover_opacity = 0.550000011920929
+highlight_in = 0.11999999731779099
+highlight_out = 0.2199999988079071
+
+[board_forcefield]
+expand_secs = 0.10
+fade_secs = 0.14
+center_weight = 0.85
+edge_weight = 0.15
+center_opacity = 0.22
+edge_opacity = 0.03
+
+[menu]
+corner_radius = 5.0
+border_width = 0.0
+panel_padding = 3.5
+row_height = 30.0
+row_pad_x = 8.0
+row_gap = 1.5
+icon_size = 16.5
+icon_gap = 8.5
+icon_stroke = 0.7200000286102295
+chevron_size = 10.0
+divider_inset = 16.0
+divider_thickness = 0.7200000286102295
+divider_gap = 6.0
+hover_radius = 4.5
+min_width = 185.0
+text_size = 13.0
+letter_spacing = 0.3499999940395355
+shortcut_text_size = 10.0
+shadow_offset_x = 0.0
+shadow_offset_y = 8.0
+shadow_blur = 24.0
+shadow_spread = 0.0
+shadow_opacity = 0.2199999988079071
+
+[menu.light]
+fill = [
+    247,
+    247,
+    245,
+    255,
+]
+hover = [
+    232,
+    232,
+    229,
+    255,
+]
+text = [
+    54,
+    54,
+    57,
+    255,
+]
+muted = [
+    110,
+    110,
+    108,
+    255,
+]
+divider = [
+    226,
+    226,
+    222,
+    255,
+]
+icon = [
+    28,
+    28,
+    30,
+    255,
+]
+danger = [
+    196,
+    92,
+    74,
+    255,
+]
+border = [
+    226,
+    226,
+    222,
+    0,
+]
+
+[menu.dark]
+fill = [
+    26,
+    27,
+    30,
+    255,
+]
+hover = [
+    42,
+    43,
+    48,
+    255,
+]
+text = [
+    219,
+    219,
+    212,
+    255,
+]
+muted = [
+    154,
+    154,
+    152,
+    255,
+]
+divider = [
+    46,
+    48,
+    54,
+    255,
+]
+icon = [
+    242,
+    242,
+    240,
+    255,
+]
+danger = [
+    212,
+    106,
+    92,
+    255,
+]
+border = [
+    46,
+    48,
+    54,
+    0,
+]
 
 [theme.light]
 dark_base = false

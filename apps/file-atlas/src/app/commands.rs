@@ -132,9 +132,9 @@ pub const SPECS: &[CommandSpec] = &[
     ),
     spec(
         "app.fullscreen",
-        "Full-screen canvas (hide sidebar + bottom bar)",
+        "Hide / show the bottom readout bar",
         "Navigation",
-        "F11, or ⛶ in the canvas mini menu (lower-left), or View → Full-screen canvas",
+        "F11, or the lower-left chevron, or View → Hide readout bar",
         Some(Chord::bare(Key::F11)),
         Repeat::Never,
         GLOBAL,
@@ -571,6 +571,26 @@ pub const SPECS: &[CommandSpec] = &[
         GLOBAL,
         &["settings", "advanced"],
     ),
+    spec(
+        "app.session.mark",
+        "Mark this moment in the session log",
+        "Workflow",
+        "F4",
+        Some(Chord::bare(Key::F4)),
+        Repeat::Never,
+        GLOBAL,
+        &["mark", "stall", "hitch"],
+    ),
+    spec(
+        "app.session.reveal",
+        "Open session log folder",
+        "Workflow",
+        "Advanced → Session log → Open log folder",
+        None,
+        Repeat::Never,
+        GLOBAL,
+        &["session log"],
+    ),
 ];
 
 /// The registry every consumer reads: chord dispatch, the Advanced
@@ -684,6 +704,8 @@ mod tests {
             "app.preferences",
             "app.new_tab",
             "app.repeat_last",
+            "app.session.mark",
+            "app.session.reveal",
         ] {
             let spec = REGISTRY.by_id(CommandId(id)).expect(id);
             assert!(

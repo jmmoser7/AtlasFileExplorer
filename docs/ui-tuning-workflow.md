@@ -37,7 +37,33 @@ Floating canvas docks follow the same workflow:
 |------|----------------|
 | `crates/atlas-shell/src/dock.rs` | Squircle icon dock, popover host, hover/click pinning |
 | `crates/atlas-shell/DOCK.md` | Permanent dock design and behavior contract |
-| `[dock]` in `ui-tokens.toml` | Icon size/gap, squircle exponent, popover size, shadows, colors |
+| `[dock]` in `ui-tokens.toml` | Icon size/gap, flyout icon scale, squircle exponent, popover size, shadows, colors |
+
+Dropdowns and right-click menus (both apps, including the icon-portal flyout):
+
+| File | Responsibility |
+|------|----------------|
+| `crates/atlas-shell/src/menu.rs` | Panel frame, inset dividers, icon + label + chevron rows |
+| `crates/atlas-shell/MENUS.md` | Permanent menu design contract |
+| `[menu]` in `ui-tokens.toml` | Radius, padding, row/icon/divider geometry, type size and tracking, shadow, light/dark colors |
+
+The portal flyout under the app icon is the same language. `[topbar.portal]`
+only places that flyout (width, gap, offset, close delay).
+
+Slate board selection / hover preview (Slate-only feel, hosted in the shared
+token file so the tuner can reach it):
+
+| File | Responsibility |
+|------|----------------|
+| `apps/slate/src/app/board_transform.rs` | Edge hover = cursor only; body hover eases in/out |
+| `apps/slate/src/app/board_handles.rs` | Selected outline + handles consume the line weight |
+| `[board_preview]` in `ui-tokens.toml` | Select/hover line weight + opacity, highlight in, falloff |
+| `apps/slate/src/app/board_forcefield.rs` | Snap-guide pulse clock + paint (grows from impact, fades) |
+| `[board_forcefield]` in `ui-tokens.toml` | Expand/fade time, center/edge weight and opacity |
+
+Forcefield is Slate-only feel, hosted in the shared token file so the tuner
+can reach it. Under **Slate board · Forcefield snap guides**, lock a preview
+pulse on the board if you want the sliders to have a target without dragging.
 
 The activity timeline (contribution graph + date window on one axis):
 
@@ -84,7 +110,7 @@ The bar hosting the timeline is tunable too, under *Readout bar (bottom)*:
 | File | Responsibility |
 |------|----------------|
 | `apps/file-atlas/src/app/ui/readouts.rs` | The bar: gear menu, live counts, root path, timeline |
-| `[readouts]` in `ui-tokens.toml` | Text size, pad above/below, metrics row → timeline gap, item spacing, min row height, separator rules |
+| `[readouts]` in `ui-tokens.toml` | Text size, pad above/below, metrics row → timeline gap, item spacing, min row height, separator rules, lower-left collapse chevron |
 
 `text_size` sets `override_font_id` for the whole metrics row, so the counts,
 the root path, and every transient progress line scale together — they are one
@@ -181,14 +207,21 @@ clean token boundary.
    opacity.
 5. **Add a focused editor section.** Group controls by Geometry, Typography,
    Effects, and Light/Dark Colors. Provide numeric values alongside sliders.
-6. **Keep persistence explicit.** Live edits remain temporary until the user
+6. **Lock-open preview for transient UI.** If the tuned chrome is a hover,
+   popover, menu, flyout, or any other surface that closes when the pointer
+   leaves it, the editor section **must** start with a **Lock … preview open**
+   checkbox and a selector for which panel/state stays visible. The dock
+   popover lock and the menu preview lock are the pattern — copy them. Without
+   this, the pointer leaves the target to reach the sliders and the preview
+   vanishes.
+7. **Keep persistence explicit.** Live edits remain temporary until the user
    chooses **Save as project defaults**.
-7. **Feature-gate the editor.** Normal builds must not expose tuning controls
+8. **Feature-gate the editor.** Normal builds must not expose tuning controls
    or source-writing behavior.
-8. **Document the visual contract.** Tokens describe adjustable values; an
+9. **Document the visual contract.** Tokens describe adjustable values; an
    architecture/design Markdown file describes invariants that sliders must
    not violate.
-9. **Test both configurations.** Check the owner crate with and without the
+10. **Test both configurations.** Check the owner crate with and without the
    tuner feature, then build all affected applications.
 
 ## Guardrails

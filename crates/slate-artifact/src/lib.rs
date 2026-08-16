@@ -14,7 +14,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use slate_doc::{ItemId, SlateDoc};
+use slate_doc::{ItemId, SlateDoc, WireRouting};
 
 pub use assets::{read_snippet, AssetMap};
 pub use render::render_html;
@@ -44,6 +44,8 @@ pub struct ExportOptions {
     /// Captured posters per web portal node, used for the poster + pointer
     /// export a remote page gets (Art. V.3).
     pub web_posters: BTreeMap<slate_doc::NodeId, PathBuf>,
+    /// Session wire display — the artifact must match the board (Art. IV).
+    pub wire_routing: WireRouting,
 }
 
 /// Summary returned after a successful export.
@@ -64,8 +66,12 @@ pub fn export_html(
     fs::create_dir_all(out_dir)?;
 
     let asset_report = assets::build_assets(doc, out_dir, opts)?;
-    let html =
-        render::render_html_with_workbook(doc, &asset_report.map, opts.workbook_dir.as_deref());
+    let html = render::render_html_routed(
+        doc,
+        &asset_report.map,
+        opts.workbook_dir.as_deref(),
+        opts.wire_routing,
+    );
 
     let html_path = out_dir.join("index.html");
     fs::write(&html_path, &html)?;
@@ -102,8 +108,8 @@ mod tests {
     use super::*;
     use slate_doc::scene::{
         ConnectorEnd, ConnectorNode, Corner, Crop, Dash, FrameNode, ImageAdjust, ImageNode, NodeId,
-        NodeKind, PathData, PathSeg, Rgba, Scene, SceneCmd, ShapeKind, ShapeNode, Side, Stroke,
-        StrokeCap, TextNode, WidthProfile, WireDisplay, WorldRect,
+        NodeKind, PathContour, PathData, PathFillRule, PathSeg, Rgba, Scene, SceneCmd, ShapeKind,
+        ShapeNode, Side, Stroke, StrokeCap, TextNode, WidthProfile, WireDisplay, WorldRect,
     };
     use slate_doc::{ItemId, SlateDoc};
 
@@ -799,6 +805,7 @@ mod tests {
                         PathSeg::Line { to: [1.0, 1.0] },
                     ],
                     closed: false,
+                    ..Default::default()
                 }),
             }),
         );
@@ -839,6 +846,7 @@ mod tests {
                         PathSeg::Line { to: [0.0, 1.0] },
                     ],
                     closed: true,
+                    ..Default::default()
                 }),
             }),
         );
@@ -877,6 +885,7 @@ mod tests {
                     start: [0.0, 0.5],
                     segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
                     closed: false,
+                    ..Default::default()
                 }),
             }),
         );
@@ -890,6 +899,88 @@ mod tests {
         );
         assert!(html.contains("stroke=\"none\""));
         assert!(!html.contains("stroke-linecap"));
+    }
+
+    #[test]
+    fn compound_path_emits_evenodd_and_extra_subpath() {
+        let mut doc = SlateDoc::new("Hole");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+        let node = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 100.0, 100.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: Some(Rgba::BLACK),
+                stroke: Stroke::none(),
+                corner: Corner::Square,
+                flip: false,
+                path: Some(PathData {
+                    start: [0.0, 0.0],
+                    segs: vec![
+                        PathSeg::Line { to: [1.0, 0.0] },
+                        PathSeg::Line { to: [1.0, 1.0] },
+                        PathSeg::Line { to: [0.0, 1.0] },
+                    ],
+                    closed: true,
+                    extra: vec![PathContour {
+                        start: [0.3, 0.3],
+                        segs: vec![
+                            PathSeg::Line { to: [0.7, 0.3] },
+                            PathSeg::Line { to: [0.7, 0.7] },
+                            PathSeg::Line { to: [0.3, 0.7] },
+                        ],
+                        closed: true,
+                    }],
+                    fill_rule: PathFillRule::EvenOdd,
+                }),
+            }),
+        );
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(html.contains("fill-rule=\"evenodd\""), "{html}");
+        assert!(html.contains("M 30.0 30.0"), "hole subpath:\n{html}");
+    }
+
+    #[test]
+    fn text_clip_emits_css_clip_path() {
+        let mut doc = SlateDoc::new("ClipText");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+        let mut node = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 100.0, 40.0),
+            NodeKind::Text(TextNode {
+                text: "HELLO".into(),
+                family: Default::default(),
+                size: 24.0,
+                color: Rgba::BLACK,
+                align: Default::default(),
+                fill: None,
+            }),
+        );
+        node.clip = Some(PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [1.0, 1.0] },
+                PathSeg::Line { to: [0.0, 1.0] },
+            ],
+            closed: true,
+            extra: vec![PathContour {
+                start: [0.3, 0.2],
+                segs: vec![
+                    PathSeg::Line { to: [0.7, 0.2] },
+                    PathSeg::Line { to: [0.7, 0.8] },
+                    PathSeg::Line { to: [0.3, 0.8] },
+                ],
+                closed: true,
+            }],
+            fill_rule: PathFillRule::EvenOdd,
+        });
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(html.contains("clip-path:path(evenodd, '"), "{html}");
+        assert!(html.contains("clip-rule:evenodd"), "{html}");
+        assert!(html.contains("HELLO"), "{html}");
     }
 
     #[test]

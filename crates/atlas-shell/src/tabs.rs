@@ -11,8 +11,8 @@ use crate::theme::Palette;
 use crate::tokens::TopBarTokens;
 use crate::widgets::trunc;
 use eframe::egui::{
-    self, Align, Align2, Color32, CursorIcon, FontId, Layout, Pos2, Rect, Sense, Shape, Stroke, Ui,
-    Vec2,
+    self, Align, Align2, Color32, CursorIcon, FontId, Layout, Pos2, Rect, Sense, Shape, Stroke,
+    StrokeKind, Ui, Vec2,
 };
 
 #[derive(Clone, Copy)]
@@ -103,22 +103,45 @@ pub(crate) fn paint_vertical_gradient(
     top: Color32,
     bottom: Color32,
 ) {
+    paint_vertical_gradient_top_fillet(painter, rect, top, bottom, 0.0);
+}
+
+/// Top-to-bottom bar gradient whose scanlines follow a top-only fillet so
+/// a portal identity tab cannot oversail the host frame's rounded corners.
+fn paint_vertical_gradient_top_fillet(
+    painter: &egui::Painter,
+    rect: Rect,
+    top: Color32,
+    bottom: Color32,
+    radius: f32,
+) {
+    let r = radius.min(rect.width() * 0.5).min(rect.height()).max(0.0);
     let steps = rect.height().ceil().max(1.0) as usize;
     for step in 0..steps {
         let t = step as f32 / steps as f32;
         let y = rect.top() + rect.height() * t;
+        let (left, right) = if r < 0.5 || y >= rect.top() + r {
+            (rect.left(), rect.right())
+        } else {
+            let dy = y - (rect.top() + r);
+            let dx = (r * r - dy * dy).max(0.0).sqrt();
+            (rect.left() + r - dx, rect.right() - r + dx)
+        };
+        if right - left < 0.5 {
+            continue;
+        }
         painter.line_segment(
-            [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+            [Pos2::new(left, y), Pos2::new(right, y)],
             Stroke::new(1.25_f32, lerp_color(top, bottom, t)),
         );
     }
 }
 
 fn active_tab_x_bounds(rect: Rect, y: f32, metrics: &TopBarTokens) -> (f32, f32) {
-    let shoulder = metrics.tab_shoulder_radius.max(0.5);
+    let shoulder = metrics.tab_shoulder_radius.max(0.0);
     let body_left = rect.left() + shoulder;
     let body_right = rect.right() - shoulder;
-    let radius = metrics.tab_top_radius.max(0.5);
+    let radius = metrics.tab_top_radius.max(0.0);
 
     if y < rect.top() + radius {
         let dy = y - (rect.top() + radius);
@@ -199,12 +222,12 @@ fn paint_active_tab(
     // A faint inner highlight gives the raised/embossed top edge.
     let inner = Rect::from_min_max(
         Pos2::new(
-            rect.left() + metrics.tab_shoulder_radius + 3.0,
-            rect.top() + 1.5,
+            rect.left() + metrics.tab_shoulder_radius + metrics.tab_top_inset * 0.5,
+            rect.top() + metrics.tab_top_inset * 0.25,
         ),
         Pos2::new(
-            rect.right() - metrics.tab_shoulder_radius - 3.0,
-            rect.top() + 2.5,
+            rect.right() - metrics.tab_shoulder_radius - metrics.tab_top_inset * 0.5,
+            rect.top() + metrics.tab_top_inset * 0.42,
         ),
     );
     paint_vertical_gradient(
@@ -336,7 +359,9 @@ pub fn tab_strip(
             }
             if let Some(label) = spec.content_action_label {
                 resp.clone().context_menu(|ui| {
-                    if ui.button(label).clicked() {
+                    let dark = ui.visuals().dark_mode;
+                    crate::menu::prepare(ui, dark);
+                    if crate::menu::item(ui, crate::menu::MenuIcon::Folder, label, dark).clicked() {
                         action = Some(TabAction::ChangeContent(i));
                         ui.close_menu();
                     }
@@ -414,4 +439,219 @@ pub fn tab_strip(
     }
 
     action
+}
+
+// ---------------------------------------------------------------------------
+// Portal identity tab — same Chrome-style tab language, one tab, no '+'
+// ---------------------------------------------------------------------------
+
+/// What a portal wants shown on its identity tab.
+pub struct PortalTabModel<'a> {
+    pub title: &'a str,
+    pub tooltip: &'a str,
+    pub live: bool,
+    pub maximized: bool,
+}
+
+/// Clicks on a portal identity tab or its chrome buttons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortalTabAction {
+    ToggleMaximize,
+    Collapse,
+    Context,
+}
+
+/// Windows / Slate caption maximize glyph: a square made of four corner
+/// chevrons. `restored` paints the overlapping-squares restore mark.
+/// Do not use a Unicode box — those fight the tab typeface.
+pub fn paint_maximize_glyph(painter: &egui::Painter, hit: Rect, color: Color32, restored: bool) {
+    // Slim portal bars are short; the window-control slot is wider than it
+    // is tall. Size the glyph from the larger axis so it stays readable.
+    let scale = (hit.width().max(hit.height()) / 30.0).max(0.01);
+    let c = hit.center();
+    let s = Stroke::new(1.2 * scale, color);
+    if restored {
+        let r = Rect::from_center_size(c + Vec2::new(-1.0, 1.0) * scale, Vec2::splat(8.0 * scale));
+        let back = r.translate(Vec2::new(2.5 * scale, -2.5 * scale));
+        painter.line_segment([back.left_top(), back.right_top()], s);
+        painter.line_segment([back.right_top(), back.right_bottom()], s);
+        painter.rect_stroke(r, 1.0 * scale, s, StrokeKind::Middle);
+        return;
+    }
+    let half = 4.5 * scale;
+    let arm = 3.2 * scale;
+    let r = Rect::from_center_size(c, Vec2::splat(half * 2.0));
+    painter.line_segment([r.left_top(), Pos2::new(r.left() + arm, r.top())], s);
+    painter.line_segment([r.left_top(), Pos2::new(r.left(), r.top() + arm)], s);
+    painter.line_segment([r.right_top(), Pos2::new(r.right() - arm, r.top())], s);
+    painter.line_segment([r.right_top(), Pos2::new(r.right(), r.top() + arm)], s);
+    painter.line_segment(
+        [r.right_bottom(), Pos2::new(r.right() - arm, r.bottom())],
+        s,
+    );
+    painter.line_segment(
+        [r.right_bottom(), Pos2::new(r.right(), r.bottom() - arm)],
+        s,
+    );
+    painter.line_segment([r.left_bottom(), Pos2::new(r.left() + arm, r.bottom())], s);
+    painter.line_segment([r.left_bottom(), Pos2::new(r.left(), r.bottom() - arm)], s);
+}
+
+/// Floating maximize hit on a portal that has no identity tab (or whose tab
+/// is folded). Sits on the node, upper-right. Returns true on click.
+pub fn portal_maximize_button(
+    ui: &Ui,
+    palette: &Palette,
+    rect: Rect,
+    id_salt: u64,
+    maximized: bool,
+) -> bool {
+    if rect.width() < 4.0 || rect.height() < 4.0 {
+        return false;
+    }
+    let resp = ui.interact(rect, ui.id().with(("portal_max", id_salt)), Sense::click());
+    paint_maximize_glyph(
+        ui.painter(),
+        rect,
+        if resp.hovered() {
+            palette.ink
+        } else {
+            palette.sub
+        },
+        maximized,
+    );
+    resp.clicked()
+}
+
+/// Paint one workbook-style tab on a portal frame, plus the maximize hit.
+/// `maximize` is the window-control slot on the right of the bar — the
+/// same place the Slate / File Atlas caption maximize sits. `frame_radius`
+/// is the host fillet in screen pixels so the bar follows the frame
+/// corners instead of oversailing them. Geometry reuses [`TopBarTokens`];
+/// apps must not paint their own tab shapes (Art. X).
+pub fn portal_tab_bar(
+    ui: &Ui,
+    palette: &Palette,
+    bar: Rect,
+    maximize: Rect,
+    frame_radius: f32,
+    id_salt: u64,
+    model: &PortalTabModel<'_>,
+) -> Option<PortalTabAction> {
+    let tokens = crate::tokens::current();
+    let colors = TabChromeColors::from_palette(palette, &tokens.topbar);
+    let painter = ui.painter();
+    let h = bar.height();
+    if h < 2.0 {
+        return None;
+    }
+    // The portal bar is slimmer than the dashboard top bar. Scale type and
+    // padding to the strip we actually have, not to the 0.4 height ratio —
+    // that would produce 5 px type on a 12 px bar.
+    let scale = (h / tokens.topbar.height.max(1.0)).max(0.0);
+    let mut metrics = tokens.topbar.scaled(scale);
+    metrics.tab_top_inset = (h * 0.08).min(2.0);
+    metrics.tab_text_size = (h * 0.62).max(1.0);
+    metrics.tab_horizontal_padding = (h * 0.45).max(4.0);
+    let inner_r = frame_radius.min(h * 0.45);
+    metrics.tab_top_radius = inner_r;
+    metrics.tab_shoulder_radius = inner_r;
+
+    paint_vertical_gradient_top_fillet(painter, bar, colors.bar_top, colors.bar, frame_radius);
+
+    let pointer = ui.ctx().pointer_latest_pos();
+    let over_maximize = pointer.is_some_and(|p| maximize.contains(p));
+
+    let title = crate::widgets::trunc(model.title, metrics.tab_title_chars);
+    let font = FontId::proportional(metrics.tab_text_size);
+    let text_w =
+        crate::canvas_text::layout_no_wrap(&painter, title.clone(), font.clone(), Color32::WHITE)
+            .size()
+            .x;
+    let pad = metrics.tab_horizontal_padding;
+    let tab_left = bar.left() + frame_radius.max(4.0 * scale.max(0.4));
+    let tab_w = (text_w + pad * 2.0)
+        .clamp(metrics.tab_min_width, metrics.tab_max_width)
+        .min((maximize.left() - tab_left - 4.0).max(metrics.tab_min_width * 0.5));
+    let tab_slot = Rect::from_min_max(
+        Pos2::new(tab_left, bar.top()),
+        Pos2::new(tab_left + tab_w, bar.bottom()),
+    );
+    let paint = tab_paint_rect(tab_slot, &metrics);
+    paint_active_tab(
+        painter,
+        paint,
+        colors.active_top,
+        colors.active,
+        colors,
+        &metrics,
+    );
+    crate::canvas_text::text(
+        &painter,
+        Pos2::new(paint.left() + pad, paint.center().y),
+        Align2::LEFT_CENTER,
+        title,
+        font,
+        palette.ink,
+    );
+    if model.live {
+        painter.circle_filled(
+            Pos2::new(paint.right() - 10.0 * scale, paint.center().y),
+            3.0 * scale,
+            Color32::from_rgb(120, 220, 150),
+        );
+    }
+
+    paint_maximize_glyph(
+        painter,
+        maximize,
+        if over_maximize {
+            palette.ink
+        } else {
+            palette.sub
+        },
+        model.maximized,
+    );
+
+    let tab_id = ui.id().with(("portal_tab", id_salt));
+    let tab_resp = ui.interact(tab_slot, tab_id, Sense::click());
+    tab_resp.clone().on_hover_text(model.tooltip);
+    let max_resp = ui.interact(
+        maximize,
+        ui.id().with(("portal_max", id_salt)),
+        Sense::click(),
+    );
+    if max_resp.clicked() {
+        return Some(PortalTabAction::ToggleMaximize);
+    }
+    if tab_resp.secondary_clicked() || max_resp.secondary_clicked() {
+        return Some(PortalTabAction::Context);
+    }
+    None
+}
+
+/// Hover affordance at the top interior of a portal whose identity tab is folded.
+/// Returns true when the user clicks to expand.
+pub fn portal_reveal_hint(ui: &Ui, palette: &Palette, strip: Rect, id_salt: u64) -> bool {
+    let pointer = ui.ctx().pointer_latest_pos();
+    let hovered = pointer.is_some_and(|p| strip.contains(p));
+    let painter = ui.painter();
+    if hovered {
+        let s = strip.height().max(0.01);
+        painter.rect_filled(strip, s * 0.2, palette.card.gamma_multiply(0.72));
+        crate::canvas_text::text(
+            painter,
+            strip.center(),
+            Align2::CENTER_CENTER,
+            "⌄",
+            FontId::proportional(s * 0.85),
+            palette.ink,
+        );
+    }
+    ui.interact(
+        strip,
+        ui.id().with(("portal_reveal", id_salt)),
+        Sense::click(),
+    )
+    .clicked()
 }

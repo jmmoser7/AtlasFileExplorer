@@ -17,7 +17,7 @@ use slate_doc::{Node, NodeId};
 use vector_ink::kurbo::PathEl;
 
 use super::board::{BoardTool, BoardXf};
-use super::{board_path, board_snap, SlateApp};
+use super::{board_path, SlateApp};
 
 /// Feel constants pinned by the contract's Feel-constants table (P0.6:
 /// named constants referenced by the contract — never inline magic numbers).
@@ -29,8 +29,10 @@ pub mod draft_tokens {
     pub const GRIP_RADIUS: f32 = 6.0;
     /// `draft.readout_alpha` — opacity of the dock length/angle readout (D09).
     pub const READOUT_ALPHA: f32 = 0.85;
-    /// `draft.osnap_radius` — endpoint object-snap radius in screen px (D06).
-    pub const OSNAP_RADIUS: f32 = 8.0;
+    /// `draft.osnap_radius` — object-snap radius in screen px (D06).
+    /// Pinned for the line contract; the picker reads `OSNAP_RADIUS_PX`.
+    #[allow(dead_code)]
+    pub const OSNAP_RADIUS: f32 = super::super::board_osnap::OSNAP_RADIUS_PX;
 }
 
 /// FirstPoint-placed draft state (existence = the first point is down).
@@ -86,67 +88,13 @@ pub(crate) fn line_endpoints(node: &Node) -> Option<(Pos2, Pos2)> {
     ))
 }
 
-fn snap_point_grid(p: Pos2) -> Pos2 {
-    let g = board_snap::GRID_WORLD;
-    Pos2::new((p.x / g).round() * g, (p.y / g).round() * g)
-}
-
 impl SlateApp {
     // ----- constraint resolution -------------------------------------------------
 
-    /// Endpoint object snap (D06): nearest node corner / edge midpoint /
-    /// simple-line endpoint within `draft.osnap_radius` screen px.
-    fn line_osnap(&self, p: Pos2, exclude: Option<NodeId>) -> Option<Pos2> {
-        let z = self.tab().cam.z.max(0.05);
-        let radius = draft_tokens::OSNAP_RADIUS / z;
-        let mut best: Option<(f32, Pos2)> = None;
-        for n in &self.doc().scene.nodes {
-            if n.hidden || Some(n.id) == exclude {
-                continue;
-            }
-            // Connector rects are derived AABBs — not snap geometry.
-            if matches!(n.kind, NodeKind::Connector(_)) {
-                continue;
-            }
-            let mut cands: Vec<Pos2> = Vec::new();
-            if let Some((a, b)) = line_endpoints(n) {
-                cands.push(a);
-                cands.push(b);
-            } else {
-                let r = n.rect;
-                let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.w, r.y + r.h);
-                let (cx, cy) = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
-                cands.extend([
-                    Pos2::new(x0, y0),
-                    Pos2::new(x1, y0),
-                    Pos2::new(x1, y1),
-                    Pos2::new(x0, y1),
-                    Pos2::new(cx, y0),
-                    Pos2::new(x1, cy),
-                    Pos2::new(cx, y1),
-                    Pos2::new(x0, cy),
-                ]);
-            }
-            for c in cands {
-                let d = (c - p).length();
-                if d <= radius && best.is_none_or(|(bd, _)| d < bd) {
-                    best = Some((d, c));
-                }
-            }
-        }
-        best.map(|(_, c)| c)
-    }
-
     /// First-point resolution: object snap, then grid snap (F9). Ortho has
     /// no segment to constrain yet.
-    fn line_resolve_first(&self, world: Pos2) -> Pos2 {
-        if let Some(p) = self.line_osnap(world, None) {
-            return p;
-        }
-        if self.board_snap_grid {
-            return snap_point_grid(world);
-        }
-        world
+    fn line_resolve_first(&mut self, world: Pos2) -> Pos2 {
+        self.resolve_point_snap(world, &[], None, false, false)
     }
 
     /// Second-point resolution against `origin`: Tab lock wins (movement
@@ -155,26 +103,18 @@ impl SlateApp {
     /// snaps so they cannot pull the endpoint off the constrained axis
     /// (DominantOrtho convention).
     fn line_resolve_second(
-        &self,
+        &mut self,
         origin: Pos2,
         dir_lock: Option<Vec2>,
         world: Pos2,
         shift: bool,
     ) -> Pos2 {
         if let Some(dir) = dir_lock {
+            self.board_osnap_hit = None;
             let t = (world - origin).dot(dir).max(0.0);
             return origin + dir * t;
         }
-        if board_snap::effective_ortho(self.board_ortho, shift) {
-            return board_snap::ortho_snap_point(origin, world);
-        }
-        if let Some(p) = self.line_osnap(world, None) {
-            return p;
-        }
-        if self.board_snap_grid {
-            return snap_point_grid(world);
-        }
-        world
+        self.resolve_point_snap(world, &[], Some(origin), shift, true)
     }
 
     // ----- draft state machine (Armed → FirstPoint → SecondPoint → Commit) -------
@@ -409,21 +349,7 @@ impl SlateApp {
             return;
         };
         let fixed = if end == 0 { b } else { a };
-        let moved = if let Some(p) = {
-            if board_snap::effective_ortho(self.board_ortho, shift) {
-                Some(board_snap::ortho_snap_point(fixed, world))
-            } else {
-                None
-            }
-        } {
-            p
-        } else if let Some(p) = self.line_osnap(world, Some(id)) {
-            p
-        } else if self.board_snap_grid {
-            snap_point_grid(world)
-        } else {
-            world
-        };
+        let moved = self.resolve_point_snap(world, &[id], Some(fixed), shift, true);
         let (na, nb) = if end == 0 {
             (moved, fixed)
         } else {

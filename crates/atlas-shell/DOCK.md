@@ -33,12 +33,35 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
 | **Tool** / **Dashboard** | Title chip only | Volatile body (on-icon) | Pin → centered stack |
 | **Action** | Title chip | Fire action | — |
 
-- **Minimize (─)** in the upper-right of any open body dismisses a volatile
-  panel or unpins a pinned one back to its icon.
+- **Minimize (─)** dismisses a volatile body or unpins a pinned one back
+  to its icon. In the stacked list it sits in the caption's upper-right;
+  in icon-strip mode it sits on the right of that section's icons, aligned
+  with the primary row. Subsection folds use the same glyph; collapsing
+  one must **not** dismiss the panel. Bottom-anchored popovers shrink
+  upward, so hit-testing unions this frame's panel rect with last frame's
+  — otherwise the click that collapsed a fold lands outside the new rect
+  and is read as an outside dismiss.
 - Hover never joins the pinned stack. Volatile bodies retire after
   `close_delay` when abandoned, or on Escape / outside click.
 - Title chips are suppressed on pin/click until the pointer leaves, and never
   shown for icons that already have a pinned or volatile body open.
+- Title chips appear **only** while the pointer is on the icon itself. An
+  open flyout — volatile in front of the strip, or pinned above it — owns
+  hover: chips from icons behind or beneath it clear immediately. Close-delay
+  keeps a volatile *body* alive, not a leftover name chip. Chips paint on
+  the Tooltip layer *after* panels so a primary-icon name sits in front of
+  a pinned toolbar, never behind it.
+- Every body (tool or dashboard) shares one dock-wide layout: stacked
+  list or free-space icon strip. Clicking the three-squircle control on
+  **any** stacked list switches **all** pinned palettes to the strip.
+  Icon-strip mode is unbounded squircles at `flyout_icon_scale` (65% of
+  the dock), hex-packed, in **primary-icon order**, with a subtle divider
+  between categories. One stacked-list glyph sits at the far right of the
+  whole band (not per palette). Minimize still sits on each cluster.
+  Hovering anywhere in a strip's vicinity holds the leader back to that
+  palette's primary icon so scanning between squircles does not flicker.
+  Strip icons use the same name + linger-description chip as the primary
+  dock.
 - Hover / selected icon fills are a subtle mix, not a full-opacity swap.
 - Pins persist across sessions via `ChromePrefs.pinned_panels` where wired.
 

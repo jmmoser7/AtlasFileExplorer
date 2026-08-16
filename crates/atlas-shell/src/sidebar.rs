@@ -143,6 +143,19 @@ pub fn sidebar_checkbox_row(
     changed
 }
 
+/// Checkbox with a hover hint — used for compact palettes (object snaps).
+pub fn sidebar_checkbox_hinted(
+    ui: &mut Ui,
+    value: &mut bool,
+    label: impl Into<egui::WidgetText>,
+    hint: &str,
+) -> bool {
+    ui.set_min_height(SidebarTokens::CONTROL_ROW_HEIGHT);
+    let changed = ui.checkbox(value, label).on_hover_text(hint).changed();
+    ui.add_space(SidebarTokens::ROW_GAP);
+    changed
+}
+
 /// Label left, custom control in a fixed-width right column.
 pub fn sidebar_labeled_row(
     ui: &mut Ui,

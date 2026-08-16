@@ -20,9 +20,8 @@ pub struct ChromeConfig<const T: usize, const R: usize> {
     pub readouts: [bool; R],
     /// Advanced tools — floating window, not a rail panel.
     pub advanced_open: bool,
-    /// Full-screen canvas: suppress the tools rail and bottom readout bar so
-    /// the canvas takes the whole space below the menu bar and tab strip.
-    /// Toggled from the canvas mini menu (⛶), the View menu, or F11.
+    /// Hide the bottom readout strip so the canvas sits on the window edge.
+    /// Toggled from the lower-left chevron, the View menu, or F11.
     pub canvas_fullscreen: bool,
 }
 

@@ -31,6 +31,15 @@ pub struct AiAppContext {
     pub files_truncated: bool,
     /// Seconds since the Unix epoch at write time.
     pub generated_at: u64,
+    /// Append-only session activity log (`data_dir()/session-log/<app>.jsonl`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_log: Option<PathBuf>,
+    /// Small stall snapshot agents should read first (`<app>-latest.json`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_latest: Option<PathBuf>,
+    /// App time of the most recent stall, milliseconds, if any this run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_stall_app_ms: Option<f32>,
 }
 
 impl AiAppContext {
@@ -43,6 +52,9 @@ impl AiAppContext {
         self.root.hash(&mut h);
         self.selection.hash(&mut h);
         self.files.hash(&mut h);
+        self.session_log.hash(&mut h);
+        self.session_latest.hash(&mut h);
+        self.last_stall_app_ms.map(|ms| ms.to_bits()).hash(&mut h);
         h.finish()
     }
 }
@@ -90,6 +102,9 @@ mod tests {
             files: vec![PathBuf::from("/tmp/a.png"), PathBuf::from("/tmp/b.png")],
             files_truncated: false,
             generated_at: 123,
+            session_log: None,
+            session_latest: None,
+            last_stall_app_ms: None,
         };
         let fp = ctx.fingerprint();
         // Timestamp changes must not change the fingerprint…

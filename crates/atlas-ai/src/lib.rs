@@ -10,8 +10,9 @@
 //! - [`launch`] — locating and launching Cursor (assumed installed).
 //! - [`context`] — the **live link**: each app maintains a machine-readable
 //!   context file inside the AI workspace (`.atlas-ai/<app>-context.json`)
-//!   describing what is currently being previewed. Future MCP servers read
-//!   these to give Cursor full view of Atlas/Slate state (auto-tagging,
+//!   describing what is currently being previewed, including paths to the
+//!   session activity log when a stall has been recorded. Future MCP servers
+//!   read these to give Cursor full view of Atlas/Slate state (auto-tagging,
 //!   classification, presentation generation, …).
 //! - [`ui`] — the sidebar panel body both apps render, so the AI toolbar is
 //!   pixel-identical in Atlas and Slate (see the shared-chrome rule).
@@ -21,7 +22,10 @@
 pub mod agent;
 pub mod config;
 pub mod context;
+pub mod cursor_chats;
+pub mod cursor_recents;
 pub mod launch;
+pub mod sidecar;
 pub mod ui;
 
 pub use config::AiConfig;

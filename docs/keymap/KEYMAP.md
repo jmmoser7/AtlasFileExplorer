@@ -98,7 +98,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | F7 | Rhino | **Grid toggle** (alias of `G`) | Board | ✅ exists | |
 | F8 | Rhino | **Toggle Ortho** — persistent 45° constraint on draw/move | Board | ✅ exists | Shift *inverts* the current ortho state while held (Rhino semantics). |
 | F9 | Rhino | **Toggle snap-to-grid** | Board | ✅ exists | Dock toggle exists; adds the key. |
-| F11 | Illustrator | Attributes panel | — | ⛔ reject | `F11` is canvas fullscreen in both apps (registered, shipped). Attributes content lives in the `F3` inspector. |
+| F11 | Illustrator | Attributes panel | — | ⛔ reject | `F11` hides the bottom readout bar in both apps (registered, shipped; same as the lower-left chevron). Attributes content lives in the `F3` inspector. |
 | F12 | Rhino | DigClick | — | ⛔ reject | Digitizer hardware command; no analog here (Art. III). |
 
 ## Shift + key
@@ -124,14 +124,14 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Ctrl+G | Rhino | **Group** | Board | ✅ exists | New `group` field on nodes (flat groups first; nesting 🟡 P2). Selection expands to group; `Ctrl+Shift+click` selects a member (Rhino sub-object convention). |
 | Ctrl+H | Rhino | **Hide selected** | Board | ✅ exists | New `hidden` node flag — skipped by paint and hit-test, journaled patch. |
 | Ctrl+I | Photoshop | **Invert image** | Board | ✅ exists | New `invert` in `ImageAdjust`; CSS `invert()` keeps it inside the SVG ceiling; lands in painter + artifact together (Art. IV). |
-| Ctrl+J | Rhino | **Join** — join selected open paths at nearest endpoints | Board | ✅ exists | Natural Phase-2 vector capability; also closes a single near-closed path. |
+| Ctrl+J | Rhino | **Join** — open paths at nearest ends; closed shapes region-union | Board | ✅ exists | Mixed open+closed strokes the open curve at its weight, then unions. See `contracts/join.md`. |
 | Ctrl+L | Rhino | **Lock selected** | Board | ✅ exists | New `locked` node flag — visible, grayed handles, excluded from selection/drag; still snappable. |
-| Ctrl+N | Rhino | **New** workbook tab / Atlas tab | Both | ✅ exists | Alias of Ctrl+T (kept). |
+| Ctrl+N | Rhino | **New** workbook tab / Atlas tab | Both | ✅ exists | Primary new-tab chord (Slate no longer aliases Ctrl+T). |
 | Ctrl+O | Rhino | Open | Both | ✅ exists | |
 | Ctrl+P | Rhino | Print | — | ⛔ defer | Print-faithful sheet/PDF export is **Roadmap Phase 5**; binding reserved until then (Art. III — no real path to use it yet). |
 | Ctrl+R | Photoshop | **Rulers + guides** | Board | 🟡 adopt-P2 | Smart guides + grid cover most alignment today; rulers/guides earn their place with presentation work. |
 | Ctrl+S | Rhino | Save | Slate | ✅ exists | ⛔ for Atlas — no document to save (index persists itself). |
-| Ctrl+T | Rhino | Trim | — | ⛔ reject | `Ctrl+T` = new tab (shipped in both apps). Curve trimming is beyond the moodboard/markup 10% (Art. III); `Ctrl+J` join covers the real need. |
+| Ctrl+T | Rhino | **Trim** — pick cutters, click the part to delete | Board | ✅ exists | 2D Rhino flow. New-tab moved to Ctrl+N only. See `contracts/trim.md`. |
 | Ctrl+U | Photoshop | **Hue/Saturation** — adjust popover for selected images | Board | ✅ exists | Opens the existing `ImageAdjust` controls (CSS-filter math already shipped); slider scrubs coalesce in the journal. |
 | Ctrl+V | Rhino | **Paste** (at pointer, offset on repeat) | Board | ✅ exists | |
 | Ctrl+W | Rhino | Zoom Window | — | ⛔ reject | Absorbed by `Z`-drag (zoom window). `Ctrl+W` reserved for close-tab. |
@@ -165,7 +165,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Ctrl+click | Rhino | Remove from selection | Both | ✅ exists | Ctrl+click toggles — removal included. |
 | Ctrl+MMB drag | Rhino | Pan | Board | ✅ exists | Middle-drag pans. |
 | Ctrl+Shift+click | Rhino | **Select sub-object** — member inside a group; also force-selects a locked node | Board | ✅ exists | Landed with groups + direct selection. |
-| Drag from edge grip | Grasshopper/Miro | **Draw connector (wire)** | Board | ✅ exists | See connector spec — hover a node's edge to reveal 4 side grips; drag to another node's grip/edge; release on empty opens the palette to place-and-connect. |
+| Drag from edge grip | Grasshopper/Miro | **Draw connector (wire)** | Board | ✅ exists | See connector spec — hover a side-midpoint grip (only that grip previews); drag to another node's grip/edge; release on empty opens the palette to place-and-connect. |
 | Ctrl+drag (wire) | Grasshopper | **Remove/redraw a wire** | Board | ✅ exists | Drag an existing wire end off its grip to disconnect; drop elsewhere to rewire (or drag a selected connector's endpoint dot). |
 | Shift+drag (wire) | Grasshopper | **Add wire without erasing** | Board | ✅ exists | Multiple connectors per grip are always legal on a whiteboard; Shift keeps the *gesture grammar* parity so muscle memory transfers. |
 | Ctrl+Shift+drag (wire) | Grasshopper | **Move all wires to another grip** | Board | ✅ exists | Grab every connector on a grip and re-anchor them in one journaled step. |
@@ -211,7 +211,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Binding | Verdict | Reason |
 |---------|---------|--------|
 | Ctrl+RMB zoom (Rhino) | ⛔ | Conflicts with turbo pan — a shipped signature gesture. `Z` covers it. |
-| Ctrl+T Trim | ⛔ | Ctrl+T = new tab; trimming beyond the 10% (Art. III). |
+| Ctrl+T Trim | ✅ | Shipped — `contracts/trim.md`. New-tab is Ctrl+N only. |
 | Ctrl+W Zoom Window | ⛔ | Covered by `Z`-drag; chord reserved for close-tab. |
 | F11 Attributes | ⛔ | F11 = fullscreen (shipped); content folds into F3 inspector. |
 | F12 DigClick | ⛔ | No digitizer domain (Art. III). |

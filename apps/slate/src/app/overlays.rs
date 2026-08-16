@@ -66,6 +66,7 @@ impl SlateApp {
         atlas_shell::prefs::ChromePrefs {
             dock_side: self.dock_side,
             pinned_panels: self.dock_pins.clone(),
+            panel_icon_strip: self.dock_icon_strips.clone(),
             minimap: self.minimap_on,
         }
         .save("slate");
@@ -228,13 +229,20 @@ impl SlateApp {
         }
     }
 
-    /// Execute a palette row. Placeable commands with a click-to-place
-    /// default (frame, text) place at the stored world point immediately;
-    /// the drag-defined shapes (rect / ellipse / line / pen) arm their tool
-    /// — accepted P1 behavior, documented in `COMMANDS.md`.
+    /// Execute a palette row. Area tools with a click-to-place default
+    /// (frame, rect, ellipse, portals, text, sticky) place at the stored
+    /// world point immediately; line / pen / brush still arm.
     fn palette_execute(&mut self, ctx: &egui::Context, item: PaletteItem) {
         let world = self.palette_state.world;
         match item.id.0 {
+            "board.tool.rect" => {
+                self.place_default_at(super::board::BoardTool::RectShape, world);
+                self.connect_pending_wire_to_selection();
+            }
+            "board.tool.ellipse" => {
+                self.place_default_at(super::board::BoardTool::Ellipse, world);
+                self.connect_pending_wire_to_selection();
+            }
             "board.tool.frame" => {
                 self.place_frame_at(world);
                 self.push_history(item.id, Some("placed".into()));

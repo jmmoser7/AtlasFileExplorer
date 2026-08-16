@@ -14,6 +14,9 @@ pub struct ChromePrefs {
     /// Dock panels pinned as persistent tool palettes (e.g. Tags), restored
     /// on launch via `floating_dock`'s `restore_pins`.
     pub pinned_panels: Vec<String>,
+    /// Dock-wide icon-strip mode. Non-empty (`["*"]`, or a legacy per-id
+    /// list) restores the strip for every pinned palette.
+    pub panel_icon_strip: Vec<String>,
     /// Canvas minimap pinned open (toggled by `M`; shared overlay chrome).
     pub minimap: bool,
 }
@@ -23,6 +26,7 @@ impl ChromePrefs {
         Self {
             dock_side: side,
             pinned_panels: Vec::new(),
+            panel_icon_strip: Vec::new(),
             minimap: false,
         }
     }
@@ -54,6 +58,7 @@ impl Default for ChromePrefs {
         Self {
             dock_side: DockSide::LeftCenter,
             pinned_panels: Vec::new(),
+            panel_icon_strip: Vec::new(),
             minimap: false,
         }
     }
@@ -68,6 +73,7 @@ mod tests {
         let prefs: ChromePrefs = serde_json::from_str(r#"{"dock_side":"bottom_center"}"#).unwrap();
         assert_eq!(prefs.dock_side, DockSide::BottomCenter);
         assert!(prefs.pinned_panels.is_empty());
+        assert!(prefs.panel_icon_strip.is_empty());
     }
 
     #[test]
@@ -75,6 +81,7 @@ mod tests {
         let prefs = ChromePrefs {
             dock_side: DockSide::LeftCenter,
             pinned_panels: vec!["tags".into(), "tool.curve".into()],
+            panel_icon_strip: vec!["tool.shapes".into()],
             minimap: true,
         };
         let json = serde_json::to_string(&prefs).unwrap();

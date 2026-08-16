@@ -11,3 +11,5 @@ path = "src/lib.rs"
 
 [dependencies]
 kurbo = { workspace = true }
+i_overlay = { workspace = true }
+earcutr = { workspace = true }

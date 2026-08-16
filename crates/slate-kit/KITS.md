@@ -2,7 +2,7 @@
 
 A board tool is two things:
 
-- a **gesture grammar** — how pointer input is read. Code. Nine of them. A kit
+- a **gesture grammar** — how pointer input is read. Code. Ten of them. A kit
   references one and can never define one.
 - a **result recipe** — what the commit produces. Data. This is what a kit file
   holds.

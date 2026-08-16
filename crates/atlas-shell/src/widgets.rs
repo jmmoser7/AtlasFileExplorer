@@ -1,6 +1,8 @@
 //! Shared egui widgets for toolbars and readouts.
 
-use eframe::egui::{self, Color32, CornerRadius, Id, Pos2, Rect, RichText, Sense, Ui, Vec2};
+use crate::theme::Palette;
+use crate::tokens;
+use eframe::egui::{self, Color32, CornerRadius, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
 pub fn trunc(s: &str, n: usize) -> String {
     if s.chars().count() > n {
@@ -178,20 +180,20 @@ where
     F: FnOnce(&mut Ui),
 {
     let icon = egui::RichText::new("⚙").size(8.0);
-    ui.menu_button(icon, build)
-        .response
-        .on_hover_text("Choose visible panels");
+    let dark = ui.visuals().dark_mode;
+    ui.menu_button(icon, |ui| {
+        crate::menu::prepare(ui, dark);
+        build(ui);
+    })
+    .response
+    .on_hover_text("Choose visible panels");
 }
 
 /// Windows-style menu toggle: checkmark prefix, never a square checkbox.
 /// Returns `true` when the user toggles the row.
 pub fn menu_check_row(ui: &mut Ui, on: &mut bool, label: &str) -> bool {
-    let prefix = if *on { "✓  " } else { "    " };
-    let text = format!("{prefix}{label}");
-    if ui
-        .selectable_label(*on, RichText::new(text).size(12.0))
-        .clicked()
-    {
+    let dark = ui.visuals().dark_mode;
+    if crate::menu::toggle(ui, *on, label, dark).clicked() {
         *on = !*on;
         true
     } else {
@@ -204,7 +206,7 @@ pub struct MiniMenuModel {
     /// Camera zoom in percent; `None` hides the zoom cluster (views that own
     /// their camera separately, e.g. the Slate board).
     pub zoom_pct: Option<f32>,
-    /// Current full-screen-canvas state (paints the ⛶ toggle accordingly).
+    /// Whether the bottom readout strip is currently hidden.
     pub fullscreen: bool,
 }
 
@@ -215,61 +217,118 @@ pub enum MiniMenuAction {
     ZoomIn,
     /// Fit the content in view.
     Fit,
-    /// Toggle full-screen canvas (suppress the tools rail + readout bar).
+    /// Collapse or expand the bottom readout strip.
     ToggleFullscreen,
 }
 
-/// Floating mini menu in the lower-left corner of the canvas: the ⛶
-/// full-screen-canvas toggle plus optional zoom controls. Shared so the
-/// overlay is pixel-identical in every app.
+/// Lower-left canvas chrome: a tight readout-collapse chevron plus optional
+/// zoom controls. Shared so File Atlas and Slate stay identical.
 pub fn canvas_mini_menu(
     ctx: &egui::Context,
+    palette: &Palette,
     id: &str,
     canvas: Rect,
     model: MiniMenuModel,
 ) -> Option<MiniMenuAction> {
     let mut action = None;
-    let pos = canvas.left_bottom() + Vec2::new(14.0, -14.0);
-    egui::Area::new(Id::new(("canvas_mini_menu", id)))
+    let t = tokens::current().readouts;
+    let hit = t.chevron_hit.max(t.chevron_size + 6.0);
+    let pos = canvas.left_bottom() + Vec2::new(t.chevron_inset_x, -t.chevron_inset_y);
+    egui::Area::new(Id::new(("readout_chevron", id)))
         .fixed_pos(pos)
         .pivot(egui::Align2::LEFT_BOTTOM)
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
+            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(hit), Sense::click());
+            let hovered = resp.hovered();
+            if hovered {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                ui.painter().rect_filled(
+                    rect,
+                    CornerRadius::same(4),
+                    palette.ink.gamma_multiply(t.chevron_hover_fill),
+                );
+                let top = [
+                    Pos2::new(rect.left() + 3.0, rect.top() + 1.0),
+                    Pos2::new(rect.right() - 3.0, rect.top() + 1.0),
+                ];
+                ui.painter().line_segment(
+                    top,
+                    Stroke::new(
+                        1.0_f32,
+                        Color32::from_white_alpha((t.chevron_emboss * 255.0) as u8),
+                    ),
+                );
+            }
+            let color = palette.ink.gamma_multiply(if hovered {
+                t.chevron_hover_opacity
+            } else {
+                t.chevron_idle_opacity
+            });
+            paint_readout_chevron(
+                ui.painter(),
+                rect.center(),
+                t.chevron_size,
+                t.chevron_stroke,
+                color,
+                !model.fullscreen,
+            );
+            let hint = if model.fullscreen {
+                "Show the bottom readout bar (F11)"
+            } else {
+                "Hide the bottom readout bar (F11)"
+            };
+            if resp.on_hover_text(hint).clicked() {
+                action = Some(MiniMenuAction::ToggleFullscreen);
+            }
+        });
+
+    if let Some(pct) = model.zoom_pct {
+        let zoom_pos = pos + Vec2::new(hit + 6.0, 0.0);
+        egui::Area::new(Id::new(("canvas_zoom_cluster", id)))
+            .fixed_pos(zoom_pos)
+            .pivot(egui::Align2::LEFT_BOTTOM)
+            .order(egui::Order::Middle)
+            .show(ctx, |ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
                 ui.horizontal(|ui| {
-                    let hint = if model.fullscreen {
-                        "Exit full-screen canvas (F11)"
-                    } else {
-                        "Full-screen canvas — hide the sidebar and bottom bar (F11)"
-                    };
+                    if ui.small_button("−").clicked() {
+                        action = Some(MiniMenuAction::ZoomOut);
+                    }
                     if ui
-                        .selectable_label(model.fullscreen, "⛶")
-                        .on_hover_text(hint)
+                        .small_button(format!("{pct:.0}%"))
+                        .on_hover_text("Reset to 100%")
                         .clicked()
                     {
-                        action = Some(MiniMenuAction::ToggleFullscreen);
+                        action = Some(MiniMenuAction::ZoomReset);
                     }
-                    if let Some(pct) = model.zoom_pct {
-                        ui.separator();
-                        if ui.button("−").clicked() {
-                            action = Some(MiniMenuAction::ZoomOut);
-                        }
-                        if ui
-                            .button(format!("{pct:.0}%"))
-                            .on_hover_text("Reset to 100%")
-                            .clicked()
-                        {
-                            action = Some(MiniMenuAction::ZoomReset);
-                        }
-                        if ui.button("+").clicked() {
-                            action = Some(MiniMenuAction::ZoomIn);
-                        }
-                        if ui.button("Fit").clicked() {
-                            action = Some(MiniMenuAction::Fit);
-                        }
+                    if ui.small_button("+").clicked() {
+                        action = Some(MiniMenuAction::ZoomIn);
+                    }
+                    if ui.small_button("Fit").clicked() {
+                        action = Some(MiniMenuAction::Fit);
                     }
                 });
             });
-        });
+    }
     action
+}
+
+fn paint_readout_chevron(
+    painter: &egui::Painter,
+    c: Pos2,
+    size: f32,
+    stroke: f32,
+    color: Color32,
+    down: bool,
+) {
+    let w = size * 0.55;
+    let h = size * 0.32;
+    let dir = if down { 1.0 } else { -1.0 };
+    let tip = c + Vec2::new(0.0, dir * h);
+    let left = c + Vec2::new(-w, -dir * h);
+    let right = c + Vec2::new(w, -dir * h);
+    let s = Stroke::new(stroke, color);
+    painter.line_segment([left, tip], s);
+    painter.line_segment([tip, right], s);
 }

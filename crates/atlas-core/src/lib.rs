@@ -21,6 +21,7 @@ pub mod pdf;
 pub mod preview;
 pub mod rasterthumb;
 pub mod scanner;
+pub mod session_log;
 pub mod shell_drag;
 pub mod skiplist;
 pub mod svg;

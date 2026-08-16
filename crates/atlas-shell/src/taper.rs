@@ -21,9 +21,23 @@ pub fn paint_tapered_ribbon(
     min_half: f32,
     color: Color32,
 ) {
+    paint_tapered_ribbon_graded(painter, a, b, max_half, min_half, color, color);
+}
+
+/// Like [`paint_tapered_ribbon`], but color also peaks at midspan (`center`)
+/// and falls to `edge` at the ends — width and opacity share the same curve.
+pub fn paint_tapered_ribbon_graded(
+    painter: &egui::Painter,
+    a: Pos2,
+    b: Pos2,
+    max_half: f32,
+    min_half: f32,
+    center: Color32,
+    edge: Color32,
+) {
     let along = b - a;
     let len = along.length();
-    if len < 1.0 || color.a() == 0 || max_half <= 0.0 {
+    if len < 1.0 || (center.a() == 0 && edge.a() == 0) || max_half <= 0.0 {
         return;
     }
     let dir = along / len;
@@ -44,7 +58,7 @@ pub fn paint_tapered_ribbon(
         let falloff = (1.0 - u * u).clamp(0.0, 1.0);
         let half = min_half + (max_half - min_half) * falloff;
         let p = a + dir * (len * t);
-        let solid = color;
+        let solid = lerp_unmultiplied(edge, center, falloff);
         let clear = Color32::TRANSPARENT;
 
         let base = mesh.vertices.len() as u32;
@@ -80,6 +94,16 @@ pub fn paint_tapered_ribbon(
     }
 
     painter.add(egui::Shape::mesh(mesh));
+}
+
+fn lerp_unmultiplied(a: Color32, b: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    Color32::from_rgba_unmultiplied(
+        (a.r() as f32 + (b.r() as f32 - a.r() as f32) * t).round() as u8,
+        (a.g() as f32 + (b.g() as f32 - a.g() as f32) * t).round() as u8,
+        (a.b() as f32 + (b.b() as f32 - a.b() as f32) * t).round() as u8,
+        (a.a() as f32 + (b.a() as f32 - a.a() as f32) * t).round() as u8,
+    )
 }
 
 #[cfg(test)]

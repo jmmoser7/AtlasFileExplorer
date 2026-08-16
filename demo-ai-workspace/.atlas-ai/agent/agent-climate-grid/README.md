@@ -1,0 +1,1 @@
+Slate writes `context.json` and prompt `request.json` here for this agent portal. Local sidecars write `session.json` with status and turn history, and write board edit proposals under `../stage/`. See `docs/agent-link-contract.md` in the AtlasFileExplorer repository for the full schema.

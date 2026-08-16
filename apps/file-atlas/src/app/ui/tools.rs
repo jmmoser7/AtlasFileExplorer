@@ -11,7 +11,10 @@ use super::super::{
 };
 use crate::app::chrome::ToolPanel;
 use atlas_core::types::{ExtGroup, FAMILIES};
-use atlas_shell::dock::{floating_dock, DockIcon, DockItem, DockItemKind};
+use atlas_shell::dock::{
+    current_body_layout, floating_dock, flyout_items, DockBodyLayout, DockIcon, DockItem,
+    DockItemKind, FlyoutItem,
+};
 use atlas_shell::sidebar::{
     sidebar_checkbox_row, sidebar_family_master_row, sidebar_fold_region, sidebar_mode_row,
     sidebar_nested_checkbox_row, sidebar_option_group, sidebar_slider_block,
@@ -90,6 +93,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
     let theme = sidebar_theme(app);
     let canvas = app.canvas_rect;
     let restore = app.dock_pins.clone();
+    let restore_strips = app.dock_icon_strips.clone();
     floating_dock(
         ctx,
         "file_atlas_tools",
@@ -98,26 +102,87 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         app.dock_side,
         &items,
         &restore,
+        &restore_strips,
         |ui, id| match id {
             "filters" => basic_filters_body(app, ui, theme),
             "display" => display_settings_body(app, ui, ctx, theme),
             "mode" => mode_body(app, ui, theme),
             "workflow" => workflow_body(app, ui),
-            "ai" => atlas_ai::ui::ai_body(&mut app.ai, ui, theme),
+            "ai" => {
+                if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+                    let items = [FlyoutItem {
+                        id: "ai.launch",
+                        label: "Launch Cursor",
+                        description: "Open Cursor in the AI workspace folder.",
+                        hotkey: None,
+                        icon: DockIcon::Ai,
+                        active: false,
+                    }];
+                    if flyout_items(ui, &items).is_some() {
+                        app.ai.launch_cursor();
+                    }
+                } else {
+                    atlas_ai::ui::ai_body(&mut app.ai, ui, theme);
+                }
+            }
             _ => {}
         },
     );
 
-    // Persist pinned palettes across sessions.
+    // Persist pinned palettes and flyout layout across sessions.
+    let mut prefs_dirty = false;
     if let Some(pins) = atlas_shell::dock::pinned_ids(ctx, "file_atlas_tools") {
         if pins != app.dock_pins {
             app.dock_pins = pins;
-            app.save_chrome_prefs();
+            prefs_dirty = true;
         }
+    }
+    if let Some(strips) = atlas_shell::dock::icon_strip_ids(ctx, "file_atlas_tools") {
+        if strips != app.dock_icon_strips {
+            app.dock_icon_strips = strips;
+            prefs_dirty = true;
+        }
+    }
+    if prefs_dirty {
+        app.save_chrome_prefs();
     }
 }
 
 fn mode_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+        let items = [
+            FlyoutItem {
+                id: "mode.view",
+                label: "View",
+                description: "Safe browsing — no rename, move, copy, or delete.",
+                hotkey: None,
+                icon: DockIcon::View,
+                active: app.edit_mode == EditMode::View,
+            },
+            FlyoutItem {
+                id: "mode.edit",
+                label: "Edit",
+                description: "Explorer-style file edits (human-directed).",
+                hotkey: None,
+                icon: DockIcon::Mode,
+                active: app.edit_mode == EditMode::Edit,
+            },
+        ];
+        if let Some(id) = flyout_items(ui, &items) {
+            match id {
+                "mode.view" => {
+                    app.set_edit_mode(EditMode::View);
+                    app.push_history("atlas.mode_view", None);
+                }
+                "mode.edit" => {
+                    app.set_edit_mode(EditMode::Edit);
+                    app.push_history("atlas.mode_edit", None);
+                }
+                _ => {}
+            }
+        }
+        return;
+    }
     ui.label(
         RichText::new("View is safe browsing. Edit unlocks real filesystem changes.")
             .small()
@@ -153,6 +218,10 @@ fn mode_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
 }
 
 fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
+    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+        filters_icon_strip(app, ui);
+        return;
+    }
     // Stable id: Ctrl+F (`canvas.search`) targets this field; Esc while it
     // has focus hands focus back to the canvas (see `hotkeys`).
     let search = egui::TextEdit::singleline(&mut app.search)
@@ -440,6 +509,10 @@ fn display_settings_body(
     ctx: &egui::Context,
     theme: SidebarTheme,
 ) {
+    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+        display_icon_strip(app, ui, ctx);
+        return;
+    }
     sidebar_toolbar_row(ui, |ui| {
         if ui.button("Fit").on_hover_text("F").clicked() {
             app.pending_view = Some(ViewCmd::Fit);
@@ -676,7 +749,132 @@ fn display_settings_body(
 }
 
 fn workflow_body(app: &mut AtlasApp, ui: &mut egui::Ui) {
+    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+        let items = [FlyoutItem {
+            id: "workflow.unassigned",
+            label: "Unassigned only",
+            description: "Focus the canvas on files that have no destination yet.",
+            hotkey: None,
+            icon: DockIcon::Workflow,
+            active: app.only_unassigned,
+        }];
+        if flyout_items(ui, &items).is_some() {
+            app.only_unassigned = !app.only_unassigned;
+            app.filter_dirty = true;
+        }
+        return;
+    }
     if sidebar_checkbox_row(ui, &mut app.only_unassigned, "Unassigned only") {
         app.filter_dirty = true;
+    }
+}
+
+fn filters_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui) {
+    let items = [
+        FlyoutItem {
+            id: "filters.ghost",
+            label: "Ghost",
+            description: "Dim items that fail the current filters.",
+            hotkey: None,
+            icon: DockIcon::Ghost,
+            active: app.filter_mode == FilterMode::Ghost,
+        },
+        FlyoutItem {
+            id: "filters.hide",
+            label: "Hide",
+            description: "Remove failing items from the layout.",
+            hotkey: None,
+            icon: DockIcon::Hide,
+            active: app.filter_mode == FilterMode::Hide,
+        },
+        FlyoutItem {
+            id: "filters.zoom",
+            label: "Zoom to matches",
+            description: "Camera follows the filter and fits again when it clears.",
+            hotkey: None,
+            icon: DockIcon::Fit,
+            active: app.auto_zoom_matches,
+        },
+        FlyoutItem {
+            id: "filters.dupes",
+            label: "Hide duplicates",
+            description: "Same name and size — keep the newest.",
+            hotkey: None,
+            icon: DockIcon::Duplicates,
+            active: app.dedupe_twins,
+        },
+    ];
+    if let Some(id) = flyout_items(ui, &items) {
+        match id {
+            "filters.ghost" => {
+                app.filter_mode = FilterMode::Ghost;
+                app.filter_dirty = true;
+            }
+            "filters.hide" => {
+                app.filter_mode = FilterMode::Hide;
+                app.filter_dirty = true;
+            }
+            "filters.zoom" => {
+                app.auto_zoom_matches = !app.auto_zoom_matches;
+                app.refit_matches_now();
+            }
+            "filters.dupes" => {
+                app.dedupe_twins = !app.dedupe_twins;
+                app.filter_dirty = true;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn display_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context) {
+    let items = [
+        FlyoutItem {
+            id: "display.fit",
+            label: "Fit",
+            description: "Fit the tree to the canvas (F).",
+            hotkey: Some("F"),
+            icon: DockIcon::Fit,
+            active: false,
+        },
+        FlyoutItem {
+            id: "display.orient",
+            label: "Flow direction",
+            description: "Toggle branch direction.",
+            hotkey: None,
+            icon: DockIcon::Display,
+            active: false,
+        },
+        FlyoutItem {
+            id: "display.dark",
+            label: "Dark",
+            description: "Toggle the dark theme.",
+            hotkey: None,
+            icon: DockIcon::Dark,
+            active: app.dark_mode,
+        },
+    ];
+    if let Some(id) = flyout_items(ui, &items) {
+        match id {
+            "display.fit" => app.pending_view = Some(ViewCmd::Fit),
+            "display.orient" => {
+                app.orient = match app.orient {
+                    Orient::V => Orient::H,
+                    Orient::H => Orient::V,
+                };
+                app.relayout();
+                app.pending_view = Some(ViewCmd::Fit);
+            }
+            "display.dark" => {
+                let dark = !app.dark_mode;
+                app.set_dark_mode(dark, ctx);
+                if let Some(session) = &app.session {
+                    if let Ok(mut s) = session.lock() {
+                        s.dark_mode = dark;
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }

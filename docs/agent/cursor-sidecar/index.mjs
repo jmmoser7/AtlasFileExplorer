@@ -25,7 +25,7 @@ await writeSession({ status: "idle", provider: "cursor", turns, updated_at: now(
 await using agent = await Agent.create({
   apiKey: process.env.CURSOR_API_KEY,
   model: { id: model },
-  local: { cwd: workspace },
+  local: { cwd: process.env.ATLAS_AGENT_CWD ?? workspace },
 });
 
 console.log(`Watching ${requestPath}`);

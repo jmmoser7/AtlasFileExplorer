@@ -26,3 +26,6 @@ debug-*.log
 **/.atlas-ai/stage/
 **/.atlas-ai/lens/graph.json
 **/.atlas-ai/lens/overlay.json
+# Auto-generated agent portal sessions (hex ids). Named fixtures stay tracked.
+**/.atlas-ai/agent/agent-18*/**
+**/.atlas-ai/**/sidecar.log

@@ -2,7 +2,7 @@
 //!
 //! A board tool is two things: a **gesture grammar** (how the pointer is read)
 //! and a **result recipe** (what the commit produces). The grammars are code
-//! and there are nine of them; the recipes are data. Splitting them is what
+//! and there are ten of them; the recipes are data. Splitting them is what
 //! makes a tool something a person can author without a compiler, and what
 //! keeps the core from growing a variant per tool anyone ever wanted
 //! (Art. III, Art. VII.3).
@@ -206,6 +206,11 @@ mod tests {
         assert_eq!(s.corner, slate_doc::scene::Corner::Square);
         assert!(s.path.is_none());
         assert!(!s.flip);
+        assert_eq!(rect.def.recipe.default_size(), Some([180.0, 120.0]));
+        assert_eq!(
+            reg.get("ellipse").unwrap().def.recipe.default_size(),
+            Some([160.0, 160.0])
+        );
     }
 
     #[test]

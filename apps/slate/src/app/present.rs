@@ -50,6 +50,7 @@ impl SlateApp {
         // Presentation shows frozen states: lock live 3D viewports so every
         // slide renders the committed camera pose.
         self.lock_all_models();
+        let _ = self.portal_restore();
         self.presenting = Some(Present { idx, from: None });
         self.board_menu = None;
         self.text_edit = None;
@@ -175,21 +176,33 @@ impl SlateApp {
         painter.rect_filled(screen, 0.0, Color32::from_rgb(0x11, 0x11, 0x13));
 
         let frame_node = self.doc().scene.node(frame_id).cloned();
-        // Hidden members are excluded; connectors never join slides (they
-        // ignore frame membership — connectors spec).
-        let members: Vec<slate_doc::Node> = {
-            let member_ids = self.doc().scene.members_of(frame_id);
-            self.doc()
-                .scene
-                .nodes
-                .iter()
-                .filter(|n| member_ids.contains(&n.id))
-                .filter(|n| {
-                    !n.hidden && !matches!(n.kind, slate_doc::scene::NodeKind::Connector(_))
-                })
-                .cloned()
-                .collect()
-        };
+        // Hidden members are excluded. Connectors ignore frame membership
+        // (spec) but still paint under hosts when either end lives on this
+        // slide, so present matches the board's under-node z-rule.
+        let member_ids = self.doc().scene.members_of(frame_id);
+        let members: Vec<slate_doc::Node> = self
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter(|n| member_ids.contains(&n.id))
+            .filter(|n| !n.hidden && !matches!(n.kind, slate_doc::scene::NodeKind::Connector(_)))
+            .cloned()
+            .collect();
+        let wires: Vec<slate_doc::Node> = self
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter(|n| !n.hidden)
+            .filter(|n| match &n.kind {
+                slate_doc::scene::NodeKind::Connector(c) => {
+                    connector_touches_slide(c, &member_ids, frame_rect)
+                }
+                _ => false,
+            })
+            .cloned()
+            .collect();
         let frame_screen = xf.rect_w2s(frame_rect);
         let clip = painter.with_clip_rect(frame_screen);
 
@@ -202,6 +215,9 @@ impl SlateApp {
             .show(ctx, |ui| {
                 if let Some(f) = &frame_node {
                     self.paint_board_node(ui, &clip, &xf, f, false);
+                }
+                for n in &wires {
+                    self.paint_board_node(ui, &clip, &xf, n, false);
                 }
                 for n in &members {
                     self.paint_board_node(ui, &clip, &xf, n, false);
@@ -226,4 +242,16 @@ impl SlateApp {
             Color32::from_gray(90),
         );
     }
+}
+
+fn connector_touches_slide(
+    conn: &slate_doc::scene::ConnectorNode,
+    member_ids: &[NodeId],
+    frame: WorldRect,
+) -> bool {
+    let end_on = |end: slate_doc::scene::ConnectorEnd| match end {
+        slate_doc::scene::ConnectorEnd::Anchored { node, .. } => member_ids.contains(&node),
+        slate_doc::scene::ConnectorEnd::Free { point } => frame.contains(point[0], point[1]),
+    };
+    end_on(conn.a) || end_on(conn.b)
 }

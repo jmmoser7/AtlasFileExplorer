@@ -25,6 +25,8 @@ use atlas_core::types::{
     FileEntry, FAMILIES, SECS_PER_DAY,
 };
 use atlas_core::watcher::{self, FsChange, FsWatch};
+use atlas_shell::canvas_scale;
+use atlas_shell::menu::{self, MenuIcon};
 use atlas_shell::minimap::{minimap_ui, MinimapAction, MinimapModel, MinimapState};
 use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -613,6 +615,8 @@ pub struct AtlasApp {
     pub dock_side: atlas_shell::dock::DockSide,
     /// Dock panels pinned as persistent palettes (restored across sessions).
     pub dock_pins: Vec<String>,
+    /// Tool flyouts that open as an icon strip instead of a stacked list.
+    pub dock_icon_strips: Vec<String>,
     /// Editing buffer for the never-scanned folder names (Advanced), one per
     /// line. The list itself lives in `atlas_core::skiplist`; this is only the
     /// text the user is typing, so it is not part of a workspace.
@@ -839,6 +843,8 @@ pub struct AtlasApp {
     /// AI / Cursor integration: workspace link, launcher, context beacon
     /// (shared plumbing and panel body from `atlas-ai`).
     ai: atlas_ai::AiPanel,
+    /// Frame/activity recorder shared with Slate. Test builds stay in memory.
+    pub(crate) session_log: atlas_core::session_log::SessionLog,
 
     // organizing state
     assign_state: AssignState,
@@ -1035,7 +1041,7 @@ impl AtlasApp {
 
     /// Run one frame from a host-driven viewport (linked Slate session).
     pub fn run_frame(&mut self, ctx: &egui::Context) {
-        self.update_app(ctx);
+        self.pump_frame(ctx);
     }
 
     /// Full construction from an egui context and an explicit index DB.
@@ -1048,6 +1054,7 @@ impl AtlasApp {
         }
         egui_ctx.set_theme(egui::ThemePreference::Dark);
         egui_ctx.set_visuals(dark_visuals());
+        atlas_shell::canvas_text::install(egui_ctx);
         // Dev harness: ATLAS_FAM=none starts with every family unchecked
         // (structure-only screenshot testing).
         let fam_default = !matches!(std::env::var("ATLAS_FAM").as_deref(), Ok("none"));
@@ -1104,6 +1111,7 @@ impl AtlasApp {
             dark_mode: true,
             dock_side: chrome_prefs.dock_side,
             dock_pins: chrome_prefs.pinned_panels,
+            dock_icon_strips: chrome_prefs.panel_icon_strip,
             skip_edit: skip_list_text(),
             filter_mode: FilterMode::Hide,
             grid_cols: 10,
@@ -1224,6 +1232,11 @@ impl AtlasApp {
             session: None,
             session_drag: None,
             ai: atlas_ai::AiPanel::new(),
+            session_log: if cfg!(test) {
+                atlas_core::session_log::SessionLog::memory("file-atlas")
+            } else {
+                atlas_core::session_log::SessionLog::new("file-atlas")
+            },
             assign_state: AssignState {
                 assigns: HashMap::new(),
             },
@@ -1283,6 +1296,7 @@ impl AtlasApp {
         } else {
             light_visuals()
         });
+        atlas_shell::menu::apply_style(ctx, self.dark_mode);
     }
 
     /// Current dark/light preference (for linked Slate sessions).
@@ -1806,6 +1820,7 @@ impl AtlasApp {
         self.reset_workspace();
         self.at_home = false;
         self.ensure_tab();
+        atlas_core::session_log::event("atlas.root", &root.display().to_string());
         self.root = Some(root.clone());
         self.scan_seeds = folders.clone();
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
@@ -2279,14 +2294,15 @@ impl AtlasApp {
         });
     }
 
-    /// Full-screen canvas: hide the tools rail and readout bar (View menu,
-    /// the canvas mini menu ⛶, or F11).
+    /// Hide the bottom readout strip (View menu, lower-left chevron, or F11).
     pub(super) fn toggle_canvas_fullscreen(&mut self) {
         let on = !self.active_chrome().canvas_fullscreen;
         self.active_chrome_mut().canvas_fullscreen = on;
     }
 
     fn ingest_loaded(&mut self, root: PathBuf, loaded: LoadedRoot) {
+        let _span = atlas_core::session_log::span("atlas.ingest");
+        atlas_core::session_log::event("atlas.scan.start", &root.display().to_string());
         self.assign_state = loaded.assign_state;
         if let Some(json) = &loaded.journal_json {
             self.journal = Journal::from_json(json);
@@ -2533,6 +2549,7 @@ impl AtlasApp {
     fn rebuild_tree(&mut self, first: bool) {
         let collapsed = self.dir_collapsed.clone();
 
+        let _span = atlas_core::session_log::span("atlas.tree.rebuild");
         if self.entries.len() >= ASYNC_TREE_THRESHOLD {
             if self.tree_build_rx.is_some() {
                 // A build is already in flight; run again once it lands.
@@ -2600,6 +2617,7 @@ impl AtlasApp {
     /// Install a freshly built tree and, on the root's first build, place
     /// the initial camera (restored tab position or the home view).
     fn adopt_tree(&mut self, mut t: Tree, first: bool) {
+        let _span = atlas_core::session_log::span("atlas.tree.adopt");
         // Reconcile collapse against the record, not against whatever the build
         // started from: a background build can be in flight for seconds, and a
         // folder the user opened in the meantime must not slam shut when it
@@ -2808,30 +2826,33 @@ impl AtlasApp {
 
         // Scan results. Batches mutate the entry vec; cap them so a deep
         // channel cannot own a frame. Dirs and Done always apply this frame.
-        let mut batches = 0usize;
-        loop {
-            let (generation, msg) = if let Some(held) = self.scan_hold.take() {
-                held
-            } else {
-                match self.scan_rx.try_recv() {
-                    Ok(m) => m,
-                    Err(_) => break,
+        {
+            let _scan_span = atlas_core::session_log::span("atlas.scan.ingest");
+            let mut batches = 0usize;
+            loop {
+                let (generation, msg) = if let Some(held) = self.scan_hold.take() {
+                    held
+                } else {
+                    match self.scan_rx.try_recv() {
+                        Ok(m) => m,
+                        Err(_) => break,
+                    }
+                };
+                if generation != self.generation {
+                    continue;
                 }
-            };
-            if generation != self.generation {
-                continue;
+                if matches!(msg, ScanMsg::Batch(_))
+                    && batches >= atlas_core::display::SCAN_BATCHES_PER_FRAME
+                {
+                    self.scan_hold = Some((generation, msg));
+                    ctx.request_repaint();
+                    break;
+                }
+                if matches!(msg, ScanMsg::Batch(_)) {
+                    batches += 1;
+                }
+                self.apply_scan_msg(msg);
             }
-            if matches!(msg, ScanMsg::Batch(_))
-                && batches >= atlas_core::display::SCAN_BATCHES_PER_FRAME
-            {
-                self.scan_hold = Some((generation, msg));
-                ctx.request_repaint();
-                break;
-            }
-            if matches!(msg, ScanMsg::Batch(_)) {
-                batches += 1;
-            }
-            self.apply_scan_msg(msg);
         }
 
         // Deferred owner results.
@@ -2915,104 +2936,109 @@ impl AtlasApp {
         self.queue_dir_meta();
 
         // Thumbnail results
-        let mut uploads = 0;
-        loop {
-            if uploads >= atlas_core::display::ATLAS_TEXTURES.uploads_per_frame {
-                break;
-            }
-            let Ok(res) = self.thumbs.rx.try_recv() else {
-                break;
-            };
-            if res.generation == atlas_core::thumbs::PINNED_GENERATION {
-                // Overnight pre-warm progress: ids are meaningless here, the
-                // job's only output is the (shared) disk cache. Results
-                // arriving after a cancel (in-flight stragglers) are ignored;
-                // completion itself is detected once per frame above.
-                if let Some(job) = &mut self.prewarm {
-                    job.record_done(res.src_bytes);
+        {
+            let _thumb_span = atlas_core::session_log::span("atlas.thumbs.upload");
+            let mut uploads = 0;
+            loop {
+                if uploads >= atlas_core::display::ATLAS_TEXTURES.uploads_per_frame {
+                    break;
                 }
-                continue;
-            }
-            if res.warm {
-                self.warm_pending = self.warm_pending.saturating_sub(1);
-            } else {
-                self.thumbs_pending = self.thumbs_pending.saturating_sub(1);
-            }
-            if res.generation != self.generation {
-                continue;
-            }
-            let id = res.id as usize;
-            if id >= self.thumb_state.len() {
-                continue;
-            }
-            if res.dropped {
-                // Shed from an over-full hot queue without running: reset the
-                // card so the paint pass re-requests it while it's visible.
-                let state = &mut self.thumb_state[id];
-                match *state {
-                    ThumbState::AskedFull => {
-                        *state = if self.avg_color[id].is_some() {
+                let Ok(res) = self.thumbs.rx.try_recv() else {
+                    break;
+                };
+                if res.generation == atlas_core::thumbs::PINNED_GENERATION {
+                    // Overnight pre-warm progress: ids are meaningless here, the
+                    // job's only output is the (shared) disk cache. Results
+                    // arriving after a cancel (in-flight stragglers) are ignored;
+                    // completion itself is detected once per frame above.
+                    if let Some(job) = &mut self.prewarm {
+                        job.record_done(res.src_bytes);
+                    }
+                    continue;
+                }
+                if res.warm {
+                    self.warm_pending = self.warm_pending.saturating_sub(1);
+                } else {
+                    self.thumbs_pending = self.thumbs_pending.saturating_sub(1);
+                }
+                if res.generation != self.generation {
+                    continue;
+                }
+                let id = res.id as usize;
+                if id >= self.thumb_state.len() {
+                    continue;
+                }
+                if res.dropped {
+                    // Shed from an over-full hot queue without running: reset the
+                    // card so the paint pass re-requests it while it's visible.
+                    let state = &mut self.thumb_state[id];
+                    match *state {
+                        ThumbState::AskedFull => {
+                            *state = if self.avg_color[id].is_some() {
+                                ThumbState::HasColor
+                            } else {
+                                ThumbState::NotAsked
+                            };
+                        }
+                        ThumbState::AskedColor => *state = ThumbState::NotAsked,
+                        _ => {}
+                    }
+                    continue;
+                }
+                if let Some(avg) = res.avg {
+                    if let Some(slot) = self.avg_color.get_mut(id) {
+                        *slot = Some(avg);
+                    }
+                }
+                if res.warm {
+                    // Disk cache is now hot; the UI re-requests pixels on demand.
+                    // The harvested average color feeds the far-zoom overview.
+                    //
+                    // "On demand" needs help: warm jobs carry no pixels, so a card
+                    // whose on-demand request was answered by this warm result sits
+                    // in `AskedFull` with nothing to draw, and the paint pass only
+                    // ever re-asks for `NotAsked`/`HasColor`. Release it here or it
+                    // stays a blank placeholder for the life of the tab.
+                    if self.thumb_state[id] == ThumbState::AskedFull
+                        && !self.textures.contains_key(&res.id)
+                    {
+                        self.thumb_state[id] = if self.avg_color[id].is_some() {
                             ThumbState::HasColor
                         } else {
                             ThumbState::NotAsked
                         };
                     }
-                    ThumbState::AskedColor => *state = ThumbState::NotAsked,
-                    _ => {}
+                    continue;
                 }
-                continue;
-            }
-            if let Some(avg) = res.avg {
-                if let Some(slot) = self.avg_color.get_mut(id) {
-                    *slot = Some(avg);
+                if res.color_only {
+                    // Color-only results carry no pixels (the worker strips them);
+                    // success is "we harvested an average color".
+                    if self.thumb_state[id] == ThumbState::AskedColor {
+                        self.thumb_state[id] = if res.avg.is_some() {
+                            ThumbState::HasColor
+                        } else {
+                            ThumbState::Failed
+                        };
+                    }
+                    continue;
                 }
-            }
-            if res.warm {
-                // Disk cache is now hot; the UI re-requests pixels on demand.
-                // The harvested average color feeds the far-zoom overview.
-                //
-                // "On demand" needs help: warm jobs carry no pixels, so a card
-                // whose on-demand request was answered by this warm result sits
-                // in `AskedFull` with nothing to draw, and the paint pass only
-                // ever re-asks for `NotAsked`/`HasColor`. Release it here or it
-                // stays a blank placeholder for the life of the tab.
-                if self.thumb_state[id] == ThumbState::AskedFull
-                    && !self.textures.contains_key(&res.id)
-                {
-                    self.thumb_state[id] = if self.avg_color[id].is_some() {
-                        ThumbState::HasColor
-                    } else {
-                        ThumbState::NotAsked
-                    };
+                match res.image {
+                    Some((w, h, rgba)) => {
+                        let img = egui::ColorImage::from_rgba_unmultiplied(
+                            [w as usize, h as usize],
+                            &rgba,
+                        );
+                        let tex = ctx.load_texture(
+                            format!("thumb{}", res.id),
+                            img,
+                            egui::TextureOptions::LINEAR,
+                        );
+                        self.textures.insert(res.id, (tex, self.frame_no));
+                        self.thumb_state[id] = ThumbState::Loaded;
+                        uploads += 1;
+                    }
+                    None => self.thumb_state[id] = ThumbState::Failed,
                 }
-                continue;
-            }
-            if res.color_only {
-                // Color-only results carry no pixels (the worker strips them);
-                // success is "we harvested an average color".
-                if self.thumb_state[id] == ThumbState::AskedColor {
-                    self.thumb_state[id] = if res.avg.is_some() {
-                        ThumbState::HasColor
-                    } else {
-                        ThumbState::Failed
-                    };
-                }
-                continue;
-            }
-            match res.image {
-                Some((w, h, rgba)) => {
-                    let img =
-                        egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
-                    let tex = ctx.load_texture(
-                        format!("thumb{}", res.id),
-                        img,
-                        egui::TextureOptions::LINEAR,
-                    );
-                    self.textures.insert(res.id, (tex, self.frame_no));
-                    self.thumb_state[id] = ThumbState::Loaded;
-                    uploads += 1;
-                }
-                None => self.thumb_state[id] = ThumbState::Failed,
             }
         }
 
@@ -3038,11 +3064,14 @@ impl AtlasApp {
         if overflow {
             self.on_fs_backlog_overflow();
         }
-        for _ in 0..FS_EVENTS_PER_FRAME {
-            let Some(ev) = self.fs_backlog.pop_front() else {
-                break;
-            };
-            self.apply_fs_change(ev);
+        {
+            let _watch = atlas_core::session_log::span("atlas.watcher");
+            for _ in 0..FS_EVENTS_PER_FRAME {
+                let Some(ev) = self.fs_backlog.pop_front() else {
+                    break;
+                };
+                self.apply_fs_change(ev);
+            }
         }
         if !self.fs_backlog.is_empty() {
             ctx.request_repaint();
@@ -3134,8 +3163,12 @@ impl AtlasApp {
                 }
             }
             ScanMsg::Batch(batch) => match mode {
-                Some(ScanMode::Refresh) => self.rescan_buffer.extend(batch),
+                Some(ScanMode::Refresh) => {
+                    atlas_core::session_log::count("atlas.scan.batch", batch.len() as u32);
+                    self.rescan_buffer.extend(batch);
+                }
                 _ => {
+                    atlas_core::session_log::count("atlas.scan.batch", batch.len() as u32);
                     let first_new = self.entries.len();
                     let mut replaced = false;
                     for fe in batch {
@@ -3172,6 +3205,7 @@ impl AtlasApp {
                 }
             },
             ScanMsg::Done { files, elapsed_ms } => {
+                atlas_core::session_log::count("atlas.scan.done", files as u32);
                 eprintln!(
                     "[atlas] scan complete: {files} files in {elapsed_ms}ms (mode={})",
                     match mode {
@@ -4148,6 +4182,7 @@ impl AtlasApp {
     }
 
     fn recompute_matches(&mut self) {
+        let _span = atlas_core::session_log::span("atlas.filter");
         self.matches_rev = self.matches_rev.wrapping_add(1);
         self.recount_owners();
         self.update_date_span();
@@ -4686,11 +4721,37 @@ impl AtlasApp {
 
 impl eframe::App for AtlasApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.update_app(ctx);
+        self.pump_frame(ctx);
     }
 }
 
 impl AtlasApp {
+    fn pump_frame(&mut self, ctx: &egui::Context) {
+        let _attach = self.session_log.attach();
+        let t0 = Instant::now();
+        let delivered = ctx.input(|i| i.unstable_dt);
+        self.update_app(ctx);
+        self.snapshot_activity();
+        self.session_log.end_frame(t0.elapsed(), delivered);
+    }
+
+    fn snapshot_activity(&self) {
+        self.session_log
+            .set_snapshot(atlas_core::session_log::Snapshot {
+                entries: self.entries.len() as u32,
+                nodes: 0,
+                selected: self.selection.len() as u32,
+                thumbs_pending: self.thumbs_pending as u32,
+                extra: self.fs_backlog.len() as u32,
+                scan_active: self.scan_ui.is_some(),
+                view: if self.at_home { "home" } else { "tree" },
+                tool: match self.edit_mode {
+                    EditMode::View => "view",
+                    EditMode::Edit => "edit",
+                },
+            });
+    }
+
     /// One full UI frame. Split from `eframe::App::update` so the headless
     /// test harness can pump frames without an eframe window.
     fn update_app(&mut self, ctx: &egui::Context) {
@@ -4774,6 +4835,7 @@ impl AtlasApp {
                 } else if self.root.is_none() {
                     self.empty_workspace(ui);
                 } else {
+                    let _span = atlas_core::session_log::span("atlas.canvas");
                     self.canvas(ui);
                 }
             });
@@ -5256,6 +5318,13 @@ impl AtlasApp {
                 self.repeat_last(ctx);
                 return;
             }
+            "app.session.mark" => {
+                self.session_log.mark("F4");
+                self.toast("Marked this moment in the session log");
+            }
+            "app.session.reveal" => {
+                self.session_log.reveal();
+            }
             _ => return,
         }
         self.push_history(id.0, detail);
@@ -5266,6 +5335,7 @@ impl AtlasApp {
         atlas_shell::prefs::ChromePrefs {
             dock_side: self.dock_side,
             pinned_panels: self.dock_pins.clone(),
+            panel_icon_strip: self.dock_icon_strips.clone(),
             minimap: self.minimap_on,
         }
         .save("file-atlas");
@@ -6459,8 +6529,8 @@ impl AtlasApp {
             return None;
         }
         let sr = self.w2s_rect(d.rect());
-        let z = self.cam.z.max(0.4);
-        let r = (9.0 * z).clamp(6.0, 12.0);
+        let z = self.cam.z;
+        let r = canvas_scale::hit_px(9.0, z);
         let (inc, full) = self.grip_positions(sr);
         // The two grips can sit close together at low zoom; always resolve
         // to the nearest one so both remain clickable.
@@ -6693,12 +6763,13 @@ impl AtlasApp {
         }
     }
 
-    /// Lower-left canvas mini menu (shared chrome): ⛶ full-screen toggle +
-    /// zoom controls.
+    /// Lower-left canvas chrome: readout-collapse chevron + zoom controls.
     fn zoom_controls(&mut self, ui: &mut egui::Ui, rect: Rect) {
         use atlas_shell::widgets::{canvas_mini_menu, MiniMenuAction, MiniMenuModel};
+        let palette = self.palette();
         let action = canvas_mini_menu(
             ui.ctx(),
+            &palette,
             "atlas",
             rect,
             MiniMenuModel {
@@ -6872,8 +6943,8 @@ impl AtlasApp {
                 if gb.expand(40.0).intersects(view) && lod > 0 {
                     // Dashed group outline.
                     let sr = self.w2s_rect(gb);
-                    let dash = 7.0 * z.max(0.15);
-                    let gap = 6.0 * z.max(0.15);
+                    let dash = canvas_scale::px(7.0, z);
+                    let gap = canvas_scale::px(6.0, z);
                     let pts = [
                         sr.min,
                         Pos2::new(sr.max.x, sr.min.y),
@@ -6965,7 +7036,7 @@ impl AtlasApp {
         };
         if self.leader_style == LeaderStyle::Orthogonal {
             let pts = [self.w2s(start), self.w2s(m1), self.w2s(m2), self.w2s(tgt)];
-            rounded_route(painter, &pts, (9.0 * self.cam.z).clamp(2.0, 11.0), stroke);
+            rounded_route(painter, &pts, canvas_scale::px(9.0, self.cam.z), stroke);
             return;
         }
         // Bezier: control points sit on the same nested rail, so curved
@@ -7023,7 +7094,7 @@ impl AtlasApp {
             return;
         }
 
-        let cr = CornerRadius::same((10.0 * z).clamp(2.0, 10.0) as u8);
+        let cr = 10.0 * z;
         let fill = if hovered { p.card_hover } else { p.card };
         painter.rect_filled(sr, cr, fill);
         let stroke_w = if hovered { 1.6_f32 } else { 1.25_f32 };
@@ -7046,7 +7117,7 @@ impl AtlasApp {
 
         if d.collapsed && (hovered || lod >= 2) {
             let (inc, full) = self.grip_positions(sr);
-            let grip_r = (4.5 * z).clamp(3.0, 6.0);
+            let grip_r = canvas_scale::px(4.5, z);
             let inc_hover = self.hovered_dir == Some(di as u32)
                 && self.hovered_dir_grip == Some(DirGrip::Incremental);
             let full_hover =
@@ -7070,7 +7141,7 @@ impl AtlasApp {
             );
             painter.circle_stroke(
                 full,
-                (grip_r * 0.55).max(2.0),
+                grip_r * 0.55,
                 Stroke::new(
                     1.2_f32,
                     if full_hover {
@@ -7102,7 +7173,7 @@ impl AtlasApp {
         let z = self.cam.z;
         let hovered = self.hovered_dir == Some(di as u32);
         let heat = self.folder_heat(di);
-        let cr = CornerRadius::same((12.0 * z).clamp(2.0, 12.0) as u8);
+        let cr = 12.0 * z;
         let fill = if hovered { p.card_hover } else { p.card };
         painter.rect_filled(sr, cr, fill);
         let stroke_c = match heat {
@@ -7321,9 +7392,9 @@ impl AtlasApp {
         sr: Rect,
         p: &Palette,
     ) {
-        let pad_l = (sr.width() * 0.06).clamp(12.0, 36.0);
-        let pad_r = (sr.width() * 0.04).clamp(8.0, 24.0);
-        let pad_y = (sr.height() * 0.08).clamp(8.0, 28.0);
+        let pad_l = sr.width() * 0.06;
+        let pad_r = sr.width() * 0.04;
+        let pad_y = sr.height() * 0.08;
         let max_w = sr.width() - pad_l - pad_r;
         let max_h = sr.height() - pad_y * 2.0;
         if max_w < 40.0 || max_h < 24.0 {
@@ -7331,13 +7402,13 @@ impl AtlasApp {
         }
 
         // Fractions of the host tag so type tracks the card through zoom —
-        // same rule as the mid/full LOD path. Floors keep a deep-zoomed tag
-        // readable; no ceiling, or the paragraph freezes while the tag grows.
-        let name_px = (max_h * 0.11).max(16.0);
-        let body_px = (max_h * 0.048).max(12.0);
+        // same rule as the mid/full LOD path. No floor or ceiling: too small
+        // drops (the early return above); the host keeps owning the size.
+        let name_px = max_h * 0.11;
+        let body_px = max_h * 0.048;
         let name_font = FontId::proportional(name_px);
         let body_font = FontId::proportional(body_px);
-        let path_font = FontId::proportional((body_px * 0.95).max(11.0));
+        let path_font = FontId::proportional(body_px * 0.95);
 
         let abs = self.dir_abs_path(d);
         let mut details = format!(
@@ -7642,7 +7713,7 @@ impl AtlasApp {
             return;
         }
 
-        let cr = CornerRadius::same((9.0 * z).clamp(2.0, 9.0) as u8);
+        let cr = 9.0 * z;
         let card_fill = if hovered || selected {
             p.card_hover
         } else {
@@ -7669,11 +7740,7 @@ impl AtlasApp {
 
         if lod >= 2 {
             let detail = self.label_detail_active(lod, sr);
-            let pad = if detail {
-                (sr.width() * 0.04).clamp(8.0, 18.0)
-            } else {
-                6.0 * z
-            };
+            let pad = if detail { sr.width() * 0.04 } else { 6.0 * z };
             // Detail: leave ~half the card for a wrapped path + meta paragraph.
             let thumb_h = if detail {
                 (sr.height() * 0.42).min(tree::THUMB_H * z * 1.15).max(24.0)
@@ -7798,11 +7865,7 @@ impl AtlasApp {
                 .map(|[r, g, b]| Color32::from_rgb(r, g, b))
                 .unwrap_or(fam_color.gamma_multiply(0.28));
             let inner = sr.shrink(5.0 * z);
-            painter.rect_filled(
-                inner,
-                CornerRadius::same((6.0 * z).clamp(1.0, 6.0) as u8),
-                c.gamma_multiply(alpha),
-            );
+            painter.rect_filled(inner, 6.0 * z, c.gamma_multiply(alpha));
             if self.assign_state.assigns.contains_key(&e.rel) {
                 painter.rect_filled(
                     Rect::from_min_size(
@@ -7841,13 +7904,13 @@ impl AtlasApp {
             return;
         }
 
-        // Match host-tag detail sizing: fraction of the card region, floor
-        // only — type keeps tracking the host through zoom.
-        let name_px = (max_h * 0.16).max(14.0);
-        let body_px = (max_h * 0.09).max(11.0);
+        // Match host-tag detail sizing: fraction of the card region. No
+        // floor — too small is the early return above.
+        let name_px = max_h * 0.16;
+        let body_px = max_h * 0.09;
         let name_font = FontId::proportional(name_px);
         let body_font = FontId::proportional(body_px);
-        let path_font = FontId::proportional((body_px * 0.95).max(11.0));
+        let path_font = FontId::proportional(body_px * 0.95);
 
         let abs = e.path.display().to_string();
         let mut details = format!("{} · {}", human_size(e.size), e.family.label());
@@ -8348,25 +8411,26 @@ impl AtlasApp {
         });
         let MenuCache { rels, paths, .. } = &cache;
         let n = rels.len();
+        let dark = self.dark_mode;
         let menu = egui::Area::new(egui::Id::new("action_menu"))
             .fixed_pos(pos)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                let palette = self.palette();
-                egui::Frame::menu(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(210.0);
+                menu::frame(dark).show(ui, |ui| {
+                    ui.set_min_width(menu::tokens().min_width);
                     let caption = match target {
                         MenuTarget::File(_) => format!("{n} file(s)"),
                         MenuTarget::Dir(_) => "Folder".into(),
                         MenuTarget::Canvas => "Canvas".into(),
                     };
-                    ui.label(egui::RichText::new(caption).small().color(palette.sub));
+                    menu::heading(ui, caption, dark);
                     if !rels.is_empty() {
-                        if ui.button("Assign data tag…").clicked() {
+                        if menu::item(ui, MenuIcon::Tag, "Assign data tag…", dark).clicked() {
                             self.open_edit_panel();
                             close = true;
                         }
-                        if ui.button("Clear assigned data tag").clicked() {
+                        if menu::item(ui, MenuIcon::Tag, "Clear assigned data tag", dark).clicked()
+                        {
                             self.set_assign(
                                 rels,
                                 None,
@@ -8375,14 +8439,15 @@ impl AtlasApp {
                             close = true;
                         }
                         self.session_menu_section(ui, rels);
-                        ui.separator();
-                        if ui.button("Copy path(s) for Slate").clicked() {
+                        menu::separator(ui, dark);
+                        if menu::item(ui, MenuIcon::Copy, "Copy path(s) for Slate", dark).clicked()
+                        {
                             self.copy_rels_paths(ctx, rels);
                             close = true;
                         }
                     }
                     if n == 1 {
-                        if ui.button("Open").clicked() {
+                        if menu::item(ui, MenuIcon::Open, "Open", dark).clicked() {
                             let opened = self.entry_by_rel(&rels[0]).map(|e| {
                                 Self::open_path(&e.path);
                                 e.name.clone()
@@ -8392,13 +8457,13 @@ impl AtlasApp {
                             }
                             close = true;
                         }
-                        if ui.button("Show in Explorer").clicked() {
+                        if menu::item(ui, MenuIcon::Folder, "Show in Explorer", dark).clicked() {
                             if let Some(e) = self.entry_by_rel(&rels[0]) {
                                 Self::reveal_in_explorer(&e.path);
                             }
                             close = true;
                         }
-                        if ui.button("Details").clicked() {
+                        if menu::item(ui, MenuIcon::Details, "Details", dark).clicked() {
                             if let MenuTarget::File(id) = target {
                                 self.detail = Some(id);
                             }
@@ -8407,35 +8472,39 @@ impl AtlasApp {
                         }
                     }
                     if self.edit_mode == EditMode::Edit {
-                        ui.separator();
-                        if paths.len() == 1 && ui.button("Rename…").clicked() {
+                        menu::separator(ui, dark);
+                        if paths.len() == 1
+                            && menu::item(ui, MenuIcon::Rename, "Rename…", dark).clicked()
+                        {
                             self.open_name_prompt(NamePromptKind::Rename(paths[0].clone()), pos);
                             close = true;
                         }
                         if let Some(parent) = self.menu_parent_dir(target) {
-                            if ui.button("Add subdirectory…").clicked() {
+                            if menu::item(ui, MenuIcon::NewFolder, "Add subdirectory…", dark)
+                                .clicked()
+                            {
                                 self.open_name_prompt(NamePromptKind::NewDir(parent), pos);
                                 close = true;
                             }
                         }
                         if !paths.is_empty() {
-                            if ui.button("Delete").clicked() {
+                            if menu::item_danger(ui, MenuIcon::Trash, "Delete", dark).clicked() {
                                 self.plan_delete(paths.clone(), false);
                                 close = true;
                             }
-                            if ui.button("Delete permanently").clicked() {
+                            if menu::item_danger(ui, MenuIcon::TrashX, "Delete permanently", dark)
+                                .clicked()
+                            {
                                 self.plan_delete(paths.clone(), true);
                                 close = true;
                             }
                         }
                     } else {
-                        ui.separator();
-                        ui.label(
-                            egui::RichText::new(
-                                "Switch to Edit mode for rename, new folder, or delete",
-                            )
-                            .small()
-                            .color(palette.sub),
+                        menu::separator(ui, dark);
+                        menu::note(
+                            ui,
+                            "Switch to Edit mode for rename, new folder, or delete",
+                            dark,
                         );
                     }
                 });
@@ -8479,6 +8548,9 @@ impl AtlasApp {
         let entries = &self.entries;
         let file_match = &self.file_match;
         let selection = &self.selection;
+        let session_log = self.session_log.log_path();
+        let session_latest = self.session_log.latest_path();
+        let last_stall_app_ms = self.session_log.last_stall_app_ms();
         self.ai.update_context(|| {
             let title = root
                 .as_deref()
@@ -8513,6 +8585,9 @@ impl AtlasApp {
                 files,
                 files_truncated: truncated,
                 generated_at: 0,
+                session_log,
+                session_latest,
+                last_stall_app_ms,
             }
         });
     }
@@ -8584,22 +8659,18 @@ impl AtlasApp {
     /// stays open so several tags can be applied in one right-click instance.
     fn session_menu_section(&mut self, ui: &mut egui::Ui, rels: &[String]) {
         let Some(session) = &self.session else { return };
-        let palette = self.palette();
+        let dark = self.dark_mode;
         let (groups, workbook) = match session.lock() {
             Ok(s) => (s.tag_groups.clone(), s.workbook_name.clone()),
             Err(_) => return,
         };
-        ui.separator();
-        ui.label(
-            egui::RichText::new(format!("Slate tags — {workbook}"))
-                .small()
-                .color(palette.sub),
-        );
+        menu::separator(ui, dark);
+        menu::heading(ui, format!("Slate tags — {workbook}"), dark);
         if groups.is_empty() {
-            ui.label(
-                egui::RichText::new("No tags yet — create groups in Slate's Tags panel")
-                    .small()
-                    .color(palette.sub),
+            menu::note(
+                ui,
+                "No tags yet — create groups in Slate's Tags panel",
+                dark,
             );
             return;
         }
@@ -8608,11 +8679,10 @@ impl AtlasApp {
             .filter_map(|r| self.rel_to_id.get(r).copied())
             .collect();
         for group in &groups {
-            ui.label(egui::RichText::new(&group.name).small().strong());
+            menu::heading(ui, &group.name, dark);
             for tag in &group.tags {
                 let accent = Color32::from_rgb(tag.color[0], tag.color[1], tag.color[2]);
-                let label = egui::RichText::new(format!("● {}", tag.name)).color(accent);
-                if ui.selectable_label(false, label).clicked() {
+                if menu::item_swatch(ui, accent, &tag.name, false, dark).clicked() {
                     let files = self.session_files_for_ids(&ids);
                     let n = files.len();
                     if let Some(session) = &self.session {

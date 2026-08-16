@@ -15,16 +15,32 @@
 //!   default). Hold `Alt` to bypass snapping; corner resize scales
 //!   proportionally by default and `Shift` frees the aspect (distortion);
 //!   `Ctrl` resizes from center (Office/PowerPoint convention).
-//! - Eight resize handles plus outside-corner rotate zones with native cursor
-//!   icons; rotation snaps at 45° intervals. Grid display and snap-to-grid are
-//!   toolbar toggles; Align menu covers align/distribute with 2+ selected.
+//! - Windows-style bounding-box chrome is live on hover — no prior selection.
+//!   Edges change the cursor only (no selection-look handles). Corners
+//!   show 45° arrows even on a wide group box. A rotated resize pins the
+//!   opposite handle in world space so the grabbed edge moves. Body hover
+//!   eases a soft outline in and out. Selected objects get that same
+//!   silhouette (fillet / ellipse / AABB) with no corner or midspan
+//!   squares. Rotatable kinds (shapes, frames, text,
+//!   images) show a 90° arc cursor just *outside*
+//!   a corner; portals, connectors, and simple lines stay axis-aligned and
+//!   never offer rotate. Rotation snaps at 45° intervals. Grid display and
+//!   snap-to-grid are toolbar toggles. A Grasshopper-style align widget
+//!   (left + bottom icon clusters, no second frame, no hover ghost)
+//!   appears around a 2+ selection and commits `board.align.*` /
+//!   `board.distribute.*`. The group box is an outline only.
+//!   Ctrl+Alt+Shift on a group grip repositions members without scaling them.
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 
 use super::{
-    board_crop, board_handles, board_icons, board_path, board_snap, board_web, kits, model3d,
-    SlateApp, ThumbState,
+    board_color, board_crop, board_forcefield, board_handles, board_icons, board_osnap, board_path,
+    board_place, board_snap, board_web, kits, model3d, SlateApp, ThumbState,
 };
+
+pub use super::board_align::{BoardAlign, DistributeAxis};
+use atlas_shell::menu::{self, MenuIcon};
+use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
     Corner, Crop, Dash, FontChoice, ImageAdjust, ImageNode, Node, NodeKind, PortalKind, PortalNode,
@@ -128,13 +144,15 @@ pub enum BoardTool {
     /// Web host portal placement — embedded page or local HTML dashboard
     /// (palette / Portals rail). See `contracts/portal-web-embed.md`.
     WebPortal,
+    /// Rhino Trim: pick cutters, click parts to delete (`P2.RhinoTrim`).
+    Trim,
 }
 
 impl BoardTool {
     /// Every tool, in declaration order. Kept beside [`BoardTool::grammar`],
     /// whose exhaustive match is the compiler-enforced reason a new variant
     /// cannot be added without being considered here too.
-    pub const ALL: [BoardTool; 20] = [
+    pub const ALL: [BoardTool; 21] = [
         BoardTool::Select,
         BoardTool::Pan,
         BoardTool::Frame,
@@ -155,6 +173,7 @@ impl BoardTool {
         BoardTool::StatusBoard,
         BoardTool::AgentPortal,
         BoardTool::WebPortal,
+        BoardTool::Trim,
     ];
 
     pub fn label(self) -> &'static str {
@@ -179,6 +198,7 @@ impl BoardTool {
             BoardTool::StatusBoard => "Status Board",
             BoardTool::AgentPortal => "Agent portal",
             BoardTool::WebPortal => "Web portal",
+            BoardTool::Trim => "Trim",
         }
     }
 
@@ -204,6 +224,7 @@ impl BoardTool {
             BoardTool::StatusBoard => board_icons::ToolIcon::StatusBoard,
             BoardTool::AgentPortal => board_icons::ToolIcon::Portals,
             BoardTool::WebPortal => board_icons::ToolIcon::WebPortal,
+            BoardTool::Trim => board_icons::ToolIcon::Trim,
         }
     }
 
@@ -227,6 +248,7 @@ impl BoardTool {
             | BoardTool::StatusBoard
             | BoardTool::AgentPortal
             | BoardTool::WebPortal => "",
+            BoardTool::Trim => "Ctrl+T",
         }
     }
 
@@ -256,6 +278,7 @@ impl BoardTool {
             BoardTool::Text | BoardTool::Sticky => G::PlacePoint,
             BoardTool::Eraser => G::Sweep,
             BoardTool::Eyedropper => G::Sample,
+            BoardTool::Trim => G::PickThenClick,
         }
     }
 
@@ -498,7 +521,12 @@ impl SlateApp {
         }
         // Any tool switch (including re-arming L) restarts the line draft.
         self.line_draft = None;
-        self.board_tool = tool;
+        if tool == BoardTool::Trim {
+            self.trim_arm();
+        } else {
+            self.trim = None;
+            self.board_tool = tool;
+        }
     }
 
     // ----- journaled mutations -------------------------------------------------
@@ -513,6 +541,7 @@ impl SlateApp {
     /// Applies an edit to several nodes and journals one coalescible patch
     /// group (continuous slider scrubs collapse into a single undo step).
     pub fn patch_nodes(&mut self, ids: &[NodeId], f: impl Fn(&mut Node)) {
+        let _span = atlas_core::session_log::span("slate.scene.patch");
         if self.refuse_read_only_edit() {
             return;
         }
@@ -657,6 +686,8 @@ impl SlateApp {
 
     /// Commit a prepared command group through the tab journal.
     pub fn commit_scene(&mut self, cmds: Vec<SceneCmd>) -> bool {
+        let _span = atlas_core::session_log::span("slate.scene.commit");
+        atlas_core::session_log::count("slate.scene.cmds", cmds.len() as u32);
         if self.refuse_read_only_edit() {
             return false;
         }
@@ -669,6 +700,7 @@ impl SlateApp {
     }
 
     pub fn board_undo(&mut self) {
+        let _span = atlas_core::session_log::span("slate.scene.undo");
         if self.refuse_read_only_edit() {
             return;
         }
@@ -681,6 +713,7 @@ impl SlateApp {
     }
 
     pub fn board_redo(&mut self) {
+        let _span = atlas_core::session_log::span("slate.scene.redo");
         if self.refuse_read_only_edit() {
             return;
         }
@@ -929,7 +962,7 @@ impl SlateApp {
 
     /// Axis-aligned world bounds of the multi-selection (union of each
     /// member's rotated-corner bounds). `None` when nothing is selected.
-    fn board_group_bounds(&self) -> Option<WorldRect> {
+    pub(crate) fn board_group_bounds(&self) -> Option<WorldRect> {
         let mut min_x = f32::INFINITY;
         let mut min_y = f32::INFINITY;
         let mut max_x = f32::NEG_INFINITY;
@@ -950,96 +983,186 @@ impl SlateApp {
         any.then(|| WorldRect::new(min_x, min_y, max_x - min_x, max_y - min_y))
     }
 
-    fn node_screen_outline(&self, xf: &BoardXf, node: &Node) -> Vec<Pos2> {
-        node.rect
-            .corners_rotated(node.rotation_deg)
-            .map(|(x, y)| xf.w2s(Pos2::new(x, y)))
-            .to_vec()
-    }
-
-    /// Unwired (DV-05): `board.align` is a registered command with no dispatch
-    /// arm and no dock menu, so nothing reaches this yet.
-    #[allow(dead_code)]
-    pub(crate) fn align_board_selection(&mut self, align: BoardAlign) {
-        let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
-        if ids.len() < 2 {
-            return;
-        }
-        let rects: Vec<WorldRect> = ids
-            .iter()
-            .filter_map(|id| self.doc().scene.node(*id).map(|n| n.rect))
-            .collect();
-        let Some(bounds) = board_snap::union_rect(&rects) else {
-            return;
+    /// Screen-space silhouette of a node — the same outline the painter uses,
+    /// so selection and hover rings follow fillets and ellipses instead of
+    /// the AABB.
+    pub(crate) fn node_screen_outline(&self, xf: &BoardXf, node: &Node) -> Vec<Pos2> {
+        let srect = xf.rect_w2s(node.rect);
+        let z = xf.z;
+        let rotated = node.rotation_deg.abs() > 0.01;
+        let aabb = || {
+            node.rect
+                .corners_rotated(node.rotation_deg)
+                .map(|(x, y)| xf.w2s(Pos2::new(x, y)))
+                .to_vec()
         };
-        self.patch_nodes(&ids, |n| match align {
-            BoardAlign::Left => n.rect.x = bounds.x,
-            BoardAlign::CenterH => n.rect.x = bounds.x + (bounds.w - n.rect.w) * 0.5,
-            BoardAlign::Right => n.rect.x = bounds.x + bounds.w - n.rect.w,
-            BoardAlign::Top => n.rect.y = bounds.y,
-            BoardAlign::CenterV => n.rect.y = bounds.y + (bounds.h - n.rect.h) * 0.5,
-            BoardAlign::Bottom => n.rect.y = bounds.y + bounds.h - n.rect.h,
-        });
-    }
-
-    /// Unwired for the same reason as [`SlateApp::align_board_selection`].
-    #[allow(dead_code)]
-    pub(crate) fn distribute_board_selection(&mut self, axis: DistributeAxis) {
-        let mut ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
-        if ids.len() < 3 {
-            return;
-        }
-        ids.sort_by(|a, b| {
-            let ra = self.doc().scene.node(*a).map(|n| n.rect);
-            let rb = self.doc().scene.node(*b).map(|n| n.rect);
-            match (ra, rb) {
-                (Some(a), Some(b)) => match axis {
-                    DistributeAxis::Horizontal => a.x.partial_cmp(&b.x).unwrap(),
-                    DistributeAxis::Vertical => a.y.partial_cmp(&b.y).unwrap(),
-                },
-                _ => std::cmp::Ordering::Equal,
+        let pts = match &node.kind {
+            NodeKind::Shape(s) => match s.shape {
+                ShapeKind::Ellipse => ellipse_outline(srect),
+                ShapeKind::Rect => corner_outline(srect, s.corner, z),
+                ShapeKind::Line | ShapeKind::Path => return aabb(),
+            },
+            NodeKind::Image(img) => corner_outline(srect, img.corner, z),
+            NodeKind::Portal(_) => {
+                let r = atlas_shell::tokens::current().portal_frame.corner_radius * z;
+                rounded_rect_outline(srect, r)
             }
-        });
-        let first = self.doc().scene.node(ids[0]).unwrap().rect;
-        let last = self.doc().scene.node(*ids.last().unwrap()).unwrap().rect;
-        let widths: f32 = ids
-            .iter()
-            .map(|id| self.doc().scene.node(*id).unwrap().rect.w)
-            .sum();
-        let heights: f32 = ids
-            .iter()
-            .map(|id| self.doc().scene.node(*id).unwrap().rect.h)
-            .sum();
-        match axis {
-            DistributeAxis::Horizontal => {
-                let span = (last.x + last.w) - first.x;
-                let gap = (span - widths) / (ids.len() as f32 - 1.0);
-                let mut x = first.x;
-                for id in &ids {
-                    let w = self.doc().scene.node(*id).unwrap().rect.w;
-                    let target_x = x;
-                    x += w + gap;
-                    let id = *id;
-                    self.patch_nodes(&[id], |n| n.rect.x = target_x);
-                }
-            }
-            DistributeAxis::Vertical => {
-                let span = (last.y + last.h) - first.y;
-                let gap = (span - heights) / (ids.len() as f32 - 1.0);
-                let mut y = first.y;
-                for id in &ids {
-                    let h = self.doc().scene.node(*id).unwrap().rect.h;
-                    let target_y = y;
-                    y += h + gap;
-                    let id = *id;
-                    self.patch_nodes(&[id], |n| n.rect.y = target_y);
-                }
-            }
+            NodeKind::Frame(_) if !rotated => rounded_rect_outline(srect, 2.0),
+            NodeKind::Text(_) | NodeKind::Frame(_) | NodeKind::Connector(_) => return aabb(),
+        };
+        if rotated {
+            rotate_points(&pts, srect.center(), node.rotation_deg)
+        } else {
+            pts
         }
     }
 }
 
 // ---------- outline geometry (shared by fill mesh + stroke) ----------
+
+/// Screen-space ellipse outline (clockwise), matching the painted sample.
+fn ellipse_outline(rect: Rect) -> Vec<Pos2> {
+    let radius = rect.size() * 0.5;
+    let n = 48;
+    (0..n)
+        .map(|i| {
+            let a = i as f32 / n as f32 * std::f32::consts::TAU;
+            rect.center() + Vec2::new(a.cos() * radius.x, a.sin() * radius.y)
+        })
+        .collect()
+}
+
+/// Screen-space rounded-rect outline (clockwise). Radius is already in pixels.
+pub(crate) fn rounded_rect_outline(rect: Rect, radius: f32) -> Vec<Pos2> {
+    let half = rect.width().min(rect.height()) * 0.5;
+    let r = radius.clamp(0.0, half);
+    if r < 0.5 {
+        return vec![
+            rect.left_top(),
+            rect.right_top(),
+            rect.right_bottom(),
+            rect.left_bottom(),
+        ];
+    }
+    let steps = 8;
+    let mut pts = Vec::with_capacity(4 * (steps + 1));
+    let centers = [
+        (Pos2::new(rect.max.x - r, rect.min.y + r), -90.0f32),
+        (Pos2::new(rect.max.x - r, rect.max.y - r), 0.0),
+        (Pos2::new(rect.min.x + r, rect.max.y - r), 90.0),
+        (Pos2::new(rect.min.x + r, rect.min.y + r), 180.0),
+    ];
+    for (c, a0) in centers {
+        for s in 0..=steps {
+            let a = (a0 + 90.0 * s as f32 / steps as f32).to_radians();
+            pts.push(c + Vec2::new(a.cos() * r, a.sin() * r));
+        }
+    }
+    pts
+}
+
+/// Rounded frame outline cut to `body` so a tab bar can occupy the top
+/// without the page texture oversailing the fillet at the bottom corners.
+pub(crate) fn portal_content_outline(frame: Rect, body: Rect, radius: f32) -> Vec<Pos2> {
+    let clip = body.intersect(frame);
+    if clip.height() < 1.0 || clip.width() < 1.0 {
+        return Vec::new();
+    }
+    let half = frame.width().min(frame.height()) * 0.5;
+    let r = radius.clamp(0.0, half);
+    if clip.min.y <= frame.min.y + 0.5 {
+        return rounded_rect_outline(clip, r);
+    }
+    if r < 0.5 {
+        return vec![
+            clip.left_top(),
+            clip.right_top(),
+            clip.right_bottom(),
+            clip.left_bottom(),
+        ];
+    }
+    let steps = 8;
+    let mut pts = Vec::with_capacity(2 + 2 * (steps + 1));
+    pts.push(Pos2::new(clip.min.x, clip.min.y));
+    pts.push(Pos2::new(clip.max.x, clip.min.y));
+    let br = Pos2::new(frame.max.x - r, frame.max.y - r);
+    for s in 0..=steps {
+        let a = (90.0 * s as f32 / steps as f32).to_radians();
+        pts.push(br + Vec2::new(a.cos() * r, a.sin() * r));
+    }
+    let bl = Pos2::new(frame.min.x + r, frame.max.y - r);
+    for s in 0..=steps {
+        let a = (90.0 + 90.0 * s as f32 / steps as f32).to_radians();
+        pts.push(bl + Vec2::new(a.cos() * r, a.sin() * r));
+    }
+    pts
+}
+
+/// Square-corner leftovers outside a rounded rect. Painted in the frame fill
+/// after contents so a square `clip_rect` cannot oversail the fillet
+/// (P1.portal.clip). Fan-triangulate from the outer corner.
+pub(crate) fn fillet_overhangs(rect: Rect, radius: f32) -> [Vec<Pos2>; 4] {
+    let half = rect.width().min(rect.height()) * 0.5;
+    let r = radius.clamp(0.0, half);
+    if r < 0.5 {
+        return [vec![], vec![], vec![], vec![]];
+    }
+    let steps = 8;
+    let corners = [
+        (
+            Pos2::new(rect.max.x, rect.min.y),
+            Pos2::new(rect.max.x - r, rect.min.y + r),
+            -90.0f32,
+        ),
+        (
+            Pos2::new(rect.max.x, rect.max.y),
+            Pos2::new(rect.max.x - r, rect.max.y - r),
+            0.0,
+        ),
+        (
+            Pos2::new(rect.min.x, rect.max.y),
+            Pos2::new(rect.min.x + r, rect.max.y - r),
+            90.0,
+        ),
+        (
+            Pos2::new(rect.min.x, rect.min.y),
+            Pos2::new(rect.min.x + r, rect.min.y + r),
+            180.0,
+        ),
+    ];
+    corners.map(|(outer, center, a0)| {
+        let mut pts = Vec::with_capacity(steps + 2);
+        pts.push(outer);
+        for s in 0..=steps {
+            let a = (a0 + 90.0 * s as f32 / steps as f32).to_radians();
+            pts.push(center + Vec2::new(a.cos() * r, a.sin() * r));
+        }
+        pts
+    })
+}
+
+pub(crate) fn paint_fillet_masks(painter: &egui::Painter, frame: Rect, radius: f32, fill: Color32) {
+    if radius < 0.5 || fill.a() == 0 {
+        return;
+    }
+    for outline in fillet_overhangs(frame, radius) {
+        if outline.len() < 3 {
+            continue;
+        }
+        let mut mesh = egui::Mesh::default();
+        for p in &outline {
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: *p,
+                uv: Pos2::ZERO,
+                color: fill,
+            });
+        }
+        for i in 1..outline.len() as u32 - 1 {
+            mesh.indices.extend_from_slice(&[0, i, i + 1]);
+        }
+        painter.add(mesh);
+    }
+}
 
 /// Outline points for a rect with the given corner treatment (clockwise).
 fn corner_outline(rect: Rect, corner: Corner, z: f32) -> Vec<Pos2> {
@@ -1142,44 +1265,12 @@ fn grid_drop_rects(sizes: &[(f32, f32)], at: Pos2) -> Vec<WorldRect> {
 /// The fixed point of a group resize: the opposite corner/edge of the group
 /// box for the dragged handle, or the group center with Ctrl held.
 fn group_scale_anchor(gb: WorldRect, handle: u8, from_center: bool) -> (f32, f32) {
-    let (cx, cy) = gb.center();
-    if from_center {
-        return (cx, cy);
-    }
-    let (left, right) = (gb.x, gb.x + gb.w);
-    let (top, bottom) = (gb.y, gb.y + gb.h);
-    match handle {
-        0 => (right, bottom),
-        1 => (cx, bottom),
-        2 => (left, bottom),
-        3 => (left, cy),
-        4 => (left, top),
-        5 => (cx, top),
-        6 => (right, top),
-        _ => (right, cy),
-    }
-}
-
-/// Align selected board objects relative to their shared bounding box.
-#[derive(Clone, Copy)]
-pub enum BoardAlign {
-    Left,
-    CenterH,
-    Right,
-    Top,
-    CenterV,
-    Bottom,
-}
-
-#[derive(Clone, Copy)]
-pub enum DistributeAxis {
-    Horizontal,
-    Vertical,
+    board_snap::resize_anchor(gb, handle, from_center)
 }
 
 /// Fan-triangulated textured polygon (convex outlines only). UVs map the
 /// node rect onto the crop window of the source texture.
-fn textured_polygon(
+pub(crate) fn textured_polygon(
     painter: &egui::Painter,
     tex: &egui::TextureHandle,
     outline: &[Pos2],
@@ -1208,6 +1299,96 @@ fn textured_polygon(
 }
 
 /// Textured polygon with UVs derived from world-space corners (supports rotation).
+fn paint_clip_fill(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    node: &Node,
+    clip: &slate_doc::scene::PathData,
+    color: Color32,
+) {
+    let bez = board_path::path_data_to_world_bez(clip, node.rect, node.rotation_deg);
+    let contours = vector_ink::flatten_contours(&bez, 0.35);
+    let (verts, idx) = vector_ink::fill_triangles(&contours);
+    if idx.is_empty() {
+        return;
+    }
+    let mut mesh = egui::Mesh::default();
+    for v in &verts {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: xf.w2s(Pos2::new(v[0], v[1])),
+            uv: Pos2::ZERO,
+            color,
+        });
+    }
+    mesh.indices = idx;
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+fn paint_clipped_texture(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    tex: &egui::TextureHandle,
+    node: &Node,
+    clip: &slate_doc::scene::PathData,
+    crop: Crop,
+    tint: Color32,
+) {
+    let bez = board_path::path_data_to_world_bez(clip, node.rect, node.rotation_deg);
+    let contours = vector_ink::flatten_contours(&bez, 0.35);
+    let (verts, idx) = vector_ink::fill_triangles(&contours);
+    if idx.is_empty() {
+        return;
+    }
+    let crop = crop.clamped();
+    let mut mesh = egui::Mesh::with_texture(tex.id());
+    for v in &verts {
+        let fx = ((v[0] - node.rect.x) / node.rect.w.max(0.001)).clamp(0.0, 1.0);
+        let fy = ((v[1] - node.rect.y) / node.rect.h.max(0.001)).clamp(0.0, 1.0);
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: xf.w2s(Pos2::new(v[0], v[1])),
+            uv: Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h),
+            color: tint,
+        });
+    }
+    mesh.indices = idx;
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+fn paint_clipped_galley(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    node: &Node,
+    clip: &slate_doc::scene::PathData,
+    pos: Pos2,
+    galley: &egui::Galley,
+) {
+    let bez = board_path::path_data_to_world_bez(clip, node.rect, node.rotation_deg);
+    let contours = vector_ink::flatten_contours(&bez, 0.35);
+    for row in &galley.rows {
+        let mut mesh = row.visuals.mesh.clone();
+        for v in &mut mesh.vertices {
+            v.pos += pos.to_vec2();
+        }
+        // Keep triangles whose centroid lies inside the clip (world).
+        let mut kept = Vec::new();
+        for tri in mesh.indices.chunks(3) {
+            if tri.len() < 3 {
+                continue;
+            }
+            let a = mesh.vertices[tri[0] as usize].pos;
+            let b = mesh.vertices[tri[1] as usize].pos;
+            let c = mesh.vertices[tri[2] as usize].pos;
+            let mid = Pos2::new((a.x + b.x + c.x) / 3.0, (a.y + b.y + c.y) / 3.0);
+            let world = xf.s2w(mid);
+            if vector_ink::point_in_polygon(&contours, [world.x, world.y]) {
+                kept.extend_from_slice(tri);
+            }
+        }
+        mesh.indices = kept;
+        painter.add(egui::Shape::mesh(mesh));
+    }
+}
+
 fn textured_polygon_world(
     painter: &egui::Painter,
     tex: &egui::TextureHandle,
@@ -1258,8 +1439,8 @@ fn stroke_outline(
             painter.add(egui::Shape::dashed_line(
                 &pts,
                 EStroke::new(w, color),
-                12.0 * z.max(0.5),
-                8.0 * z.max(0.5),
+                canvas_scale::px(12.0, z),
+                canvas_scale::px(8.0, z),
             ));
         }
         Dash::Dotted => {
@@ -1276,7 +1457,10 @@ fn stroke_outline(
 /// Corner "▶" marker on video posters (the artifact plays the video; the
 /// board shows its poster frame).
 fn paint_play_badge(painter: &egui::Painter, srect: Rect, z: f32) {
-    let r = (14.0 * z).clamp(8.0, 22.0);
+    let r = canvas_scale::px(14.0, z);
+    if canvas_scale::too_small(r) {
+        return;
+    }
     let c = srect.center();
     painter.circle_filled(c, r, Color32::from_black_alpha(140));
     let s = r * 0.55;
@@ -1296,16 +1480,25 @@ fn paint_ext_badge(painter: &egui::Painter, srect: Rect, badge: &str, z: f32) {
     if badge.is_empty() {
         return;
     }
-    let font = FontId::proportional((10.0 * z).clamp(8.0, 13.0));
-    let pad = Vec2::new(5.0, 2.0);
-    let galley = painter.layout_no_wrap(badge.to_string(), font, Color32::from_white_alpha(235));
-    let pos = srect.left_bottom() + Vec2::new(4.0, -4.0 - galley.size().y - pad.y * 2.0);
-    let bg = Rect::from_min_size(pos, galley.size() + pad * 2.0);
+    let size = canvas_scale::px(10.0, z);
+    if !canvas_text::legible(size) {
+        return;
+    }
+    let font = FontId::proportional(size);
+    let pad = Vec2::new(canvas_scale::px(5.0, z), canvas_scale::px(2.0, z));
+    let laid = canvas_text::layout_no_wrap(
+        painter,
+        badge.to_string(),
+        font,
+        Color32::from_white_alpha(235),
+    );
+    let pos = srect.left_bottom() + Vec2::new(4.0 * z, -4.0 * z - laid.size().y - pad.y * 2.0);
+    let bg = Rect::from_min_size(pos, laid.size() + pad * 2.0);
     if bg.width() > srect.width() || bg.height() > srect.height() {
         return;
     }
-    painter.rect_filled(bg, 3.0, Color32::from_black_alpha(150));
-    painter.galley(pos + pad, galley, Color32::WHITE);
+    painter.rect_filled(bg, canvas_scale::px(3.0, z), Color32::from_black_alpha(150));
+    laid.paint(painter, pos + pad, Color32::WHITE);
 }
 
 // ---------- painting ----------
@@ -1342,32 +1535,44 @@ impl SlateApp {
             .unwrap_or_default();
         match self.snippet_for(item, path) {
             Some(snippet) => {
-                let pad = (8.0 * z).clamp(3.0, 12.0);
+                let pad = canvas_scale::px(8.0, z);
                 let inner = srect.shrink(pad);
                 let clip = painter.with_clip_rect(inner);
-                let galley = clip.layout(
-                    snippet,
-                    FontId::monospace((9.0 * z).clamp(4.0, 12.0)),
-                    Color32::from_rgb(34, 34, 34),
-                    inner.width().max(8.0),
-                );
-                clip.galley(inner.min, galley, Color32::WHITE);
-                clip.text(
-                    Pos2::new(inner.min.x, inner.max.y),
-                    Align2::LEFT_BOTTOM,
-                    atlas_shell::widgets::trunc(&name, 24),
-                    FontId::proportional((8.5 * z).clamp(4.0, 11.0)),
-                    Color32::from_gray(136),
-                );
+                let body = canvas_scale::px(9.0, z);
+                if canvas_text::legible(body) {
+                    let laid = canvas_text::layout(
+                        &clip,
+                        snippet,
+                        FontId::monospace(body),
+                        Color32::from_rgb(34, 34, 34),
+                        inner.width().max(1.0),
+                    );
+                    laid.paint(&clip, inner.min, Color32::WHITE);
+                }
+                let caption = canvas_scale::px(8.5, z);
+                if canvas_text::legible(caption) {
+                    canvas_text::text(
+                        &clip,
+                        Pos2::new(inner.min.x, inner.max.y),
+                        Align2::LEFT_BOTTOM,
+                        atlas_shell::widgets::trunc(&name, 24),
+                        FontId::proportional(caption),
+                        Color32::from_gray(136),
+                    );
+                }
             }
             None => {
-                painter.text(
-                    srect.center(),
-                    Align2::CENTER_CENTER,
-                    atlas_shell::widgets::trunc(&name, 18),
-                    FontId::proportional((11.0 * z).clamp(8.0, 14.0)),
-                    Color32::from_gray(120),
-                );
+                let size = canvas_scale::px(11.0, z);
+                if canvas_text::legible(size) {
+                    canvas_text::text(
+                        painter,
+                        srect.center(),
+                        Align2::CENTER_CENTER,
+                        atlas_shell::widgets::trunc(&name, 18),
+                        FontId::proportional(size),
+                        Color32::from_gray(120),
+                    );
+                }
             }
         }
     }
@@ -1452,13 +1657,18 @@ impl SlateApp {
                                 atlas_shell::widgets::trunc(name, 18)
                             )
                         });
-                    painter.text(
-                        srect.center(),
-                        Align2::CENTER_CENTER,
-                        msg,
-                        FontId::proportional(11.0),
-                        palette.sub,
-                    );
+                    let z = self.board_xf().z;
+                    let size = canvas_scale::px(11.0, z);
+                    if canvas_text::legible(size) {
+                        canvas_text::text(
+                            painter,
+                            srect.center(),
+                            Align2::CENTER_CENTER,
+                            msg,
+                            FontId::proportional(size),
+                            palette.sub,
+                        );
+                    }
                 }
             }
         }
@@ -1473,12 +1683,16 @@ impl SlateApp {
                 target,
                 0.4,
             );
-            let bar_w = (srect.width() * 0.55).clamp(40.0, 180.0);
-            let bar_h = 5.0f32;
+            let z = self.board_xf().z;
+            let bar_w = srect.width() * 0.55;
+            let bar_h = canvas_scale::px(5.0, z);
             let bar = Rect::from_center_size(srect.center(), Vec2::new(bar_w, bar_h));
             painter.rect_filled(
-                bar.expand2(Vec2::new(8.0, 7.0)),
-                6.0,
+                bar.expand2(Vec2::new(
+                    canvas_scale::px(8.0, z),
+                    canvas_scale::px(7.0, z),
+                )),
+                canvas_scale::px(6.0, z),
                 palette.card.gamma_multiply(0.85 * alpha),
             );
             painter.rect_filled(
@@ -1489,12 +1703,14 @@ impl SlateApp {
             let mut fill = bar;
             fill.set_width(bar_w * shown.clamp(0.0, 1.0));
             painter.rect_filled(fill, bar_h * 0.5, palette.accent.gamma_multiply(alpha));
-            if srect.height() > 52.0 {
-                painter.text(
-                    bar.center_top() + Vec2::new(0.0, -6.0),
+            let label = canvas_scale::px(10.5, z);
+            if canvas_text::legible(label) && srect.height() > canvas_scale::px(52.0, z) {
+                canvas_text::text(
+                    painter,
+                    bar.center_top() + Vec2::new(0.0, canvas_scale::px(-6.0, z)),
                     Align2::CENTER_BOTTOM,
                     "Preparing 3D view…",
-                    FontId::proportional(10.5),
+                    FontId::proportional(label),
                     palette.sub.gamma_multiply(alpha),
                 );
             }
@@ -1573,26 +1789,34 @@ impl SlateApp {
                         .position(|n| n.id == node.id)
                         .map(|i| i + 1)
                         .unwrap_or(0);
-                    painter.text(
-                        srect.left_top() + Vec2::new(2.0, -6.0),
-                        Align2::LEFT_BOTTOM,
-                        format!("{order} · {}", f.title),
-                        FontId::proportional(12.0),
-                        palette.sub,
-                    );
+                    let title = canvas_scale::px(12.0, z);
+                    if canvas_text::legible(title) {
+                        canvas_text::text(
+                            painter,
+                            srect.left_top() + Vec2::new(2.0 * z, -6.0 * z),
+                            Align2::LEFT_BOTTOM,
+                            format!("{order} · {}", f.title),
+                            FontId::proportional(title),
+                            palette.sub,
+                        );
+                    }
                     if !f.assignments.is_empty() {
                         let tags: Vec<String> = f
                             .assignments
                             .values()
                             .filter_map(|t| self.doc().tag(*t).map(|(_, tag)| tag.name.clone()))
                             .collect();
-                        painter.text(
-                            srect.right_top() + Vec2::new(-2.0, -6.0),
-                            Align2::RIGHT_BOTTOM,
-                            format!("⬦ {}", tags.join(", ")),
-                            FontId::proportional(10.5),
-                            palette.accent,
-                        );
+                        let tag_px = canvas_scale::px(10.5, z);
+                        if canvas_text::legible(tag_px) {
+                            canvas_text::text(
+                                painter,
+                                srect.right_top() + Vec2::new(-2.0 * z, -6.0 * z),
+                                Align2::RIGHT_BOTTOM,
+                                format!("⬦ {}", tags.join(", ")),
+                                FontId::proportional(tag_px),
+                                palette.accent,
+                            );
+                        }
                     }
                 }
             }
@@ -1624,7 +1848,11 @@ impl SlateApp {
                             // Node opacity = vertex tint on the textured mesh
                             // (matches CSS `opacity` compositing closely enough).
                             let tint = Color32::WHITE.gamma_multiply(alpha);
-                            if rotated {
+                            if let Some(clip) = &node.clip {
+                                paint_clipped_texture(
+                                    painter, xf, &tex, node, clip, img.crop, tint,
+                                );
+                            } else if rotated {
                                 textured_polygon_world(
                                     painter,
                                     &tex,
@@ -1652,13 +1880,17 @@ impl SlateApp {
                                 palette.thumb_bg,
                                 EStroke::NONE,
                             ));
-                            painter.text(
-                                srect.center(),
-                                Align2::CENTER_CENTER,
-                                atlas_shell::widgets::trunc(&name, 18),
-                                FontId::proportional((11.0 * z).clamp(8.0, 14.0)),
-                                palette.sub,
-                            );
+                            let size = canvas_scale::px(11.0, z);
+                            if canvas_text::legible(size) {
+                                canvas_text::text(
+                                    painter,
+                                    srect.center(),
+                                    Align2::CENTER_CENTER,
+                                    atlas_shell::widgets::trunc(&name, 18),
+                                    FontId::proportional(size),
+                                    palette.sub,
+                                );
+                            }
                         }
                     }
                 }
@@ -1751,7 +1983,7 @@ impl SlateApp {
                         a = ends[0];
                         b = ends[1];
                     }
-                    let w = (s.stroke.width.max(1.0) * z).max(0.5);
+                    let w = canvas_scale::px(s.stroke.width.max(1.0), z);
                     let color = fade(rgba32(s.stroke.color));
                     match s.stroke.dash {
                         Dash::Solid => {
@@ -1761,8 +1993,8 @@ impl SlateApp {
                             painter.add(egui::Shape::dashed_line(
                                 &[a, b],
                                 EStroke::new(w, color),
-                                12.0 * z.max(0.5),
-                                8.0 * z.max(0.5),
+                                canvas_scale::px(12.0, z),
+                                canvas_scale::px(8.0, z),
                             ));
                         }
                         Dash::Dotted => {
@@ -1785,11 +2017,15 @@ impl SlateApp {
                 // Background fill (sticky notes are a Text preset with a
                 // fill) — mirrors the artifact's `background` on the node.
                 if let Some(fill) = t.fill {
-                    painter.add(egui::Shape::convex_polygon(
-                        outline_s.clone(),
-                        fade(rgba32(fill)),
-                        EStroke::NONE,
-                    ));
+                    if let Some(clip) = &node.clip {
+                        paint_clip_fill(painter, xf, node, clip, fade(rgba32(fill)));
+                    } else {
+                        painter.add(egui::Shape::convex_polygon(
+                            outline_s.clone(),
+                            fade(rgba32(fill)),
+                            EStroke::NONE,
+                        ));
+                    }
                 }
                 if self
                     .text_edit
@@ -1810,11 +2046,16 @@ impl SlateApp {
                     TextAlign::Center => srect.center().x - galley.size().x * 0.5,
                     TextAlign::Right => srect.max.x - galley.size().x,
                 };
-                painter.with_clip_rect(srect.expand(2.0)).galley(
-                    Pos2::new(x, srect.min.y),
-                    galley,
-                    Color32::WHITE,
-                );
+                let text_pos = Pos2::new(x, srect.min.y);
+                if let Some(clip) = &node.clip {
+                    paint_clipped_galley(painter, xf, node, clip, text_pos, &galley);
+                } else {
+                    painter.with_clip_rect(srect.expand(2.0)).galley(
+                        text_pos,
+                        galley,
+                        Color32::WHITE,
+                    );
+                }
             }
             NodeKind::Connector(conn) => {
                 // Derived bezier through the path-mesh cache; Faint = 40%,
@@ -1829,7 +2070,7 @@ impl SlateApp {
                         self.paint_portal_node(ui, painter, xf, node, &portal, chrome);
                     }
                     PortalKind::Agent => {
-                        self.paint_agent_portal(painter, xf, node, &portal);
+                        self.paint_agent_portal(ui, painter, xf, node, &portal);
                     }
                     PortalKind::Web => {
                         self.paint_web_portal(ui, painter, xf, node, &portal);
@@ -1842,7 +2083,10 @@ impl SlateApp {
     // ----- main board entry -----------------------------------------------------
 
     pub fn board_canvas(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        let _span = atlas_core::session_log::span("slate.board.paint");
+        self.path_mesh_cache.tess_misses = 0;
         self.board_snap_guides.clear();
+        self.board_osnap_hit = None;
         self.ortho_feedback = None;
         self.sync_crop_mode();
         // Connector AABBs follow their endpoints; synced once per scene
@@ -1867,7 +2111,8 @@ impl SlateApp {
         // inside a focused page, the wheel scrolls the page instead of zooming
         // the board. Its chrome strip and a thin border band stay Slate targets,
         // so the frame can always be grabbed and released.
-        let web_capture = self.web_input_frame(ui, &xf, pointer);
+        let web_capture =
+            self.web_input_frame(ui, &xf, pointer) || self.agent_shelf_captures(&xf, pointer);
 
         // --- camera ---
         if resp.hovered() && !web_capture {
@@ -1981,6 +2226,40 @@ impl SlateApp {
             }
         }
 
+        // Portal maximize sits on the node; take the press before a move
+        // or resize can claim the same corner.
+        if !space
+            && !panning
+            && !zoom_tool
+            && !model_toolbar_captures
+            && !web_capture
+            && self.board_crop.is_none()
+            && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+        {
+            if let Some(p) = pointer {
+                if self.try_portal_maximize_press(p, &xf) {
+                    self.board_align_eat_press = true;
+                }
+            }
+        }
+
+        // Align widget: press-to-commit (Grasshopper). Must run before
+        // drag_started so a click on an icon cannot become a move.
+        if self.board_tool == BoardTool::Select
+            && !space
+            && !panning
+            && !zoom_tool
+            && !model_toolbar_captures
+            && !web_capture
+            && self.board_crop.is_none()
+            && !self.board_align_eat_press
+            && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+        {
+            if let Some(p) = pointer {
+                let _ = self.try_align_press(ui.ctx(), p);
+            }
+        }
+
         // --- gesture start ---
         // Hit-test at the pointer *press origin*: by the time egui's drag
         // threshold fires, a fast drag has often already left the tiny
@@ -1992,11 +2271,14 @@ impl SlateApp {
             && !model_toolbar_captures
             && !web_capture
             && self.board_tool != BoardTool::Line
+            && !self.board_align_eat_press
         {
             let origin = ui.input(|i| i.pointer.press_origin()).or(pointer);
             if let Some(p) = origin {
-                let mods = ui.input(|i| i.modifiers);
-                self.board_drag = self.begin_gesture(p, xf.s2w(p), mods);
+                if self.align_action_at(p).is_none() && !self.pointer_on_portal_maximize(p, &xf) {
+                    let mods = ui.input(|i| i.modifiers);
+                    self.board_drag = self.begin_gesture(p, xf.s2w(p), mods);
+                }
             }
         }
 
@@ -2025,7 +2307,7 @@ impl SlateApp {
         }
 
         // --- clicks (the armed zoom tool owns the primary button) ---
-        if resp.clicked() && !zoom_tool && !web_capture {
+        if resp.clicked() && !zoom_tool && !web_capture && !self.board_align_eat_press {
             if editing_text {
                 // Click-off commits the in-flight text edit (same path as
                 // Escape / lost focus), then still performs selection.
@@ -2051,6 +2333,9 @@ impl SlateApp {
                 self.board_click(w, mods);
             }
         }
+        if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+            self.board_align_eat_press = false;
+        }
         if resp.double_clicked() && !zoom_tool && !web_capture {
             if let Some(w) = wp {
                 self.board_double_click(w);
@@ -2060,12 +2345,76 @@ impl SlateApp {
         // Line tool: crosshair while armed (D10) and the constraint-resolved
         // rubber-band cursor on plain hover (a live press updates through
         // update_gesture instead).
+        if self.board_tool == BoardTool::Trim && resp.hovered() && !panning && !zoom_tool {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+            if let Some(w) = wp {
+                let shift = ui.input(|i| i.modifiers.shift);
+                self.trim_hover(w, shift);
+            }
+        }
         if self.board_tool == BoardTool::Line && resp.hovered() && !panning && !zoom_tool {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
             if self.board_drag.is_none() {
                 if let Some(w) = wp {
                     let shift = ui.input(|i| i.modifiers.shift);
-                    self.line_hover(w, shift);
+                    if self.line_draft.is_some() {
+                        self.line_hover(w, shift);
+                    } else {
+                        let _ = self.resolve_point_snap(w, &[], None, false, false);
+                    }
+                }
+            }
+        }
+        if matches!(
+            self.board_tool,
+            BoardTool::Polyline | BoardTool::Arc | BoardTool::BezierSpan
+        ) && resp.hovered()
+            && !panning
+            && !zoom_tool
+            && self.board_drag.is_none()
+        {
+            if let Some(w) = wp {
+                let from = match &self.board_path_draft {
+                    Some(board_path::BoardPathDraft::Polyline { points }) => points.last().copied(),
+                    Some(board_path::BoardPathDraft::Arc { points }) => points.last().copied(),
+                    Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => {
+                        anchors.last().map(|(p, _)| *p)
+                    }
+                    None => None,
+                };
+                let _ = self.resolve_point_snap(w, &[], from, self.shift_down, from.is_some());
+            }
+        }
+        if matches!(
+            self.board_tool,
+            BoardTool::Frame
+                | BoardTool::RectShape
+                | BoardTool::Ellipse
+                | BoardTool::RepoLens
+                | BoardTool::StatusBoard
+                | BoardTool::AgentPortal
+                | BoardTool::WebPortal
+                | BoardTool::Text
+                | BoardTool::Sticky
+        ) && resp.hovered()
+            && !panning
+            && !zoom_tool
+        {
+            let draw_from = match &self.board_drag {
+                Some(BoardDrag::Draw { start_world, .. }) => Some(*start_world),
+                Some(_) => None,
+                None => None,
+            };
+            let allow = matches!(self.board_drag, None | Some(BoardDrag::Draw { .. }));
+            if allow {
+                if let Some(w) = wp {
+                    let _ = self.resolve_point_snap(
+                        w,
+                        &[],
+                        draw_from,
+                        self.shift_down,
+                        draw_from.is_some(),
+                    );
                 }
             }
         }
@@ -2122,54 +2471,36 @@ impl SlateApp {
             }
         }
 
-        // Hover handles / rotate zones (single node or the multi-selection
-        // group box, select tool). Suspended while crop mode is active —
-        // crop gestures own the node then.
+        // Hover cursors / rotate zones. Selection is not required.
         self.board_hover_hit = None;
-        if resp.hovered()
+        self.board_hover_node = None;
+        let hover_live = resp.hovered()
             && !panning
             && !zoom_tool
             && !editing_text
             && self.board_tool == BoardTool::Select
-            && !self.board_sel.is_empty()
             && self.board_drag.is_none()
-            && self.board_crop.is_none()
-        {
-            if let Some(p) = pointer {
-                let geom = if self.board_sel.len() == 1 {
-                    let id = *self.board_sel.iter().next().unwrap();
-                    self.doc()
-                        .scene
-                        .node(id)
-                        // Connectors have no rect handles — endpoint dots
-                        // (detach) are their only affordance. Simple lines
-                        // expose endpoint grips instead of a bbox (D13).
-                        .filter(|n| {
-                            !matches!(n.kind, NodeKind::Connector(_))
-                                && !Self::node_uses_curve_grips(n)
-                        })
-                        .map(|n| board_handles::selection_geom(&xf, n.rect, n.rotation_deg))
-                } else if self.selection_all_simple_lines() {
-                    None
-                } else {
-                    self.board_group_bounds()
-                        .map(|gb| board_handles::selection_geom(&xf, gb, 0.0))
-                };
-                if let Some(geom) = geom {
-                    self.board_hover_hit = board_handles::hit_test_selection(p, &geom);
-                    match self.board_hover_hit {
-                        Some(board_handles::BoardHitTarget::Resize(h)) => {
-                            ui.ctx()
-                                .set_cursor_icon(board_handles::cursor_for_resize(h, &geom));
-                        }
-                        Some(board_handles::BoardHitTarget::Rotate(_)) => {
-                            ui.ctx().set_cursor_icon(board_handles::cursor_for_rotate());
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            && self.board_crop.is_none();
+        let align_hovered = if hover_live {
+            self.hover_align_widget(pointer, ui.ctx())
+        } else {
+            self.board_align_hover = None;
+            false
+        };
+        if hover_live && !align_hovered {
+            let wire_grip_hovered = self
+                .wire_grips
+                .as_ref()
+                .is_some_and(|g| g.hovered.is_some());
+            self.hover_transform_chrome(pointer, &xf, ui.ctx(), wire_grip_hovered);
         }
+        let hover_target = if hover_live && !align_hovered {
+            self.hover_preview_target(wp)
+        } else {
+            None
+        };
+        let dt = ui.input(|i| i.unstable_dt);
+        self.tick_hover_preview(hover_target, dt, ui.ctx());
 
         if self.board_show_grid {
             let grid_alpha = self.tab().grid_fade.alpha(now);
@@ -2204,7 +2535,18 @@ impl SlateApp {
         for n in nodes.iter().filter(|n| n.is_frame()) {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
-        for n in nodes.iter().filter(|n| !n.is_frame()) {
+        // Wires sit on the frame but under every host's graphics — they
+        // appear to connect from underneath, never lapping a node.
+        for n in nodes
+            .iter()
+            .filter(|n| matches!(n.kind, NodeKind::Connector(_)))
+        {
+            self.paint_board_node(ui, &painter, &xf, n, true);
+        }
+        for n in nodes
+            .iter()
+            .filter(|n| !n.is_frame() && !matches!(n.kind, NodeKind::Connector(_)))
+        {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
         // Interactive portal focus: dim everything outside the portal frame.
@@ -2239,20 +2581,23 @@ impl SlateApp {
                 let outline = self.node_screen_outline(&xf, n);
                 painter.add(egui::Shape::closed_line(
                     outline,
-                    EStroke::new(2.0_f32, palette.select),
+                    EStroke::new(canvas_scale::px(2.0, xf.z), palette.select),
                 ));
             }
         }
 
-        // Selection adornment: 8 handles + rotate zones on a single node, or
-        // per-node outlines plus the same geometry on the group box with 2+.
-        // The crop-mode node draws its own adornment (below) instead.
-        // Locked nodes force-selected via Ctrl+Shift+click show grayed
-        // handles (the one-off escape hatch of the scene-flags spec).
+        // Selection adornment: a silhouette outline (fillet / ellipse /
+        // AABB) and a rotate affordance on hover. No corner or midspan
+        // squares — those suggested grips the edge band already owns.
+        // 2+ adds an outline-only group box; the align widget is the
+        // extra chrome. The crop-mode node draws its own adornment
+        // (below). Locked nodes force-selected via Ctrl+Shift+click
+        // show a grayed outline.
+        let preview = atlas_shell::tokens::current().board_preview;
         let select_tint = if self.selection_has_locked() {
-            palette.select.gamma_multiply(0.45)
+            palette.select.gamma_multiply(0.45 * preview.select_opacity)
         } else {
-            palette.select
+            palette.select.gamma_multiply(preview.select_opacity)
         };
         if self.board_sel.len() == 1 && self.board_crop != self.board_sel.iter().next().copied() {
             if let Some(id) = self.board_sel.iter().next() {
@@ -2267,11 +2612,14 @@ impl SlateApp {
                         self.paint_line_grips(&painter, &xf, &n, select_tint);
                     } else {
                         let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+                        let outline = self.node_screen_outline(&xf, &n);
                         board_handles::paint_selection(
                             &painter,
                             &geom,
+                            &outline,
                             select_tint,
                             self.board_hover_hit,
+                            canvas_scale::px(preview.select_line_weight, xf.z),
                         );
                     }
                 }
@@ -2286,7 +2634,10 @@ impl SlateApp {
                         let outline = self.node_screen_outline(&xf, n);
                         painter.add(egui::Shape::closed_line(
                             outline,
-                            EStroke::new(1.5_f32, select_tint),
+                            EStroke::new(
+                                canvas_scale::px(preview.select_line_weight, xf.z),
+                                select_tint,
+                            ),
                         ));
                     }
                 }
@@ -2297,11 +2648,18 @@ impl SlateApp {
                     board_handles::paint_selection(
                         &painter,
                         &geom,
+                        &geom.corners,
                         select_tint,
                         self.board_hover_hit,
+                        canvas_scale::px(preview.select_line_weight, xf.z),
                     );
                 }
             }
+        }
+        self.paint_trim_preview(&painter, &xf);
+        self.paint_align_widget(&painter, &xf, &palette, select_tint);
+        if self.board_crop.is_none() {
+            self.paint_hover_preview(&painter, &xf, palette.select);
         }
         // Connector grips on the hovered node (Select tool).
         self.paint_wire_grips(&painter, &xf);
@@ -2353,23 +2711,70 @@ impl SlateApp {
             }
         }
 
-        // Smart guides (object alignment while dragging).
-        let guide_color = palette.accent.gamma_multiply(0.95);
-        Self::paint_snap_guides(
+        // Armed create-tool chrome (P2.GhostFollow): tinted pointer + small
+        // silhouette until the first press. During DragScale the silhouette
+        // yields to the live rubber-band; the pointer stays.
+        let armed_kind = board_place::ghost_kind(self.board_tool);
+        if armed_kind.is_some()
+            && resp.hovered()
+            && !panning
+            && !zoom_tool
+            && !rotate_cursor
+            && !web_capture
+        {
+            if let Some(p) = pointer {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                board_place::paint_armed_pointer(&painter, p, palette.accent);
+                let drawing = matches!(self.board_drag, Some(BoardDrag::Draw { .. }));
+                if !drawing {
+                    if let Some(kind) = armed_kind {
+                        board_place::paint_ghost(
+                            &painter,
+                            p,
+                            kind,
+                            palette.accent,
+                            palette.portal,
+                            rgba32(board_color::STICKY_FILL),
+                        );
+                    }
+                }
+            }
+        }
+
+        // Smart guides: forcefield pulse from the impact, then fade.
+        let guide_color = palette.accent;
+        let now = ui.input(|i| i.time);
+        let ff = atlas_shell::tokens::current().board_forcefield;
+        if atlas_shell::tuning::forcefield_preview_locked() {
+            let world = xf.s2w(rect.center());
+            board_forcefield::sync_preview(&mut self.board_forcefield, world, now, ff);
+        } else {
+            board_forcefield::sync(&mut self.board_forcefield, &self.board_snap_guides, now, ff);
+        }
+        if board_forcefield::paint(
             &painter,
             &xf,
-            &self.board_snap_guides,
+            rect,
+            &self.board_forcefield,
+            now,
+            ff,
             guide_color,
-            self.tab().cam.z,
-        );
+        ) {
+            ui.ctx().request_repaint();
+        }
+        if let Some(hit) = self.board_osnap_hit {
+            board_osnap::paint_osnap_marker(&painter, &xf, hit, guide_color.gamma_multiply(0.85));
+        }
 
         // Draw-gesture preview.
         if let (Some(BoardDrag::Draw { start_world, tool }), Some(w)) = (&self.board_drag, wp) {
             let mods = ui.input(|i| i.modifiers);
             let accent = palette.accent;
+            let end = self.preview_snap_point(w);
             match tool {
                 BoardTool::Ellipse => {
-                    let preview = self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
+                    let preview =
+                        self.draw_preview_screen_rect(&xf, *start_world, end, *tool, mods);
                     painter.add(egui::epaint::EllipseShape {
                         center: preview.center(),
                         radius: preview.size() * 0.5,
@@ -2378,7 +2783,8 @@ impl SlateApp {
                     });
                 }
                 _ => {
-                    let preview = self.draw_preview_screen_rect(&xf, *start_world, w, *tool, mods);
+                    let preview =
+                        self.draw_preview_screen_rect(&xf, *start_world, end, *tool, mods);
                     painter.rect_stroke(
                         preview,
                         0.0,
@@ -2390,15 +2796,17 @@ impl SlateApp {
         }
 
         if let Some(draft) = &self.board_path_draft {
-            // Ortho preview: the pending polyline segment snaps to 45°.
-            let mut cursor = wp;
-            if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
-                if let (board_path::BoardPathDraft::Polyline { points }, Some(w)) = (draft, wp) {
-                    if let Some(last) = points.last() {
-                        cursor = Some(board_snap::ortho_snap_point(*last, w));
+            let cursor = self.board_osnap_hit.map(|h| h.point).or_else(|| {
+                if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
+                    if let (board_path::BoardPathDraft::Polyline { points }, Some(w)) = (draft, wp)
+                    {
+                        return points
+                            .last()
+                            .map(|last| board_snap::ortho_snap_point(*last, w));
                     }
                 }
-            }
+                wp
+            });
             board_path::paint_path_draft(&painter, &xf, draft, cursor, palette.accent);
         }
         // Line draft: rubber band in the fg color the committed stroke will
@@ -2575,26 +2983,32 @@ impl SlateApp {
                 } else {
                     "2×click: 3D"
                 };
-                let pos = srect.center_bottom() + Vec2::new(0.0, -8.0);
-                let galley = painter.layout_no_wrap(
-                    text.into(),
-                    FontId::proportional(10.5),
-                    Color32::from_white_alpha(235),
-                );
-                let bg = Rect::from_center_size(
-                    pos - Vec2::new(0.0, galley.size().y * 0.5),
-                    galley.size() + Vec2::new(12.0, 6.0),
-                );
-                if bg.width() < srect.width() {
-                    painter.rect_filled(bg, bg.height() * 0.5, Color32::from_black_alpha(150));
-                    painter.galley(
-                        bg.center() - galley.size() * 0.5,
-                        galley,
+                let z = xf.z;
+                let size = canvas_scale::px(10.5, z);
+                if canvas_text::legible(size) {
+                    let pos = srect.center_bottom() + Vec2::new(0.0, canvas_scale::px(-8.0, z));
+                    let laid = canvas_text::layout_no_wrap(
+                        &painter,
+                        text.into(),
+                        FontId::proportional(size),
                         Color32::from_white_alpha(235),
                     );
+                    let sz = laid.size();
+                    let bg = Rect::from_center_size(
+                        pos - Vec2::new(0.0, sz.y * 0.5),
+                        sz + Vec2::new(canvas_scale::px(12.0, z), canvas_scale::px(6.0, z)),
+                    );
+                    if bg.width() < srect.width() {
+                        painter.rect_filled(bg, bg.height() * 0.5, Color32::from_black_alpha(150));
+                        laid.paint(
+                            &painter,
+                            bg.center() - sz * 0.5,
+                            Color32::from_white_alpha(235),
+                        );
+                    }
                 }
             }
-            let side = 24.0f32;
+            let side = canvas_scale::px(24.0, xf.z);
             if srect.width() < side * 2.0 || srect.height() < side * 2.0 {
                 continue; // too small on screen for an in-node button
             }
@@ -2614,11 +3028,12 @@ impl SlateApp {
                 Color32::from_black_alpha(140)
             };
             painter.circle_filled(btn.center(), side * 0.5, bg);
-            painter.text(
+            canvas_text::text(
+                &painter,
                 btn.center(),
                 Align2::CENTER_CENTER,
                 if live { "🔓" } else { "🔒" },
-                FontId::proportional(13.0),
+                canvas_scale::font(13.0, xf.z),
                 Color32::from_white_alpha(235),
             );
             if live {
@@ -2626,11 +3041,12 @@ impl SlateApp {
                 if let Some(vp) = self.model3d.live.get(&info.node) {
                     let left = super::model3d::AUTO_LOCK.saturating_sub(vp.last_interact.elapsed());
                     if left <= std::time::Duration::from_secs(10) {
-                        painter.text(
-                            btn.center_bottom() + Vec2::new(0.0, 4.0),
+                        canvas_text::text(
+                            &painter,
+                            btn.center_bottom() + Vec2::new(0.0, canvas_scale::px(4.0, xf.z)),
                             Align2::CENTER_TOP,
                             format!("{}s", left.as_secs().max(1)),
-                            FontId::proportional(10.0),
+                            canvas_scale::font(10.0, xf.z),
                             palette.accent,
                         );
                     }
@@ -2893,17 +3309,22 @@ impl SlateApp {
                 let Some(sb) = to_screen(b) else {
                     return;
                 };
-                painter.line_segment([sa, sb], EStroke::new(2.0_f32, accent));
-                painter.circle_filled(sa, 4.0, accent);
-                painter.circle_filled(sb, 4.0, accent);
+                let z = xf.z;
+                painter.line_segment([sa, sb], EStroke::new(canvas_scale::px(2.0, z), accent));
+                painter.circle_filled(sa, canvas_scale::px(4.0, z), accent);
+                painter.circle_filled(sb, canvas_scale::px(4.0, z), accent);
                 let mid = sa.lerp(sb, 0.5);
-                painter.text(
-                    mid + Vec2::new(0.0, -10.0),
-                    Align2::CENTER_BOTTOM,
-                    label,
-                    FontId::monospace(11.0),
-                    ink,
-                );
+                let size = canvas_scale::px(11.0, z);
+                if canvas_text::legible(size) {
+                    canvas_text::text(
+                        painter,
+                        mid + Vec2::new(0.0, canvas_scale::px(-10.0, z)),
+                        Align2::CENTER_BOTTOM,
+                        label,
+                        FontId::monospace(size),
+                        ink,
+                    );
+                }
             };
 
             for m in &vp.measures {
@@ -2932,31 +3353,6 @@ impl SlateApp {
         let center = self.canvas_rect.center();
         self.tab_mut().cam.offset = world_before.to_vec2() - (pointer - center) / cam_z;
         self.tab_mut().grid_fade_armed = true;
-    }
-
-    fn paint_snap_guides(
-        painter: &egui::Painter,
-        xf: &BoardXf,
-        guides: &[board_snap::SnapGuide],
-        color: Color32,
-        zoom: f32,
-    ) {
-        use board_snap::GuideAxis;
-        let stroke = EStroke::new((1.25 / zoom.max(0.25)).clamp(1.0, 2.5), color);
-        for g in guides {
-            match g.axis {
-                GuideAxis::Vertical => {
-                    let top = xf.w2s(Pos2::new(g.pos, g.span_start));
-                    let bot = xf.w2s(Pos2::new(g.pos, g.span_end));
-                    painter.line_segment([top, bot], stroke);
-                }
-                GuideAxis::Horizontal => {
-                    let left = xf.w2s(Pos2::new(g.span_start, g.pos));
-                    let right = xf.w2s(Pos2::new(g.span_end, g.pos));
-                    painter.line_segment([left, right], stroke);
-                }
-            }
-        }
     }
 
     fn board_snap_threshold(&self) -> f32 {
@@ -3149,29 +3545,40 @@ impl SlateApp {
                 accent.gamma_multiply(0.85)
             };
             painter.rect_filled(
-                Rect::from_center_size(pt, Vec2::splat(board_handles::HANDLE_PX * 2.0)),
-                1.0,
+                Rect::from_center_size(
+                    pt,
+                    Vec2::splat(canvas_scale::px(board_handles::HANDLE_PX, geom.zoom) * 2.0),
+                ),
+                canvas_scale::px(1.0, geom.zoom),
                 fill,
             );
         }
 
         // Content grabber: donut ring at the crop-window center.
         let center = geom.corners[0] + (geom.corners[2] - geom.corners[0]) * 0.5;
-        painter.circle_stroke(center, 11.0, EStroke::new(2.0_f32, accent));
+        let z = geom.zoom;
         painter.circle_stroke(
             center,
-            6.0,
-            EStroke::new(2.0_f32, accent.gamma_multiply(0.8)),
+            canvas_scale::px(11.0, z),
+            EStroke::new(canvas_scale::px(2.0, z), accent),
+        );
+        painter.circle_stroke(
+            center,
+            canvas_scale::px(6.0, z),
+            EStroke::new(canvas_scale::px(2.0, z), accent.gamma_multiply(0.8)),
         );
 
-        // Readable hint under the window.
-        painter.text(
-            geom.edges[2] + Vec2::new(0.0, 14.0),
-            Align2::CENTER_TOP,
-            "Drag edges to crop · drag inside to pan · Enter / Esc to finish",
-            FontId::proportional(11.0),
-            palette.sub,
-        );
+        let hint = canvas_scale::px(11.0, z);
+        if canvas_text::legible(hint) {
+            canvas_text::text(
+                painter,
+                geom.edges[2] + Vec2::new(0.0, canvas_scale::px(14.0, z)),
+                Align2::CENTER_TOP,
+                "Drag edges to crop · drag inside to pan · Enter / Esc to finish",
+                FontId::proportional(hint),
+                palette.sub,
+            );
+        }
     }
 
     // ----- gesture handling ------------------------------------------------------
@@ -3221,81 +3628,13 @@ impl SlateApp {
                         }
                     }
                 }
-                // Resize handle on the single selection?
-                if self.board_sel.len() == 1 {
-                    let id = *self.board_sel.iter().next().unwrap();
-                    if let Some(n) = self
-                        .doc()
-                        .scene
-                        .node(id)
-                        // Simple lines have grips, never a resize bbox.
-                        .filter(|n| !Self::node_uses_curve_grips(n))
-                    {
-                        let geom =
-                            board_handles::selection_geom(&self.board_xf(), n.rect, n.rotation_deg);
-                        if let Some(hit) = board_handles::hit_test_selection(screen, &geom) {
-                            match hit {
-                                board_handles::BoardHitTarget::Resize(h) => {
-                                    return Some(BoardDrag::Resize {
-                                        id,
-                                        before: n.clone(),
-                                        handle: h as u8,
-                                    });
-                                }
-                                board_handles::BoardHitTarget::Rotate(_) => {
-                                    let (cx, cy) = n.rect.center();
-                                    let start_angle = (world.y - cy).atan2(world.x - cx);
-                                    return Some(BoardDrag::Rotate {
-                                        id,
-                                        before: n.clone(),
-                                        start_angle,
-                                    });
-                                }
-                                board_handles::BoardHitTarget::Body => {}
-                            }
-                        }
-                    }
-                }
-                // Group handles on the multi-selection bounding box (never
-                // for homogeneous simple-line selections — P1.curve.grips).
-                if self.board_sel.len() >= 2 && !self.selection_all_simple_lines() {
-                    if let Some(gb) = self.board_group_bounds() {
-                        let geom = board_handles::selection_geom(&self.board_xf(), gb, 0.0);
-                        if let Some(hit) = board_handles::hit_test_selection(screen, &geom) {
-                            let before: Vec<Node> = self
-                                .board_sel
-                                .iter()
-                                .filter_map(|i| self.doc().scene.node(*i).cloned())
-                                .collect();
-                            let ids: Vec<NodeId> = before.iter().map(|n| n.id).collect();
-                            match hit {
-                                board_handles::BoardHitTarget::Resize(h) => {
-                                    return Some(BoardDrag::GroupResize {
-                                        ids,
-                                        before,
-                                        group_before: gb,
-                                        handle: h as u8,
-                                    });
-                                }
-                                board_handles::BoardHitTarget::Rotate(_) => {
-                                    let (cx, cy) = gb.center();
-                                    let start_angle = (world.y - cy).atan2(world.x - cx);
-                                    return Some(BoardDrag::GroupRotate {
-                                        ids,
-                                        before,
-                                        center: (cx, cy),
-                                        start_angle,
-                                    });
-                                }
-                                board_handles::BoardHitTarget::Body => {}
-                            }
-                        }
-                    }
-                }
-                // Connector wires: endpoint dots on a selected connector,
-                // then edge grips (add / Ctrl detach / Ctrl+Shift move-all).
+                // Wire grip at the press origin beats edge resize. The rest
+                // of the edge is Windows-style resize (no selection needed).
                 if let Some(wd) = self.try_begin_wire_drag(screen, world, mods) {
                     return Some(BoardDrag::Wire(wd));
+                }
+                if let Some(drag) = self.begin_transform_drag(screen, world) {
+                    return Some(drag);
                 }
                 // Dragging inside an unlocked 3D viewport orbits its camera
                 // instead of moving the node (Alt still duplicates, so the
@@ -3332,12 +3671,13 @@ impl SlateApp {
                 // selected via Ctrl+Shift+click (the one-off edit hatch).
                 let mut picked = self.board_pick_node(world.x, world.y);
                 if picked.is_none() {
-                    let forced = board_path::board_pick_node_ex(
+                    let forced = board_path::board_pick_node_routed(
                         &self.doc().scene,
                         world.x,
                         world.y,
                         self.tab().cam.z,
                         true,
+                        self.board_wire_routing,
                     );
                     if let Some(f) = forced {
                         if self.board_sel.contains(&f) {
@@ -3424,23 +3764,18 @@ impl SlateApp {
             BoardTool::Eraser => Some(BoardDrag::Erase {
                 touched: Vec::new(),
             }),
-            BoardTool::Eyedropper | BoardTool::Sticky => None, // click tools
+            BoardTool::Eyedropper | BoardTool::Sticky | BoardTool::Trim => None, // click tools
             BoardTool::DirectSelect => self
                 .begin_direct_drag(screen, world, mods)
                 .map(BoardDrag::Direct),
             BoardTool::BezierSpan => {
-                // Ortho: the new anchor snaps to 45° from the previous one.
-                let press = if board_snap::effective_ortho(self.board_ortho, mods.shift) {
-                    match &self.board_path_draft {
-                        Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => anchors
-                            .last()
-                            .map(|(a, _)| board_snap::ortho_snap_point(*a, world))
-                            .unwrap_or(world),
-                        _ => world,
+                let from = match &self.board_path_draft {
+                    Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => {
+                        anchors.last().map(|(a, _)| *a)
                     }
-                } else {
-                    world
+                    _ => None,
                 };
+                let press = self.resolve_point_snap(world, &[], from, mods.shift, from.is_some());
                 Some(BoardDrag::BezierAnchor { press })
             }
             BoardTool::Polyline | BoardTool::Arc | BoardTool::Line => None,
@@ -3453,15 +3788,50 @@ impl SlateApp {
             | BoardTool::RepoLens
             | BoardTool::StatusBoard
             | BoardTool::AgentPortal
-            | BoardTool::WebPortal) => Some(BoardDrag::Draw {
-                start_world: world,
-                tool,
-            }),
+            | BoardTool::WebPortal) => {
+                let start = self.resolve_point_snap(world, &[], None, false, false);
+                Some(BoardDrag::Draw {
+                    start_world: start,
+                    tool,
+                })
+            }
         }
     }
 
     fn board_pick_node(&self, x: f32, y: f32) -> Option<NodeId> {
-        board_path::board_pick_node(&self.doc().scene, x, y, self.tab().cam.z)
+        board_path::board_pick_node_routed(
+            &self.doc().scene,
+            x,
+            y,
+            self.tab().cam.z,
+            false,
+            self.board_wire_routing,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn update_gesture_for_test(&mut self, world: Pos2, mods: egui::Modifiers) {
+        self.update_gesture(world, mods);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn begin_gesture_for_test(
+        &mut self,
+        screen: Pos2,
+        world: Pos2,
+        mods: egui::Modifiers,
+    ) -> Option<BoardDrag> {
+        self.begin_gesture(screen, world, mods)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn end_gesture_for_test(
+        &mut self,
+        world: Pos2,
+        pointer: Option<Pos2>,
+        mods: egui::Modifiers,
+    ) {
+        self.end_gesture(world, pointer, mods)
     }
 
     fn update_gesture(&mut self, world: Pos2, mods: egui::Modifiers) {
@@ -3540,35 +3910,64 @@ impl SlateApp {
                     .map(|(id, b)| (*id, b.rect.translated(d.x, d.y)))
                     .collect();
 
-                // Smart guides: align to other objects (on by default; Alt bypasses).
+                // Object snaps beat smart guides; both yield to Alt (Rhino).
                 let snap_off = mods.alt || dup;
+                let mut osnap_moved = false;
                 if !snap_off {
                     let rects: Vec<WorldRect> = pairs.iter().map(|(_, r)| *r).collect();
                     if let Some(union) = board_snap::union_rect(&rects) {
-                        let all = self.board_node_rects();
-                        let (snapped, guides) =
-                            board_snap::snap_bbox(union, &ids, &all, self.board_snap_threshold());
-                        let mut ax = snapped.x - union.x;
-                        let mut ay = snapped.y - union.y;
-                        if ortho {
-                            // DominantOrtho: guide snap projects onto the
-                            // ortho line instead of derailing it.
-                            let along = ax * ortho_axis.x + ay * ortho_axis.y;
-                            ax = ortho_axis.x * along;
-                            ay = ortho_axis.y * along;
-                        }
-                        if ax != 0.0 || ay != 0.0 {
-                            for (_, r) in pairs.iter_mut() {
-                                r.x += ax;
-                                r.y += ay;
+                        let set = self.board_osnap;
+                        let radius = self.osnap_radius_world();
+                        if let Some((snapped, hit)) = board_osnap::snap_bbox_osnap(
+                            union,
+                            &self.doc().scene,
+                            &ids,
+                            set,
+                            radius,
+                        ) {
+                            let mut ax = snapped.x - union.x;
+                            let mut ay = snapped.y - union.y;
+                            if ortho {
+                                let along = ax * ortho_axis.x + ay * ortho_axis.y;
+                                ax = ortho_axis.x * along;
+                                ay = ortho_axis.y * along;
                             }
+                            if ax != 0.0 || ay != 0.0 {
+                                for (_, r) in pairs.iter_mut() {
+                                    r.x += ax;
+                                    r.y += ay;
+                                }
+                            }
+                            self.board_osnap_hit = Some(hit);
+                            osnap_moved = true;
+                        } else {
+                            let all = self.board_node_rects();
+                            let (snapped, guides) = board_snap::snap_bbox(
+                                union,
+                                &ids,
+                                &all,
+                                self.board_snap_threshold(),
+                            );
+                            let mut ax = snapped.x - union.x;
+                            let mut ay = snapped.y - union.y;
+                            if ortho {
+                                let along = ax * ortho_axis.x + ay * ortho_axis.y;
+                                ax = ortho_axis.x * along;
+                                ay = ortho_axis.y * along;
+                            }
+                            if ax != 0.0 || ay != 0.0 {
+                                for (_, r) in pairs.iter_mut() {
+                                    r.x += ax;
+                                    r.y += ay;
+                                }
+                            }
+                            self.board_snap_guides = guides;
                         }
-                        self.board_snap_guides = guides;
                     }
                 }
                 // Grid snap would pull the origin off the constrained axis,
-                // so ortho suspends it for the drag.
-                if self.board_snap_grid && !snap_off && !ortho {
+                // so ortho suspends it. Object snap overrides grid.
+                if self.board_snap_grid && !snap_off && !ortho && !osnap_moved {
                     for (_, r) in pairs.iter_mut() {
                         *r = board_snap::snap_rect_origin(*r, true);
                     }
@@ -3726,51 +4125,68 @@ impl SlateApp {
                 let gb = *group_before;
                 let handle = *handle;
                 // Same convention as single-node resize: corners scale
-                // proportionally by default, Shift distorts.
+                // proportionally by default, Shift distorts. Ctrl+Alt+Shift
+                // is a dedicated group mode: the box still follows the
+                // handle, but members keep their size and only translate.
                 let is_corner = matches!(handle, 0 | 2 | 4 | 6);
-                let lock_aspect = if is_corner { !mods.shift } else { mods.shift };
+                let reposition = mods.ctrl && mods.alt && mods.shift;
+                let lock_aspect = if reposition {
+                    is_corner
+                } else if is_corner {
+                    !mods.shift
+                } else {
+                    mods.shift
+                };
+                let from_center = !reposition && mods.ctrl;
                 let new_group = board_snap::resize_from_handle(
                     gb,
                     world,
                     handle,
                     MIN_DRAW,
                     lock_aspect,
-                    mods.ctrl,
+                    from_center,
                     0.0,
                 );
                 let mut sx = new_group.w / gb.w.max(0.001);
                 let mut sy = new_group.h / gb.h.max(0.001);
-                // No member may collapse below MIN_DRAW world units (but a
-                // member already smaller than that never blocks the gesture).
-                let min_w = before
-                    .iter()
-                    .map(|n| n.rect.w)
-                    .fold(f32::INFINITY, f32::min);
-                let min_h = before
-                    .iter()
-                    .map(|n| n.rect.h)
-                    .fold(f32::INFINITY, f32::min);
-                if min_w.is_finite() {
-                    sx = sx.max((MIN_DRAW / min_w.max(0.001)).min(1.0));
+                if !reposition {
+                    // No member may collapse below MIN_DRAW world units (but a
+                    // member already smaller than that never blocks the gesture).
+                    let min_w = before
+                        .iter()
+                        .map(|n| n.rect.w)
+                        .fold(f32::INFINITY, f32::min);
+                    let min_h = before
+                        .iter()
+                        .map(|n| n.rect.h)
+                        .fold(f32::INFINITY, f32::min);
+                    if min_w.is_finite() {
+                        sx = sx.max((MIN_DRAW / min_w.max(0.001)).min(1.0));
+                    }
+                    if min_h.is_finite() {
+                        sy = sy.max((MIN_DRAW / min_h.max(0.001)).min(1.0));
+                    }
                 }
-                if min_h.is_finite() {
-                    sy = sy.max((MIN_DRAW / min_h.max(0.001)).min(1.0));
-                }
-                let (ax, ay) = group_scale_anchor(gb, handle, mods.ctrl);
+                let (ax, ay) = group_scale_anchor(gb, handle, from_center);
                 let mean = (sx + sy) * 0.5;
                 let scene = &mut self.doc_mut().scene;
                 for (id, b) in ids.iter().zip(before.iter()) {
                     if let Some(n) = scene.node_mut(*id) {
-                        n.rect = WorldRect::new(
-                            ax + (b.rect.x - ax) * sx,
-                            ay + (b.rect.y - ay) * sy,
-                            b.rect.w * sx,
-                            b.rect.h * sy,
-                        );
-                        // Text scales with the group; stroke widths stay
-                        // fixed (CSS keeps stroke width on resize).
-                        if let (NodeKind::Text(t), NodeKind::Text(tb)) = (&mut n.kind, &b.kind) {
-                            t.size = (tb.size * mean).max(4.0);
+                        if reposition {
+                            n.rect = board_snap::remap_group_keep_size(b.rect, sx, sy, (ax, ay));
+                        } else {
+                            n.rect = WorldRect::new(
+                                ax + (b.rect.x - ax) * sx,
+                                ay + (b.rect.y - ay) * sy,
+                                b.rect.w * sx,
+                                b.rect.h * sy,
+                            );
+                            // Text scales with the group; stroke widths stay
+                            // fixed (CSS keeps stroke width on resize).
+                            if let (NodeKind::Text(t), NodeKind::Text(tb)) = (&mut n.kind, &b.kind)
+                            {
+                                t.size = (tb.size * mean).max(4.0);
+                            }
                         }
                     }
                 }
@@ -3793,16 +4209,19 @@ impl SlateApp {
                 let scene = &mut self.doc_mut().scene;
                 for (id, b) in ids.iter().zip(before.iter()) {
                     if let Some(n) = scene.node_mut(*id) {
-                        let mut rot = b.rotation_deg + delta;
-                        while rot > 180.0 {
-                            rot -= 360.0;
+                        if Self::node_allows_rotation(b) {
+                            let mut rot = b.rotation_deg + delta;
+                            while rot > 180.0 {
+                                rot -= 360.0;
+                            }
+                            while rot < -180.0 {
+                                rot += 360.0;
+                            }
+                            n.rotation_deg = rot;
                         }
-                        while rot < -180.0 {
-                            rot += 360.0;
-                        }
-                        n.rotation_deg = rot;
                         // Orbit the rect center around the group center;
-                        // width/height are unchanged by rotation.
+                        // width/height are unchanged by rotation. Portals
+                        // stay axis-aligned while they follow the group.
                         let (bx, by) = b.rect.center();
                         let (nx, ny) = board_snap::orbit_point((cx, cy), (bx, by), delta);
                         n.rect.x = nx - b.rect.w * 0.5;
@@ -3919,17 +4338,11 @@ impl SlateApp {
                 }
             }
             Some(BoardDrag::Draw { start_world, tool }) => {
-                let moved = (world - start_world).length_sq().sqrt() > 4.0;
-                if tool == BoardTool::Frame && !moved {
-                    self.place_frame_at(start_world);
-                } else if tool == BoardTool::RepoLens && !moved {
-                    self.place_repo_lens_at(start_world);
-                } else if tool == BoardTool::StatusBoard && !moved {
-                    self.place_status_board_at(start_world);
-                } else if tool == BoardTool::AgentPortal && !moved {
-                    self.place_agent_portal_at(start_world);
-                } else if tool == BoardTool::WebPortal && !moved {
-                    self.place_web_portal_at(start_world);
+                let world =
+                    self.resolve_point_snap(world, &[], Some(start_world), mods.shift, true);
+                let moved = (world - start_world).length() > 4.0;
+                if !moved {
+                    self.place_default_at(tool, start_world);
                 } else {
                     self.finish_draw(start_world, world, tool, mods);
                 }
@@ -4011,18 +4424,14 @@ impl SlateApp {
         }
     }
 
-    fn frame_drag_rect(&self, start: Pos2, end: Pos2) -> WorldRect {
-        let aspect = self.board_frame_preset.aspect();
-        let dx = end.x - start.x;
-        let dy = end.y - start.y;
-        let w = dx.abs().max(MIN_DRAW);
-        let h = (w / aspect).max(MIN_DRAW);
-        let (x, y) = if dx >= 0.0 {
-            (start.x, if dy >= 0.0 { start.y } else { start.y - h })
-        } else {
-            (start.x - w, if dy >= 0.0 { start.y } else { start.y - h })
-        };
-        WorldRect::new(x, y, w, h)
+    /// DragScale world rect for preview and commit. One `PlaceConstraint`
+    /// table so future DragRect tools reuse the same Shift / aspect rules.
+    fn draw_world_rect(&self, start: Pos2, end: Pos2, tool: BoardTool, shift: bool) -> WorldRect {
+        let frame_aspect = self.board_frame_preset.aspect();
+        match board_place::constraint_for(tool, frame_aspect) {
+            Some(c) => board_place::place_rect(start, end, c, shift),
+            None => WorldRect::new(start.x, start.y, end.x - start.x, end.y - start.y).normalized(),
+        }
     }
 
     fn draw_preview_screen_rect(
@@ -4033,47 +4442,38 @@ impl SlateApp {
         tool: BoardTool,
         mods: egui::Modifiers,
     ) -> Rect {
-        let world = if tool == BoardTool::Frame && !mods.shift {
-            self.frame_drag_rect(start, end)
-        } else if matches!(
-            tool,
-            BoardTool::RepoLens
-                | BoardTool::StatusBoard
-                | BoardTool::AgentPortal
-                | BoardTool::WebPortal
-        ) {
-            self.portal_drag_rect(start, end, mods.shift)
-        } else {
-            let square_tool = matches!(
-                tool,
-                BoardTool::Frame | BoardTool::RectShape | BoardTool::Ellipse
-            );
-            board_snap::constrain_draw_rect(
-                WorldRect::new(start.x, start.y, end.x - start.x, end.y - start.y),
-                square_tool,
-                mods.shift,
-            )
-        };
-        xf.rect_w2s(world)
+        xf.rect_w2s(self.draw_world_rect(start, end, tool, mods.shift))
     }
 
-    /// Generated-portal drag: free aspect by default; Shift locks 16:9 (P1.portal.place).
-    fn portal_drag_rect(&self, start: Pos2, end: Pos2, shift_169: bool) -> WorldRect {
-        let dx = end.x - start.x;
-        let dy = end.y - start.y;
-        if shift_169 {
-            let aspect = 16.0 / 9.0;
-            let w = dx.abs().max(MIN_DRAW);
-            let h = (w / aspect).max(MIN_DRAW);
-            let (x, y) = if dx >= 0.0 {
-                (start.x, if dy >= 0.0 { start.y } else { start.y - h })
-            } else {
-                (start.x - w, if dy >= 0.0 { start.y } else { start.y - h })
-            };
-            return WorldRect::new(x, y, w, h);
+    /// Click-to-place the armed DragRect tool at its default size, centred
+    /// on `center`. Drag-to-size still goes through [`Self::finish_draw`].
+    pub(crate) fn place_default_at(&mut self, tool: BoardTool, center: Pos2) {
+        match tool {
+            BoardTool::Frame => self.place_frame_at(center),
+            BoardTool::RepoLens => self.place_repo_lens_at(center),
+            BoardTool::StatusBoard => self.place_status_board_at(center),
+            BoardTool::AgentPortal => self.place_agent_portal_at(center),
+            BoardTool::WebPortal => self.place_web_portal_at(center),
+            BoardTool::RectShape => self.place_from_recipe(
+                tool,
+                center,
+                (
+                    board_place::place_tokens::RECT_DEFAULT_W,
+                    board_place::place_tokens::RECT_DEFAULT_H,
+                ),
+            ),
+            BoardTool::Ellipse => self.place_from_recipe(
+                tool,
+                center,
+                (
+                    board_place::place_tokens::ELLIPSE_DEFAULT_W,
+                    board_place::place_tokens::ELLIPSE_DEFAULT_H,
+                ),
+            ),
+            _ => {
+                self.board_tool = BoardTool::Select;
+            }
         }
-        let raw = WorldRect::new(start.x, start.y, dx, dy);
-        board_snap::constrain_draw_rect(raw, false, false)
     }
 
     /// Click-to-place default frame (Frame tool click, or the canvas
@@ -4192,24 +4592,7 @@ impl SlateApp {
     }
 
     pub(crate) fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
-        let raw = WorldRect::new(a.x, a.y, b.x - a.x, b.y - a.y);
-        let r = if tool == BoardTool::Frame && !mods.shift {
-            self.frame_drag_rect(a, b)
-        } else if matches!(
-            tool,
-            BoardTool::RepoLens
-                | BoardTool::StatusBoard
-                | BoardTool::AgentPortal
-                | BoardTool::WebPortal
-        ) {
-            self.portal_drag_rect(a, b, mods.shift)
-        } else {
-            let square_tool = matches!(
-                tool,
-                BoardTool::Frame | BoardTool::RectShape | BoardTool::Ellipse
-            );
-            board_snap::constrain_draw_rect(raw, square_tool, mods.shift)
-        };
+        let r = self.draw_world_rect(a, b, tool, mods.shift);
         if r.w < MIN_DRAW && r.h < MIN_DRAW {
             self.board_tool = BoardTool::Select;
             return;
@@ -4348,10 +4731,12 @@ impl SlateApp {
         }
         match self.board_tool {
             BoardTool::Text => {
+                let world = self.resolve_point_snap(world, &[], None, false, false);
                 self.place_text_at(world);
                 return;
             }
             BoardTool::Sticky => {
+                let world = self.resolve_point_snap(world, &[], None, false, false);
                 self.place_sticky_at(world);
                 return;
             }
@@ -4387,17 +4772,22 @@ impl SlateApp {
                 self.direct_click(screen, world, mods.shift);
                 return;
             }
+            BoardTool::Trim => {
+                self.trim_click(world, mods.shift);
+                return;
+            }
             _ => {}
         }
         // Ctrl+Shift+click: sub-object select — a single group member, or a
         // locked node (force-selected for one-off edits). No expansion.
         if mods.ctrl && mods.shift {
-            let hit = board_path::board_pick_node_ex(
+            let hit = board_path::board_pick_node_routed(
                 &self.doc().scene,
                 world.x,
                 world.y,
                 self.tab().cam.z,
                 true,
+                self.board_wire_routing,
             );
             match hit {
                 Some(id) => {
@@ -4719,7 +5109,8 @@ impl SlateApp {
 
     /// Tag toggles applied to a frame (same faceted system as images).
     pub(crate) fn frame_tags_menu(&mut self, ui: &mut egui::Ui, frame_id: NodeId) {
-        let palette = self.palette();
+        let dark = self.dark_mode;
+        menu::prepare(ui, dark);
         let assignments = match self.doc().scene.node(frame_id).map(|n| &n.kind) {
             Some(NodeKind::Frame(f)) => f.assignments.clone(),
             _ => return,
@@ -4740,31 +5131,16 @@ impl SlateApp {
             })
             .collect();
         if groups.is_empty() {
-            ui.label(
-                egui::RichText::new("No tags yet — create groups in the Tags panel")
-                    .small()
-                    .color(palette.sub),
-            );
+            menu::note(ui, "No tags yet — create groups in the Tags panel", dark);
             return;
         }
-        ui.label(
-            egui::RichText::new("Images dropped on this frame inherit:")
-                .small()
-                .color(palette.sub),
-        );
+        menu::note(ui, "Images dropped on this frame inherit:", dark);
         for (group_id, group_name, tags) in groups {
-            ui.label(
-                egui::RichText::new(group_name)
-                    .small()
-                    .strong()
-                    .color(palette.ink),
-            );
+            menu::heading(ui, group_name, dark);
             for (tag_id, name, color) in tags {
                 let on = assignments.get(&group_id) == Some(&tag_id);
                 let accent = Color32::from_rgb(color[0], color[1], color[2]);
-                let label = egui::RichText::new(format!("{} {}", if on { "◉" } else { "○" }, name))
-                    .color(accent);
-                if ui.selectable_label(false, label).clicked() {
+                if menu::item_swatch(ui, accent, &name, on, dark).clicked() {
                     self.patch_nodes(&[frame_id], |n| {
                         if let NodeKind::Frame(f) = &mut n.kind {
                             if on {
@@ -4857,11 +5233,10 @@ impl SlateApp {
     }
 
     /// Right-click node menu.
-    fn board_action_menu(&mut self, ctx: &egui::Context) {
+    pub(crate) fn board_action_menu(&mut self, ctx: &egui::Context) {
         let Some((node_id, pos)) = self.board_menu else {
             return;
         };
-        let palette = self.palette();
         let targets: Vec<NodeId> = if self.board_sel.contains(&node_id) {
             self.board_sel.iter().copied().collect()
         } else {
@@ -4877,19 +5252,98 @@ impl SlateApp {
 
         let mut close = false;
         let mut dismiss = false;
-        egui::Area::new(egui::Id::new("slate_board_menu"))
+        let dark = self.dark_mode;
+        let menu_rect = egui::Area::new(egui::Id::new("slate_board_menu"))
             .fixed_pos(pos)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(190.0);
-                    ui.label(
-                        egui::RichText::new(format!("{} object(s)", targets.len()))
-                            .small()
-                            .color(palette.sub),
-                    );
-                    ui.separator();
-                    if ui.button("Duplicate  (Ctrl+D)").clicked() {
+                menu::frame(dark).show(ui, |ui| {
+                    ui.set_min_width(menu::tokens().min_width);
+                    menu::heading(ui, format!("{} object(s)", targets.len()), dark);
+                    menu::separator(ui, dark);
+                    if let Some(NodeKind::Portal(p)) =
+                        self.doc().scene.node(node_id).map(|n| n.kind.clone())
+                    {
+                        menu::heading(ui, "Portal", dark);
+                        let max_on = self.portal_is_maximized(node_id);
+                        if menu::item(
+                            ui,
+                            if max_on {
+                                MenuIcon::Restore
+                            } else {
+                                MenuIcon::Maximize
+                            },
+                            if max_on { "Restore" } else { "Maximize" },
+                            dark,
+                        )
+                        .clicked()
+                        {
+                            self.portal_toggle_maximize(node_id);
+                            close = true;
+                        }
+                        if super::board_portal_chrome::uses_identity_tab(p.kind) {
+                            let folded = self.portal_chrome_collapsed(node_id);
+                            if menu::item(
+                                ui,
+                                MenuIcon::Tab,
+                                if folded { "Show tab" } else { "Hide tab" },
+                                dark,
+                            )
+                            .clicked()
+                            {
+                                self.portal_toggle_chrome(node_id);
+                                close = true;
+                            }
+                        }
+                        if p.kind == PortalKind::Web {
+                            if menu::item(ui, MenuIcon::Copy, "Copy URL", dark).clicked() {
+                                self.web_copy_url_of(ui.ctx(), Some(node_id));
+                                close = true;
+                            }
+                            if menu::item(ui, MenuIcon::Paste, "Paste URL", dark).clicked() {
+                                self.web_paste_url_of(Some(node_id));
+                                close = true;
+                            }
+                        }
+                        if p.kind == PortalKind::Agent {
+                            if p.source.is_some() {
+                                if menu::item(ui, MenuIcon::Cursor, "Open in Cursor", dark)
+                                    .clicked()
+                                {
+                                    self.launch_agent_provider(node_id);
+                                    close = true;
+                                }
+                                if menu::item(ui, MenuIcon::Chat, "Switch chat", dark).clicked() {
+                                    self.open_agent_chat_picker(node_id);
+                                    close = true;
+                                }
+                            }
+                            let focused = self.agents.focused == Some(node_id);
+                            if menu::item(
+                                ui,
+                                MenuIcon::Enter,
+                                if focused {
+                                    "Leave contents"
+                                } else {
+                                    "Enter contents"
+                                },
+                                dark,
+                            )
+                            .clicked()
+                            {
+                                if focused {
+                                    self.agent_blur();
+                                } else {
+                                    self.agent_focus(node_id);
+                                }
+                                close = true;
+                            }
+                        }
+                        menu::separator(ui, dark);
+                    }
+                    if menu::item_shortcut(ui, MenuIcon::Duplicate, "Duplicate", "Ctrl+D", dark)
+                        .clicked()
+                    {
                         self.duplicate_board_nodes(&targets, 24.0, 24.0);
                         self.push_history(
                             atlas_commands::CommandId("board.duplicate"),
@@ -4897,7 +5351,7 @@ impl SlateApp {
                         );
                         close = true;
                     }
-                    if ui.button("Bring to front").clicked() {
+                    if menu::item(ui, MenuIcon::Front, "Bring to front", dark).clicked() {
                         self.reorder_nodes(&targets, true);
                         self.push_history(
                             atlas_commands::CommandId("board.to_front"),
@@ -4905,7 +5359,7 @@ impl SlateApp {
                         );
                         close = true;
                     }
-                    if ui.button("Send to back").clicked() {
+                    if menu::item(ui, MenuIcon::Back, "Send to back", dark).clicked() {
                         self.reorder_nodes(&targets, false);
                         self.push_history(
                             atlas_commands::CommandId("board.to_back"),
@@ -4913,15 +5367,17 @@ impl SlateApp {
                         );
                         close = true;
                     }
-                    // Scene flags (groups / lock / hide — wave 2b).
-                    ui.separator();
+                    menu::separator(ui, dark);
                     let any_grouped = targets.iter().any(|id| {
                         self.doc()
                             .scene
                             .node(*id)
                             .is_some_and(|n| n.group.is_some())
                     });
-                    if targets.len() >= 2 && ui.button("Group  (Ctrl+G)").clicked() {
+                    if targets.len() >= 2
+                        && menu::item_shortcut(ui, MenuIcon::Group, "Group", "Ctrl+G", dark)
+                            .clicked()
+                    {
                         self.board_sel = targets.iter().copied().collect();
                         let n = self.cmd_group_selection();
                         if n > 0 {
@@ -4932,7 +5388,16 @@ impl SlateApp {
                         }
                         close = true;
                     }
-                    if any_grouped && ui.button("Ungroup  (Ctrl+Shift+G)").clicked() {
+                    if any_grouped
+                        && menu::item_shortcut(
+                            ui,
+                            MenuIcon::Ungroup,
+                            "Ungroup",
+                            "Ctrl+Shift+G",
+                            dark,
+                        )
+                        .clicked()
+                    {
                         self.board_sel = targets.iter().copied().collect();
                         let n = self.cmd_ungroup_selection();
                         if n > 0 {
@@ -4943,7 +5408,7 @@ impl SlateApp {
                         }
                         close = true;
                     }
-                    if ui.button("Lock  (Ctrl+L)").clicked() {
+                    if menu::item_shortcut(ui, MenuIcon::Lock, "Lock", "Ctrl+L", dark).clicked() {
                         self.board_sel = targets.iter().copied().collect();
                         let n = self.cmd_lock_selection();
                         if n > 0 {
@@ -4954,7 +5419,7 @@ impl SlateApp {
                         }
                         close = true;
                     }
-                    if ui.button("Hide  (Ctrl+H)").clicked() {
+                    if menu::item_shortcut(ui, MenuIcon::Hide, "Hide", "Ctrl+H", dark).clicked() {
                         self.board_sel = targets.iter().copied().collect();
                         let n = self.cmd_hide_selection();
                         if n > 0 {
@@ -4965,21 +5430,12 @@ impl SlateApp {
                         }
                         close = true;
                     }
-                    // Wire rows (single right-clicked connector).
                     if let Some(NodeKind::Connector(conn)) =
                         self.doc().scene.node(node_id).map(|n| n.kind.clone())
                     {
-                        ui.separator();
-                        ui.label(
-                            egui::RichText::new("Wire")
-                                .small()
-                                .strong()
-                                .color(palette.ink),
-                        );
-                        if ui
-                            .selectable_label(conn.arrow_a, "Arrowhead at start")
-                            .clicked()
-                        {
+                        menu::separator(ui, dark);
+                        menu::heading(ui, "Wire", dark);
+                        if menu::toggle(ui, conn.arrow_a, "Arrowhead at start", dark).clicked() {
                             let v = !conn.arrow_a;
                             self.patch_nodes(&[node_id], move |n| {
                                 if let NodeKind::Connector(c) = &mut n.kind {
@@ -4988,10 +5444,7 @@ impl SlateApp {
                             });
                             self.last_board_edit = None;
                         }
-                        if ui
-                            .selectable_label(conn.arrow_b, "Arrowhead at end")
-                            .clicked()
-                        {
+                        if menu::toggle(ui, conn.arrow_b, "Arrowhead at end", dark).clicked() {
                             let v = !conn.arrow_b;
                             self.patch_nodes(&[node_id], move |n| {
                                 if let NodeKind::Connector(c) = &mut n.kind {
@@ -5001,7 +5454,7 @@ impl SlateApp {
                             self.last_board_edit = None;
                         }
                         let faint = conn.display == slate_doc::scene::WireDisplay::Faint;
-                        if ui.selectable_label(faint, "Faint").clicked() {
+                        if menu::toggle(ui, faint, "Faint", dark).clicked() {
                             let v = if faint {
                                 slate_doc::scene::WireDisplay::Default
                             } else {
@@ -5014,38 +5467,30 @@ impl SlateApp {
                             });
                             self.last_board_edit = None;
                         }
-                        if ui.button("Edit label…").clicked() {
+                        if menu::item(ui, MenuIcon::Rename, "Edit label…", dark).clicked() {
                             self.open_wire_label_edit(node_id);
                             close = true;
                         }
                     }
-                    // Single-image actions: on-canvas crop mode (also enter
-                    // via double-click) and opening the source file (the old
-                    // double-click behavior).
                     if let Some(NodeKind::Image(img)) =
                         self.doc().scene.node(node_id).map(|n| n.kind.clone())
                     {
-                        if self.croppable_image(node_id) && ui.button("Crop image").clicked() {
+                        if self.croppable_image(node_id)
+                            && menu::item(ui, MenuIcon::Image, "Crop image", dark).clicked()
+                        {
                             self.enter_crop_mode(node_id);
                             close = true;
                         }
                         if let Some(path) = self.doc().item(img.item).map(|it| it.path.clone()) {
-                            if ui.button("Open file").clicked() {
+                            if menu::item(ui, MenuIcon::Open, "Open file", dark).clicked() {
                                 self.open_item_path(&path);
                                 close = true;
                             }
                         }
                     }
-                    // Tag assignment for placed images: same faceted menu as
-                    // the grid, targeting the underlying pool items.
                     if !image_items.is_empty() {
-                        ui.separator();
-                        ui.label(
-                            egui::RichText::new("Tags")
-                                .small()
-                                .strong()
-                                .color(palette.ink),
-                        );
+                        menu::separator(ui, dark);
+                        menu::heading(ui, "Tags", dark);
                         let groups: Vec<(slate_doc::GroupId, TagRows)> = self
                             .doc()
                             .groups
@@ -5069,13 +5514,7 @@ impl SlateApp {
                                         .unwrap_or(false)
                                 });
                                 let accent = Color32::from_rgb(color[0], color[1], color[2]);
-                                let label = egui::RichText::new(format!(
-                                    "{} {}",
-                                    if all_have { "◉" } else { "○" },
-                                    name
-                                ))
-                                .color(accent);
-                                if ui.selectable_label(false, label).clicked() {
+                                if menu::item_swatch(ui, accent, &name, all_have, dark).clicked() {
                                     if all_have {
                                         self.unassign_group(&image_items, group_id);
                                     } else {
@@ -5094,12 +5533,22 @@ impl SlateApp {
                             })
                         })
                         .collect();
-                    if pdf_items.len() == 1 && ui.button("Explode PDF into pages…").clicked() {
+                    if pdf_items.len() == 1
+                        && menu::item(ui, MenuIcon::File, "Explode PDF into pages…", dark).clicked()
+                    {
                         self.explode_pdf(*pdf_items.iter().next().unwrap());
                         close = true;
                     }
-                    ui.separator();
-                    if ui.button("Delete  (Del)").clicked() {
+                    menu::separator(ui, dark);
+                    if menu::row(
+                        ui,
+                        menu::Row::new(MenuIcon::Trash, "Delete")
+                            .shortcut("Del")
+                            .danger(),
+                        dark,
+                    )
+                    .clicked()
+                    {
                         self.delete_board_nodes(&targets);
                         self.push_history(
                             atlas_commands::CommandId("board.delete"),
@@ -5107,16 +5556,14 @@ impl SlateApp {
                         );
                         close = true;
                     }
-                    if ui.button("Done").clicked() {
-                        close = true;
-                    }
                 });
-            });
+            })
+            .response
+            .rect;
         ctx.input(|i| {
             if i.pointer.any_pressed() {
                 if let Some(p) = i.pointer.interact_pos() {
-                    let near = Rect::from_min_size(pos, Vec2::new(240.0, 460.0)).expand(8.0);
-                    if !near.contains(p) {
+                    if !menu_rect.expand(8.0).contains(p) {
                         dismiss = true;
                     }
                 }

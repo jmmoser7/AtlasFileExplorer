@@ -15,7 +15,7 @@
 //! (bare letter shortcuts hold ~700 ms so a second character can open the
 //! canvas palette instead).
 
-use super::{board, commands, SlateApp};
+use super::{board, board_align, commands, SlateApp};
 use atlas_commands::{
     cancel_target, Availability, CancelLayer, Chord, CmdAuthor, CommandId, HistoryEntry, Key,
 };
@@ -180,6 +180,15 @@ impl SlateApp {
                 self.chrome_mut().advanced_open = true;
                 true
             }
+            "app.session.mark" => {
+                self.session_log.mark("F4");
+                self.toast("Marked this moment in the session log");
+                true
+            }
+            "app.session.reveal" => {
+                self.session_log.reveal();
+                true
+            }
             "app.history" => {
                 self.history_open = !self.history_open;
                 true
@@ -297,6 +306,10 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::WebPortal);
                 true
             }
+            "board.tool.trim" => {
+                self.set_board_tool(board::BoardTool::Trim);
+                true
+            }
             "portal.web.source" => match detail.as_deref().map(str::trim).filter(|s| !s.is_empty())
             {
                 // Agents and the command palette can pass a URL or path; humans
@@ -313,10 +326,25 @@ impl SlateApp {
             "portal.web.open_external" => self.web_open_external(),
             "portal.web.package" => self.web_package_selected(),
             "portal.web.bake" => self.web_bake_selected(),
+            "portal.web.copy_url" => self.web_copy_url(ctx),
+            "portal.web.paste_url" => self.web_paste_url(),
+            "portal.maximize" => self.portal_maximize_selected(),
+            "portal.chrome.toggle" => self.portal_toggle_chrome_selected(),
+            "portal.agent.bind" => self.pick_selected_agent_project(),
             "portal.agent.send" => self.send_selected_agent_prompt(),
             "portal.agent.provider" => self.toggle_selected_agent_provider(),
             "portal.agent.reveal" => self.reveal_selected_agent_link(),
             "portal.agent.launch" => self.launch_selected_agent_provider(),
+            "portal.agent.focus" => self.agent_toggle_focus(),
+            "portal.agent.switch_chat" => {
+                if let Some(id) = self.selected_agent_portal() {
+                    self.open_agent_chat_picker(id);
+                    true
+                } else {
+                    self.toast("Select an agent portal first.");
+                    false
+                }
+            }
             "stage.accept" => self.accept_selected_stage_proposal(),
             "stage.reject" => self.reject_selected_stage_proposal(),
             "portal.repo.source" | "portal.status.source" => {
@@ -415,6 +443,21 @@ impl SlateApp {
                     !self.duplicate_board_nodes(&ids, 24.0, 24.0).is_empty()
                 }
             }
+            "board.align.left"
+            | "board.align.center_h"
+            | "board.align.right"
+            | "board.align.top"
+            | "board.align.middle_v"
+            | "board.align.bottom"
+            | "board.distribute.horizontal"
+            | "board.distribute.vertical" => {
+                let Some(action) = board_align::AlignAction::from_command_id(id.0) else {
+                    return false;
+                };
+                let n = self.board_sel.len();
+                detail = detail.or(Some(format!("{} node(s)", n)));
+                self.apply_align_action(action)
+            }
             "board.delete" => {
                 let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
                 if ids.is_empty() {
@@ -443,6 +486,58 @@ impl SlateApp {
             "board.snap_grid" => {
                 self.board_snap_grid = !self.board_snap_grid;
                 detail = detail.or(Some(if self.board_snap_grid { "on" } else { "off" }.into()));
+                true
+            }
+            "board.osnap" => {
+                self.board_osnap.enabled = !self.board_osnap.enabled;
+                self.persist_osnap();
+                let state = if self.board_osnap.enabled {
+                    "on"
+                } else {
+                    "off"
+                };
+                detail = detail.or(Some(state.into()));
+                true
+            }
+            "board.osnap.end" | "board.osnap.mid" | "board.osnap.center" | "board.osnap.near"
+            | "board.osnap.int" | "board.osnap.quad" | "board.osnap.perp" | "board.osnap.tan" => {
+                let kind = match id.0 {
+                    "board.osnap.end" => slate_doc::SnapKind::End,
+                    "board.osnap.mid" => slate_doc::SnapKind::Mid,
+                    "board.osnap.center" => slate_doc::SnapKind::Center,
+                    "board.osnap.near" => slate_doc::SnapKind::Near,
+                    "board.osnap.int" => slate_doc::SnapKind::Intersection,
+                    "board.osnap.quad" => slate_doc::SnapKind::Quadrant,
+                    "board.osnap.perp" => slate_doc::SnapKind::Perpendicular,
+                    "board.osnap.tan" => slate_doc::SnapKind::Tangent,
+                    _ => unreachable!(),
+                };
+                self.board_osnap.toggle(kind);
+                self.persist_osnap();
+                let state = if self.board_osnap.is_kind_remembered(kind) {
+                    "on"
+                } else {
+                    "off"
+                };
+                detail = detail.or(Some(format!("{} {state}", kind.token())));
+                true
+            }
+            "board.wire.routing" => {
+                self.board_wire_routing = self.board_wire_routing.toggle();
+                self.persist_wire_routing();
+                detail = detail.or(Some(self.board_wire_routing.label().to_ascii_lowercase()));
+                true
+            }
+            "board.wire.bezier" => {
+                self.board_wire_routing = slate_doc::WireRouting::Bezier;
+                self.persist_wire_routing();
+                detail = detail.or(Some("bezier".into()));
+                true
+            }
+            "board.wire.orthogonal" => {
+                self.board_wire_routing = slate_doc::WireRouting::Orthogonal;
+                self.persist_wire_routing();
+                detail = detail.or(Some("orthogonal".into()));
                 true
             }
             "board.ortho" => {
@@ -593,11 +688,19 @@ impl SlateApp {
             self.lens.focus = None;
             return true;
         }
+        // Maximize peels first: Esc returns the portal to the board without
+        // dropping page focus (P1.portal.maximize / P0.1).
+        if self.portal_chrome.maximized.is_some() {
+            return self.portal_restore();
+        }
         // Web portal input focus. Releasing it leaves the page running with
         // its scroll position and form contents intact (D12) — this peels
         // where the keyboard goes, nothing more.
         if self.doc().view.active_view == ViewKind::Board && self.web.focused.is_some() {
             return self.web_blur();
+        }
+        if self.doc().view.active_view == ViewKind::Board && self.agents.focused.is_some() {
+            return self.agent_blur();
         }
         // Repository Lens portal interactive / commit focus.
         if self.doc().view.active_view == ViewKind::Board
@@ -628,6 +731,7 @@ impl SlateApp {
         if self.board_crop.is_some()
             || self.board_path_draft.is_some()
             || self.line_draft.is_some()
+            || self.trim_live_draft()
             || direct_live
         {
             live.push(CancelLayer::Draft);
@@ -682,6 +786,8 @@ impl SlateApp {
                     self.line_cancel_step();
                 } else if self.board_path_draft.is_some() {
                     self.cancel_path_draft();
+                } else if self.trim_live_draft() {
+                    self.trim_cancel_step();
                 } else if !self.direct.anchors.is_empty() {
                     // Direct-selection Esc order: anchors → node → tool.
                     self.direct.anchors.clear();
@@ -737,7 +843,8 @@ impl SlateApp {
         // undo keep working — and Escape stays out of this so it can still peel
         // the focus back off.
         let web_focus = board && self.web.focused.is_some();
-        let typing_sink = editing || web_focus;
+        let agent_focus = board && self.agents.focused.is_some();
+        let typing_sink = editing || web_focus || agent_focus;
         let palette_open = self.palette_state.open;
         let cmd_ctx = self.command_ctx();
         // Type-to-command / bare-letter hold: Board only, and never while a
@@ -1018,6 +1125,8 @@ impl SlateApp {
         if keys.enter && !wants_kb && !typing_sink && !palette_open && !suppress_repeat {
             if board && self.board_crop.is_some() {
                 self.board_crop = None;
+            } else if board && self.board_tool == board::BoardTool::Trim {
+                self.trim_enter();
             } else if board && self.line_draft.is_some() {
                 // Typed length places the end point along the current
                 // direction; plain Enter commits at the cursor (D08).

@@ -55,8 +55,11 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
   clear stays first, as before. Overlays with a focused text field (palette,
   search) own their Esc; the inline text editor commits on its own Esc.
 - **F1** commands reference (Advanced) · **F2** command history window ·
-  **F3** Selection panel toggle · **Ctrl+Shift+P** Advanced ·
-  **Ctrl+N** = new tab (alias of Ctrl+T).
+  **F3** Selection panel toggle · **F4** mark this moment in the session
+  activity log · **Ctrl+Shift+P** Advanced ·
+  **Ctrl+N** = new tab · **Ctrl+T** = Trim (Board).
+  Advanced → Session log shows the path and last stall; open the folder
+  from there (`%LOCALAPPDATA%\NativeFileAtlas\session-log\`).
 - **M** minimap (all views; pinned state persists in chrome prefs) ·
   **Ctrl+F** canvas search (Enter / Shift+Enter cycle + camera fly, Esc
   closes; non-matches dim to 35 % at paint time) · **Tab / Shift+Tab** cycle
@@ -75,21 +78,46 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
 - **Ctrl+C / X / V** board clipboard (JSON on the OS clipboard too;
   connectors ride along when both ends are copied, outside anchors degrade
   to Free) · **Ctrl+Shift+V** paste in place · repeated pastes step +24,+24.
+- **Align widget** (Grasshopper): with the Select tool and 2+ nodes selected,
+  two icon clusters sit outside the group box (bottom and left). Bottom:
+  align left / center / right / distribute horizontally. Left: align top /
+  middle / bottom / distribute vertically. Press commits `board.align.*` /
+  `board.distribute.*` as one undo step. Distribute icons stay inert until
+  3+ are selected. The same commands are in the palette. Selection chrome
+  is a silhouette outline (no corner or midspan squares) that follows the
+  painted geometry.
+- **Group reposition** (Ctrl+Alt+Shift): while dragging a group-box edge or
+  corner with all three modifiers, members keep their size and only
+  translate to follow the new box. Without that chord, group resize still
+  scales (and can squash) each member.
 - **F8** ortho toggle · **F9** snap-to-grid · **G / F7** board grid — dock
-  Grid/Snap buttons dispatch the same commands.
+  Grid/Snap buttons dispatch the same commands. **Object snaps** (End, Mid,
+  Center, Near, Intersection, Quadrant, Perpendicular, Tangent) plus
+  Snap to grid live under Document Settings → Object snaps; each kind is
+  a registered command (`board.osnap.*`). Alt suspends object snaps for
+  the current pick. Tan and Perp stay inert until a gesture has a prior
+  point. 3D / NURBS snaps are portal-local (a Rhino view), not listed here.
+  **Wires** (bezier / orthogonal) are the same Document Settings palette
+  (`board.wire.bezier`, `board.wire.orthogonal`, `board.wire.routing`);
+  orthogonal wraps host geometry and ties go right, then down.
 - **Arrows with nothing selected** pan the board canvas (Shift = faster);
   nudge with a selection is unchanged.
 - **Agent portal** commands are registered alongside Repository Lens:
-  `board.portal.agent`, `portal.agent.send`, `portal.agent.provider`,
-  `portal.agent.reveal`, `portal.agent.launch`, `stage.accept`, and
-  `stage.reject`. They use the file-link/staging contract, so agent edits
-  remain visible and human-accepted.
+  `board.portal.agent`, `portal.agent.bind`, `portal.agent.send`,
+  `portal.agent.provider`, `portal.agent.reveal`, `portal.agent.launch`,
+  `portal.agent.focus`, `portal.agent.switch_chat`, `stage.accept`, and
+  `stage.reject`. Bind journals the project folder on `PortalNode.source`.
+  Click selects the frame; double-click / Enter takes contents focus
+  (`P1.portal.contents-focus`) so Cover Flow does not steal the board
+  wheel. They use the file-link/staging contract, so agent edits remain
+  visible and human-accepted.
 
 ### P1 simplifications (deliberate, revisit later)
 
-- Palette placement: **frame**, **text**, and **sticky** place immediately
-  at the invocation point; drag-defined tools (rect / ellipse / line / pen)
-  arm the tool instead (their creation flow has no click-default size).
+- Palette placement: **frame**, **rect**, **ellipse**, **portals**, **text**,
+  and **sticky** place immediately at the invocation point (default size).
+  Line / pen / brush still arm — they have no click-default box. On the
+  canvas, an armed area tool also click-places; drag still sizes.
 - Search dims Board nodes and Grid/Venn thumbnails; **Lens is excluded**
   (it has its own focus dimming), and the Lens minimap model is also
   skipped in P1.
@@ -140,7 +168,8 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
 ### Connector wires (Grasshopper grammar)
 
 With the **Select tool**, hovering within ~8 px of a non-connector node's
-edge reveals 4 side-midpoint grips (hovered grip enlarges).
+side midpoint reveals that grip. A press on the grip starts a wire and
+beats edge resize at that point; the rest of the edge still resizes.
 
 | Gesture | Behavior |
 |---------|----------|
@@ -185,7 +214,10 @@ per scene generation (never per frame).
   snap radius) or close the path; one selected open path closes (merge
   within 24 world units, else a straight seam); 2+ selected open paths join
   at nearest endpoints into one node keeping the **first** path's style
-  (one Remove+Add group). Closed paths and Lines are skipped.
+  (one Remove+Add group). If any selected operand is closed (rect, ellipse,
+  closed path), Join is a **region union**: closed shapes union as fills;
+  open curves become ribbons of their stroke weight (1 world-unit hairline
+  if the stroke is none). Frames, portals, text, and images are skipped.
 
 ### Scene flags (hidden / locked / groups)
 
@@ -255,24 +287,42 @@ Camera-only — never journaled, never repeatable.
 - Single-key tool switches (`V F R O L T`) are **Board-view only** and are
   suppressed while typing or presenting. Grid/Venn keep `F` = fit view; the
   Board uses `Home` for fit because `F` is the Frame tool there.
-- **Create toolbar flyouts**: Select and Pan share one combined button that
-  shows the last-used nav tool; clicking it while active toggles Select ⇄ Pan.
-  Buttons marked with a small corner triangle (nav, Frame, Shapes, Curve) open
-  a persistent submenu on click or after a short hover; the menu stays open
-  until an item is picked, a click lands elsewhere, or the pointer moves away.
+- **Armed create-tool chrome** (P2.GhostFollow): the moment Frame, Rect,
+  Ellipse, Text, Sticky, or a portal tool arms — menu, palette, dock, or
+  hotkey — the pointer tints and a 22 px silhouette follows it. Click and
+  drag still use the existing place / expand rules; Shift aspect goes
+  through one shared `board_place::place_rect`. Esc disarms with no node.
+- **Create toolbar flyouts**: Frame, Portals, Shapes, Text, and Actions
+  open a volatile body on single click and pin on double click. Object
+  properties and Document settings use the same model. Hover name chips
+  on the primary dock appear only while the pointer is on that icon;
+  moving onto the flyout (pinned or volatile) clears them immediately,
+  and the chip paints in front of any pinned toolbar. List mode keeps
+  the framed popover; a caption control (three squircles) on any list
+  switches **all** pinned palettes to a free-space icon strip (65%
+  squircles, hex-packed, primary-icon order, dividers between
+  categories). One stacked-list glyph sits at the far right of the
+  band. Pins and the chosen layout persist in chrome prefs.
 - **Alt + drag** duplicates the grabbed selection (Figma convention);
   `Ctrl + D` duplicates in place with a 24px offset.
 - One gesture = one undo step: live drags journal their net effect on
   release; inspector slider scrubs coalesce (1.5 s window per node).
+- **Hover transform chrome** (Select tool): Windows-style resize is live on
+  any rectangular node without a prior selection. Hovering an edge shows a
+  bidirectional arrow; hovering a corner shows a 45° arrow. Rotatable kinds
+  (shapes, frames, text, images) show a 90° arc cursor just *outside* a
+  corner; portals, connectors, and simple lines do not rotate. A press on
+  a wire-grip midpoint starts a connector and suppresses resize there;
+  the rest of the edge is resize.
 - **Resize aspect convention** (single node and group alike): corner drags
   scale proportionally by default; holding `Shift` frees the aspect
   (distortion scaling). Edge drags are single-axis, with `Shift` locking the
   aspect instead. `Ctrl` resizes about the center.
 - **Multi-selection group transforms**: with 2+ objects selected the group
-  bounding box shows the standard 8 handles + rotate zones. Corner/edge drag
-  scales every member about the opposite corner/edge (aspect convention
-  above); outside-corner drag rotates every member about the group center.
-  Journaled as one undo step.
+  bounding box is an outline (no grip squares) plus rotate zones on hover.
+  Corner/edge drag scales every member about the opposite corner/edge
+  (aspect convention above); outside-corner drag rotates every member
+  about the group center. Journaled as one undo step.
 - **Text editing** commits on Escape, focus loss, or clicking anywhere
   outside the text box (the click also performs normal selection).
 - **Crop mode** (InDesign-style): double-click an eligible image (or
@@ -311,6 +361,15 @@ Camera-only — never journaled, never repeatable.
 - **Web portal** is a host portal: bind a URL, an `.html` file, or a folder
   with an entry file. That can embed the standalone HTML dashboard; it is
   not a substitute for the generated Status Board (JSON → native layout).
+- **Portal chrome**: web portals carry a slim Slate identity tab showing the
+  locator. Fold it from the context menu or `portal.chrome.toggle` — the
+  tab strip itself only hosts maximize. Other portal kinds have no tab.
+  Right-click the portal for type-specific actions. Web: Copy URL / Paste URL
+  (`portal.web.copy_url`, `portal.web.paste_url`).
+- **Portal maximize** (`portal.maximize`): the four-corner square in the
+  upper-right (or the web tab's window-control slot) fills the window at
+  the screen aspect and covers Slate chrome. Esc restores. Same for every
+  portal kind.
 
 ## Lens gestures (reference)
 

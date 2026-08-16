@@ -5,7 +5,7 @@
 use super::super::SlateApp;
 use crate::app::chrome::ToolPanel;
 use atlas_shell::dock::DockSide;
-use atlas_shell::menubar::{self, AppIcon, MenuItem, MenuSpec, UnifiedTopBarModel};
+use atlas_shell::menubar::{self, AppIcon, MenuIcon, MenuItem, MenuSpec, UnifiedTopBarModel};
 use atlas_shell::tabs::{TabAction, TabSpec};
 use eframe::egui;
 use slate_doc::ViewKind;
@@ -22,37 +22,62 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
     let menus = [
         MenuSpec {
             title: "File",
+            icon: MenuIcon::File,
             items: vec![
-                MenuItem::new("file.home", "Home"),
+                MenuItem::new("file.home", "Home").icon(MenuIcon::Folder),
                 MenuItem::new("file.new", "New workbook")
-                    .shortcut("Ctrl+T")
+                    .icon(MenuIcon::File)
+                    .shortcut("Ctrl+N")
                     .separated(),
-                MenuItem::new("file.open", "Open workbook…").shortcut("Ctrl+O"),
+                MenuItem::new("file.open", "Open workbook…")
+                    .icon(MenuIcon::Open)
+                    .shortcut("Ctrl+O"),
                 MenuItem::new("file.save", "Save")
+                    .icon(MenuIcon::File)
                     .shortcut("Ctrl+S")
                     .separated(),
-                MenuItem::new("file.save_as", "Save as…").shortcut("Ctrl+Shift+S"),
-                MenuItem::new("file.export", "Export HTML artifact…").shortcut("Ctrl+E"),
-                MenuItem::new("file.add_files", "Add files…").separated(),
-                MenuItem::new("file.close_tab", "Close tab").separated(),
-                MenuItem::new("file.exit", "Exit"),
+                MenuItem::new("file.save_as", "Save as…")
+                    .icon(MenuIcon::File)
+                    .shortcut("Ctrl+Shift+S"),
+                MenuItem::new("file.export", "Export HTML artifact…")
+                    .icon(MenuIcon::File)
+                    .shortcut("Ctrl+E"),
+                MenuItem::new("file.add_files", "Add files…")
+                    .icon(MenuIcon::Image)
+                    .separated(),
+                MenuItem::new("file.close_tab", "Close tab")
+                    .icon(MenuIcon::Tab)
+                    .separated(),
+                MenuItem::new("file.exit", "Exit").icon(MenuIcon::Enter),
             ],
         },
         MenuSpec {
             title: "Edit",
+            icon: MenuIcon::Rename,
             items: vec![],
         },
         MenuSpec {
             title: "View",
+            icon: MenuIcon::View,
             items: vec![
-                MenuItem::new("view.grid", "Grid").checked(view == ViewKind::Grid),
-                MenuItem::new("view.venn", "Venn").checked(view == ViewKind::Venn),
-                MenuItem::new("view.board", "Board").checked(view == ViewKind::Board),
-                MenuItem::new("view.lens", "Lens").checked(view == ViewKind::Lens),
+                MenuItem::new("view.grid", "Grid")
+                    .icon(MenuIcon::View)
+                    .checked(view == ViewKind::Grid),
+                MenuItem::new("view.venn", "Venn")
+                    .icon(MenuIcon::View)
+                    .checked(view == ViewKind::Venn),
+                MenuItem::new("view.board", "Board")
+                    .icon(MenuIcon::View)
+                    .checked(view == ViewKind::Board),
+                MenuItem::new("view.lens", "Lens")
+                    .icon(MenuIcon::Search)
+                    .checked(view == ViewKind::Lens),
                 MenuItem::new("view.present", "Present")
+                    .icon(MenuIcon::View)
                     .shortcut("F5")
                     .separated(),
-                MenuItem::new("view.fullscreen", "Full-screen canvas")
+                MenuItem::new("view.fullscreen", "Hide readout bar")
+                    .icon(MenuIcon::View)
                     .shortcut("F11")
                     .checked(chrome.canvas_fullscreen)
                     .separated(),
@@ -60,24 +85,38 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
         },
         MenuSpec {
             title: "Preferences",
+            icon: MenuIcon::Settings,
             items: vec![
-                MenuItem::new("view.dark", "Dark mode").checked(app.dark_mode),
+                MenuItem::new("view.dark", "Dark mode")
+                    .icon(MenuIcon::View)
+                    .checked(app.dark_mode),
                 MenuItem::new("dock.left", "Dock · left edge")
+                    .icon(MenuIcon::Settings)
                     .checked(app.dock_side == DockSide::LeftCenter)
                     .separated(),
                 MenuItem::new("dock.bottom", "Dock · bottom edge")
+                    .icon(MenuIcon::Settings)
                     .checked(app.dock_side == DockSide::BottomCenter),
-                MenuItem::new("ai.launch", "Launch Cursor").separated(),
-                MenuItem::new("ai.workspace", "Set AI workspace…"),
+                MenuItem::new("ai.launch", "Launch Cursor")
+                    .icon(MenuIcon::Cursor)
+                    .separated(),
+                MenuItem::new("ai.workspace", "Set AI workspace…").icon(MenuIcon::Chat),
                 MenuItem::new("tools.tags", "Show Tags dock")
+                    .icon(MenuIcon::Tag)
                     .checked(chrome.tool(ToolPanel::Tags))
                     .separated(),
                 MenuItem::new("tools.selection", "Show Selection dock")
+                    .icon(MenuIcon::Details)
                     .checked(chrome.tool(ToolPanel::Selection)),
                 MenuItem::new("tools.view", "Show View dock")
+                    .icon(MenuIcon::View)
                     .checked(chrome.tool(ToolPanel::Display)),
-                MenuItem::new("tools.lens", "Show Lens dock").checked(chrome.tool(ToolPanel::Lens)),
-                MenuItem::new("view.advanced", "Advanced settings…").separated(),
+                MenuItem::new("tools.lens", "Show Lens dock")
+                    .icon(MenuIcon::Search)
+                    .checked(chrome.tool(ToolPanel::Lens)),
+                MenuItem::new("view.advanced", "Advanced settings…")
+                    .icon(MenuIcon::Settings)
+                    .separated(),
             ],
         },
     ];

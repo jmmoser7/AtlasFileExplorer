@@ -50,6 +50,9 @@ pdfium-render = { version = "0.8", features = ["thread_safe"] }
 resvg = "0.48"
 flate2 = "1"
 kurbo = "0.13.1"
+# Planar boolean + slice for board Trim (Rhino flow, 2D). Pure Rust.
+i_overlay = "4.2"
+earcutr = "0.4"
 gix = { version = "0.86.0", default-features = false, features = ["revision", "sha1"] }
 
 # Workspace crates.

@@ -41,6 +41,17 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(6.0);
+            let log_actions = atlas_shell::session_log::section(ui, &app.session_log, &palette);
+            if log_actions.mark {
+                app.session_log.mark("advanced");
+                app.toast("Marked this moment in the session log");
+            }
+            if log_actions.reveal {
+                app.session_log.reveal();
+            }
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(6.0);
             commands::shortcuts_reference_ui(ui);
         });
     if !open {

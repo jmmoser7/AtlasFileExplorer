@@ -515,6 +515,10 @@ pub struct AgentPortalRef {
     pub session: String,
     #[serde(default)]
     pub context: AgentContextScope,
+    /// Opaque id of a saved Cursor composer chat for this folder. Not a live
+    /// IDE-thread attach — the portal cannot become that window (Art. I.2).
+    #[serde(default)]
+    pub channel: Option<String>,
 }
 
 /// How a web portal's rendered page is fitted into its frame (D20).
@@ -856,6 +860,7 @@ impl PortalNode {
                 session: new_agent_session_id(),
                 provider,
                 context: AgentContextScope::Selection,
+                channel: None,
             }),
             web: None,
             fill: Rgba([16, 22, 34, 255]),
@@ -1031,8 +1036,32 @@ pub enum PathSeg {
     },
 }
 
+/// Fill rule for a compound path. Maps to SVG `fill-rule`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PathFillRule {
+    #[default]
+    NonZero,
+    EvenOdd,
+}
+
+fn is_nonzero_rule(r: &PathFillRule) -> bool {
+    matches!(r, PathFillRule::NonZero)
+}
+
+/// One additional contour on a [`PathData`] (holes or disjoint pieces).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PathContour {
+    pub start: [f32; 2],
+    #[serde(default)]
+    pub segs: Vec<PathSeg>,
+    #[serde(default)]
+    pub closed: bool,
+}
+
 /// Vector path payload for `ShapeKind::Path` nodes. SVG-expressible by
-/// construction (maps 1:1 to an SVG <path> d attribute).
+/// construction (maps 1:1 to an SVG <path> d attribute). Extra contours
+/// are further `M … Z` subpaths (holes when [`PathFillRule::EvenOdd`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PathData {
     pub start: [f32; 2],
@@ -1040,6 +1069,22 @@ pub struct PathData {
     pub segs: Vec<PathSeg>,
     #[serde(default)]
     pub closed: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra: Vec<PathContour>,
+    #[serde(default, skip_serializing_if = "is_nonzero_rule")]
+    pub fill_rule: PathFillRule,
+}
+
+impl Default for PathData {
+    fn default() -> Self {
+        Self {
+            start: [0.0, 0.0],
+            segs: Vec::new(),
+            closed: false,
+            extra: Vec::new(),
+            fill_rule: PathFillRule::NonZero,
+        }
+    }
 }
 
 impl PathData {
@@ -1397,6 +1442,11 @@ pub struct Node {
     /// Flat group membership; selecting any member selects the whole group.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<GroupKey>,
+    /// Remaining visible region in normalized node space (`0,0` = rect min).
+    /// `None` = the full rect. Used by Trim on images and text (SVG
+    /// `clip-path`). Shapes rewrite their path instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<PathData>,
     pub kind: NodeKind,
 }
 
@@ -1510,6 +1560,7 @@ impl Scene {
             locked: false,
             hidden: false,
             group: None,
+            clip: None,
             kind,
         }
     }
@@ -1540,6 +1591,7 @@ impl Scene {
                 start,
                 segs: vec![PathSeg::Line { to }],
                 closed: false,
+                ..Default::default()
             });
             changed = true;
         }
@@ -2373,6 +2425,7 @@ mod tests {
                     },
                 ],
                 closed: true,
+                ..Default::default()
             }),
         };
         let json = serde_json::to_string(&shape).unwrap();
@@ -2487,6 +2540,7 @@ mod tests {
             locked: false,
             hidden: false,
             group: None,
+            clip: None,
             kind: NodeKind::Portal(PortalNode::unbound_status_board("Status Board")),
         };
         let json = serde_json::to_string(&node).unwrap();
@@ -2515,6 +2569,7 @@ mod tests {
             locked: false,
             hidden: false,
             group: None,
+            clip: None,
             kind: NodeKind::Portal(PortalNode::unbound_repo_lens("Repository Lens")),
         };
         let mut value: serde_json::Value =
@@ -2543,6 +2598,7 @@ mod tests {
             locked: false,
             hidden: false,
             group: None,
+            clip: None,
             kind: NodeKind::Portal(PortalNode::unbound_repo_lens("Repository Lens")),
         };
         let json = serde_json::to_string(&node).unwrap();
@@ -2865,6 +2921,7 @@ mod tests {
                     start: [0.0, 0.5],
                     segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
                     closed: false,
+                    ..Default::default()
                 }),
             }),
         );

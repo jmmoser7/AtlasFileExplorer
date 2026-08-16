@@ -5,16 +5,38 @@ use kurbo::{flatten as kurbo_flatten, BezPath, PathEl};
 use crate::geom::{from_kurbo, is_finite_pt};
 
 /// Flatten a path to a polyline with the given tolerance (world units).
+/// Multiple contours are concatenated (legacy callers). Prefer
+/// [`flatten_contours`] when holes or disjoint subpaths matter.
 pub fn flatten(path: &BezPath, tolerance: f64) -> Vec<[f32; 2]> {
+    flatten_contours(path, tolerance)
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// Flatten a path, splitting on `MoveTo` so each contour stays separate.
+pub fn flatten_contours(path: &BezPath, tolerance: f64) -> Vec<Vec<[f32; 2]>> {
     if tolerance <= 0.0 || !tolerance.is_finite() {
         return Vec::new();
     }
-    let mut out = Vec::new();
+    let mut contours = Vec::new();
+    let mut cur = Vec::new();
     kurbo_flatten(path.elements().iter().copied(), tolerance, |el| match el {
-        PathEl::MoveTo(p) | PathEl::LineTo(p) => push_pt(&mut out, from_kurbo(p)),
+        PathEl::MoveTo(p) => {
+            if cur.len() >= 2 {
+                contours.push(std::mem::take(&mut cur));
+            } else {
+                cur.clear();
+            }
+            push_pt(&mut cur, from_kurbo(p));
+        }
+        PathEl::LineTo(p) => push_pt(&mut cur, from_kurbo(p)),
         _ => {}
     });
-    out
+    if cur.len() >= 2 {
+        contours.push(cur);
+    }
+    contours
 }
 
 fn push_pt(out: &mut Vec<[f32; 2]>, p: [f32; 2]) {

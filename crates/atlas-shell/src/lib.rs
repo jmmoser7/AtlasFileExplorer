@@ -7,7 +7,8 @@
 //! - [`theme`] — the one [`theme::Palette`] + egui visuals both apps use.
 //! - [`menubar`] — unified top bar: icon portal (File/View menus), inline
 //!   browser tabs, caption drag, and window controls (see `TOPBAR.md`).
-//! - [`tabs`] — tab strip painting used inside the unified top bar.
+//! - [`tabs`] — tab strip painting used inside the unified top bar, and the
+//!   one-tab identity chrome reused on Slate portal frames.
 //! - [`dock`] — floating squircle docks and popover hosts (see `DOCK.md`).
 //! - [`taper`] — soft AA tapered ribbons shared across chrome (see `PAINT.md`).
 //! - [`tokens`] — values embedded from the human-editable `ui-tokens.toml`.
@@ -18,8 +19,12 @@
 //! - [`widgets`] — shared controls (chips, sliders, gear menu).
 //! - [`chrome`] — gear-menu panel registry, generic over each app's panels.
 //! - [`commands`] — command-reference table + shared canvas navigation.
+//! - [`canvas_scale`] — canvas-space linear size (P0.9): `designed × zoom`.
+//! - [`canvas_text`] — canvas-space type (P0.9): size × zoom, no ceiling.
+//! - [`menu`] — shared dropdown / right-click language (see `MENUS.md`).
 //! - [`home`] — Cover Flow launch / home surface (recent folders & workbooks).
 //! - [`recent`] — persisted MRU lists for the home surface.
+//! - [`session_log`] — Advanced readout for the shared activity recorder.
 //! - [`minimap`] — cached-texture canvas minimap overlay.
 //! - [`palette`] — floating canvas command palette popup.
 //! - [`history_ui`] — read-only journal-history overlay.
@@ -28,6 +33,8 @@
 //! rendering of chrome (colors, spacing, tab shapes, section cards) lives
 //! here and only here. See `AGENTS.md` at the repo root.
 
+pub mod canvas_scale;
+pub mod canvas_text;
 pub mod chrome;
 pub mod commands;
 pub mod covers;
@@ -35,11 +42,13 @@ pub mod dock;
 pub mod grid_fade;
 pub mod history_ui;
 pub mod home;
+pub mod menu;
 pub mod menubar;
 pub mod minimap;
 pub mod palette;
 pub mod prefs;
 pub mod recent;
+pub mod session_log;
 pub mod sidebar;
 pub mod tabs;
 pub mod taper;

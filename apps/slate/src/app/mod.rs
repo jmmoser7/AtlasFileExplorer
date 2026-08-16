@@ -24,17 +24,25 @@ use std::time::{Duration, Instant};
 pub mod association;
 pub mod board;
 mod board_agent;
+mod board_align;
 mod board_color;
 pub mod board_crop;
 mod board_direct;
 mod board_flags;
+mod board_forcefield;
 mod board_handles;
 pub mod board_icons;
+mod board_join;
 mod board_line;
+mod board_osnap;
 mod board_path;
+mod board_place;
 mod board_portal;
+mod board_portal_chrome;
 mod board_snap;
 mod board_style;
+mod board_transform;
+mod board_trim;
 pub mod board_web;
 #[cfg(windows)]
 mod board_web_win;
@@ -191,6 +199,11 @@ pub enum PickerMsg {
         portal: NodeId,
         path: Option<PathBuf>,
     },
+    /// Folder picked as an agent portal project (D19).
+    AgentPortalSource {
+        portal: NodeId,
+        path: Option<PathBuf>,
+    },
 }
 
 pub enum ThumbState {
@@ -217,6 +230,8 @@ pub struct SlateApp {
     pub dock_side: atlas_shell::dock::DockSide,
     /// Dock panels pinned as persistent palettes (restored across sessions).
     pub dock_pins: Vec<String>,
+    /// Tool flyouts that open as an icon strip instead of a stacked list.
+    pub dock_icon_strips: Vec<String>,
 
     pub selection: HashSet<ItemId>,
     pub canvas_rect: Rect,
@@ -282,6 +297,9 @@ pub struct SlateApp {
     /// Web portal runtime: live pool, poster cache, per-origin consent. All
     /// derived — none of it is journaled or saved (D31, D32).
     pub web: board_web::WebRuntime,
+    /// Shared portal chrome: maximize overlay and folded identity tabs.
+    /// Derived view-state (P1.portal.maximize / chrome).
+    pub portal_chrome: board_portal_chrome::PortalChrome,
 
     /// Board tool definitions: the built-in kit plus any in the user's kit
     /// folder. Read once at startup — the board consults it per commit.
@@ -329,17 +347,37 @@ pub struct SlateApp {
     pub model3d: model3d::ModelSpace,
     /// Transient smart-guide lines shown during board move/resize (cleared each frame).
     pub board_snap_guides: Vec<board_snap::SnapGuide>,
+    /// Live forcefield pulses (outlive the guide that spawned them).
+    pub board_forcefield: board_forcefield::Forcefield,
     /// Show the board dot grid (Board view).
     pub board_show_grid: bool,
     /// Snap moved objects to the board grid.
     pub board_snap_grid: bool,
-    /// Hover target on the current single selection (handles / rotate zones).
+    /// Persistent object-snap set (Document Settings). Not journaled.
+    pub board_osnap: slate_doc::ObjectSnapSet,
+    /// Bezier vs orthogonal wire display (Document Settings). Not journaled.
+    pub board_wire_routing: slate_doc::WireRouting,
+    /// Last object-snap hit this frame (marker paint).
+    pub board_osnap_hit: Option<board_osnap::OsnapHit>,
+    /// Hover target on a node's bounding-box chrome (handles / rotate zones).
     pub board_hover_hit: Option<board_handles::BoardHitTarget>,
+    /// Node whose chrome `board_hover_hit` belongs to. `None` when the hit
+    /// is the multi-selection group box.
+    pub board_hover_node: Option<NodeId>,
+    /// Body-hover highlight progress per node (0..1, derived, never journaled).
+    pub board_hover_glow: HashMap<NodeId, f32>,
+    /// Hovered Grasshopper-style align-widget action (multi-selection chrome).
+    pub board_align_hover: Option<board_align::AlignAction>,
+    /// The current primary press started on an align icon — swallow move /
+    /// click-clear for the rest of the press.
+    pub board_align_eat_press: bool,
     /// Multi-click path tools (polyline, arc, bezier).
     pub board_path_draft: Option<board_path::BoardPathDraft>,
     /// Line tool draft (contracts/line.md): first point placed, rubber band
     /// live. `None` = the tool is merely armed.
     pub line_draft: Option<board_line::LineDraft>,
+    /// Trim command session (contracts/trim.md). `None` = not armed.
+    pub trim: Option<board_trim::TrimSession>,
     /// Cached tessellated path strokes (Article II).
     pub path_mesh_cache: board_path::PathMeshCache,
 
@@ -354,6 +392,8 @@ pub struct SlateApp {
     frame_no: u64,
     /// `ctx.input.time` snapshot for this frame (camera fades, repeat taps).
     pub(crate) frame_time: f64,
+    /// Frame/activity recorder shared with File Atlas. Test builds stay in memory.
+    pub(crate) session_log: atlas_core::session_log::SessionLog,
 
     // ----- command registry (keymap wave 2a) -----
     /// The command registry over `commands::SPECS` — keyboard, palette,
@@ -466,6 +506,7 @@ impl SlateApp {
     fn with_ctx(egui_ctx: &egui::Context, initial_doc: Option<PathBuf>) -> Self {
         egui_ctx.set_theme(egui::ThemePreference::Dark);
         egui_ctx.set_visuals(dark_visuals());
+        atlas_shell::canvas_text::install(egui_ctx);
         Self::install_fonts(egui_ctx);
         let chrome_prefs = atlas_shell::prefs::ChromePrefs::load(
             "slate",
@@ -490,6 +531,7 @@ impl SlateApp {
             ),
             dock_side: chrome_prefs.dock_side,
             dock_pins: chrome_prefs.pinned_panels,
+            dock_icon_strips: chrome_prefs.panel_icon_strip,
             selection: HashSet::new(),
             canvas_rect: Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1440.0, 900.0)),
             turbo_pan: commands::TurboPanState::default(),
@@ -521,6 +563,7 @@ impl SlateApp {
             portals: board_portal::PortalRuntime::default(),
             agents: board_agent::AgentRuntime::default(),
             web: board_web::WebRuntime::default(),
+            portal_chrome: board_portal_chrome::PortalChrome::default(),
             kits: kits::KitState::load(),
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
@@ -543,16 +586,30 @@ impl SlateApp {
             gl: None,
             model3d: model3d::ModelSpace::default(),
             board_snap_guides: Vec::new(),
+            board_forcefield: board_forcefield::Forcefield::default(),
             board_show_grid: true,
             board_snap_grid: false,
+            board_osnap: slate_doc::ObjectSnapSet::default(),
+            board_wire_routing: slate_doc::WireRouting::default(),
+            board_osnap_hit: None,
             board_hover_hit: None,
+            board_hover_node: None,
+            board_hover_glow: HashMap::new(),
+            board_align_hover: None,
+            board_align_eat_press: false,
             board_path_draft: None,
             line_draft: None,
+            trim: None,
             path_mesh_cache: board_path::PathMeshCache::default(),
             pending_workbooks: Vec::new(),
             pdf_page_counts: HashMap::new(),
             frame_no: 0,
             frame_time: 0.0,
+            session_log: if cfg!(test) {
+                atlas_core::session_log::SessionLog::memory("slate")
+            } else {
+                atlas_core::session_log::SessionLog::new("slate")
+            },
             registry: commands::registry(),
             cmd_history: atlas_commands::History::new(),
             space_tap: dispatch::SpaceTap::default(),
@@ -586,6 +643,8 @@ impl SlateApp {
             zoom_marquee: None,
         };
         app.board_ortho = app.settings.board_ortho;
+        app.board_osnap = app.settings.board_osnap;
+        app.board_wire_routing = app.settings.board_wire_routing;
         app.board_colors = board_color::BoardColors::from_settings(&app.settings, app.dark_mode);
         app.brush_width = app.settings.brush_width;
         app.eraser_width = app.settings.eraser_width;
@@ -658,8 +717,7 @@ impl SlateApp {
         Palette::for_mode(self.dark_mode)
     }
 
-    /// Full-screen canvas: hide the tools rail and readout bar (View menu,
-    /// the canvas mini menu ⛶, or F11).
+    /// Hide the bottom readout strip (View menu, lower-left chevron, or F11).
     pub fn toggle_canvas_fullscreen(&mut self) {
         let on = !self.chrome().canvas_fullscreen;
         self.chrome_mut().canvas_fullscreen = on;
@@ -676,6 +734,7 @@ impl SlateApp {
         } else {
             light_visuals()
         });
+        atlas_shell::menu::apply_style(ctx, self.dark_mode);
     }
 
     pub fn tab(&self) -> &SlateTab {
@@ -1311,6 +1370,7 @@ impl SlateApp {
                 .map(|p| p.to_path_buf()),
             web_sources,
             web_posters,
+            wire_routing: self.board_wire_routing,
         };
         match slate_artifact::export_html(self.doc(), &out, &opts) {
             Ok(rep) => {
@@ -1371,6 +1431,10 @@ impl SlateApp {
                     } => {
                         self.bind_web_path(portal, path);
                     }
+                    PickerMsg::AgentPortalSource {
+                        portal,
+                        path: Some(path),
+                    } => self.bind_agent_project(portal, path),
                     _ => {}
                 }
             }
@@ -1384,6 +1448,38 @@ impl SlateApp {
     // pre-registry suppression gates. The old ad-hoc Escape cascade became
     // the `atlas_commands::cancel_target` stack.
 
+    fn snapshot_activity(&self) {
+        let view = if self.at_home {
+            "home"
+        } else if self.presenting.is_some() {
+            "present"
+        } else {
+            match self.doc().view.active_view {
+                ViewKind::Board => "board",
+                ViewKind::Grid => "grid",
+                ViewKind::Venn => "venn",
+                ViewKind::Lens => "lens",
+                ViewKind::Branch => "branch",
+                ViewKind::Unknown => "unknown",
+            }
+        };
+        self.session_log
+            .set_snapshot(atlas_core::session_log::Snapshot {
+                entries: self.doc().items.len() as u32,
+                nodes: self.doc().scene.nodes.len() as u32,
+                selected: if matches!(self.doc().view.active_view, ViewKind::Board) {
+                    self.board_sel.len() as u32
+                } else {
+                    self.selection.len() as u32
+                },
+                thumbs_pending: 0,
+                extra: self.path_mesh_cache.tess_misses,
+                scan_active: false,
+                view,
+                tool: self.board_tool.label(),
+            });
+    }
+
     /// One full UI frame (split out for testability, mirroring Atlas).
     pub fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
@@ -1395,8 +1491,14 @@ impl SlateApp {
         self.frame_time = ctx.input(|i| i.time);
         self.drain_pickers();
         self.heartbeat_active_lease();
-        self.drain_thumbs(ctx);
-        self.drain_previews(ctx);
+        {
+            let _span = atlas_core::session_log::span("slate.thumbs");
+            self.drain_thumbs(ctx);
+        }
+        {
+            let _span = atlas_core::session_log::span("slate.previews");
+            self.drain_previews(ctx);
+        }
         self.model3d_frame(ctx);
         self.note_engine_failure();
         self.session_pump(ctx);
@@ -1446,36 +1548,53 @@ impl SlateApp {
         self.drain_pending_workbooks();
 
         self.hotkeys(ctx);
+        self.drop_stale_portal_chrome();
 
-        // Register the unified top bar first so it is the outermost panel and
-        // always spans the full viewport width. Side/bottom chrome is then
-        // constrained to the workspace below it.
-        self.draw_top_bar(ctx);
-        let fullscreen = self.chrome().canvas_fullscreen;
-        if !fullscreen {
-            self.draw_readout_bar(ctx);
+        let portal_max = self.portal_chrome.maximized.is_some() && self.presenting.is_none();
+
+        // A maximized portal is the sole interface: skip Slate chrome so the
+        // page fills the window at the screen's aspect (P1.portal.maximize).
+        if !portal_max {
+            // Register the unified top bar first so it is the outermost panel and
+            // always spans the full viewport width. Side/bottom chrome is then
+            // constrained to the workspace below it.
+            self.draw_top_bar(ctx);
+            let fullscreen = self.chrome().canvas_fullscreen;
+            if !fullscreen {
+                self.draw_readout_bar(ctx);
+            }
         }
         self.draw_advanced_window(ctx);
         atlas_shell::tuning::show(ctx);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if self.at_home {
+        let mut central = egui::CentralPanel::default();
+        if portal_max {
+            central = central.frame(egui::Frame::NONE);
+        }
+        central.show(ctx, |ui| {
+            if portal_max {
+                self.paint_maximized_portal(ui);
+            } else if self.at_home {
                 self.home_screen(ui);
             } else {
                 self.canvas(ui);
             }
         });
 
-        if self.presenting.is_none() && !self.at_home {
+        if self.presenting.is_none() && !self.at_home && !portal_max {
             self.draw_tools_rail(ctx);
         }
         // Registry-fed overlays above the canvas (zero cost while closed;
         // presentation mode owns the whole surface).
-        if !self.at_home && self.presenting.is_none() {
+        if !self.at_home && self.presenting.is_none() && !portal_max {
             self.palette_frame(ctx);
             self.search_frame(ctx);
             self.adjust_popover_frame(ctx);
         }
+        if portal_max {
+            self.board_action_menu(ctx);
+        }
+        self.paint_agent_chat_picker(ctx);
         if self.presenting.is_none() {
             self.history_frame(ctx);
         }
@@ -1552,6 +1671,9 @@ impl SlateApp {
             .collect();
         let title = doc.name.clone();
         let root = tab.path.clone();
+        let session_log = self.session_log.log_path();
+        let session_latest = self.session_log.latest_path();
+        let last_stall_app_ms = self.session_log.last_stall_app_ms();
         self.ai.update_context(move || atlas_ai::AiAppContext {
             app: "slate",
             title,
@@ -1560,6 +1682,9 @@ impl SlateApp {
             files,
             files_truncated: truncated,
             generated_at: 0,
+            session_log,
+            session_latest,
+            last_stall_app_ms,
         });
     }
 
@@ -1634,7 +1759,12 @@ fn sample_workbook_cover_media(doc: &slate_doc::SlateDoc, limit: usize) -> Vec<P
 
 impl eframe::App for SlateApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let _attach = self.session_log.attach();
+        let t0 = Instant::now();
+        let delivered = ctx.input(|i| i.unstable_dt);
         self.update_app(ctx);
+        self.snapshot_activity();
+        self.session_log.end_frame(t0.elapsed(), delivered);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

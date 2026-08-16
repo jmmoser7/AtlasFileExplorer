@@ -1,0 +1,53 @@
+---
+description: Canvas objects scale with zoom — never hold screen size
+alwaysApply: true
+---
+
+# Canvas-space scale (P0.9)
+
+Objects on a Slate board **and** a File Atlas canvas scale with the camera
+exactly as a shape does. Screen size is `world × zoom`. This is not a
+negotiation.
+
+**Must scale:** authored text, derived labels, icons, badges, borders,
+strokes, fills, fillets, and **node-local** tabs / sub-tabs (agent posters,
+web identity tabs on the board, in-node chrome).
+
+**Forbidden:** a constant screen size so type, icons, or tabs “stay readable”
+while the host shrinks. `(size * z).clamp(8, 13)` is the same defect the
+moment the ceiling bites. When type is too small, **drop it** (LOD) — do not
+clamp it into a screen constant.
+
+**Named exceptions only** (a contract must say so):
+
+- Window chrome in `atlas-shell` (top bar, tools rail, readouts, Advanced)
+- Pointer-attached chrome (`P2.GhostFollow`)
+
+A tab on a portal frame is a canvas object, not window chrome. Maximized,
+that same tab may stay screen-sized because it has become window chrome.
+
+Linear size (fillets, strokes, insets, handle squares, tab radii) goes
+through `atlas-shell::canvas_scale::px` — one definition, no floor, no
+ceiling. Type goes through `atlas-shell::canvas_text` (`text` / `layout`),
+never `Painter::text` on the canvas. Cover Flow lives in
+`atlas-shell::home` — embed it; do not copy it.
+
+**Yawed / perspective hosts** (Cover Flow album faces, any projected card):
+layout the string once at a fixed size, cache each glyph's local rect +
+atlas UV, and project **per glyph** with the same column-strip mesh the
+card uses. A full-face title texture through `paint_artwork` foreshortens
+but ripples stems (affine UVs, no `w`). Do not `galley` at a projected
+midpoint. See `atlas-shell::canvas_text` and `atlas-shell/PAINT.md`.
+
+```rust
+// BAD — tab / type / fillet holds screen size while the board zooms
+FontId::proportional(12.0)
+let tab_h = tokens.topbar.height;
+let radius = metrics.tab_top_radius; // unscaled, on a zoomed bar
+
+// GOOD — the host's on-screen size carries the zoom
+canvas_text::text(painter, pos, Align2::LEFT_TOP, label,
+    canvas_scale::font(14.0, zoom), color);
+let tab_h = canvas_scale::px(tokens.topbar.height, zoom);
+let metrics = tokens.topbar.scaled(zoom);
+```

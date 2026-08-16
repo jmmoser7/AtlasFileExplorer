@@ -40,6 +40,10 @@ pub enum ToolIcon {
     StatusBoard,
     /// Web portal subtype (embedded page / local HTML dashboard).
     WebPortal,
+    /// Trim (cutters, then click the dying piece).
+    Trim,
+    /// Join (open endpoints, or region union).
+    Join,
 }
 
 impl ToolIcon {
@@ -74,6 +78,8 @@ impl ToolIcon {
             ToolIcon::RepoLens => "Repository Lens",
             ToolIcon::StatusBoard => "Status Board",
             ToolIcon::WebPortal => "Web portal",
+            ToolIcon::Trim => "Trim",
+            ToolIcon::Join => "Join",
         }
     }
 }
@@ -402,6 +408,19 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
                 }
                 painter.add(egui::Shape::line(pts, s));
             }
+        }
+        ToolIcon::Trim => {
+            // Rectangle with a cutting line through it — the dying half is
+            // a lighter second stroke so the icon reads as "cut away".
+            let body = Rect::from_min_max(pt(r, 0.18, 0.28), pt(r, 0.82, 0.78));
+            painter.rect_stroke(body, 1.5, s, egui::StrokeKind::Inside);
+            painter.line_segment([pt(r, 0.10, 0.18), pt(r, 0.90, 0.88)], s);
+        }
+        ToolIcon::Join => {
+            // Two open strokes meeting at a shared end.
+            painter.line_segment([pt(r, 0.12, 0.72), pt(r, 0.50, 0.42)], s);
+            painter.line_segment([pt(r, 0.50, 0.42), pt(r, 0.88, 0.72)], s);
+            painter.circle_filled(pt(r, 0.50, 0.42), (r.width() * 0.07).max(1.4), color);
         }
     }
 }

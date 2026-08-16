@@ -1,0 +1,2465 @@
+{
+  "format_version": 2,
+  "name": "climate-weather-dashboard",
+  "groups": [],
+  "items": [],
+  "view": {
+    "active_view": "board",
+    "cam_x": 0.0,
+    "cam_y": 0.0,
+    "zoom": 0.35
+  },
+  "scene": {
+    "nodes": [
+      {
+        "id": 1,
+        "rect": {
+          "x": 40.0,
+          "y": 20.0,
+          "w": 420.0,
+          "h": 80.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "agent",
+            "title": "Climate grid agent",
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "agent": {
+              "provider": "cursor",
+              "session": "agent-climate-grid",
+              "context": "board"
+            },
+            "fill": [
+              16,
+              22,
+              34,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "rect": {
+          "x": 480.0,
+          "y": 20.0,
+          "w": 720.0,
+          "h": 80.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "text": {
+            "text": "Climate & weather dashboard — 58 web portals (8-col grid).",
+            "family": "sans",
+            "size": 18.0,
+            "color": [
+              198,
+              208,
+              224,
+              255
+            ],
+            "align": "left",
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10057,
+        "rect": {
+          "x": 544.0,
+          "y": 2178.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Panoply",
+            "source": {
+              "locator": "https://www.giss.nasa.gov/tools/panoply/"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10056,
+        "rect": {
+          "x": 40.0,
+          "y": 2178.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NOAA PSL plotting/composites",
+            "source": {
+              "locator": "https://psl.noaa.gov/data/"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10055,
+        "rect": {
+          "x": 3568.0,
+          "y": 1884.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NASA Giovanni",
+            "source": {
+              "locator": "https://giovanni.gsfc.nasa.gov"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10054,
+        "rect": {
+          "x": 3064.0,
+          "y": 1884.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Meteostat",
+            "source": {
+              "locator": "https://meteostat.net"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10053,
+        "rect": {
+          "x": 2560.0,
+          "y": 1884.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Open-Meteo",
+            "source": {
+              "locator": "https://open-meteo.com"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10052,
+        "rect": {
+          "x": 2056.0,
+          "y": 1884.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "US Drought Monitor",
+            "source": {
+              "locator": "https://droughtmonitor.unl.edu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10051,
+        "rect": {
+          "x": 1552.0,
+          "y": 1884.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NOAA National Hurricane Center",
+            "source": {
+              "locator": "https://www.nhc.noaa.gov"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10050,
+        "rect": {
+          "x": 1048.0,
+          "y": 1884.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "College of DuPage NEXLAB",
+            "source": {
+              "locator": "https://weather.cod.edu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10049,
+        "rect": {
+          "x": 544.0,
+          "y": 1884.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Pivotal Weather",
+            "source": {
+              "locator": "https://www.pivotalweather.com"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10048,
+        "rect": {
+          "x": 40.0,
+          "y": 1884.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Tropical Tidbits",
+            "source": {
+              "locator": "https://www.tropicaltidbits.com"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10047,
+        "rect": {
+          "x": 3568.0,
+          "y": 1590.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "GloFAS (Global Flood Awareness System)",
+            "source": {
+              "locator": "https://global-flood.emergency.copernicus.eu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10046,
+        "rect": {
+          "x": 3064.0,
+          "y": 1590.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NOAA SWPC (Space Weather)",
+            "source": {
+              "locator": "https://www.swpc.noaa.gov/dashboards"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10045,
+        "rect": {
+          "x": 2560.0,
+          "y": 1590.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "LightningMaps.org / Blitzortung",
+            "source": {
+              "locator": "https://www.lightningmaps.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10044,
+        "rect": {
+          "x": 2056.0,
+          "y": 1590.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NASA FIRMS",
+            "source": {
+              "locator": "https://firms.modaps.eosdis.nasa.gov/map/"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10043,
+        "rect": {
+          "x": 1552.0,
+          "y": 1590.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "SSEC RealEarth (U. Wisconsin)",
+            "source": {
+              "locator": "https://re.ssec.wisc.edu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10042,
+        "rect": {
+          "x": 1048.0,
+          "y": 1590.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "EUMETView",
+            "source": {
+              "locator": "https://view.eumetsat.int"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10041,
+        "rect": {
+          "x": 544.0,
+          "y": 1590.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "RAMMB/CIRA SLIDER",
+            "source": {
+              "locator": "https://rammb-slider.cira.colostate.edu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10040,
+        "rect": {
+          "x": 40.0,
+          "y": 1590.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Google Earth Engine & Timelapse",
+            "source": {
+              "locator": "https://earthengine.google.com"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10039,
+        "rect": {
+          "x": 3568.0,
+          "y": 1296.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Copernicus Browser",
+            "source": {
+              "locator": "https://browser.dataspace.copernicus.eu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10038,
+        "rect": {
+          "x": 3064.0,
+          "y": 1296.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Sentinel Hub EO Browser",
+            "source": {
+              "locator": "https://apps.sentinel-hub.com/eo-browser"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10037,
+        "rect": {
+          "x": 2560.0,
+          "y": 1296.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "EDGAR (EC JRC)",
+            "source": {
+              "locator": "https://edgar.jrc.ec.europa.eu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10036,
+        "rect": {
+          "x": 2056.0,
+          "y": 1296.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Global Carbon Atlas",
+            "source": {
+              "locator": "https://globalcarbonatlas.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10035,
+        "rect": {
+          "x": 1552.0,
+          "y": 1296.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Climate TRACE",
+            "source": {
+              "locator": "https://climatetrace.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10034,
+        "rect": {
+          "x": 1048.0,
+          "y": 1296.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NASA Worldview",
+            "source": {
+              "locator": "https://worldview.earthdata.nasa.gov"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10033,
+        "rect": {
+          "x": 544.0,
+          "y": 1296.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "World Air Quality Index",
+            "source": {
+              "locator": "https://waqi.info"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10032,
+        "rect": {
+          "x": 40.0,
+          "y": 1296.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "PurpleAir",
+            "source": {
+              "locator": "https://map.purpleair.com"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10031,
+        "rect": {
+          "x": 3568.0,
+          "y": 1002.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "IQAir",
+            "source": {
+              "locator": "https://www.iqair.com"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10030,
+        "rect": {
+          "x": 3064.0,
+          "y": 1002.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Copernicus Atmosphere Monitoring Service (CAMS)",
+            "source": {
+              "locator": "https://atmosphere.copernicus.eu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10029,
+        "rect": {
+          "x": 2560.0,
+          "y": 1002.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "First Street (Risk Factor)",
+            "source": {
+              "locator": "https://firststreet.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10028,
+        "rect": {
+          "x": 2056.0,
+          "y": 1002.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Climate Central Coastal Risk Screening / Surging Seas",
+            "source": {
+              "locator": "https://coastal.climatecentral.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10027,
+        "rect": {
+          "x": 1552.0,
+          "y": 1002.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Climate Impact Explorer",
+            "source": {
+              "locator": "https://climate-impact-explorer.climateanalytics.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10026,
+        "rect": {
+          "x": 1048.0,
+          "y": 1002.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NASA NEX-GDDP-CMIP6",
+            "source": {
+              "locator": "https://www.nasa.gov/nasa-earth-exchange-nex/gddp/"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10025,
+        "rect": {
+          "x": 544.0,
+          "y": 1002.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Climate Toolbox",
+            "source": {
+              "locator": "https://climatetoolbox.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10024,
+        "rect": {
+          "x": 40.0,
+          "y": 1002.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Cal-Adapt",
+            "source": {
+              "locator": "https://cal-adapt.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10023,
+        "rect": {
+          "x": 3568.0,
+          "y": 708.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Probable Futures",
+            "source": {
+              "locator": "https://probablefutures.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10022,
+        "rect": {
+          "x": 3064.0,
+          "y": 708.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "IPCC WGI Interactive Atlas",
+            "source": {
+              "locator": "https://interactive-atlas.ipcc.ch"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10021,
+        "rect": {
+          "x": 2560.0,
+          "y": 708.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "World Bank Climate Change Knowledge Portal",
+            "source": {
+              "locator": "https://climateknowledgeportal.worldbank.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10020,
+        "rect": {
+          "x": 2056.0,
+          "y": 708.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NOAA Climate.gov / Climate Resilience Toolkit",
+            "source": {
+              "locator": "https://www.climate.gov/maps-data"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10019,
+        "rect": {
+          "x": 1552.0,
+          "y": 708.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Copernicus Climate Data Store (CDS)",
+            "source": {
+              "locator": "https://cds.climate.copernicus.eu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10018,
+        "rect": {
+          "x": 1048.0,
+          "y": 708.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "KNMI Climate Explorer",
+            "source": {
+              "locator": "https://climexp.knmi.nl"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10017,
+        "rect": {
+          "x": 544.0,
+          "y": 708.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Berkeley Earth",
+            "source": {
+              "locator": "https://berkeleyearth.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10016,
+        "rect": {
+          "x": 40.0,
+          "y": 708.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NASA GISTEMP maps",
+            "source": {
+              "locator": "https://data.giss.nasa.gov/gistemp/maps/"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10015,
+        "rect": {
+          "x": 3568.0,
+          "y": 414.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Copernicus apps hub",
+            "source": {
+              "locator": "https://apps.climate.copernicus.eu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10014,
+        "rect": {
+          "x": 3064.0,
+          "y": 414.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Copernicus Interactive Climate Atlas (C3S Atlas)",
+            "source": {
+              "locator": "https://atlas.climate.copernicus.eu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10013,
+        "rect": {
+          "x": 2560.0,
+          "y": 414.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Copernicus Climate Pulse",
+            "source": {
+              "locator": "https://pulse.climate.copernicus.eu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10012,
+        "rect": {
+          "x": 2056.0,
+          "y": 414.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "PolarView",
+            "source": {
+              "locator": "https://www.polarview.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10011,
+        "rect": {
+          "x": 1552.0,
+          "y": 414.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NSIDC sea-ice tools",
+            "source": {
+              "locator": "https://nsidc.org/sea-ice-today"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10010,
+        "rect": {
+          "x": 1048.0,
+          "y": 414.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NOAA PolarWatch",
+            "source": {
+              "locator": "https://polarwatch.noaa.gov"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10009,
+        "rect": {
+          "x": 544.0,
+          "y": 414.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NOAA Coral Reef Watch",
+            "source": {
+              "locator": "https://coralreefwatch.noaa.gov"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10008,
+        "rect": {
+          "x": 40.0,
+          "y": 414.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Copernicus Marine Service (MyOcean Viewer)",
+            "source": {
+              "locator": "https://data.marine.copernicus.eu"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10007,
+        "rect": {
+          "x": 3568.0,
+          "y": 120.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Climate Reanalyzer (U. Maine CCI)",
+            "source": {
+              "locator": "https://climatereanalyzer.org"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10006,
+        "rect": {
+          "x": 3064.0,
+          "y": 120.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "NOAA nowCOAST",
+            "source": {
+              "locator": "https://nowcoast.noaa.gov"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10005,
+        "rect": {
+          "x": 2560.0,
+          "y": 120.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Windfinder",
+            "source": {
+              "locator": "https://www.windfinder.com"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10004,
+        "rect": {
+          "x": 2056.0,
+          "y": 120.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "MeteoBlue maps",
+            "source": {
+              "locator": "https://www.meteoblue.com/en/weather/maps"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10003,
+        "rect": {
+          "x": 1552.0,
+          "y": 120.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Zoom Earth",
+            "source": {
+              "locator": "https://zoom.earth"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10002,
+        "rect": {
+          "x": 1048.0,
+          "y": 120.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Ventusky",
+            "source": {
+              "locator": "https://www.ventusky.com"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10001,
+        "rect": {
+          "x": 544.0,
+          "y": 120.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "Windy.com",
+            "source": {
+              "locator": "https://www.windy.com"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 10000,
+        "rect": {
+          "x": 40.0,
+          "y": 120.0,
+          "w": 480.0,
+          "h": 270.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "web",
+            "title": "earth.nullschool.net",
+            "source": {
+              "locator": "https://earth.nullschool.net"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "web": {
+              "entry": "index.html",
+              "viewport": {
+                "width_css": 1280,
+                "zoom": "fit"
+              },
+              "interactive_allowed": true,
+              "poster_capture": "on_bind"
+            },
+            "fill": [
+              20,
+              20,
+              26,
+              255
+            ]
+          }
+        }
+      }
+    ],
+    "next_node_id": 10057,
+    "next_group_key": 1
+  },
+  "lens_root": null,
+  "next_group_id": 1,
+  "next_tag_id": 1,
+  "next_item_id": 1
+}

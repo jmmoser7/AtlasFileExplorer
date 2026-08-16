@@ -1,13 +1,13 @@
 //! Gesture grammars — the closed set a kit tool may borrow.
 //!
 //! A grammar is *code*: the state machine that turns pointer input into a
-//! committed result. There are nine, they cover every board tool that exists,
+//! committed result. There are ten, they cover every board tool that exists,
 //! and a kit may reference one but never define one (Art. VII.3, VII.4). This
 //! is the boundary that keeps a tool definition data rather than a program.
 
 use serde::{Deserialize, Serialize};
 
-/// One of the nine gesture grammars the core implements.
+/// One of the ten gesture grammars the core implements.
 ///
 /// Adding a member is core work under Article III — it must name its real
 /// recurring use, and it lands with an interaction contract in
@@ -35,11 +35,14 @@ pub enum Grammar {
     Sweep,
     /// Read a property from whatever is under the cursor. Eyedropper.
     Sample,
+    /// Multi-step edit: pick cutting objects, then click parts to delete.
+    /// Trim (`P2.RhinoTrim`). Does not create nodes.
+    PickThenClick,
 }
 
 impl Grammar {
     /// Every grammar, in declaration order.
-    pub const ALL: [Grammar; 9] = [
+    pub const ALL: [Grammar; 10] = [
         Grammar::Select,
         Grammar::DirectSelect,
         Grammar::DragRect,
@@ -49,6 +52,7 @@ impl Grammar {
         Grammar::PlacePoint,
         Grammar::Sweep,
         Grammar::Sample,
+        Grammar::PickThenClick,
     ];
 
     /// The identifier used in kit files.
@@ -64,6 +68,7 @@ impl Grammar {
             Grammar::PlacePoint => "place_point",
             Grammar::Sweep => "sweep",
             Grammar::Sample => "sample",
+            Grammar::PickThenClick => "pick_then_click",
         }
     }
 

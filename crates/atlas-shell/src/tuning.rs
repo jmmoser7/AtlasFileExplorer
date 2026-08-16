@@ -20,12 +20,19 @@ pub(crate) fn dock_preview_panel() -> Option<&'static str> {
     None
 }
 
+#[cfg(not(feature = "ui-tuner"))]
+#[inline]
+pub fn forcefield_preview_locked() -> bool {
+    false
+}
+
 #[cfg(feature = "ui-tuner")]
 mod enabled {
+    use crate::menu::{self, MenuIcon};
     use crate::tokens::{
-        self, ActivityHeatmapTokens, DockThemeTokens, DockTokens, HomeTokens,
-        PortalMenuThemeTokens, PortalMenuTokens, ReadoutTokens, TopBarThemeTokens, TopBarTokens,
-        UiTokens,
+        self, ActivityHeatmapTokens, BoardForcefieldTokens, BoardPreviewTokens, DockThemeTokens,
+        DockTokens, HomeTokens, MenuThemeTokens, MenuTokens, PortalMenuTokens, ReadoutTokens,
+        TopBarThemeTokens, TopBarTokens, UiTokens,
     };
     use eframe::egui::{self, Color32, RichText, Slider};
     use std::path::PathBuf;
@@ -34,8 +41,17 @@ mod enabled {
 
     static PORTAL_PREVIEW_LOCKED: AtomicBool = AtomicBool::new(false);
     static PORTAL_PREVIEW_MENU: AtomicUsize = AtomicUsize::new(0);
+    static MENU_PREVIEW_LOCKED: AtomicBool = AtomicBool::new(false);
+    static MENU_PREVIEW_KIND: AtomicUsize = AtomicUsize::new(0);
     static DOCK_PREVIEW_LOCKED: AtomicBool = AtomicBool::new(false);
+    static FORCEFIELD_PREVIEW_LOCKED: AtomicBool = AtomicBool::new(false);
     static DOCK_PREVIEW_PANEL: Mutex<Option<&'static str>> = Mutex::new(None);
+
+    /// Which transient menu the tuner holds open.
+    const MENU_KIND_PORTAL_FILE: usize = 0;
+    const MENU_KIND_PORTAL_VIEW: usize = 1;
+    const MENU_KIND_PORTAL_PREFS: usize = 2;
+    const MENU_KIND_SAMPLE: usize = 3;
 
     struct TunerState {
         open: bool,
@@ -75,6 +91,12 @@ mod enabled {
         stored.readouts.round_for_storage();
         stored.activity_heatmap.normalize();
         stored.activity_heatmap.round_for_storage();
+        stored.board_preview.normalize();
+        stored.board_preview.round_for_storage();
+        stored.board_forcefield.normalize();
+        stored.board_forcefield.round_for_storage();
+        stored.menu.normalize();
+        stored.menu.round_for_storage();
         let body = toml::to_string_pretty(&stored).map_err(|error| error.to_string())?;
         let header = concat!(
             "# Canonical shared-chrome design tokens.\n",
@@ -178,31 +200,102 @@ mod enabled {
     }
 
     fn portal_preview_controls(ui: &mut egui::Ui) {
-        let mut locked = PORTAL_PREVIEW_LOCKED.load(Ordering::Relaxed);
+        menu_preview_controls(ui);
+    }
+
+    fn menu_preview_controls(ui: &mut egui::Ui) {
+        let mut locked = MENU_PREVIEW_LOCKED.load(Ordering::Relaxed);
         if ui
-            .checkbox(&mut locked, "Lock portal preview open")
-            .on_hover_text("Keep the floating menu visible while editing these controls")
+            .checkbox(&mut locked, "Lock menu preview open")
+            .on_hover_text(
+                "Keep a menu visible while the pointer is on these sliders — \
+                 same pattern as Lock dock popover open",
+            )
             .changed()
         {
-            PORTAL_PREVIEW_LOCKED.store(locked, Ordering::Relaxed);
+            MENU_PREVIEW_LOCKED.store(locked, Ordering::Relaxed);
         }
 
         if locked {
-            let mut menu = PORTAL_PREVIEW_MENU.load(Ordering::Relaxed);
-            egui::ComboBox::from_label("Preview submenu")
-                .selected_text(match menu {
-                    2 => "View",
-                    3 => "Preferences",
-                    _ => "File",
-                })
+            let mut kind = MENU_PREVIEW_KIND.load(Ordering::Relaxed);
+            egui::ComboBox::from_label("Preview panel")
+                .selected_text(menu_kind_label(kind))
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut menu, 0, "File");
-                    ui.selectable_value(&mut menu, 2, "View");
-                    ui.selectable_value(&mut menu, 3, "Preferences");
+                    ui.label(RichText::new("Icon portal").strong());
+                    ui.selectable_value(&mut kind, MENU_KIND_PORTAL_FILE, "Portal · File");
+                    ui.selectable_value(&mut kind, MENU_KIND_PORTAL_VIEW, "Portal · View");
+                    ui.selectable_value(&mut kind, MENU_KIND_PORTAL_PREFS, "Portal · Preferences");
+                    ui.separator();
+                    ui.label(RichText::new("Context menu").strong());
+                    ui.selectable_value(&mut kind, MENU_KIND_SAMPLE, "Sample right-click");
                 });
-            PORTAL_PREVIEW_MENU.store(menu, Ordering::Relaxed);
+            MENU_PREVIEW_KIND.store(kind, Ordering::Relaxed);
+            sync_portal_lock_from_menu(kind);
+        } else {
+            PORTAL_PREVIEW_LOCKED.store(false, Ordering::Relaxed);
         }
         ui.separator();
+    }
+
+    fn menu_kind_label(kind: usize) -> &'static str {
+        match kind {
+            MENU_KIND_PORTAL_VIEW => "Portal · View",
+            MENU_KIND_PORTAL_PREFS => "Portal · Preferences",
+            MENU_KIND_SAMPLE => "Sample right-click",
+            _ => "Portal · File",
+        }
+    }
+
+    fn sync_portal_lock_from_menu(kind: usize) {
+        let portal = match kind {
+            MENU_KIND_PORTAL_FILE => Some(0),
+            MENU_KIND_PORTAL_VIEW => Some(2),
+            MENU_KIND_PORTAL_PREFS => Some(3),
+            _ => None,
+        };
+        match portal {
+            Some(index) => {
+                PORTAL_PREVIEW_LOCKED.store(true, Ordering::Relaxed);
+                PORTAL_PREVIEW_MENU.store(index, Ordering::Relaxed);
+            }
+            None => PORTAL_PREVIEW_LOCKED.store(false, Ordering::Relaxed),
+        }
+    }
+
+    fn paint_sample_menu(ctx: &egui::Context) {
+        if !MENU_PREVIEW_LOCKED.load(Ordering::Relaxed)
+            || MENU_PREVIEW_KIND.load(Ordering::Relaxed) != MENU_KIND_SAMPLE
+        {
+            return;
+        }
+        let dark = ctx.style().visuals.dark_mode;
+        egui::Area::new(egui::Id::new("tuner_menu_sample"))
+            .fixed_pos(egui::pos2(48.0, 88.0))
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .show(ctx, |ui| {
+                menu::frame(dark).show(ui, |ui| {
+                    ui.set_min_width(menu::tokens().min_width);
+                    menu::heading(ui, "3 object(s)", dark);
+                    menu::separator(ui, dark);
+                    let _ =
+                        menu::item_shortcut(ui, MenuIcon::Duplicate, "Duplicate", "Ctrl+D", dark);
+                    let _ = menu::item(ui, MenuIcon::Front, "Bring to front", dark);
+                    let _ = menu::submenu(ui, MenuIcon::Settings, "Transform", false, dark);
+                    menu::separator(ui, dark);
+                    let _ = menu::item_shortcut(ui, MenuIcon::Group, "Group", "Ctrl+G", dark);
+                    let _ = menu::item_shortcut(ui, MenuIcon::Lock, "Lock", "Ctrl+L", dark);
+                    let _ = menu::toggle(ui, true, "Faint", dark);
+                    menu::separator(ui, dark);
+                    let _ = menu::row(
+                        ui,
+                        menu::Row::new(MenuIcon::Trash, "Delete")
+                            .shortcut("Del")
+                            .danger(),
+                        dark,
+                    );
+                });
+            });
     }
 
     fn theme_editor(ui: &mut egui::Ui, name: &str, theme: &mut TopBarThemeTokens) {
@@ -235,10 +328,18 @@ mod enabled {
     }
 
     fn portal_editor(ui: &mut egui::Ui, portal: &mut PortalMenuTokens) {
-        egui::CollapsingHeader::new("Portal menu · Geometry and type")
+        egui::CollapsingHeader::new("Portal menu · Placement")
             .default_open(false)
             .show(ui, |ui| {
                 portal_preview_controls(ui);
+                ui.label(
+                    RichText::new(
+                        "Look (fill, type, icons, dividers, shadow) lives under Menus. \
+                         These knobs only place the icon-portal flyout.",
+                    )
+                    .small(),
+                );
+                ui.add_space(4.0);
                 scalar(ui, "Panel width", &mut portal.width, 150.0..=420.0);
                 scalar(
                     ui,
@@ -246,9 +347,6 @@ mod enabled {
                     &mut portal.submenu_width,
                     150.0..=480.0,
                 );
-                scalar(ui, "Row height", &mut portal.row_height, 20.0..=54.0);
-                scalar(ui, "Panel padding", &mut portal.panel_padding, 0.0..=28.0);
-                scalar(ui, "Corner radius", &mut portal.corner_radius, 0.0..=28.0);
                 scalar(
                     ui,
                     "Horizontal offset",
@@ -257,61 +355,106 @@ mod enabled {
                 );
                 scalar(ui, "Top-bar gap", &mut portal.panel_gap, 0.0..=24.0);
                 scalar(ui, "Submenu gap", &mut portal.submenu_gap, 0.0..=24.0);
-                scalar(ui, "Section gap", &mut portal.separator_gap, 0.0..=24.0);
+                scalar(ui, "Hover close delay", &mut portal.close_delay, 0.0..=1.0);
+            });
+    }
+
+    fn menu_editor(ui: &mut egui::Ui, menu: &mut MenuTokens) {
+        egui::CollapsingHeader::new("Menus · Geometry & spacing")
+            .default_open(true)
+            .show(ui, |ui| {
+                menu_preview_controls(ui);
+                ui.label(
+                    RichText::new(
+                        "One language for every dropdown and right-click menu in \
+                         File Atlas and Slate — including the icon-portal flyout. \
+                         Filleted panel, no border, inset section rules, icon + label \
+                         + chevron.",
+                    )
+                    .small(),
+                );
+                ui.add_space(4.0);
+                ui.label(RichText::new("Panel").strong());
+                scalar(ui, "Corner radius", &mut menu.corner_radius, 0.0..=28.0);
+                scalar(ui, "Border width", &mut menu.border_width, 0.0..=2.0);
+                scalar(ui, "Panel padding", &mut menu.panel_padding, 2.0..=28.0);
+                scalar(ui, "Minimum width", &mut menu.min_width, 140.0..=420.0);
+                ui.add_space(6.0);
+                ui.label(RichText::new("Rows").strong());
+                scalar(ui, "Row height", &mut menu.row_height, 20.0..=48.0);
+                scalar(ui, "Row pad X", &mut menu.row_pad_x, 4.0..=28.0);
+                scalar(ui, "Row gap", &mut menu.row_gap, 0.0..=12.0);
+                scalar(ui, "Hover radius", &mut menu.hover_radius, 0.0..=16.0);
+                ui.add_space(6.0);
+                ui.label(RichText::new("Icon & chevron").strong());
+                scalar(ui, "Icon size", &mut menu.icon_size, 8.0..=22.0);
+                scalar(ui, "Icon gap", &mut menu.icon_gap, 4.0..=20.0);
+                scalar(ui, "Icon stroke", &mut menu.icon_stroke, 0.6..=2.4);
+                scalar(ui, "Chevron size", &mut menu.chevron_size, 6.0..=20.0);
+                ui.add_space(6.0);
+                ui.label(RichText::new("Dividers").strong());
+                scalar(ui, "Divider inset", &mut menu.divider_inset, 0.0..=32.0);
                 scalar(
                     ui,
-                    "Header text size",
-                    &mut portal.header_text_size,
-                    8.0..=24.0,
+                    "Divider thickness",
+                    &mut menu.divider_thickness,
+                    0.5..=2.0,
                 );
-                scalar(ui, "Row text size", &mut portal.row_text_size, 8.0..=24.0);
+                scalar(ui, "Divider gap", &mut menu.divider_gap, 0.0..=16.0);
+            });
+
+        egui::CollapsingHeader::new("Menus · Typography")
+            .default_open(true)
+            .show(ui, |ui| {
+                menu_preview_controls(ui);
+                scalar(ui, "Text size", &mut menu.text_size, 9.0..=20.0);
+                scalar(ui, "Letter spacing", &mut menu.letter_spacing, 0.0..=1.5);
                 scalar(
                     ui,
                     "Shortcut text size",
-                    &mut portal.shortcut_text_size,
-                    8.0..=22.0,
+                    &mut menu.shortcut_text_size,
+                    8.0..=16.0,
                 );
-                scalar(
-                    ui,
-                    "Chevron size",
-                    &mut portal.chevron_text_size,
-                    8.0..=28.0,
-                );
-                scalar(ui, "Hover close delay", &mut portal.close_delay, 0.0..=1.0);
             });
 
-        egui::CollapsingHeader::new("Portal menu · Shadow")
+        egui::CollapsingHeader::new("Menus · Shadow")
             .default_open(false)
             .show(ui, |ui| {
-                portal_preview_controls(ui);
+                menu_preview_controls(ui);
                 scalar(
                     ui,
                     "Shadow X offset",
-                    &mut portal.shadow_offset_x,
+                    &mut menu.shadow_offset_x,
                     -20.0..=20.0,
                 );
                 scalar(
                     ui,
                     "Shadow Y offset",
-                    &mut portal.shadow_offset_y,
-                    -20.0..=30.0,
+                    &mut menu.shadow_offset_y,
+                    -8.0..=32.0,
                 );
-                scalar(ui, "Shadow blur", &mut portal.shadow_blur, 0.0..=48.0);
-                scalar(ui, "Shadow spread", &mut portal.shadow_spread, 0.0..=16.0);
-                scalar(ui, "Shadow opacity", &mut portal.shadow_opacity, 0.0..=1.0);
+                scalar(ui, "Shadow blur", &mut menu.shadow_blur, 0.0..=48.0);
+                scalar(ui, "Shadow spread", &mut menu.shadow_spread, 0.0..=12.0);
+                scalar(ui, "Shadow opacity", &mut menu.shadow_opacity, 0.0..=0.6);
             });
+
+        menu_theme_editor(ui, "Menus · Light colors", &mut menu.light);
+        menu_theme_editor(ui, "Menus · Dark colors", &mut menu.dark);
     }
 
-    fn portal_theme_editor(ui: &mut egui::Ui, name: &str, theme: &mut PortalMenuThemeTokens) {
+    fn menu_theme_editor(ui: &mut egui::Ui, name: &str, theme: &mut MenuThemeTokens) {
         egui::CollapsingHeader::new(name)
             .default_open(false)
             .show(ui, |ui| {
-                portal_preview_controls(ui);
+                menu_preview_controls(ui);
                 rgba(ui, "Panel fill", &mut theme.fill);
-                rgba(ui, "Border", &mut theme.border);
                 rgba(ui, "Hover row", &mut theme.hover);
                 rgba(ui, "Text", &mut theme.text);
-                rgba(ui, "Muted text", &mut theme.muted_text);
+                rgba(ui, "Muted / shortcut", &mut theme.muted);
+                rgba(ui, "Icon", &mut theme.icon);
+                rgba(ui, "Divider", &mut theme.divider);
+                rgba(ui, "Danger", &mut theme.danger);
+                rgba(ui, "Border (if width > 0)", &mut theme.border);
             });
     }
 
@@ -387,6 +530,12 @@ mod enabled {
             .show(ui, |ui| {
                 dock_preview_controls(ui);
                 scalar(ui, "Icon size", &mut dock.icon_size, 20.0..=64.0);
+                scalar(
+                    ui,
+                    "Flyout icon scale",
+                    &mut dock.flyout_icon_scale,
+                    0.4..=1.0,
+                );
                 scalar(ui, "Icon gap", &mut dock.icon_gap, 0.0..=28.0);
                 scalar(ui, "Icon text size", &mut dock.icon_text_size, 8.0..=24.0);
                 scalar(
@@ -541,6 +690,80 @@ mod enabled {
             });
     }
 
+    fn board_preview_editor(ui: &mut egui::Ui, preview: &mut BoardPreviewTokens) {
+        egui::CollapsingHeader::new("Slate board · Selection & hover preview")
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(
+                        "Applies to every board node. Selected chrome is immediate. \
+                         Body hover eases in and falls off after the pointer leaves. \
+                         Edge hover is cursor-only — it does not paint this outline.",
+                    )
+                    .small(),
+                );
+                ui.add_space(4.0);
+                ui.label(RichText::new("Selected object").strong());
+                scalar(
+                    ui,
+                    "Line weight (px)",
+                    &mut preview.select_line_weight,
+                    0.5..=6.0,
+                );
+                scalar(ui, "Opacity", &mut preview.select_opacity, 0.05..=1.0);
+                ui.add_space(6.0);
+                ui.label(RichText::new("Hover highlight").strong());
+                scalar(
+                    ui,
+                    "Line weight (px)",
+                    &mut preview.hover_line_weight,
+                    0.5..=6.0,
+                );
+                scalar(ui, "Opacity", &mut preview.hover_opacity, 0.05..=1.0);
+                scalar(ui, "Highlight in (s)", &mut preview.highlight_in, 0.0..=1.5);
+                scalar(ui, "Falloff (s)", &mut preview.highlight_out, 0.0..=1.5);
+            });
+    }
+
+    fn board_forcefield_editor(ui: &mut egui::Ui, field: &mut BoardForcefieldTokens) {
+        egui::CollapsingHeader::new("Slate board · Forcefield snap guides")
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(
+                        "Alignment snap fires a short ribbon from the impact: it grows \
+                         off the canvas in both directions, thickest and brightest at \
+                         the center, then fades. Drag a node to see it, or lock a \
+                         preview pulse on the board.",
+                    )
+                    .small(),
+                );
+                ui.add_space(4.0);
+                let mut locked = FORCEFIELD_PREVIEW_LOCKED.load(Ordering::Relaxed);
+                if ui
+                    .checkbox(&mut locked, "Lock forcefield preview on the board")
+                    .changed()
+                {
+                    FORCEFIELD_PREVIEW_LOCKED.store(locked, Ordering::Relaxed);
+                }
+                ui.add_space(6.0);
+                ui.label(RichText::new("Timing").strong());
+                scalar(ui, "Expand (s)", &mut field.expand_secs, 0.02..=0.80);
+                scalar(ui, "Fade (s)", &mut field.fade_secs, 0.02..=0.80);
+                ui.add_space(6.0);
+                ui.label(RichText::new("Stroke").strong());
+                scalar(
+                    ui,
+                    "Center weight (px)",
+                    &mut field.center_weight,
+                    0.05..=4.0,
+                );
+                scalar(ui, "Edge weight (px)", &mut field.edge_weight, 0.0..=4.0);
+                scalar(ui, "Center opacity", &mut field.center_opacity, 0.0..=1.0);
+                scalar(ui, "Edge opacity", &mut field.edge_opacity, 0.0..=1.0);
+            });
+    }
+
     fn readouts_editor(ui: &mut egui::Ui, readouts: &mut ReadoutTokens) {
         egui::CollapsingHeader::new("Readout bar (bottom)")
             .default_open(false)
@@ -571,6 +794,32 @@ mod enabled {
                     0.0..=48.0,
                 );
                 ui.checkbox(&mut readouts.separators, "Separator rules");
+                ui.add_space(6.0);
+                ui.label(RichText::new("Collapse chevron (lower-left)").strong());
+                scalar(ui, "Chevron size", &mut readouts.chevron_size, 4.0..=16.0);
+                scalar(ui, "Hit size", &mut readouts.chevron_hit, 10.0..=28.0);
+                scalar(ui, "Inset X", &mut readouts.chevron_inset_x, 0.0..=24.0);
+                scalar(ui, "Inset Y", &mut readouts.chevron_inset_y, 0.0..=16.0);
+                scalar(ui, "Stroke", &mut readouts.chevron_stroke, 0.6..=2.4);
+                scalar(
+                    ui,
+                    "Idle opacity",
+                    &mut readouts.chevron_idle_opacity,
+                    0.08..=1.0,
+                );
+                scalar(
+                    ui,
+                    "Hover opacity",
+                    &mut readouts.chevron_hover_opacity,
+                    0.2..=1.0,
+                );
+                scalar(
+                    ui,
+                    "Hover fill",
+                    &mut readouts.chevron_hover_fill,
+                    0.0..=0.4,
+                );
+                scalar(ui, "Emboss", &mut readouts.chevron_emboss, 0.0..=0.6);
             });
     }
 
@@ -901,6 +1150,12 @@ mod enabled {
                 ui.separator();
 
                 // Newest work first for quick access.
+                menu_editor(ui, &mut state.draft.menu);
+
+                board_preview_editor(ui, &mut state.draft.board_preview);
+
+                board_forcefield_editor(ui, &mut state.draft.board_forcefield);
+
                 readouts_editor(ui, &mut state.draft.readouts);
 
                 activity_heatmap_editor(ui, &mut state.draft.activity_heatmap);
@@ -932,16 +1187,6 @@ mod enabled {
                         typography_editor(ui, &mut state.draft.topbar);
                         effects_editor(ui, &mut state.draft.topbar);
                         portal_editor(ui, &mut state.draft.topbar.portal);
-                        portal_theme_editor(
-                            ui,
-                            "Portal menu · Light colors",
-                            &mut state.draft.topbar.portal.light,
-                        );
-                        portal_theme_editor(
-                            ui,
-                            "Portal menu · Dark colors",
-                            &mut state.draft.topbar.portal.dark,
-                        );
                         theme_editor(ui, "Light-mode colors", &mut state.draft.topbar.light);
                         theme_editor(ui, "Dark-mode colors", &mut state.draft.topbar.dark);
                     });
@@ -950,11 +1195,15 @@ mod enabled {
                 state.draft.dock.normalize();
                 state.draft.home.normalize();
                 state.draft.activity_heatmap.normalize();
+                state.draft.board_preview.normalize();
+                state.draft.board_forcefield.normalize();
+                state.draft.menu.normalize();
                 tokens::replace(state.draft.clone());
                 ctx.request_repaint();
             });
 
         state.open = open;
+        paint_sample_menu(ctx);
     }
 
     pub(crate) fn portal_preview_menu() -> Option<usize> {
@@ -975,10 +1224,16 @@ mod enabled {
         }
         *slot
     }
+
+    pub fn forcefield_preview_locked() -> bool {
+        FORCEFIELD_PREVIEW_LOCKED.load(Ordering::Relaxed)
+    }
 }
 
 #[cfg(feature = "ui-tuner")]
 pub(crate) use enabled::dock_preview_panel;
+#[cfg(feature = "ui-tuner")]
+pub use enabled::forcefield_preview_locked;
 #[cfg(feature = "ui-tuner")]
 pub(crate) use enabled::portal_preview_menu;
 #[cfg(feature = "ui-tuner")]

@@ -143,18 +143,20 @@ fn push_cap(
             });
         }
         Cap::Round => {
+            // Keep stations on the endpoint and rotate the tangent. emit_strip
+            // extrudes ±half, so the outer vertices sweep a semicircle whose
+            // diameter equals the stroke width. Offsetting the station by
+            // `half` *and* extruding would paint a cap twice as wide.
             let n = perp_left(dir);
-            let center = pos;
             let seg = ROUND_SEGMENTS / 2;
             for i in 0..=seg {
                 let t = i as f32 / seg as f32;
                 let angle = std::f32::consts::PI * t;
                 let c = angle.cos();
                 let s = angle.sin();
-                let offset = add(scale(n, c * half), scale(dir, s * half));
                 let tan = add(scale(n, -s), scale(dir, c));
                 stations.push(Station {
-                    pos: add(center, offset),
+                    pos,
                     tangent: normalize(tan).unwrap_or(dir),
                     half,
                 });

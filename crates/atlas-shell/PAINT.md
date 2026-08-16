@@ -21,6 +21,10 @@ smooth midspan peak and feathered ends (no jagged segmented strokes).
 | Anti-alias | Cross-section is a mesh strip: solid core + transparent feather edge |
 | Color | Caller supplies `Color32` (typically muted text × opacity) |
 
+`paint_tapered_ribbon_graded` uses the same mesh and falloff, but lerps
+from an edge color to a center color so opacity can peak at midspan
+(Slate's forcefield snap guides).
+
 Implementation: `crates/atlas-shell/src/taper.rs`. One mesh, one draw call —
 never a chain of short `line_segment` strokes (those produce the jaggies).
 
@@ -67,6 +71,11 @@ Rules for any projected textured mesh:
    with no second clip — `egui` can only clip to a `Rect`.
 4. **Reuse the buffers.** Painting is a per-frame path (Constitution Art. II); the
    column samples live in a `thread_local`.
+5. **Type is not artwork.** A photo hides a 0.006 px affine residual. A stem
+   does not — it reads as a ripple. Title-faces therefore do **not** ride
+   `paint_artwork`. Layout once, then project each glyph as its own short
+   strip (`home::paint_title_glyphs`). Same `project_point`, much smaller
+   patches.
 
 ### Extending the aesthetic
 

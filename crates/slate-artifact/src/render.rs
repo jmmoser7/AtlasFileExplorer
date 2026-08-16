@@ -2,9 +2,13 @@ use std::path::Path;
 
 use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
-    connector_bezier, web_origin, ConnectorNode, Corner, Dash, Node, NodeId, NodeKind, PathData,
+    web_origin, ConnectorNode, Corner, Dash, Node, NodeId, NodeKind, PathData, PathFillRule,
     PathSeg, PortalKind, PortalNode, Rgba, Scene, ShapeKind, StrokeCap, StrokeJoin, TextAlign,
     WebExport, WebSourceKind, WidthProfile, WireDisplay, WorldRect,
+};
+use slate_doc::wire::{
+    connector_route, filleted_polyline, scene_wire_obstacles, ConnectorPath, PathCmd, WireRouting,
+    ORTHO_CORNER_RADIUS,
 };
 use slate_doc::SlateDoc;
 use vector_ink::kurbo::{BezPath, PathEl, Point};
@@ -100,6 +104,15 @@ pub fn render_html_with_workbook(
     assets: &AssetMap,
     workbook_dir: Option<&Path>,
 ) -> String {
+    render_html_routed(doc, assets, workbook_dir, WireRouting::Bezier)
+}
+
+pub(crate) fn render_html_routed(
+    doc: &SlateDoc,
+    assets: &AssetMap,
+    workbook_dir: Option<&Path>,
+    routing: WireRouting,
+) -> String {
     let slides = collect_slides(&doc.scene);
     let slide_count = slides.len();
     let mut html = String::new();
@@ -118,7 +131,7 @@ pub fn render_html_with_workbook(
     } else {
         html.push_str("<div id=\"deck\">\n");
         for (i, spec) in slides.iter().enumerate() {
-            render_slide(&mut html, doc, assets, spec, i == 0, workbook_dir);
+            render_slide(&mut html, doc, assets, spec, i == 0, workbook_dir, routing);
         }
         html.push_str("</div>\n");
         if slide_count == 1 {
@@ -219,6 +232,7 @@ fn render_slide(
     spec: &SlideSpec,
     active: bool,
     workbook_dir: Option<&Path>,
+    routing: WireRouting,
 ) {
     html.push_str("<section class=\"slide");
     if active {
@@ -236,18 +250,28 @@ fn render_slide(
     html.push_str(&spec.background);
     html.push_str(";\">\n");
 
+    let mut wires = Vec::new();
+    let mut rest = Vec::new();
     for id in &spec.member_ids {
         if let Some(node) = doc.scene.node(*id) {
-            render_node(
-                html,
-                doc,
-                assets,
-                node,
-                spec.origin_x,
-                spec.origin_y,
-                workbook_dir,
-            );
+            if matches!(node.kind, NodeKind::Connector(_)) {
+                wires.push(node);
+            } else {
+                rest.push(node);
+            }
         }
+    }
+    for node in wires.into_iter().chain(rest) {
+        render_node(
+            html,
+            doc,
+            assets,
+            node,
+            spec.origin_x,
+            spec.origin_y,
+            workbook_dir,
+            routing,
+        );
     }
 
     html.push_str("</section>\n");
@@ -261,6 +285,7 @@ fn render_node(
     origin_x: f32,
     origin_y: f32,
     workbook_dir: Option<&Path>,
+    routing: WireRouting,
 ) {
     // Export honesty (Art. IV): hidden nodes are not part of what the board
     // shows, so they never reach the artifact.
@@ -273,7 +298,7 @@ fn render_node(
         NodeKind::Shape(shape) => render_shape(html, node, shape, rel),
         NodeKind::Text(text) => render_text(html, node, text, rel),
         NodeKind::Connector(conn) => {
-            render_connector(html, &doc.scene, node, conn, origin_x, origin_y)
+            render_connector(html, &doc.scene, node, conn, origin_x, origin_y, routing)
         }
         NodeKind::Frame(_) => {}
         NodeKind::Portal(p) if p.kind == PortalKind::Web => {
@@ -599,6 +624,7 @@ fn render_image(
 
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
+    append_clip(&mut style, node, rel);
     append_corner(&mut style, img.corner);
     append_stroke(&mut style, &img.stroke);
     style.push_str("overflow:hidden;");
@@ -944,7 +970,7 @@ fn render_path(
 
     match shape.stroke.profile {
         WidthProfile::Uniform => {
-            push_path_open(html, &d, &fill_css);
+            push_path_open(html, &d, &fill_css, path.fill_rule);
             if shape.stroke.is_none() {
                 html.push_str(" stroke=\"none\"");
             } else {
@@ -970,7 +996,7 @@ fn render_path(
         }
         WidthProfile::Taper { start, end } => {
             if shape.fill.is_some() && path.closed {
-                push_path_open(html, &d, &fill_css);
+                push_path_open(html, &d, &fill_css, path.fill_rule);
                 html.push_str(" stroke=\"none\"></path>");
             }
             if !shape.stroke.is_none() {
@@ -985,7 +1011,12 @@ fn render_path(
                 let outline = vector_ink::stroke_outline(&bez, &style, 0.25);
                 let outline_d = bezpath_to_d(&outline);
                 if !outline_d.is_empty() {
-                    push_path_open(html, &outline_d, &shape.stroke.color.css());
+                    push_path_open(
+                        html,
+                        &outline_d,
+                        &shape.stroke.color.css(),
+                        PathFillRule::NonZero,
+                    );
                     html.push_str(" stroke=\"none\"></path>");
                 }
             }
@@ -995,12 +1026,15 @@ fn render_path(
     html.push_str("</svg></div>\n");
 }
 
-fn push_path_open(html: &mut String, d: &str, fill: &str) {
+fn push_path_open(html: &mut String, d: &str, fill: &str, rule: PathFillRule) {
     html.push_str("<path d=\"");
     html.push_str(d);
     html.push_str("\" fill=\"");
     html.push_str(fill);
     html.push('"');
+    if matches!(rule, PathFillRule::EvenOdd) {
+        html.push_str(" fill-rule=\"evenodd\"");
+    }
 }
 
 fn denorm_pt(p: [f32; 2], w: f32, h: f32) -> (f32, f32) {
@@ -1056,6 +1090,56 @@ fn path_data_d(path: &PathData, w: f32, h: f32) -> String {
     }
     if path.closed {
         d.push_str(" Z");
+    }
+    for extra in &path.extra {
+        let (x, y) = denorm_pt(extra.start, w, h);
+        d.push_str(" M ");
+        d.push_str(&fmt_px(x));
+        d.push(' ');
+        d.push_str(&fmt_px(y));
+        for seg in &extra.segs {
+            match seg {
+                PathSeg::Line { to } => {
+                    let (x, y) = denorm_pt(*to, w, h);
+                    d.push_str(" L ");
+                    d.push_str(&fmt_px(x));
+                    d.push(' ');
+                    d.push_str(&fmt_px(y));
+                }
+                PathSeg::Quad { ctrl, to } => {
+                    let (cx, cy) = denorm_pt(*ctrl, w, h);
+                    let (x, y) = denorm_pt(*to, w, h);
+                    d.push_str(" Q ");
+                    d.push_str(&fmt_px(cx));
+                    d.push(' ');
+                    d.push_str(&fmt_px(cy));
+                    d.push(' ');
+                    d.push_str(&fmt_px(x));
+                    d.push(' ');
+                    d.push_str(&fmt_px(y));
+                }
+                PathSeg::Cubic { c1, c2, to } => {
+                    let (c1x, c1y) = denorm_pt(*c1, w, h);
+                    let (c2x, c2y) = denorm_pt(*c2, w, h);
+                    let (x, y) = denorm_pt(*to, w, h);
+                    d.push_str(" C ");
+                    d.push_str(&fmt_px(c1x));
+                    d.push(' ');
+                    d.push_str(&fmt_px(c1y));
+                    d.push(' ');
+                    d.push_str(&fmt_px(c2x));
+                    d.push(' ');
+                    d.push_str(&fmt_px(c2y));
+                    d.push(' ');
+                    d.push_str(&fmt_px(x));
+                    d.push(' ');
+                    d.push_str(&fmt_px(y));
+                }
+            }
+        }
+        if extra.closed {
+            d.push_str(" Z");
+        }
     }
     d
 }
@@ -1180,19 +1264,21 @@ fn render_connector(
     conn: &ConnectorNode,
     origin_x: f32,
     origin_y: f32,
+    routing: WireRouting,
 ) {
     // Geometry is derived from the *current* rects of anchored nodes.
     // Hidden anchor nodes resolve to nothing: the wire is skipped until the
     // node is shown again (simplest per the scene-flags spec).
     let rect_of = |id| scene.node(id).filter(|n| !n.hidden).map(|n: &Node| n.rect);
-    let Some(bez) = connector_bezier(&conn.a, &conn.b, rect_of) else {
+    let obstacles = scene_wire_obstacles(scene);
+    let Some(path) = connector_route(&conn.a, &conn.b, rect_of, routing, &obstacles) else {
         return;
     };
 
     // Position the wrapper at the curve AABB, padded so stroke width and
     // arrowheads survive even a degenerate (straight axis-aligned) box.
     let pad = conn.stroke.width.max(1.0) * 0.5 + arrow_len(conn) + 2.0;
-    let aabb = bez.aabb();
+    let aabb = path.aabb();
     let boxed = WorldRect::new(
         aabb.x - pad,
         aabb.y - pad,
@@ -1223,22 +1309,8 @@ fn render_connector(
     html.push_str("\" style=\"display:block;overflow:visible\">");
 
     // The wire itself.
-    let (p0x, p0y) = local(bez.p0);
-    let (c1x, c1y) = local(bez.c1);
-    let (c2x, c2y) = local(bez.c2);
-    let (p3x, p3y) = local(bez.p3);
-    let d = format!(
-        "M {} {} C {} {} {} {} {} {}",
-        fmt_px(p0x),
-        fmt_px(p0y),
-        fmt_px(c1x),
-        fmt_px(c1y),
-        fmt_px(c2x),
-        fmt_px(c2y),
-        fmt_px(p3x),
-        fmt_px(p3y),
-    );
-    push_path_open(html, &d, "none");
+    let d = svg_d_for_path(&path, &local);
+    push_path_open(html, &d, "none", PathFillRule::NonZero);
     html.push_str(" stroke=\"");
     html.push_str(&conn.stroke.color.css());
     html.push_str("\" stroke-width=\"");
@@ -1256,14 +1328,14 @@ fn render_connector(
     // Arrowheads: small filled triangles oriented to the end tangents,
     // computed inline (the writer builds elements directly).
     if conn.arrow_a {
-        push_arrow_head(html, conn, local(bez.p0), bez.start_dir());
+        push_arrow_head(html, conn, local(path.start()), path.start_dir());
     }
     if conn.arrow_b {
-        push_arrow_head(html, conn, local(bez.p3), bez.end_dir());
+        push_arrow_head(html, conn, local(path.end()), path.end_dir());
     }
 
     if let Some(label) = conn.label.as_deref().filter(|l| !l.is_empty()) {
-        let (mx, my) = local(bez.midpoint());
+        let (mx, my) = local(path.midpoint());
         html.push_str("<text x=\"");
         html.push_str(&fmt_px(mx));
         html.push_str("\" y=\"");
@@ -1280,6 +1352,59 @@ fn render_connector(
     }
 
     html.push_str("</svg></div>\n");
+}
+
+fn svg_d_for_path(path: &ConnectorPath, local: &impl Fn([f32; 2]) -> (f32, f32)) -> String {
+    match path {
+        ConnectorPath::Bezier(bez) => {
+            let (p0x, p0y) = local(bez.p0);
+            let (c1x, c1y) = local(bez.c1);
+            let (c2x, c2y) = local(bez.c2);
+            let (p3x, p3y) = local(bez.p3);
+            format!(
+                "M {} {} C {} {} {} {} {} {}",
+                fmt_px(p0x),
+                fmt_px(p0y),
+                fmt_px(c1x),
+                fmt_px(c1y),
+                fmt_px(c2x),
+                fmt_px(c2y),
+                fmt_px(p3x),
+                fmt_px(p3y),
+            )
+        }
+        ConnectorPath::Orthogonal(pts) => {
+            let cmds = filleted_polyline(pts, ORTHO_CORNER_RADIUS);
+            let mut d = String::new();
+            for cmd in cmds {
+                match cmd {
+                    PathCmd::Move(p) => {
+                        let (x, y) = local(p);
+                        d.push_str(&format!("M {} {} ", fmt_px(x), fmt_px(y)));
+                    }
+                    PathCmd::Line(p) => {
+                        let (x, y) = local(p);
+                        d.push_str(&format!("L {} {} ", fmt_px(x), fmt_px(y)));
+                    }
+                    PathCmd::Cubic { c1, c2, to } => {
+                        let (x1, y1) = local(c1);
+                        let (x2, y2) = local(c2);
+                        let (x, y) = local(to);
+                        d.push_str(&format!(
+                            "C {} {} {} {} {} {} ",
+                            fmt_px(x1),
+                            fmt_px(y1),
+                            fmt_px(x2),
+                            fmt_px(y2),
+                            fmt_px(x),
+                            fmt_px(y)
+                        ));
+                    }
+                }
+            }
+            d
+        }
+    }
 }
 
 fn arrow_len(conn: &ConnectorNode) -> f32 {
@@ -1304,13 +1429,14 @@ fn push_arrow_head(html: &mut String, conn: &ConnectorNode, tip: (f32, f32), int
         fmt_px(b2.0),
         fmt_px(b2.1),
     );
-    push_path_open(html, &d, &conn.stroke.color.css());
+    push_path_open(html, &d, &conn.stroke.color.css(), PathFillRule::NonZero);
     html.push_str(" stroke=\"none\"></path>");
 }
 
 fn render_text(html: &mut String, node: &Node, text: &slate_doc::scene::TextNode, rel: WorldRect) {
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
+    append_clip(&mut style, node, rel);
     if let Some(fill) = text.fill {
         style.push_str("background:");
         style.push_str(&fill.css());
@@ -1350,6 +1476,22 @@ fn geometry_style(rect: WorldRect, rotation_deg: f32) -> String {
         );
     }
     style
+}
+
+fn append_clip(style: &mut String, node: &Node, rel: WorldRect) {
+    let Some(clip) = &node.clip else {
+        return;
+    };
+    let d = path_data_d(clip, rel.w, rel.h);
+    if matches!(clip.fill_rule, PathFillRule::EvenOdd) {
+        style.push_str("clip-path:path(evenodd, '");
+        style.push_str(&d);
+        style.push_str("');clip-rule:evenodd;");
+    } else {
+        style.push_str("clip-path:path('");
+        style.push_str(&d);
+        style.push_str("');");
+    }
 }
 
 fn append_opacity(style: &mut String, opacity: f32) {

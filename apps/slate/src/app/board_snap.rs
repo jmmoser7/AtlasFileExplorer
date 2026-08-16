@@ -29,6 +29,9 @@ pub struct SnapGuide {
     pub pos: f32,
     pub span_start: f32,
     pub span_end: f32,
+    /// World coordinate of the impact along the guide (y for vertical, x for
+    /// horizontal) — where the moving object meets the snap field.
+    pub origin: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -110,6 +113,7 @@ fn best_axis_snap(
                     pos: tp,
                     span_start: span.0,
                     span_end: span.1,
+                    origin: (moving_span.0 + moving_span.1) * 0.5,
                 });
             }
         }
@@ -230,6 +234,7 @@ fn snap_equal_spacing(
                     pos: m.cy,
                     span_start: a.right,
                     span_end: c.left,
+                    origin: m.cx,
                 });
                 found = true;
                 break;
@@ -256,6 +261,7 @@ fn snap_equal_spacing(
                     pos: m2.cx,
                     span_start: a.bottom,
                     span_end: c.top,
+                    origin: m2.cy,
                 });
                 found = true;
                 break;
@@ -414,6 +420,7 @@ fn vertical_guide(pos: f32, span_start: f32, span_end: f32, trects: &[SnapLines]
         pos,
         span_start: span.0,
         span_end: span.1,
+        origin: (span_start + span_end) * 0.5,
     }
 }
 
@@ -430,7 +437,20 @@ fn horizontal_guide(pos: f32, span_start: f32, span_end: f32, trects: &[SnapLine
         pos,
         span_start: span.0,
         span_end: span.1,
+        origin: (span_start + span_end) * 0.5,
     }
+}
+
+/// Map a member's origin through a group-box scale, keeping width and height.
+/// Used by Ctrl+Alt+Shift group-grip: the selection AABB changes, items only
+/// translate.
+pub fn remap_group_keep_size(rect: WorldRect, sx: f32, sy: f32, anchor: (f32, f32)) -> WorldRect {
+    WorldRect::new(
+        anchor.0 + (rect.x - anchor.0) * sx,
+        anchor.1 + (rect.y - anchor.1) * sy,
+        rect.w,
+        rect.h,
+    )
 }
 
 /// Union bounding box of several rects.
@@ -489,9 +509,59 @@ fn pointer_local(pointer: Pos2, rect: WorldRect, rotation_deg: f32) -> Pos2 {
     Pos2::new(cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
 }
 
+/// Local-space point of a resize handle (0–7: Nw N Ne E Se S Sw W).
+pub fn handle_local(rect: WorldRect, handle: u8) -> (f32, f32) {
+    let (cx, cy) = rect.center();
+    let (left, right) = (rect.x, rect.x + rect.w);
+    let (top, bottom) = (rect.y, rect.y + rect.h);
+    match handle {
+        0 => (left, top),
+        1 => (cx, top),
+        2 => (right, top),
+        3 => (right, cy),
+        4 => (right, bottom),
+        5 => (cx, bottom),
+        6 => (left, bottom),
+        _ => (left, cy),
+    }
+}
+
+/// Opposite handle — the world-space point that must stay put during a
+/// non-center resize, and the origin of a group-box scale.
+pub fn resize_anchor(rect: WorldRect, handle: u8, from_center: bool) -> (f32, f32) {
+    if from_center {
+        return rect.center();
+    }
+    handle_local(rect, handle.wrapping_add(4) % 8)
+}
+
+/// After a local-space resize, translate so the opposite handle stays put
+/// in world space. Rotation is about the live rect center: keeping only the
+/// local AABB edge fixed walks the far world edge (most visible at 180°).
+fn pin_rotated_resize(
+    before: WorldRect,
+    mut r: WorldRect,
+    handle: u8,
+    rotation_deg: f32,
+) -> WorldRect {
+    if rotation_deg.abs() < f32::EPSILON {
+        return r;
+    }
+    let old_world = orbit_point(
+        before.center(),
+        resize_anchor(before, handle, false),
+        rotation_deg,
+    );
+    let new_world = orbit_point(r.center(), resize_anchor(r, handle, false), rotation_deg);
+    r.x += old_world.0 - new_world.0;
+    r.y += old_world.1 - new_world.1;
+    r
+}
+
 /// Resize from a handle (0–7: corners then edge midpoints). Operates in the
-/// node's local axes when `rotation_deg` is non-zero. Shift locks aspect ratio;
-/// Ctrl resizes from center (PowerPoint / Office convention).
+/// node's local axes when `rotation_deg` is non-zero, then pins the opposite
+/// handle in world space so the grabbed edge is the one that moves. Shift
+/// locks aspect ratio; Ctrl resizes from center (PowerPoint / Office).
 pub fn resize_from_handle(
     before: WorldRect,
     pointer: Pos2,
@@ -521,7 +591,7 @@ pub fn resize_from_handle(
 
     let is_corner = matches!(handle, 0 | 2 | 4 | 6);
 
-    match handle {
+    let r = match handle {
         0 => {
             let ax = before.x + before.w;
             let ay = before.y + before.h;
@@ -616,7 +686,8 @@ pub fn resize_from_handle(
                 WorldRect::new(ax - w, before.y, w, before.h)
             }
         }
-    }
+    };
+    pin_rotated_resize(before, r, handle, rotation_deg)
 }
 
 /// Rotate `p` about `center` by `delta_deg` (clockwise in y-down world
@@ -745,6 +816,70 @@ mod tests {
         assert!((r.w / r.h - 2.0).abs() < 0.05, "w={} h={}", r.w, r.h);
     }
 
+    fn world_aabb(rect: WorldRect, rot: f32) -> (f32, f32, f32, f32) {
+        let cs = rect.corners_rotated(rot);
+        let xs = cs.map(|c| c.0);
+        let ys = cs.map(|c| c.1);
+        (
+            xs.into_iter().fold(f32::INFINITY, f32::min),
+            xs.into_iter().fold(f32::NEG_INFINITY, f32::max),
+            ys.into_iter().fold(f32::INFINITY, f32::min),
+            ys.into_iter().fold(f32::NEG_INFINITY, f32::max),
+        )
+    }
+
+    #[test]
+    fn rotated_180_edge_resize_moves_the_grabbed_world_edge() {
+        let before = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let rot = 180.0;
+        let (_, _, top0, bot0) = world_aabb(before, rot);
+        // After 180° the visual top is local S (handle 5). Drag it further up.
+        let r = resize_from_handle(
+            before,
+            Pos2::new(50.0, top0 - 20.0),
+            5,
+            8.0,
+            false,
+            false,
+            rot,
+        );
+        let (_, _, top1, bot1) = world_aabb(r, rot);
+        assert!(
+            (bot1 - bot0).abs() < 0.05,
+            "opposite (visual bottom) walked: {bot0} → {bot1}"
+        );
+        assert!(
+            (top1 - (top0 - 20.0)).abs() < 0.05,
+            "grabbed visual top should follow the pointer: {top0} → {top1}"
+        );
+    }
+
+    #[test]
+    fn rotated_90_edge_resize_moves_the_grabbed_world_edge() {
+        let before = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let rot = 90.0;
+        let (left0, right0, _, _) = world_aabb(before, rot);
+        // After 90° CW the visual right is local N (handle 1).
+        let r = resize_from_handle(
+            before,
+            Pos2::new(right0 + 20.0, 50.0),
+            1,
+            8.0,
+            false,
+            false,
+            rot,
+        );
+        let (left1, right1, _, _) = world_aabb(r, rot);
+        assert!(
+            (left1 - left0).abs() < 0.05,
+            "opposite (visual left) walked: {left0} → {left1}"
+        );
+        assert!(
+            (right1 - (right0 + 20.0)).abs() < 0.05,
+            "grabbed visual right should follow the pointer: {right0} → {right1}"
+        );
+    }
+
     #[test]
     fn rotation_snaps_to_45() {
         assert!((snap_rotation_deg(44.0, ROTATION_SNAP_DEG) - 45.0).abs() < 0.01);
@@ -801,5 +936,18 @@ mod tests {
         let r = constrain_draw_rect(raw, true, true);
         assert!((r.w - r.h).abs() < 0.01);
         assert!((r.w - 120.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn remap_group_keep_size_translates_without_scaling() {
+        let left = WorldRect::new(0.0, 0.0, 80.0, 60.0);
+        let right = WorldRect::new(120.0, 0.0, 80.0, 60.0);
+        // Grow the group 200 → 300 from the left edge (sx = 1.5).
+        let a = remap_group_keep_size(left, 1.5, 1.0, (0.0, 30.0));
+        let b = remap_group_keep_size(right, 1.5, 1.0, (0.0, 30.0));
+        assert!((a.w - 80.0).abs() < 1e-4 && (a.h - 60.0).abs() < 1e-4);
+        assert!((b.w - 80.0).abs() < 1e-4 && (b.h - 60.0).abs() < 1e-4);
+        assert!((a.x - 0.0).abs() < 1e-4);
+        assert!((b.x - 180.0).abs() < 1e-4);
     }
 }

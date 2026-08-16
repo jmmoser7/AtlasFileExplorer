@@ -13,9 +13,9 @@ inline workbook tabs, caption drag, and window controls. Painting lives in
 `SlateApp` state and applies returned actions.
 
 The top bar is registered first so it remains outermost and spans the full
-viewport width; the tools rail begins below it. Full-screen canvas
-(`ChromeConfig::canvas_fullscreen`; F11, View → Full-screen canvas, or ⛶)
-suppresses the tools rail and readout bar; the top bar stays.
+viewport width; the tools rail begins below it. The lower-left chevron
+(`ChromeConfig::canvas_fullscreen`; F11, View → Hide readout bar) collapses
+the bottom readout strip; the top bar and tools rail stay.
 
 **Home:** Orthogonal to workbook tabs (`at_home`; no tab selected). On launch
 with no CLI workbook, Cover Flow shows recent workbooks or template
@@ -29,7 +29,7 @@ hidden on home. Opening is the shelf; **New** starts a blank workbook.
 | Floating tools dock | `ui/tools.rs` + `atlas-shell::dock` | The **single** bottom-centered toolbar: board creation tools (Select/Pan, Frame, Shapes, Curve, Text — Board view only), Grid/Snap/Align, plus **Tags**, **Selection**, **View**, and **Lens** (Lens view only). Flyouts and panels open upward, anchored to their icon. Workbook, AI, Present, Export, and Advanced live in the app-icon portal. See `crates/atlas-shell/DOCK.md`. |
 | Canvas | `canvas.rs` | Grid + Venn presentations, selection, right-click tag assignment |
 | Lens | `lens.rs` | Code-dependency graph canvas: worker pump, painting, focus/expand gestures |
-| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock) |
+| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock). Armed create-tool chrome (tinted pointer + 22 px ghost) lives in `board_place.rs`. **Trim** (`board_trim.rs`, Ctrl+T) picks cutters then clicks the dying piece — open paths rewrite spans, closed shapes become compound even-odd paths, text/images store `Node.clip`. **Join** (`board_join.rs`, Ctrl+J) merges open paths at nearest ends, or boolean-unions any set that includes a closed shape (open operands become stroke-weight ribbons). Object snaps (`board_osnap.rs`, syntax in `slate-doc::osnap`) and wire routing (`slate-doc::wire`, bezier / orthogonal) are a Document Settings palette — session aid, not journaled. Wires paint under host nodes. A Grasshopper-style align widget (`board_align.rs`) appears around a 2+ selection. Canvas objects follow **P0.9** (scale with zoom). Agent portals have no identity tab; an unbound portal embeds `atlas-shell::home::cover_flow_home` (`HomeModel.interactive` only in contents-focus) and journals the chosen folder on `PortalNode.source`. Bound posters split Cursor IDE status from file-link sidecar status. |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
 | Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
 | 3D viewports | `model3d.rs` | Rhino `.3dm` viewport lifecycle: off-thread mesh parse (`crates/rhino-mesh`), offscreen glow render, lock/unlock + poster cache |
@@ -123,6 +123,29 @@ the workbook. Two invariants carry the whole design:
 
 Other board rules:
 
+- **Forcefield snap guides** (`board_forcefield.rs`) replace persistent
+  alignment leader lines: acquiring a smart-guide snap fires a short
+  tapered ribbon from the impact that grows off-canvas and fades
+  (`board_forcefield` tokens).
+- **Object snaps** are a session preference (`ObjectSnapSet` in
+  `slate-settings.json`), not a journaled document property. Syntax and
+  apply/reject live in `slate-doc::osnap`; the picker is `board_osnap.rs`.
+  Document Settings → Object snaps holds the board kinds plus Snap to
+  grid. 3D / NURBS snaps are not listed there — they belong on a Rhino
+  view portal (`P1.portal.local-ui`).
+- **Click-to-place.** Armed area tools (rect, ellipse, frame, portals)
+  place a kit/preset default size on a click; drag still sizes. Text and
+  sticky already did. Line / pen / brush still arm — they have no box.
+- **Align widget** (`board_align.rs`) is selection chrome, not a tool: two
+  icon clusters (bottom + left) sit outside a 2+ Select-tool group box.
+  Selection chrome is a silhouette outline (no grip squares) that follows
+  fillets and ellipses. Press commits `board.align.*` / `board.distribute.*`
+  through one `patch_nodes` group. Ctrl+Alt+Shift on a group grip
+  repositions members without scaling them.
+- **Portal-local UI (`P1.portal.local-ui`).** Source-specific controls
+  live on the portal (Selection inspector / Set portal / portal chrome).
+  Document Settings stays canvas-scoped so it does not grow a row per
+  portal or node kind. New portal contracts answer D35.
 - **Frames are slides.** Membership is geometric (a node belongs to the frame
   containing its center); moving a frame moves its members. `FrameNode.order`
   is the deck sequence. Frames can carry tag assignments; images dropped into
@@ -215,7 +238,11 @@ URL, or a local `.html` file or folder. The frame, the locator, and the
 viewport parameters are journaled; the rendered page never is.
 
 `board_web.rs` is the whole feature except pixels: states, LOD buckets, pool
-admission, painting, entry paths, and the commands. It talks to a `WebHost`
+admission, painting, entry paths, and the commands. Shared portal chrome —
+identity tab (web-only, slimmer than the dashboard top bar), maximize
+overlay, corner clip — lives in `board_portal_chrome.rs` and is painted by
+`atlas-shell::tabs`. Maximize is the only button on the web tab strip.
+It talks to a `WebHost`
 trait, and the default implementation is `NullHost`, which is why the feature
 builds and tests on Linux and on Windows machines with no Evergreen runtime —
 portals still place, bind, export, and bake there, and simply report

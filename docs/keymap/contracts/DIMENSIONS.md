@@ -63,3 +63,6 @@ Rules:
 | D30 | Failure & honesty states | Every state the source can be in — missing, wrong kind, partial, unreachable — and what each one paints | portal | portal-lens-repository |
 | D31 | View-state ownership | Which knobs are journaled authored intent and which are per-peer derived state (Art. VI.3 / VIII.5) | portal | portal-lens-repository |
 | D32 | Trust, sandbox & consent | What foreign code or network access the contents are given, what sandbox holds them, and what the human must permit before the first fetch | portal | portal-web-embed |
+| D33 | Portal chrome | How the identity tab is painted, folded, and recovered, and which right-click actions it owns | portal | portal-web-embed |
+| D34 | Portal maximize | What maximize does to the window, the page aspect, Slate chrome, and Esc | portal | portal-web-embed |
+| D35 | Portal-local UI | Which source-specific controls this portal owns, and confirmation they do not appear on Document Settings or other board-wide chrome (P1.portal.local-ui) | portal | object-snap |

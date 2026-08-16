@@ -5,6 +5,24 @@ bound and why) and `ARCHITECTURE.md` (how it is built); per-app binding
 tables live in each app's `commands.rs` (`SPECS`) and render in
 **Advanced → Commands & shortcuts**.
 
+## 2026-08-16 — Join (open paths + region union)
+
+- **`board.path.join`** on **Ctrl+J** (already the chord) now also unions
+  closed shapes and treats an open curve in that set as a stroke-weight
+  ribbon. Type "join" / Actions dock row. Contract: `contracts/join.md`.
+- Open+open is unchanged: nearest endpoints, first selected style, one undo.
+
+## 2026-08-16 — Trim (2D Rhino subset)
+
+- **`board.tool.trim`** on **Ctrl+T**. New workbook tab is **Ctrl+N** only.
+  Contract: `contracts/trim.md` (`P2.RhinoTrim`). Actions dock chip between
+  objects and properties.
+- Pick cutters, Enter, click the dying piece. Each click is one undo.
+  Line cutters are infinite. No Untrim — geometry is rewritten.
+- Closed shapes become compound even-odd paths (a circle punch is a hole).
+  Text and images keep the node and store the remaining region in
+  `Node.clip` (SVG/CSS `clip-path`). Frames and portals are never targets.
+
 ## 2026-08-16 — Status Board portal (second generated portal)
 
 - **`portal-status-board`** lands as a generated portal: journaled frame +

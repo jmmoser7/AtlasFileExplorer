@@ -149,7 +149,7 @@ minimum `History::push`) with the same IDs — one surface, many adapters
 | F1 | `app.help` | opens Advanced → Commands & shortcuts |
 | F2 | `app.history` | Slate only (Atlas keeps F2 = Assign) |
 | Ctrl+Shift+P | `app.preferences` | opens Advanced window, both apps |
-| Ctrl+N | `app.new_tab` | alias of Ctrl+T, both apps |
+| Ctrl+N | `app.new_tab` | both apps (Slate Ctrl+T is Trim) |
 
 ## Tests (in `atlas-commands`)
 

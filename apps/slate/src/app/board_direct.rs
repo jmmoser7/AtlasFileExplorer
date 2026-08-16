@@ -497,26 +497,47 @@ impl SlateApp {
                 }
             }
         }
-        // Open Path nodes in the selection (z-order).
-        let open_paths: Vec<NodeId> = self
-            .doc()
-            .scene
-            .nodes
-            .iter()
-            .filter(|n| self.board_sel.contains(&n.id))
-            .filter(|n| {
-                matches!(&n.kind, NodeKind::Shape(s)
-                    if s.shape == ShapeKind::Path
-                        && s.path.as_ref().is_some_and(|p| !p.closed && !p.is_empty()))
-            })
-            .map(|n| n.id)
-            .collect();
-        match open_paths.len() {
+        // Joinable shapes in selection (z-order). Closed operands switch
+        // the whole set to region union (`P2.RhinoJoin.region`).
+        let mut opens = Vec::new();
+        let mut closeds = Vec::new();
+        let mut joinable = Vec::new();
+        for n in &self.doc().scene.nodes {
+            if !self.board_sel.contains(&n.id) || n.hidden || n.locked {
+                continue;
+            }
+            let NodeKind::Shape(s) = &n.kind else {
+                continue;
+            };
+            let closed = match s.shape {
+                ShapeKind::Rect | ShapeKind::Ellipse => true,
+                ShapeKind::Path => s.path.as_ref().is_some_and(|p| p.closed),
+                ShapeKind::Line => false,
+            };
+            let open = match s.shape {
+                ShapeKind::Line => true,
+                ShapeKind::Path => s.path.as_ref().is_some_and(|p| !p.closed && !p.is_empty()),
+                _ => false,
+            };
+            if !closed && !open {
+                continue;
+            }
+            joinable.push(n.id);
+            if closed {
+                closeds.push(n.id);
+            } else {
+                opens.push(n.id);
+            }
+        }
+        if !closeds.is_empty() {
+            return self.join_regions(&joinable);
+        }
+        match opens.len() {
             0 => false,
             // Case 2: close the single open path (merge within 24 world
             // units, else bridge with a straight closing segment).
             1 => {
-                let id = open_paths[0];
+                let id = opens[0];
                 let Some((anchors, _)) = self.direct_anchors_of(id) else {
                     return false;
                 };
@@ -524,7 +545,7 @@ impl SlateApp {
             }
             // Case 3: object-level join — fold nearest endpoint pairs,
             // first node's style wins, one Remove+Add group.
-            _ => self.join_nodes(&open_paths),
+            _ => self.join_nodes(&opens),
         }
     }
 

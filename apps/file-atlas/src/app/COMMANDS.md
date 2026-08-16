@@ -68,6 +68,9 @@ When you add or change any user-facing input binding:
 - **Ctrl+N** — new tab (alias of the menu New tab).
 - **F1** — Advanced → Commands & shortcuts. **Ctrl+Shift+P** — Advanced.
 - **F3** — toggle Details for the single selected file. **F2 stays Assign.**
+- **F4** — mark this moment in the session activity log (`app.session.mark`).
+  Advanced → Session log shows the path and last stall; **Open log folder**
+  reveals `%LOCALAPPDATA%\NativeFileAtlas\session-log\`.
 - **Mode dock → View / Edit** — View is the default safe browsing mode. Edit
   enables human-directed filesystem rename, move, copy, new-folder, and delete
   operations for the active tab.

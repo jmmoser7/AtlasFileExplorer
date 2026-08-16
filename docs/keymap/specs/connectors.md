@@ -32,11 +32,19 @@ pub enum WireDisplay { Default, Faint }
 Rules:
 
 - **Geometry is derived, never stored.** The curve between endpoints is
-  computed at paint/export time from the *current* rects of anchored nodes:
-  a cubic bezier leaving each anchored end perpendicular to its side, with
-  handle length `clamp(0.35 * distance, 24.0, 160.0)` world units (tune).
+  computed at paint/export time from the *current* rects of anchored nodes.
+  Document Settings → Wires chooses the session display (`WireRouting`, not
+  journaled — same class as the grid and object snaps):
+  - **Bezier** (default): a cubic leaving each anchored end perpendicular
+    to its side, handle length `clamp(0.35 * distance, 24.0, 160.0)`.
+  - **Orthogonal**: axis-aligned shortest path that leaves each side
+    perpendicular, then wraps host AABBs instead of crossing them. Equal
+    length ties prefer the right-hand path, then the bottom path. Corner
+    fillets match File Atlas PCB-trace wires (`ORTHO_CORNER_RADIUS` world
+    units, P0.9).
   `Node.rect` for a connector is its recomputed AABB (kept fresh whenever an
-  endpoint node patches) so marquee/hit systems keep working.
+  endpoint node patches, or the routing toggle changes) so marquee/hit
+  systems keep working.
 - Connectors ignore frame membership and never become slides.
 - Deleting a node deletes connectors anchored *only* to it? **No** — the
   anchored end degrades to `Free` at its last world position (journaled as
@@ -46,11 +54,13 @@ Rules:
 
 ## Grips (the interaction affordance)
 
-- With the **Select tool**, hovering a non-connector node within ~8 px of
-  its edge reveals **4 side grips** (small circles at side midpoints).
-  Hover a grip: enlarge + highlight. Snap radius while dragging a wire:
-  **14 px screen space** to a grip; anywhere on a node's edge snaps to the
-  nearest side with `t` = projected fraction.
+- With the **Select tool**, a side grip previews only when the pointer is
+  within ~8 px of **that grip's midpoint**. An edge between grips is
+  inert — it does not reveal the other three. A press on that midpoint
+  starts a wire and **beats** the edge-resize band (hit-test the press
+  origin, not the live hover cache). Snap radius while dragging a wire:
+  **14 px screen space** to a grip; anywhere on a node's edge snaps to
+  the nearest side with `t` = projected fraction.
 - A dedicated **Connector tool** is *not* added in P1 — grips-from-Select
   matches Miro and avoids another mode. (Palette entry "Connect…" can arm a
   one-shot wire from the selected node's nearest side.)
@@ -80,9 +90,10 @@ release journals net Add/Patch/Remove via `record`.
 - Faint = 40% stroke opacity, thinner. Selected connector: endpoint dots
   visible + standard selection tint. Arrowheads are small filled triangles
   oriented to the curve tangent at the end.
-- Z-rule (one global rule per research §5): connectors paint **above frames
-  and fills, below selected-node handles**; within nodes they respect vec
-  z-order like everything else.
+- Z-rule: connectors paint **above frames, below every other node** so a
+  wire appears to connect from underneath its hosts and never laps their
+  graphics. Selection/hover chrome for a selected wire still paints after
+  the hosts. Click pick matches: a host under the pointer beats the wire.
 
 ## Artifact + beacon parity
 

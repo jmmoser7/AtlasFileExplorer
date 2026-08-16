@@ -22,13 +22,17 @@ pub struct UiTokens {
     pub palette: PaletteTokens,
     pub readouts: ReadoutTokens,
     pub activity_heatmap: ActivityHeatmapTokens,
+    pub portal_frame: PortalFrameTokens,
+    pub board_preview: BoardPreviewTokens,
+    pub board_forcefield: BoardForcefieldTokens,
+    pub menu: MenuTokens,
     pub theme: ThemeTokens,
 }
 
 impl Default for UiTokens {
     fn default() -> Self {
         Self {
-            schema_version: 4,
+            schema_version: 7,
             topbar: TopBarTokens::default(),
             dock: DockTokens::default(),
             home: HomeTokens::default(),
@@ -36,6 +40,10 @@ impl Default for UiTokens {
             palette: PaletteTokens::default(),
             readouts: ReadoutTokens::default(),
             activity_heatmap: ActivityHeatmapTokens::default(),
+            portal_frame: PortalFrameTokens::default(),
+            board_preview: BoardPreviewTokens::default(),
+            board_forcefield: BoardForcefieldTokens::default(),
+            menu: MenuTokens::default(),
             theme: ThemeTokens::default(),
         }
     }
@@ -61,6 +69,16 @@ pub struct ReadoutTokens {
     pub text_size: f32,
     /// Draw the vertical separators flanking the gear menu.
     pub separators: bool,
+    /// Collapse chevron sitting on the canvas, lower-left, just above this strip.
+    pub chevron_size: f32,
+    pub chevron_hit: f32,
+    pub chevron_inset_x: f32,
+    pub chevron_inset_y: f32,
+    pub chevron_stroke: f32,
+    pub chevron_idle_opacity: f32,
+    pub chevron_hover_opacity: f32,
+    pub chevron_hover_fill: f32,
+    pub chevron_emboss: f32,
 }
 
 impl Default for ReadoutTokens {
@@ -73,7 +91,377 @@ impl Default for ReadoutTokens {
             row_height: 0.0,
             text_size: 12.0,
             separators: true,
+            chevron_size: 8.0,
+            chevron_hit: 16.0,
+            chevron_inset_x: 5.0,
+            chevron_inset_y: 3.0,
+            chevron_stroke: 1.15,
+            chevron_idle_opacity: 0.38,
+            chevron_hover_opacity: 0.92,
+            chevron_hover_fill: 0.10,
+            chevron_emboss: 0.22,
         }
+    }
+}
+
+/// Shared in-frame chrome for Slate portal nodes (identity tab, fillet, reveal).
+/// Painting lives in [`crate::tabs`]; these are the feel constants (P0.6).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PortalFrameTokens {
+    /// Designed corner radius of every portal frame (body, identity tab,
+    /// selection highlight). Contents clip to this fillet. Times zoom on
+    /// the canvas (P0.9).
+    pub corner_radius: f32,
+    /// Hover strip at the top interior used to re-expand a folded identity tab.
+    pub reveal_strip_px: f32,
+    /// Hit size for the maximize glyph on a portal.
+    pub chrome_button_px: f32,
+    /// Border band that stays a Slate target while contents hold input focus.
+    pub border_hit_px: f32,
+    /// Portal identity tab height as a fraction of the dashboard top bar.
+    /// Web portals use a slimmer strip than the Slate / File Atlas chrome.
+    pub tab_height_scale: f32,
+}
+
+impl Default for PortalFrameTokens {
+    fn default() -> Self {
+        Self {
+            corner_radius: 8.0,
+            reveal_strip_px: 14.0,
+            chrome_button_px: 22.0,
+            border_hit_px: 6.0,
+            tab_height_scale: 0.4,
+        }
+    }
+}
+
+impl PortalFrameTokens {
+    pub fn normalize(&mut self) {
+        self.corner_radius = self.corner_radius.clamp(0.0, 24.0);
+        self.reveal_strip_px = self.reveal_strip_px.clamp(6.0, 32.0);
+        self.chrome_button_px = self.chrome_button_px.clamp(14.0, 36.0);
+        self.border_hit_px = self.border_hit_px.clamp(2.0, 16.0);
+        self.tab_height_scale = self.tab_height_scale.clamp(0.25, 1.0);
+    }
+}
+
+/// Slate board selection / hover preview (hosted here so the shared tuner
+/// can reach it). Selection chrome is immediate; body hover eases in/out.
+/// Edge hover is cursor-only and never uses these outlines.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BoardPreviewTokens {
+    /// Selected-object outline width (screen px).
+    pub select_line_weight: f32,
+    /// Selected-object outline opacity (color density).
+    pub select_opacity: f32,
+    /// Body-hover outline width (screen px).
+    pub hover_line_weight: f32,
+    /// Body-hover outline opacity at full highlight.
+    pub hover_opacity: f32,
+    /// Seconds to ease from idle → highlighted.
+    pub highlight_in: f32,
+    /// Seconds to ease from highlighted → idle after the pointer leaves.
+    pub highlight_out: f32,
+}
+
+impl Default for BoardPreviewTokens {
+    fn default() -> Self {
+        Self {
+            select_line_weight: 1.5,
+            select_opacity: 1.0,
+            hover_line_weight: 1.25,
+            hover_opacity: 0.55,
+            highlight_in: 0.12,
+            highlight_out: 0.22,
+        }
+    }
+}
+
+impl BoardPreviewTokens {
+    pub fn normalize(&mut self) {
+        self.select_line_weight = self.select_line_weight.clamp(0.5, 6.0);
+        self.select_opacity = self.select_opacity.clamp(0.05, 1.0);
+        self.hover_line_weight = self.hover_line_weight.clamp(0.5, 6.0);
+        self.hover_opacity = self.hover_opacity.clamp(0.05, 1.0);
+        self.highlight_in = self.highlight_in.clamp(0.0, 1.5);
+        self.highlight_out = self.highlight_out.clamp(0.0, 1.5);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        for value in [
+            &mut self.select_line_weight,
+            &mut self.select_opacity,
+            &mut self.hover_line_weight,
+            &mut self.hover_opacity,
+            &mut self.highlight_in,
+            &mut self.highlight_out,
+        ] {
+            *value = (*value * 1_000.0).round() / 1_000.0;
+        }
+    }
+}
+
+/// Slate smart-guide "forcefield" pulse (hosted here so the shared tuner
+/// can reach it). A snap alignment fires a short ribbon that grows out from
+/// the impact and fades — not a persistent leader line.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BoardForcefieldTokens {
+    /// Seconds for the ribbon to grow from the impact to off-canvas.
+    pub expand_secs: f32,
+    /// Seconds to fade after the expand finishes.
+    pub fade_secs: f32,
+    /// Stroke width at the impact (screen px).
+    pub center_weight: f32,
+    /// Stroke width at the leading edges (screen px).
+    pub edge_weight: f32,
+    /// Opacity at the impact (0–1).
+    pub center_opacity: f32,
+    /// Opacity at the leading edges (0–1).
+    pub edge_opacity: f32,
+}
+
+impl Default for BoardForcefieldTokens {
+    fn default() -> Self {
+        Self {
+            expand_secs: 0.10,
+            fade_secs: 0.14,
+            center_weight: 0.85,
+            edge_weight: 0.15,
+            center_opacity: 0.22,
+            edge_opacity: 0.03,
+        }
+    }
+}
+
+impl BoardForcefieldTokens {
+    pub fn normalize(&mut self) {
+        self.expand_secs = self.expand_secs.clamp(0.02, 0.80);
+        self.fade_secs = self.fade_secs.clamp(0.02, 0.80);
+        self.center_weight = self.center_weight.clamp(0.05, 4.0);
+        self.edge_weight = self.edge_weight.clamp(0.0, self.center_weight);
+        self.center_opacity = self.center_opacity.clamp(0.0, 1.0);
+        self.edge_opacity = self.edge_opacity.clamp(0.0, self.center_opacity);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        for value in [
+            &mut self.expand_secs,
+            &mut self.fade_secs,
+            &mut self.center_weight,
+            &mut self.edge_weight,
+            &mut self.center_opacity,
+            &mut self.edge_opacity,
+        ] {
+            *value = (*value * 1_000.0).round() / 1_000.0;
+        }
+    }
+
+    pub fn lifetime(self) -> f32 {
+        self.expand_secs + self.fade_secs
+    }
+}
+
+/// Shared look for every dropdown and right-click menu (see `MENUS.md`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MenuTokens {
+    pub corner_radius: f32,
+    pub border_width: f32,
+    pub panel_padding: f32,
+    pub row_height: f32,
+    pub row_pad_x: f32,
+    pub row_gap: f32,
+    pub icon_size: f32,
+    pub icon_gap: f32,
+    pub icon_stroke: f32,
+    pub chevron_size: f32,
+    pub divider_inset: f32,
+    pub divider_thickness: f32,
+    pub divider_gap: f32,
+    pub hover_radius: f32,
+    pub min_width: f32,
+    pub text_size: f32,
+    pub letter_spacing: f32,
+    pub shortcut_text_size: f32,
+    pub shadow_offset_x: f32,
+    pub shadow_offset_y: f32,
+    pub shadow_blur: f32,
+    pub shadow_spread: f32,
+    pub shadow_opacity: f32,
+    pub light: MenuThemeTokens,
+    pub dark: MenuThemeTokens,
+}
+
+impl Default for MenuTokens {
+    fn default() -> Self {
+        Self {
+            corner_radius: 10.0,
+            border_width: 0.0,
+            panel_padding: 8.0,
+            row_height: 32.0,
+            row_pad_x: 12.0,
+            row_gap: 1.0,
+            icon_size: 15.0,
+            icon_gap: 10.0,
+            icon_stroke: 1.15,
+            chevron_size: 11.0,
+            divider_inset: 12.0,
+            divider_thickness: 1.0,
+            divider_gap: 6.0,
+            hover_radius: 6.0,
+            min_width: 220.0,
+            text_size: 13.0,
+            letter_spacing: 0.15,
+            shortcut_text_size: 11.0,
+            shadow_offset_x: 0.0,
+            shadow_offset_y: 8.0,
+            shadow_blur: 24.0,
+            shadow_spread: 0.0,
+            shadow_opacity: 0.22,
+            light: MenuThemeTokens::light(),
+            dark: MenuThemeTokens::dark(),
+        }
+    }
+}
+
+impl MenuTokens {
+    pub fn theme(&self, dark: bool) -> &MenuThemeTokens {
+        if dark {
+            &self.dark
+        } else {
+            &self.light
+        }
+    }
+
+    pub fn normalize(&mut self) {
+        self.corner_radius = self.corner_radius.clamp(0.0, 28.0);
+        self.border_width = self.border_width.clamp(0.0, 2.0);
+        self.panel_padding = self.panel_padding.clamp(2.0, 28.0);
+        self.row_height = self.row_height.clamp(20.0, 48.0);
+        self.row_pad_x = self.row_pad_x.clamp(4.0, 28.0);
+        self.row_gap = self.row_gap.clamp(0.0, 12.0);
+        self.icon_size = self.icon_size.clamp(8.0, 22.0);
+        self.icon_gap = self.icon_gap.clamp(4.0, 20.0);
+        self.icon_stroke = self.icon_stroke.clamp(0.6, 2.4);
+        self.chevron_size = self.chevron_size.clamp(6.0, 20.0);
+        self.divider_inset = self.divider_inset.clamp(0.0, 32.0);
+        self.divider_thickness = self.divider_thickness.clamp(0.5, 2.0);
+        self.divider_gap = self.divider_gap.clamp(0.0, 16.0);
+        self.hover_radius = self.hover_radius.clamp(0.0, 16.0);
+        self.min_width = self.min_width.clamp(140.0, 420.0);
+        self.text_size = self.text_size.clamp(9.0, 20.0);
+        self.letter_spacing = self.letter_spacing.clamp(0.0, 1.5);
+        self.shortcut_text_size = self.shortcut_text_size.clamp(8.0, 16.0);
+        self.shadow_offset_x = self.shadow_offset_x.clamp(-20.0, 20.0);
+        self.shadow_offset_y = self.shadow_offset_y.clamp(-8.0, 32.0);
+        self.shadow_blur = self.shadow_blur.clamp(0.0, 48.0);
+        self.shadow_spread = self.shadow_spread.clamp(0.0, 12.0);
+        self.shadow_opacity = self.shadow_opacity.clamp(0.0, 0.6);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        for value in [
+            &mut self.corner_radius,
+            &mut self.border_width,
+            &mut self.panel_padding,
+            &mut self.row_height,
+            &mut self.row_pad_x,
+            &mut self.row_gap,
+            &mut self.icon_size,
+            &mut self.icon_gap,
+            &mut self.icon_stroke,
+            &mut self.chevron_size,
+            &mut self.divider_inset,
+            &mut self.divider_thickness,
+            &mut self.divider_gap,
+            &mut self.hover_radius,
+            &mut self.min_width,
+            &mut self.text_size,
+            &mut self.letter_spacing,
+            &mut self.shortcut_text_size,
+            &mut self.shadow_offset_x,
+            &mut self.shadow_offset_y,
+            &mut self.shadow_blur,
+            &mut self.shadow_spread,
+            &mut self.shadow_opacity,
+        ] {
+            *value = (*value * 1_000.0).round() / 1_000.0;
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MenuThemeTokens {
+    pub fill: [u8; 4],
+    pub hover: [u8; 4],
+    pub text: [u8; 4],
+    pub muted: [u8; 4],
+    pub divider: [u8; 4],
+    pub icon: [u8; 4],
+    pub danger: [u8; 4],
+    pub border: [u8; 4],
+}
+
+impl MenuThemeTokens {
+    fn light() -> Self {
+        Self {
+            fill: [247, 247, 245, 255],
+            hover: [232, 232, 229, 255],
+            text: [28, 28, 30, 255],
+            muted: [110, 110, 108, 255],
+            divider: [226, 226, 222, 255],
+            icon: [28, 28, 30, 255],
+            danger: [196, 92, 74, 255],
+            border: [226, 226, 222, 0],
+        }
+    }
+
+    fn dark() -> Self {
+        Self {
+            fill: [26, 27, 30, 255],
+            hover: [42, 43, 48, 255],
+            text: [242, 242, 240, 255],
+            muted: [154, 154, 152, 255],
+            divider: [46, 48, 54, 255],
+            icon: [242, 242, 240, 255],
+            danger: [212, 106, 92, 255],
+            border: [46, 48, 54, 0],
+        }
+    }
+
+    pub fn fill_color(&self) -> Color32 {
+        rgba(self.fill)
+    }
+    pub fn hover_color(&self) -> Color32 {
+        rgba(self.hover)
+    }
+    pub fn text_color(&self) -> Color32 {
+        rgba(self.text)
+    }
+    pub fn muted_color(&self) -> Color32 {
+        rgba(self.muted)
+    }
+    pub fn divider_color(&self) -> Color32 {
+        rgba(self.divider)
+    }
+    pub fn icon_color(&self) -> Color32 {
+        rgba(self.icon)
+    }
+    pub fn danger_color(&self) -> Color32 {
+        rgba(self.danger)
+    }
+    pub fn border_color(&self) -> Color32 {
+        rgba(self.border)
+    }
+}
+
+impl Default for MenuThemeTokens {
+    fn default() -> Self {
+        Self::dark()
     }
 }
 
@@ -85,6 +473,15 @@ impl ReadoutTokens {
         self.item_gap = self.item_gap.clamp(0.0, 24.0);
         self.row_height = self.row_height.clamp(0.0, 48.0);
         self.text_size = self.text_size.clamp(7.0, 20.0);
+        self.chevron_size = self.chevron_size.clamp(4.0, 16.0);
+        self.chevron_hit = self.chevron_hit.clamp(10.0, 28.0);
+        self.chevron_inset_x = self.chevron_inset_x.clamp(0.0, 24.0);
+        self.chevron_inset_y = self.chevron_inset_y.clamp(0.0, 16.0);
+        self.chevron_stroke = self.chevron_stroke.clamp(0.6, 2.4);
+        self.chevron_idle_opacity = self.chevron_idle_opacity.clamp(0.08, 1.0);
+        self.chevron_hover_opacity = self.chevron_hover_opacity.clamp(0.2, 1.0);
+        self.chevron_hover_fill = self.chevron_hover_fill.clamp(0.0, 0.4);
+        self.chevron_emboss = self.chevron_emboss.clamp(0.0, 0.6);
     }
 
     pub fn round_for_storage(&mut self) {
@@ -95,6 +492,15 @@ impl ReadoutTokens {
             &mut self.item_gap,
             &mut self.row_height,
             &mut self.text_size,
+            &mut self.chevron_size,
+            &mut self.chevron_hit,
+            &mut self.chevron_inset_x,
+            &mut self.chevron_inset_y,
+            &mut self.chevron_stroke,
+            &mut self.chevron_idle_opacity,
+            &mut self.chevron_hover_opacity,
+            &mut self.chevron_hover_fill,
+            &mut self.chevron_emboss,
         ] {
             *value = (*value * 1_000.0).round() / 1_000.0;
         }
@@ -634,6 +1040,8 @@ pub struct DockTokens {
     pub panel_open_duration: f32,
     /// Gap between icon top and label chip / preview anchor.
     pub hover_chip_gap: f32,
+    /// Flyout icon-strip squircles as a fraction of [`Self::icon_size`].
+    pub flyout_icon_scale: f32,
     pub light: DockThemeTokens,
     pub dark: DockThemeTokens,
 }
@@ -675,6 +1083,7 @@ impl Default for DockTokens {
             describe_fade_duration: 0.28,
             panel_open_duration: 0.18,
             hover_chip_gap: 6.0,
+            flyout_icon_scale: 0.65,
             light: DockThemeTokens::light(),
             dark: DockThemeTokens::dark(),
         }
@@ -708,6 +1117,7 @@ impl DockTokens {
         self.describe_fade_duration = self.describe_fade_duration.clamp(0.05, 1.0);
         self.panel_open_duration = self.panel_open_duration.clamp(0.05, 0.8);
         self.hover_chip_gap = self.hover_chip_gap.clamp(2.0, 24.0);
+        self.flyout_icon_scale = self.flyout_icon_scale.clamp(0.4, 1.0);
     }
 
     pub fn round_for_storage(&mut self) {
@@ -747,6 +1157,7 @@ impl DockTokens {
             &mut self.describe_fade_duration,
             &mut self.panel_open_duration,
             &mut self.hover_chip_gap,
+            &mut self.flyout_icon_scale,
         ] {
             round3(value);
         }
@@ -885,6 +1296,33 @@ impl Default for TopBarTokens {
 }
 
 impl TopBarTokens {
+    /// Every linear length at a canvas zoom factor (P0.9). Opacities, title
+    /// character caps, and the portal *menu* (window chrome) stay put.
+    /// Window-chrome painting uses the unscaled tokens.
+    pub fn scaled(&self, zoom: f32) -> Self {
+        let s = zoom.max(0.0);
+        let mut t = self.clone();
+        t.height *= s;
+        t.tab_top_inset *= s;
+        t.tab_top_radius *= s;
+        t.tab_shoulder_radius *= s;
+        t.tab_horizontal_padding *= s;
+        t.tab_close_width *= s;
+        t.tab_text_size *= s;
+        t.tab_min_width *= s;
+        t.tab_max_width *= s;
+        t.plus_hit_width *= s;
+        t.plus_radius *= s;
+        t.plus_text_size *= s;
+        t.icon_zone_width *= s;
+        t.icon_size *= s;
+        t.window_button_width *= s;
+        t.glow_outer_width *= s;
+        t.glow_middle_width *= s;
+        t.glow_core_width *= s;
+        t
+    }
+
     /// Keep hand-edited or live-edited values inside safe rendering bounds.
     pub fn normalize(&mut self) {
         self.height = self.height.max(1.0);
@@ -1418,6 +1856,10 @@ fn parse_embedded() -> UiTokens {
     tokens.palette.normalize();
     tokens.readouts.normalize();
     tokens.activity_heatmap.normalize();
+    tokens.portal_frame.normalize();
+    tokens.board_preview.normalize();
+    tokens.board_forcefield.normalize();
+    tokens.menu.normalize();
     tokens
 }
 
@@ -1440,6 +1882,10 @@ pub fn replace(mut tokens: UiTokens) {
     tokens.palette.normalize();
     tokens.readouts.normalize();
     tokens.activity_heatmap.normalize();
+    tokens.portal_frame.normalize();
+    tokens.board_preview.normalize();
+    tokens.board_forcefield.normalize();
+    tokens.menu.normalize();
     *store().write().expect("UI token lock poisoned") = tokens;
 }
 
@@ -1460,6 +1906,34 @@ mod tests {
         assert!(tokens.dock.popover_width > 0.0);
         assert!(tokens.theme.dark.dark_base);
         assert!(!tokens.theme.light.dark_base);
+        assert!(tokens.board_preview.select_line_weight > 0.0);
+        assert!(tokens.board_preview.highlight_out >= tokens.board_preview.highlight_in);
+        assert_eq!(tokens.schema_version, 7);
+        assert!(tokens.board_forcefield.center_weight > tokens.board_forcefield.edge_weight);
+        assert!(tokens.menu.border_width <= 0.01);
+        assert!(tokens.menu.corner_radius >= 8.0);
+        assert!(tokens.menu.divider_inset > 0.0);
+    }
+
+    #[test]
+    fn canvas_tab_fillets_track_zoom() {
+        let t = current().topbar;
+        for zoom in [0.05_f32, 0.5, 1.0, 2.0, 8.0] {
+            let a = t.scaled(zoom);
+            let b = t.scaled(zoom * 2.0);
+            assert!(
+                (b.tab_top_radius - a.tab_top_radius * 2.0).abs() < 1e-4,
+                "top fillet froze at z={zoom}: {} → {}",
+                a.tab_top_radius,
+                b.tab_top_radius
+            );
+            assert!(
+                (b.tab_shoulder_radius - a.tab_shoulder_radius * 2.0).abs() < 1e-4,
+                "shoulder fillet froze at z={zoom}"
+            );
+            assert!((b.tab_top_inset - a.tab_top_inset * 2.0).abs() < 1e-4);
+            assert!((b.glow_core_width - a.glow_core_width * 2.0).abs() < 1e-4);
+        }
     }
 
     #[test]

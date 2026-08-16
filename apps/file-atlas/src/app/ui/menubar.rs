@@ -5,7 +5,7 @@
 use super::super::{AtlasApp, ViewCmd};
 use crate::app::chrome::ToolPanel;
 use atlas_shell::dock::DockSide;
-use atlas_shell::menubar::{self, AppIcon, MenuItem, MenuSpec, UnifiedTopBarModel};
+use atlas_shell::menubar::{self, AppIcon, MenuIcon, MenuItem, MenuSpec, UnifiedTopBarModel};
 use atlas_shell::tabs::{TabAction, TabSpec};
 use eframe::egui;
 
@@ -17,36 +17,47 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
     let menus = [
         MenuSpec {
             title: "File",
+            icon: MenuIcon::File,
             items: vec![
-                MenuItem::new("file.home", "Home"),
+                MenuItem::new("file.home", "Home").icon(MenuIcon::Folder),
                 MenuItem::new("file.open_folder", "Open folders…")
+                    .icon(MenuIcon::Open)
                     .shortcut("Ctrl+O")
                     .separated(),
-                MenuItem::new("file.new_tab", "New tab"),
-                MenuItem::new("file.close_tab", "Close tab"),
+                MenuItem::new("file.new_tab", "New tab").icon(MenuIcon::Tab),
+                MenuItem::new("file.close_tab", "Close tab").icon(MenuIcon::Tab),
                 MenuItem::new("file.download_cloud", "Download cloud files…")
+                    .icon(MenuIcon::Link)
                     .enabled(has_root)
                     .separated(),
-                MenuItem::new("file.exit", "Exit").separated(),
+                MenuItem::new("file.exit", "Exit")
+                    .icon(MenuIcon::Enter)
+                    .separated(),
             ],
         },
         MenuSpec {
             title: "Edit",
+            icon: MenuIcon::Rename,
             items: vec![],
         },
         MenuSpec {
             title: "View",
+            icon: MenuIcon::View,
             items: vec![
                 MenuItem::new("view.fit", "Fit view")
+                    .icon(MenuIcon::View)
                     .shortcut("F")
                     .enabled(has_root),
                 MenuItem::new("view.zoom_in", "Zoom in")
+                    .icon(MenuIcon::View)
                     .shortcut("+")
                     .enabled(has_root),
                 MenuItem::new("view.zoom_out", "Zoom out")
+                    .icon(MenuIcon::View)
                     .shortcut("−")
                     .enabled(has_root),
-                MenuItem::new("view.fullscreen", "Full-screen canvas")
+                MenuItem::new("view.fullscreen", "Hide readout bar")
+                    .icon(MenuIcon::View)
                     .shortcut("F11")
                     .checked(chrome.canvas_fullscreen)
                     .separated(),
@@ -54,23 +65,35 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
         },
         MenuSpec {
             title: "Preferences",
+            icon: MenuIcon::Settings,
             items: vec![
-                MenuItem::new("view.dark", "Dark mode").checked(app.dark_mode),
+                MenuItem::new("view.dark", "Dark mode")
+                    .icon(MenuIcon::View)
+                    .checked(app.dark_mode),
                 MenuItem::new("dock.left", "Dock · left edge")
+                    .icon(MenuIcon::Settings)
                     .checked(app.dock_side == DockSide::LeftCenter)
                     .separated(),
                 MenuItem::new("dock.bottom", "Dock · bottom edge")
+                    .icon(MenuIcon::Settings)
                     .checked(app.dock_side == DockSide::BottomCenter),
                 MenuItem::new("tools.filters", "Show Filters dock")
+                    .icon(MenuIcon::Search)
                     .checked(chrome.tool(ToolPanel::BasicFilters))
                     .separated(),
                 MenuItem::new("tools.display", "Show Display dock")
+                    .icon(MenuIcon::View)
                     .checked(chrome.tool(ToolPanel::DisplaySettings)),
-                MenuItem::new("tools.mode", "Show Mode dock").checked(chrome.tool(ToolPanel::Mode)),
+                MenuItem::new("tools.mode", "Show Mode dock")
+                    .icon(MenuIcon::Settings)
+                    .checked(chrome.tool(ToolPanel::Mode)),
                 MenuItem::new("tools.workflow", "Show Workflow dock")
+                    .icon(MenuIcon::Details)
                     .checked(chrome.tool(ToolPanel::Workflow)),
-                MenuItem::new("tools.ai", "Show AI dock").checked(chrome.tool(ToolPanel::Ai)),
-                MenuItem::new("view.advanced", "Advanced settings…"),
+                MenuItem::new("tools.ai", "Show AI dock")
+                    .icon(MenuIcon::Chat)
+                    .checked(chrome.tool(ToolPanel::Ai)),
+                MenuItem::new("view.advanced", "Advanced settings…").icon(MenuIcon::Settings),
             ],
         },
     ];

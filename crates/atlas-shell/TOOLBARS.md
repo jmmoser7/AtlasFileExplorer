@@ -19,10 +19,26 @@ sessions via `ChromePrefs.pinned_panels` where apps wire that up.
 **Hover chip rules:** a pin / click immediately suppresses the title chip
 until the pointer leaves the strip (so a still-hovering cursor cannot flash
 the name over the icon). Pinned icons and icons with a volatile body open
-never show a hover chip — the panel caption already names them. Moving onto
-a pinned / open icon also clears any prior chip immediately (the bar still
-counts as "inside", so close-delay alone would leave the previous name stuck).
+never show a hover chip — the panel caption already names them. The chip
+is live **only** while the pointer is on that icon. Moving onto a pinned
+or volatile flyout — including the bottom of a pinned palette that sits
+above the strip — clears the chip immediately. The flyout owns hover
+hierarchically: its rows / strip icons take precedence over any dock icon
+behind (single-click) or beneath (pinned). Close-delay must not keep a
+name chip up just because the pointer is still "inside" the dock.
 Chip fill uses `HOVER_CHIP_OPACITY` so the canvas stays readable underneath.
+
+**Body layout:** every pinned (and volatile) palette shares one dock-wide
+choice — stacked list or free-space icon strip. Each stacked list still
+has its own three-squircle control; clicking any one switches **all**
+palettes. Icon-strip mode drops the popover frame and section labels:
+squircles sit in free space, hex-packed, in primary-icon order, with a
+subtle divider between categories. One stacked-list glyph sits at the far
+right of the whole band. Hovering anywhere in a strip's vicinity holds
+the leader back to that palette's primary icon. Strip squircles are
+`flyout_icon_scale` of the primary dock icons and use the same hover chip.
+Primary-icon name chips paint *after* panels on the Tooltip layer so they
+never hide behind a pinned toolbar.
 
 **Icon fill:** hover and selected / pinned states are a barely-perceptible
 mix toward the hover/active tokens (`ICON_HOVER_MIX` / `ICON_ACTIVE_MIX` in
@@ -57,7 +73,10 @@ width, and hover / volatile / pinned panels share one width per panel id.
 - Small toolbars: full expansion is fine.
 - Expand/collapse chrome uses Windows-like **minimize (─)** / **maximize (□)**
   glyphs, scaled to the control, upper-right of primary panels and subsection
-  headers — not `+`/`−` text for these surfaces.
+  headers — not `+`/`−` text for these surfaces. A subsection ─ collapses
+  only that fold; the panel caption ─ is the one that dismisses / unpins
+  (`DOCK.md`). Hit-testing keeps last-frame panel bounds so a collapse
+  cannot be mistaken for an outside click.
 
 ## Sliders vs scroll
 
