@@ -232,6 +232,11 @@ impl SlateApp {
             self.toast("Select an agent portal first.");
             return;
         };
+        let prompt = self.agents.prompt_mut(portal).trim().to_string();
+        if prompt.is_empty() {
+            self.toast("Type a prompt for the agent portal first.");
+            return;
+        }
         let Some(ws) = self.ai.config.valid_workspace().map(|p| p.to_path_buf()) else {
             self.fail_agent_await(
                 portal,
@@ -239,14 +244,10 @@ impl SlateApp {
                     .into(),
             );
             self.toast("Set an AI workspace before sending an agent prompt.");
+            #[cfg(not(test))]
             self.ai.pick_workspace();
             return;
         };
-        let prompt = self.agents.prompt_mut(portal).trim().to_string();
-        if prompt.is_empty() {
-            self.toast("Type a prompt for the agent portal first.");
-            return;
-        }
         let req = AgentRequest {
             id: format!("req-{}", atlas_ai::context::now_secs()),
             prompt,
@@ -952,7 +953,7 @@ impl SlateApp {
                 FontId::proportional(title_px),
                 Color32::from_rgb(230, 234, 242),
             );
-            let chip_w = 96.0 * z;
+            let chip_w = 110.0 * z;
             let chip = Rect::from_min_size(
                 Pos2::new(header.right() - chip_w, header.center().y - 9.0 * z),
                 egui::vec2(chip_w, 18.0 * z),
@@ -1244,6 +1245,42 @@ impl SlateApp {
             .unwrap_or_default()
     }
 
+    fn portal_has_new_reply(&self, id: NodeId, req_at: u64) -> bool {
+        let local = self
+            .agents
+            .local_turns
+            .get(&id)
+            .map(|t| t.as_slice())
+            .unwrap_or(&[]);
+        let session = self
+            .agents
+            .sessions
+            .get(&id)
+            .map(|s| s.turns.as_slice())
+            .unwrap_or(&[]);
+        await_new_reply(local, req_at) || await_new_reply(session, req_at)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn agent_failure_reason(&self, id: NodeId) -> Option<&str> {
+        match self.agents.awaiting.get(&id) {
+            Some(AgentAwait::Failed { reason }) => Some(reason.as_str()),
+            _ => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn agent_is_awaiting(&self, id: NodeId) -> bool {
+        matches!(
+            self.agents.awaiting.get(&id),
+            Some(
+                AgentAwait::Sent { .. }
+                    | AgentAwait::Thinking { .. }
+                    | AgentAwait::Responding { .. }
+            )
+        )
+    }
+
     pub(crate) fn open_agent_chat_picker(&mut self, portal: NodeId) {
         let Some(folder) = self.agent_folder_for(portal) else {
             self.toast("Bind a project folder before switching chats.");
@@ -1446,6 +1483,55 @@ impl SlateApp {
     }
 }
 
+fn await_new_reply(turns: &[AgentTurn], req_at: u64) -> bool {
+    turns
+        .iter()
+        .any(|t| t.role == "assistant" && t.at >= req_at)
+}
+
+fn paint_thinking_dots(
+    painter: &egui::Painter,
+    origin: Pos2,
+    z: f32,
+    t: f32,
+    color: Color32,
+) {
+    let r = 2.2 * z;
+    let gap = 8.0 * z;
+    for i in 0..3 {
+        let phase = t * 5.0 - i as f32 * 0.7;
+        let a = 0.25 + 0.75 * (phase.sin() * 0.5 + 0.5);
+        painter.circle_filled(
+            Pos2::new(origin.x + i as f32 * gap, origin.y),
+            r,
+            color.gamma_multiply(a),
+        );
+    }
+}
+
+fn agent_status_chip(
+    provider: &str,
+    ide: CursorIdeStatus,
+    sidecar: Option<&AgentStatus>,
+    awaiting: Option<&AgentAwait>,
+) -> (Color32, &'static str, bool) {
+    match awaiting {
+        Some(AgentAwait::Failed { .. }) => {
+            return (Color32::from_rgb(230, 90, 90), "Unreachable", false);
+        }
+        Some(AgentAwait::Responding { .. }) => {
+            return (Color32::from_rgb(61, 156, 245), "Responding", true);
+        }
+        Some(AgentAwait::Sent { .. } | AgentAwait::Thinking { .. }) => {
+            return (Color32::from_rgb(61, 156, 245), "Thinking", true);
+        }
+        None => {}
+    }
+    let (color, label) = agent_live_chip(provider, ide, sidecar);
+    let pulse = matches!(sidecar, Some(AgentStatus::Thinking));
+    (color, label, pulse)
+}
+
 fn agent_live_chip(
     provider: &str,
     ide: CursorIdeStatus,
@@ -1510,5 +1596,78 @@ fn paths_same(a: &std::path::Path, b: &std::path::Path) -> bool {
     #[cfg(not(windows))]
     {
         ac == bc
+    }
+}
+
+#[cfg(test)]
+mod agent_await_tests {
+    use super::*;
+
+    #[test]
+    fn an_older_assistant_turn_is_not_this_reply() {
+        let turns = vec![
+            AgentTurn {
+                role: "assistant".into(),
+                text: "old".into(),
+                at: 10,
+            },
+            AgentTurn {
+                role: "user".into(),
+                text: "hi".into(),
+                at: 20,
+            },
+        ];
+        assert!(
+            !await_new_reply(&turns, 20),
+            "a prior answer must not clear the current send"
+        );
+    }
+
+    #[test]
+    fn a_new_assistant_turn_counts() {
+        let turns = vec![
+            AgentTurn {
+                role: "user".into(),
+                text: "hi".into(),
+                at: 20,
+            },
+            AgentTurn {
+                role: "assistant".into(),
+                text: "ok".into(),
+                at: 21,
+            },
+        ];
+        assert!(await_new_reply(&turns, 20));
+    }
+
+    #[test]
+    fn the_chip_names_unreachable_on_failure() {
+        let waiting = AgentAwait::Failed {
+            reason: "no key".into(),
+        };
+        let (_, label, pulse) = agent_status_chip(
+            "cursor",
+            CursorIdeStatus::Running,
+            Some(&AgentStatus::Idle),
+            Some(&waiting),
+        );
+        assert_eq!(label, "Unreachable");
+        assert!(!pulse);
+    }
+
+    #[test]
+    fn the_chip_pulses_while_thinking() {
+        let waiting = AgentAwait::Sent {
+            at: Instant::now(),
+            req_at: 1,
+        };
+        let (_, label, pulse) = agent_status_chip(
+            "cursor",
+            CursorIdeStatus::Running,
+            None,
+            Some(&waiting),
+        );
+        assert_eq!(label, "Thinking");
+        assert!(pulse);
     }
 }
