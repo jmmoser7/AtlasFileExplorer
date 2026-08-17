@@ -10,14 +10,14 @@ use super::board::{rgba32, BoardXf};
 use super::{board_path, SlateApp};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
-    connector_anchor_point, ConnectorBezier, ConnectorEnd, ConnectorNode, Dash, Node, NodeKind,
-    Scene, SceneCmd, Side, Stroke, StrokeCap, StrokeJoin, WidthProfile, WireDisplay, WorldRect,
+    ConnectorBezier, ConnectorEnd, ConnectorNode, Dash, Node, NodeKind, Scene, SceneCmd, Side,
+    Stroke, StrokeCap, StrokeJoin, WidthProfile, WireDisplay, WorldRect,
 };
 use slate_doc::wire::{
-    connector_aabb_routed, connector_route, filleted_polyline, scene_wire_obstacles, ConnectorPath,
-    PathCmd, WireRouting, ORTHO_CORNER_RADIUS,
+    connector_aabb_routed, connector_route_in_scene, filleted_polyline, scene_wire_obstacles,
+    ConnectorPath, OrthoLane, PathCmd, WireRouting, ORTHO_CORNER_RADIUS,
 };
-use slate_doc::NodeId;
+use slate_doc::{connector_anchor_on, NodeId, WireHost};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use vector_ink::kurbo::BezPath;
@@ -33,8 +33,6 @@ const FAINT_OPACITY: f32 = 0.4;
 /// Connector label font size in world units (matches the artifact's
 /// `CONNECTOR_LABEL_SIZE`).
 const CONNECTOR_LABEL_SIZE: f32 = 14.0;
-
-const ALL_SIDES: [Side; 4] = [Side::Top, Side::Right, Side::Bottom, Side::Left];
 
 /// Which grips are showing this frame: node + the grip under the pointer.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -74,7 +72,12 @@ pub struct PendingWire {
 // ---------- pure geometry helpers ----------
 
 pub(crate) fn grip_point(rect: WorldRect, side: Side) -> Pos2 {
-    let p = connector_anchor_point(rect, side, 0.5);
+    let p = WireHost::from_rect(rect).anchor(side, 0.5);
+    Pos2::new(p[0], p[1])
+}
+
+fn port_point(node: &Node, side: Side, t: f32) -> Pos2 {
+    let p = connector_anchor_on(node, side, t);
     Pos2::new(p[0], p[1])
 }
 
@@ -89,39 +92,6 @@ fn rect_edge_dist(rect: WorldRect, p: Pos2) -> f32 {
         let dy = (t - p.y).max(p.y - b).max(0.0);
         (dx * dx + dy * dy).sqrt()
     }
-}
-
-/// Nearest side of `rect` to `p`, with the projected fraction along it.
-fn nearest_side(rect: WorldRect, p: Pos2) -> (Side, f32, f32) {
-    let mut best = (Side::Top, 0.5f32, f32::INFINITY);
-    for side in ALL_SIDES {
-        let (a, b) = match side {
-            Side::Top => (
-                Pos2::new(rect.x, rect.y),
-                Pos2::new(rect.x + rect.w, rect.y),
-            ),
-            Side::Bottom => (
-                Pos2::new(rect.x, rect.y + rect.h),
-                Pos2::new(rect.x + rect.w, rect.y + rect.h),
-            ),
-            Side::Left => (
-                Pos2::new(rect.x, rect.y),
-                Pos2::new(rect.x, rect.y + rect.h),
-            ),
-            Side::Right => (
-                Pos2::new(rect.x + rect.w, rect.y),
-                Pos2::new(rect.x + rect.w, rect.y + rect.h),
-            ),
-        };
-        let ab = b - a;
-        let len2 = ab.length_sq().max(f32::EPSILON);
-        let t = ((p - a).dot(ab) / len2).clamp(0.0, 1.0);
-        let d = (p - (a + ab * t)).length();
-        if d < best.2 {
-            best = (side, t, d);
-        }
-    }
-    best
 }
 
 pub(crate) fn connector_kurbo(bez: &ConnectorBezier) -> BezPath {
@@ -185,15 +155,14 @@ pub(crate) fn connector_cache_key(
 /// connectors whose anchored node is hidden — they are not painted either.
 pub fn hit_connector_routed(
     scene: &Scene,
+    id: NodeId,
     conn: &ConnectorNode,
     wx: f32,
     wy: f32,
     zoom: f32,
     routing: WireRouting,
 ) -> bool {
-    let rect_of = |id: NodeId| scene.node(id).filter(|n| !n.hidden).map(|n| n.rect);
-    let obstacles = scene_wire_obstacles(scene);
-    let Some(path) = connector_route(&conn.a, &conn.b, rect_of, routing, &obstacles) else {
+    let Some(path) = connector_route_in_scene(scene, Some(id), &conn.a, &conn.b, routing) else {
         return false;
     };
     let kurbo = connector_path_kurbo(&path);
@@ -206,10 +175,9 @@ pub fn hit_connector_routed(
 /// current rects; hidden anchors still resolve for interaction purposes).
 fn end_point(scene: &Scene, end: &ConnectorEnd) -> Option<Pos2> {
     match end {
-        ConnectorEnd::Anchored { node, side, t } => scene.node(*node).map(|n| {
-            let p = connector_anchor_point(n.rect, *side, *t);
-            Pos2::new(p[0], p[1])
-        }),
+        ConnectorEnd::Anchored { node, side, t } => {
+            scene.node(*node).map(|n| port_point(n, *side, *t))
+        }
         ConnectorEnd::Free { point } => Some(Pos2::new(point[0], point[1])),
     }
 }
@@ -238,15 +206,17 @@ impl SlateApp {
         self.connector_sync_gen = 0;
     }
 
-    pub(crate) fn connector_path_visible(&self, conn: &ConnectorNode) -> Option<ConnectorPath> {
-        let scene = &self.doc().scene;
-        let obstacles = scene_wire_obstacles(scene);
-        connector_route(
+    pub(crate) fn connector_path_visible(
+        &self,
+        id: NodeId,
+        conn: &ConnectorNode,
+    ) -> Option<ConnectorPath> {
+        connector_route_in_scene(
+            &self.doc().scene,
+            Some(id),
             &conn.a,
             &conn.b,
-            |id| scene.node(id).filter(|n| !n.hidden).map(|n| n.rect),
             self.board_wire_routing,
-            &obstacles,
         )
     }
 
@@ -256,20 +226,21 @@ impl SlateApp {
     /// a body under the pointer occludes grips behind it. Used by both the
     /// hover preview and press-to-wire so a drag that has already left the
     /// dot still starts a wire from the press origin (resize must not win).
-    pub(crate) fn wire_grip_at(&self, screen: Pos2, xf: &BoardXf) -> Option<(NodeId, Side)> {
+    pub(crate) fn wire_grip_at(&self, screen: Pos2, xf: &BoardXf) -> Option<(NodeId, Side, f32)> {
         let w = xf.s2w(screen);
         for n in self.doc().scene.nodes.iter().rev() {
             if n.hidden || matches!(n.kind, NodeKind::Connector(_)) {
                 continue;
             }
-            let hovered = ALL_SIDES.into_iter().find(|side| {
-                let g = xf.w2s(grip_point(n.rect, *side));
+            let host = WireHost::from_node(n);
+            let hovered = host.ports().into_iter().find(|port| {
+                let g = xf.w2s(Pos2::new(port.point[0], port.point[1]));
                 g.distance(screen) <= GRIP_HIT_PX
             });
-            if let Some(side) = hovered {
-                return Some((n.id, side));
+            if let Some(port) = hovered {
+                return Some((n.id, port.side, port.t));
             }
-            if n.rect.contains_rotated(w.x, w.y, n.rotation_deg) {
+            if host.is_area() && n.rect.contains_rotated(w.x, w.y, n.rotation_deg) {
                 return None;
             }
         }
@@ -283,7 +254,7 @@ impl SlateApp {
     pub(crate) fn update_wire_grips(&mut self, pointer: Option<Pos2>, xf: &BoardXf) {
         self.wire_grips = None;
         let Some(p) = pointer else { return };
-        if let Some((node, side)) = self.wire_grip_at(p, xf) {
+        if let Some((node, side, _)) = self.wire_grip_at(p, xf) {
             self.wire_grips = Some(GripHover {
                 node,
                 hovered: Some(side),
@@ -298,7 +269,7 @@ impl SlateApp {
             return;
         };
         let palette = self.palette();
-        let g = xf.w2s(grip_point(n.rect, side));
+        let g = xf.w2s(port_point(n, side, 0.5));
         let r = atlas_shell::canvas_scale::px(6.0, xf.z);
         painter.circle_filled(g, r, palette.bg);
         painter.circle_stroke(
@@ -350,8 +321,8 @@ impl SlateApp {
         }
 
         // Press origin on a side-midpoint grip — not the live hover cache.
-        let (node_id, side) = self.wire_grip_at(screen, &xf)?;
-        let from = (node_id, side, 0.5f32);
+        let (node_id, side, t) = self.wire_grip_at(screen, &xf)?;
+        let from = (node_id, side, t);
 
         // Ends currently anchored to this grip (node + side).
         let ends: Vec<(NodeId, bool, Node)> = self
@@ -422,16 +393,17 @@ impl SlateApp {
             if n.hidden || matches!(n.kind, NodeKind::Connector(_)) || Some(n.id) == exclude {
                 continue;
             }
-            // Grips snap to t = 0.5 first.
-            if let Some(side) = ALL_SIDES
+            let host = WireHost::from_node(n);
+            if let Some(port) = host
+                .ports()
                 .into_iter()
-                .find(|side| grip_point(n.rect, *side).distance(world) <= snap_w)
+                .find(|port| Pos2::new(port.point[0], port.point[1]).distance(world) <= snap_w)
             {
-                return Some((n.id, side, 0.5));
+                return Some((n.id, port.side, port.t));
             }
-            let (side, t, d) = nearest_side(n.rect, world);
-            if d <= snap_w {
-                return Some((n.id, side, t));
+            let snap = host.snap([world.x, world.y]);
+            if snap.dist <= snap_w {
+                return Some((n.id, snap.side, snap.t));
             }
         }
         None
@@ -450,7 +422,7 @@ impl SlateApp {
                     .doc()
                     .scene
                     .node(from.0)
-                    .map(|n| grip_point(n.rect, from.1)),
+                    .map(|n| port_point(n, from.1, from.2)),
                 _ => None,
             };
             if let Some(o) = origin {
@@ -471,7 +443,7 @@ impl SlateApp {
                     .doc()
                     .scene
                     .node(from.0)
-                    .map(|n| grip_point(n.rect, from.1)),
+                    .map(|n| port_point(n, from.1, from.2)),
                 _ => None,
             };
             let skip: Vec<NodeId> = exclude.into_iter().collect();
@@ -637,8 +609,15 @@ impl SlateApp {
             display: WireDisplay::Default,
         };
         let scene = &self.doc().scene;
-        let rect = slate_doc::scene::connector_aabb(&conn, |id| scene.node(id).map(|n| n.rect))
-            .unwrap_or(WorldRect::new(0.0, 0.0, 1.0, 1.0));
+        let obstacles = scene_wire_obstacles(scene);
+        let rect = connector_aabb_routed(
+            &conn,
+            |id| scene.node(id).map(WireHost::from_node),
+            self.board_wire_routing,
+            &obstacles,
+            OrthoLane::default(),
+        )
+        .unwrap_or(WorldRect::new(0.0, 0.0, 1.0, 1.0));
         let node = self
             .doc_mut()
             .scene
@@ -661,24 +640,25 @@ impl SlateApp {
         let Some(pending) = self.wire_pending.take() else {
             return;
         };
-        let Some(target) = self.doc().scene.node(placed).map(|n| n.rect) else {
+        let Some(target) = self.doc().scene.node(placed).cloned() else {
             return;
         };
         let from_pt = self
             .doc()
             .scene
             .node(pending.from.0)
-            .map(|n| grip_point(n.rect, pending.from.1));
+            .map(|n| port_point(n, pending.from.1, pending.from.2));
         let Some(from_pt) = from_pt else { return };
-        // Nearest side of the placed node to the source grip.
-        let side = ALL_SIDES
+        let host = WireHost::from_node(&target);
+        let port = host
+            .ports()
             .into_iter()
             .min_by(|a, b| {
-                grip_point(target, *a)
+                Pos2::new(a.point[0], a.point[1])
                     .distance(from_pt)
-                    .total_cmp(&grip_point(target, *b).distance(from_pt))
+                    .total_cmp(&Pos2::new(b.point[0], b.point[1]).distance(from_pt))
             })
-            .expect("four sides");
+            .expect("every host has ports");
         self.add_connector(
             ConnectorEnd::Anchored {
                 node: pending.from.0,
@@ -687,8 +667,8 @@ impl SlateApp {
             },
             ConnectorEnd::Anchored {
                 node: placed,
-                side,
-                t: 0.5,
+                side: port.side,
+                t: port.t,
             },
         );
     }
@@ -718,14 +698,9 @@ impl SlateApp {
                 },
             };
             let scene = &self.doc().scene;
-            let obstacles = scene_wire_obstacles(scene);
-            if let Some(path) = connector_route(
-                &a,
-                &b,
-                |id| scene.node(id).filter(|n| !n.hidden).map(|n| n.rect),
-                self.board_wire_routing,
-                &obstacles,
-            ) {
+            if let Some(path) =
+                connector_route_in_scene(scene, None, &a, &b, self.board_wire_routing)
+            {
                 let color = rgba32(self.board_colors.fg).gamma_multiply(if wd.snap.is_some() {
                     1.0
                 } else {
@@ -737,7 +712,7 @@ impl SlateApp {
         // Snap highlight.
         if let Some((node, side, t)) = wd.snap {
             if let Some(n) = self.doc().scene.node(node) {
-                let p = connector_anchor_point(n.rect, side, t);
+                let p = connector_anchor_on(n, side, t);
                 let s = xf.w2s(Pos2::new(p[0], p[1]));
                 painter.circle_stroke(s, 8.0, EStroke::new(2.0_f32, palette.accent));
             }
@@ -775,7 +750,7 @@ impl SlateApp {
     ) {
         // Hidden-anchor rule: unresolvable connectors are skipped entirely
         // (matches the artifact writer).
-        let Some(path) = self.connector_path_visible(conn) else {
+        let Some(path) = self.connector_path_visible(node.id, conn) else {
             return;
         };
         let opacity = (node.opacity
@@ -867,7 +842,7 @@ impl SlateApp {
         let NodeKind::Connector(conn) = &node.kind else {
             return;
         };
-        let Some(path) = self.connector_path_visible(conn) else {
+        let Some(path) = self.connector_path_visible(node.id, conn) else {
             return;
         };
         let palette = self.palette();
@@ -907,6 +882,7 @@ impl SlateApp {
         let routing = self.board_wire_routing;
         let scene = &self.doc().scene;
         let obstacles = scene_wire_obstacles(scene);
+        let lanes = slate_doc::scene_ortho_lanes(scene);
         let updates: Vec<(NodeId, WorldRect)> = scene
             .nodes
             .iter()
@@ -916,9 +892,10 @@ impl SlateApp {
                 };
                 let aabb = connector_aabb_routed(
                     c,
-                    |id| scene.node(id).map(|node| node.rect),
+                    |id| scene.node(id).map(WireHost::from_node),
                     routing,
                     &obstacles,
+                    lanes.get(&n.id).copied().unwrap_or_default(),
                 )?;
                 (aabb != n.rect).then_some((n.id, aabb))
             })
@@ -955,7 +932,7 @@ impl SlateApp {
             self.wire_label_edit = None;
             return;
         };
-        let Some(path) = self.connector_path_visible(&conn) else {
+        let Some(path) = self.connector_path_visible(id, &conn) else {
             self.wire_label_edit = None;
             return;
         };
@@ -1110,13 +1087,13 @@ mod tests {
     #[test]
     fn nearest_side_projects_fraction() {
         let rect = WorldRect::new(0.0, 0.0, 100.0, 50.0);
-        let (side, t, d) = nearest_side(rect, Pos2::new(25.0, -4.0));
-        assert_eq!(side, Side::Top);
-        assert!((t - 0.25).abs() < 1e-4);
-        assert!((d - 4.0).abs() < 1e-4);
-        let (side, t, _) = nearest_side(rect, Pos2::new(103.0, 25.0));
-        assert_eq!(side, Side::Right);
-        assert!((t - 0.5).abs() < 1e-4);
+        let snap = WireHost::from_rect(rect).snap([25.0, -4.0]);
+        assert_eq!(snap.side, Side::Top);
+        assert!((snap.t - 0.25).abs() < 1e-4);
+        assert!((snap.dist - 4.0).abs() < 1e-4);
+        let snap = WireHost::from_rect(rect).snap([103.0, 25.0]);
+        assert_eq!(snap.side, Side::Right);
+        assert!((snap.t - 0.5).abs() < 1e-4);
     }
 
     #[test]

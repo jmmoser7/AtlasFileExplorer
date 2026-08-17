@@ -3,6 +3,8 @@
 //! Contract: `docs/keymap/contracts/tool-arming.md`. DragScale preview and
 //! commit both call [`place_rect`] so a future DragRect command reuses the
 //! same Shift / aspect table instead of copying `frame_drag_rect`.
+//! The ghost glyph is screen-space (P0.9) but its hotspot is the snapped
+//! world point from `resolve_point_snap` / `resolve_draw_rect`.
 
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke as EStroke, Vec2};
 use slate_doc::scene::WorldRect;
@@ -21,6 +23,9 @@ pub mod place_tokens {
     pub const GHOST_ALPHA: f32 = 0.55;
     pub const GHOST_STROKE: f32 = 1.5;
     pub const GHOST_ROUNDING: f32 = 3.0;
+    /// `draft.drag_threshold` — screen px of pointer travel before release
+    /// splits ClickPlace from DragScale (D04 / P2.DragShape).
+    pub const DRAG_THRESHOLD: f32 = 4.0;
     /// Click-place size for the rectangle tool (world units).
     pub const RECT_DEFAULT_W: f32 = 180.0;
     pub const RECT_DEFAULT_H: f32 = 120.0;

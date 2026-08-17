@@ -403,9 +403,11 @@ pub fn node_facets(node: &Node) -> SnapFacet {
         return SnapFacet::NONE;
     }
     match &node.kind {
-        NodeKind::Frame(_) | NodeKind::Image(_) | NodeKind::Text(_) | NodeKind::Portal(_) => {
-            RECT_LIKE
-        }
+        NodeKind::Frame(_)
+        | NodeKind::Image(_)
+        | NodeKind::Text(_)
+        | NodeKind::Portal(_)
+        | NodeKind::DockStrip(_) => RECT_LIKE,
         NodeKind::Connector(_) => SnapFacet::ENDPOINTS
             .union(SnapFacet::SEGMENTS)
             .union(SnapFacet::BOUNDARY)

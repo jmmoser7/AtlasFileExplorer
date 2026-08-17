@@ -617,6 +617,8 @@ pub struct AtlasApp {
     pub dock_pins: Vec<String>,
     /// Tool flyouts that open as an icon strip instead of a stacked list.
     pub dock_icon_strips: Vec<String>,
+    /// Tools hidden from each palette's icon strip (`palette → tool ids`).
+    pub dock_strip_hidden: Vec<(String, Vec<String>)>,
     /// Editing buffer for the never-scanned folder names (Advanced), one per
     /// line. The list itself lives in `atlas_core::skiplist`; this is only the
     /// text the user is typing, so it is not part of a workspace.
@@ -1112,6 +1114,7 @@ impl AtlasApp {
             dock_side: chrome_prefs.dock_side,
             dock_pins: chrome_prefs.pinned_panels,
             dock_icon_strips: chrome_prefs.panel_icon_strip,
+            dock_strip_hidden: chrome_prefs.panel_strip_hidden,
             skip_edit: skip_list_text(),
             filter_mode: FilterMode::Hide,
             grid_cols: 10,
@@ -5336,6 +5339,7 @@ impl AtlasApp {
             dock_side: self.dock_side,
             pinned_panels: self.dock_pins.clone(),
             panel_icon_strip: self.dock_icon_strips.clone(),
+            panel_strip_hidden: self.dock_strip_hidden.clone(),
             minimap: self.minimap_on,
         }
         .save("file-atlas");

@@ -81,8 +81,17 @@ is searchable.
   group click selects the group, Ctrl+Shift+click a member.
 - **P1.node.move** drag with smart guides; ortho (F8, Shift inverts),
   grid snap (F9), and the persistent object-snap set (**P1.node.osnap**)
-  apply; arrows nudge.
-- **P1.node.osnap** point picks (draft, grips, place) and bbox moves consult
+  apply; arrows nudge. Smart guides (InDesign / tldraw / Keynote) only
+  consider objects in the current view, in the same row or column, and
+  not behind a closer neighbor. Reach (Tight / Nearby / Wide) is a
+  Document Settings session preference. The forcefield pulse is the
+  guide. Curve endpoints and corner-scale handles use the same point
+  snap as drafts.
+- **P1.node.osnap** every live board point — hover, press, drag end, grip,
+  corner handle, GhostFollow hotspot — goes through `resolve_point_snap`
+  (or `resolve_draw_rect` for DragScale). Preview and commit consume that
+  result. Never paint a rubber-band or ghost from the raw cursor while a
+  snap is live. Point picks and bbox moves consult
   `ObjectSnapSet` (Document Settings → Object snaps, with Snap to grid).
   Applicability is
   `SnapKind::accepts(node_facets, from)` — a kind that needs a facet the
@@ -104,21 +113,36 @@ is searchable.
   gets a diagonal, not an axis arrow. Corner drag scales
   proportionally by default;
   `Shift` frees aspect; edge+`Shift` locks aspect; `Ctrl` resizes about
-  center. A rotated resize pins the opposite handle in world space so the
-  grabbed edge is the one that moves (local AABB math alone walks the far
-  edge once rotation is about the live center; most visible at 180°).
+  center. The opposite handle is the scale origin for every corner and
+  edge — all four corners are the same rule, not four special cases.
+  A rotated resize pins that origin in world space so the grabbed edge
+  is the one that moves (local AABB math alone walks the far edge once
+  rotation is about the live center; most visible at 180°).
+  Modifier matrix (Select-tool bbox):
+
+  | Mods | Corner | Edge |
+  |------|--------|------|
+  | none | uniform from opposite corner | 1-axis from opposite edge |
+  | Shift | free (non-uniform) from opposite corner | uniform from opposite edge |
+  | Ctrl | uniform from center | 1-axis from center |
+  | Ctrl+Shift | free from center | uniform from center |
+  | Alt | same as above, snaps off | same |
+  | Ctrl+Alt+Shift (2+ group only) | layout scale from opposite corner; member size unchanged; union opposite corner pinned | layout 1-axis; sizes unchanged; union opposite edge pinned |
+
+  Ctrl+Alt+Shift without the union pin walks the supposed-fixed corner
+  on Nw / Ne / Sw (member extents do not scale, so remapping origins
+  alone translates the stack). Se happened to look right because the
+  remapped origins' min is the group origin. Implementation:
+  `board_snap::apply_group_box_scale` remaps then `pin_group_union`.
   Rotate is a 90° arc cursor just *outside* a corner, only for
   kinds that rotate (shapes, frames, text, images). Portals, connectors,
-  and simple lines stay axis-aligned. A press on a wire-grip midpoint
+  dock strips, and simple lines stay axis-aligned. A press on a wire-grip midpoint
   starts a connector and suppresses edge resize at that point (hit-test
   the press origin, not the live pointer). The rest of the edge is
   resize. Selection chrome is a silhouette outline that follows the
   painted geometry (fillet, ellipse, AABB) — no corner or midspan
   squares on a single node or a 2+ group box. Resize hover-hit on that
   outline includes the corners (same 45° cursor as a single node).
-  Ctrl+Alt+Shift on a group
-  grip remaps member positions through the box scale and leaves each
-  member's size unchanged.
 - **P1.node.zorder / clipboard** PageUp/PageDown/Ctrl+B; Ctrl+C/X/V,
   Ctrl+Shift+V in place.
 
@@ -152,6 +176,38 @@ is searchable.
   stroke centerline intersects the marquee, or a stroke hit at the marquee
   center. Implementation: `board_path::hit_shape_stroke`,
   `board_path::marquee_hits_node`.
+
+### P1.wire — connector ports (spawn handles)
+
+- **P1.wire.ports** wire spawn handles sit on **consistent object
+  features**, never the world AABB of a rotated host. Area objects
+  (rect, ellipse, text, image, frame, portal, dock strip, closed path)
+  expose the four local-edge midpoints of `node.rect`, then rotate
+  those points about the node center — so a rotated rectangle's ports
+  travel with the rectangle, and an ellipse's ports are the local-axis
+  extrema (which lie on the ellipse). Open strokes (line, arc,
+  polyline, bezier, pen) expose arclength `t = 0`, `0.5`, `1` on the
+  stroke itself. Connectors have no ports. New geometry declares a
+  class on `slate_doc::WireHost` (oriented box, open stroke, or a
+  future silhouette / vertex facet) — it does not special-case a file
+  format. Geometry is derived at resolve time (Art. VI.3); the journal
+  stores only `Side` + `t` + node id. Both interpreters call
+  `connector_route` with that host pose (Art. IV). Implementation:
+  `crates/slate-doc/src/wire_host.rs`.
+- **P1.wire.rails** orthogonal wires that share a source or destination
+  **fan along the port** and run on **parallel mid-span rails** (File
+  Atlas nested-rail / PCB-trace treatment) so they do not stack. The
+  default route is a **50/50 three-leg** (horizontal or vertical trunk
+  at the midpoint). An L, a wrap, a stair, or a 45° cut is used only
+  when that corridor hits a host — stairs never compete with a legal
+  three-leg on cost (they share Manhattan length and will flicker).
+  Collision uses each host's **oriented silhouette** (box, or the oval
+  for an ellipse), not the world AABB. Sibling rails take the fan side
+  their dest already sits on (no-crossover); a dead zone around the
+  port centre plus connector id as the remaining tie-break stops the
+  sign from flipping while a dest is dragged across. Geometry stays
+  derived (Art. VI.3). Implementation: `slate_doc::scene_ortho_lanes`,
+  `ORTHO_RAIL_GAP` / `ORTHO_EXIT_GAP`.
 
 ### P1.text / P1.image
 
@@ -273,6 +329,39 @@ duplication. New portal contracts reference these and add only deviations.
   the user explicitly states a control is canvas-wide. New portal
   contracts answer **D35**.
 
+### P1.dock-strip — canvas-embedded dock copies
+
+A `NodeKind::DockStrip` is a journaled poster of a palette. Chrome lives
+in `atlas-shell::dock`; the node lives in `slate-doc`; paint / hit /
+gestures live in `apps/slate/src/app/board_dock_embed.rs`. File Atlas
+has no board, so it ignores Drop to canvas.
+
+- **P1.dock-strip.frame** the rect, `palette_id`, and `visible` tool-id
+  snapshot are journaled; contents are derived from the dock recipe plus
+  that snapshot (Art. VI.3). Copies never pin, unpin, or hide the
+  baseline dock. Unlimited placements.
+- **P1.dock-strip.arm** a click (no drag) on an icon **arms** the same
+  command the baseline dock would — create tools do not place on that
+  click. Instant actions (join, grid, snaps, color swap) still fire.
+  A click on padding / border selects the node.
+- **P1.dock-strip.move** click-hold-drag anywhere on the node, including
+  an icon, moves the whole strip. Edge resize still wins
+  (`P1.node.transform`). Create tools stay armed; they do not start a
+  draw from the toolbar.
+- **P1.dock-strip.chrome** icon strip uses a vertical four-dot column
+  (Minimize, layout toggle, Advanced, Drop to canvas) and fieldset
+  groups of secondary circular icons; tertiary toggles stack two-high
+  on that icon datum. Stacked captions use a horizontal three-dot
+  ellipsis (Minimize, layout toggle, Advanced). Hover labels appear in
+  one place, centered above the dots. The second-dot label is **Icon
+  strip** in the list and **Stacked view** in the strip; either click
+  is dock-wide.
+- **P1.dock-strip.select** selection and hover rings use
+  `node_screen_outline` → `rounded_rect_outline` at
+  `dock_strip_corner_radius` (the same fillet paint uses) and
+  `board_preview.select_line_weight` / `hover_line_weight`. No AABB
+  box. Axis-aligned: no rotate chrome.
+
 ## L2 — Tool-family archetypes
 
 ### P2.RhinoDraft — precision draft tools (line, arc, polyline, bezier span)
@@ -323,15 +412,20 @@ P2.DragShape, P2.PortalPlace, or P2.PlaceOnce.
   one `board_place::place_rect` / `PlaceConstraint` table, not per-tool
   copies. Rect / Ellipse: Shift → square (P1.shape.aspect). Frame: default
   = preset aspect, Shift → square. Portals: default = free, Shift → 16:9
-  (P2.PortalPlace.aspect).
+  (P2.PortalPlace.aspect). The glyph stays screen-space (P0.9); the
+  **point** it is attached to is the snapped world point (osnap +
+  forcefield). DragScale snaps the live rect's moving edges
+  (`resolve_draw_rect`) so the second corner is not a naked cursor.
 - **P2.GhostFollow.tokens** feel constants live in
   `board_place::place_tokens` (P0.6).
 
 ### P2.DragShape — area tools (rect, ellipse, frame)
 
 - press-drag-release sizes the node; travel under `draft.drag_threshold`
-  (4 px) places the tool's `default_size` centred on the click (rect /
-  ellipse from the kit recipe; frame from the live preset). A drag that
+  (4 **screen** px from the press) places the tool's `default_size`
+  centred on the click (rect / ellipse from the kit recipe; frame from
+  the live preset). The live path starts on press — an egui click is
+  not a drag, so `drag_started` never sees ClickPlace. A drag that
   stays under `MIN_DRAW` still discards. Shift = aspect (P1.shape.aspect).
   Commit returns to Select.
 
@@ -366,8 +460,11 @@ The placement grammar every portal subtype has arrived at, promoted from
   group. First selected operand's style wins.
 - **P2.RhinoJoin.open** open+open (no closed in the set) joins nearest
   endpoints; one open closes (merge within snap, else a seam).
-- **P2.RhinoJoin.region** any closed operand switches to boolean union.
-  Open operands in that set become stroke-weight ribbons, then union.
+- **P2.RhinoJoin.region** any closed operand switches to boolean union
+  of *connected* regions (union is one piece). Open operands in that
+  set become stroke-weight ribbons, then union. Disjoint operands stay
+  put — Join does not invent a compound of islands (Rhino). Group
+  (Ctrl+G) is the grouping command.
 - **P2.RhinoJoin.skip** frames, portals, text, images, connectors, locked,
   and hidden are never operands.
 
@@ -382,6 +479,18 @@ The placement grammar every portal subtype has arrived at, promoted from
 - **P2.RhinoTrim.esc** Esc peels TrimParts → PickCutters → Select.
 - **P2.RhinoTrim.enter** Enter advances PickCutters → TrimParts, or exits
   TrimParts to Select. Already-committed clicks stay.
+
+### P2.RhinoSplit — pick cutters, click to keep every piece
+
+Same phase machine, Esc, Enter, infinite line cutters, and preselect as
+**P2.RhinoTrim**. The click is the opposite of Trim:
+
+- **P2.RhinoSplit.keep** the hit object is replaced by every arrangement
+  piece (open spans or closed faces). One journal group. Nothing is
+  deleted. A click that would not divide is a no-op.
+- **P2.RhinoSplit.targets** shapes only — text/images use Trim's clip, not
+  a multi-node split. Frames and portals never pick.
+- **P2.RhinoSplit.extend** no Shift+extend (Trim-only).
 
 ### P2.PlaceOnce — click-to-place (text, sticky note)
 

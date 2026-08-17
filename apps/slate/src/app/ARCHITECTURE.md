@@ -29,7 +29,7 @@ hidden on home. Opening is the shelf; **New** starts a blank workbook.
 | Floating tools dock | `ui/tools.rs` + `atlas-shell::dock` | The **single** bottom-centered toolbar: board creation tools (Select/Pan, Frame, Shapes, Curve, Text — Board view only), Grid/Snap/Align, plus **Tags**, **Selection**, **View**, and **Lens** (Lens view only). Flyouts and panels open upward, anchored to their icon. Workbook, AI, Present, Export, and Advanced live in the app-icon portal. See `crates/atlas-shell/DOCK.md`. |
 | Canvas | `canvas.rs` | Grid + Venn presentations, selection, right-click tag assignment |
 | Lens | `lens.rs` | Code-dependency graph canvas: worker pump, painting, focus/expand gestures |
-| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock). Armed create-tool chrome (tinted pointer + 22 px ghost) lives in `board_place.rs`. **Trim** (`board_trim.rs`, Ctrl+T) picks cutters then clicks the dying piece — open paths rewrite spans, closed shapes become compound even-odd paths, text/images store `Node.clip`. **Join** (`board_join.rs`, Ctrl+J) merges open paths at nearest ends, or boolean-unions any set that includes a closed shape (open operands become stroke-weight ribbons). Object snaps (`board_osnap.rs`, syntax in `slate-doc::osnap`) and wire routing (`slate-doc::wire`, bezier / orthogonal) are a Document Settings palette — session aid, not journaled. Wires paint under host nodes. A Grasshopper-style align widget (`board_align.rs`) appears around a 2+ selection. Canvas objects follow **P0.9** (scale with zoom). Agent portals have no identity tab; an unbound portal embeds `atlas-shell::home::cover_flow_home` (`HomeModel.interactive` only in contents-focus) and journals the chosen folder on `PortalNode.source`. Bound posters split Cursor IDE status from file-link sidecar status. |
+| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock). A **dropped toolbar** is a journaled `DockStrip` node (`board_dock_embed.rs`, `P1.dock-strip`): click an icon to arm, click-hold-drag anywhere on the node to move it; selection chrome follows the painted fillet. Armed create-tool chrome (tinted pointer + 22 px ghost) lives in `board_place.rs`. **Trim** (`board_trim.rs`, Ctrl+T) picks cutters then clicks the dying piece — open paths rewrite spans, closed shapes become compound even-odd paths, text/images store `Node.clip`. **Split** (same session, Ctrl+Shift+T) keeps every piece as its own Path. **Join** (`board_join.rs`, Ctrl+J) merges open paths at nearest ends, or boolean-unions connected closed regions (open operands become stroke-weight ribbons; disjoint operands stay put). Object snaps (`board_osnap.rs`, syntax in `slate-doc::osnap`) and wire routing (`slate-doc::wire`, bezier / orthogonal) are a Document Settings palette — session aid, not journaled. Wire ports follow object features (`P1.wire.ports`), not the world AABB. Wires paint under host nodes. A Grasshopper-style align widget (`board_align.rs`) appears around a 2+ selection. Canvas objects follow **P0.9** (scale with zoom). Agent portals have no identity tab; an unbound portal embeds `atlas-shell::home::cover_flow_home` (`HomeModel.interactive` only in contents-focus) and journals the chosen folder on `PortalNode.source`. Bound posters split Cursor IDE status from file-link sidecar status. |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
 | Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
 | 3D viewports | `model3d.rs` | Rhino `.3dm` viewport lifecycle: off-thread mesh parse (`crates/rhino-mesh`), offscreen glow render, lock/unlock + poster cache |
@@ -126,7 +126,16 @@ Other board rules:
 - **Forcefield snap guides** (`board_forcefield.rs`) replace persistent
   alignment leader lines: acquiring a smart-guide snap fires a short
   tapered ribbon from the impact that grows off-canvas and fades
-  (`board_forcefield` tokens).
+  (`board_forcefield` tokens). Candidates are culled to the view, the
+  same row/column, and the nearer side of a blocking neighbor
+  (`board_snap::SnapScope`; reach is a Document Settings preference).
+  Curve endpoints, corner-scale handles, GhostFollow hover, and both
+  DragScale corners emit the same pulse. A growing rectangle snaps its
+  **moving edges** (`resolve_draw_rect`), not a 0-size point at the
+  cursor — otherwise the forcefield goes quiet once the pointer leaves
+  the target's row. Preview and commit read `board_point_snap` /
+  `board_draw_rect`; they must not paint from the raw cursor while a
+  snap is live.
 - **Object snaps** are a session preference (`ObjectSnapSet` in
   `slate-settings.json`), not a journaled document property. Syntax and
   apply/reject live in `slate-doc::osnap`; the picker is `board_osnap.rs`.
@@ -136,12 +145,16 @@ Other board rules:
 - **Click-to-place.** Armed area tools (rect, ellipse, frame, portals)
   place a kit/preset default size on a click; drag still sizes. Text and
   sticky already did. Line / pen / brush still arm — they have no box.
+  A click on a dropped toolbar (`DockStrip`) is not a place: it arms
+  the icon's command, or selects the node if the press missed an icon
+  (`P1.dock-strip`).
 - **Align widget** (`board_align.rs`) is selection chrome, not a tool: two
   icon clusters (bottom + left) sit outside a 2+ Select-tool group box.
   Selection chrome is a silhouette outline (no grip squares) that follows
   fillets and ellipses. Press commits `board.align.*` / `board.distribute.*`
   through one `patch_nodes` group. Ctrl+Alt+Shift on a group grip
-  repositions members without scaling them.
+  repositions members without scaling them; the opposite union handle
+  is pinned on every corner and edge (`apply_group_box_scale`).
 - **Portal-local UI (`P1.portal.local-ui`).** Source-specific controls
   live on the portal (Selection inspector / Set portal / portal chrome).
   Document Settings stays canvas-scoped so it does not grow a row per

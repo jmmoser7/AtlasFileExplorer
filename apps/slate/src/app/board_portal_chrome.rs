@@ -728,6 +728,18 @@ mod tests {
                 .any(|poly| poly.iter().any(|p| (*p - inset).length() < 0.5)),
             "the fillet center is content, not a mask vertex"
         );
+
+        let page = Rect::from_min_max(pos2(6.0, 20.0), pos2(194.0, 114.0));
+        let content = board::portal_content_outline(frame, page, r);
+        assert!(
+            content.iter().all(|p| page.contains(*p)),
+            "content mesh must stay inside the UV rect, got {content:?}"
+        );
+        let bottom_corner = pos2(page.left(), page.bottom());
+        assert!(
+            !point_in_convex(&content, bottom_corner),
+            "the inset page corner must still be clipped"
+        );
     }
 }
 

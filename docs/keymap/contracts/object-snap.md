@@ -31,7 +31,7 @@ Inherits: P0.* (all), **P1.node.osnap** — this contract *is* that pattern.
 | D11 | Commit | n/a — snaps resolve a point; they do not create or patch nodes. Not journaled. | stated | 100 |
 | D12 | Cancel | n/a — Esc does not clear snap kinds. Alt is the suspend. | pattern | 85 |
 | D13 | Selected presentation | n/a. | pattern | 85 |
-| D14 | Post-edit | Line grips, path clicks, draw/place corners, free wire ends, and bbox moves use the same `ObjectSnapSet`. | stated | 100 |
+| D14 | Post-edit | Line grips, path clicks, GhostFollow hover, both DragScale corners (live rect edges via `resolve_draw_rect`), free wire ends, bbox moves, and corner-scale handles use the same `ObjectSnapSet`. Create-tool corners and the armed pointer emit smart-guide forcefield pulses when they align to a nearby object. Preview and commit consume the resolved point — never the raw cursor while a snap is live. | stated | 100 |
 | D15 | Non-goals | Cut from the board palette (Art. III / **P1.portal.local-ui**): Knot, Point, Vertex, Project, Along, AlongParallel, Between, From, PerpFrom, TanFrom, OnCurve, OnSurface, OnPolysurface, OnMesh, Percentage. Those 3D / NURBS / construction snaps are properties of a Rhino view portal (Set portal / inspector), never Document Settings. Also cut board-wide: one-shot Shift-enable, SmartTrack, bezier tangent, curve–curve intersection. | stated | 100 |
 | D16 | Create-style inheritance | n/a. | pattern | 85 |
 | D17 | Hit-testing & pick | n/a — snap picking is not selection hit-testing. | pattern | 85 |

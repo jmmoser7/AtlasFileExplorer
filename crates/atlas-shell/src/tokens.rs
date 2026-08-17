@@ -91,11 +91,11 @@ impl Default for ReadoutTokens {
             row_height: 0.0,
             text_size: 12.0,
             separators: true,
-            chevron_size: 8.0,
-            chevron_hit: 16.0,
-            chevron_inset_x: 5.0,
-            chevron_inset_y: 3.0,
-            chevron_stroke: 1.15,
+            chevron_size: 4.0,
+            chevron_hit: 8.0,
+            chevron_inset_x: 2.5,
+            chevron_inset_y: 1.5,
+            chevron_stroke: 0.58,
             chevron_idle_opacity: 0.38,
             chevron_hover_opacity: 0.92,
             chevron_hover_fill: 0.10,
@@ -473,11 +473,11 @@ impl ReadoutTokens {
         self.item_gap = self.item_gap.clamp(0.0, 24.0);
         self.row_height = self.row_height.clamp(0.0, 48.0);
         self.text_size = self.text_size.clamp(7.0, 20.0);
-        self.chevron_size = self.chevron_size.clamp(4.0, 16.0);
-        self.chevron_hit = self.chevron_hit.clamp(10.0, 28.0);
+        self.chevron_size = self.chevron_size.clamp(2.0, 16.0);
+        self.chevron_hit = self.chevron_hit.clamp(6.0, 28.0);
         self.chevron_inset_x = self.chevron_inset_x.clamp(0.0, 24.0);
         self.chevron_inset_y = self.chevron_inset_y.clamp(0.0, 16.0);
-        self.chevron_stroke = self.chevron_stroke.clamp(0.6, 2.4);
+        self.chevron_stroke = self.chevron_stroke.clamp(0.4, 2.4);
         self.chevron_idle_opacity = self.chevron_idle_opacity.clamp(0.08, 1.0);
         self.chevron_hover_opacity = self.chevron_hover_opacity.clamp(0.2, 1.0);
         self.chevron_hover_fill = self.chevron_hover_fill.clamp(0.0, 0.4);

@@ -45,6 +45,7 @@ impl BoardLastStyle {
             NodeKind::Portal(p) => {
                 style.fill = Some(p.fill);
             }
+            NodeKind::DockStrip(_) => {}
         }
         style
     }

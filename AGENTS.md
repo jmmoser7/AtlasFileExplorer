@@ -288,9 +288,13 @@ Three structural rules keep the board honest — hold all three when extending i
    mirrors the CSS filter math on pixels. A new board style property must
    land in all interpreters, or not at all.
 2. **All board mutations are invertible `SceneCmd`s** committed through the
-   tab's `SceneJournal` (undo/redo now; the MCP agent surface later). UI code
-   must not mutate `doc.scene` outside a journaled path
-   (`patch_nodes` / `add_nodes` / `delete_board_nodes` / `commit_scene`).
+ tab's `SceneJournal` (undo/redo now; the MCP agent surface later). UI code
+ must not mutate `doc.scene` outside a journaled path
+ (`patch_nodes` / `add_nodes` / `delete_board_nodes` / `commit_scene`).
+ Every live board point (GhostFollow hover, both DragScale corners, grips)
+ goes through `resolve_point_snap` or `resolve_draw_rect`; preview and
+ commit consume that result — never the raw cursor while a snap is live
+ (`P1.node.osnap`, tool-arming D06).
 3. **Portal-local UI stays on the portal (`P1.portal.local-ui`).**
    Document Settings is canvas-scoped (grid, board object snaps). A
    portal that needs a unique interface with its source — Rhino view

@@ -11,10 +11,17 @@
 //!   release, so one gesture = one undo step.
 //! - `Alt`+drag duplicates the grabbed selection; `Ctrl+D` duplicates in
 //!   place. Deleting and z-order moves are plain command groups.
-//! - Smart guides align objects to each other while moving or resizing (on by
-//!   default). Hold `Alt` to bypass snapping; corner resize scales
+//! - Smart guides align objects to each other while moving, resizing, or
+//!   drawing (on by default). Create-tool corners — GhostFollow hover and
+//!   both DragScale corners — use the same forcefield as a resize: the
+//!   live rect's moving edges, not a 0-size point at the cursor. Hold
+//!   `Alt` to bypass snapping; corner resize scales
 //!   proportionally by default and `Shift` frees the aspect (distortion);
 //!   `Ctrl` resizes from center (Office/PowerPoint convention).
+//! - Armed area tools (frame, rect, ellipse, portals) click-release to
+//!   place at default size, or press-drag-release to scale. The split is
+//!   4 screen px (`place_tokens::DRAG_THRESHOLD`), on press/release — an
+//!   egui click is not a drag.
 //! - Windows-style bounding-box chrome is live on hover — no prior selection.
 //!   Edges change the cursor only (no selection-look handles). Corners
 //!   show 45° arrows even on a wide group box. A rotated resize pins the
@@ -29,7 +36,8 @@
 //!   (left + bottom icon clusters, no second frame, no hover ghost)
 //!   appears around a 2+ selection and commits `board.align.*` /
 //!   `board.distribute.*`. The group box is an outline only.
-//!   Ctrl+Alt+Shift on a group grip repositions members without scaling them.
+//!   Ctrl+Alt+Shift on a group grip repositions members without scaling
+//!   them; the opposite union handle stays put on every corner and edge.
 //! - Frames drag their members with them (geometric membership, captured at
 //!   gesture start).
 
@@ -146,13 +154,15 @@ pub enum BoardTool {
     WebPortal,
     /// Rhino Trim: pick cutters, click parts to delete (`P2.RhinoTrim`).
     Trim,
+    /// Rhino Split: pick cutters, click an object to keep every piece.
+    Split,
 }
 
 impl BoardTool {
     /// Every tool, in declaration order. Kept beside [`BoardTool::grammar`],
     /// whose exhaustive match is the compiler-enforced reason a new variant
     /// cannot be added without being considered here too.
-    pub const ALL: [BoardTool; 21] = [
+    pub const ALL: [BoardTool; 22] = [
         BoardTool::Select,
         BoardTool::Pan,
         BoardTool::Frame,
@@ -174,6 +184,7 @@ impl BoardTool {
         BoardTool::AgentPortal,
         BoardTool::WebPortal,
         BoardTool::Trim,
+        BoardTool::Split,
     ];
 
     pub fn label(self) -> &'static str {
@@ -199,6 +210,7 @@ impl BoardTool {
             BoardTool::AgentPortal => "Agent portal",
             BoardTool::WebPortal => "Web portal",
             BoardTool::Trim => "Trim",
+            BoardTool::Split => "Split",
         }
     }
 
@@ -225,6 +237,7 @@ impl BoardTool {
             BoardTool::AgentPortal => board_icons::ToolIcon::Portals,
             BoardTool::WebPortal => board_icons::ToolIcon::WebPortal,
             BoardTool::Trim => board_icons::ToolIcon::Trim,
+            BoardTool::Split => board_icons::ToolIcon::Split,
         }
     }
 
@@ -249,6 +262,7 @@ impl BoardTool {
             | BoardTool::AgentPortal
             | BoardTool::WebPortal => "",
             BoardTool::Trim => "Ctrl+T",
+            BoardTool::Split => "Ctrl+Shift+T",
         }
     }
 
@@ -278,8 +292,15 @@ impl BoardTool {
             BoardTool::Text | BoardTool::Sticky => G::PlacePoint,
             BoardTool::Eraser => G::Sweep,
             BoardTool::Eyedropper => G::Sample,
-            BoardTool::Trim => G::PickThenClick,
+            BoardTool::Trim | BoardTool::Split => G::PickThenClick,
         }
+    }
+
+    /// Area create tools: press-drag sizes, click-release places a default.
+    /// The live path must start on press — egui `drag_started` never fires
+    /// for a click, which is why click-place used to do nothing.
+    pub fn places_by_drag_rect(self) -> bool {
+        self.grammar() == slate_kit::Grammar::DragRect
     }
 
     /// The built-in kit entry that holds this tool's result recipe, for the
@@ -360,7 +381,11 @@ pub enum BoardDrag {
         start_angle: f32,
     },
     /// Rubber-band drawing a new node (not yet in the scene).
-    Draw { start_world: Pos2, tool: BoardTool },
+    Draw {
+        start_world: Pos2,
+        start_screen: Pos2,
+        tool: BoardTool,
+    },
     /// Line tool press (contracts/line.md). `started` = this press placed
     /// the first point — release applies the click-vs-drag rule (D04).
     LineDraw { started: bool },
@@ -523,6 +548,8 @@ impl SlateApp {
         self.line_draft = None;
         if tool == BoardTool::Trim {
             self.trim_arm();
+        } else if tool == BoardTool::Split {
+            self.split_arm();
         } else {
             self.trim = None;
             self.board_tool = tool;
@@ -647,7 +674,7 @@ impl SlateApp {
                             .doc()
                             .scene
                             .node(node)
-                            .map(|nn| slate_doc::scene::connector_anchor_point(nn.rect, side, t))
+                            .map(|nn| slate_doc::connector_anchor_on(nn, side, t))
                             .unwrap_or([0.0, 0.0]);
                         *end = slate_doc::scene::ConnectorEnd::Free { point: p };
                         changed = true;
@@ -1007,6 +1034,9 @@ impl SlateApp {
                 let r = atlas_shell::tokens::current().portal_frame.corner_radius * z;
                 rounded_rect_outline(srect, r)
             }
+            NodeKind::DockStrip(_) => {
+                rounded_rect_outline(srect, super::board_dock_embed::dock_strip_corner_radius(z))
+            }
             NodeKind::Frame(_) if !rotated => rounded_rect_outline(srect, 2.0),
             NodeKind::Text(_) | NodeKind::Frame(_) | NodeKind::Connector(_) => return aabb(),
         };
@@ -1068,8 +1098,12 @@ pub(crate) fn portal_content_outline(frame: Rect, body: Rect, radius: f32) -> Ve
     if clip.height() < 1.0 || clip.width() < 1.0 {
         return Vec::new();
     }
-    let half = frame.width().min(frame.height()) * 0.5;
-    let r = radius.clamp(0.0, half);
+    let inset = (clip.left() - frame.left())
+        .max(frame.right() - clip.right())
+        .max(frame.bottom() - clip.bottom())
+        .max(0.0);
+    let half = clip.width().min(clip.height()) * 0.5;
+    let r = (radius - inset).clamp(0.0, half);
     if clip.min.y <= frame.min.y + 0.5 {
         return rounded_rect_outline(clip, r);
     }
@@ -1085,12 +1119,12 @@ pub(crate) fn portal_content_outline(frame: Rect, body: Rect, radius: f32) -> Ve
     let mut pts = Vec::with_capacity(2 + 2 * (steps + 1));
     pts.push(Pos2::new(clip.min.x, clip.min.y));
     pts.push(Pos2::new(clip.max.x, clip.min.y));
-    let br = Pos2::new(frame.max.x - r, frame.max.y - r);
+    let br = Pos2::new(clip.max.x - r, clip.max.y - r);
     for s in 0..=steps {
         let a = (90.0 * s as f32 / steps as f32).to_radians();
         pts.push(br + Vec2::new(a.cos() * r, a.sin() * r));
     }
-    let bl = Pos2::new(frame.min.x + r, frame.max.y - r);
+    let bl = Pos2::new(clip.min.x + r, clip.max.y - r);
     for s in 0..=steps {
         let a = (90.0 + 90.0 * s as f32 / steps as f32).to_radians();
         pts.push(bl + Vec2::new(a.cos() * r, a.sin() * r));
@@ -2077,6 +2111,9 @@ impl SlateApp {
                     }
                 }
             }
+            NodeKind::DockStrip(strip) => {
+                super::board_dock_embed::paint_dock_strip(ui, painter, xf, node, strip);
+            }
         }
     }
 
@@ -2087,6 +2124,8 @@ impl SlateApp {
         self.path_mesh_cache.tess_misses = 0;
         self.board_snap_guides.clear();
         self.board_osnap_hit = None;
+        self.board_point_snap = None;
+        self.board_draw_rect = None;
         self.ortho_feedback = None;
         self.sync_crop_mode();
         // Connector AABBs follow their endpoints; synced once per scene
@@ -2113,6 +2152,13 @@ impl SlateApp {
         // so the frame can always be grabbed and released.
         let web_capture =
             self.web_input_frame(ui, &xf, pointer) || self.agent_shelf_captures(&xf, pointer);
+        let _ = self.dock_embed_frame(
+            ui.ctx(),
+            &xf,
+            pointer,
+            web_capture || model_toolbar_captures || editing_text,
+        );
+        let over_dock_strip = wp.is_some_and(|w| self.dock_embed_node_at(w.x, w.y).is_some());
 
         // --- camera ---
         if resp.hovered() && !web_capture {
@@ -2201,6 +2247,7 @@ impl SlateApp {
             && !panning
             && !zoom_tool
             && !model_toolbar_captures
+            && !over_dock_strip
             && !web_capture
             && resp.hovered();
         if line_pointer {
@@ -2232,6 +2279,7 @@ impl SlateApp {
             && !panning
             && !zoom_tool
             && !model_toolbar_captures
+            && !over_dock_strip
             && !web_capture
             && self.board_crop.is_none()
             && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
@@ -2250,6 +2298,7 @@ impl SlateApp {
             && !panning
             && !zoom_tool
             && !model_toolbar_captures
+            && !over_dock_strip
             && !web_capture
             && self.board_crop.is_none()
             && !self.board_align_eat_press
@@ -2257,6 +2306,49 @@ impl SlateApp {
         {
             if let Some(p) = pointer {
                 let _ = self.try_align_press(ui.ctx(), p);
+            }
+        }
+
+        // --- DragRect place: press / release, not drag_started ---
+        // A click never becomes an egui drag, so waiting for drag_started
+        // dropped ClickPlace (P2.DragShape / tool-arming D04). Same split
+        // as the Line tool: travel on this press chooses ClickPlace vs
+        // DragScale.
+        let place_rect = self.board_tool.places_by_drag_rect();
+        let place_ok = !space
+            && !panning
+            && !zoom_tool
+            && !model_toolbar_captures
+            && !over_dock_strip
+            && !web_capture
+            && !self.board_align_eat_press
+            && resp.hovered();
+        if place_rect && place_ok {
+            if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {
+                if let Some(p) = pointer {
+                    if !self.pointer_on_portal_maximize(p, &xf) {
+                        let mods = ui.input(|i| i.modifiers);
+                        self.board_drag = self.begin_gesture(p, xf.s2w(p), mods);
+                    }
+                }
+            }
+            if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
+                if matches!(self.board_drag, Some(BoardDrag::Draw { .. })) {
+                    if let Some(w) = wp {
+                        let mods = ui.input(|i| i.modifiers);
+                        self.update_gesture(w, mods);
+                    }
+                }
+            }
+            if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+                if matches!(self.board_drag, Some(BoardDrag::Draw { .. })) {
+                    let w = wp.unwrap_or_else(|| match &self.board_drag {
+                        Some(BoardDrag::Draw { start_world, .. }) => *start_world,
+                        _ => Pos2::ZERO,
+                    });
+                    let mods = ui.input(|i| i.modifiers);
+                    self.end_gesture(w, pointer, mods);
+                }
             }
         }
 
@@ -2270,7 +2362,8 @@ impl SlateApp {
             && !zoom_tool
             && !model_toolbar_captures
             && !web_capture
-            && self.board_tool != BoardTool::Line
+            && !place_rect
+            && (self.board_tool != BoardTool::Line || over_dock_strip)
             && !self.board_align_eat_press
         {
             let origin = ui.input(|i| i.pointer.press_origin()).or(pointer);
@@ -2298,7 +2391,9 @@ impl SlateApp {
         }
 
         // --- gesture end ---
-        if resp.drag_stopped_by(egui::PointerButton::Primary) && self.board_tool != BoardTool::Line
+        if resp.drag_stopped_by(egui::PointerButton::Primary)
+            && self.board_tool != BoardTool::Line
+            && !place_rect
         {
             if let Some(w) = wp {
                 let mods = ui.input(|i| i.modifiers);
@@ -2325,12 +2420,16 @@ impl SlateApp {
                     self.commit_text_edit();
                     if let Some(w) = wp {
                         let mods = ui.input(|i| i.modifiers);
-                        self.board_click(w, mods);
+                        if !self.try_dock_embed_click(ui.ctx(), w) {
+                            self.board_click(w, mods);
+                        }
                     }
                 }
             } else if let Some(w) = wp {
                 let mods = ui.input(|i| i.modifiers);
-                self.board_click(w, mods);
+                if !self.try_dock_embed_click(ui.ctx(), w) {
+                    self.board_click(w, mods);
+                }
             }
         }
         if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
@@ -2345,7 +2444,11 @@ impl SlateApp {
         // Line tool: crosshair while armed (D10) and the constraint-resolved
         // rubber-band cursor on plain hover (a live press updates through
         // update_gesture instead).
-        if self.board_tool == BoardTool::Trim && resp.hovered() && !panning && !zoom_tool {
+        if matches!(self.board_tool, BoardTool::Trim | BoardTool::Split)
+            && resp.hovered()
+            && !panning
+            && !zoom_tool
+        {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
             if let Some(w) = wp {
                 let shift = ui.input(|i| i.modifiers.shift);
@@ -2400,22 +2503,24 @@ impl SlateApp {
             && !panning
             && !zoom_tool
         {
-            let draw_from = match &self.board_drag {
-                Some(BoardDrag::Draw { start_world, .. }) => Some(*start_world),
-                Some(_) => None,
-                None => None,
-            };
-            let allow = matches!(self.board_drag, None | Some(BoardDrag::Draw { .. }));
-            if allow {
-                if let Some(w) = wp {
-                    let _ = self.resolve_point_snap(
-                        w,
-                        &[],
-                        draw_from,
-                        self.shift_down,
-                        draw_from.is_some(),
-                    );
+            // Area tools never take F8/Shift as ortho (Shift is aspect).
+            // DragScale snaps the live rect; GhostFollow snaps the hotspot.
+            match &self.board_drag {
+                Some(BoardDrag::Draw {
+                    start_world, tool, ..
+                }) => {
+                    if let Some(w) = wp {
+                        let start = *start_world;
+                        let tool = *tool;
+                        let _ = self.resolve_draw_rect(start, w, tool, self.shift_down);
+                    }
                 }
+                None => {
+                    if let Some(w) = wp {
+                        let _ = self.resolve_point_snap(w, &[], None, false, false);
+                    }
+                }
+                Some(_) => {}
             }
         }
         let secondary = resp.secondary_clicked() && !self.turbo_pan.should_suppress_context_menu();
@@ -2724,13 +2829,21 @@ impl SlateApp {
         {
             if let Some(p) = pointer {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-                board_place::paint_armed_pointer(&painter, p, palette.accent);
-                let drawing = matches!(self.board_drag, Some(BoardDrag::Draw { .. }));
+                // Glyph stays screen-space (P0.9); the hotspot is the snapped
+                // world point so the armed cursor is not a naked hunt.
+                let hot = self.board_point_snap.map(|w| xf.w2s(w)).unwrap_or(p);
+                board_place::paint_armed_pointer(&painter, hot, palette.accent);
+                let drawing = match &self.board_drag {
+                    Some(BoardDrag::Draw { start_screen, .. }) => {
+                        (p - *start_screen).length() > board_place::place_tokens::DRAG_THRESHOLD
+                    }
+                    _ => false,
+                };
                 if !drawing {
                     if let Some(kind) = armed_kind {
                         board_place::paint_ghost(
                             &painter,
-                            p,
+                            hot,
                             kind,
                             palette.accent,
                             palette.portal,
@@ -2767,30 +2880,45 @@ impl SlateApp {
         }
 
         // Draw-gesture preview.
-        if let (Some(BoardDrag::Draw { start_world, tool }), Some(w)) = (&self.board_drag, wp) {
-            let mods = ui.input(|i| i.modifiers);
-            let accent = palette.accent;
-            let end = self.preview_snap_point(w);
-            match tool {
-                BoardTool::Ellipse => {
-                    let preview =
-                        self.draw_preview_screen_rect(&xf, *start_world, end, *tool, mods);
-                    painter.add(egui::epaint::EllipseShape {
-                        center: preview.center(),
-                        radius: preview.size() * 0.5,
-                        fill: Color32::TRANSPARENT,
-                        stroke: EStroke::new(1.5_f32, accent),
+        if let (
+            Some(BoardDrag::Draw {
+                start_world,
+                start_screen,
+                tool,
+            }),
+            Some(w),
+        ) = (&self.board_drag, wp)
+        {
+            let travel = pointer.map(|p| (p - *start_screen).length()).unwrap_or(0.0);
+            if travel <= board_place::place_tokens::DRAG_THRESHOLD {
+                // Still a click: keep the ghost, no MIN_DRAW speck.
+            } else {
+                let mods = ui.input(|i| i.modifiers);
+                let accent = palette.accent;
+                let preview = self
+                    .board_draw_rect
+                    .map(|r| xf.rect_w2s(r))
+                    .unwrap_or_else(|| {
+                        let end = self.preview_snap_point(w);
+                        self.draw_preview_screen_rect(&xf, *start_world, end, *tool, mods)
                     });
-                }
-                _ => {
-                    let preview =
-                        self.draw_preview_screen_rect(&xf, *start_world, end, *tool, mods);
-                    painter.rect_stroke(
-                        preview,
-                        0.0,
-                        EStroke::new(1.5_f32, accent),
-                        egui::StrokeKind::Inside,
-                    );
+                match tool {
+                    BoardTool::Ellipse => {
+                        painter.add(egui::epaint::EllipseShape {
+                            center: preview.center(),
+                            radius: preview.size() * 0.5,
+                            fill: Color32::TRANSPARENT,
+                            stroke: EStroke::new(1.5_f32, accent),
+                        });
+                    }
+                    _ => {
+                        painter.rect_stroke(
+                            preview,
+                            0.0,
+                            EStroke::new(1.5_f32, accent),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
                 }
             }
         }
@@ -3359,10 +3487,31 @@ impl SlateApp {
         board_snap::SNAP_SCREEN_PX / self.tab().cam.z
     }
 
+    pub(crate) fn snap_scope(&self) -> board_snap::SnapScope {
+        let z = self.tab().cam.z.max(0.05);
+        let (reach_px, lane_px) = self.board_snap_reach.screen_px();
+        let xf = self.board_xf();
+        let r = self.canvas_rect;
+        let a = xf.s2w(r.min);
+        let b = xf.s2w(r.max);
+        let x0 = a.x.min(b.x);
+        let y0 = a.y.min(b.y);
+        board_snap::SnapScope {
+            threshold: self.board_snap_threshold(),
+            reach: if reach_px.is_finite() {
+                reach_px / z
+            } else {
+                f32::INFINITY
+            },
+            lane: lane_px / z,
+            view: WorldRect::new(x0, y0, (a.x - b.x).abs(), (a.y - b.y).abs()),
+        }
+    }
+
     /// Smart-guide snap sources: hidden nodes are out, **locked nodes stay
     /// in** (Rhino: locked still snaps), and connectors' derived AABBs never
     /// act as alignment targets.
-    fn board_node_rects(&self) -> Vec<(NodeId, WorldRect)> {
+    pub(crate) fn board_node_rects(&self) -> Vec<(NodeId, WorldRect)> {
         self.doc()
             .scene
             .nodes
@@ -3589,6 +3738,12 @@ impl SlateApp {
         world: Pos2,
         mods: egui::Modifiers,
     ) -> Option<BoardDrag> {
+        // A dropped toolbar is a node: press-drag anywhere on it (icons
+        // included) moves the strip. Create tools stay armed; they do not
+        // start a draw from the toolbar.
+        if let Some(drag) = self.begin_dock_strip_drag(screen, world) {
+            return Some(drag);
+        }
         match self.board_tool {
             BoardTool::Select => {
                 // Crop mode intercepts everything on its node: handles move
@@ -3764,7 +3919,7 @@ impl SlateApp {
             BoardTool::Eraser => Some(BoardDrag::Erase {
                 touched: Vec::new(),
             }),
-            BoardTool::Eyedropper | BoardTool::Sticky | BoardTool::Trim => None, // click tools
+            BoardTool::Eyedropper | BoardTool::Sticky | BoardTool::Trim | BoardTool::Split => None, // click tools
             BoardTool::DirectSelect => self
                 .begin_direct_drag(screen, world, mods)
                 .map(BoardDrag::Direct),
@@ -3792,6 +3947,7 @@ impl SlateApp {
                 let start = self.resolve_point_snap(world, &[], None, false, false);
                 Some(BoardDrag::Draw {
                     start_world: start,
+                    start_screen: screen,
                     tool,
                 })
             }
@@ -3851,6 +4007,15 @@ impl SlateApp {
         }
         if matches!(self.board_drag, Some(BoardDrag::LineDraw { .. })) {
             self.line_hover(world, mods.shift);
+            return;
+        }
+        if let Some(BoardDrag::Draw {
+            start_world, tool, ..
+        }) = &self.board_drag
+        {
+            let start = *start_world;
+            let tool = *tool;
+            let _ = self.resolve_draw_rect(start, world, tool, mods.shift);
             return;
         }
         if let Some(BoardDrag::LineGrip { id, end, .. }) = &self.board_drag {
@@ -3940,14 +4105,10 @@ impl SlateApp {
                             }
                             self.board_osnap_hit = Some(hit);
                             osnap_moved = true;
-                        } else {
+                        } else if self.board_smart_guides {
                             let all = self.board_node_rects();
-                            let (snapped, guides) = board_snap::snap_bbox(
-                                union,
-                                &ids,
-                                &all,
-                                self.board_snap_threshold(),
-                            );
+                            let (snapped, guides) =
+                                board_snap::snap_bbox_scoped(union, &ids, &all, self.snap_scope());
                             let mut ax = snapped.x - union.x;
                             let mut ay = snapped.y - union.y;
                             if ortho {
@@ -4037,17 +4198,34 @@ impl SlateApp {
                 );
 
                 if !mods.alt {
-                    let all = self.board_node_rects();
-                    let edges = board_snap::ResizeSnapEdges::for_handle(handle);
-                    let (snapped, guides) = board_snap::snap_resize_rect(
-                        r,
-                        &[node_id],
-                        &all,
-                        self.board_snap_threshold(),
-                        edges,
-                    );
-                    r = snapped;
-                    self.board_snap_guides = guides;
+                    if is_corner {
+                        // Snap the grabbed corner (osnap + smart guides), then
+                        // rebuild so aspect lock still holds. Independent
+                        // edge snaps fight proportional scale.
+                        let pointer =
+                            self.resolve_point_snap(world, &[node_id], None, false, false);
+                        r = board_snap::resize_from_handle(
+                            before_rect,
+                            pointer,
+                            handle,
+                            MIN_DRAW,
+                            lock_aspect,
+                            from_center,
+                            rotation_deg,
+                        );
+                    } else if self.board_smart_guides {
+                        let all = self.board_node_rects();
+                        let edges = board_snap::ResizeSnapEdges::for_handle(handle);
+                        let (snapped, guides) = board_snap::snap_resize_rect_scoped(
+                            r,
+                            &[node_id],
+                            &all,
+                            self.snap_scope(),
+                            edges,
+                        );
+                        r = snapped;
+                        self.board_snap_guides = guides;
+                    }
                 }
 
                 if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
@@ -4138,15 +4316,32 @@ impl SlateApp {
                     mods.shift
                 };
                 let from_center = !reposition && mods.ctrl;
-                let new_group = board_snap::resize_from_handle(
+                let mut pointer = world;
+                if !mods.alt && is_corner {
+                    pointer = self.resolve_point_snap(world, &ids, None, false, false);
+                }
+                let mut new_group = board_snap::resize_from_handle(
                     gb,
-                    world,
+                    pointer,
                     handle,
                     MIN_DRAW,
                     lock_aspect,
                     from_center,
                     0.0,
                 );
+                if !mods.alt && !is_corner && self.board_smart_guides {
+                    let all = self.board_node_rects();
+                    let edges = board_snap::ResizeSnapEdges::for_handle(handle);
+                    let (snapped, guides) = board_snap::snap_resize_rect_scoped(
+                        new_group,
+                        &ids,
+                        &all,
+                        self.snap_scope(),
+                        edges,
+                    );
+                    new_group = snapped;
+                    self.board_snap_guides = guides;
+                }
                 let mut sx = new_group.w / gb.w.max(0.001);
                 let mut sy = new_group.h / gb.h.max(0.001);
                 if !reposition {
@@ -4167,20 +4362,22 @@ impl SlateApp {
                         sy = sy.max((MIN_DRAW / min_h.max(0.001)).min(1.0));
                     }
                 }
-                let (ax, ay) = group_scale_anchor(gb, handle, from_center);
                 let mean = (sx + sy) * 0.5;
+                let rects: Vec<WorldRect> = before.iter().map(|n| n.rect).collect();
+                let scaled = board_snap::apply_group_box_scale(
+                    &rects,
+                    gb,
+                    sx,
+                    sy,
+                    handle,
+                    from_center,
+                    reposition,
+                );
                 let scene = &mut self.doc_mut().scene;
-                for (id, b) in ids.iter().zip(before.iter()) {
+                for ((id, b), r) in ids.iter().zip(before.iter()).zip(scaled.iter()) {
                     if let Some(n) = scene.node_mut(*id) {
-                        if reposition {
-                            n.rect = board_snap::remap_group_keep_size(b.rect, sx, sy, (ax, ay));
-                        } else {
-                            n.rect = WorldRect::new(
-                                ax + (b.rect.x - ax) * sx,
-                                ay + (b.rect.y - ay) * sy,
-                                b.rect.w * sx,
-                                b.rect.h * sy,
-                            );
+                        n.rect = *r;
+                        if !reposition {
                             // Text scales with the group; stroke widths stay
                             // fixed (CSS keeps stroke width on resize).
                             if let (NodeKind::Text(t), NodeKind::Text(tb)) = (&mut n.kind, &b.kind)
@@ -4337,14 +4534,22 @@ impl SlateApp {
                     self.tab_mut().dirty = true;
                 }
             }
-            Some(BoardDrag::Draw { start_world, tool }) => {
-                let world =
-                    self.resolve_point_snap(world, &[], Some(start_world), mods.shift, true);
-                let moved = (world - start_world).length() > 4.0;
-                if !moved {
+            Some(BoardDrag::Draw {
+                start_world,
+                start_screen,
+                tool,
+            }) => {
+                let rect = self.resolve_draw_rect(start_world, world, tool, mods.shift);
+                // D04: cursor travel in *screen* px. World units made a
+                // zoomed-out click look like a drag (and a zoomed-in snap
+                // pull look like ClickPlace).
+                let travel_px = pointer
+                    .map(|p| (p - start_screen).length())
+                    .unwrap_or_else(|| (world - start_world).length() * self.board_xf().z);
+                if travel_px <= board_place::place_tokens::DRAG_THRESHOLD {
                     self.place_default_at(tool, start_world);
                 } else {
-                    self.finish_draw(start_world, world, tool, mods);
+                    self.commit_draw_rect(rect, tool);
                 }
             }
             Some(BoardDrag::FreehandPen { points, .. }) => {
@@ -4422,6 +4627,71 @@ impl SlateApp {
         for (frame, items) in per_frame {
             self.apply_frame_tags(frame, &items);
         }
+    }
+
+    /// Snap a DragScale live/commit rect. F8 ortho does not apply (area
+    /// place; Shift is aspect). Object snap on the moving corner wins;
+    /// otherwise the growing rect's free edges smart-guide like a resize
+    /// so the cursor leaving a target's row does not silence the forcefield.
+    pub(crate) fn resolve_draw_rect(
+        &mut self,
+        start: Pos2,
+        raw_end: Pos2,
+        tool: BoardTool,
+        shift: bool,
+    ) -> WorldRect {
+        if self.alt_down {
+            self.board_osnap_hit = None;
+            self.board_point_snap = Some(raw_end);
+            let r = self.draw_world_rect(start, raw_end, tool, shift);
+            self.board_draw_rect = Some(r);
+            return r;
+        }
+
+        let set = self.board_osnap;
+        let radius = self.osnap_radius_world();
+        if let Some(hit) = board_osnap::pick(
+            &self.doc().scene,
+            raw_end,
+            radius,
+            set,
+            &[],
+            Some(start),
+            self.board_wire_routing,
+        ) {
+            self.board_osnap_hit = Some(hit);
+            self.board_point_snap = Some(hit.point);
+            let r = self.draw_world_rect(start, hit.point, tool, shift);
+            self.board_draw_rect = Some(r);
+            return r;
+        }
+        self.board_osnap_hit = None;
+
+        let proposed = self.draw_world_rect(start, raw_end, tool, shift);
+        if self.board_smart_guides {
+            let edges = board_snap::ResizeSnapEdges::for_draw(start, proposed);
+            let all = self.board_node_rects();
+            let (snapped, guides) =
+                board_snap::snap_resize_rect_scoped(proposed, &[], &all, self.snap_scope(), edges);
+            if !guides.is_empty() {
+                self.board_snap_guides = guides;
+                let end = board_snap::draw_end_from_rect(start, snapped);
+                self.board_point_snap = Some(end);
+                self.board_draw_rect = Some(snapped);
+                return snapped;
+            }
+        }
+
+        let end = if self.board_snap_grid {
+            let g = board_snap::GRID_WORLD;
+            Pos2::new((raw_end.x / g).round() * g, (raw_end.y / g).round() * g)
+        } else {
+            raw_end
+        };
+        self.board_point_snap = Some(end);
+        let r = self.draw_world_rect(start, end, tool, shift);
+        self.board_draw_rect = Some(r);
+        r
     }
 
     /// DragScale world rect for preview and commit. One `PlaceConstraint`
@@ -4517,7 +4787,8 @@ impl SlateApp {
         self.add_agent_portal(rect, "placed");
     }
 
-    /// Click-to-place default web portal, unbound (P2.PortalPlace.click).
+    /// Click-to-place default web portal, bound to the start locator
+    /// (P2.PortalPlace.click).
     pub(crate) fn place_web_portal_at(&mut self, center: Pos2) {
         let rect = WorldRect::new(
             center.x - PORTAL_DEFAULT_W * 0.5,
@@ -4525,7 +4796,11 @@ impl SlateApp {
             PORTAL_DEFAULT_W,
             PORTAL_DEFAULT_H,
         );
-        self.add_web_portal(rect, None, "placed");
+        self.add_web_portal(
+            rect,
+            Some(board_web::WEB_START_LOCATOR.to_string()),
+            "placed",
+        );
     }
 
     /// Place a tool's recipe centred on a point, at the recipe's own default
@@ -4593,6 +4868,10 @@ impl SlateApp {
 
     pub(crate) fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
         let r = self.draw_world_rect(a, b, tool, mods.shift);
+        self.commit_draw_rect(r, tool);
+    }
+
+    fn commit_draw_rect(&mut self, r: WorldRect, tool: BoardTool) {
         if r.w < MIN_DRAW && r.h < MIN_DRAW {
             self.board_tool = BoardTool::Select;
             return;
@@ -4602,7 +4881,7 @@ impl SlateApp {
             return;
         }
         if tool == BoardTool::WebPortal {
-            self.add_web_portal(r, None, "drawn");
+            self.add_web_portal(r, Some(board_web::WEB_START_LOCATOR.to_string()), "drawn");
             return;
         }
         // What the gesture produces is the tool's recipe, read from the kit
@@ -4662,9 +4941,8 @@ impl SlateApp {
         );
     }
 
-    /// Commit one web portal. `locator` is `None` for the draw grammar, which
-    /// always commits unbound (D03), and `Some` for the drop-in entry paths of
-    /// D01, which bind at placement.
+    /// Commit one web portal. Default place/draw and the drop-in entry paths
+    /// bind at placement; `None` is kept for explicit "clear source" paths.
     pub(crate) fn add_web_portal(
         &mut self,
         rect: WorldRect,
@@ -4718,6 +4996,12 @@ impl SlateApp {
     }
 
     fn board_click(&mut self, world: Pos2, mods: egui::Modifiers) {
+        // A dropped toolbar click is handled by try_dock_embed_click so
+        // an armed Text / Sticky / click-place tool cannot commit on the
+        // same click that picked an icon.
+        if self.dock_embed_node_at(world.x, world.y).is_some() {
+            return;
+        }
         // Crop mode: clicking outside the node finishes the crop and the
         // click passes through to normal selection; clicks inside are the
         // pan gesture's territory and change nothing.
@@ -4738,6 +5022,17 @@ impl SlateApp {
             BoardTool::Sticky => {
                 let world = self.resolve_point_snap(world, &[], None, false, false);
                 self.place_sticky_at(world);
+                return;
+            }
+            tool if tool.places_by_drag_rect() => {
+                // Safety net: a click that never started Draw (press
+                // missed the canvas response) still ClickPlaces. If Draw
+                // is live, release owns the commit so we do not place twice.
+                if matches!(self.board_drag, Some(BoardDrag::Draw { .. })) {
+                    return;
+                }
+                let world = self.resolve_point_snap(world, &[], None, false, false);
+                self.place_default_at(tool, world);
                 return;
             }
             BoardTool::Polyline | BoardTool::Arc => {
@@ -4772,7 +5067,7 @@ impl SlateApp {
                 self.direct_click(screen, world, mods.shift);
                 return;
             }
-            BoardTool::Trim => {
+            BoardTool::Trim | BoardTool::Split => {
                 self.trim_click(world, mods.shift);
                 return;
             }

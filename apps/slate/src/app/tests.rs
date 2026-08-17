@@ -1333,6 +1333,106 @@ fn osnap_gp4_master_disable() {
     h.frame();
 }
 
+/// Armed GhostFollow: a point near an edge snaps and emits a forcefield.
+#[test]
+fn armed_rect_hover_snaps_and_emits_forcefield() {
+    let mut h = osnap_board("armed_hover_snap");
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = true;
+    add_rect(&mut h.app, 200.0, 80.0);
+    h.app.set_board_tool(board::BoardTool::RectShape);
+    let p = h
+        .app
+        .resolve_point_snap(Pos2::new(203.0, 110.0), &[], None, false, false);
+    assert!(
+        (p.x - 200.0).abs() < 0.01,
+        "armed hotspot should snap to the edge, got {p:?}"
+    );
+    assert!(
+        !h.app.board_snap_guides.is_empty(),
+        "GhostFollow hover must emit a forcefield"
+    );
+    assert_eq!(h.app.board_point_snap, Some(p));
+    assert_eq!(h.app.preview_snap_point(Pos2::new(203.0, 110.0)), p);
+}
+
+/// DragScale second corner: snap the live rect, not a 0-size cursor that
+/// has left the target's row (the forcefield used to go quiet).
+#[test]
+fn draw_rect_second_corner_emits_forcefield() {
+    let mut h = osnap_board("draw_rect_second_corner");
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = true;
+    add_rect(&mut h.app, 200.0, 0.0);
+    h.app.set_board_tool(board::BoardTool::RectShape);
+    let start = Pos2::new(0.0, 0.0);
+    let end = Pos2::new(197.0, 280.0);
+    h.app.board_drag =
+        h.app
+            .begin_gesture_for_test(Pos2::new(10.0, 10.0), start, Default::default());
+    h.app.update_gesture_for_test(end, Default::default());
+    assert!(
+        !h.app.board_snap_guides.is_empty(),
+        "second corner must emit a forcefield even when the cursor left the row"
+    );
+    let r = h.app.board_draw_rect.expect("live draw rect");
+    assert!(
+        (r.x + r.w - 200.0).abs() < 0.5,
+        "right edge should snap to 200, got {}",
+        r.x + r.w
+    );
+}
+
+/// Shift during DragScale is aspect, not ortho — smart guides still fire.
+#[test]
+fn draw_rect_shift_does_not_silence_forcefield() {
+    let mut h = osnap_board("draw_rect_shift");
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = true;
+    h.app.board_ortho = true;
+    add_rect(&mut h.app, 200.0, 0.0);
+    h.app.set_board_tool(board::BoardTool::RectShape);
+    let start = Pos2::new(0.0, 0.0);
+    let end = Pos2::new(197.0, 280.0);
+    h.app.board_drag =
+        h.app
+            .begin_gesture_for_test(Pos2::new(10.0, 10.0), start, Default::default());
+    let mut mods = egui::Modifiers::default();
+    mods.shift = true;
+    h.app.update_gesture_for_test(end, mods);
+    assert!(
+        !h.app.board_snap_guides.is_empty(),
+        "Shift+square must not take the ortho path and skip forcefield"
+    );
+}
+
+/// Every DragRect tool shares `resolve_draw_rect` (ellipse, frame, portals).
+#[test]
+fn every_drag_rect_tool_second_corner_snaps() {
+    for tool in board::BoardTool::ALL {
+        if !tool.places_by_drag_rect() {
+            continue;
+        }
+        let mut h = osnap_board(&format!("draw_{tool:?}_snap"));
+        h.app.board_osnap.enabled = false;
+        h.app.board_smart_guides = true;
+        add_rect(&mut h.app, 200.0, 0.0);
+        h.app.set_board_tool(tool);
+        let r = h
+            .app
+            .resolve_draw_rect(Pos2::new(0.0, 0.0), Pos2::new(197.0, 280.0), tool, false);
+        assert!(
+            !h.app.board_snap_guides.is_empty(),
+            "{tool:?} second corner must emit a forcefield"
+        );
+        assert!(
+            (r.x + r.w - 200.0).abs() < 0.5,
+            "{tool:?} right edge should snap to 200, got {}",
+            r.x + r.w
+        );
+    }
+}
+
 // ---------- tool kits: the result of a gesture comes from data ----------
 
 fn kit_board(tag: &str, tool: board::BoardTool) -> Harness {
@@ -1593,6 +1693,7 @@ fn arming_gp1_frame_ghost_follows_without_a_node() {
 }
 
 /// GP2 — arm Web portal, then click-place: default size, one-shot, ghost gone.
+/// Goes through begin/end gesture — the live path, not `place_web_portal_at`.
 #[test]
 fn arming_gp2_web_portal_click_place_clears_the_ghost() {
     let mut h = arming_board("arming_gp2", board::BoardTool::WebPortal);
@@ -1600,7 +1701,16 @@ fn arming_gp2_web_portal_click_place_clears_the_ghost() {
         board_place::ghost_kind(h.app.board_tool),
         Some(board_place::GhostKind::Portal)
     );
-    h.app.place_web_portal_at(Pos2::new(0.0, 0.0));
+    let world = Pos2::new(0.0, 0.0);
+    let drag =
+        h.app
+            .begin_gesture_for_test(Pos2::new(400.0, 300.0), world, egui::Modifiers::default());
+    h.app.board_drag = drag;
+    h.app.end_gesture_for_test(
+        world,
+        Some(Pos2::new(400.0, 300.0)),
+        egui::Modifiers::default(),
+    );
     assert_eq!(h.app.board_tool, board::BoardTool::Select, "one-shot");
     assert!(board_place::ghost_kind(h.app.board_tool).is_none());
     let node = &h.app.doc().scene.nodes[0];
@@ -1620,6 +1730,7 @@ fn rect_and_ellipse_click_place_default_size() {
     let mut h = arming_board("click_place_rect", board::BoardTool::RectShape);
     h.app.board_drag = Some(board::BoardDrag::Draw {
         start_world: Pos2::new(40.0, 30.0),
+        start_screen: Pos2::new(40.0, 30.0),
         tool: board::BoardTool::RectShape,
     });
     h.app
@@ -1650,6 +1761,129 @@ fn rect_and_ellipse_click_place_default_size() {
     };
     assert_eq!(s.shape, slate_doc::scene::ShapeKind::Ellipse);
     h.frame();
+}
+
+/// Every DragRect tool: click-release (no screen travel) places a default
+/// size, not a MIN_DRAW speck, and returns to Select.
+#[test]
+fn every_drag_rect_tool_click_places_default_size() {
+    for tool in board::BoardTool::ALL {
+        if !tool.places_by_drag_rect() {
+            continue;
+        }
+        let mut h = arming_board(&format!("click_place_{tool:?}"), tool);
+        let world = Pos2::new(80.0, 60.0);
+        let screen = Pos2::new(400.0, 300.0);
+        h.app.board_drag = h
+            .app
+            .begin_gesture_for_test(screen, world, egui::Modifiers::default());
+        h.app
+            .end_gesture_for_test(world, Some(screen), egui::Modifiers::default());
+        assert_eq!(
+            h.app.doc().scene.nodes.len(),
+            1,
+            "{tool:?}: click-place created nothing"
+        );
+        let r = h.app.doc().scene.nodes[0].rect;
+        assert!(
+            r.w > board::MIN_DRAW * 2.0 && r.h > board::MIN_DRAW * 2.0,
+            "{tool:?}: click-place was a speck {}×{}",
+            r.w,
+            r.h
+        );
+        assert_eq!(h.app.board_tool, board::BoardTool::Select, "{tool:?}");
+    }
+}
+
+/// Screen travel, not world travel, splits ClickPlace from DragScale.
+/// A zoomed-out 20-world twitch is still a click if the pointer moved 2 px.
+#[test]
+fn click_vs_drag_uses_screen_pixels_not_world() {
+    let mut h = arming_board("place_travel_px", board::BoardTool::RectShape);
+    let start = Pos2::new(0.0, 0.0);
+    h.app.board_drag = Some(board::BoardDrag::Draw {
+        start_world: start,
+        start_screen: Pos2::new(200.0, 200.0),
+        tool: board::BoardTool::RectShape,
+    });
+    h.app.end_gesture_for_test(
+        Pos2::new(20.0, 0.0),
+        Some(Pos2::new(202.0, 200.0)),
+        egui::Modifiers::default(),
+    );
+    let r = h.app.doc().scene.nodes[0].rect;
+    assert!(
+        (r.w - board_place::place_tokens::RECT_DEFAULT_W).abs() < 0.01,
+        "2 px screen travel must ClickPlace, got {}×{}",
+        r.w,
+        r.h
+    );
+}
+
+/// Drag past the screen threshold still sizes the node (the common path).
+#[test]
+fn drag_past_threshold_still_scales() {
+    let mut h = arming_board("place_drag_scale", board::BoardTool::RectShape);
+    let start = Pos2::new(0.0, 0.0);
+    h.app.board_drag =
+        h.app
+            .begin_gesture_for_test(Pos2::new(200.0, 200.0), start, egui::Modifiers::default());
+    h.app.end_gesture_for_test(
+        Pos2::new(200.0, 120.0),
+        Some(Pos2::new(400.0, 320.0)),
+        egui::Modifiers::default(),
+    );
+    let r = h.app.doc().scene.nodes[0].rect;
+    assert!(
+        (r.w - 200.0).abs() < 0.5 && (r.h - 120.0).abs() < 0.5,
+        "DragScale size, got {}×{}",
+        r.w,
+        r.h
+    );
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+}
+
+/// The real pointer path: arm Rect, click-release on the canvas (no drag).
+/// This is the flow that used to do nothing because it waited for
+/// `drag_started`.
+#[test]
+fn canvas_click_release_places_a_default_rect() {
+    let mut h = arming_board("canvas_click_place", board::BoardTool::RectShape);
+    h.frame();
+    let screen = h.app.canvas_rect.center();
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(screen));
+        input.events.push(egui::Event::PointerButton {
+            pos: screen,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        });
+    });
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(screen));
+        input.events.push(egui::Event::PointerButton {
+            pos: screen,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::default(),
+        });
+    });
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "click-release must place, got {:?}",
+        h.app.board_tool
+    );
+    let r = h.app.doc().scene.nodes[0].rect;
+    assert!(
+        (r.w - board_place::place_tokens::RECT_DEFAULT_W).abs() < 0.01
+            && (r.h - board_place::place_tokens::RECT_DEFAULT_H).abs() < 0.01,
+        "default size, got {}×{}",
+        r.w,
+        r.h
+    );
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
 }
 
 /// GP3 — Rect DragScale + Shift goes through PlaceConstraint (square).
@@ -1756,6 +1990,8 @@ fn arming_gp6_tool_switch_swaps_the_silhouette() {
 struct FakeLog {
     admitted: std::collections::HashSet<slate_doc::NodeId>,
     inputs: Vec<board_web::WebInput>,
+    current_urls: std::collections::HashMap<slate_doc::NodeId, String>,
+    navigations: Vec<(slate_doc::NodeId, String)>,
 }
 
 #[derive(Default, Clone)]
@@ -1764,6 +2000,15 @@ struct FakeWebHost(std::rc::Rc<std::cell::RefCell<FakeLog>>);
 impl FakeWebHost {
     fn inputs(&self) -> Vec<board_web::WebInput> {
         self.0.borrow().inputs.clone()
+    }
+    fn navigations(&self) -> Vec<(slate_doc::NodeId, String)> {
+        self.0.borrow().navigations.clone()
+    }
+    fn set_current_url(&self, id: slate_doc::NodeId, url: &str) {
+        self.0.borrow_mut().current_urls.insert(id, url.to_string());
+    }
+    fn current_url(&self, id: slate_doc::NodeId) -> Option<String> {
+        self.0.borrow().current_urls.get(&id).cloned()
     }
     fn sent<T>(&self, pick: impl Fn(&board_web::WebInput) -> Option<T>) -> Vec<T> {
         self.inputs().iter().filter_map(pick).collect()
@@ -1774,8 +2019,12 @@ impl board_web::WebHost for FakeWebHost {
     fn available(&self) -> bool {
         true
     }
-    fn admit(&mut self, id: slate_doc::NodeId, _req: &board_web::WebRequest) {
-        self.0.borrow_mut().admitted.insert(id);
+    fn admit(&mut self, id: slate_doc::NodeId, req: &board_web::WebRequest) {
+        let mut log = self.0.borrow_mut();
+        log.admitted.insert(id);
+        log.current_urls
+            .entry(id)
+            .or_insert_with(|| req.target.clone());
     }
     fn evict(&mut self, id: slate_doc::NodeId) {
         self.0.borrow_mut().admitted.remove(&id);
@@ -1801,6 +2050,15 @@ impl board_web::WebHost for FakeWebHost {
     }
     fn load_error(&self, _id: slate_doc::NodeId) -> Option<String> {
         None
+    }
+    fn current_url(&self, id: slate_doc::NodeId) -> Option<String> {
+        self.0.borrow().current_urls.get(&id).cloned()
+    }
+    fn navigate(&mut self, id: slate_doc::NodeId, target: &str) -> bool {
+        let mut log = self.0.borrow_mut();
+        log.navigations.push((id, target.to_string()));
+        log.current_urls.insert(id, target.to_string());
+        true
     }
 }
 
@@ -1848,10 +2106,10 @@ fn only_portal(h: &Harness) -> (slate_doc::NodeId, slate_doc::scene::PortalNode)
     (node.id, p.clone())
 }
 
-/// GP1 — the draw grammar always commits an unbound portal: binding never
-/// happens inside a gesture (D03).
+/// GP1 — the draw grammar commits the default search surface. Binding a
+/// different page remains a later non-modal step (D03).
 #[test]
-fn gp1_a_drawn_web_portal_commits_unbound() {
+fn gp1_a_drawn_web_portal_commits_the_start_locator() {
     let mut h = web_board("web_gp1");
     h.app.set_board_tool(board::BoardTool::WebPortal);
     drag(
@@ -1862,10 +2120,16 @@ fn gp1_a_drawn_web_portal_commits_unbound() {
     );
     let (id, p) = only_portal(&h);
     assert_eq!(p.class, slate_doc::scene::PortalClass::Host);
-    assert!(p.source.is_none(), "a draw never binds");
+    let source = p.source.expect("default placement binds the start page");
+    assert_eq!(source.locator, board_web::WEB_START_LOCATOR);
+    let origin = slate_doc::scene::web_origin(board_web::WEB_START_LOCATOR).expect("start origin");
+    assert!(
+        h.app.web.has_consent(&origin),
+        "placing the start page is the human allowing that origin"
+    );
     assert_eq!(h.app.board_tool, board::BoardTool::Select, "one-shot (D02)");
     h.frame();
-    assert_eq!(h.app.web.state(id), board_web::WebState::Unbound);
+    assert_ne!(h.app.web.state(id), board_web::WebState::Unbound);
     h.app.board_undo();
     assert!(h.app.doc().scene.nodes.is_empty(), "one gesture, one undo");
     h.frame();
@@ -1885,6 +2149,37 @@ fn gp1_a_clicked_web_portal_takes_the_shared_portal_default_size() {
         )
     );
     h.frame();
+}
+
+/// Home is derived navigation back to the authored locator. It never rewrites
+/// the node after the page has followed links internally.
+#[test]
+fn portal_web_home_returns_to_the_authored_locator_without_journaling() {
+    let mut h = web_board("web_home");
+    let host = with_fake_host(&mut h);
+    h.app.place_web_portal_at(Pos2::new(0.0, 0.0));
+    let (id, before) = only_portal(&h);
+    web_settle(&mut h, &[(id, 540.0)], 2);
+    host.set_current_url(id, "https://example.com/result");
+
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("portal.web.home"), None));
+
+    let (_, after) = only_portal(&h);
+    assert_eq!(
+        after.source, before.source,
+        "Home is not a journaled rebind"
+    );
+    assert_eq!(
+        host.navigations(),
+        vec![(id, board_web::WEB_START_LOCATOR.to_string())]
+    );
+    assert_eq!(
+        host.current_url(id)
+            .expect("fake host should report its derived location"),
+        board_web::WEB_START_LOCATOR
+    );
 }
 
 /// Binding a fixture snapshot is a journaled Patch; contents regenerate and
@@ -2058,6 +2353,7 @@ fn a_failed_agent_send_names_the_failure() {
     let mut h = agent_board("agent_named_fail");
     h.app.place_agent_portal_at(Pos2::ZERO);
     let id = h.app.doc().scene.nodes[0].id;
+    h.app.ai.config.workspace_dir = Some(std::path::PathBuf::from("/definitely/not/here"));
     *h.app.agents.prompt_mut(id) = "what is 2+2?".into();
     h.app.send_agent_prompt(id);
     let reason = h
@@ -2069,6 +2365,23 @@ fn a_failed_agent_send_names_the_failure() {
         "named the missing workspace: {reason}"
     );
     assert!(!h.app.agent_is_awaiting(id));
+}
+
+#[test]
+fn sending_a_prompt_shows_thinking_not_silence() {
+    let mut h = agent_board("agent_thinking");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    let ws = h.base.join("ai-ws");
+    std::fs::create_dir_all(&ws).unwrap();
+    h.app.ai.config.workspace_dir = Some(ws);
+    *h.app.agents.prompt_mut(id) = "what is 2+2?".into();
+    h.app.send_agent_prompt(id);
+    assert!(
+        h.app.agent_is_awaiting(id),
+        "Send must enter Thinking — never a blank wait"
+    );
+    assert!(h.app.agent_failure_reason(id).is_none());
 }
 
 /// GP2 — dropping an HTML file on the board makes a portal, not a text card,
@@ -2632,6 +2945,40 @@ fn escape_peels_focus_and_never_reaches_the_page() {
     );
 }
 
+/// Clicking outside a focused page makes it a preview card again; the click is
+/// Slate's, not another page input event.
+#[test]
+fn primary_click_outside_a_focused_page_releases_focus() {
+    let (mut h, id, host) = focused_page("web_click_out");
+    let xf = h.app.board_xf();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let frame = xf.rect_w2s(node.rect);
+    let outside = if frame.left() > 24.0 {
+        Pos2::new(frame.left() - 12.0, frame.center().y)
+    } else {
+        Pos2::new(frame.right() + 12.0, frame.center().y)
+    };
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(outside));
+        input.events.push(egui::Event::PointerButton {
+            pos: outside,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        });
+    });
+
+    assert_eq!(h.app.web.focused, None, "outside click released the page");
+    assert!(
+        host.sent(|i| match i {
+            board_web::WebInput::Down { .. } => Some(()),
+            _ => None,
+        })
+        .is_empty(),
+        "the outside click must not be forwarded to the page"
+    );
+}
+
 /// A drag inside the page selects text there rather than moving the node or
 /// panning the board.
 #[test]
@@ -3072,6 +3419,74 @@ fn selection_outline_follows_silhouette() {
         p_pts.len() > 4,
         "a portal highlight must follow the shared fillet"
     );
+
+    let strip = add_dock_strip(&mut h.app, &["shape.rect"]);
+    h.frame();
+    h.app.tab_mut().cam.z = 1.0;
+    let xf = h.app.board_xf();
+    let sn = h.app.doc().scene.node(strip).unwrap();
+    let s_pts = h.app.node_screen_outline(&xf, sn);
+    assert!(
+        s_pts.len() > 4,
+        "a dock-strip highlight must follow the shared fillet"
+    );
+    let r = super::board_dock_embed::dock_strip_corner_radius(xf.z);
+    let sharp = xf.rect_w2s(sn.rect).left_top();
+    assert!(
+        s_pts.iter().all(|p| p.distance(sharp) > r * 0.3),
+        "the dock-strip highlight must leave the sharp corner empty"
+    );
+}
+
+fn add_dock_strip(app: &mut SlateApp, tools: &[&str]) -> NodeId {
+    let n = tools.len().max(1) as f32;
+    let rect = slate_doc::scene::WorldRect::new(0.0, 0.0, n * 40.0 + 16.0, 48.0);
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::DockStrip(slate_doc::scene::DockStripNode {
+            palette_id: "tool.shapes".into(),
+            visible: tools.iter().map(|s| (*s).to_string()).collect(),
+        }),
+    );
+    app.add_nodes(vec![node])[0]
+}
+
+/// A click on a dropped-toolbar icon arms the command and does not place.
+#[test]
+fn dock_strip_click_arms_without_placing() {
+    let mut h = web_board("dock_arm");
+    let id = add_dock_strip(&mut h.app, &["text.block"]);
+    h.frame();
+    let n = h.app.doc().scene.node(id).unwrap();
+    let world = Pos2::new(n.rect.x + n.rect.w * 0.5, n.rect.y + n.rect.h * 0.5);
+    let before = h.app.doc().scene.nodes.len();
+    assert!(h.app.try_dock_embed_click(&h.ctx, world));
+    assert_eq!(h.app.board_tool, board::BoardTool::Text);
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        before,
+        "arming from a dropped toolbar must not place"
+    );
+}
+
+/// Press-drag on a dropped toolbar moves it even when a create tool is armed.
+#[test]
+fn dock_strip_drag_moves_regardless_of_armed_tool() {
+    let mut h = web_board("dock_move");
+    let id = add_dock_strip(&mut h.app, &["shape.rect"]);
+    h.app.set_board_tool(board::BoardTool::RectShape);
+    h.frame();
+    let xf = h.app.board_xf();
+    let n = h.app.doc().scene.node(id).unwrap();
+    let world = Pos2::new(n.rect.x + n.rect.w * 0.5, n.rect.y + n.rect.h * 0.5);
+    let screen = xf.w2s(world);
+    let drag = h
+        .app
+        .begin_gesture_for_test(screen, world, egui::Modifiers::NONE);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Move { .. })),
+        "press-drag on a dropped toolbar must move it, not draw"
+    );
 }
 
 /// Portals stay axis-aligned: no rotate chrome, but edges still resize.
@@ -3259,6 +3674,104 @@ fn group_reposition_keeps_member_size() {
         "right item translates, got {}",
         rb.x
     );
+}
+
+/// Every group-box handle × (scale | Ctrl+Alt+Shift): opposite union
+/// handle stays put, and keep-size never changes member w/h. Nw / Ne / Sw
+/// used to translate the whole stack; some corners looked one-axis-locked.
+#[test]
+fn group_every_handle_scale_and_reposition() {
+    use super::board_snap;
+    use board_handles::ResizeHandle;
+    use slate_doc::scene::WorldRect;
+
+    fn union_of(app: &SlateApp, ids: &[NodeId]) -> WorldRect {
+        let rects: Vec<WorldRect> = ids
+            .iter()
+            .map(|id| app.doc().scene.node(*id).unwrap().rect)
+            .collect();
+        board_snap::union_rect(&rects).unwrap()
+    }
+
+    fn almost(a: (f32, f32), b: (f32, f32)) -> bool {
+        (a.0 - b.0).abs() < 0.05 && (a.1 - b.1).abs() < 0.05
+    }
+
+    // Pointers that double a 200×100 group box uniformly (corners) or on
+    // one axis (edges). The second member is offset on both axes so every
+    // handle has layout to scale — a flat row made N/S look like a no-op.
+    let cases: [(u8, Pos2); 8] = [
+        (ResizeHandle::Nw as u8, Pos2::new(-200.0, -100.0)),
+        (ResizeHandle::N as u8, Pos2::new(100.0, -100.0)),
+        (ResizeHandle::Ne as u8, Pos2::new(400.0, -100.0)),
+        (ResizeHandle::E as u8, Pos2::new(400.0, 50.0)),
+        (ResizeHandle::Se as u8, Pos2::new(400.0, 200.0)),
+        (ResizeHandle::S as u8, Pos2::new(100.0, 200.0)),
+        (ResizeHandle::Sw as u8, Pos2::new(-200.0, 200.0)),
+        (ResizeHandle::W as u8, Pos2::new(-200.0, 50.0)),
+    ];
+
+    for (handle, pointer) in cases {
+        for reposition in [false, true] {
+            let mut h = align_board(&format!("grp_{handle}_{reposition}"));
+            let a = add_rect(&mut h.app, 0.0, 0.0);
+            let b = add_rect(&mut h.app, 120.0, 40.0);
+            select_ids(&mut h.app, &[a, b]);
+            let gb = h.app.board_group_bounds().expect("group bounds");
+            let before: Vec<_> = [a, b]
+                .iter()
+                .map(|id| h.app.doc().scene.node(*id).unwrap().clone())
+                .collect();
+            h.app.board_drag = Some(board::BoardDrag::GroupResize {
+                ids: vec![a, b],
+                before,
+                group_before: gb,
+                handle,
+            });
+            let mut mods = egui::Modifiers::default();
+            if reposition {
+                mods.ctrl = true;
+                mods.alt = true;
+                mods.shift = true;
+            }
+            h.app.update_gesture_for_test(pointer, mods);
+            let ra = h.app.doc().scene.node(a).unwrap().rect;
+            let rb = h.app.doc().scene.node(b).unwrap().rect;
+            if reposition {
+                assert!(
+                    (ra.w - 80.0).abs() < 1e-3 && (ra.h - 60.0).abs() < 1e-3,
+                    "handle {handle} keep-size: A sized {}×{}",
+                    ra.w,
+                    ra.h
+                );
+                assert!(
+                    (rb.w - 80.0).abs() < 1e-3 && (rb.h - 60.0).abs() < 1e-3,
+                    "handle {handle} keep-size: B sized {}×{}",
+                    rb.w,
+                    rb.h
+                );
+            } else {
+                assert!(
+                    ra.w > 80.0 + 1.0 || ra.h > 60.0 + 1.0,
+                    "handle {handle} scale: members did not grow"
+                );
+            }
+            let union = union_of(&h.app, &[a, b]);
+            let old_a = board_snap::resize_anchor(gb, handle, false);
+            let new_a = board_snap::resize_anchor(union, handle, false);
+            assert!(
+                almost(old_a, new_a),
+                "handle {handle} reposition={reposition}: opposite walked {old_a:?} → {new_a:?}"
+            );
+            let old_g = board_snap::handle_local(gb, handle);
+            let new_g = board_snap::handle_local(union, handle);
+            let grabbed = (old_g.0 - new_g.0).abs() + (old_g.1 - new_g.1).abs();
+            assert!(
+                grabbed > 1.0,
+                "handle {handle} reposition={reposition}: grabbed handle did not move"
+            );
+        }
+    }
 }
 
 /// After a 180° rotate, grabbing the visual top edge must move that edge
@@ -3478,6 +3991,7 @@ fn trim_gp2_rect_cut_by_line() {
         "left half should be gone, rect={:?}",
         n.rect
     );
+    assert_axis_aligned_world(&node_world_contours(&h.app, rect));
     h.frame();
 }
 
@@ -3616,6 +4130,33 @@ fn join_board(tag: &str) -> Harness {
     trim_board(tag)
 }
 
+fn assert_axis_aligned_world(contours: &[Vec<[f32; 2]>]) {
+    for ring in contours {
+        let n = ring.len();
+        assert!(n >= 3, "ring too short: {ring:?}");
+        for i in 0..n {
+            let a = ring[i];
+            let b = ring[(i + 1) % n];
+            let dx = (b[0] - a[0]).abs();
+            let dy = (b[1] - a[1]).abs();
+            assert!(
+                dx < 0.02 || dy < 0.02,
+                "edge {a:?} → {b:?} is not axis-aligned"
+            );
+        }
+    }
+}
+
+fn node_world_contours(app: &SlateApp, id: slate_doc::scene::NodeId) -> Vec<Vec<[f32; 2]>> {
+    let n = app.doc().scene.node(id).expect("node");
+    let path = match &n.kind {
+        slate_doc::scene::NodeKind::Shape(s) => s.path.as_ref().expect("path"),
+        _ => panic!("expected a shape"),
+    };
+    let bez = board_path::path_data_to_world_bez(path, n.rect, n.rotation_deg);
+    vector_ink::flatten_contours(&bez, 0.35)
+}
+
 fn joined_contours(app: &SlateApp) -> (slate_doc::scene::WorldRect, Vec<Vec<[f32; 2]>>) {
     assert_eq!(app.doc().scene.nodes.len(), 1, "join should leave one node");
     let n = &app.doc().scene.nodes[0];
@@ -3646,8 +4187,26 @@ fn join_gp2_closed_union() {
     assert!(vector_ink::point_in_polygon(&contours, [100.0, 100.0]));
     assert!(vector_ink::point_in_polygon(&contours, [50.0, 50.0]));
     assert!(!vector_ink::point_in_polygon(&contours, [10.0, 100.0]));
+    assert_axis_aligned_world(&contours);
     h.app.board_undo();
     assert_eq!(h.app.doc().scene.nodes.len(), 2);
+    h.frame();
+}
+
+/// Joined concave union must earcut both lobes (egui PathShape fans tear this).
+#[test]
+fn join_fill_mesh_covers_concave_union() {
+    let mut h = join_board("join_fill_mesh");
+    let a = add_filled_rect(&mut h.app, 0.0, 0.0, 80.0, 80.0);
+    let b = add_filled_rect(&mut h.app, 40.0, 40.0, 80.0, 80.0);
+    h.app.board_sel = [a, b].into_iter().collect();
+    assert!(h.app.cmd_join());
+    let (_, contours) = joined_contours(&h.app);
+    let (verts, idx) = vector_ink::fill_triangles(&contours);
+    assert!(vector_ink::point_in_mesh(&verts, &idx, [10.0, 10.0]));
+    assert!(vector_ink::point_in_mesh(&verts, &idx, [100.0, 100.0]));
+    assert!(vector_ink::point_in_mesh(&verts, &idx, [50.0, 50.0]));
+    assert!(!vector_ink::point_in_mesh(&verts, &idx, [10.0, 100.0]));
     h.frame();
 }
 
@@ -3685,18 +4244,33 @@ fn join_gp4_nested_union() {
     h.frame();
 }
 
-/// GP5 — disjoint rects stay two filled regions on one path.
+/// GP5 — disjoint rects are a no-op (Rhino; Group is Ctrl+G).
 #[test]
-fn join_gp5_disjoint_compound() {
+fn join_gp5_disjoint_is_noop() {
     let mut h = join_board("join_gp5");
     let a = add_filled_rect(&mut h.app, 0.0, 0.0, 20.0, 20.0);
     let b = add_filled_rect(&mut h.app, 80.0, 80.0, 20.0, 20.0);
     h.app.board_sel = [a, b].into_iter().collect();
+    assert!(!h.app.cmd_join());
+    assert_eq!(h.app.doc().scene.nodes.len(), 2);
+    assert!(h.app.toasts.iter().any(|(m, _)| m.contains("do not touch")));
+    h.frame();
+}
+
+/// A touching pair unions; a far object stays its own node.
+#[test]
+fn join_leaves_a_far_object() {
+    let mut h = join_board("join_far");
+    let a = add_filled_rect(&mut h.app, 0.0, 0.0, 40.0, 40.0);
+    let b = add_filled_rect(&mut h.app, 20.0, 20.0, 40.0, 40.0);
+    let c = add_filled_rect(&mut h.app, 200.0, 200.0, 20.0, 20.0);
+    h.app.board_sel = [a, b, c].into_iter().collect();
     assert!(h.app.cmd_join());
-    let (_, contours) = joined_contours(&h.app);
-    assert!(vector_ink::point_in_polygon(&contours, [10.0, 10.0]));
-    assert!(vector_ink::point_in_polygon(&contours, [90.0, 90.0]));
-    assert!(!vector_ink::point_in_polygon(&contours, [50.0, 50.0]));
+    assert_eq!(h.app.doc().scene.nodes.len(), 2);
+    assert!(
+        h.app.doc().scene.node(c).is_some(),
+        "far rect must stay editable"
+    );
     h.frame();
 }
 
@@ -3812,4 +4386,158 @@ fn wire_routing_toggle_is_session_not_journaled() {
         None
     ));
     assert_eq!(h.app.board_wire_routing, slate_doc::WireRouting::Bezier);
+}
+
+// ---------- Split golden paths (contracts/split.md GP1–GP6) ----------
+
+fn closed_shape_contains(app: &SlateApp, p: [f32; 2]) -> bool {
+    app.doc().scene.nodes.iter().any(|n| {
+        let slate_doc::scene::NodeKind::Shape(s) = &n.kind else {
+            return false;
+        };
+        let Some(path) = s.path.as_ref() else {
+            return false;
+        };
+        if !path.closed {
+            return false;
+        }
+        let bez = board_path::path_data_to_world_bez(path, n.rect, n.rotation_deg);
+        let contours = vector_ink::flatten_contours(&bez, 0.35);
+        vector_ink::point_in_polygon(&contours, p)
+    })
+}
+
+/// GP1 — crossing lines: click the horizontal; both halves stay.
+#[test]
+fn split_gp1_crossing_lines() {
+    let mut h = trim_board("split_gp1");
+    let horiz = add_seg(&mut h.app, Pos2::new(0.0, 50.0), Pos2::new(100.0, 50.0));
+    let vert = add_seg(&mut h.app, Pos2::new(50.0, 0.0), Pos2::new(50.0, 100.0));
+    select_trim(&mut h.app, &[horiz, vert]);
+    h.app.set_board_tool(board::BoardTool::Split);
+    assert_eq!(h.app.board_tool, board::BoardTool::Split);
+    assert!(h.app.trim.as_ref().is_some_and(|s| {
+        s.mode == super::board_trim::SliceMode::Split && s.cutters.len() == 2
+    }));
+    assert!(h.app.trim_click(Pos2::new(25.0, 50.0), false));
+    assert_eq!(h.app.doc().scene.nodes.len(), 3, "two halves + vertical");
+    assert!(h.app.doc().scene.node(vert).is_some());
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 2);
+    h.frame();
+}
+
+/// GP2 — rect + vertical line: click the rect; both halves stay filled.
+#[test]
+fn split_gp2_rect_cut_by_line() {
+    let mut h = trim_board("split_gp2");
+    let rect = add_filled_rect(&mut h.app, 0.0, 0.0, 100.0, 80.0);
+    let line = add_seg(&mut h.app, Pos2::new(50.0, -10.0), Pos2::new(50.0, 90.0));
+    select_trim(&mut h.app, &[rect, line]);
+    h.app.set_board_tool(board::BoardTool::Split);
+    assert!(h.app.trim_click(Pos2::new(20.0, 40.0), false));
+    assert_eq!(h.app.doc().scene.nodes.len(), 3, "two halves + line");
+    assert!(closed_shape_contains(&h.app, [20.0, 40.0]));
+    assert!(closed_shape_contains(&h.app, [80.0, 40.0]));
+    let closed_paths: Vec<_> = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .filter(|n| {
+            matches!(
+                &n.kind,
+                slate_doc::scene::NodeKind::Shape(s)
+                    if s.shape == slate_doc::scene::ShapeKind::Path
+                        && s.path.as_ref().is_some_and(|p| p.closed)
+            )
+        })
+        .map(|n| n.id)
+        .collect();
+    for id in closed_paths {
+        assert_axis_aligned_world(&node_world_contours(&h.app, id));
+    }
+    h.frame();
+}
+
+/// GP3 — circle inside a rect: click the rect; disk and ring both remain.
+#[test]
+fn split_gp3_hole_keeps_disk_and_ring() {
+    let mut h = trim_board("split_gp3");
+    let rect = add_filled_rect(&mut h.app, 0.0, 0.0, 100.0, 100.0);
+    let circle = add_filled_ellipse(&mut h.app, 30.0, 30.0, 40.0, 40.0);
+    select_trim(&mut h.app, &[rect, circle]);
+    h.app.set_board_tool(board::BoardTool::Split);
+    assert!(h.app.trim_click(Pos2::new(10.0, 10.0), false));
+    assert!(h.app.doc().scene.node(circle).is_some(), "cutter remains");
+    assert!(
+        closed_shape_contains(&h.app, [50.0, 50.0]),
+        "disk must remain"
+    );
+    assert!(
+        closed_shape_contains(&h.app, [5.0, 5.0]),
+        "outer ring must remain"
+    );
+    h.frame();
+}
+
+/// GP4 — Ctrl+Shift+T arms Split; Ctrl+N still opens a tab.
+#[test]
+fn split_gp4_ctrl_n_still_new_tab() {
+    let mut h = trim_board("split_gp4");
+    h.app
+        .dispatch(&h.ctx, atlas_commands::CommandId("board.tool.split"), None);
+    assert_eq!(h.app.board_tool, board::BoardTool::Split);
+    let before = h.app.tabs.len();
+    h.app
+        .dispatch(&h.ctx, atlas_commands::CommandId("app.new_tab"), None);
+    assert_eq!(h.app.tabs.len(), before + 1);
+    h.frame();
+}
+
+/// GP5 — two clicks, one undo restores only the last.
+#[test]
+fn split_gp5_per_click_undo() {
+    let mut h = trim_board("split_gp5");
+    let a = add_seg(&mut h.app, Pos2::new(0.0, 0.0), Pos2::new(100.0, 0.0));
+    let b = add_seg(&mut h.app, Pos2::new(0.0, 40.0), Pos2::new(100.0, 40.0));
+    let c = add_seg(&mut h.app, Pos2::new(50.0, -10.0), Pos2::new(50.0, 50.0));
+    select_trim(&mut h.app, &[a, b, c]);
+    h.app.set_board_tool(board::BoardTool::Split);
+    assert!(h.app.trim_click(Pos2::new(25.0, 0.0), false));
+    let after_first = h.app.doc().scene.nodes.len();
+    assert!(h.app.trim_click(Pos2::new(25.0, 40.0), false));
+    assert!(h.app.doc().scene.nodes.len() > after_first);
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), after_first);
+    h.frame();
+}
+
+/// GP6 — Esc peels TrimParts → PickCutters → Select.
+#[test]
+fn split_gp6_esc_stack() {
+    let mut h = trim_board("split_gp6");
+    let cutter = add_filled_rect(&mut h.app, 0.0, 0.0, 40.0, 40.0);
+    h.app.set_board_tool(board::BoardTool::Split);
+    assert_eq!(
+        h.app.trim.as_ref().unwrap().phase,
+        super::board_trim::TrimPhase::PickCutters
+    );
+    assert!(h.app.trim_click(Pos2::new(20.0, 20.0), false));
+    assert!(h.app.trim.as_ref().unwrap().cutters.contains(&cutter));
+    h.app.trim_enter();
+    assert_eq!(
+        h.app.trim.as_ref().unwrap().phase,
+        super::board_trim::TrimPhase::TrimParts
+    );
+    h.app.trim_cancel_step();
+    assert_eq!(
+        h.app.trim.as_ref().unwrap().phase,
+        super::board_trim::TrimPhase::PickCutters
+    );
+    h.app.trim_cancel_step();
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+    assert!(h.app.trim.is_none());
+    h.frame();
 }

@@ -258,33 +258,35 @@ impl SlateApp {
     /// Live drag update: recompute from the gesture-start anchors through
     /// the pure edit fns, write back into the node.
     pub(crate) fn update_direct_drag(&mut self, world: Pos2, mods: egui::Modifiers) {
-        let Some(super::board::BoardDrag::Direct(drag)) = &self.board_drag else {
-            return;
-        };
-        match drag {
-            DirectDrag::Anchors {
+        let anchors_drag = match &self.board_drag {
+            Some(super::board::BoardDrag::Direct(DirectDrag::Anchors {
                 node,
                 anchors0,
                 closed,
                 indices,
                 start,
                 ..
-            } => {
-                let (node, closed) = (*node, *closed);
-                let mut anchors = anchors0.clone();
-                let mut d = world - *start;
-                if super::board_snap::effective_ortho(self.board_ortho, mods.shift) {
-                    d = super::board_snap::ortho_snap_vec(d);
-                    self.ortho_feedback =
-                        Some((*start, super::board_snap::ortho_axis(world - *start)));
-                }
-                let delta = KVec2::new(d.x as f64, d.y as f64);
-                let indices = indices.clone();
-                for idx in indices {
-                    move_anchor(&mut anchors, idx, delta);
-                }
-                self.direct_write_back(node, &anchors, closed);
+            })) => Some((*node, *closed, *start, anchors0.clone(), indices.clone())),
+            _ => None,
+        };
+        if let Some((node, closed, start, mut anchors, indices)) = anchors_drag {
+            let snapped = self.resolve_point_snap(world, &[node], None, false, false);
+            let mut d = snapped - start;
+            if super::board_snap::effective_ortho(self.board_ortho, mods.shift) {
+                d = super::board_snap::ortho_snap_vec(d);
+                self.ortho_feedback = Some((start, super::board_snap::ortho_axis(world - start)));
             }
+            let delta = KVec2::new(d.x as f64, d.y as f64);
+            for idx in indices {
+                move_anchor(&mut anchors, idx, delta);
+            }
+            self.direct_write_back(node, &anchors, closed);
+            return;
+        }
+        let Some(super::board::BoardDrag::Direct(drag)) = &self.board_drag else {
+            return;
+        };
+        match drag {
             DirectDrag::Segment {
                 node,
                 anchors0,
@@ -318,6 +320,7 @@ impl SlateApp {
                 self.direct_write_back(node, &anchors, closed);
             }
             DirectDrag::Marquee { .. } => {}
+            DirectDrag::Anchors { .. } => {}
         }
     }
 

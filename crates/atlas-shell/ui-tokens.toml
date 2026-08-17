@@ -339,15 +339,15 @@ item_gap = 6.5
 row_height = 6.0
 text_size = 12.0
 separators = true
-chevron_size = 8.0
-chevron_hit = 16.0
-chevron_inset_x = 5.0
-chevron_inset_y = 3.0
-chevron_stroke = 1.15
-chevron_idle_opacity = 0.38
-chevron_hover_opacity = 0.92
-chevron_hover_fill = 0.1
-chevron_emboss = 0.22
+chevron_size = 4.0
+chevron_hit = 8.0
+chevron_inset_x = 2.5
+chevron_inset_y = 1.5
+chevron_stroke = 0.58
+chevron_idle_opacity = 0.3799999952316284
+chevron_hover_opacity = 0.9200000166893005
+chevron_hover_fill = 0.10000000149011612
+chevron_emboss = 0.2199999988079071
 
 [activity_heatmap]
 out_of_range_opacity = 0.3799999952316284
@@ -397,7 +397,7 @@ corner_radius = 8.0
 reveal_strip_px = 14.0
 chrome_button_px = 22.0
 border_hit_px = 6.0
-tab_height_scale = 0.4
+tab_height_scale = 0.4000000059604645
 
 [board_preview]
 select_line_weight = 1.5
@@ -408,12 +408,12 @@ highlight_in = 0.11999999731779099
 highlight_out = 0.2199999988079071
 
 [board_forcefield]
-expand_secs = 0.10
-fade_secs = 0.14
-center_weight = 0.85
-edge_weight = 0.15
-center_opacity = 0.22
-edge_opacity = 0.03
+expand_secs = 0.800000011920929
+fade_secs = 0.5299999713897705
+center_weight = 0.10000000149011612
+edge_weight = 0.10000000149011612
+center_opacity = 1.0
+edge_opacity = 0.029999999329447746
 
 [menu]
 corner_radius = 5.0

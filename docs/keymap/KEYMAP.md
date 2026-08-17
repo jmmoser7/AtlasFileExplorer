@@ -124,7 +124,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Ctrl+G | Rhino | **Group** | Board | ✅ exists | New `group` field on nodes (flat groups first; nesting 🟡 P2). Selection expands to group; `Ctrl+Shift+click` selects a member (Rhino sub-object convention). |
 | Ctrl+H | Rhino | **Hide selected** | Board | ✅ exists | New `hidden` node flag — skipped by paint and hit-test, journaled patch. |
 | Ctrl+I | Photoshop | **Invert image** | Board | ✅ exists | New `invert` in `ImageAdjust`; CSS `invert()` keeps it inside the SVG ceiling; lands in painter + artifact together (Art. IV). |
-| Ctrl+J | Rhino | **Join** — open paths at nearest ends; closed shapes region-union | Board | ✅ exists | Mixed open+closed strokes the open curve at its weight, then unions. See `contracts/join.md`. |
+| Ctrl+J | Rhino | **Join** — open paths at nearest ends; closed shapes region-union when they meet | Board | ✅ exists | Disjoint operands stay put (Group is Ctrl+G). Mixed open+closed strokes the open curve at its weight, then unions if it meets. See `contracts/join.md`. |
 | Ctrl+L | Rhino | **Lock selected** | Board | ✅ exists | New `locked` node flag — visible, grayed handles, excluded from selection/drag; still snappable. |
 | Ctrl+N | Rhino | **New** workbook tab / Atlas tab | Both | ✅ exists | Primary new-tab chord (Slate no longer aliases Ctrl+T). |
 | Ctrl+O | Rhino | Open | Both | ✅ exists | |
@@ -142,6 +142,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 
 | Key | Source | Action here | Scope | Status | Notes |
 |-----|--------|-------------|-------|--------|-------|
+| Ctrl+Shift+T | Rhino | **Split** — pick cutters, click an object; every piece stays | Board | ✅ exists | Same syntax as Trim. See `contracts/split.md`. |
 | Ctrl+Shift+S | Photoshop | Save As | Slate | ✅ exists | |
 | Ctrl+Shift+G | Rhino | **Ungroup** | Board | ✅ exists | |
 | Ctrl+Shift+L | Rhino | **Unlock all** | Board | ✅ exists | Locked nodes aren't click-selectable, so unlock-all is the practical form; one-off unlock via Ctrl+Shift+click force-selection. |

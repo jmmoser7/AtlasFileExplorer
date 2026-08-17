@@ -51,6 +51,7 @@ Each panel is a bordered card via `sidebar_section` in `sidebar.rs`:
 | Gap between cards | 6px | Replaces `ui.separator()` |
 | Header height | 18px | Toggle + title |
 | Control row height | 20px | Checkboxes, option rows |
+| Toggle row | 22px / 34×18 track | Left-knob capsule + label (`sidebar_icon_row`) |
 | Toolbar row height | 22px | Primary action buttons |
 | Toggle glyph size | 8px | `+` collapsed, `−` expanded |
 | Row gap | 4px | Between controls inside body |
@@ -78,13 +79,25 @@ Is it a one-shot canvas action (Fit, Flow)?
 Is it a boolean filter/setting with a short label?
   → sidebar_checkbox_row
 
+Is it a stacked dock tool, toggle, or snap with a distinctive icon?
+  → sidebar_icon_row (wide capsule track, sliding knob with icon, label).
+    On lights the track and slides the knob right; off dims and slides
+    left. Tracks stay left-aligned so a two-column snap grid keeps two
+    vertical columns. `flyout_items` in List mode uses it.
+
 Is it a numeric range?
   → sidebar_slider_block + thin_sidebar_slider(..., theme.sub)
 
-Is it a mutually exclusive pair/small set of modes?
-  → sidebar_option_group(label, theme, |ui| selectable_label …)
+Is it a mutually exclusive pair of text modes (wires)?
+  → sidebar_choice_chips — selected gets a rounded fill, no outer box.
 
-Is it a subsection label only?
+Is it a boxed exclusive set with diagrams (REACH)?
+  → sidebar_segmented — bordered bar, optional icon above label.
+
+Is it a white section title inside a body (Object snaps)?
+  → sidebar_heading
+
+Is it a muted subsection label only?
   → sidebar_subsection_label
 
 Is it a family/type row with a color swatch?
@@ -103,7 +116,8 @@ Is it a list of draggable pills (tags)?
 
 - Keep section bodies vertically stacked with consistent 4px rhythm.
 - Put primary actions in a toolbar row at the top of Display-style panels.
-- Use `sidebar_option_group` for muted label + horizontal option pills.
+- Use `sidebar_choice_chips` / `sidebar_segmented` for exclusive modes;
+  keep `sidebar_option_group` only where a custom horizontal row is needed.
 - Put slider value readouts on the right (handled by `thin_sidebar_slider`).
 - Use `theme.sub` for all secondary copy; never hardcode `gray(120)`.
 

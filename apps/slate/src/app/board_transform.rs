@@ -14,8 +14,10 @@ impl SlateApp {
     /// Portals stay axis-aligned; connectors and simple lines have no bbox
     /// rotate. Everything else with a rectangular frame can rotate.
     pub(crate) fn node_allows_rotation(node: &Node) -> bool {
-        !matches!(node.kind, NodeKind::Portal(_) | NodeKind::Connector(_))
-            && !Self::node_uses_curve_grips(node)
+        !matches!(
+            node.kind,
+            NodeKind::Portal(_) | NodeKind::Connector(_) | NodeKind::DockStrip(_)
+        ) && !Self::node_uses_curve_grips(node)
     }
 
     fn node_offers_bbox_transform(&self, node: &Node) -> bool {

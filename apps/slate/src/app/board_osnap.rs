@@ -9,11 +9,9 @@ use slate_doc::osnap::{
     perp_on_rect, rect_segments, segment_intersection, tangents_on_ellipse, ObjectSnapSet,
     SnapKind,
 };
-use slate_doc::scene::{
-    connector_anchor_point, ConnectorEnd, Node, NodeKind, ShapeKind, WorldRect,
-};
-use slate_doc::wire::{connector_route, nearest_on_polyline, scene_wire_obstacles, ConnectorPath};
-use slate_doc::{NodeId, Scene, WireRouting};
+use slate_doc::scene::{ConnectorEnd, Node, NodeKind, ShapeKind, WorldRect};
+use slate_doc::wire::{connector_route_in_scene, nearest_on_polyline, ConnectorPath};
+use slate_doc::{connector_anchor_on, NodeId, Scene, WireRouting};
 use vector_ink::kurbo::{BezPath, ParamCurve, ParamCurveNearest, PathEl, Point};
 
 use super::board::BoardXf;
@@ -36,6 +34,8 @@ pub struct OsnapHit {
 impl SlateApp {
     pub(crate) fn persist_osnap(&mut self) {
         self.settings.board_osnap = self.board_osnap;
+        self.settings.board_smart_guides = self.board_smart_guides;
+        self.settings.board_snap_reach = self.board_snap_reach;
         self.settings.save();
     }
 
@@ -44,8 +44,25 @@ impl SlateApp {
     }
 
     /// Point-pick resolution: Alt suspends, ortho wins when allowed, then
-    /// object snap, then grid. Stores [`SlateApp::board_osnap_hit`] for paint.
+    /// object snap, then smart guides, then grid. Stores
+    /// [`SlateApp::board_osnap_hit`] and [`SlateApp::board_point_snap`].
+    /// Every live board point (hover, press, drag end, grip, GhostFollow
+    /// hotspot) must go through this — preview and commit consume the
+    /// cached point, never the raw cursor while a snap is live.
     pub(crate) fn resolve_point_snap(
+        &mut self,
+        world: Pos2,
+        exclude: &[NodeId],
+        from: Option<Pos2>,
+        shift: bool,
+        allow_ortho: bool,
+    ) -> Pos2 {
+        let p = self.resolve_point_snap_inner(world, exclude, from, shift, allow_ortho);
+        self.board_point_snap = Some(p);
+        p
+    }
+
+    fn resolve_point_snap_inner(
         &mut self,
         world: Pos2,
         exclude: &[NodeId],
@@ -78,6 +95,14 @@ impl SlateApp {
             return hit.point;
         }
         self.board_osnap_hit = None;
+        if self.board_smart_guides {
+            let all = self.board_node_rects();
+            let (p, guides) = board_snap::snap_point(world, exclude, &all, self.snap_scope());
+            if !guides.is_empty() {
+                self.board_snap_guides = guides;
+                return p;
+            }
+        }
         if self.board_snap_grid {
             let g = board_snap::GRID_WORLD;
             return Pos2::new((world.x / g).round() * g, (world.y / g).round() * g);
@@ -85,9 +110,13 @@ impl SlateApp {
         world
     }
 
-    /// Last resolved hover/gesture point for live previews: osnap hit, else
-    /// grid, else the raw cursor. Does not re-run the picker.
+    /// Last resolved hover/gesture point for live previews. Prefers the
+    /// value `resolve_point_snap` / `resolve_draw_rect` just wrote (osnap
+    /// *or* smart-guide). Falls back to an osnap hit, then grid, then raw.
     pub(crate) fn preview_snap_point(&self, world: Pos2) -> Pos2 {
+        if let Some(p) = self.board_point_snap {
+            return p;
+        }
         if let Some(hit) = self.board_osnap_hit {
             return hit.point;
         }
@@ -169,22 +198,11 @@ pub fn pick(
             for end in [c.a, c.b] {
                 if let ConnectorEnd::Anchored { node: nid, side, t } = end {
                     if let Some(host) = scene.node(nid) {
-                        consider(
-                            SnapKind::End,
-                            connector_anchor_point(host.rect, side, t),
-                            Some(id),
-                        );
+                        consider(SnapKind::End, connector_anchor_on(host, side, t), Some(id));
                     }
                 }
             }
-            let obstacles = scene_wire_obstacles(scene);
-            if let Some(path) = connector_route(
-                &c.a,
-                &c.b,
-                |nid| scene.node(nid).map(|n| n.rect),
-                routing,
-                &obstacles,
-            ) {
+            if let Some(path) = connector_route_in_scene(scene, Some(id), &c.a, &c.b, routing) {
                 consider(SnapKind::Mid, path.midpoint(), Some(id));
                 if set.is_on(SnapKind::Near) {
                     if let Some(p) = nearest_on_path(&path, [cursor.x, cursor.y]) {

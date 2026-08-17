@@ -15,8 +15,9 @@
 
 use super::SlateApp;
 use eframe::egui::Pos2;
-use slate_doc::scene::{connector_anchor_point, ConnectorEnd, GroupKey, Node, NodeKind, Scene};
+use slate_doc::scene::{ConnectorEnd, GroupKey, Node, NodeKind, Scene};
 use slate_doc::NodeId;
+use slate_doc::{connector_anchor_on, WireHost};
 use std::collections::{HashMap, HashSet};
 
 /// Step applied to each successive Ctrl+V paste of the same payload.
@@ -58,7 +59,7 @@ pub fn clipboard_payload(scene: &Scene, selected: &HashSet<NodeId>) -> Vec<Node>
                 if !selected.contains(&target) {
                     let point = scene
                         .node(target)
-                        .map(|n| connector_anchor_point(n.rect, side, t))
+                        .map(|n| connector_anchor_on(n, side, t))
                         .unwrap_or([0.0, 0.0]);
                     *end = ConnectorEnd::Free { point };
                 }
@@ -112,7 +113,7 @@ pub fn remap_for_paste(
                             } else {
                                 let p = src_rect
                                     .get(&node)
-                                    .map(|r| connector_anchor_point(*r, side, t))
+                                    .map(|r| WireHost::from_rect(*r).anchor(side, t))
                                     .unwrap_or([src.rect.x, src.rect.y]);
                                 *end = ConnectorEnd::Free {
                                     point: [p[0] + dx, p[1] + dy],

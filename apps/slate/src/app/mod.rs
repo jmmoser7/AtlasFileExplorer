@@ -28,6 +28,7 @@ mod board_align;
 mod board_color;
 pub mod board_crop;
 mod board_direct;
+mod board_dock_embed;
 mod board_flags;
 mod board_forcefield;
 mod board_handles;
@@ -232,6 +233,8 @@ pub struct SlateApp {
     pub dock_pins: Vec<String>,
     /// Tool flyouts that open as an icon strip instead of a stacked list.
     pub dock_icon_strips: Vec<String>,
+    /// Tools hidden from each palette's icon strip (`palette → tool ids`).
+    pub dock_strip_hidden: Vec<(String, Vec<String>)>,
 
     pub selection: HashSet<ItemId>,
     pub canvas_rect: Rect,
@@ -355,10 +358,19 @@ pub struct SlateApp {
     pub board_snap_grid: bool,
     /// Persistent object-snap set (Document Settings). Not journaled.
     pub board_osnap: slate_doc::ObjectSnapSet,
+    /// Object-to-object smart guides (forcefield ripples). Not journaled.
+    pub board_smart_guides: bool,
+    /// Neighborhood for smart guides (Tight / Nearby / Wide).
+    pub board_snap_reach: settings::SnapReach,
     /// Bezier vs orthogonal wire display (Document Settings). Not journaled.
     pub board_wire_routing: slate_doc::WireRouting,
     /// Last object-snap hit this frame (marker paint).
     pub board_osnap_hit: Option<board_osnap::OsnapHit>,
+    /// Last resolved live point (osnap or smart-guide). GhostFollow and
+    /// rubber-bands read this instead of the raw cursor.
+    pub board_point_snap: Option<egui::Pos2>,
+    /// DragScale rect after `resolve_draw_rect` (preview + commit).
+    pub board_draw_rect: Option<slate_doc::scene::WorldRect>,
     /// Hover target on a node's bounding-box chrome (handles / rotate zones).
     pub board_hover_hit: Option<board_handles::BoardHitTarget>,
     /// Node whose chrome `board_hover_hit` belongs to. `None` when the hit
@@ -532,6 +544,7 @@ impl SlateApp {
             dock_side: chrome_prefs.dock_side,
             dock_pins: chrome_prefs.pinned_panels,
             dock_icon_strips: chrome_prefs.panel_icon_strip,
+            dock_strip_hidden: chrome_prefs.panel_strip_hidden,
             selection: HashSet::new(),
             canvas_rect: Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1440.0, 900.0)),
             turbo_pan: commands::TurboPanState::default(),
@@ -590,8 +603,12 @@ impl SlateApp {
             board_show_grid: true,
             board_snap_grid: false,
             board_osnap: slate_doc::ObjectSnapSet::default(),
+            board_smart_guides: true,
+            board_snap_reach: settings::SnapReach::Nearby,
             board_wire_routing: slate_doc::WireRouting::default(),
             board_osnap_hit: None,
+            board_point_snap: None,
+            board_draw_rect: None,
             board_hover_hit: None,
             board_hover_node: None,
             board_hover_glow: HashMap::new(),
@@ -644,6 +661,8 @@ impl SlateApp {
         };
         app.board_ortho = app.settings.board_ortho;
         app.board_osnap = app.settings.board_osnap;
+        app.board_smart_guides = app.settings.board_smart_guides;
+        app.board_snap_reach = app.settings.board_snap_reach;
         app.board_wire_routing = app.settings.board_wire_routing;
         app.board_colors = board_color::BoardColors::from_settings(&app.settings, app.dark_mode);
         app.brush_width = app.settings.brush_width;
@@ -710,7 +729,45 @@ impl SlateApp {
             egui::FontFamily::Name("slate-serif".into()),
             vec!["slate-serif".into()],
         );
+        Self::install_courier_new(&mut fonts);
         ctx.set_fonts(fonts);
+    }
+
+    /// Courier New for agent album title-faces. Windows ships it; elsewhere
+    /// the family aliases the default monospace so Linux still lays out glyphs.
+    fn install_courier_new(fonts: &mut egui::FontDefinitions) {
+        let name = atlas_shell::home::AGENT_TITLE_FAMILY;
+        let mut stack = vec![name.to_string()];
+        if let Some(bytes) = Self::courier_new_bytes() {
+            fonts.font_data.insert(
+                name.into(),
+                std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+            );
+        }
+        if let Some(mono) = fonts.families.get(&egui::FontFamily::Monospace) {
+            stack.extend(mono.iter().cloned());
+        }
+        fonts
+            .families
+            .insert(egui::FontFamily::Name(name.into()), stack);
+    }
+
+    fn courier_new_bytes() -> Option<Vec<u8>> {
+        let mut paths = Vec::new();
+        if let Some(windir) = std::env::var_os("WINDIR") {
+            paths.push(PathBuf::from(windir).join("Fonts").join("cour.ttf"));
+        }
+        paths.push(PathBuf::from(r"C:\Windows\Fonts\cour.ttf"));
+        paths.push(PathBuf::from(
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+        ));
+        paths.push(PathBuf::from(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        ));
+        paths
+            .into_iter()
+            .find(|p| p.is_file())
+            .and_then(|p| std::fs::read(p).ok())
     }
 
     pub fn palette(&self) -> Palette {

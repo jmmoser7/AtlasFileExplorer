@@ -1146,25 +1146,39 @@ pub struct TextNode {
 
 // ---------- connectors (wires) ----------
 
-/// A rect side a connector end can anchor to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// A connector-end site on a host. Box sides are **local** edges of an
+/// area object (rotated with the node). Stroke sites (`Start` / `Mid` /
+/// `End`) are arclength features of an open curve. See [`crate::wire_host`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Side {
     Top,
     Right,
     Bottom,
     Left,
+    Start,
+    Mid,
+    End,
 }
 
 impl Side {
-    /// Outward unit normal of this side on an axis-aligned rect
+    /// Local edges of an oriented area object.
+    pub const BOX: [Side; 4] = [Side::Top, Side::Right, Side::Bottom, Side::Left];
+
+    pub fn is_box(self) -> bool {
+        matches!(self, Side::Top | Side::Right | Side::Bottom | Side::Left)
+    }
+
+    /// Outward unit normal of this side on an **unrotated** rect
     /// (screen-style axes: +y is down, so `Top` points to −y).
+    /// Stroke sites return a zero vector — use [`crate::WireHost::outward`].
     pub fn normal(self) -> [f32; 2] {
         match self {
             Side::Top => [0.0, -1.0],
             Side::Right => [1.0, 0.0],
             Side::Bottom => [0.0, 1.0],
             Side::Left => [-1.0, 0.0],
+            Side::Start | Side::Mid | Side::End => [0.0, 0.0],
         }
     }
 }
@@ -1173,8 +1187,9 @@ impl Side {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectorEnd {
-    /// Anchored to a node's edge: the point on `side` at fraction `t`
-    /// (0..=1 along the side; 0.5 = midpoint).
+    /// Anchored to a host feature: a local box edge (`Top`…`Left`, `t`
+    /// along that edge) or an open-stroke site (`Start` / `Mid` / `End`,
+    /// `t` = arclength on `Mid`). Resolved through [`crate::WireHost`].
     Anchored { node: NodeId, side: Side, t: f32 },
     /// Dangling end at a fixed world point (a legal state).
     Free { point: [f32; 2] },
@@ -1191,8 +1206,8 @@ pub enum WireDisplay {
 }
 
 /// A wire between two endpoints. Geometry is derived, never stored — the
-/// curve is recomputed from the current rects of anchored nodes at
-/// paint/export time (see [`connector_bezier`]).
+/// curve is recomputed from the current [`crate::WireHost`] pose of
+/// anchored nodes at paint/export time (see [`crate::connector_route`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectorNode {
     pub a: ConnectorEnd,
@@ -1223,8 +1238,8 @@ pub const CONNECTOR_HANDLE_MAX: f32 = 160.0;
 
 /// World point on `side` of an axis-aligned `rect` at fraction `t` (0..=1,
 /// measured left→right on horizontal sides, top→bottom on vertical sides).
-/// Node rotation is deliberately ignored — rects are axis-aligned in the
-/// model.
+/// Rotation and open-stroke features are resolved by [`crate::WireHost`];
+/// this helper is the unrotated-box primitive that host uses.
 pub fn connector_anchor_point(rect: WorldRect, side: Side, t: f32) -> [f32; 2] {
     let t = t.clamp(0.0, 1.0);
     match side {
@@ -1232,6 +1247,9 @@ pub fn connector_anchor_point(rect: WorldRect, side: Side, t: f32) -> [f32; 2] {
         Side::Right => [rect.x + rect.w, rect.y + rect.h * t],
         Side::Bottom => [rect.x + rect.w * t, rect.y + rect.h],
         Side::Left => [rect.x, rect.y + rect.h * t],
+        Side::Start => [rect.x, rect.y + rect.h * 0.5],
+        Side::Mid => [rect.x + rect.w * 0.5, rect.y + rect.h * 0.5],
+        Side::End => [rect.x + rect.w, rect.y + rect.h * 0.5],
     }
 }
 
@@ -1365,9 +1383,6 @@ pub fn connector_bezier(
     let (p3, side_b) = resolve_end(b, &rect_of)?;
 
     let chord = [p3[0] - p0[0], p3[1] - p0[1]];
-    let dist = (chord[0] * chord[0] + chord[1] * chord[1]).sqrt();
-    let len = (CONNECTOR_HANDLE_FRACTION * dist).clamp(CONNECTOR_HANDLE_MIN, CONNECTOR_HANDLE_MAX);
-
     let dir_a = match side_a {
         Some(side) => side.normal(),
         None => normalize_or(chord, [0.0, 0.0]),
@@ -1377,12 +1392,28 @@ pub fn connector_bezier(
         None => normalize_or([-chord[0], -chord[1]], [0.0, 0.0]),
     };
 
-    Some(ConnectorBezier {
+    Some(connector_bezier_from_dirs(p0, dir_a, p3, dir_b))
+}
+
+/// Cubic from two world points and their outward handle directions.
+/// Handle length is `clamp(0.35 × chord, 24, 160)` world units.
+pub fn connector_bezier_from_dirs(
+    p0: [f32; 2],
+    dir_a: [f32; 2],
+    p3: [f32; 2],
+    dir_b: [f32; 2],
+) -> ConnectorBezier {
+    let chord = [p3[0] - p0[0], p3[1] - p0[1]];
+    let dist = (chord[0] * chord[0] + chord[1] * chord[1]).sqrt();
+    let len = (CONNECTOR_HANDLE_FRACTION * dist).clamp(CONNECTOR_HANDLE_MIN, CONNECTOR_HANDLE_MAX);
+    let dir_a = normalize_or(dir_a, chord);
+    let dir_b = normalize_or(dir_b, [-chord[0], -chord[1]]);
+    ConnectorBezier {
         p0,
         c1: [p0[0] + dir_a[0] * len, p0[1] + dir_a[1] * len],
         c2: [p3[0] + dir_b[0] * len, p3[1] + dir_b[1] * len],
         p3,
-    })
+    }
 }
 
 /// AABB of the derived curve — the connector node's `rect` is kept equal to
@@ -1403,6 +1434,9 @@ pub enum NodeKind {
     Text(TextNode),
     Connector(ConnectorNode),
     Portal(PortalNode),
+    /// Placed copy of a dock palette. Contents are derived from the dock
+    /// recipe + `visible`; the node is only a locator (Art. V / VI).
+    DockStrip(DockStripNode),
 }
 
 impl NodeKind {
@@ -1414,8 +1448,19 @@ impl NodeKind {
             NodeKind::Text(_) => "text",
             NodeKind::Connector(_) => "connector",
             NodeKind::Portal(_) => "portal",
+            NodeKind::DockStrip(_) => "dock_strip",
         }
     }
+}
+
+/// A toolbar dropped onto the board. `palette_id` names the dock body
+/// (`tool.shapes`, …). `visible` is the tool ids this copy shows; empty
+/// means the palette's full default set. Baseline dock chrome is untouched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DockStripNode {
+    pub palette_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub visible: Vec<String>,
 }
 
 /// Flat group membership key. Allocated per scene like [`NodeId`]; groups
@@ -2614,6 +2659,35 @@ mod tests {
                 assert!(matches!(p.kind, PortalKind::RepoLens));
             }
             _ => panic!("expected portal"),
+        }
+    }
+
+    #[test]
+    fn dock_strip_node_round_trips() {
+        let node = Node {
+            id: NodeId(9),
+            rect: WorldRect::new(10.0, 20.0, 200.0, 36.0),
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            kind: NodeKind::DockStrip(DockStripNode {
+                palette_id: "tool.shapes".into(),
+                visible: vec!["shape.rect".into(), "shape.ellipse".into()],
+            }),
+        };
+        let json = serde_json::to_string(&node).unwrap();
+        assert!(json.contains("\"dock_strip\""));
+        assert!(json.contains("tool.shapes"));
+        let back: Node = serde_json::from_str(&json).unwrap();
+        match back.kind {
+            NodeKind::DockStrip(s) => {
+                assert_eq!(s.palette_id, "tool.shapes");
+                assert_eq!(s.visible, vec!["shape.rect", "shape.ellipse"]);
+            }
+            _ => panic!("expected dock strip"),
         }
     }
 

@@ -17,6 +17,9 @@ pub struct ChromePrefs {
     /// Dock-wide icon-strip mode. Non-empty (`["*"]`, or a legacy per-id
     /// list) restores the strip for every pinned palette.
     pub panel_icon_strip: Vec<String>,
+    /// Tools hidden from each palette's icon strip (`palette → tool ids`).
+    #[serde(default)]
+    pub panel_strip_hidden: Vec<(String, Vec<String>)>,
     /// Canvas minimap pinned open (toggled by `M`; shared overlay chrome).
     pub minimap: bool,
 }
@@ -27,6 +30,7 @@ impl ChromePrefs {
             dock_side: side,
             pinned_panels: Vec::new(),
             panel_icon_strip: Vec::new(),
+            panel_strip_hidden: Vec::new(),
             minimap: false,
         }
     }
@@ -59,6 +63,7 @@ impl Default for ChromePrefs {
             dock_side: DockSide::LeftCenter,
             pinned_panels: Vec::new(),
             panel_icon_strip: Vec::new(),
+            panel_strip_hidden: Vec::new(),
             minimap: false,
         }
     }
@@ -82,6 +87,7 @@ mod tests {
             dock_side: DockSide::LeftCenter,
             pinned_panels: vec!["tags".into(), "tool.curve".into()],
             panel_icon_strip: vec!["tool.shapes".into()],
+            panel_strip_hidden: vec![("tool.shapes".into(), vec!["shape.eraser".into()])],
             minimap: true,
         };
         let json = serde_json::to_string(&prefs).unwrap();

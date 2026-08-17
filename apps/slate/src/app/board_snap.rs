@@ -1,8 +1,9 @@
 //! Smart guides for the Board canvas — object-to-object alignment and spacing.
 //!
-//! Defaults mirror professional tools (PowerPoint Smart Guides, Miro Align
-//! objects, InDesign Smart Guides): edge/center alignment and equal spacing
-//! are on by default; hold Ctrl while dragging to temporarily disable snapping.
+//! Defaults follow InDesign / tldraw / Keynote: only objects in the current
+//! view, in the same row or column (a "lane"), and not behind a closer
+//! neighbor. Hold Alt to suspend. Reach (Tight / Nearby / Wide) is a
+//! session preference under Document Settings.
 
 use eframe::egui::{Pos2, Vec2};
 use slate_doc::scene::WorldRect;
@@ -19,6 +20,31 @@ pub const ROTATION_SNAP_DEG: f32 = 4.0;
 pub enum GuideAxis {
     Vertical,
     Horizontal,
+}
+
+/// Who may participate in a smart-guide snap (world units).
+#[derive(Clone, Copy, Debug)]
+pub struct SnapScope {
+    /// InDesign-style snap-to zone (edge must be this close on the snap axis).
+    pub threshold: f32,
+    /// Max gap on the snap axis. `INFINITY` = no extra neighborhood limit.
+    pub reach: f32,
+    /// Max gap on the cross axis to share a row (X-align) or column (Y-align).
+    pub lane: f32,
+    /// Current canvas view in world space (InDesign / tldraw viewport cull).
+    pub view: WorldRect,
+}
+
+impl SnapScope {
+    /// No culling — used by unit tests that only care about the math.
+    pub fn open(threshold: f32) -> Self {
+        Self {
+            threshold,
+            reach: f32::INFINITY,
+            lane: f32::INFINITY,
+            view: WorldRect::new(-1.0e7, -1.0e7, 2.0e7, 2.0e7),
+        }
+    }
 }
 
 /// A temporary alignment line shown while snapping (not persisted).
@@ -65,56 +91,159 @@ impl SnapLines {
     }
 }
 
-/// Collect snap targets from every node except those being manipulated.
-fn target_lines(
-    exclude: &[NodeId],
-    all: &[(NodeId, WorldRect)],
-) -> (Vec<f32>, Vec<f32>, Vec<SnapLines>) {
-    let mut xs = Vec::new();
-    let mut ys = Vec::new();
-    let mut rects = Vec::new();
-    for (id, r) in all {
-        if exclude.contains(id) {
+fn collect_targets(exclude: &[NodeId], all: &[(NodeId, WorldRect)]) -> Vec<SnapLines> {
+    all.iter()
+        .filter(|(id, _)| !exclude.contains(id))
+        .map(|(_, r)| SnapLines::from_rect(*r))
+        .collect()
+}
+
+fn gap_1d(a0: f32, a1: f32, b0: f32, b1: f32) -> f32 {
+    if a1 < b0 {
+        b0 - a1
+    } else if b1 < a0 {
+        a0 - b1
+    } else {
+        0.0
+    }
+}
+
+fn in_view(t: &SnapLines, view: WorldRect, pad: f32) -> bool {
+    t.right >= view.x - pad
+        && t.left <= view.x + view.w + pad
+        && t.bottom >= view.y - pad
+        && t.top <= view.y + view.h + pad
+}
+
+fn same_lane(moving: &SnapLines, t: &SnapLines, axis: GuideAxis, lane: f32) -> bool {
+    match axis {
+        GuideAxis::Vertical => gap_1d(moving.top, moving.bottom, t.top, t.bottom) <= lane,
+        GuideAxis::Horizontal => gap_1d(moving.left, moving.right, t.left, t.right) <= lane,
+    }
+}
+
+fn along_gap(moving: &SnapLines, t: &SnapLines, axis: GuideAxis) -> f32 {
+    match axis {
+        GuideAxis::Vertical => gap_1d(moving.left, moving.right, t.left, t.right),
+        GuideAxis::Horizontal => gap_1d(moving.top, moving.bottom, t.top, t.bottom),
+    }
+}
+
+/// True when another in-lane object sits strictly between `moving` and
+/// `target` along the guide (the cross axis). A neighbor in the same
+/// column blocks X-alignments beyond it; a neighbor in the same row
+/// blocks Y-alignments beyond it.
+fn occluded(
+    moving: &SnapLines,
+    target: &SnapLines,
+    others: &[SnapLines],
+    axis: GuideAxis,
+    lane: f32,
+) -> bool {
+    let (m0, m1, t0, t1) = match axis {
+        GuideAxis::Vertical => (moving.top, moving.bottom, target.top, target.bottom),
+        GuideAxis::Horizontal => (moving.left, moving.right, target.left, target.right),
+    };
+    if (t0 - m0).abs() < 0.01 && (t1 - m1).abs() < 0.01 {
+        return false;
+    }
+    for o in others {
+        if std::ptr::eq(o, target) || !same_lane(moving, o, axis, lane) {
             continue;
         }
-        let s = SnapLines::from_rect(*r);
-        xs.extend_from_slice(&s.x_candidates());
-        ys.extend_from_slice(&s.y_candidates());
-        rects.push(s);
+        // Blocker must share the column (X-align) or row (Y-align) — not
+        // a neighbor off to the side.
+        let on_guide = match axis {
+            GuideAxis::Vertical => gap_1d(moving.left, moving.right, o.left, o.right) <= 0.0,
+            GuideAxis::Horizontal => gap_1d(moving.top, moving.bottom, o.top, o.bottom) <= 0.0,
+        };
+        if !on_guide {
+            continue;
+        }
+        let (o0, o1) = match axis {
+            GuideAxis::Vertical => (o.top, o.bottom),
+            GuideAxis::Horizontal => (o.left, o.right),
+        };
+        if t0 >= m1 {
+            if o0 >= m1 && o1 <= t0 && o1 < t0 {
+                return true;
+            }
+        } else if t1 <= m0 && o1 <= m0 && o0 >= t1 && o0 > t1 {
+            return true;
+        }
     }
-    (xs, ys, rects)
+    false
+}
+
+fn eligible(
+    moving: &SnapLines,
+    t: &SnapLines,
+    others: &[SnapLines],
+    scope: &SnapScope,
+    axis: GuideAxis,
+) -> bool {
+    if !in_view(t, scope.view, scope.lane) {
+        return false;
+    }
+    if !same_lane(moving, t, axis, scope.lane) {
+        return false;
+    }
+    if along_gap(moving, t, axis) > scope.reach {
+        return false;
+    }
+    !occluded(moving, t, others, axis, scope.lane)
+}
+
+fn guide_between(axis: GuideAxis, pos: f32, moving: &SnapLines, target: &SnapLines) -> SnapGuide {
+    match axis {
+        GuideAxis::Vertical => SnapGuide {
+            axis,
+            pos,
+            span_start: moving.top.min(target.top),
+            span_end: moving.bottom.max(target.bottom),
+            origin: (moving.top + moving.bottom) * 0.5,
+        },
+        GuideAxis::Horizontal => SnapGuide {
+            axis,
+            pos,
+            span_start: moving.left.min(target.left),
+            span_end: moving.right.max(target.right),
+            origin: (moving.left + moving.right) * 0.5,
+        },
+    }
 }
 
 fn best_axis_snap(
-    moving: &[f32; 3],
-    targets: &[f32],
-    threshold: f32,
+    moving: &SnapLines,
+    targets: &[SnapLines],
+    scope: &SnapScope,
     axis: GuideAxis,
-    moving_span: (f32, f32),
-    target_span: (f32, f32),
 ) -> (f32, Option<SnapGuide>) {
+    let moving_lines = match axis {
+        GuideAxis::Vertical => moving.x_candidates(),
+        GuideAxis::Horizontal => moving.y_candidates(),
+    };
     let mut best_delta = 0.0f32;
-    let mut best_dist = threshold;
+    let mut best_dist = scope.threshold;
     let mut best_guide = None;
 
-    for &mp in moving {
-        for &tp in targets {
-            let delta = tp - mp;
-            let dist = delta.abs();
-            if dist < best_dist {
-                best_dist = dist;
-                best_delta = delta;
-                let span = (
-                    moving_span.0.min(target_span.0),
-                    moving_span.1.max(target_span.1),
-                );
-                best_guide = Some(SnapGuide {
-                    axis,
-                    pos: tp,
-                    span_start: span.0,
-                    span_end: span.1,
-                    origin: (moving_span.0 + moving_span.1) * 0.5,
-                });
+    for t in targets {
+        if !eligible(moving, t, targets, scope, axis) {
+            continue;
+        }
+        let t_lines = match axis {
+            GuideAxis::Vertical => t.x_candidates(),
+            GuideAxis::Horizontal => t.y_candidates(),
+        };
+        for &mp in &moving_lines {
+            for &tp in &t_lines {
+                let delta = tp - mp;
+                let dist = delta.abs();
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_delta = delta;
+                    best_guide = Some(guide_between(axis, tp, moving, t));
+                }
             }
         }
     }
@@ -128,8 +257,18 @@ pub fn snap_bbox(
     all: &[(NodeId, WorldRect)],
     threshold: f32,
 ) -> (WorldRect, Vec<SnapGuide>) {
-    let (tx, ty, trects) = target_lines(exclude, all);
-    if tx.is_empty() && ty.is_empty() {
+    snap_bbox_scoped(proposed, exclude, all, SnapScope::open(threshold))
+}
+
+/// [`snap_bbox`] with viewport / lane / reach culling.
+pub fn snap_bbox_scoped(
+    proposed: WorldRect,
+    exclude: &[NodeId],
+    all: &[(NodeId, WorldRect)],
+    scope: SnapScope,
+) -> (WorldRect, Vec<SnapGuide>) {
+    let trects = collect_targets(exclude, all);
+    if trects.is_empty() {
         return (proposed, Vec::new());
     }
 
@@ -138,64 +277,23 @@ pub fn snap_bbox(
     let mut dx = 0.0f32;
     let mut dy = 0.0f32;
 
-    let m_x_span = (m.top, m.bottom);
-
-    // Pick the closest X alignment among left/center/right ↔ targets.
-    let (x_delta, x_guide) = best_axis_snap(
-        &m.x_candidates(),
-        &tx,
-        threshold,
-        GuideAxis::Vertical,
-        m_x_span,
-        m_x_span,
-    );
+    let (x_delta, x_guide) = best_axis_snap(&m, &trects, &scope, GuideAxis::Vertical);
     if let Some(g) = x_guide {
-        // Extend guide span across the matched target rect when possible.
-        let mut span = (g.span_start, g.span_end);
-        for t in &trects {
-            if t.x_candidates().iter().any(|&x| (x - g.pos).abs() < 0.01) {
-                span.0 = span.0.min(t.top);
-                span.1 = span.1.max(t.bottom);
-            }
-        }
-        guides.push(SnapGuide {
-            span_start: span.0,
-            span_end: span.1,
-            ..g
-        });
+        guides.push(g);
         dx = x_delta;
     }
 
     let shifted = WorldRect::new(proposed.x + dx, proposed.y, proposed.w, proposed.h);
     let m2 = SnapLines::from_rect(shifted);
-    let (y_delta, y_guide) = best_axis_snap(
-        &m2.y_candidates(),
-        &ty,
-        threshold,
-        GuideAxis::Horizontal,
-        (m2.left, m2.right),
-        (m2.left, m2.right),
-    );
+    let (y_delta, y_guide) = best_axis_snap(&m2, &trects, &scope, GuideAxis::Horizontal);
     if let Some(g) = y_guide {
-        let mut span = (g.span_start, g.span_end);
-        for t in &trects {
-            if t.y_candidates().iter().any(|&y| (y - g.pos).abs() < 0.01) {
-                span.0 = span.0.min(t.left);
-                span.1 = span.1.max(t.right);
-            }
-        }
-        guides.push(SnapGuide {
-            span_start: span.0,
-            span_end: span.1,
-            ..g
-        });
+        guides.push(g);
         dy = y_delta;
     }
 
     let mut snapped = WorldRect::new(proposed.x + dx, proposed.y + dy, proposed.w, proposed.h);
 
-    // Equal spacing (InDesign Smart Spacing / PowerPoint distribute hint).
-    if let Some((sdx, sdy, spacing_guides)) = snap_equal_spacing(&snapped, &trects, threshold) {
+    if let Some((sdx, sdy, spacing_guides)) = snap_equal_spacing(&snapped, &trects, &scope) {
         snapped.x += sdx;
         snapped.y += sdy;
         guides.extend(spacing_guides);
@@ -204,11 +302,23 @@ pub fn snap_bbox(
     (snapped, guides)
 }
 
+/// Align a free point (curve end, corner handle) to nearby object edges.
+pub fn snap_point(
+    p: Pos2,
+    exclude: &[NodeId],
+    all: &[(NodeId, WorldRect)],
+    scope: SnapScope,
+) -> (Pos2, Vec<SnapGuide>) {
+    let proposed = WorldRect::new(p.x, p.y, 0.0, 0.0);
+    let (snapped, guides) = snap_bbox_scoped(proposed, exclude, all, scope);
+    (Pos2::new(snapped.x, snapped.y), guides)
+}
+
 /// When the moving box sits between two others, snap so gaps match.
 fn snap_equal_spacing(
     moving: &WorldRect,
     statics: &[SnapLines],
-    threshold: f32,
+    scope: &SnapScope,
 ) -> Option<(f32, f32, Vec<SnapGuide>)> {
     let m = SnapLines::from_rect(*moving);
     let mut guides = Vec::new();
@@ -216,8 +326,12 @@ fn snap_equal_spacing(
     let mut dy = 0.0f32;
     let mut found = false;
 
-    for a in statics {
-        for c in statics {
+    let row: Vec<&SnapLines> = statics
+        .iter()
+        .filter(|t| eligible(&m, t, statics, scope, GuideAxis::Vertical))
+        .collect();
+    for a in &row {
+        for c in &row {
             if a.right >= c.left || m.left <= a.right || m.right >= c.left {
                 continue;
             }
@@ -227,7 +341,7 @@ fn snap_equal_spacing(
                 continue;
             }
             let diff = gap_left - gap_right;
-            if diff.abs() < threshold {
+            if diff.abs() < scope.threshold {
                 dx = -diff * 0.5;
                 guides.push(SnapGuide {
                     axis: GuideAxis::Horizontal,
@@ -243,8 +357,12 @@ fn snap_equal_spacing(
     }
 
     let m2 = SnapLines::from_rect(WorldRect::new(moving.x + dx, moving.y, moving.w, moving.h));
-    for a in statics {
-        for c in statics {
+    let col: Vec<&SnapLines> = statics
+        .iter()
+        .filter(|t| eligible(&m2, t, statics, scope, GuideAxis::Horizontal))
+        .collect();
+    for a in &col {
+        for c in &col {
             if a.bottom >= c.top || m2.top <= a.bottom || m2.bottom >= c.top {
                 continue;
             }
@@ -254,7 +372,7 @@ fn snap_equal_spacing(
                 continue;
             }
             let diff = gap_top - gap_bottom;
-            if diff.abs() < threshold {
+            if diff.abs() < scope.threshold {
                 dy = -diff * 0.5;
                 guides.push(SnapGuide {
                     axis: GuideAxis::Vertical,
@@ -282,6 +400,19 @@ pub struct ResizeSnapEdges {
 }
 
 impl ResizeSnapEdges {
+    /// Edges of a DragScale rect the cursor owns. The press corner stays put
+    /// so a growing rectangle snaps like a resize, not like a 0-size point
+    /// that leaves the target's row and goes silent.
+    pub fn for_draw(start: Pos2, rect: WorldRect) -> Self {
+        let slop = 0.5;
+        Self {
+            left: (start.x - rect.x).abs() > slop,
+            right: (start.x - (rect.x + rect.w)).abs() > slop,
+            top: (start.y - rect.y).abs() > slop,
+            bottom: (start.y - (rect.y + rect.h)).abs() > slop,
+        }
+    }
+
     pub fn for_handle(handle: u8) -> Self {
         match handle {
             0 => Self {
@@ -344,106 +475,136 @@ pub fn snap_resize_rect(
     threshold: f32,
     edges: ResizeSnapEdges,
 ) -> (WorldRect, Vec<SnapGuide>) {
-    let (tx, ty, trects) = target_lines(exclude, all);
-    if tx.is_empty() && ty.is_empty() {
+    snap_resize_rect_scoped(proposed, exclude, all, SnapScope::open(threshold), edges)
+}
+
+/// [`snap_resize_rect`] with viewport / lane / reach culling.
+pub fn snap_resize_rect_scoped(
+    proposed: WorldRect,
+    exclude: &[NodeId],
+    all: &[(NodeId, WorldRect)],
+    scope: SnapScope,
+    edges: ResizeSnapEdges,
+) -> (WorldRect, Vec<SnapGuide>) {
+    let trects = collect_targets(exclude, all);
+    if trects.is_empty() {
         return (proposed, Vec::new());
     }
 
     let mut r = proposed;
     let mut guides = Vec::new();
+    let moving = SnapLines::from_rect(r);
 
     if edges.left {
-        let (d, tp) = nearest_edge_snap(r.x, &tx, threshold);
-        if d != 0.0 {
+        if let Some((d, t)) = nearest_edge_from(&moving, r.x, &trects, &scope, GuideAxis::Vertical)
+        {
             r.x += d;
             r.w -= d;
-            if let Some(pos) = tp {
-                guides.push(vertical_guide(pos, r.y, r.y + r.h, &trects));
-            }
+            guides.push(guide_between(
+                GuideAxis::Vertical,
+                r.x,
+                &SnapLines::from_rect(r),
+                &t,
+            ));
         }
     }
     if edges.right {
         let right = r.x + r.w;
-        let (d, tp) = nearest_edge_snap(right, &tx, threshold);
-        if d != 0.0 {
+        let moving = SnapLines::from_rect(r);
+        if let Some((d, t)) =
+            nearest_edge_from(&moving, right, &trects, &scope, GuideAxis::Vertical)
+        {
             r.w += d;
-            if let Some(pos) = tp {
-                guides.push(vertical_guide(pos, r.y, r.y + r.h, &trects));
-            }
+            guides.push(guide_between(
+                GuideAxis::Vertical,
+                r.x + r.w,
+                &SnapLines::from_rect(r),
+                &t,
+            ));
         }
     }
     if edges.top {
-        let (d, tp) = nearest_edge_snap(r.y, &ty, threshold);
-        if d != 0.0 {
+        let moving = SnapLines::from_rect(r);
+        if let Some((d, t)) =
+            nearest_edge_from(&moving, r.y, &trects, &scope, GuideAxis::Horizontal)
+        {
             r.y += d;
             r.h -= d;
-            if let Some(pos) = tp {
-                guides.push(horizontal_guide(pos, r.x, r.x + r.w, &trects));
-            }
+            guides.push(guide_between(
+                GuideAxis::Horizontal,
+                r.y,
+                &SnapLines::from_rect(r),
+                &t,
+            ));
         }
     }
     if edges.bottom {
         let bottom = r.y + r.h;
-        let (d, tp) = nearest_edge_snap(bottom, &ty, threshold);
-        if d != 0.0 {
+        let moving = SnapLines::from_rect(r);
+        if let Some((d, t)) =
+            nearest_edge_from(&moving, bottom, &trects, &scope, GuideAxis::Horizontal)
+        {
             r.h += d;
-            if let Some(pos) = tp {
-                guides.push(horizontal_guide(pos, r.x, r.x + r.w, &trects));
-            }
+            guides.push(guide_between(
+                GuideAxis::Horizontal,
+                r.y + r.h,
+                &SnapLines::from_rect(r),
+                &t,
+            ));
         }
     }
 
     (r, guides)
 }
 
-fn nearest_edge_snap(val: f32, targets: &[f32], threshold: f32) -> (f32, Option<f32>) {
-    let mut best = (0.0f32, threshold, None);
-    for &tp in targets {
-        let delta = tp - val;
-        if delta.abs() < best.1 {
-            best = (delta, delta.abs(), Some(tp));
-        }
-    }
-    (best.0, best.2)
+/// Opposite corner of `rect` from `start` — the DragScale end after an
+/// edge snap, so `place_rect(start, end)` reconstructs the snapped box.
+pub fn draw_end_from_rect(start: Pos2, rect: WorldRect) -> Pos2 {
+    let x = if (start.x - rect.x).abs() <= 0.5 {
+        rect.x + rect.w
+    } else {
+        rect.x
+    };
+    let y = if (start.y - rect.y).abs() <= 0.5 {
+        rect.y + rect.h
+    } else {
+        rect.y
+    };
+    Pos2::new(x, y)
 }
 
-fn vertical_guide(pos: f32, span_start: f32, span_end: f32, trects: &[SnapLines]) -> SnapGuide {
-    let mut span = (span_start, span_end);
-    for t in trects {
-        if t.x_candidates().iter().any(|&x| (x - pos).abs() < 0.01) {
-            span.0 = span.0.min(t.top);
-            span.1 = span.1.max(t.bottom);
+fn nearest_edge_from(
+    moving: &SnapLines,
+    val: f32,
+    targets: &[SnapLines],
+    scope: &SnapScope,
+    axis: GuideAxis,
+) -> Option<(f32, SnapLines)> {
+    let mut best: Option<(f32, f32, SnapLines)> = None;
+    for t in targets {
+        if !eligible(moving, t, targets, scope, axis) {
+            continue;
+        }
+        let lines = match axis {
+            GuideAxis::Vertical => t.x_candidates(),
+            GuideAxis::Horizontal => t.y_candidates(),
+        };
+        for &tp in &lines {
+            let delta = tp - val;
+            let dist = delta.abs();
+            if dist < scope.threshold && best.as_ref().map(|b| dist < b.1).unwrap_or(true) {
+                best = Some((delta, dist, *t));
+            }
         }
     }
-    SnapGuide {
-        axis: GuideAxis::Vertical,
-        pos,
-        span_start: span.0,
-        span_end: span.1,
-        origin: (span_start + span_end) * 0.5,
-    }
-}
-
-fn horizontal_guide(pos: f32, span_start: f32, span_end: f32, trects: &[SnapLines]) -> SnapGuide {
-    let mut span = (span_start, span_end);
-    for t in trects {
-        if t.y_candidates().iter().any(|&y| (y - pos).abs() < 0.01) {
-            span.0 = span.0.min(t.left);
-            span.1 = span.1.max(t.right);
-        }
-    }
-    SnapGuide {
-        axis: GuideAxis::Horizontal,
-        pos,
-        span_start: span.0,
-        span_end: span.1,
-        origin: (span_start + span_end) * 0.5,
-    }
+    best.map(|(d, _, t)| (d, t))
 }
 
 /// Map a member's origin through a group-box scale, keeping width and height.
 /// Used by Ctrl+Alt+Shift group-grip: the selection AABB changes, items only
-/// translate.
+/// translate. Callers must then [`pin_group_union`] so the opposite handle
+/// of the stack stays put — scaling origins alone walks that corner on
+/// Nw / Ne / Sw (the member that defined it still has the same size).
 pub fn remap_group_keep_size(rect: WorldRect, sx: f32, sy: f32, anchor: (f32, f32)) -> WorldRect {
     WorldRect::new(
         anchor.0 + (rect.x - anchor.0) * sx,
@@ -451,6 +612,67 @@ pub fn remap_group_keep_size(rect: WorldRect, sx: f32, sy: f32, anchor: (f32, f3
         rect.w,
         rect.h,
     )
+}
+
+/// Scale a member's rect through a group-box scale (size and origin).
+pub fn remap_group_scale(rect: WorldRect, sx: f32, sy: f32, anchor: (f32, f32)) -> WorldRect {
+    WorldRect::new(
+        anchor.0 + (rect.x - anchor.0) * sx,
+        anchor.1 + (rect.y - anchor.1) * sy,
+        rect.w * sx,
+        rect.h * sy,
+    )
+}
+
+/// Translate remapped members so the union's opposite handle matches the
+/// original group box. Without this, keep-size remap from Nw / Ne / Sw
+/// slides the whole stack because member extents do not scale.
+pub fn pin_group_union(
+    rects: &mut [WorldRect],
+    original: WorldRect,
+    handle: u8,
+    from_center: bool,
+) {
+    let Some(union) = union_rect(rects) else {
+        return;
+    };
+    let old = resize_anchor(original, handle, from_center);
+    let new = resize_anchor(union, handle, from_center);
+    let dx = old.0 - new.0;
+    let dy = old.1 - new.1;
+    if dx.abs() < 1e-5 && dy.abs() < 1e-5 {
+        return;
+    }
+    for r in rects {
+        r.x += dx;
+        r.y += dy;
+    }
+}
+
+/// Apply a group-box scale to every member, then pin the union's opposite
+/// handle. `keep_size` is the Ctrl+Alt+Shift mode.
+pub fn apply_group_box_scale(
+    rects: &[WorldRect],
+    gb: WorldRect,
+    sx: f32,
+    sy: f32,
+    handle: u8,
+    from_center: bool,
+    keep_size: bool,
+) -> Vec<WorldRect> {
+    let anchor = resize_anchor(gb, handle, from_center);
+    let mut out: Vec<WorldRect> = rects
+        .iter()
+        .map(|r| {
+            if keep_size {
+                remap_group_keep_size(*r, sx, sy, anchor)
+            } else {
+                remap_group_scale(*r, sx, sy, anchor)
+            }
+        })
+        .collect();
+    pin_group_union(&mut out, gb, handle, from_center);
+    out
 }
 
 /// Union bounding box of several rects.
@@ -816,6 +1038,269 @@ mod tests {
         assert!((r.w / r.h - 2.0).abs() < 0.05, "w={} h={}", r.w, r.h);
     }
 
+    /// Every corner: opposite handle stays, aspect holds, grabbed corner moves.
+    #[test]
+    fn every_corner_uniform_scale_pins_the_opposite() {
+        let before = WorldRect::new(0.0, 0.0, 200.0, 100.0);
+        let corners = [0u8, 2, 4, 6];
+        let pointers = [
+            Pos2::new(-50.0, -25.0), // Nw further out
+            Pos2::new(250.0, -25.0), // Ne
+            Pos2::new(250.0, 125.0), // Se
+            Pos2::new(-50.0, 125.0), // Sw
+        ];
+        for (handle, pointer) in corners.into_iter().zip(pointers) {
+            let r = resize_from_handle(before, pointer, handle, 8.0, true, false, 0.0);
+            let old_a = resize_anchor(before, handle, false);
+            let new_a = resize_anchor(r, handle, false);
+            assert!(
+                (old_a.0 - new_a.0).abs() < 0.05 && (old_a.1 - new_a.1).abs() < 0.05,
+                "handle {handle}: opposite walked {old_a:?} → {new_a:?}"
+            );
+            assert!(
+                (r.w / r.h - 2.0).abs() < 0.05,
+                "handle {handle}: aspect broke w={} h={}",
+                r.w,
+                r.h
+            );
+            let old_m = handle_local(before, handle);
+            let new_m = handle_local(r, handle);
+            let moved = (new_m.0 - old_m.0).abs() + (new_m.1 - old_m.1).abs();
+            assert!(moved > 1.0, "handle {handle}: grabbed corner did not move");
+        }
+    }
+
+    /// Ctrl+Alt+Shift (keep size): every corner pins the union's opposite
+    /// handle. Without the pin, Nw / Ne / Sw slide the whole stack.
+    #[test]
+    fn every_corner_keep_size_pins_the_stack() {
+        let members = [
+            WorldRect::new(0.0, 0.0, 80.0, 60.0),
+            WorldRect::new(120.0, 0.0, 80.0, 60.0),
+        ];
+        let gb = union_rect(&members).unwrap();
+        for handle in [0u8, 2, 4, 6] {
+            let out = apply_group_box_scale(&members, gb, 2.0, 2.0, handle, false, true);
+            assert!(
+                out.iter()
+                    .zip(members.iter())
+                    .all(|(a, b)| (a.w - b.w).abs() < 1e-4 && (a.h - b.h).abs() < 1e-4),
+                "handle {handle}: member size changed"
+            );
+            let union = union_rect(&out).unwrap();
+            let old_a = resize_anchor(gb, handle, false);
+            let new_a = resize_anchor(union, handle, false);
+            assert!(
+                (old_a.0 - new_a.0).abs() < 0.05 && (old_a.1 - new_a.1).abs() < 0.05,
+                "handle {handle}: stack translated {old_a:?} → {new_a:?}"
+            );
+            let spread0 = members[1].x - members[0].x;
+            let spread1 = out[1].x - out[0].x;
+            assert!(
+                (spread1 - spread0 * 2.0).abs() < 0.1,
+                "handle {handle}: layout did not scale ({spread0} → {spread1})"
+            );
+        }
+    }
+
+    #[test]
+    fn every_corner_group_scale_pins_and_scales() {
+        let members = [
+            WorldRect::new(0.0, 0.0, 80.0, 60.0),
+            WorldRect::new(120.0, 0.0, 80.0, 60.0),
+        ];
+        let gb = union_rect(&members).unwrap();
+        for handle in [0u8, 2, 4, 6] {
+            let out = apply_group_box_scale(&members, gb, 2.0, 2.0, handle, false, false);
+            assert!(
+                out.iter()
+                    .all(|r| (r.w - 160.0).abs() < 1e-3 && (r.h - 120.0).abs() < 1e-3),
+                "handle {handle}: members did not scale"
+            );
+            let union = union_rect(&out).unwrap();
+            let old_a = resize_anchor(gb, handle, false);
+            let new_a = resize_anchor(union, handle, false);
+            assert!(
+                (old_a.0 - new_a.0).abs() < 0.05 && (old_a.1 - new_a.1).abs() < 0.05,
+                "handle {handle}: opposite walked {old_a:?} → {new_a:?}"
+            );
+        }
+    }
+
+    /// Documents the defect `pin_group_union` exists to fix: remapping
+    /// origins from Nw / Ne / Sw walks the supposed-fixed corner.
+    #[test]
+    fn keep_size_without_pin_walks_nw_ne_sw() {
+        let members = [
+            WorldRect::new(0.0, 0.0, 80.0, 60.0),
+            WorldRect::new(120.0, 0.0, 80.0, 60.0),
+        ];
+        let gb = union_rect(&members).unwrap();
+        for handle in [0u8, 2, 6] {
+            let anchor = resize_anchor(gb, handle, false);
+            let remapped: Vec<WorldRect> = members
+                .iter()
+                .map(|r| remap_group_keep_size(*r, 2.0, 2.0, anchor))
+                .collect();
+            let union = union_rect(&remapped).unwrap();
+            let old_a = resize_anchor(gb, handle, false);
+            let new_a = resize_anchor(union, handle, false);
+            let walked = (old_a.0 - new_a.0).abs() + (old_a.1 - new_a.1).abs();
+            assert!(
+                walked > 1.0,
+                "handle {handle}: expected the unpinned stack to walk, got {old_a:?} → {new_a:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_edge_keep_size_pins_the_stack() {
+        let members = [
+            WorldRect::new(0.0, 0.0, 80.0, 60.0),
+            WorldRect::new(120.0, 0.0, 80.0, 60.0),
+        ];
+        let gb = union_rect(&members).unwrap();
+        // Horizontal edges scale X; vertical edges scale Y.
+        let cases = [(1u8, 1.0, 2.0), (3, 2.0, 1.0), (5, 1.0, 2.0), (7, 2.0, 1.0)];
+        for (handle, sx, sy) in cases {
+            let out = apply_group_box_scale(&members, gb, sx, sy, handle, false, true);
+            assert!(
+                out.iter()
+                    .zip(members.iter())
+                    .all(|(a, b)| (a.w - b.w).abs() < 1e-4 && (a.h - b.h).abs() < 1e-4),
+                "handle {handle}: member size changed"
+            );
+            let union = union_rect(&out).unwrap();
+            let old_a = resize_anchor(gb, handle, false);
+            let new_a = resize_anchor(union, handle, false);
+            assert!(
+                (old_a.0 - new_a.0).abs() < 0.05 && (old_a.1 - new_a.1).abs() < 0.05,
+                "handle {handle}: stack translated {old_a:?} → {new_a:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_corner_center_scale_keeps_the_center() {
+        let before = WorldRect::new(0.0, 0.0, 200.0, 100.0);
+        let (cx, cy) = before.center();
+        let pointers = [
+            Pos2::new(-50.0, -25.0),
+            Pos2::new(250.0, -25.0),
+            Pos2::new(250.0, 125.0),
+            Pos2::new(-50.0, 125.0),
+        ];
+        for (handle, pointer) in [0u8, 2, 4, 6].into_iter().zip(pointers) {
+            let r = resize_from_handle(before, pointer, handle, 8.0, true, true, 0.0);
+            let (nx, ny) = r.center();
+            assert!(
+                (nx - cx).abs() < 0.05 && (ny - cy).abs() < 0.05,
+                "handle {handle}: center walked ({cx},{cy}) → ({nx},{ny})"
+            );
+            assert!(
+                (r.w / r.h - 2.0).abs() < 0.05,
+                "handle {handle}: aspect broke w={} h={}",
+                r.w,
+                r.h
+            );
+        }
+    }
+
+    /// Shift on a corner is free: a one-axis drag must not lock the other.
+    #[test]
+    fn every_corner_free_scale_is_independent() {
+        let before = WorldRect::new(0.0, 0.0, 200.0, 100.0);
+        // Each pointer moves only the grabbed corner's X (or Y for Ne/Nw
+        // we move X and keep the top/bottom).
+        let cases = [
+            (0u8, Pos2::new(-50.0, 0.0), 250.0, 100.0),
+            (2, Pos2::new(250.0, 0.0), 250.0, 100.0),
+            (4, Pos2::new(250.0, 100.0), 250.0, 100.0),
+            (6, Pos2::new(-50.0, 100.0), 250.0, 100.0),
+        ];
+        for (handle, pointer, exp_w, exp_h) in cases {
+            let r = resize_from_handle(before, pointer, handle, 8.0, false, false, 0.0);
+            let old_a = resize_anchor(before, handle, false);
+            let new_a = resize_anchor(r, handle, false);
+            assert!(
+                (old_a.0 - new_a.0).abs() < 0.05 && (old_a.1 - new_a.1).abs() < 0.05,
+                "handle {handle}: opposite walked {old_a:?} → {new_a:?}"
+            );
+            assert!(
+                (r.w - exp_w).abs() < 0.05 && (r.h - exp_h).abs() < 0.05,
+                "handle {handle}: expected {exp_w}×{exp_h}, got {}×{}",
+                r.w,
+                r.h
+            );
+        }
+    }
+
+    #[test]
+    fn group_center_scale_keeps_union_center() {
+        let members = [
+            WorldRect::new(0.0, 0.0, 80.0, 60.0),
+            WorldRect::new(120.0, 40.0, 80.0, 60.0),
+        ];
+        let gb = union_rect(&members).unwrap();
+        let (cx, cy) = gb.center();
+        for handle in [0u8, 2, 4, 6] {
+            let out = apply_group_box_scale(&members, gb, 2.0, 2.0, handle, true, false);
+            let union = union_rect(&out).unwrap();
+            let (nx, ny) = union.center();
+            assert!(
+                (nx - cx).abs() < 0.05 && (ny - cy).abs() < 0.05,
+                "handle {handle}: union center walked ({cx},{cy}) → ({nx},{ny})"
+            );
+        }
+    }
+
+    #[test]
+    fn every_corner_group_free_scale_pins() {
+        let members = [
+            WorldRect::new(0.0, 0.0, 80.0, 60.0),
+            WorldRect::new(120.0, 40.0, 80.0, 60.0),
+        ];
+        let gb = union_rect(&members).unwrap();
+        for handle in [0u8, 2, 4, 6] {
+            let out = apply_group_box_scale(&members, gb, 2.0, 1.0, handle, false, false);
+            assert!(
+                out.iter()
+                    .all(|r| (r.w - 160.0).abs() < 1e-3 && (r.h - 60.0).abs() < 1e-3),
+                "handle {handle}: expected 2× width, 1× height"
+            );
+            let union = union_rect(&out).unwrap();
+            let old_a = resize_anchor(gb, handle, false);
+            let new_a = resize_anchor(union, handle, false);
+            assert!(
+                (old_a.0 - new_a.0).abs() < 0.05 && (old_a.1 - new_a.1).abs() < 0.05,
+                "handle {handle}: opposite walked {old_a:?} → {new_a:?}"
+            );
+        }
+    }
+
+    /// Uniform corner scale from a mostly-horizontal drag still grows both
+    /// axes — no corner is allowed to lock to one direction.
+    #[test]
+    fn every_corner_uniform_grows_both_axes() {
+        let before = WorldRect::new(0.0, 0.0, 200.0, 100.0);
+        let pointers = [
+            Pos2::new(-100.0, 0.0),
+            Pos2::new(300.0, 0.0),
+            Pos2::new(300.0, 100.0),
+            Pos2::new(-100.0, 100.0),
+        ];
+        for (handle, pointer) in [0u8, 2, 4, 6].into_iter().zip(pointers) {
+            let r = resize_from_handle(before, pointer, handle, 8.0, true, false, 0.0);
+            assert!(
+                r.w > before.w + 1.0 && r.h > before.h + 1.0,
+                "handle {handle}: locked to one axis ({}×{})",
+                r.w,
+                r.h
+            );
+            assert!((r.w / r.h - 2.0).abs() < 0.05);
+        }
+    }
+
     fn world_aabb(rect: WorldRect, rot: f32) -> (f32, f32, f32, f32) {
         let cs = rect.corners_rotated(rot);
         let xs = cs.map(|c| c.0);
@@ -949,5 +1434,117 @@ mod tests {
         assert!((b.w - 80.0).abs() < 1e-4 && (b.h - 60.0).abs() < 1e-4);
         assert!((a.x - 0.0).abs() < 1e-4);
         assert!((b.x - 180.0).abs() < 1e-4);
+    }
+
+    fn nearby_scope(threshold: f32) -> SnapScope {
+        SnapScope {
+            threshold,
+            reach: 360.0,
+            lane: 140.0,
+            view: WorldRect::new(-200.0, -200.0, 2000.0, 2000.0),
+        }
+    }
+
+    #[test]
+    fn far_row_does_not_align() {
+        let all = vec![
+            (NodeId(1), WorldRect::new(100.0, 800.0, 80.0, 40.0)),
+            (NodeId(2), WorldRect::new(200.0, 10.0, 40.0, 40.0)),
+        ];
+        let proposed = WorldRect::new(103.0, 10.0, 50.0, 50.0);
+        let (snapped, guides) = snap_bbox_scoped(proposed, &[NodeId(2)], &all, nearby_scope(6.0));
+        assert!(
+            (snapped.x - proposed.x).abs() < 0.01,
+            "must not snap to an object in another row, x={}",
+            snapped.x
+        );
+        assert!(guides.is_empty());
+    }
+
+    #[test]
+    fn occluded_target_is_ignored() {
+        // Same column: a neighbor sits between the mover and a far box
+        // whose left edge is 3 px off. Lane is wide enough to see both;
+        // occlusion must refuse the far alignment.
+        let scope = SnapScope {
+            threshold: 6.0,
+            reach: 1000.0,
+            lane: 500.0,
+            view: WorldRect::new(-200.0, -200.0, 2000.0, 2000.0),
+        };
+        let all = vec![
+            (NodeId(1), WorldRect::new(110.0, 80.0, 40.0, 40.0)),
+            (NodeId(2), WorldRect::new(103.0, 400.0, 40.0, 40.0)),
+            (NodeId(3), WorldRect::new(100.0, 0.0, 40.0, 40.0)),
+        ];
+        let proposed = WorldRect::new(100.0, 0.0, 40.0, 40.0);
+        let (snapped, _) = snap_bbox_scoped(proposed, &[NodeId(3)], &all, scope);
+        assert!(
+            (snapped.x - 100.0).abs() < 0.01,
+            "must not snap through the closer neighbor, x={}",
+            snapped.x
+        );
+    }
+
+    #[test]
+    fn snap_point_aligns_to_nearby_edge() {
+        let all = vec![(NodeId(1), WorldRect::new(100.0, 40.0, 80.0, 40.0))];
+        let (p, guides) = snap_point(Pos2::new(103.0, 55.0), &[], &all, nearby_scope(6.0));
+        assert!((p.x - 100.0).abs() < 0.01, "x={}", p.x);
+        assert!(
+            guides.iter().any(|g| g.axis == GuideAxis::Vertical),
+            "expected a vertical alignment guide"
+        );
+    }
+
+    #[test]
+    fn resize_right_edge_snaps() {
+        let all = vec![(NodeId(1), WorldRect::new(200.0, 0.0, 40.0, 40.0))];
+        let proposed = WorldRect::new(0.0, 0.0, 196.0, 40.0);
+        let (r, guides) = snap_resize_rect(
+            proposed,
+            &[],
+            &all,
+            6.0,
+            ResizeSnapEdges {
+                left: false,
+                right: true,
+                top: false,
+                bottom: false,
+            },
+        );
+        assert!((r.w - 200.0).abs() < 0.01, "w={}", r.w);
+        assert!(!guides.is_empty());
+    }
+
+    #[test]
+    fn draw_second_corner_snaps_live_rect_not_cursor_point() {
+        // Target occupies y=0..40. The cursor is at y=280 — snap_point
+        // treats that as another row and stays quiet. The growing rect
+        // still overlaps the target's row, so a resize-style snap fires.
+        let all = vec![(NodeId(1), WorldRect::new(200.0, 0.0, 80.0, 40.0))];
+        let start = Pos2::new(0.0, 0.0);
+        let cursor = Pos2::new(197.0, 280.0);
+        let proposed = WorldRect::new(start.x, start.y, cursor.x - start.x, cursor.y - start.y);
+        let (_p, point_guides) = snap_point(cursor, &[], &all, nearby_scope(6.0));
+        assert!(
+            point_guides.is_empty(),
+            "a 0-size cursor below the row must not be the draw snap"
+        );
+        let (r, guides) = snap_resize_rect_scoped(
+            proposed,
+            &[],
+            &all,
+            nearby_scope(6.0),
+            ResizeSnapEdges::for_draw(start, proposed),
+        );
+        assert!(
+            (r.x + r.w - 200.0).abs() < 0.01,
+            "live right edge should snap to 200, got {}",
+            r.x + r.w
+        );
+        assert!(!guides.is_empty());
+        let end = draw_end_from_rect(start, r);
+        assert!((end.x - 200.0).abs() < 0.01);
     }
 }

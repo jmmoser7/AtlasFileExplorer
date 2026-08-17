@@ -88,7 +88,16 @@ fn overlay_shapes(subj: &[Vec<[f64; 2]>], clip: &[Vec<[f64; 2]>], rule: OverlayR
     }
     let mut overlay = FloatOverlay::with_subj_and_clip(subj, clip);
     let raw = overlay.overlay(rule, FillRule::EvenOdd);
-    shapes_from_overlay(raw)
+    let mut out = shapes_from_overlay(raw);
+    let mut sources = Vec::with_capacity(subj.len() + clip.len());
+    for c in subj {
+        sources.push(c.iter().copied().map(from_f64).collect());
+    }
+    for c in clip {
+        sources.push(c.iter().copied().map(from_f64).collect());
+    }
+    crate::clean::clean_boolean_result(&mut out, &sources);
+    out
 }
 
 fn shapes_from_overlay(raw: Vec<Vec<Vec<[f64; 2]>>>) -> TrimPolys {
@@ -165,7 +174,11 @@ pub fn slice_closed_by_line(poly: &Polygon, a: [f32; 2], b: [f32; 2]) -> TrimPol
     let outer = close_ring(&poly[0]);
     let line = [to_f64(a), to_f64(b)];
     let raw = outer.slice_by(&line, FillRule::NonZero);
-    shapes_from_overlay(raw)
+    let mut out = shapes_from_overlay(raw);
+    let mut sources = poly.clone();
+    sources.push(vec![a, b]);
+    crate::clean::clean_boolean_result(&mut out, &sources);
+    out
 }
 
 fn cutter_as_line(c: &Cutter) -> Option<([f32; 2], [f32; 2])> {
@@ -409,15 +422,153 @@ pub fn extend_polyline_end(
     Some(out)
 }
 
-/// Earcut a compound polygon (outer + holes) into a triangle list.
-/// Returns (vertices, indices).
-pub fn fill_triangles(poly: &Polygon) -> (Vec<[f32; 2]>, Vec<u32>) {
-    if poly.is_empty() || poly[0].len() < 3 {
+/// Earcut a compound polygon into a triangle list. Returns (vertices, indices).
+///
+/// Contours are partitioned into islands: a ring nested in another is a hole
+/// of the smallest container; disjoint outers are tessellated separately.
+/// Closing duplicates (first == last) are stripped — Mapbox earcut wants
+/// open rings. This is the fill path for concave boolean results; egui's
+/// `PathShape` is a triangle fan and only valid for convex polygons.
+pub fn fill_triangles(poly: &[Vec<[f32; 2]>]) -> (Vec<[f32; 2]>, Vec<u32>) {
+    let rings: Vec<Vec<[f32; 2]>> = poly
+        .iter()
+        .map(|r| clean_ring(r))
+        .filter(|r| r.len() >= 3)
+        .collect();
+    if rings.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let mut verts = Vec::new();
+    let mut indices = Vec::new();
+    for island in partition_islands(&rings) {
+        let (v, idx) = earcut_island(&island);
+        if idx.is_empty() {
+            continue;
+        }
+        let base = verts.len() as u32;
+        verts.extend(v);
+        indices.extend(idx.into_iter().map(|i| i + base));
+    }
+    (verts, indices)
+}
+
+fn clean_ring(ring: &[[f32; 2]]) -> Vec<[f32; 2]> {
+    use crate::geom::is_finite_pt;
+    let mut out: Vec<[f32; 2]> = Vec::with_capacity(ring.len());
+    for &p in ring {
+        if !is_finite_pt(p) {
+            continue;
+        }
+        if let Some(last) = out.last() {
+            let dx = last[0] - p[0];
+            let dy = last[1] - p[1];
+            if dx * dx + dy * dy < EPS * EPS {
+                continue;
+            }
+        }
+        out.push(p);
+    }
+    if out.len() >= 2 {
+        let first = out[0];
+        let last = *out.last().unwrap();
+        let dx = first[0] - last[0];
+        let dy = first[1] - last[1];
+        if dx * dx + dy * dy < EPS * EPS {
+            out.pop();
+        }
+    }
+    out
+}
+
+fn ring_centroid(ring: &[[f32; 2]]) -> [f32; 2] {
+    let n = ring.len().max(1) as f32;
+    let mut x = 0.0;
+    let mut y = 0.0;
+    for p in ring {
+        x += p[0];
+        y += p[1];
+    }
+    [x / n, y / n]
+}
+
+/// Smallest-area containing ring for each contour (`None` = an outer).
+fn ring_parents(rings: &[Vec<[f32; 2]>]) -> Vec<Option<usize>> {
+    let areas: Vec<f32> = rings.iter().map(|r| signed_area(r).abs()).collect();
+    let mut parent = vec![None; rings.len()];
+    for i in 0..rings.len() {
+        let probe = ring_centroid(&rings[i]);
+        let mut best: Option<(usize, f32)> = None;
+        for j in 0..rings.len() {
+            if i == j {
+                continue;
+            }
+            if areas[j] <= areas[i] {
+                continue;
+            }
+            if point_in_ring(&rings[j], probe) {
+                if best.map_or(true, |(_, a)| areas[j] < a) {
+                    best = Some((j, areas[j]));
+                }
+            }
+        }
+        parent[i] = best.map(|(j, _)| j);
+    }
+    parent
+}
+
+fn nest_depth(i: usize, parent: &[Option<usize>]) -> usize {
+    let mut d = 0;
+    let mut cur = parent[i];
+    while let Some(p) = cur {
+        d += 1;
+        if d > parent.len() {
+            break;
+        }
+        cur = parent[p];
+    }
+    d
+}
+
+fn signed_area(ring: &[[f32; 2]]) -> f32 {
+    let n = ring.len();
+    if n < 3 {
+        return 0.0;
+    }
+    let mut a = 0.0f32;
+    for i in 0..n {
+        let p = ring[i];
+        let q = ring[(i + 1) % n];
+        a += p[0] * q[1] - q[0] * p[1];
+    }
+    a * 0.5
+}
+
+fn partition_islands(rings: &[Vec<[f32; 2]>]) -> Vec<Polygon> {
+    let parent = ring_parents(rings);
+    let depths: Vec<usize> = (0..rings.len()).map(|i| nest_depth(i, &parent)).collect();
+    let mut islands = Vec::new();
+    for (i, ring) in rings.iter().enumerate() {
+        if depths[i] % 2 != 0 {
+            continue;
+        }
+        let mut island = vec![ring.clone()];
+        for (j, hole) in rings.iter().enumerate() {
+            if parent[j] == Some(i) && depths[j] % 2 == 1 {
+                island.push(hole.clone());
+            }
+        }
+        islands.push(island);
+    }
+    islands
+}
+
+fn earcut_island(island: &Polygon) -> (Vec<[f32; 2]>, Vec<u32>) {
+    if island.is_empty() || island[0].len() < 3 {
         return (Vec::new(), Vec::new());
     }
     let mut coords = Vec::new();
     let mut holes = Vec::new();
-    for (i, ring) in poly.iter().enumerate() {
+    for (i, ring) in island.iter().enumerate() {
         if i > 0 {
             holes.push(coords.len() / 2);
         }
@@ -435,6 +586,41 @@ pub fn fill_triangles(poly: &Polygon) -> (Vec<[f32; 2]>, Vec<u32>) {
         .collect();
     let indices: Vec<u32> = idx.into_iter().map(|i| i as u32).collect();
     (verts, indices)
+}
+
+/// True when `p` lies in any triangle of the mesh (barycentric, small slop).
+pub fn point_in_mesh(verts: &[[f32; 2]], indices: &[u32], p: [f32; 2]) -> bool {
+    const SLOP: f32 = 1e-3;
+    for tri in indices.chunks(3) {
+        if tri.len() < 3 {
+            continue;
+        }
+        let a = verts[tri[0] as usize];
+        let b = verts[tri[1] as usize];
+        let c = verts[tri[2] as usize];
+        if barycentric_inside(a, b, c, p, SLOP) {
+            return true;
+        }
+    }
+    false
+}
+
+fn barycentric_inside(a: [f32; 2], b: [f32; 2], c: [f32; 2], p: [f32; 2], slop: f32) -> bool {
+    let v0 = [c[0] - a[0], c[1] - a[1]];
+    let v1 = [b[0] - a[0], b[1] - a[1]];
+    let v2 = [p[0] - a[0], p[1] - a[1]];
+    let dot00 = v0[0] * v0[0] + v0[1] * v0[1];
+    let dot01 = v0[0] * v1[0] + v0[1] * v1[1];
+    let dot02 = v0[0] * v2[0] + v0[1] * v2[1];
+    let dot11 = v1[0] * v1[0] + v1[1] * v1[1];
+    let dot12 = v1[0] * v2[0] + v1[1] * v2[1];
+    let denom = dot00 * dot11 - dot01 * dot01;
+    if denom.abs() < EPS {
+        return false;
+    }
+    let u = (dot11 * dot02 - dot01 * dot12) / denom;
+    let v = (dot00 * dot12 - dot01 * dot02) / denom;
+    u >= -slop && v >= -slop && (u + v) <= 1.0 + slop
 }
 
 /// Closed-target trim: click identifies the arrangement face inside the
@@ -487,6 +673,65 @@ pub fn trim_closed_at_click(
     }
 
     Some(pieces)
+}
+
+/// Closed-target split: every arrangement face is kept. Line cutters slice;
+/// area cutters partition into inside ∪ outside. Returns `None` when the
+/// cutters do not actually divide the target.
+pub fn split_closed(target: &Polygon, cutters: &[Cutter]) -> Option<TrimPolys> {
+    if target.is_empty() || target[0].len() < 3 {
+        return None;
+    }
+    let mut line_cutters = Vec::new();
+    let mut area_cutters = Vec::new();
+    for c in cutters {
+        if let Some(ab) = cutter_as_line(c) {
+            line_cutters.push(ab);
+        } else if let Some(p) = cutter_as_closed(c) {
+            area_cutters.push(p);
+        } else if let Cutter::Open(pts) = c {
+            for w in pts.windows(2) {
+                line_cutters.push((w[0], w[1]));
+            }
+        }
+    }
+    if line_cutters.is_empty() && area_cutters.is_empty() {
+        return None;
+    }
+
+    let mut pieces: TrimPolys = vec![target.clone()];
+    for (a, b) in &line_cutters {
+        let mut next = Vec::new();
+        for piece in pieces {
+            let sliced = slice_closed_by_line(&piece, *a, *b);
+            if sliced.is_empty() {
+                next.push(piece);
+            } else {
+                next.extend(sliced);
+            }
+        }
+        pieces = next;
+    }
+    for c in &area_cutters {
+        let mut next = Vec::new();
+        for piece in pieces {
+            let inside = boolean_intersection(&piece, c);
+            let outside = boolean_difference(&piece, c);
+            if inside.is_empty() && outside.is_empty() {
+                next.push(piece);
+            } else {
+                next.extend(inside);
+                next.extend(outside);
+            }
+        }
+        pieces = next;
+    }
+    pieces.retain(|p| !p.is_empty() && p[0].len() >= 3);
+    if pieces.len() < 2 {
+        None
+    } else {
+        Some(pieces)
+    }
 }
 
 /// The arrangement face of `target` vs area cutters that contains `click`.
@@ -603,6 +848,143 @@ mod tests {
         assert!(v.len() >= 3);
         assert_eq!(i.len() % 3, 0);
         assert!(!i.is_empty());
+        assert!(point_in_mesh(&v, &i, [5.0, 5.0]));
+        assert!(!point_in_mesh(&v, &i, [20.0, 20.0]));
+    }
+
+    #[test]
+    fn fill_triangles_covers_a_concave_union() {
+        // Two offset rects — the Join case that egui's triangle-fan tears.
+        let a = rect(0.0, 0.0, 80.0, 80.0);
+        let b = rect(40.0, 40.0, 80.0, 80.0);
+        let out = boolean_union_all(&[a, b]);
+        assert_eq!(out.len(), 1);
+        let (v, i) = fill_triangles(&out[0]);
+        assert!(point_in_mesh(&v, &i, [10.0, 10.0]), "first lobe");
+        assert!(point_in_mesh(&v, &i, [100.0, 100.0]), "second lobe");
+        assert!(point_in_mesh(&v, &i, [50.0, 50.0]), "overlap");
+        assert!(
+            !point_in_mesh(&v, &i, [10.0, 100.0]),
+            "notch must stay empty"
+        );
+        assert!(!point_in_mesh(&v, &i, [100.0, 10.0]), "other notch");
+    }
+
+    #[test]
+    fn fill_triangles_covers_disjoint_islands() {
+        let a = rect(0.0, 0.0, 20.0, 20.0);
+        let b = rect(80.0, 80.0, 20.0, 20.0);
+        let (v, i) = fill_triangles(&[a[0].clone(), b[0].clone()]);
+        assert!(point_in_mesh(&v, &i, [10.0, 10.0]));
+        assert!(point_in_mesh(&v, &i, [90.0, 90.0]));
+        assert!(!point_in_mesh(&v, &i, [50.0, 50.0]));
+    }
+
+    #[test]
+    fn fill_triangles_strips_a_closing_duplicate() {
+        let closed = vec![vec![
+            [0.0, 0.0],
+            [10.0, 0.0],
+            [10.0, 10.0],
+            [0.0, 10.0],
+            [0.0, 0.0],
+        ]];
+        let (v, i) = fill_triangles(&closed);
+        assert!(point_in_mesh(&v, &i, [5.0, 5.0]));
+        assert_eq!(i.len() % 3, 0);
+    }
+
+    #[test]
+    fn fill_triangles_honors_a_hole() {
+        let r = rect(0.0, 0.0, 100.0, 100.0);
+        let c = circle(50.0, 50.0, 20.0, 32);
+        let out = boolean_difference(&r, &c);
+        assert_eq!(out.len(), 1);
+        let (v, i) = fill_triangles(&out[0]);
+        assert!(point_in_mesh(&v, &i, [5.0, 5.0]));
+        assert!(!point_in_mesh(&v, &i, [50.0, 50.0]));
+    }
+
+    fn edges_axis_aligned(ring: &[[f32; 2]]) {
+        let n = ring.len();
+        assert!(n >= 3, "ring too short: {ring:?}");
+        for i in 0..n {
+            let a = ring[i];
+            let b = ring[(i + 1) % n];
+            let dx = (b[0] - a[0]).abs();
+            let dy = (b[1] - a[1]).abs();
+            assert!(
+                dx < 1e-3 || dy < 1e-3,
+                "edge {a:?} → {b:?} is not axis-aligned"
+            );
+        }
+    }
+
+    fn ring_has(ring: &[[f32; 2]], p: [f32; 2]) -> bool {
+        ring.iter()
+            .any(|q| (q[0] - p[0]).abs() < 1e-3 && (q[1] - p[1]).abs() < 1e-3)
+    }
+
+    #[test]
+    fn union_of_axis_aligned_rects_keeps_axis_aligned_edges() {
+        let a = rect(0.0, 0.0, 80.0, 80.0);
+        let b = rect(40.0, 40.0, 80.0, 80.0);
+        let out = boolean_union_all(&[a, b]);
+        assert_eq!(out.len(), 1);
+        let ring = &out[0][0];
+        edges_axis_aligned(ring);
+        for p in [
+            [0.0, 0.0],
+            [80.0, 0.0],
+            [80.0, 40.0],
+            [120.0, 40.0],
+            [120.0, 120.0],
+            [40.0, 120.0],
+            [40.0, 80.0],
+            [0.0, 80.0],
+        ] {
+            assert!(ring_has(ring, p), "missing corner {p:?} in {ring:?}");
+        }
+    }
+
+    #[test]
+    fn difference_of_axis_aligned_rects_keeps_axis_aligned_edges() {
+        let a = rect(0.0, 0.0, 80.0, 80.0);
+        let b = rect(40.0, 40.0, 80.0, 80.0);
+        let out = boolean_difference(&a, &b);
+        assert_eq!(out.len(), 1);
+        edges_axis_aligned(&out[0][0]);
+    }
+
+    #[test]
+    fn split_axis_aligned_rect_keeps_exact_halves() {
+        let r = rect(0.0, 0.0, 100.0, 80.0);
+        let cutter = infinite_line([50.0, -10.0], [50.0, 10.0]).unwrap();
+        let out = split_closed(&r, &[cutter]).expect("split");
+        assert_eq!(out.len(), 2);
+        for piece in &out {
+            edges_axis_aligned(&piece[0]);
+            for v in &piece[0] {
+                let x_ok = (v[0] - 0.0).abs() < 1e-3
+                    || (v[0] - 50.0).abs() < 1e-3
+                    || (v[0] - 100.0).abs() < 1e-3;
+                let y_ok = (v[1] - 0.0).abs() < 1e-3 || (v[1] - 80.0).abs() < 1e-3;
+                assert!(x_ok && y_ok, "unexpected vertex {v:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn union_does_not_collapse_an_ellipse() {
+        let e = circle(50.0, 50.0, 20.0, 48);
+        let r = rect(50.0, 50.0, 40.0, 40.0);
+        let out = boolean_union(&e, &r);
+        assert_eq!(out.len(), 1);
+        assert!(
+            out[0][0].len() >= 20,
+            "ellipse was over-simplified: {} verts",
+            out[0][0].len()
+        );
     }
 
     #[test]
@@ -641,5 +1023,42 @@ mod tests {
         assert!(point_in_polygon(&out[0], [10.0, 10.0]));
         assert!(point_in_polygon(&out[0], [40.0, 40.0]));
         assert_eq!(out[0].len(), 1, "union must not punch a hole");
+    }
+
+    #[test]
+    fn split_closed_line_keeps_both_halves() {
+        let r = rect(0.0, 0.0, 100.0, 80.0);
+        let cutter = infinite_line([50.0, -10.0], [50.0, 10.0]).unwrap();
+        let out = split_closed(&r, &[cutter]).expect("split");
+        assert_eq!(out.len(), 2);
+        let left = out.iter().any(|p| point_in_polygon(p, [10.0, 40.0]));
+        let right = out.iter().any(|p| point_in_polygon(p, [80.0, 40.0]));
+        assert!(left && right);
+    }
+
+    #[test]
+    fn split_closed_inner_circle_keeps_disk_and_ring() {
+        let r = rect(0.0, 0.0, 100.0, 100.0);
+        let c = circle(50.0, 50.0, 20.0, 32);
+        let out = split_closed(&r, &[Cutter::Closed(c)]).expect("split");
+        assert_eq!(out.len(), 2);
+        let disk = out.iter().any(|p| point_in_polygon(p, [50.0, 50.0]));
+        let ring = out.iter().any(|p| point_in_polygon(p, [5.0, 5.0]));
+        assert!(disk && ring);
+        let disk_only = out
+            .iter()
+            .find(|p| point_in_polygon(p, [50.0, 50.0]))
+            .unwrap();
+        assert!(
+            !point_in_polygon(disk_only, [5.0, 5.0]),
+            "disk must not include the outer corner"
+        );
+    }
+
+    #[test]
+    fn split_closed_miss_is_none() {
+        let r = rect(0.0, 0.0, 20.0, 20.0);
+        let far = Cutter::Closed(rect(80.0, 80.0, 10.0, 10.0));
+        assert!(split_closed(&r, &[far]).is_none());
     }
 }

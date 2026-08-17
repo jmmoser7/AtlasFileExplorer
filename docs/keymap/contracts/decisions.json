@@ -53,9 +53,9 @@
           "decided": null
         },
         "D06": {
-          "behavior": "F9 grid snap applies to the ghost's anchor (Text: top-left of default rect; Sticky: center) and to both corners of a DragScale rect. F8 ortho does not apply to area placement. Object-snap off for v1.",
-          "source": "guess",
-          "confidence": 50,
+          "behavior": "GhostFollow hotspot and click-place go through `resolve_point_snap` (osnap + smart-guide forcefield + F9 grid). F8 ortho does not apply to area placement. When DragScale lands, both corners use `resolve_draw_rect` (same as Rect). Alt suspends.",
+          "source": "pattern",
+          "confidence": 85,
           "verdict": "proposed",
           "decided": null
         },
@@ -374,7 +374,7 @@
           "decided": "2026-08-15"
         },
         "D14": {
-          "behavior": "Line grips, path clicks, draw/place corners, free wire ends, and bbox moves use the same ObjectSnapSet.",
+          "behavior": "Line grips, path clicks, GhostFollow hover, both DragScale corners (live rect edges via `resolve_draw_rect`), free wire ends, bbox moves, and corner-scale handles use the same ObjectSnapSet. Create-tool corners and the armed pointer emit smart-guide forcefield pulses when they align to a nearby object. Preview and commit consume the resolved point — never the raw cursor while a snap is live.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1078,11 +1078,11 @@
           "decided": "2026-08-08"
         },
         "D03": {
-          "behavior": "P2.PortalPlace: Armed -> Dragging(rect) -> Committed(unbound), empty state \"Choose page or file...\", binding is a separate non-modal step (D19) - no file dialog and no network fetch inside a draw gesture. The three drop-in paths of D01 skip straight to Committed(bound).",
-          "source": "precedent",
-          "confidence": 90,
+          "behavior": "P2.PortalPlace: Armed -> Dragging(rect) -> Committed(bound to start locator), with https://www.google.com/ as the authored start page. Binding a different page remains a separate non-modal step (D19) - no file dialog and no network fetch inside a draw gesture. The three drop-in paths of D01 still skip straight to Committed(bound) with their supplied locator.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-08"
+          "decided": "2026-08-16"
         },
         "D04": {
           "behavior": "P2.PortalPlace: travel > draft.drag_threshold (4 px) uses the dragged rect; below it places portal.web.default_size (960x540) centred on the click.",
@@ -1155,18 +1155,18 @@
           "decided": "2026-08-08"
         },
         "D14": {
-          "behavior": "Portal sidebar section when selected, mirrored by portal.web.* commands, each a journaled Patch: source (URL field / Choose file... / Choose folder + entry), viewport width and zoom mode, export mode, Reload, Recapture poster, Open in system browser, Package into workbook folder (Art. IX.4), and Allow this origin (local trust, not journaled - D32).",
+          "behavior": "Portal sidebar section when selected, mirrored by portal.web.* commands. Journaled Patches: source (URL field / Choose file... / Choose folder + entry), viewport width and zoom mode, export mode, Package into workbook folder (Art. IX.4). Derived actions: Home (navigate back to the authored locator), Reload, Recapture poster, Open in system browser, and Allow this origin (local trust, not journaled - D32).",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
-          "decided": "2026-08-08"
+          "decided": "2026-08-16"
         },
         "D15": {
-          "behavior": "Cut, each a decision (Art. III): browser chrome (multiple tabs, back/forward, address bar, bookmarks, history), devtools, downloads, popups and window.open (blocked, offered as open-in-browser), printing, a cookie jar shared with the user's real browser, persisted logins across sessions, notifications / geolocation / camera / mic / clipboard-read, scraping page DOM into board nodes, writing back to the source HTML file (Art. IX.5), and typed frame dimensions (D08). Not cut: the Slate identity tab of P1.portal.chrome (one tab, the locator, maximize / fold). Not cut, deferred to its own contract: the declared control surface of D18. Arbitrary JS bridges, host objects, and page-initiated postMessage into Slate stay permanently cut. Page-internal navigation while focused is allowed but never persisted: the authored locator is the home.",
+          "behavior": "Cut, each a decision (Art. III): browser chrome (multiple tabs, address bar / omnibox, bookmarks, history UI, devtools, downloads, printing, a cookie jar shared with the user's real browser, persisted logins across sessions, notifications / geolocation / camera / mic / clipboard-read, scraping page DOM into board nodes, writing back to the source HTML file (Art. IX.5), and typed frame dimensions (D08). Not cut: in-page back/forward/reload/home commands, the Slate identity tab of P1.portal.chrome (one tab, the locator, maximize / fold), and _blank links navigating the same webview instead of opening popups. Not cut, deferred to its own contract: the declared control surface of D18. Arbitrary JS bridges, host objects, and page-initiated postMessage into Slate remain permanently cut. Page-internal navigation while focused is allowed but never persisted: the authored locator is the home. The default Google start page is a locator, not Slate chrome.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-15"
+          "decided": "2026-08-16"
         },
         "D16": {
           "behavior": "No - P1.portal.style.",
@@ -1190,11 +1190,11 @@
           "decided": "2026-08-08"
         },
         "D19": {
-          "behavior": "SourceUri.locator holds exactly one of: an http(s) URL; a path to an .html/.htm file; or a path to a directory plus WebPortalRef.entry (default index.html) for a multi-file dashboard. Paths are relative to the workbook first, absolute as fallback (Art. IX.2). Bound by the inspector, the empty-state button, or by dropping a file/folder/tab on an unbound portal; rebinding is a journaled Patch that discards the cached poster. Refused: javascript: and data: URIs, non-http(s) schemes (ftp:, about:, custom protocol handlers), .slate files (diverted to open as a tab), and non-HTML files (which stay ordinary board items).",
-          "source": "pattern",
-          "confidence": 80,
+          "behavior": "SourceUri.locator holds exactly one of: an http(s) URL; a path to an .html/.htm file; or a path to a directory plus WebPortalRef.entry (default index.html) for a multi-file dashboard. Newly placed web portals default to the remote start locator https://www.google.com/; that URL is journaled like any other source. Paths are relative to the workbook first, absolute as fallback (Art. IX.2). Rebound by the inspector, the empty-state button after clearing, or by dropping a file/folder/tab on a portal; rebinding is a journaled Patch that discards the cached poster. Refused: javascript: and data: URIs, non-http(s) schemes (ftp:, about:, custom protocol handlers), .slate files (diverted to open as a tab), and non-HTML files (which stay ordinary board items).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-08"
+          "decided": "2026-08-16"
         },
         "D20": {
           "behavior": "Journaled: viewport.width_css (default 1280) - the CSS width the page is laid out at; viewport.zoom = Fit (scale the render to the frame width, default) | Fixed(f32) | Auto (frame size drives the CSS viewport, so resize reflows like a browser window); entry (folder sources); interactive_allowed (default true); poster_capture = OnBind | Manual (never a timer in v1); export_mode (D24); title; frame rect and fill. Derived: scroll offset, page history, live state, poster texture, load errors.",
@@ -1211,11 +1211,11 @@
           "decided": "2026-08-08"
         },
         "D22": {
-          "behavior": "Many render, one listens. Hover / click select the frame; double-click (or Enter) takes input focus; Esc or clicking elsewhere releases it without stopping the page. Ctrl+double-click opens the locator in the system browser. Right-click anywhere on the portal (tab or body, focused or not) opens the Slate portal menu - Copy URL / Paste URL rebind that frame. The maximize button is P1.portal.maximize. While input-focused the wheel scrolls the page and Ctrl+wheel still zooms the camera (P0.5; plain wheel surrendered for that one frame).",
+          "behavior": "Many render, one listens. Hover / click select the frame; double-click (or Enter) takes input focus; Esc or clicking elsewhere releases it without stopping the page. Ctrl+double-click opens the locator in the system browser. Right-click anywhere on the portal (tab or body, focused or not) opens the Slate portal menu - Copy URL / Paste URL rebind that frame. The maximize button is P1.portal.maximize. Home navigates the live page back to the authored locator without journaling. User-initiated _blank links navigate the same webview, never a popup. While input-focused the wheel scrolls the page and Ctrl+wheel still zooms the camera (P0.5; plain wheel surrendered for that one frame).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-15"
+          "decided": "2026-08-16"
         },
         "D23": {
           "behavior": "Buckets key on the portal's on-screen height in physical pixels, so a hundred tiled pages zoomed out cost nothing. Below portal.web.lod_strip_px (96): chrome strip only, no texture bound. From 96 to portal.web.live_min_px (160), or off-screen at any size: the cached poster. At or above 160 and on screen: eligible for the live pool, admitted by the D29 priority; an eligible portal that misses admission paints its poster and reports Budgeted. Double-clicking a portal below the live threshold zooms the camera to fit it first, then takes input focus - and a focused portal ignores the size gate entirely, so the human is never told 'too small' after asking to run the page.",
@@ -1260,11 +1260,11 @@
           "decided": "2026-08-08"
         },
         "D29": {
-          "behavior": "A pool, not a webview per page. At most portal.web.live_pool (6) webviews exist at once, admitted from the eligible set (D23) by priority: input-focused first, then greatest on-screen area, then most recently focused. Eviction captures a poster on the way out, so a demoted portal degrades to its last frame rather than blanking. Contents composite offscreen into a texture (WebView2 visual hosting), so portals obey z-order and opacity like any node and stay axis-aligned. Frame rates are budgeted, not free: the input-focused portal renders at the board's rate, other pooled portals at portal.web.idle_fps (5), and texture uploads are capped at portal.web.uploads_per_frame (2) per frame with the remainder held in a backlog that requests a repaint - the per-frame-budget rule the scanner and watcher already follow. Poster capture is async and generation-tagged; posters cache by (locator, content hash or capture epoch, viewport width) and evict with the thumbnail tier (Art. II.2). Nothing on the frame loop touches the network or the filesystem; the local mtime poll is a worker at >= 1 s. The research-hub case is therefore a hundred cached textures, at most six processes, and none at all once the board zooms past the strip threshold. A missing WebView2 runtime degrades every portal to NoRuntime, never a stall.",
+          "behavior": "A pool, not a webview per page. At most portal.web.live_pool (6) webviews exist at once, admitted from the eligible set (D23) by priority: input-focused first, then greatest on-screen area, then most recently focused. Eviction captures a poster on the way out, so a demoted portal degrades to its last frame rather than blanking. Contents composite offscreen into a texture (WebView2 visual hosting), so portals obey z-order and opacity like any node and stay axis-aligned. Frame rates are budgeted, not free: the input-focused portal's readback/upload path is paced at portal.web.focused_fps (30), other pooled portals at portal.web.idle_fps (5), and texture uploads are capped at portal.web.uploads_per_frame (2) per frame with the remainder held in a backlog that requests a timed repaint - the per-frame-budget rule the scanner and watcher already follow. Poster capture is async and generation-tagged; posters cache by (locator, content hash or capture epoch, viewport width) and evict with the thumbnail tier (Art. II.2). Nothing on the frame loop touches the network or the filesystem; the local mtime poll is a worker at >= 1 s. The research-hub case is therefore a hundred cached textures, at most six processes, and none at all once the board zooms past the strip threshold. A missing WebView2 runtime degrades every portal to NoRuntime, never a stall.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
-          "decided": "2026-08-08"
+          "decided": "2026-08-16"
         },
         "D30": {
           "behavior": "Unbound (\"Choose page or file...\"). Unknown - not yet resolved, neutral marker, never blocking (P1.portal.health). Blocked - remote origin not yet permitted, host named. Loading. Live. Budgeted - eligible but outside the live pool, showing its last frame and saying so. Poster(age) - stale by construction, age stated. Missing - file gone, DNS failure, or 404, locator named, last poster kept. Refused(reason) - unsupported or dangerous scheme. NoRuntime - WebView2 runtime absent, with what to install. TooSmall - below live_min_px. NotFramable - export-time note when a remote site refuses iframing. Every state names itself in the frame rather than blanking it.",
@@ -1281,11 +1281,11 @@
           "decided": "2026-08-15"
         },
         "D32": {
-          "behavior": "Remote origins are Blocked until the human permits them; grants key on (workbook, origin), live in local app state, and are never journaled or written into the .slate, so a workbook you receive cannot arrive pre-trusting a host. Local sources under the workbook root need no prompt. The webview runs in a per-workbook user-data folder - no cookies, storage, or logins shared with the user's real browser. Denied outright: downloads, popups, notifications, geolocation, camera, microphone, clipboard read, and any host object or postMessage bridge (D15). Exports sandbox what they embed: packaged local content gets sandbox=\"allow-scripts allow-same-origin\", because a dashboard must fetch its own sibling data files; remote iframes get allow-scripts only.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "Remote origins are Blocked until the human permits them; grants key on (workbook, origin), live in local app state, and are never journaled or written into the .slate, so a workbook you receive cannot arrive pre-trusting a host. Placing a default web portal is the human permitting the start locator's origin for that workbook, matching paste/drop behavior. Local sources under the workbook root need no prompt. The webview runs in a per-workbook user-data folder - no cookies, storage, or logins shared with the user's real browser. Denied outright: downloads, popups, notifications / geolocation / camera / mic / clipboard-read, and any host object or postMessage bridge (D15). Exports sandbox what they embed: packaged local content gets sandbox=\"allow-scripts allow-same-origin\", because a dashboard must fetch its own sibling data files; remote iframes get allow-scripts only.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-08"
+          "decided": "2026-08-16"
         },
         "D33": {
           "behavior": "P1.portal.chrome. One Slate identity tab shows the locator (or the page being visited). The strip is 40% the height of the Slate / File Atlas top bar. Maximize is the only chrome button on that strip (glyph highlight, no fill). Fold via right-click Hide tab or portal.chrome.toggle; a folded tab is recovered from the top-interior reveal strip. The four-corner maximize square sits in the tab bar's window-control slot (far right). Right-click on the tab or the frame: Copy URL, Paste URL (journaled rebind), Maximize, Hide/Show tab.",
@@ -1598,14 +1598,14 @@
           "decided": "2026-08-15"
         },
         "D03": {
-          "behavior": "Armed → GhostFollow (small cursor-locked silhouette) → Press → (ClickPlace | DragScale) → Commit. GhostFollow is chrome only and never creates a node. Click/drag commit rules stay with the existing archetype. Shared board_place::place_rect computes the DragScale rect for both the live rubber-band and the journaled commit.",
+          "behavior": "Armed → GhostFollow (small cursor-locked silhouette) → Press → (ClickPlace | DragScale) → Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not drag_started / drag_stopped). Shared board_place::place_rect computes the DragScale rect for both the live rubber-band and the journaled commit.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-15"
+          "decided": "2026-08-16"
         },
         "D04": {
-          "behavior": "Cursor travel > draft.drag_threshold (4 screen px) before release = DragScale; otherwise ClickPlace at the tool's default size (rect / ellipse from the kit recipe, frame from the live preset, portals from <kind>.default_size). A DragScale release under MIN_DRAW still discards.",
+          "behavior": "Cursor travel > draft.drag_threshold (4 screen px from the press) before release = DragScale; otherwise ClickPlace at the tool's default size (rect / ellipse from the kit recipe, frame from the live preset, portals from <kind>.default_size). Travel is the pointer's screen delta, not a world-space length. A DragScale release under MIN_DRAW still discards.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1619,11 +1619,11 @@
           "decided": "2026-08-15"
         },
         "D06": {
-          "behavior": "GhostFollow is screen-space chrome and does not snap. DragScale keeps today's F9 grid + smart guides on the live rect. F8 ortho does not apply to area placement.",
-          "source": "pattern",
-          "confidence": 80,
+          "behavior": "GhostFollow glyph stays screen-space (P0.9) but sits on the snapped world point: osnap + smart-guide forcefield, same `resolve_point_snap` as every other live board point. DragScale snaps both corners — press resolves the start; every frame and commit snap the live rect's moving edges (`resolve_draw_rect`, same forcefield as a resize). F8 ortho does not apply to area placement. Alt suspends. Shift is aspect only, never ortho.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-15"
+          "decided": "2026-08-16"
         },
         "D07": {
           "behavior": "n/a for area placement. Tab does not lock during GhostFollow or DragScale.",
@@ -1942,7 +1942,7 @@
           "decided": "2026-08-16"
         },
         "D15": {
-          "behavior": "Cut: Untrim/Split/ApparentIntersections/temp Line cutter/portal+frame targets/3D.",
+          "behavior": "Cut: Untrim/ApparentIntersections/temp Line cutter/portal+frame targets/3D. Split is board.tool.split.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2028,9 +2028,9 @@
           "decided": "2026-08-16"
         },
         "D09": {
-          "behavior": "No mid-command preview. Toast Joined on success.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "No mid-command preview. Toast Joined on success; Objects do not touch when nothing meets.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-16"
         },
@@ -2042,7 +2042,7 @@
           "decided": "2026-08-16"
         },
         "D11": {
-          "behavior": "One journal group. All-open: endpoint join. Any closed: boolean union; opens become stroke-weight ribbons (hairline if width 0, round caps, dash ignored). First selected style wins.",
+          "behavior": "One journal group. All-open: endpoint join. Any closed: boolean union of connected regions only; opens become stroke-weight ribbons (hairline if width 0, round caps, dash ignored). Disjoint operands stay put. First selected style wins.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2087,6 +2087,134 @@
           "behavior": "Current selection. Skip locked/hidden. Open: Path+Line. Closed: Rect/Ellipse/closed Path (or clip).",
           "source": "stated",
           "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        }
+      }
+    },
+    "split": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Rhino Split (2D)",
+      "inherits": ["P0.*", "P1.node", "P2.RhinoTrim", "P2.RhinoSplit"],
+      "canvas": null,
+      "decisions": {
+        "D01": {
+          "behavior": "Ctrl+Shift+T; palette type split; Actions dock row. Space/Enter re-arms.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D02": {
+          "behavior": "Sticky. Enter in TrimParts returns to Select. Idle Space/Enter re-arms.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D03": {
+          "behavior": "Same phases as Trim. Click splits the hit object into every piece.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D04": {
+          "behavior": "Click only. No marquee-split.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D05": {
+          "behavior": "No modifiers. Shift+extend is Trim-only.",
+          "source": "guess",
+          "confidence": 60,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D06": {
+          "behavior": "Click picks the object to split. F8/F9 unused.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D07": {
+          "behavior": "n/a",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D08": {
+          "behavior": "n/a",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D09": {
+          "behavior": "Cutter outlines + all resulting pieces at trim.preview_alpha.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D10": {
+          "behavior": "Crosshair while armed.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D11": {
+          "behavior": "Each click one journal group. Open: every span a Path. Closed: every face a filled Path. Line cutters infinite. Results selected.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D12": {
+          "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D13": {
+          "behavior": "Result paths use path grips.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D14": {
+          "behavior": "Direct Selection on new paths. No Unsplit.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D15": {
+          "behavior": "No Unsplit; no text/image/frame/portal targets; no ApparentIntersections; no 3D.",
+          "source": "guess",
+          "confidence": 60,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D16": {
+          "behavior": "n/a — pieces copy source stroke/fill.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-16"
+        },
+        "D17": {
+          "behavior": "Open: closest span within trim.span_slop if the path divides. Closed: point-in-polygon if split_closed yields 2+ pieces. Shapes only.",
+          "source": "research",
+          "confidence": 75,
           "verdict": "approved",
           "decided": "2026-08-16"
         }

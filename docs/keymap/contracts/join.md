@@ -1,7 +1,8 @@
 # Join — interaction contract
 
-Status: **agreed** (user answers 2026-08-16; remaining rows are inferred
-edge cases so the command could ship the same day)
+Status: **agreed** (user answers 2026-08-16; disjoint-join re-locked
+the same day to Rhino must-touch after the compound-island result
+left the second island uneditable)
 Family: tool
 Reference: Rhino `Join` (2D), plus region-union for closed / mixed
 Command: `board.path.join` · Key: **Ctrl+J** · Palette: "join" (aliases:
@@ -10,9 +11,10 @@ Inherits: P0.* (all), P1.node, **P2.RhinoJoin** — deviations flagged below.
 
 > Implementation: `apps/slate/src/app/board_join.rs` (region union) plus
 > the existing open-path join in `board_direct.rs` (`join_endpoints` in
-> `vector-ink`). Closed+closed is a boolean union. Open+closed strokes the
-> open curve at its stroke weight (hairline floor) and unions that ribbon
-> with the closed region. Frames, portals, text, images, and connectors
+> `vector-ink`). Closed+closed is a boolean union of connected regions
+> only — disjoint operands stay put. Open+closed strokes the open curve
+> at its stroke weight (hairline floor) and unions that ribbon when it
+> meets the closed region. Frames, portals, text, images, and connectors
 > are never operands. Golden paths: `join_gp1`–`join_gp6` in
 > `apps/slate/src/app/tests.rs`.
 
@@ -28,9 +30,9 @@ Inherits: P0.* (all), P1.node, **P2.RhinoJoin** — deviations flagged below.
 | D06 | Constraints & snapping | Open+open uses the board snap radius to decide merge-vs-bridge at nearest endpoints. Region union ignores snaps. | research | 70 |
 | D07 | Direction / value locks | n/a | pattern | 85 |
 | D08 | Numeric / manual entry | n/a (Art. III). No typed tolerance. | guess | 60 |
-| D09 | Preview & readouts | None mid-command (instant). Toast "Joined" on success. | guess | 55 |
+| D09 | Preview & readouts | None mid-command (instant). Toast "Joined" on success; "Objects do not touch" when nothing meets. | stated | 100 |
 | D10 | Cursor | Unchanged (command, not an armed tool). | pattern | 80 |
-| D11 | Commit | One journal group (P0.2). **All open, no closed:** nearest-end join / close (first selected style). **Any closed:** boolean union of closed regions plus open curves thickened to their stroke width (`join.hairline` if width ≤ 0; round caps; dash ignored). Result is one Path node; inputs removed. First selected joinable node's style wins; if that node has no fill, take the first closed fill, else the first stroke color. | stated | 100 |
+| D11 | Commit | One journal group (P0.2). **All open, no closed:** nearest-end join / close (first selected style). **Any closed:** boolean union of *connected* regions (union is one piece) plus open curves thickened to their stroke width (`join.hairline` if width ≤ 0; round caps; dash ignored). Disjoint operands stay put — Join does not invent a compound of islands (Rhino; Group is Ctrl+G). Each connected component becomes one Path; inputs of that component are removed. First selected joinable node's style wins; if that node has no fill, take the first closed fill, else the first stroke color. | stated | 100 |
 | D12 | Cancel | n/a — instant. Undo peels the whole join (P0.1/P0.2). | pattern | 85 |
 | D13 | Selected presentation | The result is selected; path grips / Direct Selection apply. | pattern | 80 |
 | D14 | Post-edit | Direct Selection on the rewritten path. No Unjoin — rewrite, like Trim. | precedent | 90 |
@@ -43,9 +45,10 @@ Inherits: P0.* (all), P1.node, **P2.RhinoJoin** — deviations flagged below.
 - One closed alone → no-op.
 - One open alone → close it (merge ends within snap radius, else a straight seam).
 - Nested closed (A contains B) → union is A.
-- Disjoint closed → one compound path (extra contours, even-odd).
-- Several opens + one closed → each open becomes its own ribbon, then union.
-- Open far from closed → disjoint union (compound path).
+- Disjoint closed → no-op; toast "Objects do not touch". Both nodes stay editable.
+- Several opens + one closed → each open becomes its own ribbon, then union if the ribbon meets the closed region.
+- Open far from closed → no-op (ribbon does not meet).
+- Mixed set (A overlaps B, C far) → A union B rewritten; C left alone.
 - Zero-width / missing stroke on an open operand → `join.hairline` (1 world unit).
 - Tapered stroke → honor the width profile; dash is ignored (solid ribbon).
 
@@ -63,7 +66,7 @@ Pinned as `board_join::join_tokens` (P0.6). Open+open merge radius is the existi
 2. **GP2 (closed+closed):** two overlapping filled rects · Join → one path whose fill covers both; the overlap is not a hole.
 3. **GP3 (open+closed):** filled rect + a stroke that crosses it · Join → one path; a point on the stroke outside the rect is inside the result.
 4. **GP4 (nested):** large rect containing a smaller rect · Join → one path; a point only in the inner rect is still inside (union, not hole).
-5. **GP5 (disjoint closed):** two non-overlapping rects · Join → one compound path; both interiors stay filled.
+5. **GP5 (disjoint closed):** two non-overlapping rects · Join → no-op; both nodes remain.
 6. **GP6 (palette):** `board.path.join` is the same command as Ctrl+J (Actions dock + type "join").
 
 ## Open questions

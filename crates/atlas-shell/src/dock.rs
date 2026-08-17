@@ -10,11 +10,14 @@
 //! icon + kind) and one arm in the app's body callback. Renaming = changing
 //! `label`. App-specific icons use [`DockIcon::Custom`] with a painter fn.
 
+use crate::sidebar::{
+    paint_sidebar_icon_pill, sidebar_icon_row, SidebarTheme, SidebarTokens, TOGGLE_SLIDE_SECS,
+};
 use crate::theme::Palette;
 use crate::tokens::{DockThemeTokens, DockTokens};
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, Pos2, Rect, RichText, ScrollArea, Sense, Shadow, Shape,
-    Stroke, Vec2,
+    self, Align, Align2, Color32, CornerRadius, FontId, Layout, Pos2, Rect, RichText, ScrollArea,
+    Sense, Shadow, Shape, Stroke, Vec2,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -83,15 +86,26 @@ impl DockItemKind {
 
 /// How an open dock body lays out its members. Every panel that opens a
 /// body (tool or dashboard) can switch between the stacked list and a
-/// free-space icon strip.
+/// free-space icon strip. Advanced is a framed overlay on top of a strip.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum DockBodyLayout {
     #[default]
     List,
     Icons,
+    /// Full tool list + on-strip tags. Never the dock-wide default — only
+    /// while a strip's Advanced overlay is open.
+    Advanced,
 }
 
-/// One row / squircle in a tool flyout ([`flyout_items`]).
+/// Secondary circular icon vs tertiary sliding toggle in the icon strip.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FlyoutRole {
+    #[default]
+    Icon,
+    Toggle,
+}
+
+/// One row / icon / toggle in a tool flyout ([`flyout_items`]).
 pub struct FlyoutItem<'a> {
     pub id: &'static str,
     pub label: &'a str,
@@ -99,13 +113,60 @@ pub struct FlyoutItem<'a> {
     pub hotkey: Option<&'a str>,
     pub icon: DockIcon,
     pub active: bool,
+    /// Fieldset label on the icon strip. Consecutive items with the same
+    /// group share one bordered frame. `None` is an unlabeled frame.
+    pub group: Option<&'a str>,
+    pub role: FlyoutRole,
+}
+
+impl<'a> FlyoutItem<'a> {
+    pub fn new(
+        id: &'static str,
+        label: &'a str,
+        description: &'a str,
+        hotkey: Option<&'a str>,
+        icon: DockIcon,
+        active: bool,
+    ) -> Self {
+        Self {
+            id,
+            label,
+            description,
+            hotkey,
+            icon,
+            active,
+            group: None,
+            role: FlyoutRole::Icon,
+        }
+    }
+
+    pub fn grouped(mut self, group: &'a str) -> Self {
+        self.group = Some(group);
+        self
+    }
+
+    pub fn toggle(mut self) -> Self {
+        self.role = FlyoutRole::Toggle;
+        self
+    }
 }
 
 const BODY_LAYOUT_ID: &str = "atlas_dock_body_layout";
 const DOCK_SIDE_ID: &str = "atlas_dock_side";
 const STRIP_BUDGET_ID: &str = "atlas_dock_strip_budget";
-/// List-toggle + gap + minimize, reserved on the primary row of a free strip.
-const STRIP_CONTROLS_W: f32 = 44.0;
+const STRIP_PALETTE_ID: &str = "atlas_dock_strip_palette";
+const STRIP_HIDDEN_ID: &str = "atlas_dock_strip_hidden";
+const STRIP_VISIBLE_ID: &str = "atlas_dock_strip_visible";
+/// Four-dot column reserved on the primary row of a free strip.
+const STRIP_CONTROLS_W: f32 = 24.0;
+
+/// Click / drop outcome from one [`floating_dock`] frame.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DockOutcome {
+    pub clicked: Option<&'static str>,
+    /// Palette id whose 4th strip dot asked to embed a copy on the canvas.
+    pub drop_to_canvas: Option<&'static str>,
+}
 
 /// Layout the current panel body should use. Set while `floating_dock`
 /// paints a tool flyout; defaults to the stacked list.
@@ -174,9 +235,13 @@ struct DockState {
     /// [`pinned_ids`] + `ChromePrefs`.
     pinned: Vec<&'static str>,
     /// Dock-wide body layout: every pinned (and volatile) palette uses the
-    /// free-space icon strip when true. Toggling any list control, or the
-    /// single strip-mode glyph, flips this for the whole dock.
+    /// free-space icon strip when true. Toggling any list control, or a
+    /// strip's stacked-view dot, flips this for the whole dock.
     icon_strip: bool,
+    /// Palette whose Advanced overlay is open (full list + on-strip tags).
+    advanced: Option<&'static str>,
+    /// Tools hidden from each palette's icon strip. Empty vec = show all.
+    hidden: HashMap<String, Vec<String>>,
     /// Volatile body from a single click (anchored on the icon; not in the
     /// stack). Retires on minimize, Escape, outside click, or close-delay.
     body_preview: Option<&'static str>,
@@ -294,13 +359,7 @@ pub(crate) fn squircle_points(rect: Rect, exponent: f32, samples: usize) -> Vec<
         .collect()
 }
 
-pub(crate) fn paint_squircle(
-    painter: &egui::Painter,
-    rect: Rect,
-    fill: Color32,
-    stroke: Stroke,
-    n: f32,
-) {
+pub fn paint_squircle(painter: &egui::Painter, rect: Rect, fill: Color32, stroke: Stroke, n: f32) {
     painter.add(Shape::convex_polygon(
         squircle_points(rect, n, 32),
         fill,
@@ -310,6 +369,12 @@ pub(crate) fn paint_squircle(
 
 fn pt(r: Rect, x: f32, y: f32) -> Pos2 {
     Pos2::new(r.min.x + r.width() * x, r.min.y + r.height() * y)
+}
+
+/// Paint a dock icon into `rect`. Canvas embeds reuse this so a dropped
+/// toolbar matches the baseline strip.
+pub fn paint_dock_icon(painter: &egui::Painter, rect: Rect, icon: DockIcon, color: Color32) {
+    paint_builtin_icon(painter, rect, icon, color);
 }
 
 fn paint_builtin_icon(painter: &egui::Painter, rect: Rect, icon: DockIcon, color: Color32) {
@@ -747,6 +812,90 @@ pub fn icon_strip_ids(ctx: &egui::Context, id: impl std::hash::Hash) -> Option<V
         })
 }
 
+/// Tools hidden from each palette's icon strip — for persisting to prefs.
+/// `None` until the dock has rendered at least once this session.
+pub fn strip_hidden(
+    ctx: &egui::Context,
+    id: impl std::hash::Hash,
+) -> Option<Vec<(String, Vec<String>)>> {
+    let state_id = egui::Id::new(("floating_dock", &id));
+    ctx.data_mut(|d| d.get_temp::<DockState>(state_id))
+        .filter(|s| s.seeded)
+        .map(|s| {
+            let mut rows: Vec<(String, Vec<String>)> = s
+                .hidden
+                .iter()
+                .filter(|(_, tools)| !tools.is_empty())
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            rows.sort_by(|a, b| a.0.cmp(&b.0));
+            rows
+        })
+}
+
+/// Tool ids last shown on a palette's icon strip (after on-strip tags).
+/// Used when dropping a copy onto the canvas.
+pub fn last_strip_tools(ctx: &egui::Context, palette: &str) -> Vec<String> {
+    ctx.data(|d| {
+        d.get_temp::<HashMap<String, Vec<String>>>(egui::Id::new(STRIP_VISIBLE_ID))
+            .and_then(|m| m.get(palette).cloned())
+            .unwrap_or_default()
+    })
+}
+
+fn set_current_palette(ctx: &egui::Context, id: &'static str) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(STRIP_PALETTE_ID), id));
+}
+
+fn current_palette(ctx: &egui::Context) -> Option<&'static str> {
+    ctx.data(|d| d.get_temp(egui::Id::new(STRIP_PALETTE_ID)))
+}
+
+fn sync_hidden_to_ctx(ctx: &egui::Context, hidden: &HashMap<String, Vec<String>>) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(STRIP_HIDDEN_ID), hidden.clone()));
+}
+
+fn hidden_from_ctx(ctx: &egui::Context) -> HashMap<String, Vec<String>> {
+    ctx.data(|d| {
+        d.get_temp::<HashMap<String, Vec<String>>>(egui::Id::new(STRIP_HIDDEN_ID))
+            .unwrap_or_default()
+    })
+}
+
+fn tool_hidden_in(hidden: &HashMap<String, Vec<String>>, palette: &str, tool: &str) -> bool {
+    hidden
+        .get(palette)
+        .is_some_and(|tools| tools.iter().any(|t| t == tool))
+}
+
+fn set_tool_on_strip(ctx: &egui::Context, palette: &str, tool: &str, on: bool) {
+    ctx.data_mut(|d| {
+        let mut hidden: HashMap<String, Vec<String>> = d
+            .get_temp(egui::Id::new(STRIP_HIDDEN_ID))
+            .unwrap_or_default();
+        let entry = hidden.entry(palette.to_owned()).or_default();
+        if on {
+            entry.retain(|t| t != tool);
+        } else if !entry.iter().any(|t| t == tool) {
+            entry.push(tool.to_owned());
+        }
+        if entry.is_empty() {
+            hidden.remove(palette);
+        }
+        d.insert_temp(egui::Id::new(STRIP_HIDDEN_ID), hidden);
+    });
+}
+
+fn remember_strip_tools(ctx: &egui::Context, palette: &str, ids: Vec<String>) {
+    ctx.data_mut(|d| {
+        let mut map: HashMap<String, Vec<String>> = d
+            .get_temp(egui::Id::new(STRIP_VISIBLE_ID))
+            .unwrap_or_default();
+        map.insert(palette.to_owned(), ids);
+        d.insert_temp(egui::Id::new(STRIP_VISIBLE_ID), map);
+    });
+}
+
 fn forced_open() -> Option<&'static str> {
     use std::sync::OnceLock;
     static FORCED: OnceLock<Option<&'static str>> = OnceLock::new();
@@ -922,6 +1071,7 @@ fn strip_icon_budget(side: DockSide, canvas: Rect, tokens: &DockTokens) -> f32 {
 /// Hex-pack `count` icons. The primary line (bottom row / left column) fills
 /// first; overflow lines stagger by half a pitch. Offsets are top-left of
 /// each icon relative to the cluster origin (top-left of the bounding box).
+#[cfg(test)]
 fn hex_pack_offsets(
     count: usize,
     size: f32,
@@ -986,40 +1136,126 @@ fn hex_pack_offsets(
     }
 }
 
-/// Paint a flyout as a stacked list or a free-space hex-packed strip,
-/// following [`current_body_layout`]. Hovering a strip icon shows the same
-/// name + linger-description chip as the primary dock.
+/// Paint a flyout as a stacked list, a free-space hex-packed strip, or the
+/// Advanced tag list, following [`current_body_layout`]. Hovering a strip
+/// icon shows the same name + linger-description chip as the primary dock.
 pub fn flyout_items(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str> {
     match current_body_layout(ui.ctx()) {
         DockBodyLayout::List => flyout_list(ui, items),
         DockBodyLayout::Icons => flyout_icon_strip(ui, items),
+        DockBodyLayout::Advanced => flyout_advanced(ui, items),
+    }
+}
+
+fn flyout_list_theme(ui: &egui::Ui) -> SidebarTheme {
+    SidebarTheme {
+        card: ui.visuals().panel_fill,
+        border: ui.visuals().widgets.noninteractive.bg_stroke.color,
+        ink: ui.visuals().text_color(),
+        sub: ui.visuals().weak_text_color(),
     }
 }
 
 fn flyout_list(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str> {
+    let theme = flyout_list_theme(ui);
     let mut clicked = None;
-    let ink = ui.visuals().text_color();
-    let sub = ui.visuals().weak_text_color();
     for item in items {
-        let row = ui.horizontal(|ui| {
-            let (icon_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
-            paint_builtin_icon(ui.painter(), icon_rect.shrink(1.0), item.icon, ink);
-            let resp = ui.selectable_label(item.active, item.label);
-            if let Some(key) = item.hotkey {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(key).small().color(sub));
-                });
-            }
-            resp
-        });
-        if row.inner.clicked() {
+        let mut resp = sidebar_icon_row(
+            ui,
+            item.label,
+            item.hotkey,
+            item.active,
+            theme,
+            |p, r, c| paint_builtin_icon(p, r, item.icon, c),
+        );
+        if !item.description.is_empty() {
+            resp = resp.on_hover_text(item.description);
+        }
+        if resp.clicked() {
             clicked = Some(item.id);
         }
     }
     clicked
 }
 
+fn flyout_advanced(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str> {
+    let palette = current_palette(ui.ctx()).unwrap_or("");
+    let hidden = hidden_from_ctx(ui.ctx());
+    let mut clicked = None;
+    let theme = flyout_list_theme(ui);
+    ui.label(RichText::new("On the strip").small().color(theme.sub));
+    ui.add_space(4.0);
+    for item in items {
+        let mut on_strip = !tool_hidden_in(&hidden, palette, item.id);
+        let row = ui.horizontal(|ui| {
+            ui.set_min_height(SidebarTokens::ICON_ROW_HEIGHT);
+            let (pill, _) = ui.allocate_exact_size(
+                Vec2::new(SidebarTokens::TOGGLE_TRACK_W, SidebarTokens::TOGGLE_TRACK_H),
+                Sense::hover(),
+            );
+            let label = ui.add(
+                egui::Label::new(RichText::new(item.label).color(theme.ink)).sense(Sense::click()),
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui
+                    .checkbox(&mut on_strip, "on strip")
+                    .on_hover_text("Show this tool on the main toolbar")
+                    .changed()
+                {
+                    set_tool_on_strip(ui.ctx(), palette, item.id, on_strip);
+                }
+            });
+            let t = ui.ctx().animate_bool_with_time(
+                ui.id().with(("adv_slide", item.id)),
+                item.active,
+                TOGGLE_SLIDE_SECS,
+            );
+            paint_sidebar_icon_pill(
+                ui.painter(),
+                pill,
+                item.active,
+                label.hovered(),
+                t,
+                theme,
+                |p, r, c| paint_builtin_icon(p, r, item.icon, c),
+            );
+            label
+        });
+        let mut resp = row.inner;
+        if !item.description.is_empty() {
+            resp = resp.on_hover_text(item.description);
+        }
+        if resp.clicked() {
+            clicked = Some(item.id);
+        }
+    }
+    clicked
+}
+
+const FIELDSET_PAD: f32 = 7.0;
+const FIELDSET_RADIUS: f32 = 6.0;
+const FIELDSET_LABEL_PX: f32 = 10.0;
+const FIELDSET_GROUP_GAP: f32 = 10.0;
+const TERTIARY_STACK_GAP: f32 = 2.0;
+
+fn tertiary_slot_h(icon: f32) -> f32 {
+    ((icon - TERTIARY_STACK_GAP) * 0.5).max(8.0)
+}
+
 fn flyout_icon_strip(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str> {
+    let palette = current_palette(ui.ctx());
+    let hidden = hidden_from_ctx(ui.ctx());
+    let shown: Vec<&FlyoutItem<'_>> = items
+        .iter()
+        .filter(|item| !palette.is_some_and(|p| tool_hidden_in(&hidden, p, item.id)))
+        .collect();
+    if let Some(p) = palette {
+        remember_strip_tools(
+            ui.ctx(),
+            p,
+            shown.iter().map(|item| item.id.to_owned()).collect(),
+        );
+    }
     let mut tokens = crate::tokens::current().dock;
     tokens.normalize();
     let th = if ui.visuals().dark_mode {
@@ -1027,11 +1263,13 @@ fn flyout_icon_strip(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'st
     } else {
         &tokens.light
     };
+    let theme = flyout_list_theme(ui);
     let size = flyout_icon_size(&tokens);
     let gap = (tokens.icon_gap * tokens.flyout_icon_scale).max(4.0);
     let side = current_dock_side(ui.ctx());
     let budget = strip_budget(ui.ctx()).unwrap_or_else(|| ui.available_width().max(size));
-    let (offsets, cluster) = hex_pack_offsets(items.len(), size, gap, budget, side);
+    let groups = group_flyout_runs(&shown);
+    let laid = layout_fieldset_strip(ui, &groups, size, gap, budget, side);
     let now = ui.ctx().input(|i| i.time);
     let dt = ui
         .ctx()
@@ -1043,38 +1281,31 @@ fn flyout_icon_strip(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'st
     let mut hovered_id: Option<&'static str> = None;
     let mut hovered_rect = Rect::NOTHING;
 
-    let (origin, _) = ui.allocate_exact_size(cluster, Sense::hover());
-    for (item, off) in items.iter().zip(offsets.iter()) {
-        let rect = Rect::from_min_size(origin.min + *off, Vec2::splat(size));
-        let resp = ui.interact(rect, ui.id().with(item.id), Sense::click());
-        let hovered = resp.hovered();
-        let base = th.icon_fill_color();
-        let fill = if item.active {
-            mix_icon_fill(base, th.icon_active_color(), ICON_ACTIVE_MIX)
-        } else if hovered {
-            mix_icon_fill(base, th.icon_hover_color(), ICON_HOVER_MIX)
-        } else {
-            base
-        };
-        paint_squircle(
-            ui.painter(),
-            rect.shrink(0.5),
-            fill,
-            Stroke::new(1.0_f32, th.border_color()),
-            tokens.squircle_exponent,
-        );
-        paint_builtin_icon(
-            ui.painter(),
-            rect.shrink((size * 0.20).max(3.0)),
-            item.icon,
-            th.text_color(),
-        );
-        if hovered {
-            hovered_id = Some(item.id);
-            hovered_rect = rect;
-        }
-        if resp.clicked() {
-            clicked = Some(item.id);
+    let (origin, _) = ui.allocate_exact_size(laid.cluster, Sense::hover());
+    for group in &laid.groups {
+        let frame = Rect::from_min_size(origin.min + group.origin, group.frame);
+        paint_fieldset_frame(ui, frame, group.label, th);
+        for slot in &group.slots {
+            let rect = Rect::from_min_size(frame.min + slot.off, slot.size);
+            let resp = ui
+                .interact(rect, ui.id().with(slot.item.id), Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            let hovered = resp.hovered();
+            match slot.item.role {
+                FlyoutRole::Toggle => {
+                    paint_tertiary_toggle(ui, rect, slot.item, hovered, theme, size);
+                }
+                FlyoutRole::Icon => {
+                    paint_secondary_icon(ui.painter(), rect, slot.item, hovered, th);
+                }
+            }
+            if hovered {
+                hovered_id = Some(slot.item.id);
+                hovered_rect = rect;
+            }
+            if resp.clicked() {
+                clicked = Some(slot.item.id);
+            }
         }
     }
 
@@ -1083,7 +1314,7 @@ fn flyout_icon_strip(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'st
             Some((hid, since, blend)) if hid == id => (since, blend),
             _ => (now, 0.0),
         };
-        let item = items.iter().find(|item| item.id == id);
+        let item = shown.iter().find(|item| item.id == id);
         let target = if item.is_some_and(|it| !it.description.is_empty())
             && now - since >= tokens.dashboard_describe_delay as f64
         {
@@ -1126,6 +1357,317 @@ fn flyout_icon_strip(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'st
         }
     });
     clicked
+}
+
+fn group_flyout_runs<'a>(
+    items: &[&'a FlyoutItem<'a>],
+) -> Vec<(Option<&'a str>, Vec<&'a FlyoutItem<'a>>)> {
+    let mut out: Vec<(Option<&'a str>, Vec<&'a FlyoutItem<'a>>)> = Vec::new();
+    for item in items {
+        match out.last_mut() {
+            Some((g, list)) if *g == item.group => list.push(*item),
+            _ => out.push((item.group, vec![*item])),
+        }
+    }
+    out
+}
+
+struct StripSlot<'a> {
+    item: &'a FlyoutItem<'a>,
+    off: Vec2,
+    size: Vec2,
+}
+
+struct StripGroup<'a> {
+    label: Option<&'a str>,
+    origin: Vec2,
+    frame: Vec2,
+    slots: Vec<StripSlot<'a>>,
+}
+
+struct StripLayout<'a> {
+    cluster: Vec2,
+    groups: Vec<StripGroup<'a>>,
+}
+
+fn tertiary_col_w(ui: &egui::Ui, pair: &[&FlyoutItem<'_>], icon: f32) -> f32 {
+    let th = tertiary_slot_h(icon);
+    let track_w = (th * 1.9).max(16.0);
+    let font = FontId::proportional((th * 0.62).clamp(7.5, 10.0));
+    let mut label_w = 0.0_f32;
+    for item in pair {
+        let g = ui.fonts(|f| f.layout_no_wrap(item.label.to_owned(), font.clone(), Color32::WHITE));
+        label_w = label_w.max(g.size().x);
+    }
+    track_w + 4.0 + label_w + 4.0
+}
+
+fn layout_group_slots<'a>(
+    ui: &egui::Ui,
+    items: &[&'a FlyoutItem<'a>],
+    icon: f32,
+    gap: f32,
+    side: DockSide,
+) -> (Vec<StripSlot<'a>>, Vec2) {
+    let th = tertiary_slot_h(icon);
+    let mut slots = Vec::new();
+    let mut i = 0;
+    match side {
+        DockSide::BottomCenter => {
+            let mut x = 0.0;
+            while i < items.len() {
+                if items[i].role == FlyoutRole::Toggle {
+                    let mut pair = vec![items[i]];
+                    if i + 1 < items.len() && items[i + 1].role == FlyoutRole::Toggle {
+                        pair.push(items[i + 1]);
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                    let w = tertiary_col_w(ui, &pair, icon);
+                    for (k, item) in pair.into_iter().enumerate() {
+                        slots.push(StripSlot {
+                            item,
+                            off: Vec2::new(x, k as f32 * (th + TERTIARY_STACK_GAP)),
+                            size: Vec2::new(w, th),
+                        });
+                    }
+                    x += w + gap;
+                } else {
+                    slots.push(StripSlot {
+                        item: items[i],
+                        off: Vec2::new(x, 0.0),
+                        size: Vec2::splat(icon),
+                    });
+                    x += icon + gap;
+                    i += 1;
+                }
+            }
+        }
+        DockSide::LeftCenter => {
+            let mut y = 0.0;
+            let mut max_w = icon;
+            while i < items.len() {
+                if items[i].role == FlyoutRole::Toggle {
+                    let mut pair = vec![items[i]];
+                    if i + 1 < items.len() && items[i + 1].role == FlyoutRole::Toggle {
+                        pair.push(items[i + 1]);
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                    let w = tertiary_col_w(ui, &pair, icon);
+                    max_w = max_w.max(w);
+                    for (k, item) in pair.into_iter().enumerate() {
+                        slots.push(StripSlot {
+                            item,
+                            off: Vec2::new(0.0, y + k as f32 * (th + TERTIARY_STACK_GAP)),
+                            size: Vec2::new(w, th),
+                        });
+                    }
+                    y += icon + gap;
+                } else {
+                    slots.push(StripSlot {
+                        item: items[i],
+                        off: Vec2::new((max_w - icon) * 0.5, y),
+                        size: Vec2::splat(icon),
+                    });
+                    y += icon + gap;
+                    i += 1;
+                }
+            }
+            for slot in &mut slots {
+                if slot.item.role == FlyoutRole::Icon {
+                    slot.off.x = (max_w - icon) * 0.5;
+                }
+            }
+        }
+    }
+    let content = match side {
+        DockSide::BottomCenter => {
+            let w = slots
+                .iter()
+                .map(|s| s.off.x + s.size.x)
+                .fold(0.0_f32, f32::max);
+            Vec2::new(w, icon)
+        }
+        DockSide::LeftCenter => {
+            let w = slots
+                .iter()
+                .map(|s| s.off.x + s.size.x)
+                .fold(icon, f32::max);
+            let h = slots
+                .iter()
+                .map(|s| s.off.y + s.size.y)
+                .fold(0.0_f32, f32::max);
+            Vec2::new(w, h)
+        }
+    };
+    (slots, content)
+}
+
+fn layout_fieldset_strip<'a>(
+    ui: &egui::Ui,
+    groups: &[(Option<&'a str>, Vec<&'a FlyoutItem<'a>>)],
+    icon: f32,
+    gap: f32,
+    budget: f32,
+    side: DockSide,
+) -> StripLayout<'a> {
+    let mut laid = Vec::new();
+    let mut cursor = 0.0;
+    let mut cross = 0.0;
+    let mut row_span = 0.0_f32;
+    let mut max_along = 0.0_f32;
+    for (label, items) in groups {
+        let (slots, content) = layout_group_slots(ui, items, icon, gap, side);
+        let frame = Vec2::new(
+            content.x + FIELDSET_PAD * 2.0,
+            content.y + FIELDSET_PAD * 2.0,
+        );
+        let along = match side {
+            DockSide::BottomCenter => frame.x,
+            DockSide::LeftCenter => frame.y,
+        };
+        let across = match side {
+            DockSide::BottomCenter => frame.y,
+            DockSide::LeftCenter => frame.x,
+        };
+        if cursor > 0.0 && cursor + along > budget {
+            cross += row_span + FIELDSET_GROUP_GAP;
+            cursor = 0.0;
+            row_span = 0.0;
+        }
+        let origin = match side {
+            DockSide::BottomCenter => Vec2::new(cursor, cross),
+            DockSide::LeftCenter => Vec2::new(cross, cursor),
+        };
+        let slots = slots
+            .into_iter()
+            .map(|mut s| {
+                s.off += Vec2::splat(FIELDSET_PAD);
+                s
+            })
+            .collect();
+        laid.push(StripGroup {
+            label: *label,
+            origin,
+            frame,
+            slots,
+        });
+        cursor += along + FIELDSET_GROUP_GAP;
+        row_span = row_span.max(across);
+        max_along = max_along.max(cursor - FIELDSET_GROUP_GAP);
+    }
+    let label_overhang = FIELDSET_LABEL_PX * 0.5 + 1.0;
+    let cluster = match side {
+        DockSide::BottomCenter => Vec2::new(max_along, cross + row_span + label_overhang),
+        DockSide::LeftCenter => Vec2::new(cross + row_span, max_along + label_overhang),
+    };
+    for group in &mut laid {
+        group.origin.y += label_overhang;
+    }
+    StripLayout {
+        cluster,
+        groups: laid,
+    }
+}
+
+fn paint_fieldset_frame(ui: &egui::Ui, frame: Rect, label: Option<&str>, th: &DockThemeTokens) {
+    let fill = th.popover_fill_color().gamma_multiply(0.42);
+    ui.painter().rect_filled(frame, FIELDSET_RADIUS, fill);
+    let stroke = Stroke::new(1.0_f32, th.border_color().gamma_multiply(0.9));
+    ui.painter()
+        .rect_stroke(frame, FIELDSET_RADIUS, stroke, egui::StrokeKind::Inside);
+    if let Some(label) = label.filter(|s| !s.is_empty()) {
+        let galley = ui.fonts(|f| {
+            f.layout_no_wrap(
+                label.to_owned(),
+                FontId::proportional(FIELDSET_LABEL_PX),
+                th.muted_text_color(),
+            )
+        });
+        let text_pos = Pos2::new(
+            frame.left() + FIELDSET_RADIUS + 5.0,
+            frame.top() - galley.size().y * 0.5,
+        );
+        let hole = Rect::from_min_size(
+            Pos2::new(text_pos.x - 3.0, frame.top() - 1.5),
+            Vec2::new(galley.size().x + 6.0, 3.0),
+        );
+        ui.painter().rect_filled(hole, 0.0, fill);
+        ui.painter().galley(text_pos, galley, th.muted_text_color());
+    }
+}
+
+fn paint_secondary_icon(
+    painter: &egui::Painter,
+    rect: Rect,
+    item: &FlyoutItem<'_>,
+    hovered: bool,
+    th: &DockThemeTokens,
+) {
+    let r = rect.width() * 0.5 - 0.5;
+    let stroke_c = if item.active || hovered {
+        th.text_color()
+    } else {
+        th.muted_text_color().gamma_multiply(0.95)
+    };
+    if item.active {
+        painter.circle_filled(
+            rect.center(),
+            r,
+            th.icon_active_color().gamma_multiply(0.14),
+        );
+    } else if hovered {
+        painter.circle_filled(rect.center(), r, th.icon_hover_color().gamma_multiply(0.10));
+    }
+    painter.circle_stroke(rect.center(), r, Stroke::new(1.0_f32, stroke_c));
+    paint_builtin_icon(
+        painter,
+        rect.shrink((rect.width() * 0.22).max(2.5)),
+        item.icon,
+        th.text_color(),
+    );
+}
+
+fn paint_tertiary_toggle(
+    ui: &egui::Ui,
+    rect: Rect,
+    item: &FlyoutItem<'_>,
+    hovered: bool,
+    theme: SidebarTheme,
+    icon: f32,
+) {
+    let th = tertiary_slot_h(icon);
+    let track_h = (rect.height() * 0.72).min(th * 0.78).max(6.0);
+    let track_w = (track_h * 1.9).max(14.0);
+    let track = Rect::from_center_size(
+        Pos2::new(rect.left() + track_w * 0.5, rect.center().y),
+        Vec2::new(track_w, track_h),
+    );
+    let t = ui.ctx().animate_bool_with_time(
+        ui.id().with(("strip_slide", item.id)),
+        item.active,
+        TOGGLE_SLIDE_SECS,
+    );
+    paint_sidebar_icon_pill(
+        ui.painter(),
+        track,
+        item.active,
+        hovered,
+        t,
+        theme,
+        |p, r, c| paint_builtin_icon(p, r, item.icon, c),
+    );
+    let font = FontId::proportional((rect.height() * 0.62).clamp(7.5, 10.0));
+    let color = if item.active { theme.ink } else { theme.sub };
+    let galley = ui.fonts(|f| f.layout_no_wrap(item.label.to_owned(), font, color));
+    ui.painter().galley(
+        Pos2::new(track.right() + 4.0, rect.center().y - galley.size().y * 0.5),
+        galley,
+        color,
+    );
 }
 
 fn show_hover_chip(
@@ -1171,13 +1713,15 @@ fn show_hover_chip(
 }
 
 /// Render a floating dock. Returns the id of a clicked icon, if any
-/// (both Panel and Action items report clicks so apps can react).
+/// (both Panel and Action items report clicks so apps can react), plus
+/// a drop-to-canvas request from a strip's fourth dot.
 ///
 /// `restore_pins`: panel ids to restore as pinned on the dock's first
 /// rendered frame (persisted palettes, e.g. from `ChromePrefs`). Ids are
 /// matched against `items`, so stale entries are ignored harmlessly. Read
 /// the live set back with [`pinned_ids`] to persist changes.
 /// `restore_icon_strips`: bodies that should open in free-space icon-strip mode.
+/// `restore_hidden`: tools hidden from each palette's strip (`palette → tool ids`).
 #[allow(clippy::too_many_arguments)]
 pub fn floating_dock(
     ctx: &egui::Context,
@@ -1188,8 +1732,9 @@ pub fn floating_dock(
     items: &[DockItem<'_>],
     restore_pins: &[String],
     restore_icon_strips: &[String],
+    restore_hidden: &[(String, Vec<String>)],
     mut panel_body: impl FnMut(&mut egui::Ui, &'static str),
-) -> Option<&'static str> {
+) -> DockOutcome {
     let mut tokens = crate::tokens::current().dock;
     tokens.normalize();
     let th = theme(palette, &tokens);
@@ -1197,10 +1742,11 @@ pub fn floating_dock(
     let mut state = ctx.data_mut(|d| d.get_temp::<DockState>(state_id).unwrap_or_default());
     let now = ctx.input(|i| i.time);
     let mut clicked: Option<&'static str> = None;
+    let mut drop_to_canvas: Option<&'static str> = None;
 
     let visible: Vec<&DockItem<'_>> = items.iter().filter(|item| item.visible).collect();
     if visible.is_empty() {
-        return None;
+        return DockOutcome::default();
     }
 
     // Restore persisted pins once per session. Matched against the full item
@@ -1226,7 +1772,13 @@ pub fn floating_dock(
                     .iter()
                     .any(|item| item.id == sid && item.kind.opens_body())
         });
+        state.hidden = restore_hidden
+            .iter()
+            .cloned()
+            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+            .collect();
     }
+    sync_hidden_to_ctx(ctx, &state.hidden);
 
     let dt = ctx.input(|i| i.stable_dt).clamp(1.0 / 240.0, 1.0 / 20.0);
 
@@ -1239,6 +1791,14 @@ pub fn floating_dock(
             .any(|item| item.id == hover && item.kind.opens_body())
         {
             state.body_preview = None;
+        }
+    }
+    if let Some(adv) = state.advanced {
+        if !visible
+            .iter()
+            .any(|item| item.id == adv && item.kind.opens_body())
+        {
+            state.advanced = None;
         }
     }
     if let Some(hover) = state.label_hover {
@@ -1558,13 +2118,27 @@ pub fn floating_dock(
                     state.pinned.is_empty(),
                     |ui| {
                         set_body_layout(ui.ctx(), layout);
+                        set_current_palette(ui.ctx(), preview_id);
                         panel_body(ui, preview_id);
                     },
                 );
                 apply_layout_toggle(&mut state, preview_id, render.toggle_layout);
+                if render.advanced {
+                    state.advanced = if state.advanced == Some(preview_id) {
+                        None
+                    } else {
+                        Some(preview_id)
+                    };
+                }
+                if render.drop_to_canvas {
+                    drop_to_canvas = Some(preview_id);
+                }
                 if render.minimize {
                     state.body_preview = None;
                     state.panel_open.remove(&preview_id);
+                    if state.advanced == Some(preview_id) {
+                        state.advanced = None;
+                    }
                 }
                 if layout != DockBodyLayout::Icons {
                     new_widths.insert(
@@ -1581,6 +2155,38 @@ pub fn floating_dock(
                 new_content_h.insert(preview_id, render.content_h);
                 new_sizes.insert(preview_id, render.rect.size());
                 union_panels = render.rect;
+                if state.advanced == Some(preview_id) {
+                    let adv = show_advanced_overlay(
+                        ctx,
+                        state_id.with(("advanced", preview_id)),
+                        &tokens,
+                        th,
+                        canvas,
+                        side,
+                        render.rect,
+                        width,
+                        body_max_h,
+                        last_h,
+                        open,
+                        if layout == DockBodyLayout::Icons {
+                            "Stacked view"
+                        } else {
+                            "Icon strip"
+                        },
+                        |ui| {
+                            set_body_layout(ui.ctx(), DockBodyLayout::Advanced);
+                            set_current_palette(ui.ctx(), preview_id);
+                            panel_body(ui, preview_id);
+                        },
+                    );
+                    if adv.minimize {
+                        state.advanced = None;
+                    }
+                    union_panels = union_panels.union(adv.rect);
+                    if pointer.is_some_and(|p| adv.rect.contains(p)) {
+                        state.last_inside_time = now;
+                    }
+                }
                 if layout == DockBodyLayout::Icons {
                     if let Some(&icon) = icon_rects.get(&preview_id) {
                         strip_hits.push((preview_id, icon, render.rect));
@@ -1677,15 +2283,29 @@ pub fn floating_dock(
             false,
             |ui| {
                 set_body_layout(ui.ctx(), layout);
+                set_current_palette(ui.ctx(), oid);
                 panel_body(ui, oid);
             },
         );
         apply_layout_toggle(&mut state, oid, render.toggle_layout);
+        if render.advanced {
+            state.advanced = if state.advanced == Some(*oid) {
+                None
+            } else {
+                Some(*oid)
+            };
+        }
+        if render.drop_to_canvas {
+            drop_to_canvas = Some(*oid);
+        }
         if render.minimize {
             if let Some(idx) = state.pinned.iter().position(|p| p == oid) {
                 state.pinned.remove(idx);
             }
             state.panel_open.remove(oid);
+            if state.advanced == Some(*oid) {
+                state.advanced = None;
+            }
         }
         if layout != DockBodyLayout::Icons {
             new_widths.insert(
@@ -1706,6 +2326,39 @@ pub fn floating_dock(
             union_panels = panel_rect;
         } else {
             union_panels = union_panels.union(panel_rect);
+        }
+
+        if state.advanced == Some(*oid) {
+            let adv = show_advanced_overlay(
+                ctx,
+                state_id.with(("advanced", *oid)),
+                &tokens,
+                th,
+                canvas,
+                side,
+                panel_rect,
+                width,
+                body_max_h,
+                last_h,
+                open_anim,
+                if layout == DockBodyLayout::Icons {
+                    "Stacked view"
+                } else {
+                    "Icon strip"
+                },
+                |ui| {
+                    set_body_layout(ui.ctx(), DockBodyLayout::Advanced);
+                    set_current_palette(ui.ctx(), oid);
+                    panel_body(ui, oid);
+                },
+            );
+            if adv.minimize {
+                state.advanced = None;
+            }
+            union_panels = union_panels.union(adv.rect);
+            if pointer.is_some_and(|p| adv.rect.contains(p)) {
+                state.last_inside_time = now;
+            }
         }
 
         if layout == DockBodyLayout::Icons {
@@ -1738,43 +2391,6 @@ pub fn floating_dock(
             &pinned_strip_rects,
             th,
         );
-        let band = pinned_strip_rects
-            .iter()
-            .copied()
-            .reduce(|a, b| a.union(b))
-            .unwrap_or(Rect::NOTHING);
-        if band != Rect::NOTHING {
-            let size = flyout_icon_size(&tokens);
-            let (toggle_pos, toggle_pivot) = match side {
-                DockSide::BottomCenter => (
-                    Pos2::new(band.right() + 14.0, strip_primary_center(band, size)),
-                    Align2::LEFT_CENTER,
-                ),
-                DockSide::LeftCenter => (
-                    Pos2::new(band.right() + 14.0, strip_primary_center(band, size)),
-                    Align2::LEFT_CENTER,
-                ),
-            };
-            let mut band_toggle = false;
-            let toggle = egui::Area::new(state_id.with("strip_band_toggle"))
-                .order(egui::Order::Tooltip)
-                .pivot(toggle_pivot)
-                .fixed_pos(toggle_pos)
-                .constrain(false)
-                .show(ctx, |ui| {
-                    let (rect, _) = ui.allocate_exact_size(Vec2::new(16.0, 14.0), Sense::hover());
-                    band_toggle = paint_list_toggle(ui, rect, th);
-                });
-            apply_layout_toggle(&mut state, "", band_toggle);
-            union_panels = if union_panels == Rect::NOTHING {
-                toggle.response.rect
-            } else {
-                union_panels.union(toggle.response.rect)
-            };
-            if pointer_in_rect(ctx, toggle.response.rect) {
-                state.last_inside_time = now;
-            }
-        }
     }
 
     if let Some(p) = pointer {
@@ -1919,10 +2535,17 @@ pub fn floating_dock(
     {
         ctx.request_repaint();
     }
+    state.hidden = hidden_from_ctx(ctx);
+    if !state.icon_strip {
+        state.advanced = None;
+    }
     state.last_union_panels = (union_panels != Rect::NOTHING).then_some(union_panels);
     ctx.data_mut(|d| d.insert_temp(state_id, state));
 
-    clicked
+    DockOutcome {
+        clicked,
+        drop_to_canvas,
+    }
 }
 
 fn pointer_in_rect(ctx: &egui::Context, rect: Rect) -> bool {
@@ -1968,6 +2591,8 @@ fn panel_body_unsized(ui: &mut egui::Ui, add_body: impl FnOnce(&mut egui::Ui)) -
 struct PanelRender {
     minimize: bool,
     toggle_layout: bool,
+    advanced: bool,
+    drop_to_canvas: bool,
     rect: Rect,
     content_h: f32,
 }
@@ -2022,7 +2647,7 @@ fn show_dock_body(
     th: &DockThemeTokens,
     label: &str,
     pinned: bool,
-    kind: DockItemKind,
+    _kind: DockItemKind,
     layout: DockBodyLayout,
     width: f32,
     body_max_h: f32,
@@ -2035,16 +2660,8 @@ fn show_dock_body(
 ) -> PanelRender {
     if layout == DockBodyLayout::Icons {
         set_strip_budget(ctx, strip_icon_budget(side, canvas, tokens));
-        show_free_strip(
-            ctx,
-            area,
-            tokens,
-            th,
-            pinned,
-            show_strip_toggle,
-            open_anim,
-            add_body,
-        )
+        let _ = show_strip_toggle;
+        show_free_strip(ctx, area, tokens, th, pinned, open_anim, add_body)
     } else {
         show_panel(
             ctx,
@@ -2053,8 +2670,7 @@ fn show_dock_body(
             th,
             label,
             pinned,
-            kind.opens_body(),
-            layout,
+            "Icon strip",
             width,
             body_max_h,
             last_content_h,
@@ -2064,21 +2680,22 @@ fn show_dock_body(
     }
 }
 
-/// Borderless icon strip: squircles in free space, hex-packed. Minimize
-/// sits on the right of this cluster. The stacked-list toggle is painted
-/// once for the whole band unless `show_toggle` (volatile-only).
+/// Fieldset icon strip: labeled frames of circular secondary icons and
+/// two-high tertiary toggles. A tight four-dot column on the right of
+/// this cluster (minimize, stacked view, Advanced, drop to canvas).
 fn show_free_strip(
     ctx: &egui::Context,
     area: egui::Area,
     tokens: &DockTokens,
     th: &DockThemeTokens,
     pinned: bool,
-    show_toggle: bool,
     open_anim: f32,
     add_body: impl FnOnce(&mut egui::Ui),
 ) -> PanelRender {
     let mut minimize = false;
     let mut toggle_layout = false;
+    let mut advanced = false;
+    let mut drop_to_canvas = false;
     let size = flyout_icon_size(tokens);
     let mut content_h = 0.0;
     let response = area.show(ctx, |ui| {
@@ -2086,81 +2703,154 @@ fn show_free_strip(
         let body = ui.scope(add_body);
         let cluster = body.response.rect;
         content_h = cluster.height();
-        let clicks = put_strip_controls(ui, cluster, size, th, pinned, show_toggle);
+        let clicks = put_strip_dots(ui, cluster, size, th, pinned);
         minimize |= clicks.minimize;
         toggle_layout |= clicks.toggle_layout;
+        advanced |= clicks.advanced;
+        drop_to_canvas |= clicks.drop_to_canvas;
     });
     PanelRender {
         minimize,
         toggle_layout,
+        advanced,
+        drop_to_canvas,
         rect: response.response.rect,
         content_h,
     }
 }
 
 fn strip_primary_center(cluster: Rect, icon_size: f32) -> f32 {
-    cluster.bottom() - icon_size * 0.5
+    cluster.bottom() - FIELDSET_PAD - icon_size * 0.5
 }
 
-fn put_strip_controls(
+#[derive(Default)]
+struct StripDotClicks {
+    minimize: bool,
+    toggle_layout: bool,
+    advanced: bool,
+    drop_to_canvas: bool,
+}
+
+const STRIP_DOT_R: f32 = 1.65;
+const STRIP_DOT_GAP: f32 = 2.1;
+/// Wide X slop on a vertical column so the pointer need not sit on the dots.
+const STRIP_DOT_HIT_X: f32 = 22.0;
+/// Wide Y slop on a horizontal ellipsis (stacked caption).
+const STRIP_DOT_HIT_Y: f32 = 16.0;
+/// Extra hit past the first/last horizontal dot ("either side of the dots").
+const STRIP_DOT_HIT_END: f32 = 10.0;
+
+#[derive(Clone, Copy)]
+enum DotAxis {
+    Vertical,
+    Horizontal,
+}
+
+fn put_strip_dots(
     ui: &mut egui::Ui,
     cluster: Rect,
     icon_size: f32,
     th: &DockThemeTokens,
     pinned: bool,
-    show_toggle: bool,
-) -> CaptionClicks {
+) -> StripDotClicks {
+    let cx = cluster.right() + 8.0;
     let cy = strip_primary_center(cluster, icon_size);
-    let mut x = cluster.right() + 12.0;
-    let mut toggle_layout = false;
-    if show_toggle {
-        let toggle_rect = Rect::from_center_size(Pos2::new(x + 8.0, cy), Vec2::new(16.0, 14.0));
-        toggle_layout = paint_list_toggle(ui, toggle_rect, th);
-        x = toggle_rect.right() + 6.0;
-    }
-    let min_rect = Rect::from_center_size(Pos2::new(x + 7.0, cy), Vec2::splat(14.0));
-    CaptionClicks {
-        minimize: paint_strip_minimize(ui, min_rect, th, pinned),
-        toggle_layout,
-    }
+    paint_dots(
+        ui,
+        Pos2::new(cx, cy),
+        th,
+        pinned,
+        "Stacked view",
+        DotAxis::Vertical,
+        true,
+    )
 }
 
-fn paint_list_toggle(ui: &mut egui::Ui, rect: Rect, th: &DockThemeTokens) -> bool {
-    let resp = ui
-        .allocate_rect(rect, Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("Stacked list");
-    if resp.hovered() {
-        ui.painter()
-            .rect_filled(rect, 2.0, th.border_color().gamma_multiply(0.22));
-    }
-    paint_toggle_lines(
-        ui.painter(),
-        rect,
-        th.muted_text_color().gamma_multiply(0.7),
-    );
-    resp.clicked()
-}
-
-fn paint_strip_minimize(ui: &mut egui::Ui, rect: Rect, th: &DockThemeTokens, pinned: bool) -> bool {
-    let resp = ui
-        .allocate_rect(rect, Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(if pinned {
-            "Unpin (return to icon)"
+fn paint_dots(
+    ui: &mut egui::Ui,
+    group_center: Pos2,
+    th: &DockThemeTokens,
+    pinned: bool,
+    toggle_label: &str,
+    axis: DotAxis,
+    include_drop: bool,
+) -> StripDotClicks {
+    let pitch = STRIP_DOT_R * 2.0 + STRIP_DOT_GAP;
+    let n = if include_drop { 4 } else { 3 };
+    let span = pitch * (n as f32 - 1.0);
+    let cx = group_center.x;
+    let cy = group_center.y;
+    let top = cy - span * 0.5;
+    let left = cx - span * 0.5;
+    let labels = [
+        if pinned { "Minimize" } else { "Close" },
+        toggle_label,
+        "Advanced",
+        "Drop to canvas",
+    ];
+    let mut clicks = [false; 4];
+    let mut hovered_label: Option<&str> = None;
+    for (i, label) in labels.iter().take(n).enumerate() {
+        let center = match axis {
+            DotAxis::Vertical => Pos2::new(cx, top + i as f32 * pitch),
+            DotAxis::Horizontal => Pos2::new(left + i as f32 * pitch, cy),
+        };
+        let last = i + 1 == n;
+        let hit = match axis {
+            DotAxis::Vertical => Rect::from_center_size(center, Vec2::new(STRIP_DOT_HIT_X, pitch)),
+            DotAxis::Horizontal => {
+                let end = i == 0 || last;
+                let w = if end {
+                    pitch + STRIP_DOT_HIT_END
+                } else {
+                    pitch
+                };
+                let mut r = Rect::from_center_size(center, Vec2::new(w, STRIP_DOT_HIT_Y));
+                if i == 0 {
+                    r = r.translate(Vec2::new(-STRIP_DOT_HIT_END * 0.5, 0.0));
+                } else if last {
+                    r = r.translate(Vec2::new(STRIP_DOT_HIT_END * 0.5, 0.0));
+                }
+                r
+            }
+        };
+        let resp = ui
+            .allocate_rect(hit, Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let hovered = resp.hovered();
+        let fill = if hovered {
+            th.text_color()
         } else {
-            "Close"
-        });
-    if resp.hovered() {
-        ui.painter()
-            .rect_filled(rect, 2.0, th.border_color().gamma_multiply(0.22));
+            th.muted_text_color().gamma_multiply(0.85)
+        };
+        ui.painter().circle_filled(center, STRIP_DOT_R, fill);
+        if hovered {
+            hovered_label = Some(label);
+        }
+        clicks[i] = resp.clicked();
     }
-    let c = rect.center();
-    ui.painter().line_segment(
-        [Pos2::new(c.x - 4.0, c.y), Pos2::new(c.x + 4.0, c.y)],
-        Stroke::new(1.15_f32, th.muted_text_color().gamma_multiply(0.85)),
-    );
-    resp.clicked()
+    if let Some(label) = hovered_label {
+        let chip_pos = match axis {
+            DotAxis::Vertical => Pos2::new(cx, top - 6.0),
+            DotAxis::Horizontal => Pos2::new(cx, cy - STRIP_DOT_R - 6.0),
+        };
+        show_hover_chip(
+            ui.ctx(),
+            ui.id().with("strip_dot_chip"),
+            chip_pos,
+            Align2::CENTER_BOTTOM,
+            label,
+            None,
+            None,
+            th,
+        );
+    }
+    StripDotClicks {
+        minimize: clicks[0],
+        toggle_layout: clicks[1],
+        advanced: clicks[2],
+        drop_to_canvas: clicks[3],
+    }
 }
 
 fn paint_strip_dividers(
@@ -2230,8 +2920,7 @@ fn show_panel(
     th: &DockThemeTokens,
     label: &str,
     pinned: bool,
-    show_layout_toggle: bool,
-    layout: DockBodyLayout,
+    toggle_label: &str,
     width: f32,
     body_max_h: f32,
     last_content_h: f32,
@@ -2240,15 +2929,19 @@ fn show_panel(
 ) -> PanelRender {
     let mut minimize = false;
     let mut toggle_layout = false;
+    let mut advanced = false;
+    let mut drop_to_canvas = false;
     let mut content_h = 0.0;
     let needs_scroll = last_content_h > body_max_h + 1.0;
     let response = area.show(ctx, |ui| {
         ui.set_opacity(open_anim);
         popover_frame(tokens, th).show(ui, |ui| {
             ui.set_width((width - tokens.popover_padding * 2.0).max(1.0));
-            let cap = panel_caption(ui, label, pinned, show_layout_toggle, layout, th);
+            let cap = panel_caption(ui, label, pinned, toggle_label, th);
             minimize |= cap.minimize;
             toggle_layout |= cap.toggle_layout;
+            advanced |= cap.advanced;
+            drop_to_canvas |= cap.drop_to_canvas;
             ui.separator();
             if needs_scroll {
                 // Previous frame already grew the Area past the budget, so
@@ -2262,128 +2955,123 @@ fn show_panel(
     PanelRender {
         minimize,
         toggle_layout,
+        advanced,
+        drop_to_canvas,
         rect: response.response.rect,
         content_h,
     }
 }
 
-struct CaptionClicks {
-    minimize: bool,
-    toggle_layout: bool,
+#[allow(clippy::too_many_arguments)]
+fn show_advanced_overlay(
+    ctx: &egui::Context,
+    id: egui::Id,
+    tokens: &DockTokens,
+    th: &DockThemeTokens,
+    canvas: Rect,
+    side: DockSide,
+    strip: Rect,
+    width: f32,
+    body_max_h: f32,
+    last_content_h: f32,
+    open_anim: f32,
+    toggle_label: &str,
+    add_body: impl FnOnce(&mut egui::Ui),
+) -> PanelRender {
+    let (origin, pivot) = match side {
+        DockSide::BottomCenter => (
+            Pos2::new(strip.center().x, strip.top() - 8.0),
+            Align2::CENTER_BOTTOM,
+        ),
+        DockSide::LeftCenter => (
+            Pos2::new(strip.right() + 10.0, strip.top()),
+            Align2::LEFT_TOP,
+        ),
+    };
+    let area = dock_body_area(
+        id,
+        side,
+        origin,
+        pivot,
+        canvas,
+        DockBodyLayout::Advanced,
+        width,
+        body_max_h,
+        None,
+    );
+    show_panel(
+        ctx,
+        area,
+        tokens,
+        th,
+        "Advanced",
+        false,
+        toggle_label,
+        width,
+        body_max_h,
+        last_content_h,
+        open_anim,
+        add_body,
+    )
 }
 
-/// Panel title row: label, optional "pinned", layout toggle, minimize (─).
+/// Panel title row: label left, optional "pinned", horizontal three-dot
+/// ellipsis top-right. The right cluster is reserved so "pinned" cannot
+/// sit on the dots.
 fn panel_caption(
     ui: &mut egui::Ui,
     label: &str,
     pinned: bool,
-    show_layout_toggle: bool,
-    layout: DockBodyLayout,
+    toggle_label: &str,
     th: &DockThemeTokens,
-) -> CaptionClicks {
-    let mut minimize = false;
-    let mut toggle_layout = false;
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::Label::new(RichText::new(label).small().strong().color(th.text_color()))
-                .sense(Sense::hover()),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let size = Vec2::splat(14.0);
-            let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-            let resp = resp
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text(if pinned {
-                    "Unpin (return to icon)"
-                } else {
-                    "Close"
-                });
-            if resp.hovered() {
-                ui.painter()
-                    .rect_filled(rect, 2.0, th.border_color().gamma_multiply(0.35));
-            }
-            let c = rect.center();
-            ui.painter().line_segment(
-                [Pos2::new(c.x - 4.0, c.y), Pos2::new(c.x + 4.0, c.y)],
-                Stroke::new(1.15_f32, th.text_color()),
-            );
-            if resp.clicked() {
-                minimize = true;
-            }
-            if show_layout_toggle {
-                toggle_layout = layout_toggle_button(ui, layout, th);
-            }
-            if pinned {
-                ui.add(
-                    egui::Label::new(RichText::new("pinned").small().color(th.muted_text_color()))
+) -> StripDotClicks {
+    let mut clicks = StripDotClicks::default();
+    let pitch = STRIP_DOT_R * 2.0 + STRIP_DOT_GAP;
+    let dots = Vec2::new(pitch * 2.0 + STRIP_DOT_HIT_END * 2.0, STRIP_DOT_HIT_Y);
+    let pinned_w = if pinned { 40.0 } else { 0.0 };
+    let right_w = dots.x + if pinned { pinned_w + 8.0 } else { 0.0 };
+    ui.allocate_ui_with_layout(
+        Vec2::new(ui.available_width(), dots.y.max(16.0)),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            let title_w = (ui.available_width() - right_w - 6.0).max(32.0);
+            ui.allocate_ui_with_layout(
+                Vec2::new(title_w, dots.y.max(16.0)),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(label).small().strong().color(th.text_color()),
+                        )
+                        .truncate()
                         .sense(Sense::hover()),
+                    );
+                },
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (rect, _) = ui.allocate_exact_size(dots, Sense::hover());
+                clicks = paint_dots(
+                    ui,
+                    rect.center(),
+                    th,
+                    pinned,
+                    toggle_label,
+                    DotAxis::Horizontal,
+                    false,
                 );
-            }
-        });
-    });
-    CaptionClicks {
-        minimize,
-        toggle_layout,
-    }
-}
-
-/// List mode shows the destination (three squircles). Icon-strip chrome
-/// uses a muted stacked-list glyph via [`put_strip_controls`] instead.
-fn layout_toggle_button(ui: &mut egui::Ui, layout: DockBodyLayout, th: &DockThemeTokens) -> bool {
-    let size = Vec2::new(16.0, 14.0);
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    let (tip, paint_icons) = match layout {
-        DockBodyLayout::List => ("Icon strip", true),
-        DockBodyLayout::Icons => ("Stacked list", false),
-    };
-    let resp = resp
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(tip);
-    if resp.hovered() {
-        ui.painter()
-            .rect_filled(rect, 2.0, th.border_color().gamma_multiply(0.35));
-    }
-    if paint_icons {
-        paint_toggle_squircles(ui.painter(), rect, th.text_color());
-    } else {
-        paint_toggle_lines(ui.painter(), rect, th.text_color());
-    }
-    resp.clicked()
-}
-
-fn paint_toggle_lines(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let s = Stroke::new(1.15_f32, color);
-    for y in [0.28, 0.50, 0.72] {
-        painter.line_segment(
-            [
-                Pos2::new(
-                    rect.left() + rect.width() * 0.18,
-                    rect.top() + rect.height() * y,
-                ),
-                Pos2::new(
-                    rect.right() - rect.width() * 0.18,
-                    rect.top() + rect.height() * y,
-                ),
-            ],
-            s,
-        );
-    }
-}
-
-fn paint_toggle_squircles(painter: &egui::Painter, rect: Rect, color: Color32) {
-    let d = rect.height() * 0.38;
-    let gap = (rect.width() - d * 3.0).max(1.0) / 4.0;
-    let y = rect.center().y;
-    for i in 0..3 {
-        let x = rect.left() + gap + d * 0.5 + i as f32 * (d + gap);
-        paint_squircle(
-            painter,
-            Rect::from_center_size(Pos2::new(x, y), Vec2::splat(d)),
-            Color32::TRANSPARENT,
-            Stroke::new(1.05_f32, color),
-            4.0,
-        );
-    }
+                if pinned {
+                    ui.add_space(8.0);
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new("pinned").small().color(th.muted_text_color()),
+                        )
+                        .sense(Sense::hover()),
+                    );
+                }
+            });
+        },
+    );
+    clicks
 }
 
 #[cfg(test)]
@@ -2596,5 +3284,52 @@ mod tests {
             "panel top {y} floated above canvas top {}",
             canvas.top()
         );
+    }
+
+    #[test]
+    fn tertiary_pair_matches_secondary_icon() {
+        let icon = 22.0;
+        let pair = tertiary_slot_h(icon) * 2.0 + TERTIARY_STACK_GAP;
+        assert!(
+            (pair - icon).abs() < 0.01,
+            "two tertiary slots ({pair}) must share one secondary icon ({icon})"
+        );
+    }
+
+    #[test]
+    fn stacked_icon_row_is_taller_than_the_pill() {
+        assert!(
+            crate::sidebar::SidebarTokens::ICON_ROW_HEIGHT
+                >= crate::sidebar::SidebarTokens::TOGGLE_TRACK_H,
+            "toggle rows must fit the track"
+        );
+        assert!(
+            crate::sidebar::SidebarTokens::TOGGLE_TRACK_W
+                > crate::sidebar::SidebarTokens::TOGGLE_TRACK_H,
+            "toggle is a wide capsule, not a circle"
+        );
+    }
+
+    #[test]
+    fn strip_dots_pack_tighter_than_an_icon() {
+        let pitch = STRIP_DOT_R * 2.0 + STRIP_DOT_GAP;
+        let col_h = pitch * 3.0 + STRIP_DOT_R * 2.0;
+        assert!(
+            col_h < 22.0,
+            "four dots must sit inside one flyout icon ({col_h})"
+        );
+        assert!(
+            STRIP_DOT_HIT_X > pitch * 3.0,
+            "X hit must be far wider than the dots so the pointer need not be exact"
+        );
+    }
+
+    #[test]
+    fn hidden_tools_are_per_palette() {
+        let mut hidden = HashMap::new();
+        hidden.insert("tool.shapes".into(), vec!["shape.eraser".into()]);
+        assert!(tool_hidden_in(&hidden, "tool.shapes", "shape.eraser"));
+        assert!(!tool_hidden_in(&hidden, "tool.shapes", "shape.rect"));
+        assert!(!tool_hidden_in(&hidden, "tool.frame", "shape.eraser"));
     }
 }

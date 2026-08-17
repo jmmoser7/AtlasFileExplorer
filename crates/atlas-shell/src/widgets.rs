@@ -232,7 +232,7 @@ pub fn canvas_mini_menu(
 ) -> Option<MiniMenuAction> {
     let mut action = None;
     let t = tokens::current().readouts;
-    let hit = t.chevron_hit.max(t.chevron_size + 6.0);
+    let hit = t.chevron_hit.max(t.chevron_size);
     let pos = canvas.left_bottom() + Vec2::new(t.chevron_inset_x, -t.chevron_inset_y);
     egui::Area::new(Id::new(("readout_chevron", id)))
         .fixed_pos(pos)
@@ -322,8 +322,8 @@ fn paint_readout_chevron(
     color: Color32,
     down: bool,
 ) {
-    let w = size * 0.55;
-    let h = size * 0.32;
+    let w = size * 0.7;
+    let h = size * 0.16;
     let dir = if down { 1.0 } else { -1.0 };
     let tip = c + Vec2::new(0.0, dir * h);
     let left = c + Vec2::new(-w, -dir * h);

@@ -2,7 +2,7 @@
 //! aligned control rows. See `SIDEBAR.md` for usage rules.
 
 use eframe::egui::{
-    self, Align, Color32, CornerRadius, CursorIcon, Frame, Id, Layout, Margin, Pos2, Rect,
+    self, Align, Color32, CornerRadius, CursorIcon, FontId, Frame, Id, Layout, Margin, Pos2, Rect,
     RichText, Sense, Stroke, StrokeKind, Ui, Vec2,
 };
 
@@ -31,7 +31,15 @@ impl SidebarTokens {
     pub const TOOLBAR_GAP: f32 = 4.0;
     pub const OPTION_GAP: f32 = 4.0;
     pub const RIGHT_COL_WIDTH: f32 = 60.0;
+    /// Toggle track (wide capsule) + sliding knob. Tracks stay left-aligned
+    /// so a two-column snap grid keeps two vertical pill columns.
+    pub const TOGGLE_TRACK_W: f32 = 34.0;
+    pub const TOGGLE_TRACK_H: f32 = 18.0;
+    pub const ICON_ROW_HEIGHT: f32 = 22.0;
 }
+
+/// Knob slide on / off. Shared by stacked rows and icon-strip tertiary pills.
+pub const TOGGLE_SLIDE_SECS: f32 = 0.14;
 
 /// Bordered card with a collapsible header row and optional body.
 pub fn sidebar_section(
@@ -129,6 +137,268 @@ pub fn sidebar_toolbar_row(ui: &mut Ui, add_controls: impl FnOnce(&mut Ui)) {
         add_controls(ui);
     });
     ui.add_space(SidebarTokens::ROW_GAP);
+}
+
+/// Stacked-list toggle: wide capsule track, circular knob on the **left**
+/// carrying the icon, label in a fixed gutter. `active` lights the track
+/// and the knob (on); off is a dim track and a muted knob. The knob does
+/// not slide — left alignment is what keeps a two-column snap grid as two
+/// clean vertical tracks.
+pub fn sidebar_icon_row(
+    ui: &mut Ui,
+    label: &str,
+    hotkey: Option<&str>,
+    active: bool,
+    theme: SidebarTheme,
+    paint_icon: impl FnOnce(&egui::Painter, Rect, Color32),
+) -> egui::Response {
+    let height = SidebarTokens::ICON_ROW_HEIGHT;
+    let (rect, resp) = ui.allocate_exact_size(
+        Vec2::new(
+            ui.available_width().max(SidebarTokens::TOGGLE_TRACK_W),
+            height,
+        ),
+        Sense::click(),
+    );
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    let track = Rect::from_center_size(
+        Pos2::new(
+            rect.left() + SidebarTokens::TOGGLE_TRACK_W * 0.5,
+            rect.center().y,
+        ),
+        Vec2::new(SidebarTokens::TOGGLE_TRACK_W, SidebarTokens::TOGGLE_TRACK_H),
+    );
+    let t = ui
+        .ctx()
+        .animate_bool_with_time(resp.id.with("slide"), active, TOGGLE_SLIDE_SECS);
+    paint_sidebar_icon_pill(
+        ui.painter(),
+        track,
+        active,
+        resp.hovered(),
+        t,
+        theme,
+        paint_icon,
+    );
+    let label_x = rect.left() + SidebarTokens::TOGGLE_TRACK_W + 8.0;
+    let galley =
+        ui.fonts(|f| f.layout_no_wrap(label.to_owned(), FontId::proportional(13.0), theme.ink));
+    if let Some(key) = hotkey {
+        let kg =
+            ui.fonts(|f| f.layout_no_wrap(key.to_owned(), FontId::proportional(11.0), theme.sub));
+        let kx = (rect.right() - kg.size().x).max(label_x);
+        ui.painter().galley(
+            Pos2::new(kx, rect.center().y - kg.size().y * 0.5),
+            kg,
+            theme.sub,
+        );
+    }
+    ui.painter().galley(
+        Pos2::new(label_x, rect.center().y - galley.size().y * 0.5),
+        galley,
+        theme.ink,
+    );
+    ui.add_space(SidebarTokens::ROW_GAP);
+    resp
+}
+
+/// Toggle track + sliding knob. `t` is 0 (off, left) … 1 (on, right).
+pub fn paint_sidebar_icon_pill(
+    painter: &egui::Painter,
+    track: Rect,
+    on: bool,
+    hovered: bool,
+    t: f32,
+    theme: SidebarTheme,
+    paint_icon: impl FnOnce(&egui::Painter, Rect, Color32),
+) {
+    let radius = track.height() * 0.5;
+    let fill = if on {
+        theme.ink.gamma_multiply(if hovered { 0.30 } else { 0.20 })
+    } else if hovered {
+        theme.border.gamma_multiply(0.48)
+    } else {
+        theme.border.gamma_multiply(0.26)
+    };
+    painter.rect_filled(track, radius, fill);
+    let inset = (track.height() * 0.12).max(1.5);
+    let knob_d = (track.height() - inset * 2.0).max(4.0);
+    let min_x = track.left() + inset + knob_d * 0.5;
+    let max_x = track.right() - inset - knob_d * 0.5;
+    let knob_x = min_x + (max_x - min_x) * t.clamp(0.0, 1.0);
+    let knob = Rect::from_center_size(Pos2::new(knob_x, track.center().y), Vec2::splat(knob_d));
+    let knob_fill = theme.ink.gamma_multiply(if on { 0.30 } else { 0.12 });
+    painter.circle_filled(knob.center(), knob_d * 0.5, knob_fill);
+    let icon_color = if on {
+        theme.ink
+    } else {
+        theme.ink.gamma_multiply(0.38)
+    };
+    paint_icon(painter, knob.shrink((knob_d * 0.18).max(1.0)), icon_color);
+}
+
+/// Bordered segmented control. Each cell is label-only or icon-above-label.
+/// Returns the clicked index.
+pub fn sidebar_segmented(
+    ui: &mut Ui,
+    label: &str,
+    theme: SidebarTheme,
+    items: &[SegmentedItem<'_>],
+) -> Option<usize> {
+    sidebar_subsection_label(ui, label, theme);
+    if items.is_empty() {
+        return None;
+    }
+    let n = items.len();
+    let cell_w = ((ui.available_width() - 2.0) / n as f32).max(36.0);
+    let has_icon = items.iter().any(|it| it.paint_icon.is_some());
+    let cell_h = if has_icon { 36.0 } else { 11.0 };
+    let (bar, _) = ui.allocate_exact_size(Vec2::new(cell_w * n as f32, cell_h), Sense::hover());
+    painter_segmented_frame(ui.painter(), bar, theme);
+    let mut clicked = None;
+    for (i, item) in items.iter().enumerate() {
+        let cell = Rect::from_min_size(
+            Pos2::new(bar.left() + i as f32 * cell_w, bar.top()),
+            Vec2::new(cell_w, cell_h),
+        );
+        let resp = ui
+            .interact(cell, ui.id().with(("seg", label, i)), Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand);
+        if let Some(hint) = item.hint {
+            let _ = resp.clone().on_hover_text(hint);
+        }
+        if item.selected || resp.hovered() {
+            let fill = if item.selected {
+                theme.ink.gamma_multiply(0.16)
+            } else {
+                theme.border.gamma_multiply(0.35)
+            };
+            ui.painter().rect_filled(cell.shrink(1.0), 3.0, fill);
+        }
+        if i > 0 {
+            let x = cell.left();
+            let inset = if has_icon { 4.0 } else { 2.0 };
+            ui.painter().line_segment(
+                [
+                    Pos2::new(x, bar.top() + inset),
+                    Pos2::new(x, bar.bottom() - inset),
+                ],
+                Stroke::new(1.0_f32, theme.border.gamma_multiply(0.55)),
+            );
+        }
+        if let Some(paint) = item.paint_icon {
+            let icon = Rect::from_center_size(
+                Pos2::new(cell.center().x, cell.top() + 11.0),
+                Vec2::splat(14.0),
+            );
+            paint(
+                ui.painter(),
+                icon,
+                if item.selected { theme.ink } else { theme.sub },
+            );
+        }
+        let galley = ui.fonts(|f| {
+            f.layout_no_wrap(
+                item.label.to_owned(),
+                FontId::proportional(if has_icon { 11.0 } else { 9.0 }),
+                if item.selected { theme.ink } else { theme.sub },
+            )
+        });
+        let ty = if has_icon {
+            cell.bottom() - galley.size().y - 3.0
+        } else {
+            cell.center().y - galley.size().y * 0.5
+        };
+        ui.painter().galley(
+            Pos2::new(cell.center().x - galley.size().x * 0.5, ty),
+            galley,
+            if item.selected { theme.ink } else { theme.sub },
+        );
+        if resp.clicked() {
+            clicked = Some(i);
+        }
+    }
+    ui.add_space(SidebarTokens::ROW_GAP);
+    clicked
+}
+
+fn painter_segmented_frame(painter: &egui::Painter, bar: Rect, theme: SidebarTheme) {
+    painter.rect_stroke(
+        bar,
+        4.0,
+        Stroke::new(1.0_f32, theme.border.gamma_multiply(0.7)),
+        StrokeKind::Inside,
+    );
+}
+
+/// One cell in [`sidebar_segmented`].
+pub struct SegmentedItem<'a> {
+    pub label: &'a str,
+    pub selected: bool,
+    pub hint: Option<&'a str>,
+    pub paint_icon: Option<fn(&egui::Painter, Rect, Color32)>,
+}
+
+/// White section title (Object snaps), not a fold and not a muted caption.
+pub fn sidebar_heading(ui: &mut Ui, label: &str, theme: SidebarTheme) {
+    ui.add_space(SidebarTokens::ROW_GAP);
+    ui.label(RichText::new(label).small().strong().color(theme.ink));
+    ui.add_space(4.0);
+}
+
+/// Horizontal exclusive chips — selected gets a rounded fill, no outer
+/// border (the wires row). Use [`sidebar_segmented`] when the group itself
+/// is a boxed control (REACH).
+pub fn sidebar_choice_chips(
+    ui: &mut Ui,
+    label: &str,
+    theme: SidebarTheme,
+    items: &[ChoiceChip<'_>],
+) -> Option<usize> {
+    sidebar_subsection_label(ui, label, theme);
+    let mut clicked = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        for (i, item) in items.iter().enumerate() {
+            let color = if item.selected { theme.ink } else { theme.sub };
+            let galley = ui.fonts(|f| {
+                f.layout_no_wrap(item.label.to_owned(), FontId::proportional(12.0), color)
+            });
+            let size = Vec2::new(galley.size().x + 16.0, 22.0);
+            let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+            let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+            if let Some(hint) = item.hint {
+                let _ = resp.clone().on_hover_text(hint);
+            }
+            if item.selected {
+                ui.painter()
+                    .rect_filled(rect, 4.0, theme.ink.gamma_multiply(0.16));
+            } else if resp.hovered() {
+                ui.painter()
+                    .rect_filled(rect, 4.0, theme.border.gamma_multiply(0.38));
+            }
+            ui.painter().galley(
+                Pos2::new(
+                    rect.center().x - galley.size().x * 0.5,
+                    rect.center().y - galley.size().y * 0.5,
+                ),
+                galley,
+                color,
+            );
+            if resp.clicked() {
+                clicked = Some(i);
+            }
+        }
+    });
+    ui.add_space(SidebarTokens::ROW_GAP);
+    clicked
+}
+
+/// One chip in [`sidebar_choice_chips`].
+pub struct ChoiceChip<'a> {
+    pub label: &'a str,
+    pub selected: bool,
+    pub hint: Option<&'a str>,
 }
 
 /// Full-width checkbox with inline label.

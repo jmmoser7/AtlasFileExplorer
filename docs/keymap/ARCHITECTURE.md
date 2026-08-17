@@ -128,8 +128,8 @@ are node data:
    squares (filled when selected), drag anchors/segments/handles, marquee
    over anchors, Alt breaks handle symmetry. Every drag journals one Patch.
    `Ctrl+J` joins nearest endpoints of selected open paths, or boolean-
-   unions any set that includes a closed shape (open operands become
-   stroke-weight ribbons). Geometry in vector-ink; journaled.
+   unions connected closed regions (open operands become stroke-weight
+   ribbons; disjoint operands stay put). Geometry in vector-ink; journaled.
 6. **Eraser (E)** P1 semantics: whole-stroke delete on drag-over
    (hit-tested via `vector-ink::hit_stroke`), journaled Removes; segment
    splitting is P2.

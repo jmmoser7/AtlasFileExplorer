@@ -1,7 +1,9 @@
-//! Rhino Trim — pick cutters, click the dying piece. 2D only.
+//! Rhino Trim / Split — pick cutters, then click. 2D only.
 //!
-//! Contract: `docs/keymap/contracts/trim.md`. Each successful click is one
-//! journal group (P0.2). Portals and frames are never targets.
+//! Trim (`contracts/trim.md`) deletes the clicked span/face. Split
+//! (`contracts/split.md`) keeps every arrangement piece as its own node.
+//! Same session machine (`P2.RhinoTrim` phases). Portals and frames are
+//! never targets.
 
 use eframe::egui::{Pos2, Shape, Stroke as EStroke};
 use slate_doc::scene::{
@@ -10,7 +12,7 @@ use slate_doc::scene::{
 };
 use vector_ink::{
     closest_polyline_span, extend_polyline_end, fill_triangles, flatten_contours, infinite_line,
-    point_in_polygon, split_open_at_cutters, trim_closed_at_click, Cutter, Polygon,
+    point_in_polygon, split_closed, split_open_at_cutters, trim_closed_at_click, Cutter, Polygon,
 };
 
 use super::board::{BoardTool, BoardXf};
@@ -24,6 +26,13 @@ pub mod trim_tokens {
     pub const PREVIEW_ALPHA: f32 = 0.38;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SliceMode {
+    #[default]
+    Trim,
+    Split,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrimPhase {
     PickCutters,
@@ -32,6 +41,7 @@ pub enum TrimPhase {
 
 #[derive(Debug, Clone)]
 pub struct TrimSession {
+    pub mode: SliceMode,
     pub phase: TrimPhase,
     pub cutters: Vec<NodeId>,
     pub hover: Option<TrimHover>,
@@ -40,14 +50,27 @@ pub struct TrimSession {
 #[derive(Debug, Clone)]
 pub enum TrimHover {
     Cutter(NodeId),
-    OpenSpan { target: NodeId, span: usize },
-    ClosedRegion { target: NodeId },
-    Extend { target: NodeId, from_start: bool },
+    OpenSpan {
+        target: NodeId,
+        span: usize,
+    },
+    ClosedRegion {
+        target: NodeId,
+    },
+    Extend {
+        target: NodeId,
+        from_start: bool,
+    },
+    /// Split: the whole object will become every arrangement piece.
+    SplitTarget {
+        target: NodeId,
+    },
 }
 
 impl Default for TrimSession {
     fn default() -> Self {
         Self {
+            mode: SliceMode::Trim,
             phase: TrimPhase::PickCutters,
             cutters: Vec::new(),
             hover: None,
@@ -70,6 +93,7 @@ impl SlateApp {
             TrimPhase::TrimParts
         };
         self.trim = Some(TrimSession {
+            mode: SliceMode::Trim,
             phase,
             cutters,
             hover: None,
@@ -77,9 +101,31 @@ impl SlateApp {
         self.board_tool = BoardTool::Trim;
     }
 
+    pub(crate) fn split_arm(&mut self) {
+        let mut cutters: Vec<NodeId> = self
+            .board_sel
+            .iter()
+            .copied()
+            .filter(|id| self.trim_can_cut(*id))
+            .collect();
+        cutters.sort_by_key(|id| id.0);
+        let phase = if cutters.is_empty() {
+            TrimPhase::PickCutters
+        } else {
+            TrimPhase::TrimParts
+        };
+        self.trim = Some(TrimSession {
+            mode: SliceMode::Split,
+            phase,
+            cutters,
+            hover: None,
+        });
+        self.board_tool = BoardTool::Split;
+    }
+
     pub(crate) fn trim_disarm(&mut self) {
         self.trim = None;
-        if self.board_tool == BoardTool::Trim {
+        if matches!(self.board_tool, BoardTool::Trim | BoardTool::Split) {
             self.board_tool = BoardTool::Select;
         }
     }
@@ -130,7 +176,10 @@ impl SlateApp {
         if n.hidden {
             return false;
         }
-        !matches!(n.kind, NodeKind::Portal(_) | NodeKind::Connector(_))
+        !matches!(
+            n.kind,
+            NodeKind::Portal(_) | NodeKind::Connector(_) | NodeKind::DockStrip(_)
+        )
     }
 
     pub(crate) fn trim_can_target(&self, id: NodeId) -> bool {
@@ -144,6 +193,17 @@ impl SlateApp {
             n.kind,
             NodeKind::Shape(_) | NodeKind::Text(_) | NodeKind::Image(_)
         )
+    }
+
+    /// Split targets shapes only — text/images keep a single clip (Trim).
+    pub(crate) fn split_can_target(&self, id: NodeId) -> bool {
+        let Some(n) = self.doc().scene.node(id) else {
+            return false;
+        };
+        if n.hidden || n.locked {
+            return false;
+        }
+        matches!(n.kind, NodeKind::Shape(_))
     }
 
     pub(crate) fn trim_click(&mut self, world: Pos2, shift: bool) -> bool {
@@ -165,6 +225,9 @@ impl SlateApp {
                 false
             }
             TrimPhase::TrimParts => {
+                if session.mode == SliceMode::Split {
+                    return self.split_try_part(world);
+                }
                 if shift {
                     if self.trim_try_extend(world) {
                         return true;
@@ -179,11 +242,13 @@ impl SlateApp {
         let Some(session) = self.trim.as_ref() else {
             return;
         };
+        let mode = session.mode;
         let hover = match session.phase {
             TrimPhase::PickCutters => self
                 .trim_pick_node(world)
                 .filter(|id| self.trim_can_cut(*id))
                 .map(TrimHover::Cutter),
+            TrimPhase::TrimParts if mode == SliceMode::Split => self.split_part_hover(world),
             TrimPhase::TrimParts => {
                 if shift {
                     if let Some(h) = self.trim_extend_hover(world) {
@@ -268,6 +333,101 @@ impl SlateApp {
             TrimHover::OpenSpan { target, span } => self.commit_open_trim(target, span),
             TrimHover::ClosedRegion { target } => self.commit_closed_trim(target, world),
             _ => false,
+        }
+    }
+
+    fn split_try_part(&mut self, world: Pos2) -> bool {
+        let Some(TrimHover::SplitTarget { target }) = self.split_part_hover(world) else {
+            return false;
+        };
+        let Some(node) = self.doc().scene.node(target).cloned() else {
+            return false;
+        };
+        let cutters = self.live_cutters(Some(target));
+        if let Some(pts) = self.node_open_polyline(&node) {
+            let spans = split_open_at_cutters(&pts, &cutters);
+            if spans.len() < 2 {
+                return false;
+            }
+            let n = spans.len();
+            if !self.commit_open_spans(target, &node, spans) {
+                return false;
+            }
+            self.select_split_results(target, n);
+            return true;
+        }
+        if let Some(poly) = self.node_closed_poly(&node) {
+            if !matches!(node.kind, NodeKind::Shape(_)) {
+                return false;
+            }
+            let Some(pieces) = split_closed(&poly, &cutters) else {
+                return false;
+            };
+            let n = pieces.len();
+            if !self.commit_shape_pieces(target, &node, pieces) {
+                return false;
+            }
+            self.select_split_results(target, n);
+            return true;
+        }
+        false
+    }
+
+    fn split_part_hover(&self, world: Pos2) -> Option<TrimHover> {
+        let z = self.board_xf().z.max(0.05);
+        let slop = trim_tokens::SPAN_SLOP / z;
+        let p = [world.x, world.y];
+        for n in self.doc().scene.nodes.iter().rev() {
+            if !self.split_can_target(n.id) {
+                continue;
+            }
+            if let Some(poly) = self.node_closed_poly(n) {
+                if !point_in_polygon(&poly, p) {
+                    continue;
+                }
+                let cutters = self.live_cutters(Some(n.id));
+                if split_closed(&poly, &cutters).is_some() {
+                    return Some(TrimHover::SplitTarget { target: n.id });
+                }
+            }
+        }
+        let mut best: Option<(f32, NodeId)> = None;
+        for n in self.doc().scene.nodes.iter().rev() {
+            if !self.split_can_target(n.id) {
+                continue;
+            }
+            let Some(pts) = self.node_open_polyline(n) else {
+                continue;
+            };
+            let cutters = self.live_cutters(Some(n.id));
+            let spans = split_open_at_cutters(&pts, &cutters);
+            if spans.len() < 2 {
+                continue;
+            }
+            if let Some(hit) = closest_polyline_span(&spans, p) {
+                if hit.dist <= slop && best.is_none_or(|(d, _)| hit.dist < d) {
+                    best = Some((hit.dist, n.id));
+                }
+            }
+        }
+        best.map(|(_, target)| TrimHover::SplitTarget { target })
+    }
+
+    fn select_split_results(&mut self, first: NodeId, count: usize) {
+        self.board_sel.clear();
+        self.board_sel.insert(first);
+        let extra = count.saturating_sub(1);
+        let n = self.doc().scene.nodes.len();
+        let ids: Vec<NodeId> = self
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .skip(n.saturating_sub(extra))
+            .map(|node| node.id)
+            .collect();
+        for id in ids {
+            self.board_sel.insert(id);
         }
     }
 
@@ -646,6 +806,40 @@ impl SlateApp {
                                 s.iter().map(|p| xf.w2s(Pos2::new(p[0], p[1]))).collect();
                             if screen.len() >= 2 {
                                 painter.add(Shape::line(screen, EStroke::new(3.0_f32, accent)));
+                            }
+                        }
+                    }
+                }
+            }
+            Some(TrimHover::SplitTarget { target }) => {
+                if let Some(n) = self.doc().scene.node(*target) {
+                    let cutters = self.live_cutters(Some(*target));
+                    if let Some(pts) = self.node_open_polyline(n) {
+                        let spans = split_open_at_cutters(&pts, &cutters);
+                        for s in &spans {
+                            let screen: Vec<Pos2> =
+                                s.iter().map(|p| xf.w2s(Pos2::new(p[0], p[1]))).collect();
+                            if screen.len() >= 2 {
+                                painter.add(Shape::line(screen, EStroke::new(3.0_f32, accent)));
+                            }
+                        }
+                    } else if let Some(poly) = self.node_closed_poly(n) {
+                        if let Some(pieces) = split_closed(&poly, &cutters) {
+                            for piece in &pieces {
+                                let (verts, idx) = fill_triangles(piece);
+                                if idx.is_empty() {
+                                    continue;
+                                }
+                                let mut mesh = eframe::egui::Mesh::default();
+                                for v in &verts {
+                                    mesh.vertices.push(eframe::egui::epaint::Vertex {
+                                        pos: xf.w2s(Pos2::new(v[0], v[1])),
+                                        uv: Pos2::ZERO,
+                                        color: fill,
+                                    });
+                                }
+                                mesh.indices = idx;
+                                painter.add(Shape::mesh(mesh));
                             }
                         }
                     }

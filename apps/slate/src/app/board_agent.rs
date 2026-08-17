@@ -55,15 +55,42 @@ pub struct AgentRuntime {
     sidecar_spawned: HashSet<String>,
     sidecar_child: HashMap<String, std::process::Child>,
     awaiting: HashMap<NodeId, AgentAwait>,
+    pub key_draft: String,
+    key_entry: Option<NodeId>,
 }
 
 /// In-flight send. Failure is a named state — never a blank transcript.
 #[derive(Clone)]
 enum AgentAwait {
-    Sent { at: Instant, req_at: u64 },
-    Thinking { at: Instant, req_at: u64 },
-    Responding { at: Instant, req_at: u64 },
-    Failed { reason: String },
+    Sent {
+        at: Instant,
+        req_at: u64,
+    },
+    Thinking {
+        req_at: u64,
+    },
+    Responding {
+        req_at: u64,
+    },
+    Failed {
+        reason: String,
+        actions: Vec<AgentRecover>,
+    },
+}
+
+/// A named next step — failure is never a dead-end sentence.
+#[derive(Clone)]
+enum AgentRecover {
+    OpenUrl {
+        label: &'static str,
+        url: &'static str,
+    },
+    OpenPath {
+        label: &'static str,
+        path: PathBuf,
+    },
+    PasteKey,
+    PickWorkspace,
 }
 
 /// How long we wait for the sidecar to pick up a send when no process is alive.
@@ -240,8 +267,7 @@ impl SlateApp {
         let Some(ws) = self.ai.config.valid_workspace().map(|p| p.to_path_buf()) else {
             self.fail_agent_await(
                 portal,
-                "Set an AI workspace before sending — the agent link has nowhere to write."
-                    .into(),
+                "Set an AI workspace before sending — the agent link has nowhere to write.".into(),
             );
             self.toast("Set an AI workspace before sending an agent prompt.");
             #[cfg(not(test))]
@@ -268,7 +294,12 @@ impl SlateApp {
                         .map(|s| s.turns.clone())
                         .unwrap_or_default()
                 });
-                turns.push(turn);
+                if turns
+                    .last()
+                    .is_none_or(|t| t.role != "user" || t.text != turn.text)
+                {
+                    turns.push(turn);
+                }
                 self.agents.prompt_mut(portal).clear();
                 self.agents.awaiting.insert(
                     portal,
@@ -296,7 +327,9 @@ impl SlateApp {
         if provider != "cursor" {
             self.fail_agent_await(
                 portal,
-                format!("Provider '{provider}' has no live agent link — switch this portal to Cursor."),
+                format!(
+                    "Provider '{provider}' has no live agent link — switch this portal to Cursor."
+                ),
             );
             return;
         }
@@ -326,10 +359,14 @@ impl SlateApp {
     }
 
     fn fail_agent_await(&mut self, portal: NodeId, reason: String) {
-        let reason = reason.trim().to_string();
-        self.agents
-            .awaiting
-            .insert(portal, AgentAwait::Failed { reason: reason.clone() });
+        let (reason, actions) = classify_agent_failure(reason);
+        self.agents.awaiting.insert(
+            portal,
+            AgentAwait::Failed {
+                reason: reason.clone(),
+                actions,
+            },
+        );
         let turns = self.agents.local_turns.entry(portal).or_insert_with(|| {
             self.agents
                 .sessions
@@ -337,12 +374,71 @@ impl SlateApp {
                 .map(|s| s.turns.clone())
                 .unwrap_or_default()
         });
-        if turns.last().is_none_or(|t| t.role != "system" || t.text != reason) {
+        if turns
+            .last()
+            .is_none_or(|t| t.role != "system" || t.text != reason)
+        {
             turns.push(AgentTurn {
                 role: "system".into(),
                 text: reason,
                 at: atlas_ai::context::now_secs(),
             });
+        }
+    }
+
+    fn apply_agent_recover(&mut self, portal: NodeId, action: &AgentRecover) {
+        match action {
+            AgentRecover::OpenUrl { url, .. } => self.open_url(url),
+            AgentRecover::OpenPath { path, .. } => Self::open_path(path),
+            AgentRecover::PasteKey => {
+                self.agents.key_entry = Some(portal);
+                self.agents.key_draft.clear();
+            }
+            AgentRecover::PickWorkspace => {
+                #[cfg(not(test))]
+                self.ai.pick_workspace();
+            }
+        }
+    }
+
+    pub(crate) fn open_cursor_api_key_page(&mut self) -> bool {
+        self.open_url(atlas_ai::cursor_key::DASHBOARD_URL);
+        true
+    }
+
+    pub(crate) fn save_cursor_api_key(&mut self, portal: Option<NodeId>) -> bool {
+        let key = self.agents.key_draft.trim().to_string();
+        match atlas_ai::cursor_key::save(&key) {
+            Ok(()) => {
+                self.agents.key_draft.clear();
+                self.agents.key_entry = None;
+                self.toast("API key saved on this machine.");
+                if let Some(id) = portal.or(self.selected_agent_portal()) {
+                    if let Some((session, _)) = self.agent_session_for(id) {
+                        self.agents.sidecar_spawned.remove(&session);
+                        self.agents.sidecar_child.remove(&session);
+                    }
+                    self.retry_last_agent_prompt(id);
+                }
+                true
+            }
+            Err(e) => {
+                self.toast(e);
+                false
+            }
+        }
+    }
+
+    fn retry_last_agent_prompt(&mut self, portal: NodeId) {
+        let text = self
+            .visible_agent_turns(portal)
+            .iter()
+            .rev()
+            .find(|t| t.role == "user")
+            .map(|t| t.text.clone());
+        if let Some(text) = text {
+            *self.agents.prompt_mut(portal) = text;
+            self.send_agent_prompt(portal);
         }
     }
 
@@ -381,39 +477,31 @@ impl SlateApp {
             };
             let req_at = match &state {
                 AgentAwait::Sent { req_at, .. }
-                | AgentAwait::Thinking { req_at, .. }
-                | AgentAwait::Responding { req_at, .. } => Some(*req_at),
+                | AgentAwait::Thinking { req_at }
+                | AgentAwait::Responding { req_at } => Some(*req_at),
                 AgentAwait::Failed { .. } => None,
             };
             let has_new = req_at.is_some_and(|at| self.portal_has_new_reply(id, at));
-            let child_alive = !session_id.is_empty()
-                && self.agents.sidecar_child.contains_key(&session_id);
+            let child_alive =
+                !session_id.is_empty() && self.agents.sidecar_child.contains_key(&session_id);
             match (&state, sidecar.as_ref()) {
                 (AgentAwait::Failed { .. }, _) => {}
                 (_, Some(AgentStatus::Error(e))) => {
                     self.fail_agent_await(id, e.clone());
                 }
                 (
-                    AgentAwait::Sent { at, req_at } | AgentAwait::Thinking { at, req_at },
+                    AgentAwait::Sent { req_at, .. } | AgentAwait::Thinking { req_at },
                     Some(AgentStatus::Thinking),
                 ) if has_new => {
-                    self.agents.awaiting.insert(
-                        id,
-                        AgentAwait::Responding {
-                            at: *at,
-                            req_at: *req_at,
-                        },
-                    );
+                    self.agents
+                        .awaiting
+                        .insert(id, AgentAwait::Responding { req_at: *req_at });
                     animating = true;
                 }
-                (AgentAwait::Sent { at, req_at }, Some(AgentStatus::Thinking)) => {
-                    self.agents.awaiting.insert(
-                        id,
-                        AgentAwait::Thinking {
-                            at: *at,
-                            req_at: *req_at,
-                        },
-                    );
+                (AgentAwait::Sent { req_at, .. }, Some(AgentStatus::Thinking)) => {
+                    self.agents
+                        .awaiting
+                        .insert(id, AgentAwait::Thinking { req_at: *req_at });
                     animating = true;
                 }
                 (_, Some(AgentStatus::Idle)) if has_new => {
@@ -444,7 +532,6 @@ impl SlateApp {
                 ) => {
                     animating = true;
                 }
-                _ => {}
             }
         }
         if animating {
@@ -887,6 +974,7 @@ impl SlateApp {
                 },
                 host: Some(body),
                 interactive,
+                title_font: egui::FontFamily::Name(atlas_shell::home::AGENT_TITLE_FAMILY.into()),
             },
         );
         self.agents.cover_focus.insert(id, result.focus);
@@ -1040,13 +1128,93 @@ impl SlateApp {
                         );
                     }
                 }
-                Some(AgentAwait::Failed { reason }) => {
+                Some(AgentAwait::Failed { reason, actions }) => {
+                    let link_blue = Color32::from_rgb(61, 156, 245);
+                    if !actions.is_empty() && y - 20.0 * z >= transcript.top() {
+                        y -= 20.0 * z;
+                        let mut x = transcript.left();
+                        for (i, action) in actions.iter().enumerate() {
+                            let label = recover_label(action);
+                            let laid = canvas_text::layout(
+                                painter,
+                                label.to_string(),
+                                FontId::proportional(meta_px),
+                                link_blue,
+                                transcript.width(),
+                            );
+                            let text_w = laid.size().x;
+                            let w = (text_w + 10.0 * z).min(transcript.width());
+                            let hit = Rect::from_min_size(
+                                Pos2::new(x, y - 8.0 * z),
+                                egui::vec2(w, 16.0 * z),
+                            );
+                            let resp = ui.interact(
+                                hit,
+                                Id::new(("agent-recover", node.id.0, i)),
+                                Sense::click(),
+                            );
+                            let color = if resp.hovered() {
+                                Color32::from_rgb(140, 196, 255)
+                            } else {
+                                link_blue
+                            };
+                            laid.paint(painter, Pos2::new(x, y), color);
+                            if resp.hovered() {
+                                painter.line_segment(
+                                    [
+                                        Pos2::new(x, y + 6.0 * z),
+                                        Pos2::new(x + text_w, y + 6.0 * z),
+                                    ],
+                                    egui::Stroke::new(canvas_scale::px(1.0, z), color),
+                                );
+                            }
+                            if resp.clicked() {
+                                self.apply_agent_recover(node.id, action);
+                            }
+                            x += w + 12.0 * z;
+                            if x > transcript.right() {
+                                break;
+                            }
+                        }
+                    }
+                    if self.agents.key_entry == Some(node.id) && y - 28.0 * z >= transcript.top() {
+                        y -= 28.0 * z;
+                        let field = Rect::from_min_size(
+                            Pos2::new(transcript.left(), y - 8.0 * z),
+                            egui::vec2(transcript.width().min(280.0 * z), 22.0 * z),
+                        );
+                        painter.rect_filled(field, 6.0 * z, Color32::from_rgb(30, 32, 38));
+                        let mut draft = self.agents.key_draft.clone();
+                        let mut submit = false;
+                        egui::Area::new(Id::new(("agent-key-area", node.id.0)))
+                            .fixed_pos(field.min + egui::vec2(6.0 * z, 2.0 * z))
+                            .order(egui::Order::Middle)
+                            .show(ui.ctx(), |ui| {
+                                ui.set_max_size(field.size());
+                                let te = egui::TextEdit::singleline(&mut draft)
+                                    .id(Id::new(("agent-key", node.id.0)))
+                                    .password(true)
+                                    .hint_text("Paste API key")
+                                    .font(FontId::proportional(meta_px))
+                                    .desired_width(field.width() - 12.0 * z)
+                                    .frame(false);
+                                let resp = ui.add(te);
+                                if resp.lost_focus()
+                                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                {
+                                    submit = true;
+                                }
+                            });
+                        self.agents.key_draft = draft;
+                        if submit {
+                            self.save_cursor_api_key(Some(node.id));
+                        }
+                    }
                     let already = turns.last().is_some_and(|t| t.text == *reason);
                     if !already {
-                        let line = format!("Link: {reason}");
                         let laid = canvas_text::layout(
                             painter,
-                            line,
+                            reason.clone(),
                             FontId::proportional(meta_px),
                             Color32::from_rgb(255, 186, 120),
                             transcript.width(),
@@ -1068,10 +1236,14 @@ impl SlateApp {
                 let (who, color) = match turn.role.as_str() {
                     "user" => ("You", Color32::from_rgb(214, 220, 232)),
                     "assistant" => ("Agent", Color32::from_rgb(214, 220, 232)),
-                    "system" => ("Link", Color32::from_rgb(255, 186, 120)),
+                    "system" => ("", Color32::from_rgb(255, 186, 120)),
                     other => (other, Color32::from_rgb(214, 220, 232)),
                 };
-                let line = format!("{who}: {}", turn.text);
+                let line = if who.is_empty() {
+                    turn.text.clone()
+                } else {
+                    format!("{who}: {}", turn.text)
+                };
                 let laid = canvas_text::layout(
                     painter,
                     line,
@@ -1264,7 +1436,7 @@ impl SlateApp {
     #[cfg(test)]
     pub(crate) fn agent_failure_reason(&self, id: NodeId) -> Option<&str> {
         match self.agents.awaiting.get(&id) {
-            Some(AgentAwait::Failed { reason }) => Some(reason.as_str()),
+            Some(AgentAwait::Failed { reason, .. }) => Some(reason.as_str()),
             _ => None,
         }
     }
@@ -1483,19 +1655,75 @@ impl SlateApp {
     }
 }
 
+fn recover_label(action: &AgentRecover) -> &'static str {
+    match action {
+        AgentRecover::OpenUrl { label, .. } | AgentRecover::OpenPath { label, .. } => label,
+        AgentRecover::PasteKey => "Paste key",
+        AgentRecover::PickWorkspace => "Choose workspace",
+    }
+}
+
+fn classify_agent_failure(reason: String) -> (String, Vec<AgentRecover>) {
+    let raw = reason.trim().to_string();
+    let lower = raw.to_ascii_lowercase();
+    let setup = atlas_ai::sidecar::setup_doc().map(|path| AgentRecover::OpenPath {
+        label: "Setup steps",
+        path,
+    });
+    if lower.contains("api key") || lower.contains("cursor_api_key") {
+        let mut actions = vec![
+            AgentRecover::OpenUrl {
+                label: "Get a key",
+                url: atlas_ai::cursor_key::DASHBOARD_URL,
+            },
+            AgentRecover::PasteKey,
+        ];
+        if let Some(setup) = setup {
+            actions.push(setup);
+        }
+        (
+            "Cursor needs an API key to reach an agent. Get one, then paste it here — you do not have to set a system environment variable.".into(),
+            actions,
+        )
+    } else if lower.contains("workspace") {
+        (
+            "Choose an AI workspace folder so this portal has a place to write the agent link."
+                .into(),
+            vec![AgentRecover::PickWorkspace],
+        )
+    } else if lower.contains("node.js")
+        || lower.contains("node.exe")
+        || lower.contains("node was not found")
+        || lower.contains("atlas_node")
+    {
+        let mut actions = vec![AgentRecover::OpenUrl {
+            label: "Download Node.js",
+            url: "https://nodejs.org/en/download",
+        }];
+        if let Some(setup) = setup {
+            actions.push(setup);
+        }
+        (
+            "Slate could not see node.exe — a GUI launch often misses the terminal PATH. Send again (we look in Program Files). If it is installed somewhere else, set ATLAS_NODE to that node.exe."
+                .into(),
+            actions,
+        )
+    } else {
+        let mut actions = Vec::new();
+        if let Some(setup) = setup {
+            actions.push(setup);
+        }
+        (raw, actions)
+    }
+}
+
 fn await_new_reply(turns: &[AgentTurn], req_at: u64) -> bool {
     turns
         .iter()
         .any(|t| t.role == "assistant" && t.at >= req_at)
 }
 
-fn paint_thinking_dots(
-    painter: &egui::Painter,
-    origin: Pos2,
-    z: f32,
-    t: f32,
-    color: Color32,
-) {
+fn paint_thinking_dots(painter: &egui::Painter, origin: Pos2, z: f32, t: f32, color: Color32) {
     let r = 2.2 * z;
     let gap = 8.0 * z;
     for i in 0..3 {
@@ -1644,6 +1872,7 @@ mod agent_await_tests {
     fn the_chip_names_unreachable_on_failure() {
         let waiting = AgentAwait::Failed {
             reason: "no key".into(),
+            actions: Vec::new(),
         };
         let (_, label, pulse) = agent_status_chip(
             "cursor",
@@ -1656,17 +1885,36 @@ mod agent_await_tests {
     }
 
     #[test]
+    fn an_api_key_failure_offers_the_dashboard() {
+        let (reason, actions) = classify_agent_failure(
+            "CURSOR_API_KEY is not set — the sidecar cannot reach Cursor agents without it.".into(),
+        );
+        assert!(
+            !reason.starts_with("Link"),
+            "the old 'Link:' prefix is not a hyperlink"
+        );
+        assert!(
+            actions.iter().any(|a| matches!(
+                a,
+                AgentRecover::OpenUrl { url, .. }
+                    if *url == atlas_ai::cursor_key::DASHBOARD_URL
+            )),
+            "must open the page where the key is minted"
+        );
+        assert!(
+            actions.iter().any(|a| matches!(a, AgentRecover::PasteKey)),
+            "must let the user finish in the portal"
+        );
+    }
+
+    #[test]
     fn the_chip_pulses_while_thinking() {
         let waiting = AgentAwait::Sent {
             at: Instant::now(),
             req_at: 1,
         };
-        let (_, label, pulse) = agent_status_chip(
-            "cursor",
-            CursorIdeStatus::Running,
-            None,
-            Some(&waiting),
-        );
+        let (_, label, pulse) =
+            agent_status_chip("cursor", CursorIdeStatus::Running, None, Some(&waiting));
         assert_eq!(label, "Thinking");
         assert!(pulse);
     }

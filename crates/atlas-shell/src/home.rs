@@ -17,8 +17,8 @@ use crate::theme::Palette;
 use crate::tokens::{self, HomeTokens};
 use eframe::egui::epaint::Vertex;
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Id, Mesh, Pos2, Rect, Sense, Stroke, TextureId,
-    Ui, Vec2,
+    self, Align2, Color32, CornerRadius, FontFamily, FontId, Id, Mesh, Pos2, Rect, Sense, Stroke,
+    TextureId, Ui, Vec2,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -83,6 +83,7 @@ impl HomeScreen {
                 cta: HomeCta::Bottom,
                 host: None,
                 interactive: true,
+                title_font: FontFamily::Proportional,
             },
         );
         self.focus = result.focus;
@@ -178,7 +179,14 @@ pub struct HomeModel<'a> {
     /// When false the shelf paints but does not take the wheel, drag, or
     /// clicks — the host keeps navigation (P1.portal.contents-focus).
     pub interactive: bool,
+    /// Title-face family. Agent albums use Courier New (`AGENT_TITLE_FAMILY`);
+    /// home stays on the proportional UI face.
+    pub title_font: FontFamily,
 }
+
+/// Named family for agent-portal album title-faces (Courier New).
+/// Slate registers the face at startup; missing files fall back to monospace.
+pub const AGENT_TITLE_FAMILY: &str = "courier-new";
 
 /// Result of interacting with the home surface this frame.
 pub struct HomeResult {
@@ -676,6 +684,7 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
                 cover.texture,
                 cover.placeholder,
                 &cover.title,
+                &model.title_font,
             );
             if let Some(p) = pointer {
                 if point_in_quad(p, &quad) {
@@ -969,6 +978,7 @@ fn paint_cover(
     texture: Option<TextureId>,
     placeholder: bool,
     title: &str,
+    title_font: &FontFamily,
 ) {
     let hw = card_w * 0.5;
     let hh = card_h * 0.5;
@@ -1010,6 +1020,7 @@ fn paint_cover(
             slot_offset,
             tuning,
             title,
+            title_font,
         );
     }
 }
@@ -1039,25 +1050,35 @@ struct TitleFace {
     glyphs: Vec<TitleGlyph>,
 }
 
-fn title_face(ctx: &egui::Context, title: &str) -> Option<TitleFace> {
+fn title_face(ctx: &egui::Context, title: &str, family: &FontFamily) -> Option<TitleFace> {
     let title = title.trim();
     if title.is_empty() {
         return None;
     }
     let atlas = ctx.fonts(|f| f.font_image_size());
-    let key = Id::new(("cover_title_glyphs", title, atlas));
+    let key = Id::new(("cover_title_glyphs", title, family, atlas));
     if let Some(face) = ctx.data(|d| d.get_temp::<TitleFace>(key)) {
         return Some(face);
     }
-    let face = layout_title_face(ctx, title)?;
+    let face = layout_title_face(ctx, title, family)?;
     ctx.data_mut(|d| d.insert_temp(key, face.clone()));
     Some(face)
 }
 
-fn layout_title_face(ctx: &egui::Context, title: &str) -> Option<TitleFace> {
+fn title_face_is_mono(family: &FontFamily) -> bool {
+    matches!(family, FontFamily::Monospace)
+        || *family == FontFamily::Name(AGENT_TITLE_FAMILY.into())
+}
+
+fn layout_title_face(ctx: &egui::Context, title: &str, family: &FontFamily) -> Option<TitleFace> {
     ctx.fonts(|fonts| {
         let chars = title.chars().count();
         let font_px = title_face_font_px(TITLE_FACE_DIM * 0.76, chars).max(TITLE_FACE_PX);
+        let tracking = if title_face_is_mono(family) {
+            0.0
+        } else {
+            title_face_tracking(font_px, chars)
+        };
         let mut job = egui::text::LayoutJob::default();
         job.wrap.max_width = TITLE_FACE_DIM * 0.76;
         job.halign = egui::Align::Center;
@@ -1065,8 +1086,8 @@ fn layout_title_face(ctx: &egui::Context, title: &str) -> Option<TitleFace> {
             title,
             0.0,
             egui::TextFormat {
-                font_id: FontId::proportional(font_px),
-                extra_letter_spacing: title_face_tracking(font_px, chars),
+                font_id: FontId::new(font_px, family.clone()),
+                extra_letter_spacing: tracking,
                 color: Color32::WHITE,
                 line_height: Some(font_px * 1.15),
                 ..Default::default()
@@ -1120,8 +1141,9 @@ fn paint_title_glyphs(
     slot_offset: f32,
     tuning: &CoverFlowTuning,
     title: &str,
+    title_font: &FontFamily,
 ) {
-    let Some(face) = title_face(painter.ctx(), title) else {
+    let Some(face) = title_face(painter.ctx(), title, title_font) else {
         return;
     };
     let mut mesh = Mesh::with_texture(TextureId::default());
@@ -1408,7 +1430,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut face = None;
         let _ = ctx.run(Default::default(), |ctx| {
-            face = layout_title_face(ctx, "Climate");
+            face = layout_title_face(ctx, "Climate", &FontFamily::Proportional);
         });
         let face = face.expect("fonts must produce a title face");
         assert!(
@@ -1419,6 +1441,17 @@ mod tests {
             face.glyphs.iter().all(|g| g.x1 > g.x0 && g.y1 > g.y0),
             "each glyph needs a dest rect"
         );
+    }
+
+    #[test]
+    fn a_mono_title_face_lays_out_glyphs() {
+        let ctx = egui::Context::default();
+        let mut face = None;
+        let _ = ctx.run(Default::default(), |ctx| {
+            face = layout_title_face(ctx, "Climate", &FontFamily::Monospace);
+        });
+        let face = face.expect("monospace must produce a title face");
+        assert!(!face.glyphs.is_empty());
     }
 
     #[test]

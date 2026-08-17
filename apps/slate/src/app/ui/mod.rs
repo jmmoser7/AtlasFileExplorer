@@ -5,7 +5,7 @@ mod advanced;
 mod inspector;
 mod menubar;
 mod readouts;
-mod tools;
+pub(crate) mod tools;
 
 use super::SlateApp;
 use eframe::egui::Context;

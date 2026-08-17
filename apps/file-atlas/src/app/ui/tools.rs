@@ -13,7 +13,7 @@ use crate::app::chrome::ToolPanel;
 use atlas_core::types::{ExtGroup, FAMILIES};
 use atlas_shell::dock::{
     current_body_layout, floating_dock, flyout_items, DockBodyLayout, DockIcon, DockItem,
-    DockItemKind, FlyoutItem,
+    DockItemKind, FlyoutItem, FlyoutRole,
 };
 use atlas_shell::sidebar::{
     sidebar_checkbox_row, sidebar_family_master_row, sidebar_fold_region, sidebar_mode_row,
@@ -94,7 +94,8 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
     let canvas = app.canvas_rect;
     let restore = app.dock_pins.clone();
     let restore_strips = app.dock_icon_strips.clone();
-    floating_dock(
+    let restore_hidden = app.dock_strip_hidden.clone();
+    let _ = floating_dock(
         ctx,
         "file_atlas_tools",
         canvas,
@@ -103,13 +104,14 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         &items,
         &restore,
         &restore_strips,
+        &restore_hidden,
         |ui, id| match id {
             "filters" => basic_filters_body(app, ui, theme),
             "display" => display_settings_body(app, ui, ctx, theme),
             "mode" => mode_body(app, ui, theme),
             "workflow" => workflow_body(app, ui),
             "ai" => {
-                if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+                if current_body_layout(ui.ctx()) != DockBodyLayout::List {
                     let items = [FlyoutItem {
                         id: "ai.launch",
                         label: "Launch Cursor",
@@ -117,6 +119,8 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
                         hotkey: None,
                         icon: DockIcon::Ai,
                         active: false,
+                        group: Some("ai"),
+                        role: FlyoutRole::Icon,
                     }];
                     if flyout_items(ui, &items).is_some() {
                         app.ai.launch_cursor();
@@ -143,13 +147,19 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
             prefs_dirty = true;
         }
     }
+    if let Some(hidden) = atlas_shell::dock::strip_hidden(ctx, "file_atlas_tools") {
+        if hidden != app.dock_strip_hidden {
+            app.dock_strip_hidden = hidden;
+            prefs_dirty = true;
+        }
+    }
     if prefs_dirty {
         app.save_chrome_prefs();
     }
 }
 
 fn mode_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
         let items = [
             FlyoutItem {
                 id: "mode.view",
@@ -158,6 +168,8 @@ fn mode_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                 hotkey: None,
                 icon: DockIcon::View,
                 active: app.edit_mode == EditMode::View,
+                group: Some("mode"),
+                role: FlyoutRole::Icon,
             },
             FlyoutItem {
                 id: "mode.edit",
@@ -166,6 +178,8 @@ fn mode_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                 hotkey: None,
                 icon: DockIcon::Mode,
                 active: app.edit_mode == EditMode::Edit,
+                group: Some("mode"),
+                role: FlyoutRole::Icon,
             },
         ];
         if let Some(id) = flyout_items(ui, &items) {
@@ -218,7 +232,7 @@ fn mode_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
 }
 
 fn basic_filters_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
         filters_icon_strip(app, ui);
         return;
     }
@@ -509,7 +523,7 @@ fn display_settings_body(
     ctx: &egui::Context,
     theme: SidebarTheme,
 ) {
-    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
         display_icon_strip(app, ui, ctx);
         return;
     }
@@ -749,7 +763,7 @@ fn display_settings_body(
 }
 
 fn workflow_body(app: &mut AtlasApp, ui: &mut egui::Ui) {
-    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
         let items = [FlyoutItem {
             id: "workflow.unassigned",
             label: "Unassigned only",
@@ -757,6 +771,8 @@ fn workflow_body(app: &mut AtlasApp, ui: &mut egui::Ui) {
             hotkey: None,
             icon: DockIcon::Workflow,
             active: app.only_unassigned,
+            group: Some("workflow"),
+            role: FlyoutRole::Toggle,
         }];
         if flyout_items(ui, &items).is_some() {
             app.only_unassigned = !app.only_unassigned;
@@ -778,6 +794,8 @@ fn filters_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui) {
             hotkey: None,
             icon: DockIcon::Ghost,
             active: app.filter_mode == FilterMode::Ghost,
+            group: Some("filters"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "filters.hide",
@@ -786,6 +804,8 @@ fn filters_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui) {
             hotkey: None,
             icon: DockIcon::Hide,
             active: app.filter_mode == FilterMode::Hide,
+            group: Some("filters"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "filters.zoom",
@@ -794,6 +814,8 @@ fn filters_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui) {
             hotkey: None,
             icon: DockIcon::Fit,
             active: app.auto_zoom_matches,
+            group: Some("filters"),
+            role: FlyoutRole::Toggle,
         },
         FlyoutItem {
             id: "filters.dupes",
@@ -802,6 +824,8 @@ fn filters_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui) {
             hotkey: None,
             icon: DockIcon::Duplicates,
             active: app.dedupe_twins,
+            group: Some("filters"),
+            role: FlyoutRole::Toggle,
         },
     ];
     if let Some(id) = flyout_items(ui, &items) {
@@ -836,6 +860,8 @@ fn display_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context
             hotkey: Some("F"),
             icon: DockIcon::Fit,
             active: false,
+            group: Some("display"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "display.orient",
@@ -844,6 +870,8 @@ fn display_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context
             hotkey: None,
             icon: DockIcon::Display,
             active: false,
+            group: Some("display"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "display.dark",
@@ -852,6 +880,8 @@ fn display_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context
             hotkey: None,
             icon: DockIcon::Dark,
             active: app.dark_mode,
+            group: Some("display"),
+            role: FlyoutRole::Toggle,
         },
     ];
     if let Some(id) = flyout_items(ui, &items) {

@@ -465,6 +465,19 @@ impl SlateApp {
         }
     }
 
+    pub(crate) fn open_url(&self, url: &str) {
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("cmd")
+                .args(["/C", "start", "", url])
+                .spawn();
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+        }
+    }
+
     pub(crate) fn open_path(path: &std::path::Path) {
         #[cfg(windows)]
         {

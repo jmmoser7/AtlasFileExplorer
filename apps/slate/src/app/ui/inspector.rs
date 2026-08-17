@@ -196,6 +196,20 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                 portal_controls(app, ui, theme, &ids, &primary)
             });
         }
+        NodeKind::DockStrip(s) => {
+            ui.label(
+                RichText::new(format!("Toolbar · {}", s.palette_id))
+                    .small()
+                    .color(theme.sub),
+            );
+            ui.label(
+                RichText::new(
+                    "A placed copy of a dock palette. The floating toolbar is unchanged.",
+                )
+                .small()
+                .color(theme.sub),
+            );
+        }
     }
 
     sidebar_subtle_divider(ui, theme);
@@ -1310,6 +1324,7 @@ fn web_portal_controls(
         for (label, cmd) in [
             ("Back", "portal.web.back"),
             ("Forward", "portal.web.forward"),
+            ("Home", "portal.web.home"),
             ("Reload", "portal.web.reload"),
             ("Recapture", "portal.web.recapture"),
             ("Open externally", "portal.web.open_external"),
@@ -1445,6 +1460,48 @@ fn agent_portal_controls(
             );
         }
     });
+
+    ui.label(RichText::new("Cursor API key").small().color(theme.sub));
+    ui.label(
+        RichText::new(if atlas_ai::cursor_key::is_configured() {
+            "Saved on this machine (or in CURSOR_API_KEY)."
+        } else {
+            "Not set — Get a key, then paste it here."
+        })
+        .small()
+        .color(theme.sub),
+    );
+    ui.horizontal(|ui| {
+        if ui.button(RichText::new("Get a key").small()).clicked() {
+            app.dispatch(
+                ui.ctx(),
+                atlas_commands::CommandId("portal.agent.get_key"),
+                None,
+            );
+        }
+        if ui.button(RichText::new("Setup steps").small()).clicked() {
+            if let Some(doc) = atlas_ai::sidecar::setup_doc() {
+                SlateApp::open_path(&doc);
+            } else {
+                app.open_url(atlas_ai::cursor_key::AUTH_DOCS_URL);
+            }
+        }
+    });
+    let mut draft = app.agents.key_draft.clone();
+    if ui
+        .add(
+            egui::TextEdit::singleline(&mut draft)
+                .password(true)
+                .desired_width(ui.available_width())
+                .hint_text("Paste API key"),
+        )
+        .changed()
+    {
+        app.agents.key_draft = draft;
+    }
+    if ui.button(RichText::new("Save key").small()).clicked() {
+        app.save_cursor_api_key(Some(primary.id));
+    }
 
     sidebar_subtle_divider(ui, theme);
     ui.label(RichText::new("Prompt").small().color(theme.sub));

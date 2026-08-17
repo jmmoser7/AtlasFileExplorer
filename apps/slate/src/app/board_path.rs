@@ -48,9 +48,7 @@ pub(crate) struct CachedInkMesh {
 pub struct PathMeshCache {
     map: HashMap<(NodeId, u64), CachedInkMesh>,
     order: VecDeque<(NodeId, u64)>,
-    fills: HashMap<(NodeId, u64), Vec<[f32; 2]>>,
-    fill_order: VecDeque<(NodeId, u64)>,
-    /// Compound (holed) fills: cached earcut verts + indices.
+    /// Closed path fills: cached earcut verts + indices (concave-safe).
     tris: HashMap<(NodeId, u64), (Vec<[f32; 2]>, Vec<u32>)>,
     tris_order: VecDeque<(NodeId, u64)>,
     /// Cache misses this paint — reset at the start of `board_canvas`.
@@ -88,23 +86,6 @@ impl PathMeshCache {
         self.order.push_back((node_id, key));
         Self::evict_lru(&mut self.map, &mut self.order);
         cached
-    }
-
-    pub(crate) fn get_or_flatten(
-        &mut self,
-        node_id: NodeId,
-        key: u64,
-        build: impl FnOnce() -> Vec<[f32; 2]>,
-    ) -> Vec<[f32; 2]> {
-        if let Some(pts) = self.fills.get(&(node_id, key)) {
-            return pts.clone();
-        }
-        self.tess_misses = self.tess_misses.saturating_add(1);
-        let pts = build();
-        self.fills.insert((node_id, key), pts.clone());
-        self.fill_order.push_back((node_id, key));
-        Self::evict_lru(&mut self.fills, &mut self.fill_order);
-        pts
     }
 
     pub(crate) fn get_or_fill_tris(
@@ -766,7 +747,7 @@ pub fn board_pick_node_routed(
         let NodeKind::Connector(c) = &n.kind else {
             continue;
         };
-        if super::board_wire::hit_connector_routed(scene, c, wx, wy, zoom, routing) {
+        if super::board_wire::hit_connector_routed(scene, n.id, c, wx, wy, zoom, routing) {
             return Some(n.id);
         }
     }
@@ -891,46 +872,27 @@ pub fn paint_path_shape(
     }
     let bez = path_data_to_world_bez(path, node.rect, node.rotation_deg);
     if shape.fill.is_some() && path.closed {
+        // egui PathShape fills with a triangle fan from vertex 0 — convex
+        // only (emilk/egui#513). Join/Trim boolean results are concave, so
+        // every closed path fill goes through cached earcut.
         let fill_key = path_fill_hash(path, node.rect, node.rotation_deg);
-        if !path.extra.is_empty()
-            || matches!(path.fill_rule, slate_doc::scene::PathFillRule::EvenOdd)
-        {
-            let (verts, idx) = app.path_mesh_cache.get_or_fill_tris(node.id, fill_key, || {
-                let contours = vector_ink::flatten_contours(&bez, 0.25);
-                vector_ink::fill_triangles(&contours)
-            });
-            if !idx.is_empty() {
-                if let Some(fill) = shape.fill {
-                    let mut mesh = egui::Mesh::default();
-                    let color = fade(rgba32(fill));
-                    for v in &verts {
-                        mesh.vertices.push(egui::epaint::Vertex {
-                            pos: xf.w2s(Pos2::new(v[0], v[1])),
-                            uv: Pos2::ZERO,
-                            color,
-                        });
-                    }
-                    mesh.indices = idx;
-                    painter.add(Shape::mesh(mesh));
+        let (verts, idx) = app.path_mesh_cache.get_or_fill_tris(node.id, fill_key, || {
+            let contours = vector_ink::flatten_contours(&bez, 0.25);
+            vector_ink::fill_triangles(&contours)
+        });
+        if !idx.is_empty() {
+            if let Some(fill) = shape.fill {
+                let mut mesh = egui::Mesh::default();
+                let color = fade(rgba32(fill));
+                for v in &verts {
+                    mesh.vertices.push(egui::epaint::Vertex {
+                        pos: xf.w2s(Pos2::new(v[0], v[1])),
+                        uv: Pos2::ZERO,
+                        color,
+                    });
                 }
-            }
-        } else {
-            let flat = app
-                .path_mesh_cache
-                .get_or_flatten(node.id, fill_key, || flatten(&bez, 0.25));
-            if flat.len() >= 3 {
-                let pts: Vec<Pos2> = flat
-                    .iter()
-                    .map(|[x, y]| xf.w2s(Pos2::new(*x, *y)))
-                    .collect();
-                if let Some(fill) = shape.fill {
-                    painter.add(Shape::Path(egui::epaint::PathShape {
-                        points: pts,
-                        closed: true,
-                        fill: fade(rgba32(fill)),
-                        stroke: egui::epaint::PathStroke::NONE,
-                    }));
-                }
+                mesh.indices = idx;
+                painter.add(Shape::mesh(mesh));
             }
         }
     }

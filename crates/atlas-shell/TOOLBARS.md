@@ -11,7 +11,7 @@ in `dock.rs` + panel bodies; apps must not diverge.
 | **Linger** | After `dashboard_describe_delay`, the chip expands with `DockItem.description` (any kind that sets one). |
 | **Single click** | **Volatile** body — use it, move away, it collapses after `close_delay` (or Escape / outside click). |
 | **Double click** | **Pin** — body joins the centered stack and persists until minimize or icon unpin. |
-| **Minimize (─)** | Upper-right of any open body: dismisses volatile, or unpins a pinned panel back to its icon. |
+| **Minimize** | First dot of the group (horizontal ellipsis on stacked captions, top of the four-dot column on the icon strip). Dismisses volatile, or unpins a pinned panel back to its icon. |
 
 Hover previews must never reshuffle the pinned stack. Pins persist across
 sessions via `ChromePrefs.pinned_panels` where apps wire that up.
@@ -29,16 +29,25 @@ name chip up just because the pointer is still "inside" the dock.
 Chip fill uses `HOVER_CHIP_OPACITY` so the canvas stays readable underneath.
 
 **Body layout:** every pinned (and volatile) palette shares one dock-wide
-choice — stacked list or free-space icon strip. Each stacked list still
-has its own three-squircle control; clicking any one switches **all**
-palettes. Icon-strip mode drops the popover frame and section labels:
-squircles sit in free space, hex-packed, in primary-icon order, with a
-subtle divider between categories. One stacked-list glyph sits at the far
-right of the whole band. Hovering anywhere in a strip's vicinity holds
-the leader back to that palette's primary icon. Strip squircles are
-`flyout_icon_scale` of the primary dock icons and use the same hover chip.
-Primary-icon name chips paint *after* panels on the Tooltip layer so they
-never hide behind a pinned toolbar.
+choice — stacked list or free-space icon strip. The icon strip uses a
+vertical four-dot column (Minimize / layout toggle / Advanced / Drop to
+canvas). Stacked captions use a horizontal three-dot ellipsis
+(Minimize / layout toggle / Advanced). The second dot switches **all**
+palettes; its hover text is **Icon strip** in the list and **Stacked
+view** in the strip. Hover labels appear in one place, centered above
+the dots. Icon-strip mode uses fieldset groups of secondary circular icons;
+tertiary toggles stack two-high on the same datum as one icon.
+Advanced lists every tool and tags
+which ones stay on the strip. Drop to canvas (Slate) journals a
+`DockStrip` copy on the board; File Atlas ignores that dot. A click on
+a canvas-copy icon arms the command; click-hold-drag anywhere on that
+node moves the copy (`P1.dock-strip`). Hovering anywhere in a strip's
+vicinity holds the leader back to that palette's primary icon. Strip
+squircles are `flyout_icon_scale` of the primary dock icons and use the
+same hover chip. Stacked-list tool rows follow Document settings:
+sliding toggle pills (`sidebar_icon_row`), not menu-style selectable
+labels. Primary-icon name chips paint *after* panels on the Tooltip
+layer so they never hide behind a pinned toolbar.
 
 **Icon fill:** hover and selected / pinned states are a barely-perceptible
 mix toward the hover/active tokens (`ICON_HOVER_MIX` / `ICON_ACTIVE_MIX` in
@@ -74,9 +83,9 @@ width, and hover / volatile / pinned panels share one width per panel id.
 - Expand/collapse chrome uses Windows-like **minimize (─)** / **maximize (□)**
   glyphs, scaled to the control, upper-right of primary panels and subsection
   headers — not `+`/`−` text for these surfaces. A subsection ─ collapses
-  only that fold; the panel caption ─ is the one that dismisses / unpins
-  (`DOCK.md`). Hit-testing keeps last-frame panel bounds so a collapse
-  cannot be mistaken for an outside click.
+  only that fold; the panel-caption ellipsis is the one that
+  dismisses / unpins (`DOCK.md`). Hit-testing keeps last-frame panel
+  bounds so a collapse cannot be mistaken for an outside click.
 
 ## Sliders vs scroll
 

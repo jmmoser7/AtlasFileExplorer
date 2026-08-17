@@ -2,12 +2,12 @@ use std::path::Path;
 
 use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
-    web_origin, ConnectorNode, Corner, Dash, Node, NodeId, NodeKind, PathData, PathFillRule,
-    PathSeg, PortalKind, PortalNode, Rgba, Scene, ShapeKind, StrokeCap, StrokeJoin, TextAlign,
-    WebExport, WebSourceKind, WidthProfile, WireDisplay, WorldRect,
+    web_origin, ConnectorNode, Corner, Dash, DockStripNode, Node, NodeId, NodeKind, PathData,
+    PathFillRule, PathSeg, PortalKind, PortalNode, Rgba, Scene, ShapeKind, StrokeCap, StrokeJoin,
+    TextAlign, WebExport, WebSourceKind, WidthProfile, WireDisplay, WorldRect,
 };
 use slate_doc::wire::{
-    connector_route, filleted_polyline, scene_wire_obstacles, ConnectorPath, PathCmd, WireRouting,
+    connector_route_in_scene, filleted_polyline, ConnectorPath, PathCmd, WireRouting,
     ORTHO_CORNER_RADIUS,
 };
 use slate_doc::SlateDoc;
@@ -301,6 +301,7 @@ fn render_node(
             render_connector(html, &doc.scene, node, conn, origin_x, origin_y, routing)
         }
         NodeKind::Frame(_) => {}
+        NodeKind::DockStrip(s) => render_dock_strip(html, node, s, rel),
         NodeKind::Portal(p) if p.kind == PortalKind::Web => {
             render_web_portal(html, assets, node, p, rel);
         }
@@ -350,6 +351,24 @@ fn render_portal(
         }
     }
 
+    html.push_str("</div>\n");
+}
+
+fn render_dock_strip(html: &mut String, node: &Node, strip: &DockStripNode, rel: WorldRect) {
+    let mut style = geometry_style(rel, node.rotation_deg);
+    append_opacity(&mut style, node.opacity);
+    style.push_str(
+        "background:rgba(32,34,40,0.72);border:1px solid rgba(255,255,255,0.12);border-radius:8px;display:flex;align-items:center;gap:6px;padding:0 10px;color:rgba(228,230,235,0.9);font:13px system-ui,sans-serif;",
+    );
+    html.push_str("<div class=\"node dock-strip\" style=\"");
+    html.push_str(&style);
+    html.push_str("\">");
+    html.push_str(&escape_html(&strip.palette_id));
+    if !strip.visible.is_empty() {
+        html.push_str("<span style=\"opacity:.65\"> · ");
+        html.push_str(&escape_html(&strip.visible.join(" · ")));
+        html.push_str("</span>");
+    }
     html.push_str("</div>\n");
 }
 
@@ -1269,9 +1288,8 @@ fn render_connector(
     // Geometry is derived from the *current* rects of anchored nodes.
     // Hidden anchor nodes resolve to nothing: the wire is skipped until the
     // node is shown again (simplest per the scene-flags spec).
-    let rect_of = |id| scene.node(id).filter(|n| !n.hidden).map(|n: &Node| n.rect);
-    let obstacles = scene_wire_obstacles(scene);
-    let Some(path) = connector_route(&conn.a, &conn.b, rect_of, routing, &obstacles) else {
+    let Some(path) = connector_route_in_scene(scene, Some(node.id), &conn.a, &conn.b, routing)
+    else {
         return;
     };
 

@@ -9,12 +9,12 @@ use super::super::board_icons::{self, ToolIcon};
 use super::super::chrome::ToolPanel;
 use super::super::SlateApp;
 use atlas_shell::dock::{
-    current_body_layout, floating_dock, flyout_items, DockBodyLayout, DockIcon, DockItem,
-    DockItemKind, FlyoutItem,
+    current_body_layout, floating_dock, flyout_items, paint_dock_icon, DockBodyLayout, DockIcon,
+    DockItem, DockItemKind, DockOutcome, FlyoutItem, FlyoutRole,
 };
 use atlas_shell::sidebar::{
-    sidebar_checkbox_hinted, sidebar_checkbox_row, sidebar_fold_region, sidebar_option_group,
-    sidebar_subtle_divider, SidebarTheme,
+    sidebar_choice_chips, sidebar_fold_region, sidebar_heading, sidebar_icon_row,
+    sidebar_segmented, sidebar_subtle_divider, ChoiceChip, SegmentedItem, SidebarTheme,
 };
 use eframe::egui::{self, Color32, Id, Rect, RichText};
 use slate_doc::{GroupId, TagId, ViewKind};
@@ -46,6 +46,7 @@ board_dock_icon!(icon_repo, ToolIcon::RepoLens);
 board_dock_icon!(icon_status, ToolIcon::StatusBoard);
 board_dock_icon!(icon_web, ToolIcon::WebPortal);
 board_dock_icon!(icon_trim, ToolIcon::Trim);
+board_dock_icon!(icon_split, ToolIcon::Split);
 board_dock_icon!(icon_join, ToolIcon::Join);
 
 fn icon_wire_bezier(p: &egui::Painter, r: Rect, c: Color32) {
@@ -95,6 +96,7 @@ fn tool_dock_icon(tool: BoardTool) -> DockIcon {
         BoardTool::AgentPortal => DockIcon::Custom(icon_portals),
         BoardTool::WebPortal => DockIcon::Custom(icon_web),
         BoardTool::Trim => DockIcon::Custom(icon_trim),
+        BoardTool::Split => DockIcon::Custom(icon_split),
         BoardTool::Frame => DockIcon::Custom(icon_frame),
         BoardTool::Text => DockIcon::Custom(icon_text),
         BoardTool::Sticky => DockIcon::Custom(icon_sticky),
@@ -118,7 +120,7 @@ fn tool_flyout_desc(tool: BoardTool) -> &'static str {
 }
 
 /// The single floating toolbar: Frame, Portals, Shapes (incl. curves), Text,
-/// Actions (Trim, Join), Object properties (colors + tags), Document settings
+/// Actions (Trim, Split, Join), Object properties (colors + tags), Document settings
 /// (grid + snap).
 pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
     let theme = app.palette().sidebar_theme();
@@ -189,10 +191,10 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         DockItem {
             id: "tool.actions",
             label: "Actions",
-            description: "Edit commands — Trim (Ctrl+T) and Join (Ctrl+J).",
+            description: "Edit commands — Trim (Ctrl+T), Split (Ctrl+Shift+T), Join (Ctrl+J).",
             icon: DockIcon::Custom(icon_trim),
             kind: DockItemKind::Tool,
-            active: tool == BoardTool::Trim,
+            active: matches!(tool, BoardTool::Trim | BoardTool::Split),
             visible: board,
             gap_before: true,
         },
@@ -209,11 +211,12 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         DockItem {
             id: "document.settings",
             label: "Document settings",
-            description: "Board grid visibility, grid snap, object snaps, and wire routing.",
+            description: "Board grid, object snaps, smart-guide reach, and wire routing.",
             icon: DockIcon::Custom(icon_grid),
             kind: DockItemKind::Dashboard,
             active: app.board_show_grid
                 || app.board_snap_grid
+                || app.board_smart_guides
                 || app.board_osnap.any_kind_on()
                 || app.board_wire_routing != slate_doc::WireRouting::Bezier,
             visible: board,
@@ -225,7 +228,11 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
     let canvas = app.canvas_rect;
     let restore = app.dock_pins.clone();
     let restore_strips = app.dock_icon_strips.clone();
-    let clicked = floating_dock(
+    let restore_hidden = app.dock_strip_hidden.clone();
+    let DockOutcome {
+        clicked,
+        drop_to_canvas,
+    } = floating_dock(
         ctx,
         "slate_tools",
         canvas,
@@ -234,6 +241,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         &items,
         &restore,
         &restore_strips,
+        &restore_hidden,
         |ui, id| match id {
             "tool.frame" => frame_flyout(app, ui, theme),
             "tool.portals" => portals_flyout(app, ui, theme),
@@ -260,8 +268,17 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             prefs_dirty = true;
         }
     }
+    if let Some(hidden) = atlas_shell::dock::strip_hidden(ctx, "slate_tools") {
+        if hidden != app.dock_strip_hidden {
+            app.dock_strip_hidden = hidden;
+            prefs_dirty = true;
+        }
+    }
     if prefs_dirty {
         app.save_chrome_prefs();
+    }
+    if let Some(palette_id) = drop_to_canvas {
+        app.drop_dock_strip(ctx, palette_id);
     }
 
     // Dock buttons dispatch the same registry commands the keyboard uses
@@ -302,6 +319,8 @@ fn frame_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: None,
             icon: DockIcon::Custom(icon_frame),
             active: preset == FramePreset::Letter,
+            group: Some("frame"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "frame.tabloid",
@@ -310,6 +329,8 @@ fn frame_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: None,
             icon: DockIcon::Custom(icon_frame),
             active: preset == FramePreset::Tabloid,
+            group: Some("frame"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "frame.wide",
@@ -318,6 +339,8 @@ fn frame_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: None,
             icon: DockIcon::Custom(icon_frame),
             active: preset == FramePreset::Wide169,
+            group: Some("frame"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "frame.custom",
@@ -326,6 +349,8 @@ fn frame_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: None,
             icon: DockIcon::Custom(icon_frame),
             active: matches!(preset, FramePreset::Custom { .. }),
+            group: Some("frame"),
+            role: FlyoutRole::Icon,
         },
     ];
     let _ = theme;
@@ -361,6 +386,8 @@ fn portals_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: None,
             icon: DockIcon::Custom(icon_repo),
             active: tool == BoardTool::RepoLens,
+            group: Some("portals"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "portal.status",
@@ -369,6 +396,8 @@ fn portals_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: None,
             icon: DockIcon::Custom(icon_status),
             active: tool == BoardTool::StatusBoard,
+            group: Some("portals"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "portal.agent",
@@ -377,6 +406,8 @@ fn portals_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: None,
             icon: DockIcon::Custom(icon_portals),
             active: tool == BoardTool::AgentPortal,
+            group: Some("portals"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "portal.web",
@@ -385,24 +416,11 @@ fn portals_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: None,
             icon: DockIcon::Custom(icon_web),
             active: tool == BoardTool::WebPortal,
+            group: Some("portals"),
+            role: FlyoutRole::Icon,
         },
     ];
-    if current_body_layout(ui.ctx()) == DockBodyLayout::List {
-        for (id, icon, label) in [
-            ("portal.repo", ToolIcon::RepoLens, "Repository Lens"),
-            ("portal.status", ToolIcon::StatusBoard, "Status Board"),
-            ("portal.agent", ToolIcon::Portals, "Agent portal"),
-            ("portal.web", ToolIcon::WebPortal, "Web portal"),
-        ] {
-            let active = items.iter().any(|it| it.id == id && it.active);
-            if board_icons::tool_menu_row(ui, icon, label, None, active, theme.ink, theme.sub)
-                .clicked()
-            {
-                apply_portal_choice(app, id);
-            }
-        }
-        return;
-    }
+    let _ = theme;
     if let Some(id) = flyout_items(ui, &items) {
         apply_portal_choice(app, id);
     }
@@ -429,6 +447,8 @@ fn text_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: Some("T"),
             icon: DockIcon::Custom(icon_text),
             active: tool == BoardTool::Text,
+            group: Some("text"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "text.sticky",
@@ -437,22 +457,11 @@ fn text_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: Some("N"),
             icon: DockIcon::Custom(icon_sticky),
             active: tool == BoardTool::Sticky,
+            group: Some("text"),
+            role: FlyoutRole::Icon,
         },
     ];
-    if current_body_layout(ui.ctx()) == DockBodyLayout::List {
-        for (id, icon, label, key) in [
-            ("text.block", ToolIcon::Text, "Text", Some("T")),
-            ("text.sticky", ToolIcon::Sticky, "Sticky note", Some("N")),
-        ] {
-            let active = items.iter().any(|it| it.id == id && it.active);
-            if board_icons::tool_menu_row(ui, icon, label, key, active, theme.ink, theme.sub)
-                .clicked()
-            {
-                apply_text_choice(app, id);
-            }
-        }
-        return;
-    }
+    let _ = theme;
     if let Some(id) = flyout_items(ui, &items) {
         apply_text_choice(app, id);
     }
@@ -476,6 +485,18 @@ fn actions_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: Some("Ctrl+T"),
             icon: DockIcon::Custom(icon_trim),
             active: app.board_tool == BoardTool::Trim,
+            group: Some("actions"),
+            role: FlyoutRole::Icon,
+        },
+        FlyoutItem {
+            id: "action.split",
+            label: "Split",
+            description: "Pick cutters, then click an object to keep every piece.",
+            hotkey: Some("Ctrl+Shift+T"),
+            icon: DockIcon::Custom(icon_split),
+            active: app.board_tool == BoardTool::Split,
+            group: Some("actions"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "action.join",
@@ -484,37 +505,11 @@ fn actions_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
             hotkey: Some("Ctrl+J"),
             icon: DockIcon::Custom(icon_join),
             active: false,
+            group: Some("actions"),
+            role: FlyoutRole::Icon,
         },
     ];
-    if current_body_layout(ui.ctx()) == DockBodyLayout::List {
-        if board_icons::tool_menu_row(
-            ui,
-            ToolIcon::Trim,
-            "Trim",
-            Some("Ctrl+T"),
-            app.board_tool == BoardTool::Trim,
-            theme.ink,
-            theme.sub,
-        )
-        .clicked()
-        {
-            app.set_board_tool(BoardTool::Trim);
-        }
-        if board_icons::tool_menu_row(
-            ui,
-            ToolIcon::Join,
-            "Join",
-            Some("Ctrl+J"),
-            false,
-            theme.ink,
-            theme.sub,
-        )
-        .clicked()
-        {
-            apply_action_choice(app, ui.ctx(), "action.join");
-        }
-        return;
-    }
+    let _ = theme;
     if let Some(id) = flyout_items(ui, &items) {
         apply_action_choice(app, ui.ctx(), id);
     }
@@ -523,6 +518,7 @@ fn actions_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
 fn apply_action_choice(app: &mut SlateApp, ctx: &egui::Context, id: &str) {
     match id {
         "action.trim" => app.set_board_tool(BoardTool::Trim),
+        "action.split" => app.set_board_tool(BoardTool::Split),
         "action.join" => {
             app.dispatch(
                 ctx,
@@ -536,28 +532,28 @@ fn apply_action_choice(app: &mut SlateApp, ctx: &egui::Context, id: &str) {
 
 /// Shapes + curves in one flyout (collapsed curve section by default).
 fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
         let tools = [
             BoardTool::RectShape,
             BoardTool::Ellipse,
             BoardTool::Line,
-            BoardTool::Pen,
-            BoardTool::Brush,
-            BoardTool::Eraser,
             BoardTool::Arc,
             BoardTool::Polyline,
             BoardTool::BezierSpan,
+            BoardTool::Pen,
+            BoardTool::Brush,
+            BoardTool::Eraser,
         ];
         let ids = [
             "shape.rect",
             "shape.ellipse",
             "shape.line",
-            "shape.pen",
-            "shape.brush",
-            "shape.eraser",
             "shape.arc",
             "shape.polyline",
             "shape.bezier",
+            "shape.pen",
+            "shape.brush",
+            "shape.eraser",
         ];
         let items: Vec<FlyoutItem<'_>> = tools
             .iter()
@@ -572,6 +568,11 @@ fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                     BoardTool::Eraser => Some("E"),
                     _ => None,
                 };
+                let group = match tool {
+                    BoardTool::RectShape | BoardTool::Ellipse => "shapes",
+                    BoardTool::Brush | BoardTool::Eraser => "ink",
+                    _ => "curves",
+                };
                 FlyoutItem {
                     id,
                     label: tool.label(),
@@ -579,6 +580,8 @@ fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                     hotkey,
                     icon: tool_dock_icon(*tool),
                     active: app.board_tool == *tool,
+                    group: Some(group),
+                    role: FlyoutRole::Icon,
                 }
             })
             .collect();
@@ -590,21 +593,18 @@ fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         return;
     }
     for shape in [BoardTool::RectShape, BoardTool::Ellipse] {
-        if board_icons::tool_menu_row(
+        if stack_tool_row(
             ui,
-            shape.tool_icon(),
-            shape.label(),
+            shape,
             Some(shape.hotkey()),
             app.board_tool == shape,
-            theme.ink,
-            theme.sub,
-        )
-        .clicked()
-        {
+            theme,
+        ) {
             app.set_board_tool(shape);
         }
     }
 
+    sidebar_subtle_divider(ui, theme);
     sidebar_fold_region(
         ui,
         Id::new("slate_shapes_curves"),
@@ -628,17 +628,7 @@ fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                     BoardTool::Eraser => Some("E"),
                     _ => None,
                 };
-                if board_icons::tool_menu_row(
-                    ui,
-                    curve.tool_icon(),
-                    curve.label(),
-                    hotkey,
-                    app.board_tool == curve,
-                    theme.ink,
-                    theme.sub,
-                )
-                .clicked()
-                {
+                if stack_tool_row(ui, curve, hotkey, app.board_tool == curve, theme) {
                     app.set_board_tool(curve);
                 }
             }
@@ -646,9 +636,22 @@ fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     );
 }
 
+fn stack_tool_row(
+    ui: &mut egui::Ui,
+    tool: BoardTool,
+    hotkey: Option<&str>,
+    active: bool,
+    theme: SidebarTheme,
+) -> bool {
+    sidebar_icon_row(ui, tool.label(), hotkey, active, theme, |p, r, c| {
+        board_icons::paint_tool_icon(p, r, tool.tool_icon(), c)
+    })
+    .clicked()
+}
+
 fn object_properties_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     let board = app.doc().view.active_view == ViewKind::Board;
-    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
         object_properties_icons(app, ui, board);
         return;
     }
@@ -679,6 +682,8 @@ fn object_properties_icons(app: &mut SlateApp, ui: &mut egui::Ui, board: bool) {
             hotkey: None,
             icon: DockIcon::Custom(icon_colors),
             active: false,
+            group: Some("colors"),
+            role: FlyoutRole::Icon,
         });
         items.push(FlyoutItem {
             id: "prop.swap",
@@ -687,6 +692,8 @@ fn object_properties_icons(app: &mut SlateApp, ui: &mut egui::Ui, board: bool) {
             hotkey: Some("X"),
             icon: DockIcon::Swap,
             active: false,
+            group: Some("colors"),
+            role: FlyoutRole::Icon,
         });
         items.push(FlyoutItem {
             id: "prop.reset",
@@ -695,6 +702,8 @@ fn object_properties_icons(app: &mut SlateApp, ui: &mut egui::Ui, board: bool) {
             hotkey: Some("D"),
             icon: DockIcon::Reset,
             active: false,
+            group: Some("colors"),
+            role: FlyoutRole::Icon,
         });
     }
     if app.chrome().tool(ToolPanel::Tags) {
@@ -705,6 +714,8 @@ fn object_properties_icons(app: &mut SlateApp, ui: &mut egui::Ui, board: bool) {
             hotkey: None,
             icon: DockIcon::Tags,
             active: !app.doc().groups.is_empty(),
+            group: Some("tags"),
+            role: FlyoutRole::Icon,
         });
     }
     if let Some(id) = flyout_items(ui, &items) {
@@ -730,12 +741,21 @@ fn object_properties_icons(app: &mut SlateApp, ui: &mut egui::Ui, board: bool) {
 }
 
 fn document_settings_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    if current_body_layout(ui.ctx()) == DockBodyLayout::Icons {
+    if current_body_layout(ui.ctx()) != DockBodyLayout::List {
         document_settings_icons(app, ui);
         return;
     }
-    let mut grid = app.board_show_grid;
-    if sidebar_checkbox_row(ui, &mut grid, "Show grid") {
+    if sidebar_icon_row(
+        ui,
+        "Show grid",
+        Some("G"),
+        app.board_show_grid,
+        theme,
+        |p, r, c| paint_dock_icon(p, r, DockIcon::Grid, c),
+    )
+    .on_hover_text("Toggle the 20-unit board grid.")
+    .clicked()
+    {
         let ctx = ui.ctx().clone();
         app.dispatch(
             &ctx,
@@ -745,45 +765,38 @@ fn document_settings_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarT
     }
 
     sidebar_subtle_divider(ui, theme);
-    sidebar_option_group(ui, "wires", theme, |ui| {
-        let bezier = app.board_wire_routing == slate_doc::WireRouting::Bezier;
-        if ui
-            .selectable_label(bezier, "bezier")
-            .on_hover_text("Cubic span — leaves each side perpendicular.")
-            .clicked()
-        {
-            let ctx = ui.ctx().clone();
-            app.dispatch(
-                &ctx,
-                atlas_commands::CommandId("board.wire.bezier"),
-                Some("dock".into()),
-            );
-        }
-        if ui
-            .selectable_label(!bezier, "orthogonal")
-            .on_hover_text(
-                "Axis-aligned wrap — shortest path around hosts; ties go right, then down.",
-            )
-            .clicked()
-        {
-            let ctx = ui.ctx().clone();
-            app.dispatch(
-                &ctx,
-                atlas_commands::CommandId("board.wire.orthogonal"),
-                Some("dock".into()),
-            );
-        }
-    });
+    let bezier = app.board_wire_routing == slate_doc::WireRouting::Bezier;
+    if let Some(i) = sidebar_choice_chips(
+        ui,
+        "wires",
+        theme,
+        &[
+            ChoiceChip {
+                label: "bezier",
+                selected: bezier,
+                hint: Some("Cubic span — leaves each side perpendicular."),
+            },
+            ChoiceChip {
+                label: "orthogonal",
+                selected: !bezier,
+                hint: Some(
+                    "Axis-aligned wrap — shortest path around hosts; ties go right, then down.",
+                ),
+            },
+        ],
+    ) {
+        let ctx = ui.ctx().clone();
+        let cmd = if i == 0 {
+            "board.wire.bezier"
+        } else {
+            "board.wire.orthogonal"
+        };
+        app.dispatch(&ctx, atlas_commands::CommandId(cmd), Some("dock".into()));
+    }
 
     sidebar_subtle_divider(ui, theme);
-    sidebar_fold_region(
-        ui,
-        Id::new("slate_osnap"),
-        "Object snaps",
-        true,
-        theme,
-        |ui| osnap_palette(app, ui, theme),
-    );
+    sidebar_heading(ui, "Object snaps", theme);
+    osnap_palette(app, ui, theme);
 }
 
 fn document_settings_icons(app: &mut SlateApp, ui: &mut egui::Ui) {
@@ -791,27 +804,23 @@ fn document_settings_icons(app: &mut SlateApp, ui: &mut egui::Ui) {
     let mut items = vec![
         FlyoutItem {
             id: "settings.grid",
-            label: "Show grid",
+            label: "grid",
             description: "Toggle the 20-unit board grid.",
             hotkey: None,
             icon: DockIcon::Grid,
             active: app.board_show_grid,
+            group: Some("grid"),
+            role: FlyoutRole::Toggle,
         },
         FlyoutItem {
             id: "settings.snap_grid",
-            label: "Snap to grid",
+            label: "snap",
             description: "F9 — snap picks and moves to the board grid.",
             hotkey: Some("F9"),
             icon: DockIcon::SnapGrid,
             active: app.board_snap_grid,
-        },
-        FlyoutItem {
-            id: "settings.osnap",
-            label: "Object snaps",
-            description: "Master switch. Alt suspends snaps for one pick.",
-            hotkey: None,
-            icon: DockIcon::Osnap,
-            active: app.board_osnap.enabled,
+            group: Some("grid"),
+            role: FlyoutRole::Toggle,
         },
         FlyoutItem {
             id: "settings.wire.bezier",
@@ -820,6 +829,8 @@ fn document_settings_icons(app: &mut SlateApp, ui: &mut egui::Ui) {
             hotkey: None,
             icon: DockIcon::Custom(icon_wire_bezier),
             active: app.board_wire_routing == slate_doc::WireRouting::Bezier,
+            group: Some("wires"),
+            role: FlyoutRole::Icon,
         },
         FlyoutItem {
             id: "settings.wire.orthogonal",
@@ -828,6 +839,28 @@ fn document_settings_icons(app: &mut SlateApp, ui: &mut egui::Ui) {
             hotkey: None,
             icon: DockIcon::Custom(icon_wire_ortho),
             active: app.board_wire_routing == slate_doc::WireRouting::Orthogonal,
+            group: Some("wires"),
+            role: FlyoutRole::Icon,
+        },
+        FlyoutItem {
+            id: "settings.osnap",
+            label: "osnap",
+            description: "Master switch. Alt suspends snaps for one pick.",
+            hotkey: None,
+            icon: DockIcon::Osnap,
+            active: app.board_osnap.enabled,
+            group: Some("object snaps"),
+            role: FlyoutRole::Toggle,
+        },
+        FlyoutItem {
+            id: "settings.smart_guides",
+            label: "guides",
+            description: "Align to nearby objects in the same row or column.",
+            hotkey: None,
+            icon: DockIcon::SnapGrid,
+            active: app.board_smart_guides,
+            group: Some("object snaps"),
+            role: FlyoutRole::Toggle,
         },
     ];
     for kind in SnapKind::ALL {
@@ -838,6 +871,8 @@ fn document_settings_icons(app: &mut SlateApp, ui: &mut egui::Ui) {
             hotkey: None,
             icon: snap_dock_icon(kind),
             active: app.board_osnap.is_kind_remembered(kind),
+            group: Some("object snaps"),
+            role: FlyoutRole::Toggle,
         });
     }
     if let Some(id) = flyout_items(ui, &items) {
@@ -846,6 +881,7 @@ fn document_settings_icons(app: &mut SlateApp, ui: &mut egui::Ui) {
             "settings.grid" => "board.grid",
             "settings.snap_grid" => "board.snap_grid",
             "settings.osnap" => "board.osnap",
+            "settings.smart_guides" => "board.smart_guides",
             "settings.wire.bezier" => "board.wire.bezier",
             "settings.wire.orthogonal" => "board.wire.orthogonal",
             other => {
@@ -893,13 +929,19 @@ fn osnap_item_id(kind: slate_doc::SnapKind) -> &'static str {
 fn osnap_palette(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     use slate_doc::SnapKind;
 
-    let mut master = app.board_osnap.enabled;
-    if sidebar_checkbox_hinted(
+    if sidebar_icon_row(
         ui,
-        &mut master,
         "Enable object snaps",
+        None,
+        app.board_osnap.enabled,
+        theme,
+        |p, r, c| paint_dock_icon(p, r, DockIcon::Osnap, c),
+    )
+    .on_hover_text(
         "Master switch (Rhino Disable inverted). Checked kinds stay remembered while this is off. Alt suspends snaps for one pick.",
-    ) {
+    )
+    .clicked()
+    {
         let ctx = ui.ctx().clone();
         app.dispatch(
             &ctx,
@@ -908,13 +950,19 @@ fn osnap_palette(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         );
     }
 
-    let mut snap = app.board_snap_grid;
-    if sidebar_checkbox_hinted(
+    if sidebar_icon_row(
         ui,
-        &mut snap,
         "Snap to grid",
+        Some("F9"),
+        app.board_snap_grid,
+        theme,
+        |p, r, c| paint_dock_icon(p, r, DockIcon::SnapGrid, c),
+    )
+    .on_hover_text(
         "F9 — snap point picks and moves to the 20-unit board grid. Object snaps override grid when both fire.",
-    ) {
+    )
+    .clicked()
+    {
         let ctx = ui.ctx().clone();
         app.dispatch(
             &ctx,
@@ -923,17 +971,80 @@ fn osnap_palette(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         );
     }
 
+    if sidebar_icon_row(
+        ui,
+        "Smart guides",
+        None,
+        app.board_smart_guides,
+        theme,
+        |p, r, c| paint_dock_icon(p, r, DockIcon::SnapGrid, c),
+    )
+    .on_hover_text(
+        "Align to nearby objects in the same row or column. A closer neighbor blocks objects behind it. Alt suspends.",
+    )
+    .clicked()
+    {
+        let ctx = ui.ctx().clone();
+        app.dispatch(
+            &ctx,
+            atlas_commands::CommandId("board.smart_guides"),
+            Some("dock".into()),
+        );
+    }
+
+    if let Some(i) = sidebar_segmented(
+        ui,
+        "REACH",
+        theme,
+        &[
+            SegmentedItem {
+                label: "tight",
+                selected: app.board_snap_reach == super::super::settings::SnapReach::Tight,
+                hint: Some(super::super::settings::SnapReach::Tight.hint()),
+                paint_icon: None,
+            },
+            SegmentedItem {
+                label: "nearby",
+                selected: app.board_snap_reach == super::super::settings::SnapReach::Nearby,
+                hint: Some(super::super::settings::SnapReach::Nearby.hint()),
+                paint_icon: None,
+            },
+            SegmentedItem {
+                label: "wide",
+                selected: app.board_snap_reach == super::super::settings::SnapReach::Wide,
+                hint: Some(super::super::settings::SnapReach::Wide.hint()),
+                paint_icon: None,
+            },
+        ],
+    ) {
+        let ctx = ui.ctx().clone();
+        let cmd = match i {
+            0 => "board.snap_reach.tight",
+            2 => "board.snap_reach.wide",
+            _ => "board.snap_reach.nearby",
+        };
+        app.dispatch(&ctx, atlas_commands::CommandId(cmd), Some("dock".into()));
+    }
+
     let muted = !app.board_osnap.enabled;
+    let kind_theme = if muted {
+        SidebarTheme {
+            ink: theme.sub,
+            ..theme
+        }
+    } else {
+        theme
+    };
     ui.columns(2, |cols| {
         for (i, kind) in SnapKind::ALL.iter().copied().enumerate() {
             let ui = &mut cols[i % 2];
-            let mut on = app.board_osnap.is_kind_remembered(kind);
-            let label = if muted {
-                RichText::new(kind.label()).small().color(theme.sub)
-            } else {
-                RichText::new(kind.label()).small().color(theme.ink)
-            };
-            if sidebar_checkbox_hinted(ui, &mut on, label, kind.hint()) {
+            let on = app.board_osnap.is_kind_remembered(kind);
+            if sidebar_icon_row(ui, kind.label(), None, on, kind_theme, |p, r, c| {
+                paint_dock_icon(p, r, snap_dock_icon(kind), c)
+            })
+            .on_hover_text(kind.hint())
+            .clicked()
+            {
                 let ctx = ui.ctx().clone();
                 app.dispatch(
                     &ctx,
@@ -1179,6 +1290,148 @@ fn group_rows(
         .clicked()
     {
         app.new_tag_edit = Some((Some(group_id), String::new()));
+    }
+}
+
+/// Activate a flyout tool from a canvas-embedded toolbar copy. Create
+/// tools arm only — they do not place. Instant actions (join, grid,
+/// snaps, color swap) still fire. Does not pin or unpin the baseline dock.
+pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &str) {
+    match id {
+        "frame.letter" | "frame.tabloid" | "frame.wide" | "frame.custom" => {
+            apply_frame_choice(app, id);
+            return;
+        }
+        "portal.repo" | "portal.status" | "portal.agent" | "portal.web" => {
+            apply_portal_choice(app, id);
+            return;
+        }
+        "text.block" | "text.sticky" => {
+            apply_text_choice(app, id);
+            return;
+        }
+        "action.trim" | "action.split" | "action.join" => {
+            apply_action_choice(app, ctx, id);
+            return;
+        }
+        "shape.rect" => {
+            app.set_board_tool(BoardTool::RectShape);
+            return;
+        }
+        "shape.ellipse" => {
+            app.set_board_tool(BoardTool::Ellipse);
+            return;
+        }
+        "shape.line" => {
+            app.set_board_tool(BoardTool::Line);
+            return;
+        }
+        "shape.pen" => {
+            app.set_board_tool(BoardTool::Pen);
+            return;
+        }
+        "shape.brush" => {
+            app.set_board_tool(BoardTool::Brush);
+            return;
+        }
+        "shape.eraser" => {
+            app.set_board_tool(BoardTool::Eraser);
+            return;
+        }
+        "shape.arc" => {
+            app.set_board_tool(BoardTool::Arc);
+            return;
+        }
+        "shape.polyline" => {
+            app.set_board_tool(BoardTool::Polyline);
+            return;
+        }
+        "shape.bezier" => {
+            app.set_board_tool(BoardTool::BezierSpan);
+            return;
+        }
+        _ => {}
+    }
+    let cmd = match id {
+        "prop.swap" => Some("board.colors.swap"),
+        "prop.reset" => Some("board.colors.default"),
+        "settings.grid" => Some("board.grid"),
+        "settings.snap_grid" => Some("board.snap_grid"),
+        "settings.osnap" => Some("board.osnap"),
+        "settings.smart_guides" => Some("board.smart_guides"),
+        "settings.wire.bezier" => Some("board.wire.bezier"),
+        "settings.wire.orthogonal" => Some("board.wire.orthogonal"),
+        other => slate_doc::SnapKind::ALL
+            .iter()
+            .copied()
+            .find(|k| osnap_item_id(*k) == other)
+            .map(osnap_command_id),
+    };
+    if let Some(cmd) = cmd {
+        app.dispatch(
+            ctx,
+            atlas_commands::CommandId(cmd),
+            Some("canvas-dock".into()),
+        );
+    }
+}
+
+pub(crate) fn flyout_tool_visual(id: &str) -> (&str, DockIcon) {
+    match id {
+        "frame.letter" => ("Letter", DockIcon::Custom(icon_frame)),
+        "frame.tabloid" => ("Tabloid", DockIcon::Custom(icon_frame)),
+        "frame.wide" => ("16:9", DockIcon::Custom(icon_frame)),
+        "frame.custom" => ("Custom…", DockIcon::Custom(icon_frame)),
+        "portal.repo" => ("Repository Lens", DockIcon::Custom(icon_repo)),
+        "portal.status" => ("Status Board", DockIcon::Custom(icon_status)),
+        "portal.agent" => ("Agent portal", DockIcon::Custom(icon_portals)),
+        "portal.web" => ("Web portal", DockIcon::Custom(icon_web)),
+        "text.block" => ("Text", DockIcon::Custom(icon_text)),
+        "text.sticky" => ("Sticky note", DockIcon::Custom(icon_sticky)),
+        "action.trim" => ("Trim", DockIcon::Custom(icon_trim)),
+        "action.join" => ("Join", DockIcon::Custom(icon_join)),
+        "shape.rect" => (
+            BoardTool::RectShape.label(),
+            tool_dock_icon(BoardTool::RectShape),
+        ),
+        "shape.ellipse" => (
+            BoardTool::Ellipse.label(),
+            tool_dock_icon(BoardTool::Ellipse),
+        ),
+        "shape.line" => (BoardTool::Line.label(), tool_dock_icon(BoardTool::Line)),
+        "shape.pen" => (BoardTool::Pen.label(), tool_dock_icon(BoardTool::Pen)),
+        "shape.brush" => (BoardTool::Brush.label(), tool_dock_icon(BoardTool::Brush)),
+        "shape.eraser" => (BoardTool::Eraser.label(), tool_dock_icon(BoardTool::Eraser)),
+        "shape.arc" => (BoardTool::Arc.label(), tool_dock_icon(BoardTool::Arc)),
+        "shape.polyline" => (
+            BoardTool::Polyline.label(),
+            tool_dock_icon(BoardTool::Polyline),
+        ),
+        "shape.bezier" => (
+            BoardTool::BezierSpan.label(),
+            tool_dock_icon(BoardTool::BezierSpan),
+        ),
+        "prop.colors" => ("Colors", DockIcon::Custom(icon_colors)),
+        "prop.swap" => ("Swap", DockIcon::Swap),
+        "prop.reset" => ("Reset", DockIcon::Reset),
+        "prop.tags" => ("Tags", DockIcon::Tags),
+        "settings.grid" => ("Show grid", DockIcon::Grid),
+        "settings.snap_grid" => ("Snap to grid", DockIcon::SnapGrid),
+        "settings.osnap" => ("Object snaps", DockIcon::Osnap),
+        "settings.smart_guides" => ("Smart guides", DockIcon::Fit),
+        "settings.wire.bezier" => ("Bezier wires", DockIcon::Custom(icon_wire_bezier)),
+        "settings.wire.orthogonal" => ("Orthogonal wires", DockIcon::Custom(icon_wire_ortho)),
+        other => {
+            if let Some(kind) = slate_doc::SnapKind::ALL
+                .iter()
+                .copied()
+                .find(|k| osnap_item_id(*k) == other)
+            {
+                (kind.label(), snap_dock_icon(kind))
+            } else {
+                (other, DockIcon::Grid)
+            }
+        }
     }
 }
 

@@ -628,6 +628,14 @@ impl WebHost for Webview2Host {
         };
         unsafe { webview.Reload() }.is_ok()
     }
+
+    fn navigate(&mut self, id: NodeId, target: &str) -> bool {
+        let Some(webview) = self.webview(id) else {
+            return false;
+        };
+        let url = wide(&navigate_uri(target));
+        unsafe { webview.Navigate(PCWSTR(url.as_ptr())) }.is_ok()
+    }
 }
 
 /// Buttons held during a move, so a drag reads as a drag inside the page.
@@ -736,11 +744,23 @@ fn attach(
     let _ = unsafe { webview.add_NavigationCompleted(&nav, &mut token) };
 
     // Popups and downloads are not a browser chrome feature we ship (D15, D32).
-    // Handled=true with no NewWindow, and Cancel=true on download, so the page
-    // cannot open a window or write a file through this host.
-    let popup = NewWindowRequestedEventHandler::create(Box::new(move |_sender, args| {
+    // Handled=true with no NewWindow; user-initiated `_blank` navigates the
+    // existing view so search result clicks do not disappear.
+    let popup = NewWindowRequestedEventHandler::create(Box::new(move |sender, args| {
         if let Some(args) = args {
+            let mut uri = windows::core::PWSTR::null();
+            let target = if unsafe { args.Uri(&mut uri) }.is_ok() && !uri.is_null() {
+                let target = unsafe { uri.to_string() }.ok();
+                unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(uri.0 as *const _)) };
+                target
+            } else {
+                None
+            };
             let _ = unsafe { args.SetHandled(true) };
+            if let (Some(sender), Some(target)) = (sender, target) {
+                let url = wide(&navigate_uri(&target));
+                let _ = unsafe { sender.Navigate(PCWSTR(url.as_ptr())) };
+            }
         }
         Ok(())
     }));

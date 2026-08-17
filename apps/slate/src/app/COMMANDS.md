@@ -57,7 +57,8 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
 - **F1** commands reference (Advanced) · **F2** command history window ·
   **F3** Selection panel toggle · **F4** mark this moment in the session
   activity log · **Ctrl+Shift+P** Advanced ·
-  **Ctrl+N** = new tab · **Ctrl+T** = Trim (Board).
+  **Ctrl+N** = new tab · **Ctrl+T** = Trim (Board) ·
+  **Ctrl+Shift+T** = Split (Board).
   Advanced → Session log shows the path and last stall; open the folder
   from there (`%LOCALAPPDATA%\NativeFileAtlas\session-log\`).
 - **M** minimap (all views; pinned state persists in chrome prefs) ·
@@ -88,15 +89,28 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
   painted geometry.
 - **Group reposition** (Ctrl+Alt+Shift): while dragging a group-box edge or
   corner with all three modifiers, members keep their size and only
-  translate to follow the new box. Without that chord, group resize still
-  scales (and can squash) each member.
+  translate. The opposite union handle stays put on every corner and
+  edge — the same origin rule as a scale. Without that chord, group
+  resize still scales (and can squash) each member. See P1.node.transform.
+- **Four-dot column** (stacked caption and icon strip, per palette):
+  Minimize, layout toggle (dock-wide: Icon strip / Stacked view),
+  Advanced (on-strip tags), Drop to canvas (`board.dock.drop` — journals
+  a `DockStrip` node; unlimited copies; baseline dock stays independent).
+  Hover labels share one chip centered above the dots. A click on a
+  canvas-copy icon **arms** the command; click-hold-drag anywhere on
+  that node **moves** the copy. Instant actions (join, grid, snaps,
+  color swap) still fire on click. See `P1.dock-strip`.
 - **F8** ortho toggle · **F9** snap-to-grid · **G / F7** board grid — dock
   Grid/Snap buttons dispatch the same commands. **Object snaps** (End, Mid,
   Center, Near, Intersection, Quadrant, Perpendicular, Tangent) plus
   Snap to grid live under Document Settings → Object snaps; each kind is
-  a registered command (`board.osnap.*`). Alt suspends object snaps for
-  the current pick. Tan and Perp stay inert until a gesture has a prior
-  point. 3D / NURBS snaps are portal-local (a Rhino view), not listed here.
+  a registered command (`board.osnap.*`). **Smart guides**
+  (`board.smart_guides`) align to nearby objects in the same row or
+  column; **reach** (`board.snap_reach` / `.tight` / `.nearby` / `.wide`)
+  limits how far they look. Alt suspends object snaps and smart guides
+  for the current pick. Tan and Perp stay inert until a gesture has a
+  prior point. 3D / NURBS snaps are portal-local (a Rhino view), not
+  listed here.
   **Wires** (bezier / orthogonal) are the same Document Settings palette
   (`board.wire.bezier`, `board.wire.orthogonal`, `board.wire.routing`);
   orthogonal wraps host geometry and ties go right, then down.
@@ -105,8 +119,10 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
 - **Agent portal** commands are registered alongside Repository Lens:
   `board.portal.agent`, `portal.agent.bind`, `portal.agent.send`,
   `portal.agent.provider`, `portal.agent.reveal`, `portal.agent.launch`,
-  `portal.agent.focus`, `portal.agent.switch_chat`, `stage.accept`, and
-  `stage.reject`. Bind journals the project folder on `PortalNode.source`.
+  `portal.agent.focus`, `portal.agent.get_key`, `portal.agent.switch_chat`,
+  `stage.accept`, and `stage.reject`. Bind journals the project folder on
+  `PortalNode.source`. A missing Cursor API key opens the dashboard mint
+  page and accepts a paste in the portal — never a dead-end sentence.
   Click selects the frame; double-click / Enter takes contents focus
   (`P1.portal.contents-focus`) so Cover Flow does not steal the board
   wheel. They use the file-link/staging contract, so agent edits remain
@@ -192,6 +208,19 @@ to Free ends *in the same undo group*. Connectors never join frame
 membership/slides, are marquee-selected only when their AABB is **fully
 inside** the rect, and their `Node.rect` re-syncs to the derived AABB once
 per scene generation (never per frame).
+
+### Trim (Ctrl+T) + Split (Ctrl+Shift+T)
+
+Same Rhino two-phase syntax: pick cutting objects (or preselect them),
+Enter, then click.
+
+- **Trim** deletes the clicked span (open) or arrangement face (closed).
+  Text/images store the remainder in `Node.clip`. Shift+click near an open
+  end extends it to the cutter.
+- **Split** keeps every piece: an open path becomes one Path per span; a
+  closed shape becomes one filled Path per face (a circle inside a rect
+  yields the disk **and** the holed outer). Text/images/frames/portals are
+  not targets. Each click is one undo.
 
 ### Direct selection (A) + Join (Ctrl+J)
 
@@ -289,9 +318,12 @@ Camera-only — never journaled, never repeatable.
   Board uses `Home` for fit because `F` is the Frame tool there.
 - **Armed create-tool chrome** (P2.GhostFollow): the moment Frame, Rect,
   Ellipse, Text, Sticky, or a portal tool arms — menu, palette, dock, or
-  hotkey — the pointer tints and a 22 px silhouette follows it. Click and
-  drag still use the existing place / expand rules; Shift aspect goes
-  through one shared `board_place::place_rect`. Esc disarms with no node.
+  hotkey — the pointer tints and a 22 px silhouette follows the **snapped**
+  world point (osnap + smart-guide forcefield). DragScale snaps both
+  corners: the live rubber-band's moving edges, not a naked cursor.
+  Click and drag still use the existing place / expand rules; Shift
+  aspect goes through one shared `board_place::place_rect` and never
+  becomes F8 ortho. Esc disarms with no node.
 - **Create toolbar flyouts**: Frame, Portals, Shapes, Text, and Actions
   open a volatile body on single click and pin on double click. Object
   properties and Document settings use the same model. Hover name chips
@@ -358,9 +390,12 @@ Camera-only — never journaled, never repeatable.
 - **Status Board** binds a local `project-state.json` (or a folder containing
   one). Inspector section toggles are journaled `Patch`es. Refresh reloads
   the file; Bake copies authored Text/Shape nodes and leaves the portal live.
-- **Web portal** is a host portal: bind a URL, an `.html` file, or a folder
-  with an entry file. That can embed the standalone HTML dashboard; it is
-  not a substitute for the generated Status Board (JSON → native layout).
+- **Web portal** is a host portal: a new one starts at
+  `https://www.google.com/` so the page itself can be used as a search
+  surface. Rebind it to a URL, an `.html` file, or a folder with an entry
+  file. That can embed the standalone HTML dashboard; it is not a substitute
+  for the generated Status Board (JSON → native layout). `portal.web.home`
+  returns the live page to the authored locator without changing the workbook.
 - **Portal chrome**: web portals carry a slim Slate identity tab showing the
   locator. Fold it from the context menu or `portal.chrome.toggle` — the
   tab strip itself only hosts maximize. Other portal kinds have no tab.

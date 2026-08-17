@@ -796,11 +796,11 @@ mod enabled {
                 ui.checkbox(&mut readouts.separators, "Separator rules");
                 ui.add_space(6.0);
                 ui.label(RichText::new("Collapse chevron (lower-left)").strong());
-                scalar(ui, "Chevron size", &mut readouts.chevron_size, 4.0..=16.0);
-                scalar(ui, "Hit size", &mut readouts.chevron_hit, 10.0..=28.0);
+                scalar(ui, "Chevron size", &mut readouts.chevron_size, 2.0..=16.0);
+                scalar(ui, "Hit size", &mut readouts.chevron_hit, 6.0..=28.0);
                 scalar(ui, "Inset X", &mut readouts.chevron_inset_x, 0.0..=24.0);
                 scalar(ui, "Inset Y", &mut readouts.chevron_inset_y, 0.0..=16.0);
-                scalar(ui, "Stroke", &mut readouts.chevron_stroke, 0.6..=2.4);
+                scalar(ui, "Stroke", &mut readouts.chevron_stroke, 0.4..=2.4);
                 scalar(
                     ui,
                     "Idle opacity",

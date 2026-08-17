@@ -19,7 +19,12 @@ P2.PortalPlace — deviations flagged below.
 > shared `board_place::place_rect` so future DragRect commands reuse them.
 >
 > Implementation: `apps/slate/src/app/board_place.rs`. Preview and commit
-> both call `place_rect`. Golden paths: `arming_gp1`–`arming_gp6` in
+> both call `place_rect`. The live ClickPlace path starts on **press**
+> and commits on **release** (`places_by_drag_rect`) — egui `drag_started`
+> never fires for a click, so waiting for it dropped default-size place.
+> Travel is measured in screen px (`place_tokens::DRAG_THRESHOLD`).
+> Golden paths: `arming_gp1`–`arming_gp6` plus
+> `every_drag_rect_tool_click_places_default_size` in
 > `apps/slate/src/app/tests.rs`.
 
 ## Behavior matrix
@@ -28,10 +33,10 @@ P2.PortalPlace — deviations flagged below.
 |----|-----------|-----------------|--------|------|
 | D01 | Initiation & arming | Menu, palette (typed name + aliases), dock icon, and hotkey all dispatch the same CommandId (P0.7). The instant the tool is armed — before any click — GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live. | stated | 100 |
 | D02 | Stickiness & repeat | Unchanged. DragRect tools stay one-shot (P2.DragShape.oneshot / P2.PortalPlace.oneshot). Space/Enter re-arms (P0.4). This contract does not change stickiness. | pattern | 88 |
-| D03 | Gesture grammar | Armed → GhostFollow (small cursor-locked silhouette) → Press → (ClickPlace \| DragScale) → Commit. GhostFollow is chrome only and never creates a node. Click/drag commit rules stay with the existing archetype. Shared `board_place::place_rect` computes the DragScale rect for both the live rubber-band and the journaled commit. | stated | 100 |
-| D04 | Click vs drag rule | Cursor travel > `draft.drag_threshold` (4 screen px) before release = DragScale; otherwise ClickPlace at the tool's default size (rect / ellipse from the kit recipe, frame from the live preset, portals from `<kind>.default_size`). A DragScale release under `MIN_DRAW` still discards. | stated | 100 |
+| D03 | Gesture grammar | Armed → GhostFollow (small cursor-locked silhouette) → Press → (ClickPlace \| DragScale) → Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not `drag_started` / `drag_stopped`). Shared `board_place::place_rect` computes the DragScale rect for both the live rubber-band and the journaled commit. | stated | 100 |
+| D04 | Click vs drag rule | Cursor travel > `draft.drag_threshold` (4 **screen** px) before release = DragScale; otherwise ClickPlace at the tool's default size (rect / ellipse from the kit recipe, frame from the live preset, portals from `<kind>.default_size`). Travel is the pointer's screen delta from the press, not a world-space length (zoom must not flip the split). A DragScale release under `MIN_DRAW` still discards. | stated | 100 |
 | D05 | Modifiers | P2.GhostFollow.place. During DragScale only. GhostFollow ignores modifiers. No new Alt/Ctrl create modifiers. | stated | 100 |
-| D06 | Constraints & snapping | GhostFollow is screen-space chrome and does not snap. DragScale keeps today's F9 grid + smart guides on the live rect. F8 ortho does not apply to area placement. | pattern | 80 |
+| D06 | Constraints & snapping | GhostFollow glyph stays screen-space (P0.9) but sits on the snapped world point: osnap + smart-guide forcefield, same `resolve_point_snap` as every other live board point. DragScale snaps both corners — press resolves the start; every frame and commit snap the live rect's moving edges (`resolve_draw_rect`, same forcefield as a resize). F8 ortho does not apply to area placement. Alt suspends. Shift is aspect only, never ortho. | stated | 100 |
 | D07 | Direction / value locks | n/a for area placement. Tab does not lock during GhostFollow or DragScale. | pattern | 85 |
 | D08 | Numeric / manual entry | n/a during place (Art. III). Size after commit via bbox grips / inspector only. | pattern | 80 |
 | D09 | Preview & readouts | P2.GhostFollow.glyph. Frame / Rect / Ellipse / portals / Text / Sticky each have a silhouette. During DragScale the silhouette is replaced by the existing live rubber-band. No new dock readout. The glyph is pointer-attached chrome (P0.9): screen-space, no zoom coupling, no authored text. | stated | 100 |
@@ -67,6 +72,7 @@ Pinned as the named-constants block `board_place::place_tokens` (P0.6).
 4. GP4: Arm Ellipse · press-drag-release → ellipse sized to the constraint-resolved drag rect; ghost replaced by the rubber-band for the whole drag.
 5. GP5: Arm Frame · Esc → no node, tool = Select, OS cursor restored.
 6. GP6: Arm Rect (rect silhouette) · arm Ellipse without clicking → silhouette swaps to ellipse, still no node.
+7. GP7: Board with a rect · arm Rect · hover near its left edge → forcefield + ghost hotspot jumps to the edge. Press elsewhere · drag the second corner so the live rect's right edge nears that rect → forcefield + rubber-band edge snaps, even if the cursor has left that row.
 
 ## Open questions
 

@@ -31,6 +31,11 @@ use super::SlateApp;
 // Feel constants (contract "Feel constants" table)
 // ---------------------------------------------------------------------------
 
+/// Default remote page for a newly placed web portal. This is a locator, not
+/// browser chrome: the page owns its own search UI and Slate remains one page,
+/// one locator.
+pub(crate) const WEB_START_LOCATOR: &str = "https://www.google.com/";
+
 /// Below this on-screen height, a portal is a chrome strip and nothing else.
 pub const LOD_STRIP_PX: f32 = 96.0;
 /// On-screen height at which a portal becomes eligible for the live pool.
@@ -48,6 +53,10 @@ pub const LIVE_DEMOTE_PX: f32 = 128.0;
 pub const LIVE_POOL: usize = 6;
 /// Render rate for pooled portals that do not hold input focus.
 pub const IDLE_FPS: f32 = 5.0;
+/// Readback cadence for the focused portal. D3D readback + texture upload is
+/// the expensive part; pacing it keeps page input from turning into a busy
+/// repaint loop.
+pub const FOCUSED_FPS: f32 = 30.0;
 /// Contents textures uploaded per frame; the rest wait in the backlog.
 pub const UPLOADS_PER_FRAME: usize = atlas_core::display::WEB_UPLOADS_PER_FRAME;
 /// Border band that stays a Slate target while a portal holds input focus.
@@ -293,6 +302,10 @@ pub trait WebHost {
     fn reload(&mut self, _id: NodeId) -> bool {
         false
     }
+    /// Navigate this derived view without changing the authored locator.
+    fn navigate(&mut self, _id: NodeId, _target: &str) -> bool {
+        false
+    }
 }
 
 /// The host used where no WebView2 runtime is present — every other platform,
@@ -349,6 +362,9 @@ struct WebView {
     on_screen: bool,
     live: bool,
     last_focus: Option<Instant>,
+    /// Last time we asked the host for a captured frame. Even "no frame yet"
+    /// should not become a zero-delay polling loop.
+    last_frame_probe: Option<Instant>,
     last_poll: Option<Instant>,
     source_mtime: Option<SystemTime>,
     /// Local source changed while this portal still holds a pool slot — reload
@@ -373,6 +389,7 @@ impl WebView {
             on_screen: false,
             live: false,
             last_focus: None,
+            last_frame_probe: None,
             last_poll: None,
             source_mtime: None,
             reload_pending: false,
@@ -704,14 +721,40 @@ impl SlateApp {
             }
         }
         let mut carried = Vec::new();
+        let mut next_upload_due: Option<Duration> = None;
+        let now = Instant::now();
         for id in pending {
             if self.web.uploads_this_frame >= UPLOADS_PER_FRAME {
                 carried.push(id);
+                next_upload_due = Some(Duration::ZERO);
                 continue;
             }
+            let frame_interval = if self.web.focused == Some(id) {
+                Duration::from_secs_f32(1.0 / FOCUSED_FPS)
+            } else {
+                Duration::from_secs_f32(1.0 / IDLE_FPS)
+            };
+            let Some(view) = self.web.views.get_mut(&id) else {
+                continue;
+            };
+            if let Some(last) = view.last_frame_probe {
+                let elapsed = last.elapsed();
+                if elapsed < frame_interval {
+                    carried.push(id);
+                    let remaining = frame_interval - elapsed;
+                    next_upload_due = Some(next_upload_due.map_or(remaining, |d| d.min(remaining)));
+                    continue;
+                }
+            }
+            view.last_frame_probe = Some(now);
+            let _ = view;
             if let Some(img) = self.web.host.take_frame(id) {
                 self.upload_poster(ctx, id, img);
                 self.web.uploads_this_frame += 1;
+            } else if self.web.views.get(&id).is_some_and(|v| v.live) {
+                carried.push(id);
+                next_upload_due =
+                    Some(next_upload_due.map_or(frame_interval, |d| d.min(frame_interval)));
             }
         }
         if !carried.is_empty() {
@@ -721,14 +764,13 @@ impl SlateApp {
                 carried.drain(0..drop);
             }
             self.web.backlog = carried;
-            ctx.request_repaint();
+            ctx.request_repaint_after(next_upload_due.unwrap_or(Duration::ZERO));
         }
         if self.web.views.values().any(|v| v.live) {
-            // Pooled portals animate; ask for the next frame at the idle rate
-            // unless one of them holds focus, in which case the board's own
-            // repaint cadence already covers it.
+            // Pooled portals animate; the capture/readback path is paced above
+            // so the repaint request should be paced too, even for focus.
             let after = if self.web.focused.is_some() {
-                Duration::ZERO
+                Duration::from_secs_f32(1.0 / FOCUSED_FPS)
             } else {
                 Duration::from_secs_f32(1.0 / IDLE_FPS)
             };
@@ -1083,6 +1125,38 @@ impl SlateApp {
         } else {
             self.web.host.go_back(id)
         }
+    }
+
+    /// `portal.web.home` — navigate the live derived view back to the authored
+    /// locator. The node is untouched: page history and current URL stay
+    /// derived state (D15 / D31).
+    pub(crate) fn web_home_selected(&mut self) -> bool {
+        let Some(id) = self.web.focused.or_else(|| self.selected_web_portal()) else {
+            return false;
+        };
+        let Some(node) = self.doc().scene.node(id).cloned() else {
+            return false;
+        };
+        let NodeKind::Portal(portal) = &node.kind else {
+            return false;
+        };
+        let Some(locator) = portal.source.as_ref().map(|s| s.locator.clone()) else {
+            return false;
+        };
+        if let Some(origin) = web_origin(&locator) {
+            if !self.web.has_consent(&origin) {
+                self.toast(format!("{origin} is blocked — allow it before going home."));
+                return false;
+            }
+        }
+        let Some(req) = self.web_request(portal, self.tab().path.as_deref(), node.rect) else {
+            return false;
+        };
+        if !self.web.host.navigate(id, &req.target) {
+            self.web.host.evict(id);
+            self.web.views.remove(&id);
+        }
+        true
     }
 
     /// Permit the selected portal's origin and let it load (D32). Local state,
@@ -1598,6 +1672,9 @@ impl SlateApp {
         if self.portal_chrome.maximized == Some(id) {
             return false;
         }
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            return self.web_blur();
+        }
         let srect = xf.rect_w2s(node.rect);
         let layout = layout_portal_chrome(srect, self.portal_chrome_collapsed(id), false, xf.z);
         if pointer.is_some_and(|p| layout.pointer_on_chrome(p)) {
@@ -1662,13 +1739,13 @@ impl SlateApp {
         let inside = pointer.is_some_and(|p| page.contains(p));
         let dragging = self.web.pointer_down != 0;
         if !inside && !dragging {
+            if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {
+                self.web_blur();
+                return false;
+            }
             if std::mem::take(&mut self.web.pointer_inside) {
                 self.web.host.send_input(id, WebInput::Leave);
                 self.web.pointer_down = 0;
-            }
-            let keys = self.web_keyboard_events(ui);
-            for event in keys {
-                self.web.host.send_input(id, event);
             }
             return false;
         }

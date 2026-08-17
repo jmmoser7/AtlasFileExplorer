@@ -9,7 +9,9 @@ split away)
 Inherits: P0.* (all), P1.node, **P2.RhinoTrim** — deviations flagged below.
 
 > Implementation: `apps/slate/src/app/board_trim.rs` (session + journal
-> commits) with geometry in `crates/vector-ink/src/trim.rs`. Open paths
+> commits) with geometry in `crates/vector-ink/src/trim.rs`. Overlay
+> output is snapped back onto source vertices / H/V lines / edges
+> (`clean.rs`) so uncut borders stay geometrically honest. Open paths
 > rewrite to remaining spans; closed shapes rewrite to a compound
 > `PathData` (even-odd holes). Text and images keep their node and store
 > the remaining region in `Node.clip` (SVG `clip-path`). Portals and
@@ -34,7 +36,7 @@ Inherits: P0.* (all), P1.node, **P2.RhinoTrim** — deviations flagged below.
 | D12 | Cancel | Esc in TrimParts → PickCutters (Draft). Esc in PickCutters → Select (Mode). Already-committed clicks stay (undo them with Ctrl+Z). | pattern | 85 |
 | D13 | Selected presentation | Unchanged: remaining shapes use path grips; clipped text/images keep their bbox. | pattern | 80 |
 | D14 | Post-edit | Direct Selection on rewritten paths. No Untrim command. | stated | 100 |
-| D15 | Non-goals | Untrim / UntrimAll / ReplaceEdge; Split as a separate command; ApparentIntersections; temporary Line cutter option; trimming portals or frames; 3D. | stated | 100 |
+| D15 | Non-goals | Untrim / UntrimAll / ReplaceEdge; ApparentIntersections; temporary Line cutter option; trimming portals or frames; 3D. Split is `board.tool.split`. | stated | 100 |
 | D16 | Create-style inheritance | n/a — does not create from fg/bg. Split-off spans copy the source node's stroke/fill. | pattern | 85 |
 | D17 | Hit-testing & pick | Open: closest remaining span within `trim.span_slop` (10 screen px). Closed/text/image: point-in-polygon on the filled region (or current clip). When several filled objects contain the click, pick the topmost whose remaining region after the cut is non-empty — a filled cutter over a hole does not swallow the punch. Frames/portals never pick as targets. | research | 75 |
 

@@ -33,14 +33,18 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
 | **Tool** / **Dashboard** | Title chip only | Volatile body (on-icon) | Pin → centered stack |
 | **Action** | Title chip | Fire action | — |
 
-- **Minimize (─)** dismisses a volatile body or unpins a pinned one back
-  to its icon. In the stacked list it sits in the caption's upper-right;
-  in icon-strip mode it sits on the right of that section's icons, aligned
-  with the primary row. Subsection folds use the same glyph; collapsing
-  one must **not** dismiss the panel. Bottom-anchored popovers shrink
-  upward, so hit-testing unions this frame's panel rect with last frame's
-  — otherwise the click that collapsed a fold lands outside the new rect
-  and is read as an outside dismiss.
+- **Minimize** dismisses a volatile body or unpins a pinned one back
+  to its icon. Icon-strip chrome is a **vertical four-dot column**
+  (top → bottom): Minimize / Close, layout toggle, Advanced, Drop to
+  canvas. Stacked captions use a **horizontal three-dot ellipsis** at
+  the top-right (Minimize / Close, layout toggle, Advanced) — Drop
+  stays on the strip column. Hover text for the group appears in one
+  place, centered above the dots. Subsection folds still use ─;
+  collapsing one must **not** dismiss the panel.
+  Bottom-anchored popovers shrink upward, so hit-testing unions this
+  frame's panel rect with last frame's — otherwise the click that
+  collapsed a fold lands outside the new rect and is read as an
+  outside dismiss.
 - Hover never joins the pinned stack. Volatile bodies retire after
   `close_delay` when abandoned, or on Escape / outside click.
 - Title chips are suppressed on pin/click until the pointer leaves, and never
@@ -52,16 +56,32 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   the Tooltip layer *after* panels so a primary-icon name sits in front of
   a pinned toolbar, never behind it.
 - Every body (tool or dashboard) shares one dock-wide layout: stacked
-  list or free-space icon strip. Clicking the three-squircle control on
-  **any** stacked list switches **all** pinned palettes to the strip.
-  Icon-strip mode is unbounded squircles at `flyout_icon_scale` (65% of
-  the dock), hex-packed, in **primary-icon order**, with a subtle divider
-  between categories. One stacked-list glyph sits at the far right of the
-  whole band (not per palette). Minimize still sits on each cluster.
-  Hovering anywhere in a strip's vicinity holds the leader back to that
+  list or free-space icon strip. The **second dot** on any palette
+  (stacked caption or strip cluster) switches **all** pinned palettes.
+  Label is **Icon strip** in the list and **Stacked view** in the strip.
+  Icon-strip mode is **fieldset groups** (thin rounded frame, label
+  sitting in the top border) of secondary circular icons at
+  `flyout_icon_scale` (65% of the dock). Tertiary toggle capsules stack
+  two-high in the same vertical space as one secondary icon, sharing that
+  datum. Hover text for the dots appears in **one place**,
+  centered above the group — wide in X on the strip column, wide in Y
+  on the caption ellipsis. Advanced opens a framed list of every tool
+  in that palette with an on-strip tag (hidden tools stay off the main
+  strip; `ChromePrefs.panel_strip_hidden`). Drop to canvas journals a
+  `DockStrip` node — a copy that does not pin, unpin, or replace the
+  baseline dock; there is no limit on how many copies exist.
+  A click on a canvas-copy icon **arms** the command (same as the
+  baseline dock); click-hold-drag anywhere on the node, including an
+  icon, **moves** the copy. Instant actions (join, grid, snaps, color
+  swap) still fire on click. Selection / hover chrome follows the
+  painted fillet (`P1.dock-strip`, `node_screen_outline`). Hovering
+  anywhere in a strip's vicinity holds the leader back to that
   palette's primary icon so scanning between squircles does not flicker.
   Strip icons use the same name + linger-description chip as the primary
-  dock.
+  dock. Stacked-list tool rows use the Document settings language:
+  sliding toggle pills (`sidebar_icon_row` / `flyout_list`), white
+  section headings, muted subsection labels, choice chips, segmented
+  REACH, and subtle dividers.
 - Hover / selected icon fills are a subtle mix, not a full-opacity swap.
 - Pins persist across sessions via `ChromePrefs.pinned_panels` where wired.
 

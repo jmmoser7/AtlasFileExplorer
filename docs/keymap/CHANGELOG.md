@@ -5,6 +5,32 @@ bound and why) and `ARCHITECTURE.md` (how it is built); per-app binding
 tables live in each app's `commands.rs` (`SPECS`) and render in
 **Advanced → Commands & shortcuts**.
 
+## 2026-08-16 — Trim / Split / Join geometry honesty
+
+- Boolean results snap back onto source vertices, H/V lines, and edges
+  (`vector-ink` `clean.rs`). Uncut axis-aligned borders stay axis-aligned;
+  collinear mid-edge vertices drop. Overlay is the topology oracle only.
+- **Join** of objects that do not share area is a no-op ("Objects do not
+  touch"). It no longer packs disjoint islands into one uneditable
+  compound path. Group (Ctrl+G) is the grouping command. Connected
+  components still union independently.
+
+## 2026-08-16 — Dock strip (dropped toolbar)
+
+- **`P1.dock-strip`** in `PATTERNS.md`. A canvas `DockStrip` click arms
+  the command; click-hold-drag anywhere on the node moves it. Icon strip
+  keeps the vertical four-dot column; stacked captions use a horizontal
+  three-dot ellipsis. Icon-strip bodies use fieldset groups of circular
+  secondary icons; tertiary toggles stack two-high on that datum and
+  the knob slides. Hover chips sit above the dots. Selection chrome
+  follows the painted fillet.
+
+## 2026-08-16 — Split (keep every piece)
+
+- **`board.tool.split`** on **Ctrl+Shift+T**. Same pick-cutters-then-click
+  syntax as Trim; the click keeps every span/face as its own Path.
+  Type "split" / Actions dock row. Contract: `contracts/split.md`.
+
 ## 2026-08-16 — Join (open paths + region union)
 
 - **`board.path.join`** on **Ctrl+J** (already the chord) now also unions

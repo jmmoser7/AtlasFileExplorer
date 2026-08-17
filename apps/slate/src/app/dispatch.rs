@@ -310,6 +310,10 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::Trim);
                 true
             }
+            "board.tool.split" => {
+                self.set_board_tool(board::BoardTool::Split);
+                true
+            }
             "portal.web.source" => match detail.as_deref().map(str::trim).filter(|s| !s.is_empty())
             {
                 // Agents and the command palette can pass a URL or path; humans
@@ -318,6 +322,7 @@ impl SlateApp {
                 None => self.web_pick_source_for_selection(),
             },
             "portal.web.allow_origin" => self.web_allow_selected_origin(),
+            "portal.web.home" => self.web_home_selected(),
             "portal.web.reload" => self.web_reload_selected(),
             "portal.web.back" => self.web_history_step(false),
             "portal.web.forward" => self.web_history_step(true),
@@ -336,6 +341,7 @@ impl SlateApp {
             "portal.agent.reveal" => self.reveal_selected_agent_link(),
             "portal.agent.launch" => self.launch_selected_agent_provider(),
             "portal.agent.focus" => self.agent_toggle_focus(),
+            "portal.agent.get_key" => self.open_cursor_api_key_page(),
             "portal.agent.switch_chat" => {
                 if let Some(id) = self.selected_agent_portal() {
                     self.open_agent_chat_picker(id);
@@ -478,6 +484,21 @@ impl SlateApp {
                     true
                 }
             }
+            "board.dock.drop" => {
+                let palette = self
+                    .dock_pins
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "tool.shapes".into());
+                self.drop_dock_strip(ctx, &palette);
+                detail = detail.or(Some(palette));
+                true
+            }
+            "board.dock.advanced" => {
+                // The Advanced overlay is toggled from the strip's third
+                // dot; this row keeps the command surface complete.
+                true
+            }
             "board.grid" => {
                 self.board_show_grid = !self.board_show_grid;
                 detail = detail.or(Some(if self.board_show_grid { "on" } else { "off" }.into()));
@@ -486,6 +507,30 @@ impl SlateApp {
             "board.snap_grid" => {
                 self.board_snap_grid = !self.board_snap_grid;
                 detail = detail.or(Some(if self.board_snap_grid { "on" } else { "off" }.into()));
+                true
+            }
+            "board.smart_guides" => {
+                self.board_smart_guides = !self.board_smart_guides;
+                self.persist_osnap();
+                detail = detail.or(Some(
+                    if self.board_smart_guides { "on" } else { "off" }.into(),
+                ));
+                true
+            }
+            "board.snap_reach" => {
+                self.board_snap_reach = self.board_snap_reach.next();
+                self.persist_osnap();
+                detail = detail.or(Some(self.board_snap_reach.label().into()));
+                true
+            }
+            "board.snap_reach.tight" | "board.snap_reach.nearby" | "board.snap_reach.wide" => {
+                self.board_snap_reach = match id.0 {
+                    "board.snap_reach.tight" => super::settings::SnapReach::Tight,
+                    "board.snap_reach.wide" => super::settings::SnapReach::Wide,
+                    _ => super::settings::SnapReach::Nearby,
+                };
+                self.persist_osnap();
+                detail = detail.or(Some(self.board_snap_reach.label().into()));
                 true
             }
             "board.osnap" => {
@@ -1125,7 +1170,12 @@ impl SlateApp {
         if keys.enter && !wants_kb && !typing_sink && !palette_open && !suppress_repeat {
             if board && self.board_crop.is_some() {
                 self.board_crop = None;
-            } else if board && self.board_tool == board::BoardTool::Trim {
+            } else if board
+                && matches!(
+                    self.board_tool,
+                    board::BoardTool::Trim | board::BoardTool::Split
+                )
+            {
                 self.trim_enter();
             } else if board && self.line_draft.is_some() {
                 // Typed length places the end point along the current

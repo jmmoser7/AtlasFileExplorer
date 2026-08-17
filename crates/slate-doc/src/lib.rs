@@ -17,6 +17,7 @@ pub mod stage;
 mod tags;
 mod view;
 pub mod wire;
+pub mod wire_host;
 
 pub use doc::{SlateDoc, SLATE_EXTENSION};
 pub use error::SlateLoadError;
@@ -30,10 +31,10 @@ pub use osnap::{
     SnapReject,
 };
 pub use scene::{
-    AgentContextScope, AgentPortalRef, Node, NodeId, NodeKind, PortalClass, PortalKind, PortalNode,
-    RepoPortalQuery, RepoTimeAxis, Scene, SceneCmd, SceneJournal, SourceUri, StatusPortalQuery,
-    WorldRect, REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W, STATUS_PORTAL_DEFAULT_H,
-    STATUS_PORTAL_DEFAULT_W,
+    AgentContextScope, AgentPortalRef, DockStripNode, Node, NodeId, NodeKind, PortalClass,
+    PortalKind, PortalNode, RepoPortalQuery, RepoTimeAxis, Scene, SceneCmd, SceneJournal,
+    SourceUri, StatusPortalQuery, WorldRect, REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W,
+    STATUS_PORTAL_DEFAULT_H, STATUS_PORTAL_DEFAULT_W,
 };
 pub use stage::{
     accept, reject, Proposal, ProposalResult, ProposalStatus, ProposalTarget, StageWatcher,
@@ -42,7 +43,9 @@ pub use stage::{
 pub use tags::{Tag, TagGroup};
 pub use view::{ViewKind, ViewState};
 pub use wire::{
-    connector_aabb_routed, connector_ortho_path, connector_route, filleted_polyline,
-    nearest_on_polyline, scene_wire_obstacles, ConnectorPath, PathCmd, WireRouting,
-    ORTHO_CLEARANCE, ORTHO_CORNER_RADIUS,
+    connector_aabb_routed, connector_ortho_path, connector_route, connector_route_in_scene,
+    filleted_polyline, nearest_on_polyline, scene_ortho_lanes, scene_wire_hosts,
+    scene_wire_obstacles, ConnectorPath, OrthoLane, PathCmd, WireObstacle, WireRouting,
+    ORTHO_CLEARANCE, ORTHO_CORNER_RADIUS, ORTHO_EXIT_GAP, ORTHO_RAIL_GAP,
 };
+pub use wire_host::{connector_anchor_on, WireHost, WirePort, WireSnap};

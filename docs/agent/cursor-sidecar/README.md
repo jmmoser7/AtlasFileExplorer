@@ -12,6 +12,9 @@ and writes:
 
 ## Run
 
+See [SETUP.md](SETUP.md) for the human path (mint a key, paste it in the
+portal, install Node if asked). Manual start:
+
 ```powershell
 npm install
 $env:CURSOR_API_KEY = "cursor_..."

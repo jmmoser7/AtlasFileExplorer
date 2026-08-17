@@ -44,6 +44,8 @@ pub enum ToolIcon {
     Trim,
     /// Join (open endpoints, or region union).
     Join,
+    /// Split (cutters, then click — keep every piece).
+    Split,
 }
 
 impl ToolIcon {
@@ -80,6 +82,7 @@ impl ToolIcon {
             ToolIcon::WebPortal => "Web portal",
             ToolIcon::Trim => "Trim",
             ToolIcon::Join => "Join",
+            ToolIcon::Split => "Split",
         }
     }
 }
@@ -421,6 +424,13 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
             painter.line_segment([pt(r, 0.12, 0.72), pt(r, 0.50, 0.42)], s);
             painter.line_segment([pt(r, 0.50, 0.42), pt(r, 0.88, 0.72)], s);
             painter.circle_filled(pt(r, 0.50, 0.42), (r.width() * 0.07).max(1.4), color);
+        }
+        ToolIcon::Split => {
+            // Two halves of a rect with a gap — both sides stay.
+            let left = Rect::from_min_max(pt(r, 0.16, 0.28), pt(r, 0.46, 0.78));
+            let right = Rect::from_min_max(pt(r, 0.54, 0.28), pt(r, 0.84, 0.78));
+            painter.rect_stroke(left, 1.5, s, egui::StrokeKind::Inside);
+            painter.rect_stroke(right, 1.5, s, egui::StrokeKind::Inside);
         }
     }
 }

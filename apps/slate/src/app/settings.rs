@@ -42,6 +42,55 @@ pub const ERASER_WIDTH_DEFAULT: f32 = 24.0;
 pub const STROKE_WIDTH_MIN: f32 = 0.5;
 pub const STROKE_WIDTH_MAX: f32 = 400.0;
 
+/// How far object-to-object smart guides look (screen px → world via zoom).
+/// InDesign / tldraw cull to the view; Tight / Nearby also require a
+/// neighborhood so a crowded board stays quiet.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SnapReach {
+    Tight,
+    #[default]
+    Nearby,
+    Wide,
+}
+
+impl SnapReach {
+    pub const ALL: [SnapReach; 3] = [SnapReach::Tight, SnapReach::Nearby, SnapReach::Wide];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SnapReach::Tight => "Tight",
+            SnapReach::Nearby => "Nearby",
+            SnapReach::Wide => "Wide",
+        }
+    }
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            SnapReach::Tight => "Only objects within ~160 px, same row or column.",
+            SnapReach::Nearby => "Default. Neighbors within ~360 px, same row or column.",
+            SnapReach::Wide => "Anything in view that shares your row or column (InDesign).",
+        }
+    }
+
+    /// `(reach, lane)` in screen pixels. `INFINITY` reach = viewport + lane only.
+    pub fn screen_px(self) -> (f32, f32) {
+        match self {
+            SnapReach::Tight => (160.0, 72.0),
+            SnapReach::Nearby => (360.0, 140.0),
+            SnapReach::Wide => (f32::INFINITY, 220.0),
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            SnapReach::Tight => SnapReach::Nearby,
+            SnapReach::Nearby => SnapReach::Wide,
+            SnapReach::Wide => SnapReach::Tight,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SlateSettings {
@@ -51,6 +100,10 @@ pub struct SlateSettings {
     pub board_ortho: bool,
     /// Persistent object-snap set (Document Settings). Session aid, not journaled.
     pub board_osnap: slate_doc::ObjectSnapSet,
+    /// Object-to-object smart guides (alignment ripples). Session aid.
+    pub board_smart_guides: bool,
+    /// How far smart guides look for neighbors.
+    pub board_snap_reach: SnapReach,
     /// Board wire display: bezier span or orthogonal wrap. Session aid, not journaled.
     pub board_wire_routing: slate_doc::WireRouting,
     /// Board foreground color (brush strokes, wires). `None` = theme
@@ -70,6 +123,8 @@ impl Default for SlateSettings {
             preview: PreviewSettings::default(),
             board_ortho: false,
             board_osnap: slate_doc::ObjectSnapSet::default(),
+            board_smart_guides: true,
+            board_snap_reach: SnapReach::default(),
             board_wire_routing: slate_doc::WireRouting::default(),
             board_fg: None,
             board_bg: None,
@@ -133,6 +188,8 @@ mod tests {
         assert_eq!(s, SlateSettings::default());
         assert!(s.board_osnap.enabled);
         assert!(s.board_osnap.end);
+        assert!(s.board_smart_guides);
+        assert_eq!(s.board_snap_reach, SnapReach::Nearby);
     }
 
     #[test]

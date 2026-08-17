@@ -67,6 +67,7 @@ impl SlateApp {
             dock_side: self.dock_side,
             pinned_panels: self.dock_pins.clone(),
             panel_icon_strip: self.dock_icon_strips.clone(),
+            panel_strip_hidden: self.dock_strip_hidden.clone(),
             minimap: self.minimap_on,
         }
         .save("slate");
@@ -135,6 +136,7 @@ impl SlateApp {
                 NodeKind::Text(_) => blocks.push((r, palette.sub.gamma_multiply(0.8))),
                 NodeKind::Shape(_) => blocks.push((r, palette.accent.gamma_multiply(0.8))),
                 NodeKind::Portal(_) => blocks.push((r, palette.accent.gamma_multiply(0.55))),
+                NodeKind::DockStrip(_) => blocks.push((r, palette.sub.gamma_multiply(0.55))),
                 NodeKind::Connector(_) => {}
             }
         }
@@ -373,6 +375,7 @@ impl SlateApp {
                             .as_ref()
                             .is_some_and(|l| l.to_lowercase().contains(&q)),
                         NodeKind::Portal(p) => p.title.to_lowercase().contains(&q),
+                        NodeKind::DockStrip(d) => d.palette_id.to_lowercase().contains(&q),
                         NodeKind::Shape(_) => false,
                     };
                     if is_match {
