@@ -62,6 +62,10 @@ The articles, in one line each:
 10. **No chrome divergence** — see `.cursor/rules/shared-chrome.mdc`.
 11. **Agent conduct** — pushback mandate; amendments only by user-ratified
     edits to `CONSTITUTION.md`.
+12. **One owner of knowledge** — token copies are cheap; knowledge clones
+    are a fork. Named owners (chrome, canvas scale, scene, commands,
+    folder-map, AI body) are called or extracted, never emulated. Parallel
+    interpreters of one model stay two. See `.cursor/rules/dry.mdc`.
 
 Companions: `ROADMAP.md` (phase sequencing), `docs/facet-taxonomy.md`
 (tools bind to facets, not formats).

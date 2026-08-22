@@ -191,7 +191,7 @@ impl SlateApp {
                 continue;
             };
             let eased = ease_in_out_cubic(*progress);
-            let outline = self.node_screen_outline(xf, n);
+            let outline = self.node_screen_outline(painter.ctx(), xf, n);
             painter.add(egui::Shape::closed_line(
                 outline,
                 egui::Stroke::new(

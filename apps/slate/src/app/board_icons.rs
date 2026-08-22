@@ -40,6 +40,8 @@ pub enum ToolIcon {
     StatusBoard,
     /// Web portal subtype (embedded page / local HTML dashboard).
     WebPortal,
+    /// File Atlas lens portal subtype.
+    AtlasLens,
     /// Trim (cutters, then click the dying piece).
     Trim,
     /// Join (open endpoints, or region union).
@@ -80,6 +82,7 @@ impl ToolIcon {
             ToolIcon::RepoLens => "Repository Lens",
             ToolIcon::StatusBoard => "Status Board",
             ToolIcon::WebPortal => "Web portal",
+            ToolIcon::AtlasLens => "File Atlas",
             ToolIcon::Trim => "Trim",
             ToolIcon::Join => "Join",
             ToolIcon::Split => "Split",
@@ -390,6 +393,26 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
             for (y, w) in [(0.32, 0.62), (0.50, 0.48), (0.68, 0.34)] {
                 painter.line_segment([pt(r, 0.26, y), pt(r, w, y)], s);
             }
+        }
+        ToolIcon::AtlasLens => {
+            // Folder card: a map of files, not a File Atlas window.
+            painter.rect_stroke(
+                Rect::from_min_max(pt(r, 0.18, 0.28), pt(r, 0.82, 0.80)),
+                1.5,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            painter.line_segment([pt(r, 0.18, 0.40), pt(r, 0.82, 0.40)], s);
+            painter.rect_filled(
+                Rect::from_min_max(pt(r, 0.28, 0.50), pt(r, 0.46, 0.68)),
+                0.5,
+                color.gamma_multiply(0.55),
+            );
+            painter.rect_filled(
+                Rect::from_min_max(pt(r, 0.54, 0.50), pt(r, 0.72, 0.68)),
+                0.5,
+                color.gamma_multiply(0.35),
+            );
         }
         ToolIcon::WebPortal => {
             // Globe: outline, one meridian, one equator — a page from elsewhere.

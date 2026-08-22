@@ -21,6 +21,8 @@
 //! - [`commands`] — command-reference table + shared canvas navigation.
 //! - [`canvas_scale`] — canvas-space linear size (P0.9): `designed × zoom`.
 //! - [`canvas_text`] — canvas-space type (P0.9): size × zoom, no ceiling.
+//! - [`folder_map`] — File Atlas folder map (camera, leaders, collapse, cards).
+//!   Standalone File Atlas and the Slate File Atlas portal share this surface.
 //! - [`menu`] — shared dropdown / right-click language (see `MENUS.md`).
 //! - [`home`] — Cover Flow launch / home surface (recent folders & workbooks).
 //! - [`recent`] — persisted MRU lists for the home surface.
@@ -39,6 +41,8 @@ pub mod chrome;
 pub mod commands;
 pub mod covers;
 pub mod dock;
+mod dock_advanced;
+pub mod folder_map;
 pub mod grid_fade;
 pub mod history_ui;
 pub mod home;

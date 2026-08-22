@@ -1,43 +1,70 @@
 //! Canvas-embedded copies of a dock palette (`NodeKind::DockStrip`).
 //!
-//! Each drop is a journaled node. Contents are derived from the dock recipe
-//! plus the `visible` snapshot taken at drop. Baseline dock chrome is
-//! untouched — these copies never pin, unpin, or hide the floating strip.
+//! Paint, measure, and hit-test go through `atlas_shell::dock` — the same
+//! fieldset strip the docked flyout uses. The node is a contain-scaled
+//! poster of that strip (P0.9): extra bounds are margin, never a reflow.
+//! Baseline dock chrome is untouched; copies never pin, unpin, or hide it.
 
 use super::board::{BoardDrag, BoardXf};
-use super::ui::tools::{activate_flyout_id, flyout_tool_visual};
+use super::ui::tools::{activate_flyout_id, palette_strip_items, palette_title};
 use super::SlateApp;
-use atlas_shell::canvas_scale;
-use atlas_shell::canvas_text;
-use atlas_shell::dock::{self, paint_dock_icon};
-use eframe::egui::{self, Align2, FontId, Pos2, Stroke};
-use slate_doc::scene::{DockStripNode, Node, NodeKind, WorldRect};
+use atlas_shell::dock::{self, DockSide, IconStripLayout};
+use atlas_shell::tokens::DockTokens;
+use eframe::egui::{self, Pos2, Rect};
+use slate_doc::scene::{DockStripNode, Node, NodeKind};
 use slate_doc::NodeId;
 
-/// Fillet shared by paint, hover glow, and selection chrome (P1.dock-strip).
-pub(crate) fn dock_strip_corner_radius(z: f32) -> f32 {
-    canvas_scale::px(6.0, z)
+/// Wide enough that a canvas poster never wraps the way a window dock does.
+const CANVAS_STRIP_BUDGET: f32 = 16_384.0;
+
+fn dock_tokens() -> DockTokens {
+    let mut tokens = atlas_shell::tokens::current().dock;
+    tokens.normalize();
+    tokens
+}
+
+fn measure_canvas_strip(
+    ctx: &egui::Context,
+    items: &[atlas_shell::dock::FlyoutItem<'_>],
+    tokens: &DockTokens,
+) -> IconStripLayout {
+    dock::measure_icon_strip(
+        ctx,
+        items,
+        tokens,
+        DockSide::BottomCenter,
+        CANVAS_STRIP_BUDGET,
+    )
 }
 
 impl SlateApp {
     /// Place a copy of `palette_id` at the view center. Unlimited; each
-    /// call journals a new node.
+    /// call journals a new node sized to the docked strip's intrinsic card.
     pub(crate) fn drop_dock_strip(&mut self, ctx: &egui::Context, palette_id: &str) {
         if self.doc().view.active_view != slate_doc::ViewKind::Board {
             return;
         }
-        let visible = dock::last_strip_tools(ctx, palette_id);
-        let n = visible.len().max(1) as f32;
-        let mut tokens = atlas_shell::tokens::current().dock;
-        tokens.normalize();
-        let icon_px = dock::flyout_icon_size(&tokens);
-        let gap_px = 4.0;
-        let pad_px = 8.0;
+        let mut visible = dock::last_strip_tools(ctx, palette_id);
+        let items = palette_strip_items(
+            self,
+            palette_id,
+            if visible.is_empty() {
+                &[]
+            } else {
+                &visible
+            },
+        );
+        if visible.is_empty() {
+            visible = items.iter().map(|it| it.id.to_string()).collect();
+        }
+        let tokens = dock_tokens();
+        let layout = measure_canvas_strip(ctx, &items, &tokens);
+        let card = dock::icon_strip_card_size(&layout, &tokens);
         let z = self.tab().cam.z.max(0.05);
-        let w = (n * icon_px + (n - 1.0) * gap_px + pad_px * 2.0) / z;
-        let h = (icon_px + pad_px * 2.0) / z;
+        let w = (card.x / z).max(8.0);
+        let h = (card.y / z).max(8.0);
         let center = self.board_xf().s2w(self.canvas_rect.center());
-        let rect = WorldRect::new(center.x - w * 0.5, center.y - h * 0.5, w, h);
+        let rect = slate_doc::scene::WorldRect::new(center.x - w * 0.5, center.y - h * 0.5, w, h);
         let node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::DockStrip(DockStripNode {
@@ -63,8 +90,7 @@ impl SlateApp {
         let Some(screen) = pointer else {
             return false;
         };
-        let world = xf.s2w(screen);
-        if self.dock_embed_tool_at(world.x, world.y).is_some() {
+        if self.dock_embed_tool_at(ctx, xf, screen).is_some() {
             ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         false
@@ -85,7 +111,14 @@ impl SlateApp {
         None
     }
 
-    pub(crate) fn dock_embed_tool_at(&self, wx: f32, wy: f32) -> Option<(NodeId, String)> {
+    pub(crate) fn dock_embed_tool_at(
+        &self,
+        ctx: &egui::Context,
+        xf: &BoardXf,
+        screen: Pos2,
+    ) -> Option<(NodeId, String)> {
+        let tokens = dock_tokens();
+        let world = xf.s2w(screen);
         for n in self.doc().scene.nodes.iter().rev() {
             if n.hidden {
                 continue;
@@ -93,25 +126,66 @@ impl SlateApp {
             let NodeKind::DockStrip(strip) = &n.kind else {
                 continue;
             };
-            if !n.rect.contains(wx, wy) {
+            if !n.rect.contains(world.x, world.y) {
                 continue;
             }
-            let tools = strip_tools(strip);
-            let slots = icon_slots(n.rect, tools.len());
-            for (id, slot) in tools.iter().zip(slots.iter()) {
-                if slot.contains(wx, wy) {
-                    return Some((n.id, (*id).to_owned()));
-                }
+            let items = palette_strip_items(self, &strip.palette_id, &strip.visible);
+            let layout = measure_canvas_strip(ctx, &items, &tokens);
+            let dest = xf.rect_w2s(n.rect);
+            if let Some(id) = dock::icon_strip_hit(dest, &layout, &tokens, screen) {
+                return Some((n.id, id.to_owned()));
             }
             return None;
         }
         None
     }
 
+    /// Painted card + fillet in screen space (selection / hover must match).
+    pub(crate) fn dock_strip_screen_card(
+        &self,
+        ctx: &egui::Context,
+        xf: &BoardXf,
+        node: &Node,
+        strip: &DockStripNode,
+    ) -> (Rect, f32) {
+        let dest = xf.rect_w2s(node.rect);
+        let tokens = dock_tokens();
+        let items = palette_strip_items(self, &strip.palette_id, &strip.visible);
+        if items.is_empty() {
+            return (dest, tokens.popover_corner_radius);
+        }
+        let layout = measure_canvas_strip(ctx, &items, &tokens);
+        (
+            dock::icon_strip_card_rect(dest, &layout, &tokens),
+            dock::icon_strip_card_radius(dest, &layout, &tokens),
+        )
+    }
+
+    /// World-space center of the first tool slot — tests and diagnostics.
+    pub(crate) fn dock_embed_first_tool_world(
+        &self,
+        ctx: &egui::Context,
+        xf: &BoardXf,
+        node: &Node,
+    ) -> Option<Pos2> {
+        let NodeKind::DockStrip(strip) = &node.kind else {
+            return None;
+        };
+        let tokens = dock_tokens();
+        let items = palette_strip_items(self, &strip.palette_id, &strip.visible);
+        let layout = measure_canvas_strip(ctx, &items, &tokens);
+        let id = layout.first_slot_id()?;
+        let dest = xf.rect_w2s(node.rect);
+        let slot = dock::icon_strip_slot_rect(dest, &layout, &tokens, id)?;
+        Some(xf.s2w(slot.center()))
+    }
+
     /// Click (no drag) on a canvas copy: an icon arms the command; padding
     /// selects the node. Create tools do not place on this click.
     pub(crate) fn try_dock_embed_click(&mut self, ctx: &egui::Context, world: Pos2) -> bool {
-        if let Some((_, tool)) = self.dock_embed_tool_at(world.x, world.y) {
+        let xf = self.board_xf();
+        let screen = xf.w2s(world);
+        if let Some((_, tool)) = self.dock_embed_tool_at(ctx, &xf, screen) {
             activate_flyout_id(self, ctx, &tool);
             return true;
         }
@@ -146,113 +220,26 @@ impl SlateApp {
 
 pub(crate) fn paint_dock_strip(
     ui: &egui::Ui,
-    painter: &egui::Painter,
     xf: &BoardXf,
     node: &Node,
     strip: &DockStripNode,
+    app: &SlateApp,
 ) {
-    let srect = xf.rect_w2s(node.rect);
-    let z = xf.z;
-    let palette = {
-        // Theme ink for the card — matches dock squircles, not a new chrome.
-        let tokens = atlas_shell::tokens::current();
-        if ui.visuals().dark_mode {
-            tokens.dock.dark
-        } else {
-            tokens.dock.light
-        }
-    };
-    let radius = dock_strip_corner_radius(z);
-    painter.rect_filled(
-        srect,
-        radius,
-        palette.popover_fill_color().gamma_multiply(0.72),
+    let dest = xf.rect_w2s(node.rect);
+    let tokens = dock_tokens();
+    let items = palette_strip_items(app, &strip.palette_id, &strip.visible);
+    let layout = measure_canvas_strip(ui.ctx(), &items, &tokens);
+    let hovered = ui
+        .ctx()
+        .pointer_latest_pos()
+        .and_then(|p| dock::icon_strip_hit(dest, &layout, &tokens, p));
+    dock::paint_icon_strip_card(
+        ui,
+        dest,
+        palette_title(&strip.palette_id),
+        &items,
+        &layout,
+        &tokens,
+        hovered,
     );
-    painter.rect_stroke(
-        srect,
-        radius,
-        Stroke::new(
-            canvas_scale::px(1.0, z).max(0.6),
-            palette.border_color().gamma_multiply(0.7),
-        ),
-        egui::StrokeKind::Inside,
-    );
-
-    let tools = strip_tools(strip);
-    if tools.is_empty() {
-        let title_px = canvas_scale::px(12.0, z);
-        if canvas_text::legible(title_px) {
-            canvas_text::text(
-                painter,
-                srect.center(),
-                Align2::CENTER_CENTER,
-                &strip.palette_id,
-                FontId::proportional(title_px),
-                palette.text_color(),
-            );
-        }
-        return;
-    }
-    let slots = icon_slots(node.rect, tools.len());
-    let pointer = ui.ctx().pointer_latest_pos().map(|p| xf.s2w(p));
-    for (id, slot) in tools.iter().zip(slots.iter()) {
-        let icon_s = xf.rect_w2s(*slot);
-        let hovered = pointer.is_some_and(|p| slot.contains(p.x, p.y));
-        let fill = if hovered {
-            palette.icon_hover_color().gamma_multiply(0.35)
-        } else {
-            palette.icon_fill_color()
-        };
-        atlas_shell::dock::paint_squircle(
-            painter,
-            icon_s.shrink(0.5),
-            fill,
-            Stroke::new(1.0_f32, palette.border_color()),
-            4.0,
-        );
-        let (label, icon) = flyout_tool_visual(id);
-        paint_dock_icon(
-            painter,
-            icon_s.shrink((icon_s.width() * 0.20).max(1.0)),
-            icon,
-            palette.text_color(),
-        );
-        if hovered {
-            let name_px = canvas_scale::px(11.0, z);
-            if canvas_text::legible(name_px) {
-                canvas_text::text(
-                    painter,
-                    Pos2::new(icon_s.center().x, icon_s.top() - canvas_scale::px(4.0, z)),
-                    Align2::CENTER_BOTTOM,
-                    label,
-                    FontId::proportional(name_px),
-                    palette.text_color(),
-                );
-            }
-        }
-    }
-}
-
-fn strip_tools(strip: &DockStripNode) -> Vec<&str> {
-    if strip.visible.is_empty() {
-        Vec::new()
-    } else {
-        strip.visible.iter().map(String::as_str).collect()
-    }
-}
-
-fn icon_slots(rect: WorldRect, count: usize) -> Vec<WorldRect> {
-    let n = count.max(1);
-    let pad = rect.h * 0.16;
-    let gap = rect.h * 0.10;
-    let inner_w = (rect.w - pad * 2.0).max(1.0);
-    let icon = ((inner_w - gap * (n.saturating_sub(1) as f32)) / n as f32)
-        .min(rect.h - pad * 2.0)
-        .max(0.5);
-    let used = icon * n as f32 + gap * (n.saturating_sub(1) as f32);
-    let x0 = rect.x + (rect.w - used) * 0.5;
-    let y = rect.y + (rect.h - icon) * 0.5;
-    (0..count)
-        .map(|i| WorldRect::new(x0 + i as f32 * (icon + gap), y, icon, icon))
-        .collect()
 }

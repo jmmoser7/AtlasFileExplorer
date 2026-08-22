@@ -33,6 +33,9 @@ Every decision below was held against `CONSTITUTION.md`:
   menu are all *adapters* compiling to the same commands.
 - **Art. X (no chrome divergence):** shared surfaces (minimap, palette,
   radial menu, history window) are built once in `atlas-shell`.
+- **Art. XII (one owner of knowledge):** a new host portal inherits
+  **P2.PortalHost**; it is not a paste of `board_web.rs`. Parallel
+  interpreters (painter + artifact) stay two.
 
 ## Status legend
 

@@ -298,6 +298,52 @@ apps look and feel identical, always.
    or code comment in the repository, this document wins, and the other
    artifact should be updated to conform.
 
+## Article XII — One owner of knowledge, many interpreters
+
+Duplication of *tokens* is cheap. Duplication of *knowledge* is a fork of
+the truth.
+
+**XII.1 — Knowledge has one owner.** Every rule the product must not
+contradict itself about has one authoritative representation. Call it or
+extend it. Do not emulate it. Named owners today:
+
+- window chrome geometry and color — `atlas-shell` (Article X);
+- canvas-space scale and canvas type — `atlas-shell::canvas_scale` /
+  `canvas_text` (P0.9);
+- scene styling — `slate-doc::scene` (Article IV);
+- command identity — each app's `SPECS` table; shared machinery in
+  `atlas-commands`;
+- folder-map paint and camera — `atlas-shell::folder_map`;
+- AI panel body — `atlas_ai::ui`.
+
+A second hand-written master of any of these is unfinished work.
+
+**XII.2 — Parallel interpreters are a feature.** A second interpreter of a
+model (the board painter and the artifact writer; a future print path) is
+not a fork, provided the model remains the only master and the interpreters
+do not import each other. Token overlap between interpreters is expected;
+semantic drift between them is a defect (Article IV).
+
+**XII.3 — Incidental similarity.** Two algorithms that look alike but will
+change for different reasons may be copied. Prefer that over a shared
+function thickened with flags. On the third independent copy, extract only
+the part whose reason to change is the same. If the extraction grows
+parameters and conditionals, the abstraction is wrong: inline and start
+over.
+
+**XII.4 — Extract-first when the owner exists.** Copy-then-extract is
+allowed when exploring a capability that has no owner yet. It is forbidden
+when the owner is already named in this constitution or in a shared crate.
+Agents shall not paste a working portal, tool, or chrome path to approximate
+another; they shall search, call, or extract. A documented temporary
+duplicate must cite an open row in `docs/audit/deviations.md` and a
+deletion milestone.
+
+**XII.5 — The shared kernel stays small.** A new crate is a governed
+boundary, not a dump for lookalike functions. Capabilities stay isolated
+(Article I). Apps must not import each other. `atlas-shell` must not depend
+on `slate-doc` or either app.
+
 ---
 
 ## Companion documents
@@ -308,9 +354,17 @@ apps look and feel identical, always.
 - `AGENTS.md` — day-to-day working instructions for agents in this repo.
 - `.cursor/rules/constitution.mdc` — the always-applied distillation of this
   document.
+- `.cursor/rules/dry.mdc` — the always-applied extract-or-call rule
+  (Article XII).
 
 ## Amendment log
 
+- **2026-08-22 — Article XII (one owner of knowledge).** Distinguishes
+  knowledge clones (illegal), incidental copies (Rule of Three), and
+  parallel interpreters (required). Ratifies extract-first when an owner
+  is already named, and forbids pasting a working portal, tool, or chrome
+  path to emulate another. Does not change Articles I, IV, or X; it names
+  the rule those articles were already enforcing at their seams.
 - **2026-07-25 — Audit №1 and №2 amendments (A, B, C, E, F).** Ratifies
   relative-first locators and tri-state link health (IX.2–IX.3); convergent
   journal commands (VI.2), ephemeral presence (VIII.5), and packages-are-forks

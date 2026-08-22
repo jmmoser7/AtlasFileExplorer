@@ -22,6 +22,12 @@ pub(crate) fn dock_preview_panel() -> Option<&'static str> {
 
 #[cfg(not(feature = "ui-tuner"))]
 #[inline]
+pub(crate) fn dock_advanced_preview() -> bool {
+    false
+}
+
+#[cfg(not(feature = "ui-tuner"))]
+#[inline]
 pub fn forcefield_preview_locked() -> bool {
     false
 }
@@ -30,9 +36,9 @@ pub fn forcefield_preview_locked() -> bool {
 mod enabled {
     use crate::menu::{self, MenuIcon};
     use crate::tokens::{
-        self, ActivityHeatmapTokens, BoardForcefieldTokens, BoardPreviewTokens, DockThemeTokens,
-        DockTokens, HomeTokens, MenuThemeTokens, MenuTokens, PortalMenuTokens, ReadoutTokens,
-        TopBarThemeTokens, TopBarTokens, UiTokens,
+        self, ActivityHeatmapTokens, BoardForcefieldTokens, BoardPreviewTokens, DockAdvancedTheme,
+        DockAdvancedTokens, DockThemeTokens, DockTokens, HomeTokens, MenuThemeTokens, MenuTokens,
+        PortalMenuTokens, ReadoutTokens, TopBarThemeTokens, TopBarTokens, UiTokens,
     };
     use eframe::egui::{self, Color32, RichText, Slider};
     use std::path::PathBuf;
@@ -44,6 +50,7 @@ mod enabled {
     static MENU_PREVIEW_LOCKED: AtomicBool = AtomicBool::new(false);
     static MENU_PREVIEW_KIND: AtomicUsize = AtomicUsize::new(0);
     static DOCK_PREVIEW_LOCKED: AtomicBool = AtomicBool::new(false);
+    static DOCK_ADVANCED_PREVIEW: AtomicBool = AtomicBool::new(false);
     static FORCEFIELD_PREVIEW_LOCKED: AtomicBool = AtomicBool::new(false);
     static DOCK_PREVIEW_PANEL: Mutex<Option<&'static str>> = Mutex::new(None);
 
@@ -154,6 +161,418 @@ mod enabled {
 
     fn leak_panel_id(id: &str) -> &'static str {
         Box::leak(id.to_owned().into_boxed_str())
+    }
+
+    fn dock_advanced_preview_controls(ui: &mut egui::Ui) {
+        dock_preview_controls(ui);
+        let mut locked = DOCK_ADVANCED_PREVIEW.load(Ordering::Relaxed);
+        if ui
+            .checkbox(&mut locked, "Lock advanced catalog open")
+            .on_hover_text(
+                "Keep the Advanced tool canvas visible while these sliders \
+                 have the pointer — also locks the parent dock popover.",
+            )
+            .changed()
+        {
+            DOCK_ADVANCED_PREVIEW.store(locked, Ordering::Relaxed);
+            if locked {
+                DOCK_PREVIEW_LOCKED.store(true, Ordering::Relaxed);
+            }
+        }
+        ui.separator();
+    }
+
+    /// Everything that dimensions the palette a dock icon opens, in the order
+    /// you reach for it: type, icons and their breathing room, the group
+    /// frame, the caption, then the dot cluster. Split across `[dock]` and
+    /// `[dock.palette]` in the token file, but one thing on screen.
+    fn dock_palette_editor(ui: &mut egui::Ui, dock: &mut DockTokens) {
+        egui::CollapsingHeader::new("Menu palette · Type, icons, frame & dots")
+            .default_open(true)
+            .show(ui, |ui| {
+                dock_preview_controls(ui);
+
+                ui.label(RichText::new("Placement").strong());
+                ui.label(
+                    RichText::new(
+                        "Gap from the master dock icon to the palettes, and \
+                         how far the whole dock sits from the canvas edge.",
+                    )
+                    .small(),
+                );
+                scalar(
+                    ui,
+                    "Palette ↔ master icon gap",
+                    &mut dock.popover_gap,
+                    0.0..=80.0,
+                );
+                scalar(
+                    ui,
+                    "Offset from canvas bottom",
+                    &mut dock.bottom_margin,
+                    0.0..=96.0,
+                );
+                scalar(ui, "Offset from canvas left", &mut dock.left_margin, 0.0..=96.0);
+                scalar(ui, "Panel stack gap", &mut dock.stack_gap, 0.0..=32.0);
+
+                ui.separator();
+                ui.label(RichText::new("Host \u{2194} palette hover").strong());
+                ui.label(
+                    RichText::new(
+                        "Hovering the master icon lights its palettes, and \
+                         hovering a palette lights the master icon. Dark mode \
+                         lightens the gray; light mode darkens it.",
+                    )
+                    .small(),
+                );
+                scalar(
+                    ui,
+                    "Fill density",
+                    &mut dock.palette.associate_fill,
+                    0.3..=0.85,
+                );
+                scalar(
+                    ui,
+                    "Stroke scale",
+                    &mut dock.palette.associate_stroke,
+                    1.0..=1.8,
+                );
+                scalar(
+                    ui,
+                    "Tint (lighter / darker)",
+                    &mut dock.palette.associate_tint,
+                    0.0..=0.7,
+                );
+                ui.separator();
+                ui.label(RichText::new("Pinned icon outline").strong());
+                ui.label(
+                    RichText::new(
+                        "A pinned palette's master icon keeps a denser outline \
+                         than an undeployed one. Same lighten / darken as hover.",
+                    )
+                    .small(),
+                );
+                scalar(
+                    ui,
+                    "Pinned stroke",
+                    &mut dock.palette.pinned_stroke,
+                    1.0..=2.4,
+                );
+                scalar(
+                    ui,
+                    "Pinned tint",
+                    &mut dock.palette.pinned_tint,
+                    0.0..=0.7,
+                );
+                ui.separator();
+                ui.label(RichText::new("Primary-dock blister").strong());
+                ui.label(
+                    RichText::new(
+                        "Click beside or below the icon bar to collapse it \
+                         into a handle on the readout. Pinned palettes stay.",
+                    )
+                    .small(),
+                );
+                scalar(ui, "Blister width", &mut dock.palette.blister_width, 24.0..=160.0);
+                scalar(
+                    ui,
+                    "Blister height",
+                    &mut dock.palette.blister_height,
+                    4.0..=28.0,
+                );
+                scalar(ui, "Blister sink", &mut dock.palette.blister_sink, 0.0..=20.0);
+                scalar(
+                    ui,
+                    "Collapse hover zone",
+                    &mut dock.palette.collapse_zone,
+                    8.0..=48.0,
+                );
+
+                ui.separator();
+                ui.label(RichText::new("Type").strong());
+                ui.label(
+                    RichText::new(
+                        "Pallet is the name on the box. Category is the name \
+                         on the underscore. Icon label is the type on snaps, \
+                         grid, and other labeled tools.",
+                    )
+                    .small(),
+                );
+                scalar(
+                    ui,
+                    "Pallet title size",
+                    &mut dock.palette.group_label_size,
+                    6.0..=24.0,
+                );
+                scalar(
+                    ui,
+                    "Pallet title lift",
+                    &mut dock.palette.pallet_label_lift,
+                    -16.0..=24.0,
+                );
+                scalar(
+                    ui,
+                    "Category title size",
+                    &mut dock.palette.category_label_size,
+                    6.0..=24.0,
+                );
+                scalar(
+                    ui,
+                    "Category title lift",
+                    &mut dock.palette.group_label_lift,
+                    -16.0..=24.0,
+                );
+                scalar(
+                    ui,
+                    "Icon label size",
+                    &mut dock.palette.labeled_text_size,
+                    6.0..=24.0,
+                );
+                scalar(
+                    ui,
+                    "Caption title (stacked)",
+                    &mut dock.palette.caption_text_size,
+                    7.0..=24.0,
+                );
+                scalar(
+                    ui,
+                    "Primary icon glyph",
+                    &mut dock.icon_text_size,
+                    8.0..=24.0,
+                );
+                scalar(ui, "Icon name chip", &mut dock.label_text_size, 7.0..=20.0);
+                scalar(ui, "Hover chip lift", &mut dock.hover_chip_gap, 0.0..=48.0);
+
+                ui.separator();
+                ui.label(RichText::new("Icons").strong());
+                scalar(ui, "Dock icon size", &mut dock.icon_size, 20.0..=64.0);
+                scalar(
+                    ui,
+                    "Palette icon scale",
+                    &mut dock.flyout_icon_scale,
+                    0.4..=1.0,
+                );
+                scalar(ui, "Icon gap", &mut dock.icon_gap, 0.0..=28.0);
+                scalar(
+                    ui,
+                    "Icon buffer (inside frame)",
+                    &mut dock.palette.group_pad,
+                    0.0..=32.0,
+                );
+                scalar(
+                    ui,
+                    "Toggle pair gap",
+                    &mut dock.palette.tertiary_stack_gap,
+                    0.0..=16.0,
+                );
+
+                ui.separator();
+                ui.label(RichText::new("Category rule (one underscore)").strong());
+                ui.label(
+                    RichText::new(
+                        "One line under every pallet in this flyout, edge to \
+                         edge of those boxes. The label is the category \
+                         (Shapes, Document settings) — once, centered. \
+                         Pallet names (curves, ink, object snaps) stay on \
+                         the boxes.",
+                    )
+                    .small(),
+                );
+                scalar(ui, "Rule stroke", &mut dock.palette.rule_stroke, 0.0..=6.0);
+                scalar(
+                    ui,
+                    "Rule offset (below icons)",
+                    &mut dock.palette.rule_offset,
+                    -16.0..=16.0,
+                );
+                scalar(
+                    ui,
+                    "Rule extent (past ends)",
+                    &mut dock.palette.rule_extent,
+                    -24.0..=32.0,
+                );
+                scalar(
+                    ui,
+                    "Title inset from left",
+                    &mut dock.palette.group_label_inset,
+                    0.0..=32.0,
+                );
+                scalar(
+                    ui,
+                    "Gap around title (border & rule)",
+                    &mut dock.palette.rule_text_gap,
+                    0.0..=16.0,
+                );
+
+                ui.separator();
+                ui.label(RichText::new("Group frame (icon strip)").strong());
+                scalar(
+                    ui,
+                    "Boundary stroke",
+                    &mut dock.palette.group_stroke,
+                    0.0..=6.0,
+                );
+                scalar(
+                    ui,
+                    "Corner radius",
+                    &mut dock.palette.group_radius,
+                    0.0..=24.0,
+                );
+                scalar(
+                    ui,
+                    "Gap between groups",
+                    &mut dock.palette.group_gap,
+                    0.0..=48.0,
+                );
+                scalar(
+                    ui,
+                    "Reserved dot column",
+                    &mut dock.palette.controls_width,
+                    8.0..=64.0,
+                );
+
+                ui.separator();
+                ui.label(RichText::new("Caption & popover (stacked view)").strong());
+                scalar(
+                    ui,
+                    "Caption row height",
+                    &mut dock.palette.caption_height,
+                    12.0..=48.0,
+                );
+                scalar(ui, "Popover padding", &mut dock.popover_padding, 0.0..=28.0);
+                scalar(
+                    ui,
+                    "Popover radius",
+                    &mut dock.popover_corner_radius,
+                    0.0..=28.0,
+                );
+                scalar(ui, "Popover width", &mut dock.popover_width, 160.0..=520.0);
+
+                ui.separator();
+                ui.label(RichText::new("Dot cluster").strong());
+                ui.label(
+                    RichText::new(
+                        "Minimize / Advanced / Drop on every palette; the last \
+                         palette along the dock adds the layout toggle.",
+                    )
+                    .small(),
+                );
+                scalar(ui, "Dot radius", &mut dock.palette.dot_radius, 0.5..=8.0);
+                scalar(ui, "Dot gap", &mut dock.palette.dot_gap, 0.0..=16.0);
+                scalar(
+                    ui,
+                    "Column offset from strip",
+                    &mut dock.palette.dot_offset,
+                    0.0..=40.0,
+                );
+                scalar(
+                    ui,
+                    "Hit slop · across column",
+                    &mut dock.palette.dot_hit_x,
+                    4.0..=64.0,
+                );
+                scalar(
+                    ui,
+                    "Hit slop · across ellipsis",
+                    &mut dock.palette.dot_hit_y,
+                    4.0..=48.0,
+                );
+                scalar(
+                    ui,
+                    "Hit slop · past end dots",
+                    &mut dock.palette.dot_hit_end,
+                    0.0..=32.0,
+                );
+                scalar(
+                    ui,
+                    "Hover chip gap",
+                    &mut dock.palette.dot_chip_gap,
+                    0.0..=24.0,
+                );
+
+                ui.separator();
+                ui.label(RichText::new("Colors · dark").strong());
+                ui.label(
+                    RichText::new(
+                        "Pallet text and category text are separate fills. \
+                         Rule is only the underscore.",
+                    )
+                    .small(),
+                );
+                rgba(ui, "Pallet text", &mut dock.dark.title);
+                rgba(ui, "Category text", &mut dock.dark.category);
+                rgba(ui, "Rule", &mut dock.dark.rule);
+                rgba(ui, "Red", &mut dock.dark.red);
+                rgba(ui, "Text", &mut dock.dark.text);
+                rgba(ui, "Muted text", &mut dock.dark.muted_text);
+                rgba(ui, "Border", &mut dock.dark.border);
+                rgba(ui, "Popover fill", &mut dock.dark.popover_fill);
+
+                ui.separator();
+                ui.label(RichText::new("Colors · light").strong());
+                rgba(ui, "Pallet text", &mut dock.light.title);
+                rgba(ui, "Category text", &mut dock.light.category);
+                rgba(ui, "Rule", &mut dock.light.rule);
+                rgba(ui, "Red", &mut dock.light.red);
+                rgba(ui, "Text", &mut dock.light.text);
+                rgba(ui, "Muted text", &mut dock.light.muted_text);
+                rgba(ui, "Border", &mut dock.light.border);
+                rgba(ui, "Popover fill", &mut dock.light.popover_fill);
+            });
+    }
+
+    fn dock_advanced_editor(ui: &mut egui::Ui, adv: &mut DockAdvancedTokens) {
+        egui::CollapsingHeader::new("Dock · Advanced catalog canvas")
+            .default_open(true)
+            .show(ui, |ui| {
+                dock_advanced_preview_controls(ui);
+                egui::CollapsingHeader::new("Geometry")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        scalar(ui, "Width fraction", &mut adv.width_frac, 0.4..=0.95);
+                        scalar(ui, "Height fraction", &mut adv.height_frac, 0.4..=0.92);
+                        scalar(ui, "Min width", &mut adv.min_width, 320.0..=1600.0);
+                        scalar(ui, "Min height", &mut adv.min_height, 240.0..=1200.0);
+                        scalar(ui, "Border width", &mut adv.border_width, 1.0..=8.0);
+                        scalar(ui, "Frame radius", &mut adv.corner_radius, 0.0..=28.0);
+                        scalar(ui, "Card width", &mut adv.card_w, 72.0..=240.0);
+                        scalar(ui, "Card height", &mut adv.card_h, 64.0..=200.0);
+                        scalar(ui, "Card gap", &mut adv.card_gap, 8.0..=48.0);
+                        scalar(ui, "Card radius", &mut adv.card_radius, 0.0..=28.0);
+                        scalar(ui, "Portal pad", &mut adv.portal_pad, 8.0..=48.0);
+                        scalar(ui, "Portal title", &mut adv.portal_title, 0.0..=40.0);
+                        scalar(ui, "Portal gap", &mut adv.portal_gap, 16.0..=96.0);
+                        scalar(ui, "Portal radius", &mut adv.portal_radius, 0.0..=28.0);
+                        scalar(ui, "Columns", &mut adv.cols, 2.0..=8.0);
+                        scalar(ui, "Grid step", &mut adv.grid_step, 12.0..=96.0);
+                        scalar(ui, "Zoom min", &mut adv.zoom_min, 0.1..=1.0);
+                        scalar(ui, "Zoom max", &mut adv.zoom_max, 0.5..=8.0);
+                    });
+            });
+        dock_advanced_theme_editor(ui, "Advanced catalog · Light colors", &mut adv.light);
+        dock_advanced_theme_editor(ui, "Advanced catalog · Dark colors", &mut adv.dark);
+    }
+
+    fn dock_advanced_theme_editor(ui: &mut egui::Ui, name: &str, theme: &mut DockAdvancedTheme) {
+        egui::CollapsingHeader::new(name)
+            .default_open(false)
+            .show(ui, |ui| {
+                dock_advanced_preview_controls(ui);
+                rgba(ui, "Canvas", &mut theme.canvas);
+                rgba(ui, "Border", &mut theme.border);
+                rgba(ui, "Veil", &mut theme.veil);
+                rgba(ui, "Color cast", &mut theme.cast);
+                rgba(ui, "Grid", &mut theme.grid);
+                rgba(ui, "Portal fill", &mut theme.portal_fill);
+                rgba(ui, "Portal border", &mut theme.portal_border);
+                rgba(ui, "Card fill", &mut theme.card_fill);
+                rgba(ui, "Card border", &mut theme.card_border);
+                rgba(ui, "Select", &mut theme.select);
+                rgba(ui, "Hover", &mut theme.hover);
+                rgba(ui, "On-strip badge", &mut theme.badge);
+                rgba(ui, "Text", &mut theme.text);
+                rgba(ui, "Muted", &mut theme.muted);
+            });
     }
 
     fn dock_preview_controls(ui: &mut egui::Ui) {
@@ -520,7 +939,7 @@ mod enabled {
                     &mut dock.panel_open_duration,
                     0.05..=0.8,
                 );
-                scalar(ui, "Label chip gap", &mut dock.hover_chip_gap, 2.0..=24.0);
+                scalar(ui, "Label chip gap", &mut dock.hover_chip_gap, 0.0..=48.0);
             });
     }
 
@@ -598,6 +1017,10 @@ mod enabled {
                 rgba(ui, "Border", &mut theme.border);
                 rgba(ui, "Text", &mut theme.text);
                 rgba(ui, "Muted text", &mut theme.muted_text);
+                rgba(ui, "Pallet text", &mut theme.title);
+                rgba(ui, "Category text", &mut theme.category);
+                rgba(ui, "Rule", &mut theme.rule);
+                rgba(ui, "Red", &mut theme.red);
             });
     }
 
@@ -1150,6 +1573,10 @@ mod enabled {
                 ui.separator();
 
                 // Newest work first for quick access.
+                dock_palette_editor(ui, &mut state.draft.dock);
+
+                dock_advanced_editor(ui, &mut state.draft.dock.advanced);
+
                 menu_editor(ui, &mut state.draft.menu);
 
                 board_preview_editor(ui, &mut state.draft.board_preview);
@@ -1212,6 +1639,10 @@ mod enabled {
             .then(|| PORTAL_PREVIEW_MENU.load(Ordering::Relaxed))
     }
 
+    pub(crate) fn dock_advanced_preview() -> bool {
+        DOCK_ADVANCED_PREVIEW.load(Ordering::Relaxed)
+    }
+
     pub(crate) fn dock_preview_panel() -> Option<&'static str> {
         if !DOCK_PREVIEW_LOCKED.load(Ordering::Relaxed) {
             return None;
@@ -1230,6 +1661,8 @@ mod enabled {
     }
 }
 
+#[cfg(feature = "ui-tuner")]
+pub(crate) use enabled::dock_advanced_preview;
 #[cfg(feature = "ui-tuner")]
 pub(crate) use enabled::dock_preview_panel;
 #[cfg(feature = "ui-tuner")]

@@ -11,6 +11,7 @@ use super::SlateApp;
 use atlas_session::{new_session, SessionTag, SessionTagGroup, SharedSession, TagAssignment};
 use eframe::egui;
 use slate_doc::TagId;
+use std::path::PathBuf;
 
 /// Screen-space origin of the Slate window (for drag targeting).
 fn sess_window_origin(shared: &SharedSession) -> (f32, f32) {
@@ -31,7 +32,15 @@ const ATLAS_VIEWPORT: &str = "slate-linked-atlas";
 impl SlateApp {
     /// Open File Atlas as a linked viewport (or focus the existing one).
     pub fn open_atlas(&mut self, ctx: &egui::Context) {
-        if self.atlas.is_some() {
+        self.open_atlas_at(ctx, None);
+    }
+
+    /// Open (or focus) the hosted File Atlas viewport, optionally on a folder.
+    pub fn open_atlas_at(&mut self, ctx: &egui::Context, root: Option<PathBuf>) {
+        if let Some(sess) = &mut self.atlas {
+            if let Some(root) = root {
+                sess.atlas.open_folder(root);
+            }
             return;
         }
         let shared = new_session();
@@ -40,7 +49,7 @@ impl SlateApp {
         }
         let atlas = Box::new(native_file_atlas::AtlasApp::embedded(
             ctx,
-            None,
+            root,
             shared.clone(),
         ));
         self.atlas = Some(AtlasSession { shared, atlas });

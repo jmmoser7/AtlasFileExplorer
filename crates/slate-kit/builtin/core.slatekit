@@ -14,7 +14,7 @@ name = "Slate core"
 doc = "The board's default tools."
 
 # ---------------------------------------------------------------------------
-# The DragRect family: one grammar, five results. This is the whole argument
+# The DragRect family: one grammar, several results. This is the whole argument
 # for keeping grammar and recipe apart — press-drag-release is identical in
 # all five, and only the recipe differs.
 # ---------------------------------------------------------------------------
@@ -90,6 +90,46 @@ doc = "A generated portal onto a project-status snapshot."
   default_size = [960.0, 720.0]
   # No `source`: a shared kit must not name a path from the author's machine
   # (Art. IX.2). Bind `project-state.json` after placement.
+
+[[tool]]
+id = "portal-file-atlas"
+name = "File Atlas"
+grammar = "drag_rect"
+icon = "file_atlas"
+doc = "A host portal onto a local folder, drawn with File Atlas's map language."
+
+  [tool.recipe]
+  kind = "portal"
+  portal = "file_atlas"
+  title = "File Atlas"
+  default_size = [960.0, 540.0]
+  # No `source`: bind a folder after placement (Art. IX.2).
+
+[[tool]]
+id = "portal-web"
+name = "Web portal"
+grammar = "drag_rect"
+icon = "web_portal"
+doc = "A host portal onto a URL or local HTML dashboard."
+
+  [tool.recipe]
+  kind = "portal"
+  portal = "web"
+  title = "Web portal"
+  default_size = [960.0, 540.0]
+
+[[tool]]
+id = "portal-agent"
+name = "Agent portal"
+grammar = "drag_rect"
+icon = "agent_portal"
+doc = "A host portal onto a local Cursor agent session."
+
+  [tool.recipe]
+  kind = "portal"
+  portal = "agent"
+  title = "Agent portal"
+  default_size = [960.0, 540.0]
 
 # The dock's own grouping stays in the app for now; a `[[bar]]` here would be a
 # second, competing description of the same rail. Kits gain bars once the dock

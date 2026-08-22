@@ -62,7 +62,8 @@ pub fn constraint_for(tool: BoardTool, frame_aspect: f32) -> Option<PlaceConstra
         BoardTool::RepoLens
         | BoardTool::StatusBoard
         | BoardTool::AgentPortal
-        | BoardTool::WebPortal => Some(PlaceConstraint::ShiftLocksAspect { ratio: 16.0 / 9.0 }),
+        | BoardTool::WebPortal
+        | BoardTool::AtlasPortal => Some(PlaceConstraint::ShiftLocksAspect { ratio: 16.0 / 9.0 }),
         _ => None,
     }
 }
@@ -135,7 +136,8 @@ pub fn ghost_kind(tool: BoardTool) -> Option<GhostKind> {
         BoardTool::RepoLens
         | BoardTool::StatusBoard
         | BoardTool::AgentPortal
-        | BoardTool::WebPortal => Some(GhostKind::Portal),
+        | BoardTool::WebPortal
+        | BoardTool::AtlasPortal => Some(GhostKind::Portal),
         BoardTool::Text => Some(GhostKind::TextBox),
         BoardTool::Sticky => Some(GhostKind::Sticky),
         _ => None,

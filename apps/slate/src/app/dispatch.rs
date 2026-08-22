@@ -306,6 +306,15 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::WebPortal);
                 true
             }
+            "board.portal.atlas" => {
+                self.set_board_tool(board::BoardTool::AtlasPortal);
+                true
+            }
+            "portal.atlas.source" => self.atlas_pick_source_for_selection(),
+            "portal.atlas.refresh" => self.atlas_refresh_selected(),
+            "portal.atlas.bake" => self.atlas_bake_selected(),
+            "portal.atlas.focus" => self.atlas_toggle_focus(),
+            "portal.atlas.open" => self.atlas_open_in_file_atlas(ctx, None),
             "board.tool.trim" => {
                 self.set_board_tool(board::BoardTool::Trim);
                 true
@@ -497,6 +506,13 @@ impl SlateApp {
             "board.dock.advanced" => {
                 // The Advanced overlay is toggled from the strip's third
                 // dot; this row keeps the command surface complete.
+                true
+            }
+            "dock.bar.toggle" => {
+                let on = atlas_shell::dock::bar_collapsed(ctx, "slate_tools").unwrap_or(false);
+                atlas_shell::dock::set_bar_collapsed(ctx, "slate_tools", !on);
+                self.dock_bar_collapsed = !on;
+                self.save_chrome_prefs();
                 true
             }
             "board.grid" => {
@@ -744,8 +760,14 @@ impl SlateApp {
         if self.doc().view.active_view == ViewKind::Board && self.web.focused.is_some() {
             return self.web_blur();
         }
+        if self.doc().view.active_view == ViewKind::Board && self.dismiss_agent_picker() {
+            return true;
+        }
         if self.doc().view.active_view == ViewKind::Board && self.agents.focused.is_some() {
             return self.agent_blur();
+        }
+        if self.doc().view.active_view == ViewKind::Board && self.atlas_lenses.focused.is_some() {
+            return self.atlas_blur();
         }
         // Repository Lens portal interactive / commit focus.
         if self.doc().view.active_view == ViewKind::Board

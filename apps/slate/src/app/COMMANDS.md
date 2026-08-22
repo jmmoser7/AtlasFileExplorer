@@ -94,12 +94,16 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
   resize still scales (and can squash) each member. See P1.node.transform.
 - **Four-dot column** (stacked caption and icon strip, per palette):
   Minimize, layout toggle (dock-wide: Icon strip / Stacked view),
-  Advanced (on-strip tags), Drop to canvas (`board.dock.drop` — journals
+  Advanced (fullscreen catalog canvas of the palette's tools — same
+  camera as the board; right-click or linger for toolbar / clipboard /
+  Duplicate / Use; linger yields to an open context menu), Drop to canvas (`board.dock.drop` — journals
   a `DockStrip` node; unlimited copies; baseline dock stays independent).
   Hover labels share one chip centered above the dots. A click on a
   canvas-copy icon **arms** the command; click-hold-drag anywhere on
-  that node **moves** the copy. Instant actions (join, grid, snaps,
-  color swap) still fire on click. See `P1.dock-strip`.
+  that node **moves** the copy. The copy is the same fieldset strip as
+  the docked flyout (title in the border, contain-scaled). Instant
+  actions (join, grid, snaps, color swap) still fire on click. See
+  `P1.dock-strip`.
 - **F8** ortho toggle · **F9** snap-to-grid · **G / F7** board grid — dock
   Grid/Snap buttons dispatch the same commands. **Object snaps** (End, Mid,
   Center, Near, Intersection, Quadrant, Perpendicular, Tangent) plus
@@ -325,7 +329,12 @@ Camera-only — never journaled, never repeatable.
   aspect goes through one shared `board_place::place_rect` and never
   becomes F8 ortho. Esc disarms with no node.
 - **Create toolbar flyouts**: Frame, Portals, Shapes, Text, and Actions
-  open a volatile body on single click and pin on double click. Object
+  open a volatile body on single click and pin on double click. A
+  single click on an already-pinned icon collapses that palette.
+  Hover is bidirectional: the host icon lights its palettes and a
+  hovered palette lights its host icon. Hover beside or below the
+  icon bar and click to collapse it into a blister on the readout;
+  pinned palettes stay. Object
   properties and Document settings use the same model. Hover name chips
   on the primary dock appear only while the pointer is on that icon;
   moving onto the flyout (pinned or volatile) clears them immediately,
@@ -390,6 +399,12 @@ Camera-only — never journaled, never repeatable.
 - **Status Board** binds a local `project-state.json` (or a folder containing
   one). Inspector section toggles are journaled `Patch`es. Refresh reloads
   the file; Bake copies authored Text/Shape nodes and leaves the portal live.
+- **File Atlas lens** is a host portal over a local folder (`board.portal.atlas`,
+  `portal.atlas.*`). Place from the Portals flyout. Binding is a later
+  non-modal step, or a folder drop through the lens chooser (File Atlas is
+  the default; Place files on the board dumps images). View-only: no
+  filesystem writes. Open in File Atlas uses the existing Slate-hosted
+  viewport. Bake writes a poster + provenance; the portal stays live.
 - **Web portal** is a host portal: a new one starts at
   `https://www.google.com/` so the page itself can be used as a search
   surface. Rebind it to a URL, an `.html` file, or a folder with an entry

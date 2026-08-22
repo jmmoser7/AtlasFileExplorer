@@ -105,6 +105,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         &restore,
         &restore_strips,
         &restore_hidden,
+        app.dock_bar_collapsed,
         |ui, id| match id {
             "filters" => basic_filters_body(app, ui, theme),
             "display" => display_settings_body(app, ui, ctx, theme),
@@ -150,6 +151,12 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
     if let Some(hidden) = atlas_shell::dock::strip_hidden(ctx, "file_atlas_tools") {
         if hidden != app.dock_strip_hidden {
             app.dock_strip_hidden = hidden;
+            prefs_dirty = true;
+        }
+    }
+    if let Some(collapsed) = atlas_shell::dock::bar_collapsed(ctx, "file_atlas_tools") {
+        if collapsed != app.dock_bar_collapsed {
+            app.dock_bar_collapsed = collapsed;
             prefs_dirty = true;
         }
     }

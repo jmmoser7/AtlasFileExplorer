@@ -1090,6 +1090,9 @@ impl SlateApp {
             .node(id)
             .is_some_and(|n| matches!(&n.kind, NodeKind::Portal(p) if p.kind == PortalKind::Web))
         {
+            let _ = self.agent_blur();
+            let _ = self.atlas_blur();
+            let _ = self.portal_clear_focus();
             self.web.focused = Some(id);
             if let Some(v) = self.web.views.get_mut(&id) {
                 v.last_focus = Some(Instant::now());
@@ -1261,7 +1264,9 @@ impl SlateApp {
         let mut rest = Vec::new();
         let mut placed = 0usize;
         for path in paths {
-            if !is_web_drop(path) {
+            // Folders go through the lens chooser (P1.portal.folder-drop).
+            // An HTML *file* is still a page, not a folder of files.
+            if path.is_dir() || !is_web_drop(path) {
                 rest.push(path.clone());
                 continue;
             }
@@ -1859,7 +1864,6 @@ impl SlateApp {
         let layout = layout_portal_chrome(srect, collapsed, false, xf.z);
         self.paint_web_portal_in_rect(ui, painter, node, portal, &layout, xf.z);
         let visiting = self.web_visiting_label(node.id, portal);
-        self.paint_portal_identity_chrome(ui, &layout, node.id, portal, visiting.as_deref());
         let focused = self.web.focused == Some(node.id);
         let alpha = node.opacity.clamp(0.0, 1.0);
         let border = if focused {
@@ -1867,9 +1871,13 @@ impl SlateApp {
         } else {
             Color32::from_rgba_unmultiplied(140, 150, 175, 150)
         };
-        self.paint_portal_frame_stroke(
+        self.paint_portal_shell_finish(
+            ui,
             painter,
             &layout,
+            node.id,
+            portal,
+            visiting.as_deref(),
             border.gamma_multiply(alpha),
             focused,
             xf.z,
@@ -1908,7 +1916,7 @@ impl SlateApp {
         if body.width() < 2.0 || body.height() < 2.0 {
             return;
         }
-        let clip = layout.page.intersect(body);
+        let clip = body.intersect(layout.frame);
         let poster = self.web.views.get(&node.id).and_then(|v| v.poster.clone());
         if let Some(tex) = poster {
             let stale = !live;

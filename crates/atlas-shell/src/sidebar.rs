@@ -202,6 +202,67 @@ pub fn sidebar_icon_row(
     resp
 }
 
+/// Stacked-list tool: circular glyph + label. Not a toggle — only
+/// [`sidebar_icon_row`] paints the sliding pill.
+pub fn sidebar_tool_row(
+    ui: &mut Ui,
+    label: &str,
+    hotkey: Option<&str>,
+    active: bool,
+    theme: SidebarTheme,
+    paint_icon: impl FnOnce(&egui::Painter, Rect, Color32),
+) -> egui::Response {
+    let height = SidebarTokens::ICON_ROW_HEIGHT;
+    let (rect, resp) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width().max(height), height),
+        Sense::click(),
+    );
+    let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
+    let icon_d = (height - 2.0).max(12.0);
+    let icon = Rect::from_center_size(
+        Pos2::new(rect.left() + icon_d * 0.5, rect.center().y),
+        Vec2::splat(icon_d),
+    );
+    let r = icon.width() * 0.5 - 0.5;
+    if active {
+        ui.painter()
+            .circle_filled(icon.center(), r, theme.ink.gamma_multiply(0.14));
+    } else if resp.hovered() {
+        ui.painter()
+            .circle_filled(icon.center(), r, theme.border.gamma_multiply(0.35));
+    }
+    ui.painter().circle_stroke(
+        icon.center(),
+        r,
+        Stroke::new(1.0_f32, if active || resp.hovered() { theme.ink } else { theme.sub }),
+    );
+    paint_icon(
+        ui.painter(),
+        icon.shrink((icon.width() * 0.22).max(2.0)),
+        theme.ink,
+    );
+    let label_x = icon.right() + 8.0;
+    let galley =
+        ui.fonts(|f| f.layout_no_wrap(label.to_owned(), FontId::proportional(13.0), theme.ink));
+    if let Some(key) = hotkey {
+        let kg =
+            ui.fonts(|f| f.layout_no_wrap(key.to_owned(), FontId::proportional(11.0), theme.sub));
+        let kx = (rect.right() - kg.size().x).max(label_x);
+        ui.painter().galley(
+            Pos2::new(kx, rect.center().y - kg.size().y * 0.5),
+            kg,
+            theme.sub,
+        );
+    }
+    ui.painter().galley(
+        Pos2::new(label_x, rect.center().y - galley.size().y * 0.5),
+        galley,
+        theme.ink,
+    );
+    ui.add_space(SidebarTokens::ROW_GAP);
+    resp
+}
+
 /// Toggle track + sliding knob. `t` is 0 (off, left) … 1 (on, right).
 pub fn paint_sidebar_icon_pill(
     painter: &egui::Painter,

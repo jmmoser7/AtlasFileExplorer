@@ -5,7 +5,11 @@ Family: portal
 Portal class: **host** (Art. V.3) · Type: **agent** · Subtype: **local link**
 Command: `board.portal.agent` (placement) · Key: none in v1 · Palette:
 "agent portal" (aliases: cursor portal, local agent)
-Inherits: P0.* (all, including P0.9), P1.node, P2.DragShape — deviations flagged below.
+Inherits: P0.* (all, including P0.9), P1.node, P1.portal, P2.DragShape,
+**P2.PortalHost** — deviations flagged below.
+
+Owner: `board_portal_chrome` + `atlas-shell::home` (unbound Cover Flow).
+Forbidden forks: a second Cover Flow; a second contents-focus prelude.
 
 ## What it is, and the 10% it implements
 
@@ -44,18 +48,18 @@ execution, MCP transport, and a canvas overlay for staged geometry.
 | D19 | Source binding | `PortalNode.source` is the project folder (`SourceUri`, relative-first, same locator as repo lens). Rebinding is a journaled `Patch`. `agent.provider` is a provider id (`cursor` today, `local` generic fallback); `agent.session` keys the AI-workspace folder. No vendor type appears in the scene model. Opening a saved workbook restores the folder. | stated | 100 |
 | D20 | Query & parameters | Journaled knobs: provider id, session id, context scope (`selection`, `frame`, `board`), optional opaque `channel` (saved chat id), frame rect/title/fill. Prompt text, turns, IDE process status, and the chat catalog are derived UI state. | stated | 100 |
 | D21 | Regeneration & staleness | Slate writes context at most once per second, fingerprint-gated. It reads `session.json` and stage files at most once per second, mtime-gated. Missing session paints offline, not error. | pattern | 85 |
-| D22 | Contents interaction | **P1.portal.contents-focus**. Click selects; the board keeps the wheel. Double-click / Enter focuses the composer (type + Send / Ctrl+Enter). Esc releases. Unbound + focused: Cover Flow. Bound: the composer is always painted; it only accepts input when focused. Send writes `request.json` and may spawn the Cursor sidecar (`docs/agent/cursor-sidecar`) against the bound folder. Right-click: Open in Cursor, Switch chat, Enter/Leave contents. | stated | 100 |
+| D22 | Contents interaction | **P1.portal.contents-focus**. Click selects; the board keeps the wheel. Double-click / Enter focuses the composer (type + Send / Ctrl+Enter). Esc releases. Unbound + focused: Cover Flow. After bind, if that folder already has Cursor agents (`.cursor/projects/…/agent-transcripts` and saved composer chats), the portal shows that list to pick from — even when there is only one. None exist: skip to the composer (new conversation). Bound + picked: the composer is always painted; it only accepts input when focused. Send writes `request.json` and may spawn the Cursor sidecar (`docs/agent/cursor-sidecar`) against the bound folder. Right-click: Open in Cursor, Switch agent, Enter/Leave contents. | stated | 100 |
 | D23 | Level of detail | Poster type and the empty-state shelf scale with zoom (P0.9). Type below the legibility floor is dropped, not clamped. Turns stay capped to the last few. | stated | 100 |
 | D24 | Export serialization | Artifact writer emits a host-poster caption naming provider/session and states live agent state is not exported. | stated | 100 |
 | D25 | Bake | n/a in v1. Agent output becomes authored content only by accepted staged `SceneCmd`s. | stated | 100 |
 | D26 | Collaboration & per-peer | Frame/provider/session/context sync as document data. Session files, prompts, turns, and pending proposals are local workspace state, never journaled. | pattern | 85 |
 | D27 | Agent surface | Agent may read context/request and write session/proposal files. It may never edit the workbook or journal directly; Slate accepts proposals as attributed commands. | stated | 100 |
 | D28 | Determinism & provenance | Host portal contents are not deterministic. Provenance is the provider id, session id, request ids, proposal author, and stage result. | pattern | 80 |
-| D29 | Performance envelope | All file I/O is throttled and mtime/fingerprint gated. No agent work runs on the UI thread. Portal paint is bounded to a few text rows. | pattern | 85 |
+| D29 | Performance envelope | All file I/O is throttled and mtime/fingerprint gated. No agent work runs on the UI thread — Node discovery, `npm install`, and sidecar spawn run on a worker and keep the composer on Thinking. Portal paint is bounded to a few text rows. | pattern | 85 |
 | D30 | Failure & honesty states | Unbound; Cursor not found; Cursor not running; Cursor running; file-link missing / idle / thinking / responding / error; no saved chats; pending / stale proposal. **A failed send is never a blank transcript and never a dead end.** The chip reads **Unreachable**. The transcript names the cause and offers a next step: **Get a key** opens `https://cursor.com/dashboard/api`, **Paste key** stores it on this machine and retries, **Setup steps** opens `docs/agent/cursor-sidecar/SETUP.md`, **Choose workspace** / **Download Node.js** when those are the block. **IDE status and sidecar status are separate lines.** A missing `session.json` is "no sidecar session", never "Cursor is offline" while the IDE is running. | stated | 100 |
 | D31 | View-state ownership | Journaled: frame and `AgentPortalRef`. Derived: prompt draft, transcript, request state, staged-proposal list, sidecar status. | pattern | 90 |
 | D32 | Trust, sandbox & consent | Slate may launch the Cursor **IDE** the human already installed, on a bound folder. It still does not embed a Cursor runtime or attach to a live chat thread (D15, Art. VII.8). The file-link sidecar remains user-run and is reached only through JSON under the AI workspace. Staged proposals are the acceptance gate (D27, Art. VII.6). | pattern | 85 |
-| D33 | Portal chrome | **No identity tab** (web-only). Maximize is the four-corner square in the upper-right. Right-click: Maximize, Open in Cursor, Switch chat, Enter/Leave contents. | stated | 100 |
+| D33 | Portal chrome | **No identity tab** (web-only). Maximize is the four-corner square in the upper-right. Right-click: Maximize, Open in Cursor, Switch agent, Enter/Leave contents. | stated | 100 |
 | D34 | Portal maximize | **P1.portal.maximize.** Fills the window at the screen aspect; Esc restores. | stated | 100 |
 | D35 | Portal-local UI | **P1.portal.local-ui.** Provider, scope, and sidecar controls live on this portal's inspector. None appear in Document Settings. | stated | 100 |
 
@@ -74,7 +78,8 @@ execution, MCP transport, and a canvas overlay for staged geometry.
    appears selected with no identity tab and a painted (non-interactive) Cover
    Flow of recent Cursor / Slate agent projects. Wheel still zooms the board.
    Double-click (or Enter) takes contents focus; then the shelf and Select
-   folder pill respond.
+   folder pill respond. Binding a folder that already has Cursor agents
+   opens that list in the portal; pick one or start a new conversation.
 2. **GP2 — prompt:** Select portal -> type prompt -> Send -> `request.json`
    appears under the session folder. The composer shows animated Thinking
    immediately. A reply updates to Responding, then the assistant turn. If

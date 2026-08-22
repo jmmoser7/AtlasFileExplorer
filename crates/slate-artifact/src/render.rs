@@ -349,6 +349,18 @@ fn render_portal(
             html.push_str(&escape_html(&pointer));
             html.push_str(" (live agent state is not exported)</span></div>");
         }
+        PortalKind::FileAtlas => {
+            let pointer = portal
+                .source
+                .as_ref()
+                .map(|s| s.locator.as_str())
+                .unwrap_or("unbound folder");
+            html.push_str("<div style=\"width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:rgba(228,230,235,0.85);font:14px system-ui,sans-serif;text-align:center\"><strong>");
+            html.push_str(&escape_html(&portal.title));
+            html.push_str("</strong><br><span style=\"opacity:.7\">Folder map poster: ");
+            html.push_str(&escape_html(pointer));
+            html.push_str(" (live scan is not exported)</span></div>");
+        }
     }
 
     html.push_str("</div>\n");

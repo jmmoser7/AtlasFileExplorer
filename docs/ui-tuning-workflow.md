@@ -19,7 +19,7 @@ crates/atlas-shell/ui-tokens.toml
 ```
 
 It controls the shared File Atlas and Slate top bar. Both applications consume
-the same tokens; app-specific copies are forbidden.
+the same tokens; app-specific copies are forbidden (Art. X / Art. XII).
 
 The runtime plumbing is:
 
@@ -36,8 +36,18 @@ Floating canvas docks follow the same workflow:
 | File | Responsibility |
 |------|----------------|
 | `crates/atlas-shell/src/dock.rs` | Squircle icon dock, popover host, hover/click pinning |
+| `crates/atlas-shell/src/dock_advanced.rs` | Advanced catalog canvas (camera, tool cards, selection) |
 | `crates/atlas-shell/DOCK.md` | Permanent dock design and behavior contract |
 | `[dock]` in `ui-tokens.toml` | Icon size/gap, flyout icon scale, squircle exponent, popover size, shadows, colors |
+| `[dock.palette]` in `ui-tokens.toml` | The palette body: fieldset pad/gap/radius/stroke, independent pallet / category / icon-label type and lifts, one category underscore, caption height, and the dot cluster |
+| `[dock.advanced]` in `ui-tokens.toml` | Advanced catalog canvas: card/portal geometry, cool color cast, grid |
+
+The palette is what a dock icon opens, and it is the first section in the
+tuner — *Menu palette · Type, icons, frame & dots*. It gathers the dials in
+the order you reach for them (type, icon size and buffering, the group frame's
+stroke and fillet, the caption, the dot cluster, then placement) even though
+they live in two token tables. Lock the popover open before dragging anything,
+or the palette closes the moment the pointer leaves the canvas.
 
 Dropdowns and right-click menus (both apps, including the icon-portal flyout):
 

@@ -290,6 +290,11 @@ If your idea is an Organ, this is the shape it takes.
   identically (Article X). If you need a new chrome capability, extend
   `atlas-shell` in a dedicated change;
 - **reach into another capability.** Compose through the core's contracts;
+- **paste a sibling portal, tool, or app module to emulate it.** Call or
+  extract the named owner
+  ([Article XII](CONSTITUTION.md#article-xii--one-owner-of-knowledge-many-interpreters)).
+  A new host portal inherits **P2.PortalHost**; it does not start from a
+  copy of `board_web.rs`;
 - **mutate a document outside a journaled path**, or allocate and tessellate
   per frame inside a paint path
   ([Article II](CONSTITUTION.md#article-ii--performance-is-a-feature) — heavy
@@ -307,7 +312,7 @@ mutations inside them, and what they serialise to on export:
 |---|---|---|
 | **Generated** (Lens, Grid, Venn) | nobody — contents are regenerated deterministically | the regenerated contents |
 | **Document** (a nested workbook, a linked model) | the *child* document's own journal | the child, rendered |
-| **Host** (a web surface) | the foreign application, entirely outside this program | a poster plus a pointer, and it says so |
+| **Host** (web, agent, File Atlas) | the foreign application, entirely outside this program | a poster plus a pointer, and it says so |
 
 Determinism is a requirement of the **generated** class, because an analysis
 view may not invent anything (Article IV.2). It is not a property of portals in
@@ -315,6 +320,12 @@ general, and a host portal cannot have it. Note also that this taxonomy is a
 design contract rather than shipped code: views today are still tab-level
 (`ViewKind` in `crates/slate-doc/src/view.rs`), which Article V calls a legacy
 form.
+
+A new *host* portal is an Organ-shaped leaf: inherit `P1.portal` +
+`P2.PortalPlace` + `P2.PortalHost`, bind the inner surface through
+`atlas-shell` or a pure crate, and do not import a sibling `board_*.rs` or
+copy another contract's matrix wholesale. Source-specific policy (web
+consent, Rhino snaps, repo query knobs) stays on that portal (D35).
 
 **Practical checklist before you open the PR:** the crate compiles and tests on
 Linux even though Windows is the reference platform; platform-specific code

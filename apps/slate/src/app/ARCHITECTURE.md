@@ -29,7 +29,7 @@ hidden on home. Opening is the shelf; **New** starts a blank workbook.
 | Floating tools dock | `ui/tools.rs` + `atlas-shell::dock` | The **single** bottom-centered toolbar: board creation tools (Select/Pan, Frame, Shapes, Curve, Text — Board view only), Grid/Snap/Align, plus **Tags**, **Selection**, **View**, and **Lens** (Lens view only). Flyouts and panels open upward, anchored to their icon. Workbook, AI, Present, Export, and Advanced live in the app-icon portal. See `crates/atlas-shell/DOCK.md`. |
 | Canvas | `canvas.rs` | Grid + Venn presentations, selection, right-click tag assignment |
 | Lens | `lens.rs` | Code-dependency graph canvas: worker pump, painting, focus/expand gestures |
-| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock). A **dropped toolbar** is a journaled `DockStrip` node (`board_dock_embed.rs`, `P1.dock-strip`): click an icon to arm, click-hold-drag anywhere on the node to move it; selection chrome follows the painted fillet. Armed create-tool chrome (tinted pointer + 22 px ghost) lives in `board_place.rs`. **Trim** (`board_trim.rs`, Ctrl+T) picks cutters then clicks the dying piece — open paths rewrite spans, closed shapes become compound even-odd paths, text/images store `Node.clip`. **Split** (same session, Ctrl+Shift+T) keeps every piece as its own Path. **Join** (`board_join.rs`, Ctrl+J) merges open paths at nearest ends, or boolean-unions connected closed regions (open operands become stroke-weight ribbons; disjoint operands stay put). Object snaps (`board_osnap.rs`, syntax in `slate-doc::osnap`) and wire routing (`slate-doc::wire`, bezier / orthogonal) are a Document Settings palette — session aid, not journaled. Wire ports follow object features (`P1.wire.ports`), not the world AABB. Wires paint under host nodes. A Grasshopper-style align widget (`board_align.rs`) appears around a 2+ selection. Canvas objects follow **P0.9** (scale with zoom). Agent portals have no identity tab; an unbound portal embeds `atlas-shell::home::cover_flow_home` (`HomeModel.interactive` only in contents-focus) and journals the chosen folder on `PortalNode.source`. Bound posters split Cursor IDE status from file-link sidecar status. |
+| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock). A **dropped toolbar** is a journaled `DockStrip` node (`board_dock_embed.rs`, `P1.dock-strip`): the same `atlas-shell::dock` fieldset strip as the docked flyout (title in the border, contain-scaled — no second painter); click an icon to arm, click-hold-drag anywhere on the node to move it; selection chrome follows the painted card fillet. Armed create-tool chrome (tinted pointer + 22 px ghost) lives in `board_place.rs`. **Trim** (`board_trim.rs`, Ctrl+T) picks cutters then clicks the dying piece — open paths rewrite spans, closed shapes become compound even-odd paths, text/images store `Node.clip`. **Split** (same session, Ctrl+Shift+T) keeps every piece as its own Path. **Join** (`board_join.rs`, Ctrl+J) merges open paths at nearest ends, or boolean-unions connected closed regions (open operands become stroke-weight ribbons; disjoint operands stay put). Object snaps (`board_osnap.rs`, syntax in `slate-doc::osnap`) and wire routing (`slate-doc::wire`, bezier / orthogonal) are a Document Settings palette — session aid, not journaled. Wire ports follow object features (`P1.wire.ports`), not the world AABB. Wires paint under host nodes. A Grasshopper-style align widget (`board_align.rs`) appears around a 2+ selection. Canvas objects follow **P0.9** (scale with zoom). Agent portals have no identity tab; an unbound portal embeds `atlas-shell::home::cover_flow_home` (`HomeModel.interactive` only in contents-focus) and journals the chosen folder on `PortalNode.source`. Bound posters split Cursor IDE status from file-link sidecar status. |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
 | Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
 | 3D viewports | `model3d.rs` | Rhino `.3dm` viewport lifecycle: off-thread mesh parse (`crates/rhino-mesh`), offscreen glow render, lock/unlock + poster cache |
@@ -275,6 +275,23 @@ egui still decides what reaches the page and Esc can peel focus off it.
 The page has no channel back into Slate — web messages and host objects are
 disabled — which is what makes Art. VII.4 structural rather than a promise.
 The contract is `docs/keymap/contracts/portal-web-embed.md`.
+
+Host contents-focus and shared host mechanism:
+`docs/keymap/contracts/PATTERNS.md` **P1.portal.contents-focus** and
+**P2.PortalHost**. Do not keep `web` / `agents` / `atlas_lenses`
+independently live. Do not start a new `board_<kind>.rs` from a paste of
+this file (Art. XII).
+
+### File Atlas lens (`board_atlas.rs` + `atlas-shell::folder_map`)
+
+A File Atlas lens is a host portal whose contents are a local folder map.
+Scan, tree, and thumbs come from `atlas-core`. The map itself — `FolderCam`
+(`screen = world × z + offset`), orthogonal leaders, directory collapse
+grips, group-preview mosaics, file cards — is `atlas-shell::folder_map`,
+the same module the standalone File Atlas window paints. Slate must not
+import `apps/file-atlas` or instantiate `AtlasApp`. Window chrome stays
+out of the frame (Art. X). The contract is
+`docs/keymap/contracts/portal-atlas-lens.md`.
 
 ### Workbook-in-workbook guards
 

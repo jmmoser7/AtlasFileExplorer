@@ -1,0 +1,35 @@
+---
+description: Do not emulate — search, call, or extract (Art. XII)
+alwaysApply: true
+---
+
+# One owner of knowledge (Art. XII)
+
+Law: `CONSTITUTION.md` Article XII. This file does not restate it.
+
+**Do not emulate.** Before writing a helper longer than ~15 lines, find the
+owner. If one exists, call it or extract into it. If File Atlas already
+does it, the owner is `atlas-shell` (often `folder_map`). If a portal
+already does it, extend `board_portal.rs` / `board_portal_chrome.rs` or
+inherit **P2.PortalHost** — do not start `board_<kind>.rs` from a paste of
+`board_web.rs` or `board_atlas.rs`.
+
+```rust
+// BAD — copy-then-tweak (how paint_atlas_empty grew a P0.9 clamp)
+let prompt = (15.0 * zoom).max(9.0);
+
+// GOOD — call the owner
+let prompt = canvas_scale::px(15.0, zoom);
+```
+
+**Rule of One** for named owners (chrome, `canvas_scale` / `canvas_text`,
+`slate-doc` scene, command `SPECS`, `folder_map`, `atlas_ai::ui`).
+**Rule of Three** for incidental lookalikes whose reason to change is still
+unknown. Prefer a local copy over a flag-laden helper.
+
+**Interpreters stay two.** `board.rs` and `slate-artifact` both read
+`slate-doc`. Do not merge them. Do not copy the model into either.
+
+A paste that ships without an owner is unfinished. Exploring? Leave
+`// TWIN: <path> <date>` and open a `docs/audit/deviations.md` row before
+a second consumer (XII.4).

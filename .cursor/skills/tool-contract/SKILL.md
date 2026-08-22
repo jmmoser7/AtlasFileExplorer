@@ -113,6 +113,8 @@ when it is verbatim. A rejected precedent drops back to guess next time.
    - **Promote patterns**: any rule now appearing in ≥2 contracts moves UP
      to the right level in PATTERNS.md; both contracts replace their copy
      with a reference. Never duplicate a pattern downward.
+   - Host portal contracts inherit **P2.PortalHost** (Art. XII). Do not
+     paste `board_web.rs` to start a new host kind.
 7. **Implement + pin — not optional.** The contract flipping to
    Status: agreed is the trigger, not the finish line: proceed directly
    to implementation in the same task, without waiting for a further

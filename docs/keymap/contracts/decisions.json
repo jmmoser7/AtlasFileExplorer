@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-08-16",
+  "updated": "2026-08-22",
   "tools": {
     "text": {
       "status": "proposed",
@@ -18,21 +18,21 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box · (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T → Text box, N → Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7).",
+          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box \u00b7 (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T \u2192 Text box, N \u2192 Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7).",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
           "decided": null
         },
         "D02": {
-          "behavior": "Text box: one-shot — after place+edit-blur (or Esc commit), return to Select. Sticky: stays armed after commit; Tab / Shift+Tab while editing spawns an adjacent sticky and keeps the tool armed. Esc while armed (no edit) disarms to Select.",
+          "behavior": "Text box: one-shot \u2014 after place+edit-blur (or Esc commit), return to Select. Sticky: stays armed after commit; Tab / Shift+Tab while editing spawns an adjacent sticky and keeps the tool armed. Esc while armed (no edit) disarms to Select.",
           "source": "research",
           "confidence": 70,
           "verdict": "proposed",
           "decided": null
         },
         "D03": {
-          "behavior": "Armed → GhostFollow (default-size ghost locked to cursor) → Press → (ClickPlace | DragScale) → Commit → enter inline edit. Click-release places at default world size. Press-drag-release places and scales. Replaces P2.PlaceOnce for text/sticky (new L2: GhostPlace).",
+          "behavior": "Armed \u2192 GhostFollow (default-size ghost locked to cursor) \u2192 Press \u2192 (ClickPlace | DragScale) \u2192 Commit \u2192 enter inline edit. Click-release places at default world size. Press-drag-release places and scales. Replaces P2.PlaceOnce for text/sticky (new L2: GhostPlace).",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -46,7 +46,7 @@
           "decided": null
         },
         "D05": {
-          "behavior": "Held Shift during DragScale locks aspect: Sticky → square; Text box → lock to default aspect (280×48). No Alt/Ctrl create modifiers in v1.",
+          "behavior": "Held Shift during DragScale locks aspect: Sticky \u2192 square; Text box \u2192 lock to default aspect (280\u00d748). No Alt/Ctrl create modifiers in v1.",
           "source": "research",
           "confidence": 65,
           "verdict": "proposed",
@@ -74,7 +74,7 @@
           "decided": null
         },
         "D09": {
-          "behavior": "While Armed: ghosted Text box or sticky preview locked to the cursor at the default world size (text: 280×48 + sample Text; sticky: STICKY_SIZE + yellow fill), alpha from place.ghost_alpha. During DragScale: live sized ghost. Paint always uses world metrics × camera zoom (font = size×z, wrap = rect.w×z) with no screen-constant / auto-fit path and no relative-scale floor.",
+          "behavior": "While Armed: ghosted Text box or sticky preview locked to the cursor at the default world size (text: 280\u00d748 + sample Text; sticky: STICKY_SIZE + yellow fill), alpha from place.ghost_alpha. During DragScale: live sized ghost. Paint always uses world metrics \u00d7 camera zoom (font = size\u00d7z, wrap = rect.w\u00d7z) with no screen-constant / auto-fit path and no relative-scale floor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -88,14 +88,14 @@
           "decided": null
         },
         "D11": {
-          "behavior": "Text box → TextNode (fill=None, default text Text, size 24 world). Sticky → TextNode with STICKY_FILL + STICKY_INK, empty text, size 24 world. Journal cmds board.tool.text / board.tool.sticky; one gesture = one undo. Immediately open inline edit. Creation DragScale sets rect from drag and scales font by mean scale vs default rect. Subsequent bbox resize of an existing node changes the frame only — authored font size stays put and text reflows.",
+          "behavior": "Text box \u2192 TextNode (fill=None, default text Text, size 24 world). Sticky \u2192 TextNode with STICKY_FILL + STICKY_INK, empty text, size 24 world. Journal cmds board.tool.text / board.tool.sticky; one gesture = one undo. Immediately open inline edit. Creation DragScale sets rect from drag and scales font by mean scale vs default rect. Subsequent bbox resize of an existing node changes the frame only \u2014 authored font size stays put and text reflows.",
           "source": "stated",
           "confidence": 90,
           "verdict": "proposed",
           "decided": null
         },
         "D12": {
-          "behavior": "Esc while GhostFollow / mid-DragScale → disarm to Select, no node (P0.1). Esc while inline-editing → commit text + peel edit (sticky stays armed per D02; text returns to Select).",
+          "behavior": "Esc while GhostFollow / mid-DragScale \u2192 disarm to Select, no node (P0.1). Esc while inline-editing \u2192 commit text + peel edit (sticky stays armed per D02; text returns to Select).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "proposed",
@@ -257,7 +257,7 @@
           "decided": "2026-07-23"
         },
         "D16": {
-          "behavior": "Yes — last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Yes \u2014 last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -283,7 +283,7 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Document Settings → Object snaps fold (tools-dock grid icon) + command palette. Master board.osnap; per-kind board.osnap.*; Snap to grid is board.snap_grid (F9) inside the same fold.",
+          "behavior": "Document Settings \u2192 Object snaps fold (tools-dock grid icon) + command palette. Master board.osnap; per-kind board.osnap.*; Snap to grid is board.snap_grid (F9) inside the same fold.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -304,7 +304,7 @@
           "decided": "2026-08-15"
         },
         "D04": {
-          "behavior": "n/a — no click/drag grammar of its own.",
+          "behavior": "n/a \u2014 no click/drag grammar of its own.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -346,21 +346,21 @@
           "decided": "2026-08-15"
         },
         "D10": {
-          "behavior": "n/a — does not change the tool cursor. The marker is the feedback.",
+          "behavior": "n/a \u2014 does not change the tool cursor. The marker is the feedback.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D11": {
-          "behavior": "n/a — snaps resolve a point; they do not create or patch nodes. Not journaled.",
+          "behavior": "n/a \u2014 snaps resolve a point; they do not create or patch nodes. Not journaled.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D12": {
-          "behavior": "n/a — Esc does not clear snap kinds. Alt is the suspend.",
+          "behavior": "n/a \u2014 Esc does not clear snap kinds. Alt is the suspend.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -374,7 +374,7 @@
           "decided": "2026-08-15"
         },
         "D14": {
-          "behavior": "Line grips, path clicks, GhostFollow hover, both DragScale corners (live rect edges via `resolve_draw_rect`), free wire ends, bbox moves, and corner-scale handles use the same ObjectSnapSet. Create-tool corners and the armed pointer emit smart-guide forcefield pulses when they align to a nearby object. Preview and commit consume the resolved point — never the raw cursor while a snap is live.",
+          "behavior": "Line grips, path clicks, GhostFollow hover, both DragScale corners (live rect edges via `resolve_draw_rect`), free wire ends, bbox moves, and corner-scale handles use the same ObjectSnapSet. Create-tool corners and the armed pointer emit smart-guide forcefield pulses when they align to a nearby object. Preview and commit consume the resolved point \u2014 never the raw cursor while a snap is live.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -395,7 +395,7 @@
           "decided": "2026-08-15"
         },
         "D17": {
-          "behavior": "n/a — snap picking is not selection hit-testing.",
+          "behavior": "n/a \u2014 snap picking is not selection hit-testing.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -501,7 +501,7 @@
           "decided": "2026-08-01"
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Contents expose no grips and are not selectable. Resize re-lays-out rather than scaling. Portals stay axis-aligned: no rotate chrome.",
+          "behavior": "Windows-style hover resize on the frame (P1.node.transform) \u2014 no prior selection. Contents expose no grips and are not selectable. Resize re-lays-out rather than scaling. Portals stay axis-aligned: no rotate chrome.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -758,7 +758,7 @@
           "decided": null
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Portals do not rotate. Agent transcript/proposals are inspector controls, not canvas grips.",
+          "behavior": "Windows-style hover resize on the frame (P1.node.transform) \u2014 no prior selection. Portals do not rotate. Agent transcript/proposals are inspector controls, not canvas grips.",
           "source": "pattern",
           "confidence": 75,
           "verdict": "proposed",
@@ -966,7 +966,7 @@
           "decided": "2026-08-07"
         },
         "D06": {
-          "behavior": "No grid, ortho, or object snap applies to filesystem placement. The target is the deepest folder whose bounds contain the cursor, so a folder's whole rectangle accepts a drop — including over the files it already holds.",
+          "behavior": "No grid, ortho, or object snap applies to filesystem placement. The target is the deepest folder whose bounds contain the cursor, so a folder's whole rectangle accepts a drop \u2014 including over the files it already holds.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1001,7 +1001,7 @@
           "decided": "2026-08-07"
         },
         "D11": {
-          "behavior": "Release on valid folder dispatches a background FsOp. A copy is first accounted for cloud placeholders on a worker thread — files and whole folder subtrees, directory entries only — and confirms before downloading anything. Completed changes are journaled as FsRename, FsMove, FsCopy, or FsDelete and applied to the current index/tree.",
+          "behavior": "Release on valid folder dispatches a background FsOp. A copy is first accounted for cloud placeholders on a worker thread \u2014 files and whole folder subtrees, directory entries only \u2014 and confirms before downloading anything. Completed changes are journaled as FsRename, FsMove, FsCopy, or FsDelete and applied to the current index/tree.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1029,7 +1029,7 @@
           "decided": "2026-08-07"
         },
         "D15": {
-          "behavior": "No cut/paste file operations, no agent-initiated writes, and no Delete command outside Edit mode. Delete acts on the selection, or on the item under the cursor when nothing is selected — the only way to delete a folder from the keyboard, since folders are never part of a selection.",
+          "behavior": "No cut/paste file operations, no agent-initiated writes, and no Delete command outside Edit mode. Delete acts on the selection, or on the item under the cursor when nothing is selected \u2014 the only way to delete a folder from the keyboard, since folders are never part of a selection.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1120,11 +1120,11 @@
           "decided": "2026-08-08"
         },
         "D09": {
-          "behavior": "During the drag: frame outline in Palette::portal + live w x h in the dock readout. Placed: P1.portal.chrome - one Slate identity tab showing the display locator (or the page currently being visited), a live dot while pooled, and a 2 px accent border on the input-focused portal. Contents clip to the frame fillet (P1.portal.clip). Dock readout when selected: locator - source kind - viewport width - zoom mode - state.",
+          "behavior": "During the drag: frame outline in Palette::portal + live w x h in the dock readout. Placed: P1.portal.chrome - one Slate identity tab showing the display locator (or the page currently being visited), a live dot while pooled, and no default frame outline. A minimalist stroke appears on edge hover or contents focus. Tab text clips to the tab bounds. Contents clip full-bleed to the frame fillet (P1.portal.clip), with no visual bezel. Dock readout when selected: locator - source kind - viewport width - zoom mode - state.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-15"
+          "decided": "2026-08-22"
         },
         "D10": {
           "behavior": "Crosshair while armed. Over a portal that is not input-focused - poster or live-rendering alike - the normal board arrow, because clicks select the frame. Over the input-focused portal, Slate applies the cursor the page requests through the composition controller. Over the chrome strip: always arrow, because the strip stays a Slate target.",
@@ -1148,7 +1148,7 @@
           "decided": "2026-08-15"
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Portals stay axis-aligned: no rotate chrome, including in a mixed group rotate.",
+          "behavior": "Windows-style hover resize on the frame (P1.node.transform) \u2014 no prior selection. Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Portals stay axis-aligned: no rotate chrome, including in a mixed group rotate.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
@@ -1176,11 +1176,11 @@
           "decided": "2026-08-08"
         },
         "D17": {
-          "behavior": "The frame picks on its rect, including marquee, whenever it is not input-focused. Only the single input-focused portal routes pointer and keyboard to the page - except the identity tab, the reveal strip, and a portal_frame.border_hit_px (6 px) border band, which stay Slate targets. Right-click on the tab or anywhere on the portal is Slate's (Copy URL, Paste URL, Maximize, Hide tab), never the page's. No board tool reaches the contents.",
+          "behavior": "The frame picks on its rect, including marquee, whenever it is not input-focused. Only the single input-focused portal routes pointer and keyboard to the page - except the identity tab, the reveal strip, and a portal_frame.border_hit_px (6 px) border band, which stay Slate targets as invisible input chrome. The border band may reveal a minimalist hover/focus stroke but never creates a visual bezel. Right-click on the tab or anywhere on the portal is Slate's (Copy URL, Paste URL, Maximize, Hide tab), never the page's. No board tool reaches the contents.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-15"
+          "decided": "2026-08-22"
         },
         "D18": {
           "behavior": "Host, with one named future exception. The page owns its own runtime and Slate owns no mutations inside it; the only journaled acts are on the frame - place, move, resize, rebind, re-parameterize, delete, bake. The exception, deferred to its own contract: a hosted surface may declare a control surface of named, typed parameters, which board wires drive from other nodes - the case being a dashboard with sliders wired to an input node so other board content moves them. Values written that way are authored journaled data on the Slate side and travel one way, Slate -> page, over a declarative typed channel; the page never issues commands back, which keeps Art. VII.3 (data, not code) and VII.4 intact and makes the exception explicit rather than accidental. Determinism is not required of host portals (P1.portal.determinism).",
@@ -1288,11 +1288,11 @@
           "decided": "2026-08-16"
         },
         "D33": {
-          "behavior": "P1.portal.chrome. One Slate identity tab shows the locator (or the page being visited). The strip is 40% the height of the Slate / File Atlas top bar. Maximize is the only chrome button on that strip (glyph highlight, no fill). Fold via right-click Hide tab or portal.chrome.toggle; a folded tab is recovered from the top-interior reveal strip. The four-corner maximize square sits in the tab bar's window-control slot (far right). Right-click on the tab or the frame: Copy URL, Paste URL (journaled rebind), Maximize, Hide/Show tab.",
+          "behavior": "P1.portal.chrome. One Slate identity tab shows the locator (or the page being visited). The strip is 40% the height of the Slate / File Atlas top bar. Text is clipped to the tab content bounds; truncation is allowed, oversail is not. Maximize is the only chrome button on that strip (glyph highlight, no fill). Fold via right-click Hide tab or portal.chrome.toggle; a folded tab is recovered from the top-interior reveal strip. The four-corner maximize square sits in the tab bar's window-control slot (far right). Right-click on the tab or the frame: Copy URL, Paste URL (journaled rebind), Maximize, Hide/Show tab.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-08-22"
         },
         "D34": {
           "behavior": "P1.portal.maximize. The tab's maximize button fills the window at the screen aspect, covers Slate chrome, keeps the tab at the top of the screen, and does not mutate the node rect. Esc restores. The page is laid out against the screen body while maximized.",
@@ -1408,7 +1408,7 @@
           "decided": "2026-08-16"
         },
         "D13": {
-          "behavior": "P1.portal.pick / P1.node.transform. Windows-style hover resize — no prior selection. Contents expose no grips. Resize re-lays-out (LOD keys on frame height). Portals stay axis-aligned: no rotate chrome.",
+          "behavior": "P1.portal.pick / P1.node.transform. Windows-style hover resize \u2014 no prior selection. Contents expose no grips. Resize re-lays-out (LOD keys on frame height). Portals stay axis-aligned: no rotate chrome.",
           "source": "pattern",
           "confidence": 90,
           "verdict": "approved",
@@ -1584,7 +1584,7 @@
       "canvas": "tool-arming-preview-contract",
       "decisions": {
         "D01": {
-          "behavior": "Menu, palette (typed name + aliases), dock icon, and hotkey all dispatch the same CommandId (P0.7). The instant the tool is armed — before any click — GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live.",
+          "behavior": "Menu, palette (typed name + aliases), dock icon, and hotkey all dispatch the same CommandId (P0.7). The instant the tool is armed \u2014 before any click \u2014 GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1598,7 +1598,7 @@
           "decided": "2026-08-15"
         },
         "D03": {
-          "behavior": "Armed → GhostFollow (small cursor-locked silhouette) → Press → (ClickPlace | DragScale) → Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not drag_started / drag_stopped). Shared board_place::place_rect computes the DragScale rect for both the live rubber-band and the journaled commit.",
+          "behavior": "Armed \u2192 GhostFollow (small cursor-locked silhouette) \u2192 Press \u2192 (ClickPlace | DragScale) \u2192 Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not drag_started / drag_stopped). Shared board_place::place_rect computes the DragScale rect for both the live rubber-band and the journaled commit.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1619,7 +1619,7 @@
           "decided": "2026-08-15"
         },
         "D06": {
-          "behavior": "GhostFollow glyph stays screen-space (P0.9) but sits on the snapped world point: osnap + smart-guide forcefield, same `resolve_point_snap` as every other live board point. DragScale snaps both corners — press resolves the start; every frame and commit snap the live rect's moving edges (`resolve_draw_rect`, same forcefield as a resize). F8 ortho does not apply to area placement. Alt suspends. Shift is aspect only, never ortho.",
+          "behavior": "GhostFollow glyph stays screen-space (P0.9) but sits on the snapped world point: osnap + smart-guide forcefield, same `resolve_point_snap` as every other live board point. DragScale snaps both corners \u2014 press resolves the start; every frame and commit snap the live rect's moving edges (`resolve_draw_rect`, same forcefield as a resize). F8 ortho does not apply to area placement. Alt suspends. Shift is aspect only, never ortho.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1668,14 +1668,14 @@
           "decided": "2026-08-15"
         },
         "D13": {
-          "behavior": "n/a — this contract does not change post-commit handles (P1.node bbox / P1.curve.grips).",
+          "behavior": "n/a \u2014 this contract does not change post-commit handles (P1.node bbox / P1.curve.grips).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D14": {
-          "behavior": "n/a — existing bbox / inspector / portal bind paths unchanged.",
+          "behavior": "n/a \u2014 existing bbox / inspector / portal bind paths unchanged.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1689,14 +1689,14 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "Unchanged. Shapes still consume BoardLastStyle; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome.",
+          "behavior": "Unchanged. Shapes still consume BoardLastStyle; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style \u2014 the silhouette is chrome.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D17": {
-          "behavior": "n/a — the ghost is not hittable. Existing node pick unchanged.",
+          "behavior": "n/a \u2014 the ghost is not hittable. Existing node pick unchanged.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1723,14 +1723,14 @@
           "decided": "2026-08-15"
         },
         "D02": {
-          "behavior": "Persistent while the selection qualifies. Repeat-last is Never — a second fire is idempotent.",
+          "behavior": "Persistent while the selection qualifies. Repeat-last is Never \u2014 a second fire is idempotent.",
           "source": "research",
           "confidence": 80,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D03": {
-          "behavior": "Idle → HoverIcon → Press → Commit. No drag grammar. Icons only on the bottom and left sides — top and right duplicate the same actions and are not drawn.",
+          "behavior": "Idle \u2192 HoverIcon \u2192 Press \u2192 Commit. No drag grammar. Icons only on the bottom and left sides \u2014 top and right duplicate the same actions and are not drawn.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1751,7 +1751,7 @@
           "decided": "2026-08-15"
         },
         "D06": {
-          "behavior": "n/a — the action writes rect.x / rect.y against the selection union. Grid / ortho / object snaps are not consulted.",
+          "behavior": "n/a \u2014 the action writes rect.x / rect.y against the selection union. Grid / ortho / object snaps are not consulted.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1772,7 +1772,7 @@
           "decided": "2026-08-15"
         },
         "D09": {
-          "behavior": "No second frame — the existing group-box outline is the selection indicator. Icons sit align.frame_outset (20 px) outside that box. Hover: icon invert + action name outside the cluster. No ghost outlines, no axis guide (they flicker). No numeric readout.",
+          "behavior": "No second frame \u2014 the existing group-box outline is the selection indicator. Icons sit align.frame_outset (20 px) outside that box. Hover: icon invert + action name outside the cluster. No ghost outlines, no axis guide (they flicker). No numeric readout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1821,7 +1821,7 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "n/a — does not create nodes.",
+          "behavior": "n/a \u2014 does not create nodes.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1840,7 +1840,11 @@
       "status": "agreed",
       "family": "tool",
       "reference": "Rhino Trim (2D)",
-      "inherits": ["P0.*", "P1.node", "P2.RhinoTrim"],
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P2.RhinoTrim"
+      ],
       "canvas": null,
       "decisions": {
         "D01": {
@@ -1858,7 +1862,7 @@
           "decided": "2026-08-16"
         },
         "D03": {
-          "behavior": "Armed → PickCutters → Enter → TrimParts → click*. Preselect skips to TrimParts with mutual cutters.",
+          "behavior": "Armed \u2192 PickCutters \u2192 Enter \u2192 TrimParts \u2192 click*. Preselect skips to TrimParts with mutual cutters.",
           "source": "research",
           "confidence": 80,
           "verdict": "approved",
@@ -1893,7 +1897,7 @@
           "decided": "2026-08-16"
         },
         "D08": {
-          "behavior": "n/a — no typed options in v1.",
+          "behavior": "n/a \u2014 no typed options in v1.",
           "source": "guess",
           "confidence": 60,
           "verdict": "approved",
@@ -1921,7 +1925,7 @@
           "decided": "2026-08-16"
         },
         "D12": {
-          "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",
+          "behavior": "Esc TrimParts\u2192PickCutters\u2192Select. Committed clicks stay.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1949,7 +1953,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a — does not consume fg/bg. Split-off spans copy source style.",
+          "behavior": "n/a \u2014 does not consume fg/bg. Split-off spans copy source style.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1968,7 +1972,11 @@
       "status": "agreed",
       "family": "tool",
       "reference": "Rhino Join (2D) + region union",
-      "inherits": ["P0.*", "P1.node", "P2.RhinoJoin"],
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P2.RhinoJoin"
+      ],
       "canvas": null,
       "decisions": {
         "D01": {
@@ -1986,14 +1994,14 @@
           "decided": "2026-08-16"
         },
         "D03": {
-          "behavior": "No live gesture. Preselect → Join. A-tool both-endpoints case merges/closes that path.",
+          "behavior": "No live gesture. Preselect \u2192 Join. A-tool both-endpoints case merges/closes that path.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-16"
         },
         "D04": {
-          "behavior": "n/a — not a pointer tool.",
+          "behavior": "n/a \u2014 not a pointer tool.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2035,7 +2043,7 @@
           "decided": "2026-08-16"
         },
         "D10": {
-          "behavior": "Unchanged — command, not an armed tool.",
+          "behavior": "Unchanged \u2014 command, not an armed tool.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
@@ -2077,7 +2085,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a — copies first operand style, does not consume fg/bg.",
+          "behavior": "n/a \u2014 copies first operand style, does not consume fg/bg.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2096,7 +2104,12 @@
       "status": "agreed",
       "family": "tool",
       "reference": "Rhino Split (2D)",
-      "inherits": ["P0.*", "P1.node", "P2.RhinoTrim", "P2.RhinoSplit"],
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P2.RhinoTrim",
+        "P2.RhinoSplit"
+      ],
       "canvas": null,
       "decisions": {
         "D01": {
@@ -2177,7 +2190,7 @@
           "decided": "2026-08-16"
         },
         "D12": {
-          "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",
+          "behavior": "Esc TrimParts\u2192PickCutters\u2192Select. Committed clicks stay.",
           "source": "precedent",
           "confidence": 90,
           "verdict": "approved",
@@ -2205,7 +2218,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a — pieces copy source stroke/fill.",
+          "behavior": "n/a \u2014 pieces copy source stroke/fill.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2217,6 +2230,526 @@
           "confidence": 75,
           "verdict": "approved",
           "decided": "2026-08-16"
+        }
+      }
+    },
+    "portal-atlas-lens": {
+      "status": "agreed",
+      "family": "portal",
+      "portal_class": "host",
+      "reference": "File Atlas folder canvas interpreted inside a Slate portal (not a File Atlas app feature)",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.portal",
+        "P2.PortalPlace"
+      ],
+      "canvas": "portal-atlas-lens-contract.canvas.tsx",
+      "decisions": {
+        "D01": {
+          "behavior": "Slate board only. Command board.portal.atlas. Palette: file atlas. Portals flyout. Drop folder opens a chooser (File Atlas default; other honest lenses; Place files on the board). Alt keeps today.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D02": {
+          "behavior": "P2.PortalPlace.oneshot / P0.4: one-shot, commit returns to Select; Space/Enter re-arms.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D03": {
+          "behavior": "P2.PortalPlace.gesture: Armed -> Dragging(rect) -> Committed(unbound). Folder drop through the chooser (File Atlas option) skips to Committed(bound).",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D04": {
+          "behavior": "P2.PortalPlace.click: travel > draft.drag_threshold (4 px) = dragged rect. Below it places portal.atlas.default_size (960x540) centred on the click.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D05": {
+          "behavior": "P2.PortalPlace.aspect: Shift locks 16:9. Alt while dropping a folder bypasses the chooser (P1.portal.folder-drop).",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D06": {
+          "behavior": "P2.PortalPlace.snap: F9 grid snap and smart guides apply to the frame rect; F8 ortho is n/a. Inner Atlas cards never snap to the board grid.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D07": {
+          "behavior": "n/a \u2014 no directional parameter in a rect placement.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D08": {
+          "behavior": "No digit entry during placement. Typed frame dimensions stay a non-goal (D15). After bind, filter/search is typed in portal-local UI (D35).",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D09": {
+          "behavior": "During drag: frame outline + live w x h. Bound: folder name, file count, scan progress, health. Selected readout: locator, health, inner zoom, focused/unfocused.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D10": {
+          "behavior": "Crosshair while armed. Unfocused portal: arrow. Contents-focus: File Atlas canvas cursors. Chrome: arrow.",
+          "source": "precedent",
+          "confidence": 75,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D11": {
+          "behavior": "One journaled Add of { rect, class: Host, kind: FileAtlas, source: None }. Scan, tree, thumbs, camera, collapse, selection never journaled. No BoardLastStyle.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D12": {
+          "behavior": "Esc peels one layer per press (P0.1): contents-focus -> drag draft -> armed tool -> selection. A primary click outside the focused body (or on another node) also peels contents-focus; that click then belongs to the board (P1.portal.contents-focus).",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-22"
+        },
+        "D13": {
+          "behavior": "P1.portal.pick / P1.node.transform. Hover resize. No board grips on contents. Axis-aligned. Maximize square per P1.portal.chrome.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D14": {
+          "behavior": "Rebind and authored query knobs through the Portal inspector or portal.atlas.* as journaled Patch. Camera/collapse/selection are surface edits.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D15": {
+          "behavior": "Cut: File Atlas app feature or chrome; embedding AtlasApp; a second folder-map painter; Atlas tag model; Edit-mode FS writes in v1; Cover Flow/Home/Advanced/destinations/export tray; fifth ViewKind; accounts. Not cut: place, bind folder, atlas-shell::folder_map + atlas-core scan/thumbs, contents-focus, maximize, refresh, bake, Open in File Atlas.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-22"
+        },
+        "D16": {
+          "behavior": "P1.portal.style: No. The frame does not consume BoardLastStyle.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D17": {
+          "behavior": "P1.portal.pick: frame rect including marquee. Unfocused clicks hit the frame. Contents-focus hits the Atlas canvas via atlas-shell::folder_map; portal.atlas.border_hit_px stays a Slate target. A primary click outside the body peels focus; the click then belongs to the board.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-22"
+        },
+        "D18": {
+          "behavior": "Host (Art. V.3). Slate owns frame + source pointer. Named lens in the Portals flyout; class is host because a live folder map is an inner surface. OQ1.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D19": {
+          "behavior": "One SourceUri naming a local folder, relative-first. Bound by portal.atlas.source. Health Ok/Missing/Unknown. Refused: files, URLs, accounts, a File Atlas window handle.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D20": {
+          "behavior": "v1 journaled query is AtlasPortalQuery { sort } only (default Name). Filter/search is derived view-state. Collapse/camera/scroll/selection are never query fields.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D21": {
+          "behavior": "Scan on bind, refresh, and watcher events. Generation-tagged. Cards stream in. Last-good tree stays painted. Same cloud/dehydrate guards as atlas-core.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D22": {
+          "behavior": "P1.portal.contents-focus. Click selects the frame. Double-click or Enter enters the Atlas canvas. Esc or a primary click outside the body leaves. In focus: File Atlas FolderCam (wheel/pinch zoom, right/middle pan), collapse grips, select (readout). After peel the inner camera must not keep the wheel. Double-click a file opens in the OS. Board tools never reach the cards.",
+          "source": "precedent",
+          "confidence": 75,
+          "verdict": "approved",
+          "decided": "2026-08-22"
+        },
+        "D23": {
+          "behavior": "P0.9 on the inner surface: cards/type/icons scale with inner zoom. Board zoom only shrinks the clip. Drop type when too small. Never clamp to a screen constant.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D24": {
+          "behavior": "Host: slate-artifact emits a poster plus a pointer to the folder locator. Unbound/Missing export the state card. Not a regenerated SVG of every thumbnail.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D25": {
+          "behavior": "portal.atlas.bake emits an authored Image (current poster) plus provenance Text. Portal stays live. v1 does not copy file bytes onto the board.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D26": {
+          "behavior": "Each peer resolves the relative locator and runs atlas-core locally. Unresolvable locator paints Unknown. Inner camera and collapse do not sync.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D27": {
+          "behavior": "board.portal.atlas and portal.atlas.* are registry SPECs. Agent mutations stage for acceptance. An agent may never write the filesystem or enter File Atlas Edit mode.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D28": {
+          "behavior": "Host: contents are not a deterministic extracted graph. Provenance names locator + health + file count. Peers may see different thumbs while a scan is in flight.",
+          "source": "research",
+          "confidence": 75,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D29": {
+          "behavior": "Reuse atlas-shell::folder_map and atlas-core. Slate does not instantiate AtlasApp or import apps/file-atlas. Inner camera is FolderCam (same as File Atlas). Same canonical folder shares index/thumbs; camera/collapse stay per-portal. portal.atlas.live_pool caps simultaneous scans.",
+          "source": "research",
+          "confidence": 70,
+          "verdict": "approved",
+          "decided": "2026-08-22"
+        },
+        "D30": {
+          "behavior": "Unbound: Choose folder. Missing/Unknown name the locator. Wrong kind refused. Empty folder: empty map. Partial scan: arrived cards + progress. Dehydrated: type icons, never bulk hydrate.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D31": {
+          "behavior": "Journaled: rect, source, sort. Derived: inner camera, collapse, selection, hover, filter/search, scan progress, thumb textures, scroll.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D32": {
+          "behavior": "Local folder only. No account, no host API, no webview. Same atlas-core cloud/dehydrate rules. No File Atlas process inside the frame.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D33": {
+          "behavior": "No identity tab (web-only). Maximize square. Right-click: Maximize, Enter/Leave contents, Rebind, Refresh, Bake, Open in File Atlas (OQ4). No File Atlas window chrome inside the frame.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D34": {
+          "behavior": "P1.portal.maximize fills the Slate canvas pane. Esc/square restores. Inner camera unchanged. Slate chrome, not a File Atlas window.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        },
+        "D35": {
+          "behavior": "P1.portal.local-ui. Root, sort, refresh, rebind, and filter live on this portal inspector. They do not appear on Document Settings.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-08-21"
+        }
+      }
+    },
+    "portal-lens-save-activity": {
+      "status": "draft",
+      "family": "portal",
+      "portal_class": "generated",
+      "reference": "Damon/Rug save journal as a fact source; browser dashboard retired",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.portal",
+        "P2.PortalPlace"
+      ],
+      "canvas": "portal-lens-save-activity-tool-contract.canvas.tsx",
+      "decisions": {
+        "D01": {
+          "behavior": "Slate board only. Command board.portal.save_activity. Palette: save activity (aliases: activity lens, rug, save lens, work journal). Portals flyout. No single-key chord. P1.portal.folder-drop lists this lens only when the folder contains a save journal. Not a File Atlas feature and not a new ViewKind.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D02": {
+          "behavior": "P1.portal.place / P0.4: one-shot, commit returns to Select; Space/Enter re-arms.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D03": {
+          "behavior": "P1.portal.place: Armed -> Dragging(rect) -> Committed(unbound). Release paints Choose save journal\u2026. Binding is a separate non-modal step. A folder-drop that picks this lens skips to Committed(bound).",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D04": {
+          "behavior": "P1.portal.place. Travel > draft.drag_threshold (4 px) = dragged rect. Below it places portal.activity.default_size (960x640) centred on the click.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D05": {
+          "behavior": "P1.portal.place: Shift locks 16:9. Alt while dropping a folder bypasses the chooser (P1.portal.folder-drop). Ctrl unassigned in v1.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D06": {
+          "behavior": "F9 grid snap and smart guides apply to the frame rect; F8 ortho is n/a. Contents never snap.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D07": {
+          "behavior": "n/a \u2014 no directional parameter in a rect placement.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D08": {
+          "behavior": "n/a in v1; typed frame dimensions stay a non-goal (D15). Query knobs edit in portal-local UI (D35).",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D09": {
+          "behavior": "During drag: frame outline + live w x h. Bound: journal name, events in window, family mix, health. Focused path: basename, project, time.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D10": {
+          "behavior": "Crosshair while armed. Unfocused or focused portal: arrow. No contents-focus cursor set in v1. Chrome: arrow.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D11": {
+          "behavior": "One journaled Add of { rect, class: Generated, kind: SaveActivity (after agree), source: None, query: SaveQuery::default() }. Frame, source, query journaled; contents never. One gesture = one undo. No BoardLastStyle.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D12": {
+          "behavior": "Esc peels one layer per press (P0.1): maximize -> drag draft -> armed tool -> selection. No contents-focus layer in the v1 proposal.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D13": {
+          "behavior": "P1.portal.pick / P1.node.transform. Hover resize. Contents expose no grips. Resize re-lays-out. Axis-aligned. Maximize square.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D14": {
+          "behavior": "Rebind and query knobs through the Portal inspector or portal.activity.* commands; each is a journaled Patch. Hover, typeahead search, and focused path are presence.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D15": {
+          "behavior": "Cut: Damon HTML/JS, Python HTTP server, PortalKind::Web of 127.0.0.1:8787, ViewKind::Rug, File Atlas clone, git history, Status Board/CI, keystroke/open logging, OneDrive-as-entire-home, home-wide watch default, editing files from the lens, git write-back, agent journal writes, language-of-the-day heatmaps, on-canvas graphs in v1, Slate capture daemon in v1, agent overlay in v1. Not cut: place, bind local journal, extract+layout crate, shared ActivityTimeline, tree/readout, honest health, refresh/bake/export.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D16": {
+          "behavior": "P1.portal.style: No. The frame does not consume BoardLastStyle.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D17": {
+          "behavior": "P1.portal.pick. Frame picks on its rect including marquee. Contents are not board-selectable. v1: no contents-focus. Double-click selects the frame. Timeline gestures live on the portal inspector widget.",
+          "source": "precedent",
+          "confidence": 70,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D18": {
+          "behavior": "Generated lens (Art. V.3). Contents = extract(journal) + SaveQuery + frame size; never journaled. Closest sibling is Repository Lens. Host/web of the Damon dashboard is refused (Art. V.3, IV, I.1, I.4, IX.2). Caption+KPI+timeline-only would be an instrument (OQ1).",
+          "source": "research",
+          "confidence": 75,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D19": {
+          "behavior": "One SourceUri LocalFs naming a save journal file (saves.db or .jsonl) or a folder containing exactly one, relative-first. Empty state: Choose save journal\u2026. Bound by portal.activity.source or folder-drop when a journal is present. Refused: 127.0.0.1:8787, hosted APIs, accounts, watch $HOME, File Atlas window, a directory of watch roots.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D20": {
+          "behavior": "SaveQuery { window Last(n)/Since/Range/All; families All/Named atlas-core Family; projects All/Named; path_prefix; max_events default 2000; as_of None/Date }. Family colors from types.rs. gh/ghx stays Cad; Grasshopper chip = ExtGroup inside Cad, not a second color table. max_events paints N older not shown. Search is presence.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D21": {
+          "behavior": "Recompute on bind, query patch, resize, refresh, and debounced journal mtime watch (1000 ms). Generation-tagged. Last-good at stale_alpha 0.6. as_of pin does not auto-refresh past the pin. Capture of new saves is out of this portal (OQ2).",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D22": {
+          "behavior": "v1: no contents-focus, no inner camera, no on-canvas graph widgets. Hover/click/double-click act on the frame. Linked filters are journaled Patches from portal-local UI. Hover, typeahead search, and focused path are presence. No board tool reaches the contents.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D23": {
+          "behavior": "Time LOD: reuse ActivityTimeline days-visible + pixels. Tree LOD: P0.9 scale with board zoom; drop type when too small. Compact frame height < portal.activity.lod_compact (220) paints caption + timeline readout only.",
+          "source": "guess",
+          "confidence": 58,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D24": {
+          "behavior": "P1.portal.export. slate-artifact emits regenerated SVG from the same layout_* function, plus a provenance caption. No script, no fetch, no poster of a browser. Unbound or Missing exports the state card.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D25": {
+          "behavior": "P1.portal.bake. portal.activity.bake emits authored nodes matching the current prims plus a provenance Text node. The portal stays live.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D26": {
+          "behavior": "P1.portal.sync. Frame, source, and query sync. Contents never transmitted; each peer regenerates from its own journal. Unknown names the locator. The journal never syncs as contents.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D27": {
+          "behavior": "board.portal.save_activity and portal.activity.* are registry SPECs. Agent frame/source/query mutations stage for acceptance. An agent may never insert, edit, or delete save events. Beacon: locator, window, family set, project set, one focused path \u2014 never every path. Overlay deferred.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D28": {
+          "behavior": "Same journal bytes + same SaveQuery + same quantized frame size => byte-identical extract fingerprint. Family and project derived at extract via atlas-core; db helper columns not trusted if recomputable. generated_at excluded from fingerprint().",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D29": {
+          "behavior": "Background generation-tagged extract/layout (repo-lens D29). Layout < 50 ms for default max_events window. Default max_events = 2000. Last-good at stale_alpha. Two portals on the same journal share one extract; layout may differ by frame size.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D30": {
+          "behavior": "Unbound Choose save journal\u2026; Unknown names locator; Analyzing last-good + progress; Ready; Missing names locator; NotAJournal says why; Unreadable no partial graph as complete; Truncated visible N older not shown. URL/webview refused.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D31": {
+          "behavior": "Journaled: frame, source, window, family/project shutters, path_prefix, max_events, as_of. Derived never journaled: hover, search-as-you-type, focused path, contents-focus if later, analysis status, cached extract/layout.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D32": {
+          "behavior": "Local journal only. No account, no hosted API, no Python runtime, no webview, no network enrichment. No 127.0.0.1 source kind. Portal executes no code from the journal.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D33": {
+          "behavior": "No identity tab (web-only). Maximize square. Right-click: Maximize, Rebind journal, Refresh, Bake. Reuse the existing ActivityTimeline widget; do not grow a second one.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D34": {
+          "behavior": "P1.portal.maximize fills the Slate canvas pane. Esc/square restores. Maximize is the immersive reading mode. Node rect is not mutated.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D35": {
+          "behavior": "P1.portal.local-ui. Bind, window, family/project shutters, path_prefix, max_events, as_of, refresh, and the ActivityTimeline controller live on this portal inspector. They do not appear on Document Settings.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
         }
       }
     }

@@ -1034,6 +1034,10 @@ fn portal_controls(
         web_portal_controls(app, ui, theme, ids, primary);
         return;
     }
+    if p.kind == PortalKind::FileAtlas {
+        atlas_portal_controls(app, ui, theme, ids, primary);
+        return;
+    }
     ui.label(
         RichText::new(match &p.source {
             Some(s) => format!("Source: {}", s.locator),
@@ -1053,7 +1057,9 @@ fn portal_controls(
             "portal.status.refresh",
             "portal.status.bake",
         ),
-        slate_doc::scene::PortalKind::Agent | slate_doc::scene::PortalKind::Web => {
+        slate_doc::scene::PortalKind::Agent
+        | slate_doc::scene::PortalKind::Web
+        | slate_doc::scene::PortalKind::FileAtlas => {
             unreachable!("host portals return above")
         }
     };
@@ -1126,7 +1132,9 @@ fn portal_controls(
                 });
             }
         }
-        slate_doc::scene::PortalKind::Agent | slate_doc::scene::PortalKind::Web => {}
+        slate_doc::scene::PortalKind::Agent
+        | slate_doc::scene::PortalKind::Web
+        | slate_doc::scene::PortalKind::FileAtlas => {}
         slate_doc::scene::PortalKind::RepoLens => {
             let mut remotes = p.query.include_remotes;
             if ui
@@ -1346,6 +1354,56 @@ fn web_portal_controls(
     });
 }
 
+fn atlas_portal_controls(
+    app: &mut SlateApp,
+    ui: &mut egui::Ui,
+    theme: SidebarTheme,
+    _ids: &[NodeId],
+    primary: &Node,
+) {
+    let NodeKind::Portal(p) = &primary.kind else {
+        return;
+    };
+    ui.label(
+        RichText::new(match &p.source {
+            Some(s) => format!("Folder: {}", s.locator),
+            None => "Folder: unbound".into(),
+        })
+        .small()
+        .color(theme.sub),
+    );
+    ui.horizontal(|ui| {
+        for (label, cmd) in [
+            ("Choose folder…", "portal.atlas.source"),
+            ("Refresh", "portal.atlas.refresh"),
+            ("Bake poster", "portal.atlas.bake"),
+        ] {
+            if ui.button(RichText::new(label).small()).clicked() {
+                app.dispatch(ui.ctx(), atlas_commands::CommandId(cmd), None);
+            }
+        }
+    });
+    ui.horizontal(|ui| {
+        if ui.button(RichText::new("Enter contents").small()).clicked() {
+            app.dispatch(
+                ui.ctx(),
+                atlas_commands::CommandId("portal.atlas.focus"),
+                None,
+            );
+        }
+        if ui
+            .button(RichText::new("Open in File Atlas").small())
+            .clicked()
+        {
+            app.dispatch(
+                ui.ctx(),
+                atlas_commands::CommandId("portal.atlas.open"),
+                None,
+            );
+        }
+    });
+}
+
 fn agent_portal_controls(
     app: &mut SlateApp,
     ui: &mut egui::Ui,
@@ -1384,7 +1442,7 @@ fn agent_portal_controls(
             None,
         );
     }
-    if source.is_some() && ui.button(RichText::new("Switch chat").small()).clicked() {
+    if source.is_some() && ui.button(RichText::new("Switch agent").small()).clicked() {
         app.dispatch(
             ui.ctx(),
             atlas_commands::CommandId("portal.agent.switch_chat"),

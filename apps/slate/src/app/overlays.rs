@@ -69,6 +69,7 @@ impl SlateApp {
             panel_icon_strip: self.dock_icon_strips.clone(),
             panel_strip_hidden: self.dock_strip_hidden.clone(),
             minimap: self.minimap_on,
+            dock_bar_collapsed: self.dock_bar_collapsed,
         }
         .save("slate");
     }

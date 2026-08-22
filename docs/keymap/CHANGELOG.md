@@ -1,5 +1,35 @@
 # Canvas command project — change log
 
+## 2026-08-22 — Article XII (one owner of knowledge)
+
+- Constitution **Art. XII**: knowledge has one owner; incidental copies
+  wait for the third; parallel interpreters stay two. Agents must not
+  paste a working portal to emulate another.
+- Pattern **P2.PortalHost** (locators, empty CTA, bake, focus prelude,
+  paint shell, `border_hit_px`, folder-map session). Host contracts
+  inherit it.
+- Agent rule: `.cursor/rules/dry.mdc`. Known twins: DV-18, DV-19, DV-20.
+
+## 2026-08-22 — File Atlas portal reuses folder_map; contents-focus click-out
+
+- **`atlas-shell::folder_map`** is the one folder map (camera, orthogonal
+  leaders, collapse grips, cards). File Atlas and the Slate File Atlas
+  portal both call it. Slate still must not import `AtlasApp`.
+- **`P1.portal.contents-focus`**: a primary click outside the focused
+  host-portal body peels focus; entering one portal peels any other;
+  wheel/pan never reach an unfocused portal. `portal-atlas-lens` D12 /
+  D17 / D22 / D29 updated.
+
+## 2026-08-21 — File Atlas lens portal
+
+- **`portal-atlas-lens`** agreed. Host portal on the Slate board over
+  `atlas-core` (not a File Atlas app feature). Portals flyout +
+  `board.portal.atlas`. Contents-focus, maximize, bake poster, Open in
+  File Atlas (existing hosted viewport).
+- **`P1.portal.folder-drop`**: dropping a folder opens a chooser (File
+  Atlas default, other honest lenses, or place files on the board). Alt
+  keeps today's drop.
+
 One entry per delivery wave. The governing docs are `KEYMAP.md` (what is
 bound and why) and `ARCHITECTURE.md` (how it is built); per-app binding
 tables live in each app's `commands.rs` (`SPECS`) and render in
@@ -14,6 +44,13 @@ tables live in each app's `commands.rs` (`SPECS`) and render in
   touch"). It no longer packs disjoint islands into one uneditable
   compound path. Group (Ctrl+G) is the grouping command. Connected
   components still union independently.
+
+## 2026-08-22 — Dock strip paint is shared
+
+- Canvas `DockStrip` nodes paint through `atlas_shell::dock::paint_icon_strip_card`
+  — the same fieldset strip as the docked flyout, title in the outer
+  border. Resize contain-scales the measured card; it does not reflow
+  icons. `P1.dock-strip.chrome` / `.select` updated.
 
 ## 2026-08-16 — Dock strip (dropped toolbar)
 

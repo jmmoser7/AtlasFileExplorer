@@ -10,7 +10,8 @@ A board tool is two things:
 That split is the whole design. It is why a tool can be authored without a
 compiler, and why authoring one cannot introduce a new interaction model,
 a new node kind, or anything `slate-artifact` would not know how to export
-(Constitution Art. IV, Art. VII.3).
+(Constitution Art. IV, Art. VII.3, Art. XII — same gesture, different
+result is a recipe, not a forked tool).
 
 `builtin/core.slatekit` is the worked example: it holds the board's own tool
 results and is read through this exact parser, with no privileged fields.
@@ -97,12 +98,17 @@ expression, and the only one there is.
 
 ### `kind = "portal"`
 
-`portal` names an existing portal kind (`repo_lens`, `status_board`, `web`) and the recipe
+`portal` names an existing portal kind (`repo_lens`, `status_board`, `agent`, `web`, `file_atlas`) and the recipe
 presets its `title`, `source`, and `query`. Five preset lenses over one
 repository are five kit entries and no new code.
 
 Leave `source` unset in a kit you intend to share: a locator is relative-first
 (Art. IX.2) and a path from the author's machine is not a gift.
+
+**Duplicate** on the Advanced catalog writes a complete new tool into
+`data_dir()/tools/copies.slatekit`, with `derived_from` pointing at the
+seed. That is provenance, not inheritance — the copy is editable on its
+own so a later pass can customize portal types without touching `core`.
 
 ## Strokes
 

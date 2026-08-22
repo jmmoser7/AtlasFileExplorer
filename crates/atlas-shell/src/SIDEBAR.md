@@ -52,6 +52,7 @@ Each panel is a bordered card via `sidebar_section` in `sidebar.rs`:
 | Header height | 18px | Toggle + title |
 | Control row height | 20px | Checkboxes, option rows |
 | Toggle row | 22px / 34×18 track | Left-knob capsule + label (`sidebar_icon_row`) |
+| Tool row | 22px circle + label | Glyph + name (`sidebar_tool_row`); not a toggle |
 | Toolbar row height | 22px | Primary action buttons |
 | Toggle glyph size | 8px | `+` collapsed, `−` expanded |
 | Row gap | 4px | Between controls inside body |
@@ -79,8 +80,10 @@ Is it a one-shot canvas action (Fit, Flow)?
 Is it a boolean filter/setting with a short label?
   → sidebar_checkbox_row
 
-Is it a stacked dock tool, toggle, or snap with a distinctive icon?
+Is it a stacked dock **toggle** (grid, snap, …)?
   → sidebar_icon_row (wide capsule track, sliding knob with icon, label).
+Is it a stacked dock **tool** (rect, portal, …)?
+  → sidebar_tool_row (circle glyph + label; not a pill).
     On lights the track and slides the knob right; off dims and slides
     left. Tracks stay left-aligned so a two-column snap grid keeps two
     vertical columns. `flyout_items` in List mode uses it.

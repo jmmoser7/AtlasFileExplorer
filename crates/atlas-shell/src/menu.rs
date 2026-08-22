@@ -856,14 +856,14 @@ mod tests {
     fn menu_frame_has_no_border_by_default() {
         let f = frame(true);
         assert_eq!(f.stroke.width, 0.0);
-        assert!(f.corner_radius.nw >= 8);
+        assert!(f.corner_radius.nw >= 4);
     }
 
     #[test]
     fn menu_tokens_match_the_style_reference() {
         let t = tokens::current().menu;
         assert!(t.border_width <= 0.01);
-        assert!(t.corner_radius >= 8.0);
+        assert!(t.corner_radius >= 4.0);
         assert!(t.divider_inset > 0.0);
         assert!(t.icon_size > 0.0);
         assert!(t.letter_spacing >= 0.0);

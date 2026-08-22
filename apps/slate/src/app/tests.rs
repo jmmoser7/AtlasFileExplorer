@@ -1674,6 +1674,218 @@ fn a_placed_status_board_portal_is_unbound_at_the_recipe_size() {
     h.frame();
 }
 
+/// A click-placed File Atlas lens is host-class, unbound, and 960×540.
+#[test]
+fn a_placed_file_atlas_lens_is_unbound_at_the_recipe_size() {
+    let mut h = kit_board("kit_atlas_portal", board::BoardTool::AtlasPortal);
+    h.app.place_atlas_portal_at(Pos2::new(0.0, 0.0));
+
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let node = &h.app.doc().scene.nodes[0];
+    let NodeKind::Portal(p) = &node.kind else {
+        panic!("expected a portal node");
+    };
+    assert_eq!(p.class, slate_doc::scene::PortalClass::Host);
+    assert_eq!(p.kind, slate_doc::scene::PortalKind::FileAtlas);
+    assert!(
+        p.source.is_none(),
+        "unbound until the user chooses a folder"
+    );
+    assert_eq!(
+        (node.rect.w, node.rect.h),
+        (
+            slate_doc::scene::PORTAL_DEFAULT_W,
+            slate_doc::scene::PORTAL_DEFAULT_H
+        )
+    );
+    h.frame();
+}
+
+/// Dropping a folder queues a chooser; applying File Atlas binds a host portal.
+#[test]
+fn gp2_dropping_a_folder_binds_a_file_atlas_lens() {
+    let mut h = kit_board("atlas_drop_folder", board::BoardTool::Select);
+    let folder = h.base.join("shots");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("a.png"), [0u8; 8]).unwrap();
+    let rest = h
+        .app
+        .queue_folder_drop_choosers(&[folder.clone()], Pos2::ZERO);
+    assert!(rest.is_empty());
+    assert_eq!(h.app.atlas_lenses.pending_drops.len(), 1);
+    h.app.apply_folder_drop(
+        super::board_atlas::FolderDropKind::AtlasLens,
+        folder.clone(),
+        Pos2::ZERO,
+    );
+    let node = &h.app.doc().scene.nodes[0];
+    let NodeKind::Portal(p) = &node.kind else {
+        panic!("expected a portal");
+    };
+    assert_eq!(p.kind, slate_doc::scene::PortalKind::FileAtlas);
+    assert!(p.source.is_some());
+    h.frame();
+}
+
+/// Place-contents dumps the folder's files onto the board, not a portal.
+#[test]
+fn gp2_place_folder_contents_makes_image_nodes() {
+    let mut h = kit_board("atlas_place_contents", board::BoardTool::Select);
+    let folder = h.base.join("dump");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("one.png"), [0u8; 8]).unwrap();
+    std::fs::write(folder.join("two.png"), [0u8; 8]).unwrap();
+    h.app.apply_folder_drop(
+        super::board_atlas::FolderDropKind::PlaceContents,
+        folder,
+        Pos2::ZERO,
+    );
+    assert!(
+        h.app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .all(|n| matches!(n.kind, NodeKind::Image(_))),
+        "place contents is not a lens"
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), 2);
+    h.frame();
+}
+
+fn atlas_screen_outside(h: &Harness, id: slate_doc::NodeId) -> Pos2 {
+    let xf = h.app.board_xf();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let frame = xf.rect_w2s(node.rect);
+    if frame.left() > 24.0 {
+        Pos2::new(frame.left() - 12.0, frame.center().y)
+    } else {
+        Pos2::new(frame.right() + 12.0, frame.center().y)
+    }
+}
+
+/// P1.portal.contents-focus — a primary click outside the body peels the
+/// File Atlas lens so the board owns the wheel again.
+#[test]
+fn primary_click_outside_a_focused_atlas_lens_releases_focus() {
+    let mut h = kit_board("atlas_click_out", board::BoardTool::Select);
+    h.app.place_atlas_portal_at(Pos2::new(0.0, 0.0));
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.atlas_focus(id);
+    h.frame();
+    assert_eq!(h.app.atlas_lenses.focused, Some(id));
+    let outside = atlas_screen_outside(&h, id);
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(outside));
+        input.events.push(egui::Event::PointerButton {
+            pos: outside,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        });
+    });
+    assert_eq!(
+        h.app.atlas_lenses.focused, None,
+        "outside click must peel File Atlas contents-focus"
+    );
+}
+
+/// After peel, a wheel over the (still-large) frame must not change the
+/// inner FolderCam — that was the stuck-zoom defect.
+#[test]
+fn wheel_after_atlas_blur_does_not_change_inner_zoom() {
+    let mut h = kit_board("atlas_wheel_after_blur", board::BoardTool::Select);
+    let folder = h.base.join("shots");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("a.png"), [0u8; 8]).unwrap();
+    h.app.apply_folder_drop(
+        super::board_atlas::FolderDropKind::AtlasLens,
+        folder,
+        Pos2::ZERO,
+    );
+    h.frame();
+    let id = h.app.doc().scene.nodes[0].id;
+    assert!(
+        h.app.atlas_has_view(id),
+        "a bound lens has a per-portal view"
+    );
+    h.app.atlas_focus(id);
+    h.app.atlas_force_inner_zoom(id, 2.0);
+    h.app.contents_blur();
+    assert_eq!(h.app.atlas_lenses.focused, None);
+    let z_before = h.app.atlas_inner_zoom(id).unwrap();
+    let xf = h.app.board_xf();
+    let body = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(body.center()));
+        input.events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: EVec2::new(0.0, -80.0),
+            modifiers: egui::Modifiers::default(),
+        });
+    });
+    assert_eq!(
+        h.app.atlas_inner_zoom(id).unwrap(),
+        z_before,
+        "an unfocused lens must not eat the wheel"
+    );
+}
+
+/// Clicking another portal peels File Atlas focus (one logical slot).
+#[test]
+fn clicking_another_portal_peels_atlas_focus() {
+    let mut h = kit_board("atlas_click_other", board::BoardTool::Select);
+    h.app.place_atlas_portal_at(Pos2::new(0.0, 0.0));
+    h.app.place_atlas_portal_at(Pos2::new(2200.0, 0.0));
+    let a = h.app.doc().scene.nodes[0].id;
+    let b = h.app.doc().scene.nodes[1].id;
+    h.app.atlas_focus(a);
+    h.frame();
+    let xf = h.app.board_xf();
+    let on_b = xf
+        .rect_w2s(h.app.doc().scene.node(b).unwrap().rect)
+        .center();
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(on_b));
+        input.events.push(egui::Event::PointerButton {
+            pos: on_b,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        });
+    });
+    assert_eq!(
+        h.app.atlas_lenses.focused, None,
+        "a click on another node peels the previous contents-focus"
+    );
+}
+
+/// Entering File Atlas peels a focused web page — four slots, one focus.
+#[test]
+fn entering_atlas_peels_web_contents_focus() {
+    let mut h = web_board("atlas_peels_web");
+    h.app.paste_web_url("https://example.com/a", Pos2::ZERO);
+    let (web_id, _) = only_portal(&h);
+    h.app.place_atlas_portal_at(Pos2::new(2200.0, 0.0));
+    let atlas_id = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .find(|n| matches!(&n.kind, NodeKind::Portal(p) if p.kind == slate_doc::scene::PortalKind::FileAtlas))
+        .map(|n| n.id)
+        .expect("atlas portal");
+    h.app.web_focus(web_id);
+    assert_eq!(h.app.web.focused, Some(web_id));
+    h.app.atlas_focus(atlas_id);
+    assert_eq!(h.app.atlas_lenses.focused, Some(atlas_id));
+    assert_eq!(
+        h.app.web.focused, None,
+        "only one host portal may be focused"
+    );
+}
+
 // ---------- Tool arming preview (contracts/tool-arming.md GP1–GP6) ----------
 
 fn arming_board(tag: &str, tool: board::BoardTool) -> Harness {
@@ -2349,6 +2561,72 @@ fn an_agent_channel_survives_save_and_reopen() {
 }
 
 #[test]
+fn binding_a_project_with_agents_opens_the_picker() {
+    let mut h = agent_board("agent_pick_list");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    let folder = h.base.join("climate-grid");
+    std::fs::create_dir_all(&folder).unwrap();
+    h.app.bind_agent_project(id, folder);
+    h.app.present_agent_picker(
+        id,
+        vec![
+            atlas_ai::cursor_chats::CursorChat {
+                id: "one".into(),
+                title: "Climate grid".into(),
+                updated_at: 2,
+            },
+            atlas_ai::cursor_chats::CursorChat {
+                id: "two".into(),
+                title: "Older".into(),
+                updated_at: 1,
+            },
+        ],
+    );
+    assert_eq!(
+        h.app.agent_picker_titles(),
+        Some(vec!["Climate grid".into(), "Older".into()]),
+        "existing agents must be offered, not auto-bound"
+    );
+    let NodeKind::Portal(p) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected a portal");
+    };
+    assert!(
+        p.agent.as_ref().and_then(|a| a.channel.as_deref()).is_none(),
+        "picking is the user's; do not silently attach the first agent"
+    );
+    assert!(h.app.pick_agent_from_list(id, "two"));
+    assert!(h.app.agent_picker_titles().is_none());
+    let NodeKind::Portal(p) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected a portal");
+    };
+    assert_eq!(
+        p.agent.as_ref().and_then(|a| a.channel.as_deref()),
+        Some("two")
+    );
+}
+
+#[test]
+fn a_single_existing_agent_is_still_a_choice() {
+    let mut h = agent_board("agent_pick_one");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.present_agent_picker(
+        id,
+        vec![atlas_ai::cursor_chats::CursorChat {
+            id: "only".into(),
+            title: "The one agent".into(),
+            updated_at: 1,
+        }],
+    );
+    assert_eq!(
+        h.app.agent_picker_titles(),
+        Some(vec!["The one agent".into()]),
+        "one agent is still a list — do not auto-select"
+    );
+}
+
+#[test]
 fn a_failed_agent_send_names_the_failure() {
     let mut h = agent_board("agent_named_fail");
     h.app.place_agent_portal_at(Pos2::ZERO);
@@ -2421,8 +2699,12 @@ fn gp2_a_folder_is_a_portal_only_when_it_holds_an_entry_file() {
     assert!(!board_web::is_web_drop(&plain));
     let rest = h
         .app
-        .divert_web_drops(&[with_entry, plain.clone()], Pos2::ZERO);
-    assert_eq!(rest, vec![plain]);
+        .divert_web_drops(&[with_entry.clone(), plain.clone()], Pos2::ZERO);
+    assert_eq!(
+        rest,
+        vec![with_entry, plain],
+        "folders go to the lens chooser, not auto-web"
+    );
     h.frame();
 }
 
@@ -2434,7 +2716,8 @@ fn a_folder_that_only_has_index_htm_binds_that_entry() {
     let dash = h.base.join("legacy");
     std::fs::create_dir_all(&dash).unwrap();
     std::fs::write(dash.join("index.htm"), "<h1>legacy</h1>").unwrap();
-    h.app.divert_web_drops(&[dash], Pos2::ZERO);
+    h.app
+        .apply_folder_drop(super::board_atlas::FolderDropKind::Web, dash, Pos2::ZERO);
     let (_, p) = only_portal(&h);
     assert_eq!(p.web_ref().entry, "index.htm");
     h.frame();
@@ -3392,10 +3675,10 @@ fn selection_outline_follows_silhouette() {
     h.frame();
     let xf = h.app.board_xf();
     let sq = h.app.doc().scene.node(square).unwrap();
-    assert_eq!(h.app.node_screen_outline(&xf, sq).len(), 4);
+    assert_eq!(h.app.node_screen_outline(&h.ctx, &xf, sq).len(), 4);
 
     let rd = h.app.doc().scene.node(rounded).unwrap();
-    let rd_pts = h.app.node_screen_outline(&xf, rd);
+    let rd_pts = h.app.node_screen_outline(&h.ctx, &xf, rd);
     assert!(
         rd_pts.len() > 4,
         "a filleted rect must not highlight as a sharp box"
@@ -3409,42 +3692,47 @@ fn selection_outline_follows_silhouette() {
 
     let el = h.app.doc().scene.node(ellipse).unwrap();
     assert!(
-        h.app.node_screen_outline(&xf, el).len() > 4,
+        h.app.node_screen_outline(&h.ctx, &xf, el).len() > 4,
         "an ellipse highlight must be circular, not a box"
     );
 
     let portal = h.app.doc().scene.nodes.iter().rev().next().unwrap();
-    let p_pts = h.app.node_screen_outline(&xf, portal);
+    let p_pts = h.app.node_screen_outline(&h.ctx, &xf, portal);
     assert!(
         p_pts.len() > 4,
         "a portal highlight must follow the shared fillet"
     );
 
-    let strip = add_dock_strip(&mut h.app, &["shape.rect"]);
+    let strip = add_dock_strip(&mut h.app, "tool.shapes", &["shape.rect"]);
     h.frame();
     h.app.tab_mut().cam.z = 1.0;
     let xf = h.app.board_xf();
-    let sn = h.app.doc().scene.node(strip).unwrap();
-    let s_pts = h.app.node_screen_outline(&xf, sn);
+    let sn = h.app.doc().scene.node(strip).unwrap().clone();
+    let s_pts = h.app.node_screen_outline(&h.ctx, &xf, &sn);
     assert!(
         s_pts.len() > 4,
         "a dock-strip highlight must follow the shared fillet"
     );
-    let r = super::board_dock_embed::dock_strip_corner_radius(xf.z);
-    let sharp = xf.rect_w2s(sn.rect).left_top();
+    let slate_doc::scene::NodeKind::DockStrip(strip_data) = &sn.kind else {
+        panic!("expected a dock strip");
+    };
+    let (card, r) = h
+        .app
+        .dock_strip_screen_card(&h.ctx, &xf, &sn, strip_data);
+    let sharp = card.left_top();
     assert!(
         s_pts.iter().all(|p| p.distance(sharp) > r * 0.3),
         "the dock-strip highlight must leave the sharp corner empty"
     );
 }
 
-fn add_dock_strip(app: &mut SlateApp, tools: &[&str]) -> NodeId {
+fn add_dock_strip(app: &mut SlateApp, palette_id: &str, tools: &[&str]) -> NodeId {
     let n = tools.len().max(1) as f32;
-    let rect = slate_doc::scene::WorldRect::new(0.0, 0.0, n * 40.0 + 16.0, 48.0);
+    let rect = slate_doc::scene::WorldRect::new(0.0, 0.0, n * 160.0 + 80.0, 72.0);
     let node = app.doc_mut().scene.build_node(
         rect,
         slate_doc::scene::NodeKind::DockStrip(slate_doc::scene::DockStripNode {
-            palette_id: "tool.shapes".into(),
+            palette_id: palette_id.into(),
             visible: tools.iter().map(|s| (*s).to_string()).collect(),
         }),
     );
@@ -3455,10 +3743,14 @@ fn add_dock_strip(app: &mut SlateApp, tools: &[&str]) -> NodeId {
 #[test]
 fn dock_strip_click_arms_without_placing() {
     let mut h = web_board("dock_arm");
-    let id = add_dock_strip(&mut h.app, &["text.block"]);
+    let id = add_dock_strip(&mut h.app, "tool.text", &["text.block"]);
     h.frame();
-    let n = h.app.doc().scene.node(id).unwrap();
-    let world = Pos2::new(n.rect.x + n.rect.w * 0.5, n.rect.y + n.rect.h * 0.5);
+    let xf = h.app.board_xf();
+    let n = h.app.doc().scene.node(id).unwrap().clone();
+    let world = h
+        .app
+        .dock_embed_first_tool_world(&h.ctx, &xf, &n)
+        .expect("dropped toolbar must expose a tool slot");
     let before = h.app.doc().scene.nodes.len();
     assert!(h.app.try_dock_embed_click(&h.ctx, world));
     assert_eq!(h.app.board_tool, board::BoardTool::Text);
@@ -3469,11 +3761,64 @@ fn dock_strip_click_arms_without_placing() {
     );
 }
 
+/// Widening a dropped toolbar must not shrink icons; uniform grow enlarges them.
+#[test]
+fn dock_strip_resize_contains_without_shrinking_icons() {
+    let mut h = web_board("dock_scale");
+    let id = add_dock_strip(
+        &mut h.app,
+        "tool.shapes",
+        &["shape.rect", "shape.ellipse"],
+    );
+    h.frame();
+    h.app.tab_mut().cam.z = 1.0;
+    let xf = h.app.board_xf();
+    let n = h.app.doc().scene.node(id).unwrap().clone();
+    let slate_doc::scene::NodeKind::DockStrip(strip) = &n.kind else {
+        panic!("expected a dock strip");
+    };
+    let items = super::ui::tools::palette_strip_items(&h.app, &strip.palette_id, &strip.visible);
+    let mut tokens = atlas_shell::tokens::current().dock;
+    tokens.normalize();
+    let layout = atlas_shell::dock::measure_icon_strip(
+        &h.ctx,
+        &items,
+        &tokens,
+        atlas_shell::dock::DockSide::BottomCenter,
+        16_384.0,
+    );
+    let slot = layout.first_slot_id().expect("strip has a slot");
+    let dest = xf.rect_w2s(n.rect);
+    let a = atlas_shell::dock::icon_strip_slot_rect(dest, &layout, &tokens, slot)
+        .expect("slot at dest");
+    let wide = ERect::from_center_size(
+        dest.center(),
+        EVec2::new(dest.width() * 2.5, dest.height()),
+    );
+    let b = atlas_shell::dock::icon_strip_slot_rect(wide, &layout, &tokens, slot)
+        .expect("slot at wide dest");
+    assert!(
+        (b.height() - a.height()).abs() < 0.5,
+        "widening the node must not shrink icons ({} vs {})",
+        b.height(),
+        a.height()
+    );
+    let both = ERect::from_center_size(dest.center(), dest.size() * 2.0);
+    let c = atlas_shell::dock::icon_strip_slot_rect(both, &layout, &tokens, slot)
+        .expect("slot at uniform dest");
+    assert!(
+        c.height() > a.height() * 1.8,
+        "uniform grow must enlarge icons ({} vs {})",
+        c.height(),
+        a.height()
+    );
+}
+
 /// Press-drag on a dropped toolbar moves it even when a create tool is armed.
 #[test]
 fn dock_strip_drag_moves_regardless_of_armed_tool() {
     let mut h = web_board("dock_move");
-    let id = add_dock_strip(&mut h.app, &["shape.rect"]);
+    let id = add_dock_strip(&mut h.app, "tool.shapes", &["shape.rect"]);
     h.app.set_board_tool(board::BoardTool::RectShape);
     h.frame();
     let xf = h.app.board_xf();

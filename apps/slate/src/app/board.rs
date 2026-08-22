@@ -152,6 +152,8 @@ pub enum BoardTool {
     /// Web host portal placement — embedded page or local HTML dashboard
     /// (palette / Portals rail). See `contracts/portal-web-embed.md`.
     WebPortal,
+    /// File Atlas lens — live folder map on the board (not a File Atlas feature).
+    AtlasPortal,
     /// Rhino Trim: pick cutters, click parts to delete (`P2.RhinoTrim`).
     Trim,
     /// Rhino Split: pick cutters, click an object to keep every piece.
@@ -162,7 +164,7 @@ impl BoardTool {
     /// Every tool, in declaration order. Kept beside [`BoardTool::grammar`],
     /// whose exhaustive match is the compiler-enforced reason a new variant
     /// cannot be added without being considered here too.
-    pub const ALL: [BoardTool; 22] = [
+    pub const ALL: [BoardTool; 23] = [
         BoardTool::Select,
         BoardTool::Pan,
         BoardTool::Frame,
@@ -183,6 +185,7 @@ impl BoardTool {
         BoardTool::StatusBoard,
         BoardTool::AgentPortal,
         BoardTool::WebPortal,
+        BoardTool::AtlasPortal,
         BoardTool::Trim,
         BoardTool::Split,
     ];
@@ -209,6 +212,7 @@ impl BoardTool {
             BoardTool::StatusBoard => "Status Board",
             BoardTool::AgentPortal => "Agent portal",
             BoardTool::WebPortal => "Web portal",
+            BoardTool::AtlasPortal => "File Atlas",
             BoardTool::Trim => "Trim",
             BoardTool::Split => "Split",
         }
@@ -236,6 +240,7 @@ impl BoardTool {
             BoardTool::StatusBoard => board_icons::ToolIcon::StatusBoard,
             BoardTool::AgentPortal => board_icons::ToolIcon::Portals,
             BoardTool::WebPortal => board_icons::ToolIcon::WebPortal,
+            BoardTool::AtlasPortal => board_icons::ToolIcon::AtlasLens,
             BoardTool::Trim => board_icons::ToolIcon::Trim,
             BoardTool::Split => board_icons::ToolIcon::Split,
         }
@@ -260,7 +265,8 @@ impl BoardTool {
             BoardTool::RepoLens
             | BoardTool::StatusBoard
             | BoardTool::AgentPortal
-            | BoardTool::WebPortal => "",
+            | BoardTool::WebPortal
+            | BoardTool::AtlasPortal => "",
             BoardTool::Trim => "Ctrl+T",
             BoardTool::Split => "Ctrl+Shift+T",
         }
@@ -285,7 +291,8 @@ impl BoardTool {
             | BoardTool::RepoLens
             | BoardTool::StatusBoard
             | BoardTool::AgentPortal
-            | BoardTool::WebPortal => G::DragRect,
+            | BoardTool::WebPortal
+            | BoardTool::AtlasPortal => G::DragRect,
             BoardTool::Line => G::TwoPoint,
             BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => G::MultiPoint,
             BoardTool::Pen | BoardTool::Brush => G::Freehand,
@@ -313,6 +320,9 @@ impl BoardTool {
             BoardTool::Ellipse => Some("ellipse"),
             BoardTool::RepoLens => Some("portal-repo-lens"),
             BoardTool::StatusBoard => Some("portal-status-board"),
+            BoardTool::AgentPortal => Some("portal-agent"),
+            BoardTool::WebPortal => Some("portal-web"),
+            BoardTool::AtlasPortal => Some("portal-file-atlas"),
             _ => None,
         }
     }
@@ -539,6 +549,7 @@ impl SlateApp {
     /// Switch the board tool through one place: the brush chain breaks on
     /// every re-arm, and direct-selection state clears when leaving A.
     pub(crate) fn set_board_tool(&mut self, tool: BoardTool) {
+        self.armed_kit_id = None;
         self.brush_chain = None;
         if tool != BoardTool::DirectSelect {
             self.direct.node = None;
@@ -554,6 +565,20 @@ impl SlateApp {
             self.trim = None;
             self.board_tool = tool;
         }
+    }
+
+    fn disarm_create(&mut self) {
+        self.board_tool = BoardTool::Select;
+        self.armed_kit_id = None;
+    }
+
+    fn active_recipe(&self, tool: BoardTool) -> Option<slate_kit::Recipe> {
+        if let Some(id) = self.armed_kit_id.as_deref() {
+            if let Some(recipe) = self.kits.recipe_for_id(id) {
+                return Some(recipe.clone());
+            }
+        }
+        self.kits.recipe_for(tool).cloned()
     }
 
     // ----- journaled mutations -------------------------------------------------
@@ -1013,7 +1038,12 @@ impl SlateApp {
     /// Screen-space silhouette of a node — the same outline the painter uses,
     /// so selection and hover rings follow fillets and ellipses instead of
     /// the AABB.
-    pub(crate) fn node_screen_outline(&self, xf: &BoardXf, node: &Node) -> Vec<Pos2> {
+    pub(crate) fn node_screen_outline(
+        &self,
+        ctx: &egui::Context,
+        xf: &BoardXf,
+        node: &Node,
+    ) -> Vec<Pos2> {
         let srect = xf.rect_w2s(node.rect);
         let z = xf.z;
         let rotated = node.rotation_deg.abs() > 0.01;
@@ -1034,8 +1064,9 @@ impl SlateApp {
                 let r = atlas_shell::tokens::current().portal_frame.corner_radius * z;
                 rounded_rect_outline(srect, r)
             }
-            NodeKind::DockStrip(_) => {
-                rounded_rect_outline(srect, super::board_dock_embed::dock_strip_corner_radius(z))
+            NodeKind::DockStrip(strip) => {
+                let (card, r) = self.dock_strip_screen_card(ctx, xf, node, strip);
+                rounded_rect_outline(card, r)
             }
             NodeKind::Frame(_) if !rotated => rounded_rect_outline(srect, 2.0),
             NodeKind::Text(_) | NodeKind::Frame(_) | NodeKind::Connector(_) => return aabb(),
@@ -2109,10 +2140,13 @@ impl SlateApp {
                     PortalKind::Web => {
                         self.paint_web_portal(ui, painter, xf, node, &portal);
                     }
+                    PortalKind::FileAtlas => {
+                        self.paint_atlas_portal(ui, painter, xf, node, &portal);
+                    }
                 }
             }
             NodeKind::DockStrip(strip) => {
-                super::board_dock_embed::paint_dock_strip(ui, painter, xf, node, strip);
+                super::board_dock_embed::paint_dock_strip(ui, xf, node, strip, self);
             }
         }
     }
@@ -2150,8 +2184,10 @@ impl SlateApp {
         // inside a focused page, the wheel scrolls the page instead of zooming
         // the board. Its chrome strip and a thin border band stay Slate targets,
         // so the frame can always be grabbed and released.
-        let web_capture =
-            self.web_input_frame(ui, &xf, pointer) || self.agent_shelf_captures(&xf, pointer);
+        self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
+        let web_capture = self.web_input_frame(ui, &xf, pointer)
+            || self.agent_shelf_captures(&xf, pointer)
+            || self.atlas_input_frame(ui, &xf, pointer);
         let _ = self.dock_embed_frame(
             ui.ctx(),
             &xf,
@@ -2497,6 +2533,7 @@ impl SlateApp {
                 | BoardTool::StatusBoard
                 | BoardTool::AgentPortal
                 | BoardTool::WebPortal
+                | BoardTool::AtlasPortal
                 | BoardTool::Text
                 | BoardTool::Sticky
         ) && resp.hovered()
@@ -2683,7 +2720,7 @@ impl SlateApp {
         // The search hit the camera last flew to gets a select-tint ring.
         if let Some(super::overlays::SearchHit::Node(hit)) = self.search_current_hit() {
             if let Some(n) = self.doc().scene.node(hit) {
-                let outline = self.node_screen_outline(&xf, n);
+                let outline = self.node_screen_outline(ui.ctx(), &xf, n);
                 painter.add(egui::Shape::closed_line(
                     outline,
                     EStroke::new(canvas_scale::px(2.0, xf.z), palette.select),
@@ -2717,7 +2754,7 @@ impl SlateApp {
                         self.paint_line_grips(&painter, &xf, &n, select_tint);
                     } else {
                         let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-                        let outline = self.node_screen_outline(&xf, &n);
+                        let outline = self.node_screen_outline(ui.ctx(), &xf, &n);
                         board_handles::paint_selection(
                             &painter,
                             &geom,
@@ -2736,7 +2773,7 @@ impl SlateApp {
                     if Self::node_uses_curve_grips(n) {
                         self.paint_line_grips(&painter, &xf, n, select_tint);
                     } else if !matches!(n.kind, NodeKind::Connector(_)) {
-                        let outline = self.node_screen_outline(&xf, n);
+                        let outline = self.node_screen_outline(ui.ctx(), &xf, n);
                         painter.add(egui::Shape::closed_line(
                             outline,
                             EStroke::new(
@@ -3943,7 +3980,8 @@ impl SlateApp {
             | BoardTool::RepoLens
             | BoardTool::StatusBoard
             | BoardTool::AgentPortal
-            | BoardTool::WebPortal) => {
+            | BoardTool::WebPortal
+            | BoardTool::AtlasPortal) => {
                 let start = self.resolve_point_snap(world, &[], None, false, false);
                 Some(BoardDrag::Draw {
                     start_world: start,
@@ -4724,6 +4762,7 @@ impl SlateApp {
             BoardTool::StatusBoard => self.place_status_board_at(center),
             BoardTool::AgentPortal => self.place_agent_portal_at(center),
             BoardTool::WebPortal => self.place_web_portal_at(center),
+            BoardTool::AtlasPortal => self.place_atlas_portal_at(center),
             BoardTool::RectShape => self.place_from_recipe(
                 tool,
                 center,
@@ -4778,6 +4817,14 @@ impl SlateApp {
 
     /// Click-to-place default Agent portal (host-class local agent link).
     pub(crate) fn place_agent_portal_at(&mut self, center: Pos2) {
+        if self.armed_kit_id.is_some() {
+            self.place_from_recipe(
+                BoardTool::AgentPortal,
+                center,
+                (REPO_PORTAL_DEFAULT_W, REPO_PORTAL_DEFAULT_H),
+            );
+            return;
+        }
         let rect = WorldRect::new(
             center.x - REPO_PORTAL_DEFAULT_W * 0.5,
             center.y - REPO_PORTAL_DEFAULT_H * 0.5,
@@ -4787,9 +4834,26 @@ impl SlateApp {
         self.add_agent_portal(rect, "placed");
     }
 
+    /// Click-to-place default File Atlas lens (960×540, unbound).
+    pub(crate) fn place_atlas_portal_at(&mut self, center: Pos2) {
+        self.place_from_recipe(
+            BoardTool::AtlasPortal,
+            center,
+            (PORTAL_DEFAULT_W, PORTAL_DEFAULT_H),
+        );
+    }
+
     /// Click-to-place default web portal, bound to the start locator
     /// (P2.PortalPlace.click).
     pub(crate) fn place_web_portal_at(&mut self, center: Pos2) {
+        if self.armed_kit_id.is_some() {
+            self.place_from_recipe(
+                BoardTool::WebPortal,
+                center,
+                (PORTAL_DEFAULT_W, PORTAL_DEFAULT_H),
+            );
+            return;
+        }
         let rect = WorldRect::new(
             center.x - PORTAL_DEFAULT_W * 0.5,
             center.y - PORTAL_DEFAULT_H * 0.5,
@@ -4806,8 +4870,8 @@ impl SlateApp {
     /// Place a tool's recipe centred on a point, at the recipe's own default
     /// size when it names one and `fallback` otherwise.
     fn place_from_recipe(&mut self, tool: BoardTool, center: Pos2, fallback: (f32, f32)) {
-        let Some(recipe) = self.kits.recipe_for(tool).cloned() else {
-            self.board_tool = BoardTool::Select;
+        let Some(recipe) = self.active_recipe(tool) else {
+            self.disarm_create();
             return;
         };
         let [w, h] = recipe.default_size().unwrap_or([fallback.0, fallback.1]);
@@ -4822,12 +4886,12 @@ impl SlateApp {
             .map(|s| self.doc_mut().scene.build_node(s.rect, s.kind))
             .collect();
         if nodes.is_empty() {
-            self.board_tool = BoardTool::Select;
+            self.disarm_create();
             return;
         }
         let ids = self.add_nodes(nodes);
         self.board_sel = ids.into_iter().collect();
-        self.board_tool = BoardTool::Select;
+        self.disarm_create();
         if let Some(id) = Self::draw_command_id(tool) {
             self.push_history(atlas_commands::CommandId(id), Some("placed".into()));
         }
@@ -4873,8 +4937,34 @@ impl SlateApp {
 
     fn commit_draw_rect(&mut self, r: WorldRect, tool: BoardTool) {
         if r.w < MIN_DRAW && r.h < MIN_DRAW {
-            self.board_tool = BoardTool::Select;
+            self.disarm_create();
             return;
+        }
+        // A catalog duplicate uses its own recipe; built-in web/agent keep
+        // their dedicated place paths (start locator, agent session).
+        if self.armed_kit_id.is_some() {
+            if let Some(recipe) = self.active_recipe(tool) {
+                let ctx = kits::build_ctx(
+                    to_rgba(self.palette().accent),
+                    self.doc().scene.next_frame_order(),
+                );
+                let specs = recipe.instantiate(r, &ctx);
+                if specs.is_empty() {
+                    self.disarm_create();
+                    return;
+                }
+                let nodes: Vec<Node> = specs
+                    .into_iter()
+                    .map(|s| self.doc_mut().scene.build_node(s.rect, s.kind))
+                    .collect();
+                let ids = self.add_nodes(nodes);
+                self.board_sel = ids.into_iter().collect();
+                if let Some(id) = Self::draw_command_id(tool) {
+                    self.push_history(atlas_commands::CommandId(id), Some("drawn".into()));
+                }
+                self.disarm_create();
+                return;
+            }
         }
         if tool == BoardTool::AgentPortal {
             self.add_agent_portal(r, "drawn");
@@ -4887,7 +4977,7 @@ impl SlateApp {
         // What the gesture produces is the tool's recipe, read from the kit
         // registry. Nothing here knows what a rectangle looks like.
         let Some(recipe) = self.kits.recipe_for(tool).cloned() else {
-            self.board_tool = BoardTool::Select;
+            self.disarm_create();
             return;
         };
         let ctx = kits::build_ctx(
@@ -4896,7 +4986,7 @@ impl SlateApp {
         );
         let specs = recipe.instantiate(r, &ctx);
         if specs.is_empty() {
-            self.board_tool = BoardTool::Select;
+            self.disarm_create();
             return;
         }
         let nodes: Vec<Node> = specs
@@ -4908,7 +4998,7 @@ impl SlateApp {
         if let Some(id) = Self::draw_command_id(tool) {
             self.push_history(atlas_commands::CommandId(id), Some("drawn".into()));
         }
-        self.board_tool = BoardTool::Select;
+        self.disarm_create();
     }
 
     /// Journal entry a completed draw is recorded under.
@@ -4919,6 +5009,7 @@ impl SlateApp {
             BoardTool::StatusBoard => Some("board.portal.status_board"),
             BoardTool::AgentPortal => Some("board.portal.agent"),
             BoardTool::WebPortal => Some("board.portal.web"),
+            BoardTool::AtlasPortal => Some("board.portal.atlas"),
             BoardTool::RectShape => Some("board.tool.rect"),
             BoardTool::Ellipse => Some("board.tool.ellipse"),
             _ => None,
@@ -4934,7 +5025,7 @@ impl SlateApp {
         self.add_nodes(vec![node]);
         self.board_sel.clear();
         self.board_sel.insert(id);
-        self.board_tool = BoardTool::Select;
+        self.disarm_create();
         self.push_history(
             atlas_commands::CommandId("board.portal.agent"),
             Some(detail.into()),
@@ -4987,7 +5078,7 @@ impl SlateApp {
         self.add_nodes(vec![node]);
         self.board_sel.clear();
         self.board_sel.insert(id);
-        self.board_tool = BoardTool::Select;
+        self.disarm_create();
         self.push_history(
             atlas_commands::CommandId("board.portal.web"),
             Some(detail.into()),
@@ -5600,6 +5691,46 @@ impl SlateApp {
                                 close = true;
                             }
                         }
+                        if p.kind == PortalKind::FileAtlas {
+                            if p.source.is_some() {
+                                if menu::item(ui, MenuIcon::Folder, "Open in File Atlas", dark)
+                                    .clicked()
+                                {
+                                    self.atlas_open_in_file_atlas(ui.ctx(), Some(node_id));
+                                    close = true;
+                                }
+                                if menu::item(ui, MenuIcon::Search, "Refresh", dark).clicked() {
+                                    self.atlas_refresh_portal(node_id);
+                                    close = true;
+                                }
+                                if menu::item(ui, MenuIcon::Image, "Bake poster", dark).clicked() {
+                                    self.board_sel.clear();
+                                    self.board_sel.insert(node_id);
+                                    self.atlas_bake_selected();
+                                    close = true;
+                                }
+                            }
+                            let focused = self.atlas_lenses.focused == Some(node_id);
+                            if menu::item(
+                                ui,
+                                MenuIcon::Enter,
+                                if focused {
+                                    "Leave contents"
+                                } else {
+                                    "Enter contents"
+                                },
+                                dark,
+                            )
+                            .clicked()
+                            {
+                                if focused {
+                                    self.atlas_blur();
+                                } else {
+                                    self.atlas_focus(node_id);
+                                }
+                                close = true;
+                            }
+                        }
                         if p.kind == PortalKind::Agent {
                             if p.source.is_some() {
                                 if menu::item(ui, MenuIcon::Cursor, "Open in Cursor", dark)
@@ -5608,7 +5739,7 @@ impl SlateApp {
                                     self.launch_agent_provider(node_id);
                                     close = true;
                                 }
-                                if menu::item(ui, MenuIcon::Chat, "Switch chat", dark).clicked() {
+                                if menu::item(ui, MenuIcon::Chat, "Switch agent", dark).clicked() {
                                     self.open_agent_chat_picker(node_id);
                                     close = true;
                                 }

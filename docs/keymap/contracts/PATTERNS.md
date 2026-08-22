@@ -234,6 +234,16 @@ duplication. New portal contracts reference these and add only deviations.
   Binding is a separate, non-modal step — no file dialog opens inside a
   draw gesture. One-shot: commit returns to Select (P0.4). Placement
   details also live in **P2.PortalPlace**.
+- **P1.portal.folder-drop** Dropping a **folder** on the board opens a
+  chooser, not an implicit bind. The default option is the File Atlas
+  lens. Every other lens that can honestly read that folder is listed
+  (Repository Lens when `.git` is present, Status Board when
+  `project-state.json` is present, Web when an HTML entry file is
+  present). One extra option is **not a lens**: place the folder's files
+  on the board as images. Alt keeps today's ordinary drop (files become
+  items; no chooser). HTML *files* still become web portals without a
+  chooser. Promoted from `portal-atlas-lens` (2026-08-21) so later
+  lenses append a row instead of inventing a second drop path.
 - **P1.portal.bind** One `SourceUri` stored relative-first (Art. IX.2).
   Rebinding is a journaled `Patch` and discards cached contents. Generated
   portals refuse remote URLs and hosted APIs (Art. I.4); host web portals
@@ -249,18 +259,29 @@ duplication. New portal contracts reference these and add only deviations.
   reaches the contents from outside the frame. Interactive host portals
   implement this as **P1.portal.contents-focus**.
 - **P1.portal.contents-focus** Selection is not contents focus. A click on
-  an interactive host portal (web, agent, and any future inner surface)
-  selects the frame; the board keeps the wheel, pan, and tool (P0.5).
-  Double-click or Enter (`portal.<kind>.focus`) takes contents focus for
-  that frame only. Only then do contents receive pointer and wheel. Esc
-  peels contents focus without tearing contents down (P0.1). Maximize is
-  a separate layer and peels first. Chrome (identity tab, maximize hit,
-  border band) stays Slate's while focused. Implement it the same way
-  every time: a derived `focused: Option<NodeId>`, capture input only
-  when focused (or maximized, when the inner surface *is* the window),
-  and paint inner widgets with `interactive: false` until then. Do not
-  treat "selected" as "the inner surface owns navigation." Cover Flow
-  embeds use `HomeModel.interactive`.
+  an interactive host portal (web, agent, File Atlas, and any future inner
+  surface) selects the frame; the board keeps the wheel, pan, and tool
+  (P0.5). Double-click or Enter (`portal.<kind>.focus`) takes contents
+  focus for that frame only. Only then do contents receive pointer and
+  wheel. Esc peels contents focus without tearing contents down (P0.1).
+  A primary click **outside** the focused portal body — including a click
+  on another node — also peels; that click then belongs to the board.
+  Wheel and pan never reach an unfocused portal, even if the pointer is
+  still over its frame after focus has been peeled. Entering one host
+  portal peels any other. Maximize is a separate layer and peels first.
+  Chrome (identity tab, maximize hit, border band) stays Slate's while
+  focused. Implement it the same way every time: one logical
+  `focused: Option<NodeId>` (do not leave web / agent / atlas / repo
+  slots independently live), capture input only when focused (or
+  maximized, when the inner surface *is* the window), and paint inner
+  widgets with `interactive: false` until then. Do not treat "selected"
+  as "the inner surface owns navigation." Cover Flow embeds use
+  `HomeModel.interactive`. The File Atlas inner map is
+  `atlas-shell::folder_map` — the same camera, leaders, collapse grips,
+  and cards as the standalone File Atlas window. Slate must not import
+  `apps/file-atlas` or instantiate `AtlasApp`. Host-kind *code* reuse
+  (locators, empty CTA, bake, focus prelude, paint shell) is
+  **P2.PortalHost** — do not paste `board_web.rs` to start a fourth host.
 - **P1.portal.determinism** determinism is required of **generated** portals
   only (Art. V.3); Art. IV.2 governs extracted graphs. Host and document
   portals answer D28 with *provenance* — what is being shown and when it was
@@ -268,7 +289,12 @@ duplication. New portal contracts reference these and add only deviations.
 - **P1.portal.style** portals paint from `Palette::portal` and the portal token
   block; they never consume `BoardLastStyle` and never become the last
   single-node edit. **Deviates P1.shape.style** — analysis and host surfaces
-  stay identical between boards and between the two apps (Art. X).
+  stay identical between boards and between the two apps (Art. X). Default
+  portals do not paint an outline; a minimalist stroke appears only for
+  edge hover or explicit contents focus.
+- **P1.portal.empty-ui** Generated unbound / loading / error copy shares
+  one painter in `board_portal.rs`. Host unbound CTA is
+  **P2.PortalHost.empty**.
 - **P1.portal.pick** The frame picks on its rect, including marquee.
   Contents expose no grips and are not selectable as board nodes. Resize
   re-lays-out a generated portal; it does not scale a picture. Portals
@@ -290,18 +316,23 @@ duplication. New portal contracts reference these and add only deviations.
   acceptance (Art. VII.6). Agents never write the source.
 - **P1.portal.clip** Contents paint *inside* the frame fillet. Order:
   fill → contents (textured or vector, clipped to the rounded outline) →
-  identity tab (when the kind has one) → stroke last, so the page cannot
-  oversail the corners. On the canvas, radius and stroke follow **P0.9**
+  fillet punch (square leftover corners painted in the canvas fill, so
+  every kind shares one rounded footprint) → identity tab (when the kind
+  has one) → stroke last, so the page cannot oversail the corners. On
+  the canvas, radius and stroke follow **P0.9**
   (`portal_frame.corner_radius × zoom`). Maximized, radius is 0.
+  Web portal pixels are visually full-bleed to the frame/body outline; the
+  invisible focused-page border hit band is input-only, never a bezel.
   **Deviates** a square `clip_rect` / `painter.image` of the AABB.
 - **P1.portal.chrome** Identity tab is **web-only**. Painted by
   `atlas-shell::tabs::portal_tab_bar` (the workbook tab language: one
   active tab, no `+`). The tab shows the locator. The strip is slimmer
   than the Slate / File Atlas top bar (`portal_frame.tab_height_scale`,
-  40%). Maximize is the only chrome button on that strip — hover
-  brightens the glyph, not a fill. Folding is a context-menu / command
-  action (`portal.chrome.toggle`), not a second toolbar icon; a folded
-  tab is recovered from a reveal strip on the top interior
+  40%). Bounded text clips to the tab content rect; truncation is allowed,
+  oversail is not. Maximize is the only chrome button on that strip —
+  hover brightens the glyph, not a fill. Folding is a context-menu /
+  command action (`portal.chrome.toggle`), not a second toolbar icon; a
+  folded tab is recovered from a reveal strip on the top interior
   (`portal_reveal_hint`). Right-click on the tab or the frame opens
   portal-specific actions (plus Maximize / Hide tab). On the canvas the
   tab is a node-local object (**P0.9**). Maximized, it is window chrome
@@ -348,17 +379,30 @@ has no board, so it ignores Drop to canvas.
   an icon, moves the whole strip. Edge resize still wins
   (`P1.node.transform`). Create tools stay armed; they do not start a
   draw from the toolbar.
-- **P1.dock-strip.chrome** icon strip uses a vertical four-dot column
-  (Minimize, layout toggle, Advanced, Drop to canvas) and fieldset
-  groups of secondary circular icons; tertiary toggles stack two-high
-  on that icon datum. Stacked captions use a horizontal three-dot
-  ellipsis (Minimize, layout toggle, Advanced). Hover labels appear in
-  one place, centered above the dots. The second-dot label is **Icon
-  strip** in the list and **Stacked view** in the strip; either click
-  is dock-wide.
+- **P1.dock-strip.chrome** docked flyouts and canvas copies share one
+  painter: `atlas_shell::dock::measure_icon_strip` +
+  `paint_icon_strip_card` / the flyout strip. Fieldset groups of
+  secondary circular icons; tertiary toggles stack two-high on that
+  icon datum. No second card around a canvas copy — it is the same
+  strip the dock paints. Window-chrome dots (Minimize, Advanced,
+  Drop, then layout-toggle last) stay on the docked popover only; the
+  layout dot uses a denser fill, same radius as the others. Canvas copies are a poster:
+  measure the docked intrinsic size, then **contain-scale** into the
+  node rect — extra bounds are margin, never a reflow (P0.9).   When the pinned band no longer fits the canvas, icons wrap into
+  extra rows **inside** each palette — groups stay in one row.
+  Wrap is an accordion: fill a sideways row, then step overflow up
+  (or out on a left dock). Every category peels one column in the
+  same round so a neighbor cannot overlap while another is still a
+  single row. Pallets sit on the category rule (the basedatum).
+  Never hex-stagger, never fair-share every box to a one-icon tower.
+  Stacked captions on the dock use a horizontal ellipsis; the strip
+  uses a vertical dot column. Hover labels appear in one place,
+  centered above the dots. The last-dot label is **Icon strip** in
+  the list and **Stacked view** in the strip; either click is
+  dock-wide.
 - **P1.dock-strip.select** selection and hover rings use
-  `node_screen_outline` → `rounded_rect_outline` at
-  `dock_strip_corner_radius` (the same fillet paint uses) and
+  `node_screen_outline` → `rounded_rect_outline` of the painted card
+  at `icon_strip_card_radius` (the same fillet paint uses) and
   `board_preview.select_line_weight` / `hover_line_weight`. No AABB
   box. Axis-aligned: no rotate chrome.
 
@@ -447,6 +491,38 @@ The placement grammar every portal subtype has arrived at, promoted from
   (P1.node.move); contents never snap. No direction lock, no numeric entry.
 - **P2.PortalPlace.oneshot** commit returns to Select; Space/Enter re-arms
   (P0.4).
+
+### P2.PortalHost — shared host-portal mechanism
+
+Interaction is **P1.portal** (especially contents-focus, bind, export).
+This pattern is the *code* rule so a fourth host is not a paste of
+`board_web.rs` (Constitution Art. XII). Applies to web, agent, File Atlas,
+and any later inner surface. Generated portals stay on `board_portal.rs`
+and **P1.portal.empty-ui**.
+
+- **P2.PortalHost.locators** One `resolve_source` / `source_locator` pair
+  (Art. IX.2). No per-kind copies (`resolve_web_source`).
+- **P2.PortalHost.empty** Unbound CTA (prompt + Browse) is one helper in
+  `board_portal_chrome`. Sizes go through `canvas_scale::px` (P0.9). A
+  `.max(n)` / `.clamp` floor on that path is a defect.
+- **P2.PortalHost.bake** Write PNG beside the workbook and journal Image +
+  provenance through one helper. Kind supplies pixels and the note string;
+  it does not fork `write_*_poster_png`.
+- **P2.PortalHost.focus** One logical `focused: Option<NodeId>` (see
+  P1.portal.contents-focus). Entering a host peels every other host
+  through one function — not `web_blur(); agent_blur(); atlas_blur();`
+  inlined in each kind. Use `selected_portal_of(kind)`.
+- **P2.PortalHost.shell** Paint sequence is shared: layout → fill →
+  clipped body hook → fillet punch (canvas `palette.bg`, not the ink-tool
+  paper swatch and not per-kind fill) → identity chrome → stroke.
+  Kind-specific work is the body hook and a palette border, not a copied
+  wrapper. Call `paint_portal_shell_finish` / `paint_portal_fillet_punch`.
+- **P2.PortalHost.hit** `border_hit_px` comes only from
+  `portal_frame_tokens()` (P0.6). Local `BORDER_HIT_PX` constants are
+  forbidden.
+- **P2.PortalHost.tree** A folder map inside a portal is
+  `atlas-shell::folder_map`. Scan/watcher session logic belongs in a
+  shared session type, not a second copy of File Atlas's pump.
 
 ### P2.StickyInk — expressive stroke tools (brush, eraser)
 

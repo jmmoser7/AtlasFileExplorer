@@ -19,13 +19,15 @@ use atlas_core::owners::{OwnerHandle, OwnerMsg};
 use atlas_core::scanner::{self, ScanHandle, ScanMsg};
 use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
 use atlas_core::timeline::{ActivityIndex, TimePicks};
-use atlas_core::tree::{self, FilePlace, Hit, LayoutConfig, Orient, Tree};
+use atlas_core::tree::{FilePlace, Hit, LayoutConfig, Orient, Tree};
 use atlas_core::types::{
     common_ancestor, date_string, human_size, normalize_folder_selection, ExtGroup, Family,
     FileEntry, FAMILIES, SECS_PER_DAY,
 };
 use atlas_core::watcher::{self, FsChange, FsWatch};
-use atlas_shell::canvas_scale;
+use atlas_shell::folder_map::{
+    self, folder_heat_color, FolderCam, MapMedia, MapStyle, PaintArgs, ToggleOutcome,
+};
 use atlas_shell::menu::{self, MenuIcon};
 use atlas_shell::minimap::{minimap_ui, MinimapAction, MinimapModel, MinimapState};
 use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
@@ -47,7 +49,6 @@ mod ui;
 pub use chrome::ChromeConfig;
 
 const TEXTURE_CAP: usize = atlas_core::display::ATLAS_TEXTURES.resident_cap;
-const ZOOM_MIN: f32 = atlas_core::display::ATLAS_TREE.min;
 /// High enough that a directory tag (`DIR_H`) can fill a typical viewport
 /// height (~1080–1440px) so names and metadata are no longer cropped.
 const ZOOM_MAX: f32 = atlas_core::display::ATLAS_TREE.max;
@@ -109,17 +110,7 @@ impl FolderHeatMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum DirGrip {
-    Incremental,
-    Full,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum LeaderStyle {
-    Bezier,
-    Orthogonal,
-}
+pub(crate) use atlas_shell::folder_map::{DirGrip, LeaderStyle};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum ThumbState {
@@ -550,10 +541,120 @@ fn prewarm_walk(
     }
 }
 
-#[derive(Clone, Copy)]
-struct Camera {
-    offset: Vec2, // screen px
-    z: f32,
+type Camera = FolderCam;
+
+struct AtlasMapHost<'a> {
+    textures: &'a mut HashMap<u32, (egui::TextureHandle, u64)>,
+    avg_color: &'a [Option<[u8; 3]>],
+    thumb_state: &'a mut [ThumbState],
+    entries: &'a [FileEntry],
+    generation: u64,
+    shared_cache: Option<std::sync::Arc<PathBuf>>,
+    key_prefix: String,
+    frame_no: u64,
+    assigns: &'a HashMap<String, (String, Option<String>)>,
+    heat: &'a [Option<f32>],
+    requests: &'a mut Vec<ThumbRequest>,
+    color_budget: &'a mut i32,
+}
+
+impl AtlasMapHost<'_> {
+    fn entry_key(&self, e: &FileEntry) -> String {
+        if self.key_prefix.is_empty() {
+            cache_key(&e.rel, e.size, e.mtime)
+        } else {
+            cache_key(&format!("{}{}", self.key_prefix, e.rel), e.size, e.mtime)
+        }
+    }
+}
+
+impl MapMedia for AtlasMapHost<'_> {
+    fn texture(&mut self, file: u32) -> Option<(egui::TextureId, Vec2)> {
+        let (tex, last) = self.textures.get_mut(&file)?;
+        *last = self.frame_no;
+        Some((tex.id(), tex.size_vec2()))
+    }
+
+    fn avg_color(&self, file: u32) -> Option<[u8; 3]> {
+        self.avg_color.get(file as usize).copied().flatten()
+    }
+
+    fn request_preview(&mut self, file: u32) {
+        let i = file as usize;
+        let Some(e) = self.entries.get(i) else {
+            return;
+        };
+        if !wants_thumb(e.family) || e.dead {
+            return;
+        }
+        let key = self.entry_key(e);
+        match self.thumb_state.get(i).copied() {
+            Some(ThumbState::NotAsked | ThumbState::HasColor) => {
+                self.thumb_state[i] = ThumbState::AskedFull;
+                self.requests.push(ThumbRequest {
+                    id: file,
+                    generation: self.generation,
+                    path: e.path.clone(),
+                    key,
+                    color_only: false,
+                    shared_dir: self.shared_cache.clone(),
+                    src_bytes: e.size,
+                    pdf_page: None,
+                });
+            }
+            Some(ThumbState::Loaded) if !self.textures.contains_key(&file) => {
+                self.thumb_state[i] = ThumbState::AskedFull;
+                self.requests.push(ThumbRequest {
+                    id: file,
+                    generation: self.generation,
+                    path: e.path.clone(),
+                    key,
+                    color_only: false,
+                    shared_dir: self.shared_cache.clone(),
+                    src_bytes: e.size,
+                    pdf_page: None,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    fn request_color(&mut self, file: u32) {
+        let i = file as usize;
+        if *self.color_budget <= 0 {
+            return;
+        }
+        if self.thumb_state.get(i).copied() != Some(ThumbState::NotAsked) {
+            return;
+        }
+        let Some(e) = self.entries.get(i) else {
+            return;
+        };
+        if !wants_thumb(e.family) || e.dead {
+            return;
+        }
+        *self.color_budget -= 1;
+        let key = self.entry_key(e);
+        self.thumb_state[i] = ThumbState::AskedColor;
+        self.requests.push(ThumbRequest {
+            id: file,
+            generation: self.generation,
+            path: e.path.clone(),
+            key,
+            color_only: true,
+            shared_dir: self.shared_cache.clone(),
+            src_bytes: e.size,
+            pdf_page: None,
+        });
+    }
+
+    fn folder_heat(&self, dir: usize) -> Option<f32> {
+        self.heat.get(dir).copied().flatten()
+    }
+
+    fn is_staged(&self, rel: &str) -> bool {
+        self.assigns.contains_key(rel)
+    }
 }
 
 struct CamAnim {
@@ -619,6 +720,8 @@ pub struct AtlasApp {
     pub dock_icon_strips: Vec<String>,
     /// Tools hidden from each palette's icon strip (`palette → tool ids`).
     pub dock_strip_hidden: Vec<(String, Vec<String>)>,
+    /// Primary icon bar collapsed into the readout blister.
+    pub dock_bar_collapsed: bool,
     /// Editing buffer for the never-scanned folder names (Advanced), one per
     /// line. The list itself lives in `atlas_core::skiplist`; this is only the
     /// text the user is typing, so it is not part of a workspace.
@@ -1115,6 +1218,7 @@ impl AtlasApp {
             dock_pins: chrome_prefs.pinned_panels,
             dock_icon_strips: chrome_prefs.panel_icon_strip,
             dock_strip_hidden: chrome_prefs.panel_strip_hidden,
+            dock_bar_collapsed: chrome_prefs.dock_bar_collapsed,
             skip_edit: skip_list_text(),
             filter_mode: FilterMode::Hide,
             grid_cols: 10,
@@ -1797,6 +1901,12 @@ impl AtlasApp {
     }
 
     fn set_root(&mut self, root: PathBuf) {
+        self.set_roots(vec![root]);
+    }
+
+    /// Linked-session seam: open this folder in the hosted File Atlas viewport.
+    /// Not a File Atlas product feature — Slate's portal chrome calls it.
+    pub fn open_folder(&mut self, root: PathBuf) {
         self.set_roots(vec![root]);
     }
 
@@ -5199,6 +5309,13 @@ impl AtlasApp {
             "app.open" => self.open_folder_dialog(),
             "app.new_tab" => self.home_new_workspace(),
             "app.fullscreen" => self.toggle_canvas_fullscreen(),
+            "dock.bar.toggle" => {
+                let on =
+                    atlas_shell::dock::bar_collapsed(ctx, "file_atlas_tools").unwrap_or(false);
+                atlas_shell::dock::set_bar_collapsed(ctx, "file_atlas_tools", !on);
+                self.dock_bar_collapsed = !on;
+                self.save_chrome_prefs();
+            }
             "app.help" | "app.preferences" => {
                 self.active_chrome_mut().advanced_open = true;
             }
@@ -5341,6 +5458,7 @@ impl AtlasApp {
             panel_icon_strip: self.dock_icon_strips.clone(),
             panel_strip_hidden: self.dock_strip_hidden.clone(),
             minimap: self.minimap_on,
+            dock_bar_collapsed: self.dock_bar_collapsed,
         }
         .save("file-atlas");
     }
@@ -5727,25 +5845,15 @@ impl AtlasApp {
 
     fn zoom_at(&mut self, screen: Pos2, factor: f32) {
         self.anim = None;
-        let nz = (self.cam.z * factor).clamp(ZOOM_MIN, ZOOM_MAX);
-        let k = nz / self.cam.z;
-        self.cam.offset.x = screen.x - (screen.x - self.cam.offset.x) * k;
-        self.cam.offset.y = screen.y - (screen.y - self.cam.offset.y) * k;
-        self.cam.z = nz;
+        self.cam
+            .zoom_at(screen, factor, atlas_core::display::ATLAS_TREE);
         self.grid_fade_armed = true;
     }
 
     fn cam_for_bounds(&self, b: Rect, max_z: f32) -> Camera {
-        let avail = self.canvas_rect.shrink(40.0);
-        let z = ((avail.width() / (b.width() + 70.0)).min(avail.height() / (b.height() + 70.0)))
-            .clamp(ZOOM_MIN, max_z);
-        Camera {
-            offset: Vec2::new(
-                avail.min.x + (avail.width() - b.width() * z) / 2.0 - b.min.x * z,
-                avail.min.y + (avail.height() - b.height() * z) / 2.0 - b.min.y * z,
-            ),
-            z,
-        }
+        let mut profile = atlas_core::display::ATLAS_TREE;
+        profile.max = max_z.min(profile.max);
+        Camera::fit_bounds(self.canvas_rect, b, profile)
     }
 
     /// Bounds of the mapped tree — what "fit" frames.
@@ -5924,36 +6032,17 @@ impl AtlasApp {
         self.hovered_dir_grip = None;
         if let (Some(p), Some(t)) = (pointer, &self.tree) {
             if rect.contains(p) && self.rubber_origin.is_none() {
-                // Files take priority: the global grip search has a generous
-                // radius and must never steal hover from a thumbnail under
-                // the cursor (it made ctrl-click selection intermittent).
-                match t.hit_test(self.s2w(p)) {
-                    Some(Hit::File(f)) => self.hovered_file = Some(f),
-                    Some(Hit::Dir(d)) => {
-                        let visible = self
-                            .tree
-                            .as_ref()
-                            .and_then(|t| t.dirs.get(d as usize))
-                            .map(|dir| {
-                                self.structure_only
-                                    || self.filter_mode != FilterMode::Hide
-                                    || !self.any_filter
-                                    || d == 0
-                                    || dir.desc_matches > 0
-                            })
-                            .unwrap_or(false);
-                        if visible {
-                            self.hovered_dir = Some(d);
-                            self.hovered_dir_grip = self.dir_grip_at(d, p);
-                        }
-                    }
-                    None => {
-                        if let Some((d, grip)) = self.grip_hit_test(p) {
-                            self.hovered_dir = Some(d);
-                            self.hovered_dir_grip = Some(grip);
-                        }
-                    }
-                }
+                let h = folder_map::hover_at(
+                    t,
+                    self.cam,
+                    p,
+                    self.orient,
+                    self.filter_mode == FilterMode::Hide && self.any_filter,
+                    self.structure_only,
+                );
+                self.hovered_file = h.file;
+                self.hovered_dir = h.dir;
+                self.hovered_dir_grip = h.grip;
             }
         }
 
@@ -5990,15 +6079,52 @@ impl AtlasApp {
         let mut color_budget: i32 = 14;
         if self.tree.is_some() {
             let tree = self.tree.take().unwrap();
-            self.draw_branch(
-                &painter,
-                &tree,
-                0,
-                world_view,
-                lod,
-                &mut requests,
-                &mut color_budget,
-            );
+            let heat: Vec<Option<f32>> =
+                (0..tree.dirs.len()).map(|i| self.folder_heat(i)).collect();
+            let hover = folder_map::MapHover {
+                file: self.hovered_file,
+                dir: self.hovered_dir,
+                grip: self.hovered_dir_grip,
+            };
+            let style = MapStyle {
+                orient: self.orient,
+                leader: self.leader_style,
+                structure_only: self.structure_only,
+                any_filter: self.any_filter,
+                filter_hide: self.filter_mode == FilterMode::Hide,
+            };
+            let palette = self.palette();
+            let cam = self.cam;
+            let root = self.root.clone().unwrap_or_default();
+            {
+                let mut host = AtlasMapHost {
+                    textures: &mut self.textures,
+                    avg_color: &self.avg_color,
+                    thumb_state: &mut self.thumb_state,
+                    entries: &self.entries,
+                    generation: self.generation,
+                    shared_cache: self.shared_cache.clone(),
+                    key_prefix: self.key_prefix.clone(),
+                    frame_no: self.frame_no,
+                    assigns: &self.assign_state.assigns,
+                    heat: &heat,
+                    requests: &mut requests,
+                    color_budget: &mut color_budget,
+                };
+                let mut args = PaintArgs {
+                    canvas: rect,
+                    cam,
+                    palette,
+                    style,
+                    hover,
+                    selection: &self.selection,
+                    entries: &self.entries,
+                    file_match: &self.file_match,
+                    root: &root,
+                    lod,
+                };
+                folder_map::paint_tree(&painter, &tree, &mut args, &mut host);
+            }
             self.tree = Some(tree);
         }
         self.draw_edit_drag_target(&painter);
@@ -6510,129 +6636,32 @@ impl AtlasApp {
         }
     }
 
-    /// Screen positions of the (incremental, full) expand grips for a
-    /// collapsed dir. Single source of truth for drawing and hit testing.
-    fn grip_positions(&self, sr: Rect) -> (Pos2, Pos2) {
-        let z = self.cam.z.max(0.4);
-        match self.orient {
-            Orient::V => (
-                Pos2::new(sr.max.x + 10.0 * z, sr.center().y - 11.0 * z),
-                Pos2::new(sr.max.x + 10.0 * z, sr.center().y + 11.0 * z),
-            ),
-            Orient::H => (
-                Pos2::new(sr.center().x - 11.0 * z, sr.max.y + 10.0 * z),
-                Pos2::new(sr.center().x + 11.0 * z, sr.max.y + 10.0 * z),
-            ),
-        }
-    }
-
-    fn dir_grip_at(&self, di: u32, screen: Pos2) -> Option<DirGrip> {
-        let t = self.tree.as_ref()?;
-        let d = t.dirs.get(di as usize)?;
-        if !d.collapsed {
-            return None;
-        }
-        let sr = self.w2s_rect(d.rect());
-        let z = self.cam.z;
-        let r = canvas_scale::hit_px(9.0, z);
-        let (inc, full) = self.grip_positions(sr);
-        // The two grips can sit close together at low zoom; always resolve
-        // to the nearest one so both remain clickable.
-        let d_inc = screen.distance(inc);
-        let d_full = screen.distance(full);
-        if d_inc.min(d_full) > r {
-            None
-        } else if d_inc <= d_full {
-            Some(DirGrip::Incremental)
-        } else {
-            Some(DirGrip::Full)
-        }
-    }
-
-    fn grip_hit_test(&self, screen: Pos2) -> Option<(u32, DirGrip)> {
-        let t = self.tree.as_ref()?;
-        let mut best: Option<(f32, u32, DirGrip)> = None;
-        for (di, d) in t.dirs.iter().enumerate() {
-            if !d.collapsed {
-                continue;
-            }
-            if !self.structure_only
-                && self.filter_mode == FilterMode::Hide
-                && self.any_filter
-                && di != 0
-                && d.desc_matches == 0
-            {
-                continue;
-            }
-            if let Some(grip) = self.dir_grip_at(di as u32, screen) {
-                let sr = self.w2s_rect(d.rect());
-                let (inc, full) = self.grip_positions(sr);
-                let dist = match grip {
-                    DirGrip::Incremental => screen.distance(inc),
-                    DirGrip::Full => screen.distance(full),
-                };
-                if best.is_none_or(|(bd, _, _)| dist < bd) {
-                    best = Some((dist, di as u32, grip));
-                }
-            }
-        }
-        best.map(|(_, di, grip)| (di, grip))
-    }
-
     fn toggle_dir(&mut self, di: u32, grip: DirGrip) {
         let Some(t) = &mut self.tree else { return };
-        let di = di as usize;
-        if di >= t.dirs.len() {
-            return;
-        }
-        let was_portal = t.shows_portal(di);
-        let before = Pos2::new(t.dirs[di].x, t.dirs[di].y);
-        let threshold = t.cfg.normalized().portal_threshold;
-        match grip {
-            DirGrip::Incremental => {
-                let expanding = t.dirs[di].collapsed;
-                t.dirs[di].collapsed = !t.dirs[di].collapsed;
-                if expanding {
-                    // Incremental means exactly one level: re-collapse the
-                    // children so a previous full expand doesn't bleed back.
-                    let children = t.dirs[di].child_dirs.clone();
-                    for c in children {
-                        t.dirs[c as usize].collapsed = true;
-                    }
-                }
-            }
-            DirGrip::Full => {
-                // "Fully expanded" ignores portal-sized folders, which full
-                // expand deliberately leaves as thumbnail previews.
-                let fully_expanded = t.dirs[di].child_dirs.iter().all(|&c| {
-                    let cd = &t.dirs[c as usize];
-                    !cd.collapsed || cd.child_dirs.len() + cd.files.len() > threshold
-                });
-                let collapse = !t.dirs[di].collapsed && fully_expanded;
-                set_subtree_collapsed(t, di, collapse);
-                t.dirs[di].collapsed = collapse;
-            }
-        }
-        t.layout_filtered(
-            self.orient,
-            self.filter_mode == FilterMode::Hide && self.any_filter,
+        let hide = self.filter_mode == FilterMode::Hide && self.any_filter;
+        let Some(out) = folder_map::toggle_dir(
+            t,
+            di,
+            grip,
+            hide,
             &self.file_match,
             self.structure_only,
-        );
-
-        if was_portal && !t.dirs[di].collapsed && grip == DirGrip::Incremental {
-            // Entering the portal: fly to the folder's contents.
-            let b = t.dirs[di].grid_bounds.unwrap_or(t.dirs[di].bounds);
-            let own = t.dirs[di].rect();
-            self.pending_view = Some(ViewCmd::FlyToBounds(b.union(own)));
-        } else {
-            // Keep the clicked node visually stable.
-            let after = Pos2::new(t.dirs[di].x, t.dirs[di].y);
-            self.cam.offset += (before - after) * self.cam.z;
+            self.orient,
+            self.cam.z,
+        ) else {
+            return;
+        };
+        match out {
+            ToggleOutcome::FlyTo(b) => {
+                self.pending_view = Some(ViewCmd::FlyToBounds(b));
+            }
+            ToggleOutcome::KeepNode { cam_delta } => {
+                self.cam.offset += cam_delta;
+            }
         }
         self.record_collapse_state();
         self.bump_minimap();
-        self.filter_dirty = true; // match counts move around
+        self.filter_dirty = true;
     }
 
     /// Copy the tree's collapse flags into `dir_collapsed`, making them the
@@ -6824,1173 +6853,6 @@ impl AtlasApp {
             }
             x += s;
         }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn draw_branch(
-        &mut self,
-        painter: &egui::Painter,
-        t: &Tree,
-        di: usize,
-        view: Rect,
-        lod: u8,
-        requests: &mut Vec<ThumbRequest>,
-        color_budget: &mut i32,
-    ) {
-        let p = self.palette();
-        let d = &t.dirs[di];
-        if !self.structure_only
-            && self.filter_mode == FilterMode::Hide
-            && self.any_filter
-            && di != 0
-            && d.desc_matches == 0
-        {
-            return;
-        }
-        if !d.bounds.expand(40.0).intersects(view) {
-            return;
-        }
-        let z = self.cam.z;
-        let dimming = self.any_filter;
-
-        if !d.collapsed {
-            // Edges to child dirs + branch files + grid trunk.
-            let v = self.orient == Orient::V;
-            let px = if v { d.x + d.w } else { d.x + d.w / 2.0 };
-            let py = if v { d.y } else { d.y + d.h / 2.0 };
-            let stroke_w = if lod == 0 { 1.6 } else { (1.3 * z).max(1.0) };
-
-            // Edges route root -> leaf, terminating at the center of the
-            // target's near edge. Collect every outgoing wire first, then
-            // assign nested rails: because all same-side wires share the
-            // port endpoint, their spans are strictly nested by run length,
-            // so ranking by |breadth delta| and stacking rails outward-in
-            // is provably crossing-free — no collision detection needed.
-            // Left and right of the port get mirrored, independent stacks.
-            let port = Pos2::new(px, py);
-            let mut targets: Vec<Pos2> = Vec::new();
-            for &c in d.child_dirs.iter() {
-                let cd = &t.dirs[c as usize];
-                if !self.structure_only
-                    && self.filter_mode == FilterMode::Hide
-                    && self.any_filter
-                    && cd.desc_matches == 0
-                {
-                    continue;
-                }
-                targets.push(if v {
-                    Pos2::new(cd.x, cd.y)
-                } else {
-                    Pos2::new(cd.x + cd.w / 2.0, cd.y - cd.h / 2.0)
-                });
-            }
-            if let Some(gb) = d.grid_bounds {
-                targets.push(if v {
-                    Pos2::new(gb.min.x, gb.center().y)
-                } else {
-                    Pos2::new(gb.center().x, gb.min.y)
-                });
-            }
-
-            // (exit breadth, rail depth) per wire; None = straight run.
-            let mut routes: Vec<Option<(f32, f32)>> = vec![None; targets.len()];
-            let (p_b, p_d) = if v { (py, px) } else { (px, py) };
-            let breadth = |t: &Pos2| if v { t.y } else { t.x };
-            let depth_of = |t: &Pos2| if v { t.x } else { t.y };
-            let mut neg: Vec<(f32, usize)> = Vec::new();
-            let mut pos: Vec<(f32, usize)> = Vec::new();
-            for (i, tp) in targets.iter().enumerate() {
-                let db = breadth(tp) - p_b;
-                if db > 0.5 {
-                    pos.push((db, i));
-                } else if db < -0.5 {
-                    neg.push((-db, i));
-                }
-            }
-            // Exits fan out along the node edge; keep them inside the node.
-            let exit_limit = ((if v { d.h } else { d.w }) / 2.0 - 8.0).max(2.0);
-            for (mut list, sign) in [(neg, -1.0f32), (pos, 1.0f32)] {
-                if list.is_empty() {
-                    continue;
-                }
-                list.sort_by(|a, b| b.0.total_cmp(&a.0)); // longest run first
-                let n = list.len() as f32;
-                let exit_gap = 4.0f32.min(exit_limit / n);
-                let min_td = list
-                    .iter()
-                    .map(|&(_, i)| depth_of(&targets[i]))
-                    .fold(f32::INFINITY, f32::min);
-                let avail = (min_td - p_d - 16.0 - 14.0).max(0.0);
-                let rail_gap = if n > 1.0 {
-                    8.0f32.min(avail / (n - 1.0))
-                } else {
-                    8.0
-                };
-                for (r, &(_, i)) in list.iter().enumerate() {
-                    let exit = p_b + sign * (n - r as f32) * exit_gap;
-                    let rail = (p_d + 16.0 + r as f32 * rail_gap)
-                        .min(depth_of(&targets[i]) - 12.0)
-                        .max(p_d + 4.0);
-                    routes[i] = Some((exit, rail));
-                }
-            }
-
-            for (i, tgt) in targets.iter().enumerate() {
-                let edge_extent = Rect::from_two_pos(port, *tgt);
-                if !edge_extent.expand(60.0).intersects(view) {
-                    continue;
-                }
-                self.route_edge(painter, port, *tgt, routes[i], v, stroke_w);
-            }
-
-            if let Some(gb) = d.grid_bounds {
-                if gb.expand(40.0).intersects(view) && lod > 0 {
-                    // Dashed group outline.
-                    let sr = self.w2s_rect(gb);
-                    let dash = canvas_scale::px(7.0, z);
-                    let gap = canvas_scale::px(6.0, z);
-                    let pts = [
-                        sr.min,
-                        Pos2::new(sr.max.x, sr.min.y),
-                        sr.max,
-                        Pos2::new(sr.min.x, sr.max.y),
-                        sr.min,
-                    ];
-                    for w in pts.windows(2) {
-                        painter.add(egui::Shape::dashed_line(
-                            w,
-                            Stroke::new(1.0_f32, p.border_strong),
-                            dash,
-                            gap,
-                        ));
-                    }
-                }
-            }
-
-            // Files.
-            for &f in &d.files {
-                let fp = &t.file_pos[f as usize];
-                if fp.place == FilePlace::Hidden {
-                    continue;
-                }
-                let fr = fp.rect();
-                if !fr.intersects(view) {
-                    continue;
-                }
-                let parent_heat = self.folder_heat(di);
-                self.draw_file_card(
-                    painter,
-                    t,
-                    f,
-                    fr,
-                    lod,
-                    dimming,
-                    parent_heat,
-                    requests,
-                    color_budget,
-                );
-            }
-        }
-
-        self.draw_dir_node(painter, t, di, lod, dimming, requests);
-
-        if !d.collapsed {
-            for &c in &d.child_dirs {
-                if !self.structure_only
-                    && self.filter_mode == FilterMode::Hide
-                    && self.any_filter
-                    && t.dirs[c as usize].desc_matches == 0
-                {
-                    continue;
-                }
-                self.draw_branch(painter, t, c as usize, view, lod, requests, color_budget);
-            }
-        }
-    }
-
-    /// Draws one wire from a node's port to a target, all in world coords.
-    /// `route` = (exit breadth, rail depth): the wire leaves the node edge at
-    /// `exit`, runs to its nested rail, travels along it, then descends to
-    /// the target center. `None` means a straight run.
-    #[allow(clippy::too_many_arguments)]
-    fn route_edge(
-        &self,
-        painter: &egui::Painter,
-        port: Pos2,
-        tgt: Pos2,
-        route: Option<(f32, f32)>,
-        v: bool,
-        stroke_w: f32,
-    ) {
-        let pal = self.palette();
-        let stroke = Stroke::new(stroke_w, pal.line);
-        let Some((exit, rail)) = route else {
-            painter.line_segment([self.w2s(port), self.w2s(tgt)], stroke);
-            return;
-        };
-        let start = if v {
-            Pos2::new(port.x, exit)
-        } else {
-            Pos2::new(exit, port.y)
-        };
-        let (m1, m2) = if v {
-            (Pos2::new(rail, exit), Pos2::new(rail, tgt.y))
-        } else {
-            (Pos2::new(exit, rail), Pos2::new(tgt.x, rail))
-        };
-        if self.leader_style == LeaderStyle::Orthogonal {
-            let pts = [self.w2s(start), self.w2s(m1), self.w2s(m2), self.w2s(tgt)];
-            rounded_route(painter, &pts, canvas_scale::px(9.0, self.cam.z), stroke);
-            return;
-        }
-        // Bezier: control points sit on the same nested rail, so curved
-        // wires fan out without crossing either.
-        painter.add(egui::Shape::CubicBezier(
-            egui::epaint::CubicBezierShape::from_points_stroke(
-                [self.w2s(start), self.w2s(m1), self.w2s(m2), self.w2s(tgt)],
-                false,
-                Color32::TRANSPARENT,
-                stroke,
-            ),
-        ));
-    }
-
-    fn draw_dir_node(
-        &mut self,
-        painter: &egui::Painter,
-        t: &Tree,
-        di: usize,
-        lod: u8,
-        _dimming: bool,
-        requests: &mut Vec<ThumbRequest>,
-    ) {
-        let p = self.palette();
-        let d = &t.dirs[di];
-        let z = self.cam.z;
-        let sr = self.w2s_rect(d.rect());
-        let hovered = self.hovered_dir == Some(di as u32);
-        let heat = self.folder_heat(di);
-
-        if lod == 0 {
-            // Far zoom: keep the solid glyph fill; heat lives on the stroke.
-            painter.rect_filled(
-                sr,
-                CornerRadius::ZERO,
-                if t.shows_portal(di) {
-                    p.portal.gamma_multiply(0.85)
-                } else {
-                    p.accent.gamma_multiply(0.75)
-                },
-            );
-            if let Some(h) = heat {
-                painter.rect_stroke(
-                    sr,
-                    CornerRadius::ZERO,
-                    Stroke::new(1.5_f32, folder_heat_color(h)),
-                    StrokeKind::Inside,
-                );
-            }
-            return;
-        }
-
-        if t.shows_portal(di) {
-            self.draw_portal(painter, t, di, sr, lod, requests);
-            return;
-        }
-
-        let cr = 10.0 * z;
-        let fill = if hovered { p.card_hover } else { p.card };
-        painter.rect_filled(sr, cr, fill);
-        let stroke_w = if hovered { 1.6_f32 } else { 1.25_f32 };
-        let stroke_c = match heat {
-            Some(h) => folder_heat_color(h),
-            None if hovered => p.border_strong,
-            None => p.border,
-        };
-        painter.rect_stroke(sr, cr, Stroke::new(stroke_w, stroke_c), StrokeKind::Inside);
-
-        // Open/closed ring indicator.
-        let ring_c = self.w2s(Pos2::new(d.x + 20.0, d.y));
-        let ring_r = 6.5 * z;
-        if ring_r > 1.5 {
-            painter.circle_stroke(ring_c, ring_r, Stroke::new((1.8 * z).max(1.0), p.accent));
-            if !d.collapsed {
-                painter.circle_filled(ring_c, 2.4 * z, p.accent);
-            }
-        }
-
-        if d.collapsed && (hovered || lod >= 2) {
-            let (inc, full) = self.grip_positions(sr);
-            let grip_r = canvas_scale::px(4.5, z);
-            let inc_hover = self.hovered_dir == Some(di as u32)
-                && self.hovered_dir_grip == Some(DirGrip::Incremental);
-            let full_hover =
-                self.hovered_dir == Some(di as u32) && self.hovered_dir_grip == Some(DirGrip::Full);
-            painter.circle_filled(
-                inc,
-                grip_r + if inc_hover { 2.0 } else { 0.0 },
-                if inc_hover { p.accent } else { p.border_strong },
-            );
-            painter.circle_stroke(
-                full,
-                grip_r + if full_hover { 2.0 } else { 0.0 },
-                Stroke::new(
-                    1.5_f32,
-                    if full_hover {
-                        p.portal
-                    } else {
-                        p.border_strong
-                    },
-                ),
-            );
-            painter.circle_stroke(
-                full,
-                grip_r * 0.55,
-                Stroke::new(
-                    1.2_f32,
-                    if full_hover {
-                        p.portal
-                    } else {
-                        p.border_strong
-                    },
-                ),
-            );
-        }
-
-        // Labels are embedded in the card: font size tracks node screen
-        // height, text is clipped to `sr`, and width-fitted so nothing
-        // escapes the node at any zoom. Close zoom adds richer LOD lines.
-        self.paint_dir_labels(painter, d, sr, lod, &p);
-    }
-
-    fn draw_portal(
-        &mut self,
-        painter: &egui::Painter,
-        t: &Tree,
-        di: usize,
-        sr: Rect,
-        lod: u8,
-        requests: &mut Vec<ThumbRequest>,
-    ) {
-        let p = self.palette();
-        let d = &t.dirs[di];
-        let z = self.cam.z;
-        let hovered = self.hovered_dir == Some(di as u32);
-        let heat = self.folder_heat(di);
-        let cr = 12.0 * z;
-        let fill = if hovered { p.card_hover } else { p.card };
-        painter.rect_filled(sr, cr, fill);
-        let stroke_c = match heat {
-            Some(h) => folder_heat_color(h),
-            None => p.portal,
-        };
-        painter.rect_stroke(
-            sr,
-            cr,
-            Stroke::new(if hovered { 1.8_f32 } else { 1.4_f32 }, stroke_c),
-            StrokeKind::Inside,
-        );
-
-        // Detail LOD: the portal card itself carries the paragraph (full path
-        // + meta). Mid/full keep the mosaic and a compact footer strip.
-        if self.label_detail_active(lod, sr) {
-            self.paint_dir_labels_detail(painter, d, sr, &p);
-            return;
-        }
-
-        let pad = 9.0 * z;
-        let mos_h = sr.height() - 62.0 * z;
-        let mos = Rect::from_min_size(
-            sr.min + Vec2::splat(pad),
-            Vec2::new(sr.width() - pad * 2.0, mos_h.max(0.0)),
-        );
-        // Structure-only map: keep the portal card but skip the thumbnail
-        // mosaic (no previews, no thumbnail requests).
-        if mos.height() > 2.0 && !self.structure_only {
-            let mp = painter.with_clip_rect(mos);
-            mp.rect_filled(mos, CornerRadius::ZERO, p.thumb_bg);
-            let gp = 3.0 * z;
-            let cw = (mos.width() - gp * 2.0) / 3.0;
-            let ch = (mos.height() - gp * 2.0) / 3.0;
-            for i in 0..9usize {
-                let sample = d.portal_samples.get(i).copied();
-                let cell = Rect::from_min_size(
-                    mos.min + Vec2::new((i % 3) as f32 * (cw + gp), (i / 3) as f32 * (ch + gp)),
-                    Vec2::new(cw, ch),
-                );
-                match sample {
-                    Some(f) => {
-                        // Mid and full LOD both request — otherwise fit-to-view
-                        // on a large Desktop never fills the mosaic.
-                        if lod >= 1 {
-                            self.maybe_request_full(t, f, requests);
-                        }
-                        if let Some((tex, last)) = self.textures.get_mut(&f) {
-                            *last = self.frame_no;
-                            let uv = cover_uv(tex.size_vec2(), cell.size());
-                            mp.image(tex.id(), cell, uv, Color32::WHITE);
-                        } else {
-                            let e = &self.entries[f as usize];
-                            let c = self.avg_color[f as usize]
-                                .map(|[r, g, b]| Color32::from_rgb(r, g, b))
-                                .unwrap_or(e.family.color().gamma_multiply(0.16));
-                            mp.rect_filled(cell, CornerRadius::ZERO, c);
-                        }
-                    }
-                    None => {
-                        mp.rect_filled(cell, CornerRadius::ZERO, p.thumb_bg.gamma_multiply(1.4));
-                    }
-                }
-            }
-        }
-
-        let footer = Rect::from_min_max(
-            Pos2::new(
-                sr.min.x + pad,
-                (sr.max.y - 48.0 * z).max(mos.max.y + 2.0 * z),
-            ),
-            Pos2::new(sr.max.x - pad, sr.max.y - 6.0 * z),
-        );
-        if footer.height() >= 4.0 && lod >= 1 {
-            self.paint_portal_labels(painter, d, footer, lod, &p);
-        }
-    }
-
-    /// Directory-card labels: scale with the node, clip inside it, reveal
-    /// more lines as screen-space room grows. Detail LOD (deep zoom, or a
-    /// single tag filling most of the viewport) wraps a full path and a
-    /// short paragraph of metadata instead of ellipsizing one-liners.
-    fn paint_dir_labels(
-        &self,
-        painter: &egui::Painter,
-        d: &tree::DirNode,
-        sr: Rect,
-        lod: u8,
-        p: &Palette,
-    ) {
-        if self.label_detail_active(lod, sr) {
-            self.paint_dir_labels_detail(painter, d, sr, p);
-            return;
-        }
-
-        let z = self.cam.z;
-        let pad_l = 34.0 * z;
-        let pad_r = 8.0 * z;
-        let pad_y = (3.0 * z).max(1.0);
-        let max_w = sr.width() - pad_l - pad_r;
-        let max_h = sr.height() - pad_y * 2.0;
-        if max_w < 6.0 || max_h < 4.0 {
-            return;
-        }
-
-        // Font size is a fraction of the card height so text grows with the
-        // node — at deep zoom a tag can fill the screen and still show its
-        // full name / meta instead of staying capped at a mid-zoom size.
-        let name_px = (max_h * 0.36).max(0.0);
-        if name_px < 3.5 {
-            return;
-        }
-        let sub_px = (max_h * 0.24).max(0.0);
-
-        // Screen-space LOD: how many lines the card can honestly hold.
-        // Mid zoom → name (+ short meta if room). Close zoom → name, meta,
-        // relative path. Filter match badge rides the right edge inside clip.
-        let close = max_h >= 28.0 || sr.width() >= 260.0;
-        let show_meta = lod >= 1 && sub_px >= 3.0 && max_h >= name_px * 1.7;
-        let show_path = lod >= 2 && close && !d.rel.is_empty() && max_h >= name_px * 2.6;
-        let show_match = self.any_filter && d.desc_matches > 0 && d.collapsed && lod >= 2;
-
-        let name_font = FontId::proportional(name_px);
-        let sub_font = FontId::proportional(sub_px);
-        let path_px = (sub_px * 0.92).max(3.0);
-        let path_font = FontId::proportional(path_px);
-
-        let name = ellipsize_to_width(painter, &d.name, &name_font, max_w);
-        let meta = if show_meta {
-            let mut m = if lod >= 2 {
-                format!(
-                    "{} files · {}",
-                    group_digits(d.desc_files as u64),
-                    human_size(d.desc_bytes)
-                )
-            } else {
-                format!(
-                    "{} · {}",
-                    group_digits(d.desc_files as u64),
-                    human_size(d.desc_bytes)
-                )
-            };
-            if lod >= 2 && d.ctime > 0 {
-                m.push_str(" · created ");
-                m.push_str(&date_string(d.ctime));
-            }
-            if lod >= 2 && !d.owner.is_empty() {
-                m.push_str(" · ");
-                m.push_str(&d.owner);
-            } else if lod == 1 && d.ctime > 0 && close {
-                m.push_str(" · ");
-                m.push_str(&date_string(d.ctime));
-            }
-            if d.collapsed {
-                m.push_str("  ▸");
-            }
-            Some(ellipsize_to_width(painter, &m, &sub_font, max_w))
-        } else {
-            None
-        };
-        let path = if show_path {
-            Some(ellipsize_to_width(painter, &d.rel, &path_font, max_w))
-        } else {
-            None
-        };
-        let match_badge = if show_match {
-            Some(format!("{} match", group_digits(d.desc_matches as u64)))
-        } else {
-            None
-        };
-
-        let lp = painter.with_clip_rect(sr);
-        let mut lines: Vec<(String, FontId, Color32)> = Vec::with_capacity(3);
-        lines.push((name, name_font, p.ink));
-        if let Some(m) = meta {
-            lines.push((m, sub_font.clone(), p.sub));
-        }
-        if let Some(path) = path {
-            lines.push((path, path_font, p.sub.gamma_multiply(0.85)));
-        }
-
-        let line_gap = 1.15;
-        let block_h: f32 = lines.iter().map(|(_, f, _)| f.size * line_gap).sum();
-        let mut y = sr.min.y + pad_y + (max_h - block_h).max(0.0) * 0.5 + lines[0].1.size * 0.5;
-        let x = sr.min.x + pad_l;
-        for (text, font, color) in &lines {
-            if !text.is_empty() {
-                lp.text(
-                    Pos2::new(x, y),
-                    Align2::LEFT_CENTER,
-                    text,
-                    font.clone(),
-                    *color,
-                );
-            }
-            y += font.size * line_gap;
-        }
-
-        if let Some(label) = match_badge {
-            lp.text(
-                Pos2::new(sr.max.x - pad_r, sr.min.y + pad_y + sub_px * 0.55),
-                Align2::RIGHT_CENTER,
-                label,
-                sub_font,
-                p.accent,
-            );
-        }
-    }
-
-    /// Detail LOD for a directory tag: readable wrapped body (full absolute
-    /// path + a short paragraph of counts / dates / owner), clipped to the card.
-    fn paint_dir_labels_detail(
-        &self,
-        painter: &egui::Painter,
-        d: &tree::DirNode,
-        sr: Rect,
-        p: &Palette,
-    ) {
-        let pad_l = sr.width() * 0.06;
-        let pad_r = sr.width() * 0.04;
-        let pad_y = sr.height() * 0.08;
-        let max_w = sr.width() - pad_l - pad_r;
-        let max_h = sr.height() - pad_y * 2.0;
-        if max_w < 40.0 || max_h < 24.0 {
-            return;
-        }
-
-        // Fractions of the host tag so type tracks the card through zoom —
-        // same rule as the mid/full LOD path. No floor or ceiling: too small
-        // drops (the early return above); the host keeps owning the size.
-        let name_px = max_h * 0.11;
-        let body_px = max_h * 0.048;
-        let name_font = FontId::proportional(name_px);
-        let body_font = FontId::proportional(body_px);
-        let path_font = FontId::proportional(body_px * 0.95);
-
-        let abs = self.dir_abs_path(d);
-        let mut details = format!(
-            "{} files · {}",
-            group_digits(d.desc_files as u64),
-            human_size(d.desc_bytes)
-        );
-        if d.ctime > 0 {
-            details.push_str("\nCreated ");
-            details.push_str(&date_string(d.ctime));
-        }
-        if !d.owner.is_empty() {
-            details.push_str("\nOwner ");
-            details.push_str(&d.owner);
-        }
-        if d.collapsed {
-            details.push_str("\nCollapsed — expand to show contents");
-        }
-        if self.any_filter && d.desc_matches > 0 {
-            details.push('\n');
-            details.push_str(&group_digits(d.desc_matches as u64));
-            if d.desc_matches == 1 {
-                details.push_str(" filter match");
-            } else {
-                details.push_str(" filter matches");
-            }
-        }
-
-        let lp = painter.with_clip_rect(sr);
-        let x = sr.min.x + pad_l;
-        let mut y = sr.min.y + pad_y;
-        let gap = (body_px * 0.35).max(4.0);
-
-        let name_galley = painter.layout(d.name.clone(), name_font, p.ink, max_w);
-        let name_h = name_galley.size().y;
-        lp.galley(Pos2::new(x, y), name_galley, p.ink);
-        y += name_h + gap;
-
-        let remain = (sr.max.y - pad_y - y).max(0.0);
-        if remain < body_px * 1.2 || abs.is_empty() {
-            return;
-        }
-        // Path gets ~55% of remaining height; details take the rest.
-        let path_budget = (remain * 0.55).max(body_px * 2.0);
-        let path_galley = painter.layout(abs, path_font, p.sub.gamma_multiply(0.9), max_w);
-        let path_h = path_galley.size().y.min(path_budget);
-        let path_clip = Rect::from_min_size(Pos2::new(x, y), Vec2::new(max_w, path_budget));
-        painter.with_clip_rect(path_clip.intersect(sr)).galley(
-            Pos2::new(x, y),
-            path_galley,
-            p.sub.gamma_multiply(0.9),
-        );
-        y += path_h + gap;
-
-        let detail_budget = (sr.max.y - pad_y - y).max(0.0);
-        if detail_budget < body_px {
-            return;
-        }
-        let detail_galley = painter.layout(details, body_font, p.sub, max_w);
-        let detail_clip = Rect::from_min_size(Pos2::new(x, y), Vec2::new(max_w, detail_budget));
-        painter.with_clip_rect(detail_clip.intersect(sr)).galley(
-            Pos2::new(x, y),
-            detail_galley,
-            p.sub,
-        );
-    }
-
-    /// Absolute path for a directory node (root-joined `rel`), for detail LOD.
-    fn dir_abs_path(&self, d: &tree::DirNode) -> String {
-        match &self.root {
-            Some(root) if d.rel.is_empty() => root.display().to_string(),
-            Some(root) => root
-                .join(d.rel.replace('\\', std::path::MAIN_SEPARATOR_STR))
-                .display()
-                .to_string(),
-            None => d.rel.replace('\\', std::path::MAIN_SEPARATOR_STR),
-        }
-    }
-
-    /// Detail LOD is on when the camera bucket is 3, or when a lod≥2 card
-    /// already fills most of the canvas (one tag under the lens).
-    fn label_detail_active(&self, lod: u8, sr: Rect) -> bool {
-        lod >= 3 || (lod >= 2 && self.card_fills_majority(sr))
-    }
-
-    fn card_fills_majority(&self, sr: Rect) -> bool {
-        let ch = self.canvas_rect.height().max(1.0);
-        let cw = self.canvas_rect.width().max(1.0);
-        let h_frac = sr.height() / ch;
-        let area_frac = (sr.width() / cw) * (sr.height() / ch);
-        h_frac >= 0.55 || area_frac >= 0.40
-    }
-
-    fn paint_portal_labels(
-        &self,
-        painter: &egui::Painter,
-        d: &tree::DirNode,
-        footer: Rect,
-        lod: u8,
-        p: &Palette,
-    ) {
-        let max_w = footer.width();
-        let max_h = footer.height();
-        if max_w < 6.0 || max_h < 4.0 {
-            return;
-        }
-        let name_px = (max_h * 0.42).max(0.0);
-        if name_px < 3.5 {
-            return;
-        }
-        let sub_px = (max_h * 0.30).max(0.0);
-        let show_meta = lod >= 1 && sub_px >= 3.0 && max_h >= name_px * 1.6;
-        let show_path = lod >= 2 && max_h >= 36.0 && !d.rel.is_empty();
-
-        let name_font = FontId::proportional(name_px);
-        let sub_font = FontId::proportional(sub_px);
-        let path_font = FontId::proportional((sub_px * 0.9).max(3.0));
-
-        let name = ellipsize_to_width(painter, &d.name, &name_font, max_w);
-        let meta = if show_meta {
-            let m = format!(
-                "{} items · {}",
-                group_digits((d.child_dirs.len() + d.files.len()) as u64),
-                human_size(d.desc_bytes)
-            );
-            Some(ellipsize_to_width(painter, &m, &sub_font, max_w * 0.72))
-        } else {
-            None
-        };
-        let enter = if show_meta {
-            Some("Enter ↵".to_string())
-        } else {
-            None
-        };
-        let path = if show_path {
-            Some(ellipsize_to_width(painter, &d.rel, &path_font, max_w))
-        } else {
-            None
-        };
-
-        let lp = painter.with_clip_rect(footer);
-        let x = footer.min.x + 2.0;
-        let mut y = footer.min.y + name_px * 0.55;
-        lp.text(Pos2::new(x, y), Align2::LEFT_CENTER, name, name_font, p.ink);
-        y += name_px * 1.15;
-        if let Some(m) = meta {
-            lp.text(
-                Pos2::new(x, y),
-                Align2::LEFT_CENTER,
-                m,
-                sub_font.clone(),
-                p.sub,
-            );
-            if let Some(label) = enter {
-                lp.text(
-                    Pos2::new(footer.max.x - 2.0, y),
-                    Align2::RIGHT_CENTER,
-                    label,
-                    sub_font,
-                    p.portal,
-                );
-            }
-            y += sub_px * 1.15;
-        }
-        if let Some(path) = path {
-            lp.text(
-                Pos2::new(x, y),
-                Align2::LEFT_CENTER,
-                path,
-                path_font,
-                p.sub.gamma_multiply(0.85),
-            );
-        }
-    }
-
-    /// Cache keys are project-root-relative when a shared project cache is
-    /// active, so all machines agree on them.
-    fn entry_key(&self, e: &FileEntry) -> String {
-        if self.key_prefix.is_empty() {
-            cache_key(&e.rel, e.size, e.mtime)
-        } else {
-            cache_key(&format!("{}{}", self.key_prefix, e.rel), e.size, e.mtime)
-        }
-    }
-
-    fn maybe_request_full(&mut self, _t: &Tree, f: u32, requests: &mut Vec<ThumbRequest>) {
-        let i = f as usize;
-        let e = &self.entries[i];
-        if !wants_thumb(e.family) || e.dead {
-            return;
-        }
-        let key = self.entry_key(e);
-        let e = &self.entries[i];
-        match self.thumb_state[i] {
-            ThumbState::NotAsked | ThumbState::HasColor => {
-                self.thumb_state[i] = ThumbState::AskedFull;
-                requests.push(ThumbRequest {
-                    id: f,
-                    generation: self.generation,
-                    path: e.path.clone(),
-                    key,
-                    color_only: false,
-                    shared_dir: self.shared_cache.clone(),
-                    src_bytes: e.size,
-                    pdf_page: None,
-                });
-            }
-            ThumbState::Loaded if !self.textures.contains_key(&f) => {
-                // Evicted — ask again (disk cache makes this cheap).
-                self.thumb_state[i] = ThumbState::AskedFull;
-                requests.push(ThumbRequest {
-                    id: f,
-                    generation: self.generation,
-                    path: e.path.clone(),
-                    key,
-                    color_only: false,
-                    shared_dir: self.shared_cache.clone(),
-                    src_bytes: e.size,
-                    pdf_page: None,
-                });
-            }
-            _ => {}
-        }
-    }
-
-    fn maybe_request_color(
-        &mut self,
-        f: u32,
-        requests: &mut Vec<ThumbRequest>,
-        color_budget: &mut i32,
-    ) {
-        let i = f as usize;
-        if *color_budget <= 0 || self.thumb_state[i] != ThumbState::NotAsked {
-            return;
-        }
-        let e = &self.entries[i];
-        if !wants_thumb(e.family) || e.dead {
-            return;
-        }
-        *color_budget -= 1;
-        let key = self.entry_key(e);
-        let e = &self.entries[i];
-        self.thumb_state[i] = ThumbState::AskedColor;
-        requests.push(ThumbRequest {
-            id: f,
-            generation: self.generation,
-            path: e.path.clone(),
-            key,
-            color_only: true,
-            shared_dir: self.shared_cache.clone(),
-            src_bytes: e.size,
-            pdf_page: None,
-        });
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn draw_file_card(
-        &mut self,
-        painter: &egui::Painter,
-        t: &Tree,
-        f: u32,
-        world: Rect,
-        lod: u8,
-        dimming: bool,
-        parent_heat: Option<f32>,
-        requests: &mut Vec<ThumbRequest>,
-        color_budget: &mut i32,
-    ) {
-        let p = self.palette();
-        let i = f as usize;
-        let e = self.entries[i].clone();
-        let z = self.cam.z;
-        let sr = self.w2s_rect(world);
-        let matched = self.file_match.get(i).copied().unwrap_or(true);
-        let alpha = if dimming && !matched { 0.15 } else { 1.0 };
-        let fam_color = e.family.color();
-        let selected = self.selection.contains(&f);
-        let hovered = self.hovered_file == Some(f);
-
-        if lod == 0 {
-            // Overview: true-to-scale blocks in the file's own average color.
-            self.maybe_request_color(f, requests, color_budget);
-            let c = self.avg_color[i]
-                .map(|[r, g, b]| Color32::from_rgb(r, g, b))
-                .unwrap_or(fam_color.gamma_multiply(0.5));
-            painter.rect_filled(sr, CornerRadius::ZERO, c.gamma_multiply(alpha));
-            if selected {
-                painter.rect_stroke(
-                    sr,
-                    CornerRadius::ZERO,
-                    Stroke::new(1.0_f32, p.select),
-                    StrokeKind::Inside,
-                );
-            } else if let Some(h) = parent_heat {
-                painter.rect_stroke(
-                    sr,
-                    CornerRadius::ZERO,
-                    Stroke::new(1.2_f32, folder_heat_color(h).gamma_multiply(alpha)),
-                    StrokeKind::Inside,
-                );
-            }
-            return;
-        }
-
-        let cr = 9.0 * z;
-        let card_fill = if hovered || selected {
-            p.card_hover
-        } else {
-            p.card
-        };
-        painter.rect_filled(sr, cr, card_fill.gamma_multiply(alpha));
-        // Heat replaces the default cyan/border stroke on thumbnails; selection
-        // still wins so chosen files stay obvious.
-        let border = if selected {
-            Stroke::new(2.0_f32, p.select)
-        } else if let Some(h) = parent_heat {
-            Stroke::new(
-                if hovered { 1.5_f32 } else { 1.25_f32 },
-                folder_heat_color(h).gamma_multiply(alpha),
-            )
-        } else if matched && dimming {
-            Stroke::new(1.2_f32, p.accent.gamma_multiply(0.65))
-        } else if hovered {
-            Stroke::new(1.4_f32, p.border_strong)
-        } else {
-            Stroke::new(1.0_f32, p.border.gamma_multiply(alpha))
-        };
-        painter.rect_stroke(sr, cr, border, StrokeKind::Inside);
-
-        if lod >= 2 {
-            let detail = self.label_detail_active(lod, sr);
-            let pad = if detail { sr.width() * 0.04 } else { 6.0 * z };
-            // Detail: leave ~half the card for a wrapped path + meta paragraph.
-            let thumb_h = if detail {
-                (sr.height() * 0.42).min(tree::THUMB_H * z * 1.15).max(24.0)
-            } else {
-                tree::THUMB_H * z
-            };
-            let thumb = Rect::from_min_size(
-                sr.min + Vec2::splat(pad),
-                Vec2::new((sr.width() - pad * 2.0).max(1.0), thumb_h),
-            );
-            let tp = painter.with_clip_rect(thumb);
-            tp.rect_filled(thumb, CornerRadius::ZERO, p.thumb_bg.gamma_multiply(alpha));
-            self.maybe_request_full(t, f, requests);
-            let mut drew = false;
-            if let Some((tex, last)) = self.textures.get_mut(&f) {
-                *last = self.frame_no;
-                let uv = cover_uv(tex.size_vec2(), thumb.size());
-                tp.image(tex.id(), thumb, uv, Color32::WHITE.gamma_multiply(alpha));
-                drew = true;
-                if e.family == Family::Video {
-                    let c = thumb.max - Vec2::splat(14.0 * z);
-                    let r = 9.0 * z;
-                    if r > 2.0 {
-                        tp.circle_filled(
-                            Pos2::new(c.x, c.y),
-                            r,
-                            Color32::from_rgba_unmultiplied(255, 255, 255, 230),
-                        );
-                        tp.text(
-                            Pos2::new(c.x + r * 0.08, c.y),
-                            Align2::CENTER_CENTER,
-                            "▶",
-                            FontId::proportional(r),
-                            p.ink,
-                        );
-                    }
-                }
-            }
-            if !drew {
-                let c = self.avg_color[i]
-                    .map(|[r, g, b]| Color32::from_rgb(r, g, b))
-                    .unwrap_or(fam_color.gamma_multiply(0.14));
-                tp.rect_filled(thumb, CornerRadius::ZERO, c.gamma_multiply(alpha));
-                let glyph_px = 14.0 * z;
-                if glyph_px >= 6.0 {
-                    tp.text(
-                        thumb.center(),
-                        Align2::CENTER_CENTER,
-                        format!(".{}", if e.ext.is_empty() { "?" } else { &e.ext }),
-                        FontId::monospace(glyph_px),
-                        if self.avg_color[i].is_some() {
-                            Color32::from_rgba_unmultiplied(255, 255, 255, 217)
-                        } else {
-                            fam_color
-                        },
-                    );
-                }
-            }
-
-            if detail {
-                self.paint_file_labels_detail(painter, &e, sr, thumb, pad, fam_color, alpha, &p);
-            } else {
-                // Type as a fraction of the painted card — same zoom response
-                // as the host directory tag (`max_h * fraction`), so file and
-                // folder labels grow in lockstep. Width-fit so deep zoom shows
-                // the full filename instead of a hard character truncate.
-                let name_px = sr.height() * (11.0 / tree::FILE_H);
-                if name_px >= 6.0 {
-                    let text_max_w = (sr.width() - 20.0 * z).max(8.0);
-                    let tick_h = sr.height() * (11.0 / tree::FILE_H);
-                    painter.rect_filled(
-                        Rect::from_min_size(
-                            self.w2s(Pos2::new(world.min.x + 6.0, world.max.y - 25.0)),
-                            Vec2::new(sr.width() * (3.0 / tree::FILE_W), tick_h),
-                        ),
-                        CornerRadius::ZERO,
-                        fam_color.gamma_multiply(alpha),
-                    );
-                    let name_font = FontId::proportional(name_px);
-                    let name = ellipsize_to_width(painter, &e.name, &name_font, text_max_w);
-                    painter.text(
-                        self.w2s(Pos2::new(world.min.x + 14.0, world.max.y - 19.0)),
-                        Align2::LEFT_CENTER,
-                        name,
-                        name_font,
-                        p.ink.gamma_multiply(alpha),
-                    );
-                    let mut meta =
-                        format!("{} · created {}", human_size(e.size), date_string(e.ctime));
-                    if !e.owner.is_empty() {
-                        meta.push_str(" · ");
-                        meta.push_str(&e.owner);
-                    }
-                    let meta_font =
-                        FontId::proportional((sr.height() * (9.5 / tree::FILE_H)).max(6.0));
-                    let meta = ellipsize_to_width(painter, &meta, &meta_font, text_max_w);
-                    painter.text(
-                        self.w2s(Pos2::new(world.min.x + 14.0, world.max.y - 8.0)),
-                        Align2::LEFT_CENTER,
-                        meta,
-                        meta_font,
-                        p.sub.gamma_multiply(alpha),
-                    );
-                }
-            }
-
-            // Staged underline.
-            if self.assign_state.assigns.contains_key(&e.rel) {
-                painter.rect_filled(
-                    Rect::from_min_size(
-                        Pos2::new(sr.min.x, sr.max.y - 2.0),
-                        Vec2::new(sr.width(), 2.0),
-                    ),
-                    CornerRadius::ZERO,
-                    p.staged.gamma_multiply(alpha),
-                );
-            }
-        } else {
-            // Mid LOD: simplified color slab.
-            self.maybe_request_color(f, requests, color_budget);
-            let c = self.avg_color[i]
-                .map(|[r, g, b]| Color32::from_rgb(r, g, b))
-                .unwrap_or(fam_color.gamma_multiply(0.28));
-            let inner = sr.shrink(5.0 * z);
-            painter.rect_filled(inner, 6.0 * z, c.gamma_multiply(alpha));
-            if self.assign_state.assigns.contains_key(&e.rel) {
-                painter.rect_filled(
-                    Rect::from_min_size(
-                        Pos2::new(sr.min.x, sr.max.y - 2.0),
-                        Vec2::new(sr.width(), 2.0),
-                    ),
-                    CornerRadius::ZERO,
-                    p.staged.gamma_multiply(alpha),
-                );
-            }
-        }
-    }
-
-    /// Detail LOD for a file card: wrapped absolute path + paragraph of
-    /// size / dates / owner / type under the thumbnail.
-    #[allow(clippy::too_many_arguments)]
-    fn paint_file_labels_detail(
-        &self,
-        painter: &egui::Painter,
-        e: &FileEntry,
-        sr: Rect,
-        thumb: Rect,
-        pad: f32,
-        fam_color: Color32,
-        alpha: f32,
-        p: &Palette,
-    ) {
-        let text_top = thumb.max.y + pad * 0.6;
-        let region = Rect::from_min_max(
-            Pos2::new(sr.min.x + pad, text_top),
-            Pos2::new(sr.max.x - pad, sr.max.y - pad),
-        );
-        let max_w = region.width();
-        let max_h = region.height();
-        if max_w < 24.0 || max_h < 18.0 {
-            return;
-        }
-
-        // Match host-tag detail sizing: fraction of the card region. No
-        // floor — too small is the early return above.
-        let name_px = max_h * 0.16;
-        let body_px = max_h * 0.09;
-        let name_font = FontId::proportional(name_px);
-        let body_font = FontId::proportional(body_px);
-        let path_font = FontId::proportional(body_px * 0.95);
-
-        let abs = e.path.display().to_string();
-        let mut details = format!("{} · {}", human_size(e.size), e.family.label());
-        if !e.ext.is_empty() {
-            details.push_str(" · .");
-            details.push_str(&e.ext);
-        }
-        if e.ctime > 0 {
-            details.push_str("\nCreated ");
-            details.push_str(&date_string(e.ctime));
-        }
-        if e.mtime > 0 {
-            details.push_str("\nModified ");
-            details.push_str(&date_string(e.mtime));
-        }
-        if !e.owner.is_empty() {
-            details.push_str("\nOwner ");
-            details.push_str(&e.owner);
-        }
-
-        let lp = painter.with_clip_rect(region.intersect(sr));
-        let x = region.min.x;
-        let mut y = region.min.y;
-        let gap = (body_px * 0.3).max(3.0);
-
-        // Type tick beside the name.
-        let tick_w = (name_px * 0.28).max(3.0);
-        let tick_h = (name_px * 0.85).max(8.0);
-        lp.rect_filled(
-            Rect::from_min_size(
-                Pos2::new(x, y + (name_px - tick_h) * 0.35),
-                Vec2::new(tick_w, tick_h),
-            ),
-            CornerRadius::ZERO,
-            fam_color.gamma_multiply(alpha),
-        );
-        let name_x = x + tick_w + gap;
-        let name_w = (max_w - tick_w - gap).max(8.0);
-        let name_galley = painter.layout(
-            e.name.clone(),
-            name_font,
-            p.ink.gamma_multiply(alpha),
-            name_w,
-        );
-        let name_h = name_galley.size().y;
-        lp.galley(
-            Pos2::new(name_x, y),
-            name_galley,
-            p.ink.gamma_multiply(alpha),
-        );
-        y += name_h + gap;
-
-        let remain = (region.max.y - y).max(0.0);
-        if remain < body_px {
-            return;
-        }
-        let path_budget = (remain * 0.55).max(body_px * 2.0);
-        let path_galley = painter.layout(abs, path_font, p.sub.gamma_multiply(0.9 * alpha), max_w);
-        let path_h = path_galley.size().y.min(path_budget);
-        let path_clip = Rect::from_min_size(Pos2::new(x, y), Vec2::new(max_w, path_budget));
-        painter.with_clip_rect(path_clip.intersect(region)).galley(
-            Pos2::new(x, y),
-            path_galley,
-            p.sub.gamma_multiply(0.9 * alpha),
-        );
-        y += path_h + gap;
-
-        let detail_budget = (region.max.y - y).max(0.0);
-        if detail_budget < body_px {
-            return;
-        }
-        let detail_galley = painter.layout(details, body_font, p.sub.gamma_multiply(alpha), max_w);
-        let detail_clip = Rect::from_min_size(Pos2::new(x, y), Vec2::new(max_w, detail_budget));
-        painter
-            .with_clip_rect(detail_clip.intersect(region))
-            .galley(Pos2::new(x, y), detail_galley, p.sub.gamma_multiply(alpha));
     }
 
     // ---------- windows / overlays ----------
@@ -8596,6 +7458,14 @@ impl AtlasApp {
         });
     }
 
+    fn entry_key(&self, e: &FileEntry) -> String {
+        if self.key_prefix.is_empty() {
+            cache_key(&e.rel, e.size, e.mtime)
+        } else {
+            cache_key(&format!("{}{}", self.key_prefix, e.rel), e.size, e.mtime)
+        }
+    }
+
     fn session_files_for_ids(&self, ids: &[u32]) -> Vec<atlas_session::SessionFile> {
         ids.iter()
             .filter_map(|&i| self.entries.get(i as usize))
@@ -9122,39 +7992,6 @@ fn rect_settled(a: Rect, b: Rect) -> bool {
         && (a.max.y - b.max.y).abs() < SLOP
 }
 
-/// Google Turbo colormap (polynomial approximation) for folder-heatmap strokes.
-///
-/// Design: Anton Mikhailov; GLSL fit: Ruofei Du — Apache-2.0
-/// <https://research.google/blog/turbo-an-improved-rainbow-colormap-for-visualization/>
-///
-/// The published coefficients carry more decimals than `f32` can hold, so the
-/// polynomial is evaluated in `f64` and narrowed once at the end.
-fn folder_heat_color(t: f32) -> Color32 {
-    let x = f64::from(t.clamp(0.0, 1.0));
-    let x2 = x * x;
-    let x3 = x2 * x;
-    let x4 = x2 * x2;
-    let x5 = x4 * x;
-    let r = (0.135_721_38 + 4.615_392_60 * x - 42.660_322_58 * x2 + 132.131_082_34 * x3
-        - 152.942_393_96 * x4
-        + 59.286_379_43 * x5)
-        .clamp(0.0, 1.0);
-    let g = (0.091_402_61 + 2.194_188_39 * x + 4.842_966_58 * x2 - 14.185_033_33 * x3
-        + 4.277_298_57 * x4
-        + 2.829_566_04 * x5)
-        .clamp(0.0, 1.0);
-    let b = (0.106_673_30 + 12.641_946_08 * x - 60.582_048_36 * x2 + 110.362_767_71 * x3
-        - 89.903_109_12 * x4
-        + 27.348_249_73 * x5)
-        .clamp(0.0, 1.0);
-    Color32::from_rgb(
-        (r * 255.0).round() as u8,
-        (g * 255.0).round() as u8,
-        (b * 255.0).round() as u8,
-    )
-}
-
-/// UV rect that crops a `tex_size` texture to cover `cell` (aspect-fill).
 /// Chords that keep firing while a text field has focus — matching the
 /// pre-migration gates (undo/redo/open/F11 were never typing-gated) plus the
 /// global window commands. Everything else (bare keys, Ctrl+A, Ctrl+C) stays
@@ -9187,65 +8024,6 @@ fn ago_string(at: SystemTime) -> String {
     }
 }
 
-fn cover_uv(tex_size: Vec2, cell: Vec2) -> Rect {
-    if tex_size.x <= 0.0 || tex_size.y <= 0.0 || cell.x <= 0.0 || cell.y <= 0.0 {
-        return Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-    }
-    let tex_aspect = tex_size.x / tex_size.y;
-    let cell_aspect = cell.x / cell.y;
-    if tex_aspect > cell_aspect {
-        // Texture is wider: crop left/right.
-        let frac = cell_aspect / tex_aspect;
-        let x0 = (1.0 - frac) / 2.0;
-        Rect::from_min_max(Pos2::new(x0, 0.0), Pos2::new(x0 + frac, 1.0))
-    } else {
-        let frac = tex_aspect / cell_aspect;
-        let y0 = (1.0 - frac) / 2.0;
-        Rect::from_min_max(Pos2::new(0.0, y0), Pos2::new(1.0, y0 + frac))
-    }
-}
-
-fn text_width(painter: &egui::Painter, text: &str, font: &FontId) -> f32 {
-    painter
-        .layout_no_wrap(text.to_string(), font.clone(), Color32::WHITE)
-        .size()
-        .x
-}
-
-/// Fit `text` into `max_w` screen pixels, appending an ellipsis when truncated.
-/// Empty when even the ellipsis cannot fit — callers should skip painting.
-fn ellipsize_to_width(painter: &egui::Painter, text: &str, font: &FontId, max_w: f32) -> String {
-    if max_w <= 1.0 || text.is_empty() {
-        return String::new();
-    }
-    if text_width(painter, text, font) <= max_w {
-        return text.to_string();
-    }
-    const ELLIPSIS: &str = "…";
-    let ell_w = text_width(painter, ELLIPSIS, font);
-    if ell_w >= max_w {
-        return String::new();
-    }
-    let chars: Vec<char> = text.chars().collect();
-    let mut lo = 0usize;
-    let mut hi = chars.len();
-    while lo < hi {
-        let mid = (lo + hi).div_ceil(2);
-        let candidate: String = chars[..mid].iter().collect();
-        let w = text_width(painter, &format!("{candidate}{ELLIPSIS}"), font);
-        if w <= max_w {
-            lo = mid;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    if lo == 0 {
-        return ELLIPSIS.to_string();
-    }
-    let cut: String = chars[..lo].iter().collect();
-    format!("{cut}{ELLIPSIS}")
-}
-
 fn chip(ui: &mut egui::Ui, text: &str, active: bool, base: Color32) -> egui::Response {
     let fill = if active {
         base
@@ -9257,46 +8035,6 @@ fn chip(ui: &mut egui::Ui, text: &str, active: bool, base: Color32) -> egui::Res
         .corner_radius(CornerRadius::same(10))
         .sense(Sense::click_and_drag());
     ui.add(btn)
-}
-
-/// Draws an axis-aligned wire route with rounded corners (PCB trace style).
-fn rounded_route(painter: &egui::Painter, pts: &[Pos2], radius: f32, stroke: Stroke) {
-    if pts.len() < 2 {
-        return;
-    }
-    let mut cursor = pts[0];
-    for i in 1..pts.len() {
-        let cur = pts[i];
-        if i + 1 < pts.len() {
-            let next = pts[i + 1];
-            let in_v = cur - cursor;
-            let out_v = next - cur;
-            let in_len = in_v.length();
-            let out_len = out_v.length();
-            let r = radius.min(in_len * 0.5).min(out_len * 0.5);
-            if r < 0.5 || in_len < 0.5 || out_len < 0.5 {
-                if in_len >= 0.5 {
-                    painter.line_segment([cursor, cur], stroke);
-                }
-                cursor = cur;
-                continue;
-            }
-            let a = cur - in_v.normalized() * r;
-            let b = cur + out_v.normalized() * r;
-            painter.line_segment([cursor, a], stroke);
-            painter.add(egui::Shape::CubicBezier(
-                egui::epaint::CubicBezierShape::from_points_stroke(
-                    [a, cur, cur, b],
-                    false,
-                    Color32::TRANSPARENT,
-                    stroke,
-                ),
-            ));
-            cursor = b;
-        } else {
-            painter.line_segment([cursor, cur], stroke);
-        }
-    }
 }
 
 fn group_digits(n: u64) -> String {
@@ -9334,24 +8072,6 @@ fn agent_dbg(hypothesis_id: &str, location: &str, message: &str, data_json: &str
 /// The never-scanned list as editable text, one folder name per line.
 fn skip_list_text() -> String {
     atlas_core::skiplist::effective().names.join("\n")
-}
-
-fn set_subtree_collapsed(t: &mut Tree, di: usize, collapsed: bool) {
-    let threshold = t.cfg.normalized().portal_threshold;
-    let children = t.dirs[di].child_dirs.clone();
-    for c in children {
-        let c = c as usize;
-        // Full expand stops at large folders: they stay in thumbnail/portal
-        // mode until the user explicitly clicks into them.
-        if !collapsed && t.dirs[c].child_dirs.len() + t.dirs[c].files.len() > threshold {
-            t.dirs[c].collapsed = true;
-            continue;
-        }
-        set_subtree_collapsed(t, c, collapsed);
-    }
-    if di != 0 {
-        t.dirs[di].collapsed = collapsed;
-    }
 }
 
 #[cfg(test)]

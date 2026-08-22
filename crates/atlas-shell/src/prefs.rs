@@ -22,6 +22,9 @@ pub struct ChromePrefs {
     pub panel_strip_hidden: Vec<(String, Vec<String>)>,
     /// Canvas minimap pinned open (toggled by `M`; shared overlay chrome).
     pub minimap: bool,
+    /// Primary icon bar collapsed into the readout blister.
+    #[serde(default)]
+    pub dock_bar_collapsed: bool,
 }
 
 impl ChromePrefs {
@@ -32,6 +35,7 @@ impl ChromePrefs {
             panel_icon_strip: Vec::new(),
             panel_strip_hidden: Vec::new(),
             minimap: false,
+            dock_bar_collapsed: false,
         }
     }
 
@@ -65,6 +69,7 @@ impl Default for ChromePrefs {
             panel_icon_strip: Vec::new(),
             panel_strip_hidden: Vec::new(),
             minimap: false,
+            dock_bar_collapsed: false,
         }
     }
 }
@@ -89,6 +94,7 @@ mod tests {
             panel_icon_strip: vec!["tool.shapes".into()],
             panel_strip_hidden: vec![("tool.shapes".into(), vec!["shape.eraser".into()])],
             minimap: true,
+            dock_bar_collapsed: false,
         };
         let json = serde_json::to_string(&prefs).unwrap();
         assert_eq!(serde_json::from_str::<ChromePrefs>(&json).unwrap(), prefs);

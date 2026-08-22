@@ -26,14 +26,19 @@ The key is never written into a `.slate` workbook.
 ## 3. Node sidecar (only if the portal asks for it)
 
 The portal talks to Cursor through `docs/agent/cursor-sidecar` (out of
-process). Slate looks for `node.exe` in Program Files and then on `PATH`.
+process). On Send, Slate looks for `node.exe` in this order: `ATLAS_NODE`,
+`C:\Program Files\nodejs\node.exe`, other well-known folders, then `PATH`.
 A GUI launch often misses a terminal-only PATH, so "Node not found" does
-not always mean Node is missing.
+not always mean Node is missing. If discovery fails, the portal lists the
+paths it tried.
 
-If the portal still cannot see it:
+The first Send also runs `npm install` in this folder when `@cursor/sdk`
+is missing (off the UI thread). You do not have to do that by hand unless
+the portal reports that install failed.
+
+If the portal still cannot see Node:
 
 1. Confirm `C:\Program Files\nodejs\node.exe` exists, or set `ATLAS_NODE`
    to your `node.exe` and restart Slate.
 2. Otherwise install [Node.js](https://nodejs.org/en/download).
-3. In this folder run `npm install`.
-4. Send again.
+3. Send again.

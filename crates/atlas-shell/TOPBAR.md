@@ -99,7 +99,8 @@ Slate **web** portal frames reuse this same tab language — one active tab,
 no `+`, painted by `tabs::portal_tab_bar`. The strip is slimmer than this
 dashboard bar (`portal_frame.tab_height_scale`, 40%) and follows the
 portal fillet so its corners do not oversail the frame. On the canvas the
-bar already carries zoom; type and padding fit the slim strip (P0.9).
+bar already carries zoom; type and padding fit the slim strip (P0.9), and
+the label is clipped to the tab content rect rather than oversailing it.
 Maximized, the tab is window chrome and stays screen-sized. The
 four-corner maximize square (`tabs::paint_maximize_glyph`) sits in the
 bar's window-control slot, the same place as this strip's □ — hover

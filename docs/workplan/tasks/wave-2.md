@@ -84,8 +84,10 @@ card (Wave 3, T3.0) that deletes it. `size`, `mtime`, and `cache_key` move into
 `content` with mirrors on the same terms.
 
 This is a deliberate, temporary duplication chosen so that one card does not
-touch forty call sites in three lanes at once. Say so in the code comment; an
-undocumented mirror is a trap, a documented one is a migration step.
+touch forty call sites in three lanes at once. Say so in the code comment
+and open a `docs/audit/deviations.md` row (Art. XII.4) that names the
+deletion milestone (here: Wave 3, T3.0). An undocumented mirror is a trap;
+a documented one is a migration step.
 
 ### Do — tri-state health
 

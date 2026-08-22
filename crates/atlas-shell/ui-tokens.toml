@@ -2,7 +2,7 @@
 # Edit directly, or run either app with `--features ui-tuner` for live editing.
 # Saved tuner values are embedded by the next build.
 
-schema_version = 7
+schema_version = 8
 
 [topbar]
 height = 31.0
@@ -173,14 +173,14 @@ divider_strength = 0.3799999952316284
 accent_white_mix = 0.0
 
 [dock]
-icon_size = 40.0
-icon_gap = 9.5
-icon_text_size = 15.5
-label_text_size = 11.0
+icon_size = 43.0
+icon_gap = 14.0
+icon_text_size = 14.300000190734863
+label_text_size = 11.5
 squircle_exponent = 2.5
 popover_width = 270.0
 popover_max_height = 450.0
-popover_gap = 13.0
+popover_gap = 5.0
 popover_padding = 6.0
 popover_corner_radius = 10.5
 shadow_offset_x = 0.0
@@ -190,8 +190,8 @@ shadow_spread = 1.0
 shadow_opacity = 0.25999999046325684
 close_delay = 0.44999998807907104
 left_margin = 15.0
-bottom_margin = 13.0
-stack_gap = 8.0
+bottom_margin = 0.0
+stack_gap = 7.0
 partition_gap = 8.0
 partition_extend = 120.0
 partition_max_thickness = 0.5
@@ -204,8 +204,236 @@ tracer_border_hit = 10.0
 dashboard_describe_delay = 1.2000000476837158
 describe_fade_duration = 0.2800000011920929
 panel_open_duration = 0.18000000715255737
-hover_chip_gap = 6.0
-flyout_icon_scale = 0.6499999761581421
+hover_chip_gap = 16.0
+flyout_icon_scale = 0.699999988079071
+
+[dock.palette]
+group_pad = 7.5
+group_gap = 10.0
+group_radius = 11.0
+group_stroke = 2.0999999046325684
+associate_fill = 0.64
+associate_stroke = 1.28
+associate_tint = 0.28
+pinned_stroke = 1.55
+pinned_tint = 0.22
+blister_width = 72.0
+blister_height = 11.0
+blister_sink = 5.0
+collapse_zone = 22.0
+group_label_size = 11.5
+group_label_inset = 5.0
+pallet_label_lift = 1.0
+category_label_size = 13.0
+group_label_lift = -2.0
+rule_stroke = 0.6000000238418579
+rule_offset = 8.0
+rule_extent = 0.0
+rule_text_gap = 6.0
+labeled_text_size = 9.5
+tertiary_stack_gap = 0.10000000149011612
+controls_width = 27.0
+caption_height = 32.0
+caption_text_size = 12.5
+dot_radius = 2.5
+dot_gap = 4.5
+dot_offset = 8.0
+dot_hit_x = 22.0
+dot_hit_y = 21.0
+dot_hit_end = 10.0
+dot_chip_gap = 17.0
+
+[dock.advanced]
+width_frac = 0.7799999713897705
+height_frac = 0.6800000071525574
+min_width = 560.0
+min_height = 380.0
+border_width = 2.4000000953674316
+corner_radius = 12.0
+card_w = 132.0
+card_h = 108.0
+card_gap = 18.0
+card_radius = 10.0
+portal_pad = 22.0
+portal_title = 22.0
+portal_gap = 40.0
+portal_radius = 14.0
+cols = 4.0
+grid_step = 32.0
+zoom_min = 0.20000000298023224
+zoom_max = 4.0
+
+[dock.advanced.light]
+canvas = [
+    226,
+    232,
+    246,
+    255,
+]
+border = [
+    72,
+    96,
+    168,
+    255,
+]
+veil = [
+    28,
+    34,
+    56,
+    72,
+]
+cast = [
+    70,
+    92,
+    168,
+    22,
+]
+grid = [
+    92,
+    110,
+    168,
+    36,
+]
+portal_fill = [
+    236,
+    240,
+    252,
+    210,
+]
+portal_border = [
+    110,
+    128,
+    186,
+    180,
+]
+card_fill = [
+    248,
+    250,
+    255,
+    245,
+]
+card_border = [
+    168,
+    178,
+    210,
+    220,
+]
+select = [
+    62,
+    96,
+    196,
+    255,
+]
+hover = [
+    88,
+    118,
+    196,
+    160,
+]
+badge = [
+    52,
+    122,
+    96,
+    255,
+]
+text = [
+    28,
+    32,
+    48,
+    255,
+]
+muted = [
+    92,
+    100,
+    128,
+    255,
+]
+
+[dock.advanced.dark]
+canvas = [
+    12,
+    16,
+    32,
+    255,
+]
+border = [
+    98,
+    128,
+    204,
+    255,
+]
+veil = [
+    6,
+    8,
+    16,
+    110,
+]
+cast = [
+    70,
+    100,
+    200,
+    32,
+]
+grid = [
+    70,
+    90,
+    150,
+    40,
+]
+portal_fill = [
+    20,
+    26,
+    46,
+    210,
+]
+portal_border = [
+    86,
+    110,
+    176,
+    200,
+]
+card_fill = [
+    26,
+    32,
+    52,
+    245,
+]
+card_border = [
+    70,
+    86,
+    130,
+    220,
+]
+select = [
+    130,
+    168,
+    255,
+    255,
+]
+hover = [
+    110,
+    140,
+    220,
+    170,
+]
+badge = [
+    86,
+    176,
+    140,
+    255,
+]
+text = [
+    226,
+    232,
+    246,
+    255,
+]
+muted = [
+    140,
+    150,
+    176,
+    255,
+]
 
 [dock.light]
 icon_fill = [
@@ -250,6 +478,30 @@ muted_text = [
     122,
     255,
 ]
+title = [
+    24,
+    25,
+    27,
+    255,
+]
+category = [
+    24,
+    25,
+    27,
+    255,
+]
+rule = [
+    112,
+    116,
+    122,
+    255,
+]
+red = [
+    176,
+    36,
+    36,
+    255,
+]
 
 [dock.dark]
 icon_fill = [
@@ -292,6 +544,30 @@ muted_text = [
     145,
     150,
     156,
+    255,
+]
+title = [
+    129,
+    130,
+    130,
+    255,
+]
+category = [
+    141,
+    142,
+    144,
+    255,
+]
+rule = [
+    145,
+    150,
+    156,
+    255,
+]
+red = [
+    220,
+    56,
+    52,
     255,
 ]
 
@@ -343,7 +619,7 @@ chevron_size = 4.0
 chevron_hit = 8.0
 chevron_inset_x = 2.5
 chevron_inset_y = 1.5
-chevron_stroke = 0.58
+chevron_stroke = 0.5799999833106995
 chevron_idle_opacity = 0.3799999952316284
 chevron_hover_opacity = 0.9200000166893005
 chevron_hover_fill = 0.10000000149011612

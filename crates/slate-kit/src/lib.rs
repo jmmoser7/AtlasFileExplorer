@@ -179,6 +179,7 @@ mod tests {
             "frame",
             "rect",
             "ellipse",
+            "portal-file-atlas",
             "portal-repo-lens",
             "portal-status-board",
         ] {

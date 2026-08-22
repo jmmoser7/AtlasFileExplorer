@@ -32,46 +32,47 @@ sorts by path, so two runs on an unchanged tree produce byte-identical output.
 
 ## Totals
 
-| Metric | 2026-08-15 | 2026-07-25 |
-|---|---|---|
-| commit | 20d7a8d | 4d40a33 |
-| lines_total | 93741 | 67962 |
-| lines_code | 79043 | 57920 |
-| pure_lines_code | 20798 | 16084 |
-| renderer_lines_code | 58245 | 41836 |
-| pure_ratio | 0.263 | 0.278 |
-| crates | 17 | 15 |
-| tests | 743 | 470 |
-| unsafe_blocks | 70 | 13 |
-| direct_dependencies | 25 | 18 |
-| format_version | 2 | 2 |
-| node_kinds | 6 | 5 |
-| edge_roles | 0 | 0 |
-| scene_cmd_variants | 3 | 3 |
-| commands · slate | 138 | 112 |
-| commands · file-atlas | 55 | 40 |
-| deviations · open | 9 | 7 |
-| deviations · accepted | 0 | 0 |
-| deviations · closed | 8 | 4 |
+| Metric | 2026-08-22 | 2026-08-15 | 2026-07-25 |
+|---|---|---|---|
+| commit | 5307ae4 | 20d7a8d | 4d40a33 |
+| lines_total | 127155 | 93741 | 67962 |
+| lines_code | 108914 | 79043 | 57920 |
+| pure_lines_code | 26717 | 20798 | 16084 |
+| renderer_lines_code | 82197 | 58245 | 41836 |
+| pure_ratio | 0.245 | 0.263 | 0.278 |
+| crates | 18 | 17 | 15 |
+| tests | 1033 | 743 | 470 |
+| unsafe_blocks | 75 | 70 | 13 |
+| direct_dependencies | 28 | 25 | 18 |
+| format_version | 2 | 2 | 2 |
+| node_kinds | 7 | 6 | 5 |
+| edge_roles | 0 | 0 | 0 |
+| scene_cmd_variants | 3 | 3 | 3 |
+| commands · slate | 186 | 138 | 112 |
+| commands · file-atlas | 57 | 55 | 40 |
+| deviations · open | 12 | 9 | 7 |
+| deviations · accepted | 0 | 0 | 0 |
+| deviations · closed | 8 | 8 | 4 |
 
 ## Lines of code per crate
 
-| Crate | 2026-08-15 | 2026-07-25 |
-|---|---|---|
-| atlas-ai | 779 | 459 |
-| atlas-commands | 717 | 667 |
-| atlas-core | 7759 | 4196 |
-| atlas-session | 69 | 69 |
-| atlas-shell | 9429 | 7257 |
-| circle-pack | 987 | 987 |
-| code-lens | 3541 | 3544 |
-| collage | 803 | 803 |
-| native-file-atlas | 11695 | 7681 |
-| repo-graph | 697 | — |
-| rhino-mesh | 1136 | 1136 |
-| slate | 28583 | 22243 |
-| slate-artifact | 2537 | 2321 |
-| slate-doc | 4432 | 3672 |
-| slate-kit | 1854 | — |
-| vector-ink | 1762 | 1762 |
-| xtask | 2263 | 1123 |
+| Crate | 2026-08-22 | 2026-08-15 | 2026-07-25 |
+|---|---|---|---|
+| atlas-ai | 1675 | 779 | 459 |
+| atlas-commands | 717 | 717 | 667 |
+| atlas-core | 8519 | 7759 | 4196 |
+| atlas-session | 69 | 69 | 69 |
+| atlas-shell | 17095 | 9429 | 7257 |
+| circle-pack | 987 | 987 | 987 |
+| code-lens | 3541 | 3541 | 3544 |
+| collage | 803 | 803 | 803 |
+| native-file-atlas | 10908 | 11695 | 7681 |
+| repo-graph | 697 | 697 | — |
+| rhino-mesh | 1136 | 1136 | 1136 |
+| slate | 44000 | 28583 | 22243 |
+| slate-artifact | 2990 | 2537 | 2321 |
+| slate-doc | 7956 | 4432 | 3672 |
+| slate-kit | 1957 | 1854 | — |
+| status-board | 622 | — | — |
+| vector-ink | 2979 | 1762 | 1762 |
+| xtask | 2263 | 2263 | 1123 |

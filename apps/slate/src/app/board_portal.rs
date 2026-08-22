@@ -457,6 +457,7 @@ impl SlateApp {
         }) {
             Some(PortalKind::StatusBoard) => self.pick_status_for_portal(portal),
             Some(PortalKind::Agent) => self.pick_agent_project(portal),
+            Some(PortalKind::FileAtlas) => self.pick_atlas_folder(portal),
             _ => self.pick_repo_for_portal(portal),
         }
         true
@@ -520,6 +521,7 @@ impl SlateApp {
             }
             PortalKind::Web => false,
             PortalKind::Agent => p.title == "Agent portal" || p.title.starts_with("Agent portal"),
+            PortalKind::FileAtlas => p.title == "File Atlas" || p.title.starts_with("File Atlas"),
         };
         if rename {
             if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
@@ -830,13 +832,23 @@ impl SlateApp {
                     }
                 }
             },
-            PortalKind::Agent | PortalKind::Web => {}
+            PortalKind::Agent | PortalKind::Web | PortalKind::FileAtlas => {}
         }
-        super::board::paint_fillet_masks(painter, layout.frame, layout.radius, fill);
         if chrome {
-            self.paint_portal_identity_chrome(ui, &layout, node.id, portal, None);
             let border = fade(self.palette().border_strong);
-            self.paint_portal_frame_stroke(painter, &layout, border, false, xf.z);
+            self.paint_portal_shell_finish(
+                ui,
+                painter,
+                &layout,
+                node.id,
+                portal,
+                None,
+                border,
+                false,
+                xf.z,
+            );
+        } else {
+            self.paint_portal_fillet_punch(painter, &layout);
         }
     }
 
@@ -1215,14 +1227,78 @@ impl SlateApp {
         }) else {
             return;
         };
+        self.contents_blur();
         match kind {
             PortalKind::Agent => self.agent_focus(id),
             PortalKind::Web => self.web_focus(id),
+            PortalKind::FileAtlas => self.atlas_focus(id),
             _ => {
                 self.portals.interactive = Some(id);
                 self.board_sel = std::iter::once(id).collect();
             }
         }
+    }
+
+    /// One contents-focus slot for every host portal (P1.portal.contents-focus).
+    pub(crate) fn contents_focused(&self) -> Option<NodeId> {
+        self.web
+            .focused
+            .or(self.agents.focused)
+            .or(self.atlas_lenses.focused)
+            .or(self.portals.interactive)
+    }
+
+    pub(crate) fn contents_blur(&mut self) -> bool {
+        let a = self.web_blur();
+        let b = self.agent_blur();
+        let c = self.atlas_blur();
+        let d = self.portal_clear_focus();
+        a || b || c || d
+    }
+
+    /// Primary click outside the focused portal body (and not on its chrome)
+    /// peels contents-focus. The click then belongs to the board.
+    pub(crate) fn peel_contents_focus_if_clicked_outside(
+        &mut self,
+        ui: &egui::Ui,
+        xf: &super::board::BoardXf,
+        pointer: Option<Pos2>,
+    ) {
+        let Some(id) = self.contents_focused() else {
+            return;
+        };
+        if self.portal_is_maximized(id) {
+            return;
+        }
+        if !ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {
+            return;
+        }
+        let Some(p) = pointer else {
+            return;
+        };
+        let Some(node) = self.doc().scene.node(id) else {
+            self.contents_blur();
+            return;
+        };
+        let NodeKind::Portal(portal) = &node.kind else {
+            self.contents_blur();
+            return;
+        };
+        let srect = xf.rect_w2s(node.rect);
+        let layout = super::board_portal_chrome::layout_for_portal(
+            portal.kind,
+            srect,
+            self.portal_chrome_collapsed(id),
+            self.portal_is_maximized(id),
+            xf.z,
+        );
+        if layout.pointer_on_chrome(p) {
+            return;
+        }
+        if layout.body.contains(p) {
+            return;
+        }
+        self.contents_blur();
     }
 }
 

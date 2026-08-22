@@ -25,6 +25,7 @@ pub mod association;
 pub mod board;
 mod board_agent;
 mod board_align;
+mod board_atlas;
 mod board_color;
 pub mod board_crop;
 mod board_direct;
@@ -205,6 +206,11 @@ pub enum PickerMsg {
         portal: NodeId,
         path: Option<PathBuf>,
     },
+    /// Folder picked as a File Atlas lens source (D19).
+    AtlasPortalSource {
+        portal: NodeId,
+        path: Option<PathBuf>,
+    },
 }
 
 pub enum ThumbState {
@@ -235,6 +241,8 @@ pub struct SlateApp {
     pub dock_icon_strips: Vec<String>,
     /// Tools hidden from each palette's icon strip (`palette → tool ids`).
     pub dock_strip_hidden: Vec<(String, Vec<String>)>,
+    /// Primary icon bar collapsed into the readout blister.
+    pub dock_bar_collapsed: bool,
 
     pub selection: HashSet<ItemId>,
     pub canvas_rect: Rect,
@@ -300,6 +308,9 @@ pub struct SlateApp {
     /// Web portal runtime: live pool, poster cache, per-origin consent. All
     /// derived — none of it is journaled or saved (D31, D32).
     pub web: board_web::WebRuntime,
+    /// File Atlas lens portals: shared folder scans + per-portal cameras.
+    /// Derived — never journaled (D31).
+    pub atlas_lenses: board_atlas::AtlasRuntime,
     /// Shared portal chrome: maximize overlay and folded identity tabs.
     /// Derived view-state (P1.portal.maximize / chrome).
     pub portal_chrome: board_portal_chrome::PortalChrome,
@@ -307,6 +318,9 @@ pub struct SlateApp {
     /// Board tool definitions: the built-in kit plus any in the user's kit
     /// folder. Read once at startup — the board consults it per commit.
     pub kits: kits::KitState,
+    /// Kit tool id armed from an Advanced-catalog duplicate. `None` uses the
+    /// built-in recipe for [`board_tool`].
+    pub armed_kit_id: Option<String>,
 
     // ----- board (authored canvas) state -----
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
@@ -545,6 +559,7 @@ impl SlateApp {
             dock_pins: chrome_prefs.pinned_panels,
             dock_icon_strips: chrome_prefs.panel_icon_strip,
             dock_strip_hidden: chrome_prefs.panel_strip_hidden,
+            dock_bar_collapsed: chrome_prefs.dock_bar_collapsed,
             selection: HashSet::new(),
             canvas_rect: Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1440.0, 900.0)),
             turbo_pan: commands::TurboPanState::default(),
@@ -576,8 +591,10 @@ impl SlateApp {
             portals: board_portal::PortalRuntime::default(),
             agents: board_agent::AgentRuntime::default(),
             web: board_web::WebRuntime::default(),
+            atlas_lenses: board_atlas::AtlasRuntime::default(),
             portal_chrome: board_portal_chrome::PortalChrome::default(),
             kits: kits::KitState::load(),
+            armed_kit_id: None,
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
             board_nav_tool: board::BoardTool::Select,
@@ -1242,6 +1259,29 @@ impl SlateApp {
 
     // ----- thumbnails ---------------------------------------------------------
 
+    /// Ensure a texture request is in flight for an arbitrary file path
+    /// (File Atlas lens cards share this pool with board items).
+    pub(crate) fn request_path_thumb(&mut self, path: PathBuf, size: u64, mtime: i64) {
+        let key = cache_key(&path.to_string_lossy(), size, mtime);
+        if key.is_empty() || self.textures.contains_key(&key) {
+            return;
+        }
+        let slot = self.next_thumb_slot;
+        self.next_thumb_slot = self.next_thumb_slot.wrapping_add(1);
+        self.thumb_slots.insert(slot, key.clone());
+        self.thumbs.request(ThumbRequest {
+            id: slot,
+            generation: THUMB_GENERATION,
+            path,
+            key: key.clone(),
+            color_only: false,
+            shared_dir: None,
+            src_bytes: size,
+            pdf_page: None,
+        });
+        self.textures.insert(key, ThumbState::Pending);
+    }
+
     /// Ensure a texture request is in flight for the item's thumbnail.
     pub fn request_thumb(&mut self, item_id: ItemId) {
         let Some((key, path, size, pdf_page)) = self.doc().item(item_id).map(|it| {
@@ -1492,6 +1532,10 @@ impl SlateApp {
                         portal,
                         path: Some(path),
                     } => self.bind_agent_project(portal, path),
+                    PickerMsg::AtlasPortalSource {
+                        portal,
+                        path: Some(path),
+                    } => self.bind_atlas_folder(portal, path),
                     _ => {}
                 }
             }
@@ -1564,6 +1608,7 @@ impl SlateApp {
         self.portal_pump(ctx);
         self.agent_pump(ctx);
         self.web_pump(ctx);
+        self.atlas_pump(ctx);
         self.ai_context_frame();
 
         // Dropped files land in the active workbook, uncategorized. On the
@@ -1590,7 +1635,8 @@ impl SlateApp {
             let alt = ctx.input(|i| i.modifiers.alt);
             let on_board = self.doc().view.active_view == ViewKind::Board;
             let dropped = if on_board && !alt {
-                self.divert_web_drops(&dropped, at)
+                let after_web = self.divert_web_drops(&dropped, at);
+                self.queue_folder_drop_choosers(&after_web, at)
             } else {
                 dropped
             };
@@ -1651,7 +1697,7 @@ impl SlateApp {
         if portal_max {
             self.board_action_menu(ctx);
         }
-        self.paint_agent_chat_picker(ctx);
+        self.paint_folder_drop_chooser(ctx);
         if self.presenting.is_none() {
             self.history_frame(ctx);
         }

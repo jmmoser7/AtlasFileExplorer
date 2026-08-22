@@ -22,29 +22,57 @@ let turns = [];
 await fs.mkdir(dir, { recursive: true });
 await writeSession({ status: "idle", provider: "cursor", turns, updated_at: now() });
 
-await using agent = await Agent.create({
-  apiKey: process.env.CURSOR_API_KEY,
-  model: { id: model },
-  local: { cwd: process.env.ATLAS_AGENT_CWD ?? workspace },
-});
+let agent;
+try {
+  agent = await Agent.create({
+    apiKey: process.env.CURSOR_API_KEY,
+    model: { id: model },
+    local: { cwd: process.env.ATLAS_AGENT_CWD ?? workspace },
+  });
+} catch (err) {
+  await failStartup(err);
+}
 
 console.log(`Watching ${requestPath}`);
-for (;;) {
-  try {
-    const req = await readJson(requestPath);
-    if (req?.id && req.id !== lastRequestId) {
-      lastRequestId = req.id;
-      await handleRequest(agent, req);
+try {
+  for (;;) {
+    try {
+      const req = await readJson(requestPath);
+      if (req?.id && req.id !== lastRequestId) {
+        lastRequestId = req.id;
+        await handleRequest(agent, req);
+      }
+    } catch (err) {
+      await writeSession({
+        status: { error: String(err?.message ?? err) },
+        provider: "cursor",
+        turns,
+        updated_at: now(),
+      });
     }
-  } catch (err) {
-    await writeSession({
-      status: { error: String(err?.message ?? err) },
-      provider: "cursor",
-      turns,
-      updated_at: now(),
-    });
+    await sleep(1000);
   }
-  await sleep(1000);
+} finally {
+  if (typeof agent[Symbol.asyncDispose] === "function") {
+    await agent[Symbol.asyncDispose]();
+  }
+}
+
+async function failStartup(err) {
+  const text =
+    err instanceof CursorAgentError
+      ? `Cursor startup failed: ${err.message}`
+      : String(err?.message ?? err);
+  turns.push({ role: "system", text, at: now() });
+  await writeSession({
+    status: { error: text },
+    provider: "cursor",
+    turns,
+    updated_at: now(),
+  });
+  console.error(text);
+  // Delayed so libuv can close SDK handles. Immediate process.exit aborts on Windows.
+  setTimeout(() => process.exit(1), 200);
 }
 
 async function handleRequest(agent, req) {

@@ -28,7 +28,7 @@ enum PanAxis {
 }
 
 /// Ctrl + right-drag turbo pan state (per canvas interaction).
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct TurboPanState {
     anchor: Option<Pos2>,
     axis: Option<PanAxis>,

@@ -45,6 +45,7 @@ board_dock_icon!(icon_eraser, ToolIcon::Eraser);
 board_dock_icon!(icon_repo, ToolIcon::RepoLens);
 board_dock_icon!(icon_status, ToolIcon::StatusBoard);
 board_dock_icon!(icon_web, ToolIcon::WebPortal);
+board_dock_icon!(icon_atlas, ToolIcon::AtlasLens);
 board_dock_icon!(icon_trim, ToolIcon::Trim);
 board_dock_icon!(icon_split, ToolIcon::Split);
 board_dock_icon!(icon_join, ToolIcon::Join);
@@ -95,6 +96,7 @@ fn tool_dock_icon(tool: BoardTool) -> DockIcon {
         BoardTool::StatusBoard => DockIcon::Custom(icon_status),
         BoardTool::AgentPortal => DockIcon::Custom(icon_portals),
         BoardTool::WebPortal => DockIcon::Custom(icon_web),
+        BoardTool::AtlasPortal => DockIcon::Custom(icon_atlas),
         BoardTool::Trim => DockIcon::Custom(icon_trim),
         BoardTool::Split => DockIcon::Custom(icon_split),
         BoardTool::Frame => DockIcon::Custom(icon_frame),
@@ -155,7 +157,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         DockItem {
             id: "tool.portals",
             label: "Portals",
-            description: "Drop a generated or host portal onto the board (Repository Lens, Status Board, Agent, or Web).",
+            description: "Drop a generated or host portal onto the board (Repository Lens, File Atlas, Status Board, Agent, or Web).",
             icon: DockIcon::Custom(icon_portals),
             kind: DockItemKind::Tool,
             active: matches!(
@@ -164,6 +166,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
                     | BoardTool::StatusBoard
                     | BoardTool::AgentPortal
                     | BoardTool::WebPortal
+                    | BoardTool::AtlasPortal
             ),
             visible: board,
             gap_before: false,
@@ -242,6 +245,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         &restore,
         &restore_strips,
         &restore_hidden,
+        app.dock_bar_collapsed,
         |ui, id| match id {
             "tool.frame" => frame_flyout(app, ui, theme),
             "tool.portals" => portals_flyout(app, ui, theme),
@@ -274,8 +278,17 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             prefs_dirty = true;
         }
     }
+    if let Some(collapsed) = atlas_shell::dock::bar_collapsed(ctx, "slate_tools") {
+        if collapsed != app.dock_bar_collapsed {
+            app.dock_bar_collapsed = collapsed;
+            prefs_dirty = true;
+        }
+    }
     if prefs_dirty {
         app.save_chrome_prefs();
+    }
+    if let Some(ids) = atlas_shell::dock::take_catalog_duplicate(ctx) {
+        let _ = app.kits.duplicate_catalog_ids(&ids);
     }
     if let Some(palette_id) = drop_to_canvas {
         app.drop_dock_strip(ctx, palette_id);
@@ -310,50 +323,8 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
 }
 
 fn frame_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let preset = app.board_frame_preset;
-    let items = [
-        FlyoutItem {
-            id: "frame.letter",
-            label: FramePreset::Letter.label(),
-            description: "Letter slide frame (8.5 × 11).",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_frame),
-            active: preset == FramePreset::Letter,
-            group: Some("frame"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "frame.tabloid",
-            label: FramePreset::Tabloid.label(),
-            description: "Tabloid slide frame (11 × 17).",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_frame),
-            active: preset == FramePreset::Tabloid,
-            group: Some("frame"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "frame.wide",
-            label: FramePreset::Wide169.label(),
-            description: "16:9 slide frame.",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_frame),
-            active: preset == FramePreset::Wide169,
-            group: Some("frame"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "frame.custom",
-            label: "Custom…",
-            description: "Type a custom frame size.",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_frame),
-            active: matches!(preset, FramePreset::Custom { .. }),
-            group: Some("frame"),
-            role: FlyoutRole::Icon,
-        },
-    ];
     let _ = theme;
+    let items = palette_strip_items(app, "tool.frame", &[]);
     if let Some(id) = flyout_items(ui, &items) {
         apply_frame_choice(app, id);
     }
@@ -377,94 +348,57 @@ fn apply_frame_choice(app: &mut SlateApp, id: &str) {
 }
 
 fn portals_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let tool = app.board_tool;
-    let items = [
-        FlyoutItem {
-            id: "portal.repo",
-            label: "Repository Lens",
-            description: "Generated git history graph for a local repository.",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_repo),
-            active: tool == BoardTool::RepoLens,
-            group: Some("portals"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "portal.status",
-            label: "Status Board",
-            description: "Generated project-state instrument from a JSON snapshot.",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_status),
-            active: tool == BoardTool::StatusBoard,
-            group: Some("portals"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "portal.agent",
-            label: "Agent portal",
-            description: "Host portal for a local Cursor agent session.",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_portals),
-            active: tool == BoardTool::AgentPortal,
-            group: Some("portals"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "portal.web",
-            label: "Web portal",
-            description: "Host a URL or local HTML dashboard on the board.",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_web),
-            active: tool == BoardTool::WebPortal,
-            group: Some("portals"),
-            role: FlyoutRole::Icon,
-        },
-    ];
     let _ = theme;
+    let items = palette_strip_items(app, "tool.portals", &[]);
     if let Some(id) = flyout_items(ui, &items) {
-        apply_portal_choice(app, id);
+        arm_kit_tool(app, id);
     }
+}
+
+fn arm_kit_tool(app: &mut SlateApp, id: &str) -> bool {
+    let Some(tool) = app.kits.board_tool_for(id) else {
+        return false;
+    };
+    let derived = app.kits.is_derived(id);
+    let kit_id = if derived { Some(id.to_string()) } else { None };
+    app.set_board_tool(tool);
+    app.armed_kit_id = kit_id;
+    true
+}
+
+fn kit_dock_icon(app: &SlateApp, id: &str) -> DockIcon {
+    app.kits
+        .board_tool_for(id)
+        .map(tool_dock_icon)
+        .unwrap_or(DockIcon::Grid)
 }
 
 fn apply_portal_choice(app: &mut SlateApp, id: &str) {
-    let tool = match id {
-        "portal.repo" => BoardTool::RepoLens,
-        "portal.status" => BoardTool::StatusBoard,
-        "portal.agent" => BoardTool::AgentPortal,
-        "portal.web" => BoardTool::WebPortal,
-        _ => return,
-    };
-    app.set_board_tool(tool);
+    let _ = arm_kit_tool(app, id);
 }
 
 fn text_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let tool = app.board_tool;
-    let items = [
-        FlyoutItem {
-            id: "text.block",
-            label: "Text",
-            description: "Place a text block on the board.",
-            hotkey: Some("T"),
-            icon: DockIcon::Custom(icon_text),
-            active: tool == BoardTool::Text,
-            group: Some("text"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "text.sticky",
-            label: "Sticky note",
-            description: "Place a sticky note on the board.",
-            hotkey: Some("N"),
-            icon: DockIcon::Custom(icon_sticky),
-            active: tool == BoardTool::Sticky,
-            group: Some("text"),
-            role: FlyoutRole::Icon,
-        },
-    ];
     let _ = theme;
+    let items = palette_strip_items(app, "tool.text", &[]);
     if let Some(id) = flyout_items(ui, &items) {
         apply_text_choice(app, id);
     }
+}
+
+fn apply_shape_choice(app: &mut SlateApp, id: &str) {
+    let tool = match id {
+        "shape.rect" => BoardTool::RectShape,
+        "shape.ellipse" => BoardTool::Ellipse,
+        "shape.line" => BoardTool::Line,
+        "shape.arc" => BoardTool::Arc,
+        "shape.polyline" => BoardTool::Polyline,
+        "shape.bezier" => BoardTool::BezierSpan,
+        "shape.pen" => BoardTool::Pen,
+        "shape.brush" => BoardTool::Brush,
+        "shape.eraser" => BoardTool::Eraser,
+        _ => return,
+    };
+    app.set_board_tool(tool);
 }
 
 fn apply_text_choice(app: &mut SlateApp, id: &str) {
@@ -477,39 +411,8 @@ fn apply_text_choice(app: &mut SlateApp, id: &str) {
 }
 
 fn actions_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let items = [
-        FlyoutItem {
-            id: "action.trim",
-            label: "Trim",
-            description: "Pick cutters, then click the part to delete.",
-            hotkey: Some("Ctrl+T"),
-            icon: DockIcon::Custom(icon_trim),
-            active: app.board_tool == BoardTool::Trim,
-            group: Some("actions"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "action.split",
-            label: "Split",
-            description: "Pick cutters, then click an object to keep every piece.",
-            hotkey: Some("Ctrl+Shift+T"),
-            icon: DockIcon::Custom(icon_split),
-            active: app.board_tool == BoardTool::Split,
-            group: Some("actions"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "action.join",
-            label: "Join",
-            description: "Join open paths, or union closed regions.",
-            hotkey: Some("Ctrl+J"),
-            icon: DockIcon::Custom(icon_join),
-            active: false,
-            group: Some("actions"),
-            role: FlyoutRole::Icon,
-        },
-    ];
     let _ = theme;
+    let items = palette_strip_items(app, "tool.actions", &[]);
     if let Some(id) = flyout_items(ui, &items) {
         apply_action_choice(app, ui.ctx(), id);
     }
@@ -533,61 +436,10 @@ fn apply_action_choice(app: &mut SlateApp, ctx: &egui::Context, id: &str) {
 /// Shapes + curves in one flyout (collapsed curve section by default).
 fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     if current_body_layout(ui.ctx()) != DockBodyLayout::List {
-        let tools = [
-            BoardTool::RectShape,
-            BoardTool::Ellipse,
-            BoardTool::Line,
-            BoardTool::Arc,
-            BoardTool::Polyline,
-            BoardTool::BezierSpan,
-            BoardTool::Pen,
-            BoardTool::Brush,
-            BoardTool::Eraser,
-        ];
-        let ids = [
-            "shape.rect",
-            "shape.ellipse",
-            "shape.line",
-            "shape.arc",
-            "shape.polyline",
-            "shape.bezier",
-            "shape.pen",
-            "shape.brush",
-            "shape.eraser",
-        ];
-        let items: Vec<FlyoutItem<'_>> = tools
-            .iter()
-            .zip(ids)
-            .map(|(tool, id)| {
-                let hotkey = match tool {
-                    BoardTool::Line | BoardTool::RectShape | BoardTool::Ellipse => {
-                        Some(tool.hotkey())
-                    }
-                    BoardTool::Pen => Some("P"),
-                    BoardTool::Brush => Some("B"),
-                    BoardTool::Eraser => Some("E"),
-                    _ => None,
-                };
-                let group = match tool {
-                    BoardTool::RectShape | BoardTool::Ellipse => "shapes",
-                    BoardTool::Brush | BoardTool::Eraser => "ink",
-                    _ => "curves",
-                };
-                FlyoutItem {
-                    id,
-                    label: tool.label(),
-                    description: tool_flyout_desc(*tool),
-                    hotkey,
-                    icon: tool_dock_icon(*tool),
-                    active: app.board_tool == *tool,
-                    group: Some(group),
-                    role: FlyoutRole::Icon,
-                }
-            })
-            .collect();
+        let items = palette_strip_items(app, "tool.shapes", &[]);
         if let Some(id) = flyout_items(ui, &items) {
-            if let Some((_, tool)) = ids.iter().zip(tools).find(|(i, _)| **i == id) {
-                app.set_board_tool(tool);
+            if !arm_kit_tool(app, id) {
+                apply_shape_choice(app, id);
             }
         }
         return;
@@ -673,51 +525,8 @@ fn object_properties_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarT
 }
 
 fn object_properties_icons(app: &mut SlateApp, ui: &mut egui::Ui, board: bool) {
-    let mut items = Vec::new();
-    if board {
-        items.push(FlyoutItem {
-            id: "prop.colors",
-            label: "Colors",
-            description: "Ink and paper — switch to the stacked list to edit the picker.",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_colors),
-            active: false,
-            group: Some("colors"),
-            role: FlyoutRole::Icon,
-        });
-        items.push(FlyoutItem {
-            id: "prop.swap",
-            label: "Swap",
-            description: "Swap foreground ⇄ background (X).",
-            hotkey: Some("X"),
-            icon: DockIcon::Swap,
-            active: false,
-            group: Some("colors"),
-            role: FlyoutRole::Icon,
-        });
-        items.push(FlyoutItem {
-            id: "prop.reset",
-            label: "Reset",
-            description: "Reset to the theme ink/paper (D).",
-            hotkey: Some("D"),
-            icon: DockIcon::Reset,
-            active: false,
-            group: Some("colors"),
-            role: FlyoutRole::Icon,
-        });
-    }
-    if app.chrome().tool(ToolPanel::Tags) {
-        items.push(FlyoutItem {
-            id: "prop.tags",
-            label: "Tags",
-            description: "Workbook tag groups — switch to the stacked list to edit.",
-            hotkey: None,
-            icon: DockIcon::Tags,
-            active: !app.doc().groups.is_empty(),
-            group: Some("tags"),
-            role: FlyoutRole::Icon,
-        });
-    }
+    let _ = board;
+    let items = palette_strip_items(app, "object.properties", &[]);
     if let Some(id) = flyout_items(ui, &items) {
         let ctx = ui.ctx().clone();
         match id {
@@ -801,80 +610,7 @@ fn document_settings_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarT
 
 fn document_settings_icons(app: &mut SlateApp, ui: &mut egui::Ui) {
     use slate_doc::SnapKind;
-    let mut items = vec![
-        FlyoutItem {
-            id: "settings.grid",
-            label: "grid",
-            description: "Toggle the 20-unit board grid.",
-            hotkey: None,
-            icon: DockIcon::Grid,
-            active: app.board_show_grid,
-            group: Some("grid"),
-            role: FlyoutRole::Toggle,
-        },
-        FlyoutItem {
-            id: "settings.snap_grid",
-            label: "snap",
-            description: "F9 — snap picks and moves to the board grid.",
-            hotkey: Some("F9"),
-            icon: DockIcon::SnapGrid,
-            active: app.board_snap_grid,
-            group: Some("grid"),
-            role: FlyoutRole::Toggle,
-        },
-        FlyoutItem {
-            id: "settings.wire.bezier",
-            label: "Bezier wires",
-            description: "Cubic span — leaves each side perpendicular.",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_wire_bezier),
-            active: app.board_wire_routing == slate_doc::WireRouting::Bezier,
-            group: Some("wires"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "settings.wire.orthogonal",
-            label: "Orthogonal wires",
-            description: "Axis-aligned wrap around hosts (File Atlas PCB-trace style).",
-            hotkey: None,
-            icon: DockIcon::Custom(icon_wire_ortho),
-            active: app.board_wire_routing == slate_doc::WireRouting::Orthogonal,
-            group: Some("wires"),
-            role: FlyoutRole::Icon,
-        },
-        FlyoutItem {
-            id: "settings.osnap",
-            label: "osnap",
-            description: "Master switch. Alt suspends snaps for one pick.",
-            hotkey: None,
-            icon: DockIcon::Osnap,
-            active: app.board_osnap.enabled,
-            group: Some("object snaps"),
-            role: FlyoutRole::Toggle,
-        },
-        FlyoutItem {
-            id: "settings.smart_guides",
-            label: "guides",
-            description: "Align to nearby objects in the same row or column.",
-            hotkey: None,
-            icon: DockIcon::SnapGrid,
-            active: app.board_smart_guides,
-            group: Some("object snaps"),
-            role: FlyoutRole::Toggle,
-        },
-    ];
-    for kind in SnapKind::ALL {
-        items.push(FlyoutItem {
-            id: osnap_item_id(kind),
-            label: kind.label(),
-            description: kind.hint(),
-            hotkey: None,
-            icon: snap_dock_icon(kind),
-            active: app.board_osnap.is_kind_remembered(kind),
-            group: Some("object snaps"),
-            role: FlyoutRole::Toggle,
-        });
-    }
+    let items = palette_strip_items(app, "document.settings", &[]);
     if let Some(id) = flyout_items(ui, &items) {
         let ctx = ui.ctx().clone();
         let cmd = match id {
@@ -1297,12 +1033,15 @@ fn group_rows(
 /// tools arm only — they do not place. Instant actions (join, grid,
 /// snaps, color swap) still fire. Does not pin or unpin the baseline dock.
 pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &str) {
+    if arm_kit_tool(app, id) {
+        return;
+    }
     match id {
         "frame.letter" | "frame.tabloid" | "frame.wide" | "frame.custom" => {
             apply_frame_choice(app, id);
             return;
         }
-        "portal.repo" | "portal.status" | "portal.agent" | "portal.web" => {
+        "portal.repo" | "portal.status" | "portal.agent" | "portal.web" | "portal.atlas" => {
             apply_portal_choice(app, id);
             return;
         }
@@ -1376,63 +1115,379 @@ pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &s
     }
 }
 
-pub(crate) fn flyout_tool_visual(id: &str) -> (&str, DockIcon) {
+pub(crate) fn palette_title(id: &str) -> &'static str {
     match id {
-        "frame.letter" => ("Letter", DockIcon::Custom(icon_frame)),
-        "frame.tabloid" => ("Tabloid", DockIcon::Custom(icon_frame)),
-        "frame.wide" => ("16:9", DockIcon::Custom(icon_frame)),
-        "frame.custom" => ("Custom…", DockIcon::Custom(icon_frame)),
-        "portal.repo" => ("Repository Lens", DockIcon::Custom(icon_repo)),
-        "portal.status" => ("Status Board", DockIcon::Custom(icon_status)),
-        "portal.agent" => ("Agent portal", DockIcon::Custom(icon_portals)),
-        "portal.web" => ("Web portal", DockIcon::Custom(icon_web)),
-        "text.block" => ("Text", DockIcon::Custom(icon_text)),
-        "text.sticky" => ("Sticky note", DockIcon::Custom(icon_sticky)),
-        "action.trim" => ("Trim", DockIcon::Custom(icon_trim)),
-        "action.join" => ("Join", DockIcon::Custom(icon_join)),
-        "shape.rect" => (
-            BoardTool::RectShape.label(),
-            tool_dock_icon(BoardTool::RectShape),
-        ),
-        "shape.ellipse" => (
-            BoardTool::Ellipse.label(),
-            tool_dock_icon(BoardTool::Ellipse),
-        ),
-        "shape.line" => (BoardTool::Line.label(), tool_dock_icon(BoardTool::Line)),
-        "shape.pen" => (BoardTool::Pen.label(), tool_dock_icon(BoardTool::Pen)),
-        "shape.brush" => (BoardTool::Brush.label(), tool_dock_icon(BoardTool::Brush)),
-        "shape.eraser" => (BoardTool::Eraser.label(), tool_dock_icon(BoardTool::Eraser)),
-        "shape.arc" => (BoardTool::Arc.label(), tool_dock_icon(BoardTool::Arc)),
-        "shape.polyline" => (
-            BoardTool::Polyline.label(),
-            tool_dock_icon(BoardTool::Polyline),
-        ),
-        "shape.bezier" => (
-            BoardTool::BezierSpan.label(),
-            tool_dock_icon(BoardTool::BezierSpan),
-        ),
-        "prop.colors" => ("Colors", DockIcon::Custom(icon_colors)),
-        "prop.swap" => ("Swap", DockIcon::Swap),
-        "prop.reset" => ("Reset", DockIcon::Reset),
-        "prop.tags" => ("Tags", DockIcon::Tags),
-        "settings.grid" => ("Show grid", DockIcon::Grid),
-        "settings.snap_grid" => ("Snap to grid", DockIcon::SnapGrid),
-        "settings.osnap" => ("Object snaps", DockIcon::Osnap),
-        "settings.smart_guides" => ("Smart guides", DockIcon::Fit),
-        "settings.wire.bezier" => ("Bezier wires", DockIcon::Custom(icon_wire_bezier)),
-        "settings.wire.orthogonal" => ("Orthogonal wires", DockIcon::Custom(icon_wire_ortho)),
-        other => {
-            if let Some(kind) = slate_doc::SnapKind::ALL
-                .iter()
-                .copied()
-                .find(|k| osnap_item_id(*k) == other)
-            {
-                (kind.label(), snap_dock_icon(kind))
-            } else {
-                (other, DockIcon::Grid)
-            }
-        }
+        "tool.frame" => "Frame",
+        "tool.portals" => "Portals",
+        "tool.shapes" => "Shapes",
+        "tool.text" => "Text",
+        "tool.actions" => "Actions",
+        "object.properties" => "Object properties",
+        "document.settings" => "Document settings",
+        _ => "Palette",
     }
+}
+
+/// One recipe for the docked flyout and a canvas `DockStrip`. `visible`
+/// empty means the full default set; otherwise it is the drop snapshot.
+pub(crate) fn palette_strip_items<'a>(
+    app: &'a SlateApp,
+    palette_id: &str,
+    visible: &[String],
+) -> Vec<FlyoutItem<'a>> {
+    let mut items = match palette_id {
+        "tool.frame" => {
+            let preset = app.board_frame_preset;
+            vec![
+                FlyoutItem {
+                    id: "frame.letter",
+                    label: FramePreset::Letter.label(),
+                    description: "Letter slide frame (8.5 × 11).",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_frame),
+                    active: preset == FramePreset::Letter,
+                    group: Some("frame"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "frame.tabloid",
+                    label: FramePreset::Tabloid.label(),
+                    description: "Tabloid slide frame (11 × 17).",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_frame),
+                    active: preset == FramePreset::Tabloid,
+                    group: Some("frame"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "frame.wide",
+                    label: FramePreset::Wide169.label(),
+                    description: "16:9 slide frame.",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_frame),
+                    active: preset == FramePreset::Wide169,
+                    group: Some("frame"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "frame.custom",
+                    label: "Custom…",
+                    description: "Type a custom frame size.",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_frame),
+                    active: matches!(preset, FramePreset::Custom { .. }),
+                    group: Some("frame"),
+                    role: FlyoutRole::Icon,
+                },
+            ]
+        }
+        "tool.portals" => {
+            let tool = app.board_tool;
+            let mut items = vec![
+                FlyoutItem {
+                    id: "portal.repo",
+                    label: "Repository Lens",
+                    description: "Generated git history graph for a local repository.",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_repo),
+                    active: tool == BoardTool::RepoLens && app.armed_kit_id.is_none(),
+                    group: Some("portals"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "portal.status",
+                    label: "Status Board",
+                    description: "Generated project-state instrument from a JSON snapshot.",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_status),
+                    active: tool == BoardTool::StatusBoard && app.armed_kit_id.is_none(),
+                    group: Some("portals"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "portal.agent",
+                    label: "Agent portal",
+                    description: "Host portal for a local Cursor agent session.",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_portals),
+                    active: tool == BoardTool::AgentPortal && app.armed_kit_id.is_none(),
+                    group: Some("portals"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "portal.web",
+                    label: "Web portal",
+                    description: "Host a URL or local HTML dashboard on the board.",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_web),
+                    active: tool == BoardTool::WebPortal && app.armed_kit_id.is_none(),
+                    group: Some("portals"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "portal.atlas",
+                    label: "File Atlas",
+                    description: "Live folder map on the board — File Atlas's canvas, not its window.",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_atlas),
+                    active: tool == BoardTool::AtlasPortal && app.armed_kit_id.is_none(),
+                    group: Some("portals"),
+                    role: FlyoutRole::Icon,
+                },
+            ];
+            for extra in app.kits.derived_in_group("portals") {
+                items.push(FlyoutItem {
+                    id: extra.id,
+                    label: super::super::kits::intern_label(&extra.name),
+                    description: super::super::kits::intern_label(&extra.description),
+                    hotkey: None,
+                    icon: kit_dock_icon(app, extra.id),
+                    active: app.armed_kit_id.as_deref() == Some(extra.id),
+                    group: Some(extra.group),
+                    role: FlyoutRole::Icon,
+                });
+            }
+            items
+        }
+        "tool.shapes" => {
+            let tools = [
+                (
+                    BoardTool::RectShape,
+                    "shape.rect",
+                    Some(BoardTool::RectShape.hotkey()),
+                    "shapes",
+                ),
+                (
+                    BoardTool::Ellipse,
+                    "shape.ellipse",
+                    Some(BoardTool::Ellipse.hotkey()),
+                    "shapes",
+                ),
+                (BoardTool::Line, "shape.line", Some(BoardTool::Line.hotkey()), "curves"),
+                (BoardTool::Arc, "shape.arc", None, "curves"),
+                (BoardTool::Polyline, "shape.polyline", None, "curves"),
+                (BoardTool::BezierSpan, "shape.bezier", None, "curves"),
+                (BoardTool::Pen, "shape.pen", Some("P"), "curves"),
+                (BoardTool::Brush, "shape.brush", Some("B"), "ink"),
+                (BoardTool::Eraser, "shape.eraser", Some("E"), "ink"),
+            ];
+            let mut items: Vec<FlyoutItem<'_>> = tools
+                .into_iter()
+                .map(|(tool, id, hotkey, group)| FlyoutItem {
+                    id,
+                    label: tool.label(),
+                    description: tool_flyout_desc(tool),
+                    hotkey,
+                    icon: tool_dock_icon(tool),
+                    active: app.board_tool == tool,
+                    group: Some(group),
+                    role: FlyoutRole::Icon,
+                })
+                .collect();
+            for extra in app.kits.derived_in_group("shapes") {
+                items.push(FlyoutItem {
+                    id: extra.id,
+                    label: super::super::kits::intern_label(&extra.name),
+                    description: super::super::kits::intern_label(&extra.description),
+                    hotkey: None,
+                    icon: kit_dock_icon(app, extra.id),
+                    active: app.armed_kit_id.as_deref() == Some(extra.id),
+                    group: Some(extra.group),
+                    role: FlyoutRole::Icon,
+                });
+            }
+            items
+        }
+        "tool.text" => {
+            let tool = app.board_tool;
+            vec![
+                FlyoutItem {
+                    id: "text.block",
+                    label: "Text",
+                    description: "Place a text block on the board.",
+                    hotkey: Some("T"),
+                    icon: DockIcon::Custom(icon_text),
+                    active: tool == BoardTool::Text,
+                    group: Some("text"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "text.sticky",
+                    label: "Sticky note",
+                    description: "Place a sticky note on the board.",
+                    hotkey: Some("N"),
+                    icon: DockIcon::Custom(icon_sticky),
+                    active: tool == BoardTool::Sticky,
+                    group: Some("text"),
+                    role: FlyoutRole::Icon,
+                },
+            ]
+        }
+        "tool.actions" => vec![
+            FlyoutItem {
+                id: "action.trim",
+                label: "Trim",
+                description: "Pick cutters, then click the part to delete.",
+                hotkey: Some("Ctrl+T"),
+                icon: DockIcon::Custom(icon_trim),
+                active: app.board_tool == BoardTool::Trim,
+                group: Some("actions"),
+                role: FlyoutRole::Icon,
+            },
+            FlyoutItem {
+                id: "action.split",
+                label: "Split",
+                description: "Pick cutters, then click an object to keep every piece.",
+                hotkey: Some("Ctrl+Shift+T"),
+                icon: DockIcon::Custom(icon_split),
+                active: app.board_tool == BoardTool::Split,
+                group: Some("actions"),
+                role: FlyoutRole::Icon,
+            },
+            FlyoutItem {
+                id: "action.join",
+                label: "Join",
+                description: "Join open paths, or union closed regions.",
+                hotkey: Some("Ctrl+J"),
+                icon: DockIcon::Custom(icon_join),
+                active: false,
+                group: Some("actions"),
+                role: FlyoutRole::Icon,
+            },
+        ],
+        "object.properties" => {
+            let mut items = Vec::new();
+            if app.doc().view.active_view == ViewKind::Board {
+                items.push(FlyoutItem {
+                    id: "prop.colors",
+                    label: "Colors",
+                    description: "Ink and paper — switch to the stacked list to edit the picker.",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_colors),
+                    active: false,
+                    group: Some("colors"),
+                    role: FlyoutRole::Icon,
+                });
+                items.push(FlyoutItem {
+                    id: "prop.swap",
+                    label: "Swap",
+                    description: "Swap foreground ⇄ background (X).",
+                    hotkey: Some("X"),
+                    icon: DockIcon::Swap,
+                    active: false,
+                    group: Some("colors"),
+                    role: FlyoutRole::Icon,
+                });
+                items.push(FlyoutItem {
+                    id: "prop.reset",
+                    label: "Reset",
+                    description: "Reset to the theme ink/paper (D).",
+                    hotkey: Some("D"),
+                    icon: DockIcon::Reset,
+                    active: false,
+                    group: Some("colors"),
+                    role: FlyoutRole::Icon,
+                });
+            }
+            if app.chrome().tool(ToolPanel::Tags) {
+                items.push(FlyoutItem {
+                    id: "prop.tags",
+                    label: "Tags",
+                    description: "Workbook tag groups — switch to the stacked list to edit.",
+                    hotkey: None,
+                    icon: DockIcon::Tags,
+                    active: !app.doc().groups.is_empty(),
+                    group: Some("tags"),
+                    role: FlyoutRole::Icon,
+                });
+            }
+            items
+        }
+        "document.settings" => {
+            use slate_doc::SnapKind;
+            let mut items = vec![
+                FlyoutItem {
+                    id: "settings.grid",
+                    label: "grid",
+                    description: "Toggle the 20-unit board grid.",
+                    hotkey: None,
+                    icon: DockIcon::Grid,
+                    active: app.board_show_grid,
+                    group: Some("grid"),
+                    role: FlyoutRole::Toggle,
+                },
+                FlyoutItem {
+                    id: "settings.snap_grid",
+                    label: "snap",
+                    description: "F9 — snap picks and moves to the board grid.",
+                    hotkey: Some("F9"),
+                    icon: DockIcon::SnapGrid,
+                    active: app.board_snap_grid,
+                    group: Some("grid"),
+                    role: FlyoutRole::Toggle,
+                },
+                FlyoutItem {
+                    id: "settings.wire.bezier",
+                    label: "Bezier wires",
+                    description: "Cubic span — leaves each side perpendicular.",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_wire_bezier),
+                    active: app.board_wire_routing == slate_doc::WireRouting::Bezier,
+                    group: Some("wires"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "settings.wire.orthogonal",
+                    label: "Orthogonal wires",
+                    description: "Axis-aligned wrap around hosts (File Atlas PCB-trace style).",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_wire_ortho),
+                    active: app.board_wire_routing == slate_doc::WireRouting::Orthogonal,
+                    group: Some("wires"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "settings.osnap",
+                    label: "osnap",
+                    description: "Master switch. Alt suspends snaps for one pick.",
+                    hotkey: None,
+                    icon: DockIcon::Osnap,
+                    active: app.board_osnap.enabled,
+                    group: Some("object snaps"),
+                    role: FlyoutRole::Toggle,
+                },
+                FlyoutItem {
+                    id: "settings.smart_guides",
+                    label: "guides",
+                    description: "Align to nearby objects in the same row or column.",
+                    hotkey: None,
+                    icon: DockIcon::SnapGrid,
+                    active: app.board_smart_guides,
+                    group: Some("object snaps"),
+                    role: FlyoutRole::Toggle,
+                },
+            ];
+            for kind in SnapKind::ALL {
+                items.push(FlyoutItem {
+                    id: osnap_item_id(kind),
+                    label: kind.label(),
+                    description: kind.hint(),
+                    hotkey: None,
+                    icon: snap_dock_icon(kind),
+                    active: app.board_osnap.is_kind_remembered(kind),
+                    group: Some("object snaps"),
+                    role: FlyoutRole::Toggle,
+                });
+            }
+            items
+        }
+        _ => Vec::new(),
+    };
+    if !visible.is_empty() {
+        items.retain(|it| visible.iter().any(|v| v == it.id));
+        items.sort_by_key(|it| visible.iter().position(|v| v == it.id).unwrap_or(usize::MAX));
+    }
+    items
 }
 
 fn toggle_focus(app: &mut SlateApp, siblings: &[(TagId, String, [u8; 3], usize)], tag: TagId) {

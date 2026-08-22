@@ -12,10 +12,9 @@ use atlas_ai::agent::{
 use atlas_ai::cursor_chats::CursorChat;
 use atlas_ai::launch::CursorIdeStatus;
 use atlas_shell::home::{cover_flow_home, HomeAction, HomeCover, HomeCta, HomeModel};
-use atlas_shell::menu::{self, MenuIcon};
 use atlas_shell::recent::{RecentEntry, RecentList};
 use atlas_shell::{canvas_scale, canvas_text};
-use crossbeam_channel::{unbounded, Receiver};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{self, Align2, Color32, FontId, Id, Pos2, Rect, Sense};
 use slate_doc::scene::{AgentContextScope, Node, NodeId, NodeKind, PortalKind, PortalNode};
 use slate_doc::stage::{self, Proposal, ProposalResult, StageWatcher};
@@ -54,6 +53,9 @@ pub struct AgentRuntime {
     local_turns: HashMap<NodeId, Vec<AgentTurn>>,
     sidecar_spawned: HashSet<String>,
     sidecar_child: HashMap<String, std::process::Child>,
+    sidecar_booting: HashSet<String>,
+    sidecar_boot_tx: Option<Sender<SidecarBoot>>,
+    sidecar_boot_rx: Option<Receiver<SidecarBoot>>,
     awaiting: HashMap<NodeId, AgentAwait>,
     pub key_draft: String,
     key_entry: Option<NodeId>,
@@ -95,6 +97,13 @@ enum AgentRecover {
 
 /// How long we wait for the sidecar to pick up a send when no process is alive.
 const AWAIT_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Worker-thread result of finding Node, installing `@cursor/sdk`, and spawning.
+struct SidecarBoot {
+    portal: NodeId,
+    session: String,
+    result: Result<std::process::Child, String>,
+}
 
 /// Palette of saved Cursor chats for one bound folder.
 pub struct ChatPicker {
@@ -333,7 +342,9 @@ impl SlateApp {
             );
             return;
         }
-        if self.agents.sidecar_spawned.contains(session) {
+        if self.agents.sidecar_spawned.contains(session)
+            || self.agents.sidecar_booting.contains(session)
+        {
             return;
         }
         #[cfg(test)]
@@ -346,15 +357,57 @@ impl SlateApp {
             let cwd = self
                 .agent_folder_for(portal)
                 .unwrap_or_else(|| ws.to_path_buf());
-            match atlas_ai::sidecar::spawn_cursor_sidecar(ws, session, &cwd) {
+            let ws = ws.to_path_buf();
+            let session = session.to_string();
+            self.agents.sidecar_booting.insert(session.clone());
+            let tx = self.sidecar_boot_tx();
+            std::thread::spawn(move || {
+                let result = atlas_ai::sidecar::spawn_cursor_sidecar(&ws, &session, &cwd);
+                let _ = tx.send(SidecarBoot {
+                    portal,
+                    session,
+                    result,
+                });
+            });
+        }
+    }
+
+    #[cfg(not(test))]
+    fn sidecar_boot_tx(&mut self) -> Sender<SidecarBoot> {
+        if let Some(tx) = &self.agents.sidecar_boot_tx {
+            return tx.clone();
+        }
+        let (tx, rx) = unbounded();
+        self.agents.sidecar_boot_rx = Some(rx);
+        self.agents.sidecar_boot_tx = Some(tx.clone());
+        tx
+    }
+
+    fn pump_sidecar_boot(&mut self, ctx: &egui::Context) {
+        loop {
+            let msg = {
+                let Some(rx) = &self.agents.sidecar_boot_rx else {
+                    return;
+                };
+                match rx.try_recv() {
+                    Ok(msg) => msg,
+                    Err(crossbeam_channel::TryRecvError::Empty) => return,
+                    Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                        self.agents.sidecar_boot_rx = None;
+                        self.agents.sidecar_boot_tx = None;
+                        return;
+                    }
+                }
+            };
+            self.agents.sidecar_booting.remove(&msg.session);
+            match msg.result {
                 Ok(child) => {
-                    self.agents.sidecar_spawned.insert(session.to_string());
-                    self.agents.sidecar_child.insert(session.to_string(), child);
+                    self.agents.sidecar_spawned.insert(msg.session.clone());
+                    self.agents.sidecar_child.insert(msg.session, child);
                 }
-                Err(e) => {
-                    self.fail_agent_await(portal, e);
-                }
+                Err(e) => self.fail_agent_await(msg.portal, e),
             }
+            ctx.request_repaint();
         }
     }
 
@@ -417,6 +470,7 @@ impl SlateApp {
                     if let Some((session, _)) = self.agent_session_for(id) {
                         self.agents.sidecar_spawned.remove(&session);
                         self.agents.sidecar_child.remove(&session);
+                        self.agents.sidecar_booting.remove(&session);
                     }
                     self.retry_last_agent_prompt(id);
                 }
@@ -443,6 +497,7 @@ impl SlateApp {
     }
 
     fn pump_agent_awaits(&mut self, ctx: &egui::Context, ws: &std::path::Path) {
+        self.pump_sidecar_boot(ctx);
         let ids: Vec<NodeId> = self.agents.awaiting.keys().copied().collect();
         let mut animating = false;
         for id in ids {
@@ -456,12 +511,29 @@ impl SlateApp {
                         self.agents.sidecar_child.remove(&session_id);
                         self.agents.sidecar_spawned.remove(&session_id);
                         if !status.success() {
-                            let tail = atlas_ai::sidecar::sidecar_log_tail(ws, &session_id, 4);
-                            let reason = match tail {
-                                Some(t) => format!("Agent sidecar exited: {t}"),
+                            if matches!(
+                                self.agents.awaiting.get(&id),
+                                Some(AgentAwait::Failed { .. })
+                            ) {
+                                continue;
+                            }
+                            let from_session =
+                                self.agents.sessions.get(&id).and_then(|s| match &s.status {
+                                    AgentStatus::Error(e) => Some(e.clone()),
+                                    _ => None,
+                                });
+                            let reason = match from_session {
+                                Some(e) => e,
                                 None => {
-                                    "Agent sidecar exited before it answered. Check Node, @cursor/sdk, and CURSOR_API_KEY."
-                                        .into()
+                                    let tail =
+                                        atlas_ai::sidecar::sidecar_log_tail(ws, &session_id, 4);
+                                    match tail {
+                                        Some(t) => format!("Agent sidecar exited: {t}"),
+                                        None => {
+                                            "Agent sidecar exited before it answered. Check Node, @cursor/sdk, and CURSOR_API_KEY."
+                                                .into()
+                                        }
+                                    }
                                 }
                             };
                             self.fail_agent_await(id, reason);
@@ -484,6 +556,11 @@ impl SlateApp {
             let has_new = req_at.is_some_and(|at| self.portal_has_new_reply(id, at));
             let child_alive =
                 !session_id.is_empty() && self.agents.sidecar_child.contains_key(&session_id);
+            let booting =
+                !session_id.is_empty() && self.agents.sidecar_booting.contains(&session_id);
+            if booting {
+                animating = true;
+            }
             match (&state, sidecar.as_ref()) {
                 (AgentAwait::Failed { .. }, _) => {}
                 (_, Some(AgentStatus::Error(e))) => {
@@ -508,7 +585,7 @@ impl SlateApp {
                     self.agents.awaiting.remove(&id);
                 }
                 (AgentAwait::Sent { at, .. }, _)
-                    if !child_alive && at.elapsed() >= AWAIT_TIMEOUT =>
+                    if !child_alive && !booting && at.elapsed() >= AWAIT_TIMEOUT =>
                 {
                     let tail = if !session_id.is_empty() {
                         atlas_ai::sidecar::sidecar_log_tail(ws, &session_id, 4)
@@ -773,6 +850,9 @@ impl SlateApp {
 
     pub(crate) fn agent_focus(&mut self, id: NodeId) {
         if self.is_agent_portal(id) {
+            let _ = self.web_blur();
+            let _ = self.atlas_blur();
+            let _ = self.portal_clear_focus();
             self.agents.focused = Some(id);
             self.board_sel = std::iter::once(id).collect();
         }
@@ -852,23 +932,12 @@ impl SlateApp {
                 cover: None,
             },
         );
-        self.request_agent_chats(path.clone());
         self.agents.pending_chat_pick = Some(portal);
+        self.agent_focus(portal);
         #[cfg(not(test))]
         {
-            if self
-                .agent_session_for(portal)
-                .is_some_and(|(_, provider)| provider == "cursor")
-            {
-                if atlas_ai::launch::cursor_available() {
-                    let _ = atlas_ai::launch::launch_cursor(&path);
-                } else {
-                    self.toast("Cursor was not found — install it or add `cursor` to PATH.");
-                }
-            }
-        }
-        if let Some(chats) = self.agents.chats.get(&chat_key(&path)).cloned() {
-            self.finish_chat_pick(portal, chat_key(&path), chats);
+            self.agents.chats.remove(&chat_key(&path));
+            self.request_agent_chats(path);
         }
     }
 
@@ -928,16 +997,20 @@ impl SlateApp {
             self.paint_agent_bound(ui, painter, xf, &layout, node, portal, maximized);
         }
 
-        super::board::paint_fillet_masks(painter, layout.frame, layout.radius, rgba32(portal.fill));
         if !maximized {
-            self.paint_portal_identity_chrome(ui, &layout, node.id, portal, None);
-            self.paint_portal_frame_stroke(
+            self.paint_portal_shell_finish(
+                ui,
                 painter,
                 &layout,
+                node.id,
+                portal,
+                None,
                 Color32::from_rgba_unmultiplied(150, 180, 230, 150),
                 false,
                 xf.z,
             );
+        } else {
+            self.paint_portal_fillet_punch(painter, &layout);
         }
     }
 
@@ -991,6 +1064,123 @@ impl SlateApp {
         }
     }
 
+    fn paint_agent_pick_list(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        layout: &super::board_portal_chrome::PortalChromeLayout,
+        node: &Node,
+        portal: &PortalNode,
+        maximized: bool,
+    ) {
+        let Some(picker) = self.agents.chat_picker.as_ref() else {
+            return;
+        };
+        let chats = picker.chats.clone();
+        let z = xf.z.max(0.01);
+        let body = layout.body;
+        let interactive = maximized || self.agents.focused == Some(node.id);
+        let title_px = canvas_text::authored_px(15.0, z);
+        let meta_px = canvas_text::authored_px(12.0, z);
+        let pad = canvas_scale::px(12.0, z);
+        let row_h = canvas_scale::px(28.0, z);
+        let header = Rect::from_min_max(
+            body.min + egui::vec2(pad, pad),
+            Pos2::new(body.right() - pad, body.top() + pad + 22.0 * z),
+        );
+        if canvas_text::legible(title_px) && header.height() > 4.0 {
+            canvas_text::text(
+                painter,
+                header.left_center(),
+                Align2::LEFT_CENTER,
+                "Agents in this project",
+                FontId::proportional(title_px),
+                Color32::from_rgb(230, 234, 242),
+            );
+        }
+        let list = Rect::from_min_max(
+            Pos2::new(body.left() + pad, header.bottom() + 8.0 * z),
+            Pos2::new(body.right() - pad, body.bottom() - pad),
+        );
+        if list.height() < 8.0 {
+            return;
+        }
+        let mut chosen: Option<Option<String>> = None;
+        if interactive && canvas_text::legible(meta_px) {
+            egui::Area::new(Id::new(("agent-pick-list", node.id.0)))
+                .fixed_pos(list.min)
+                .order(egui::Order::Middle)
+                .show(ui.ctx(), |ui| {
+                    ui.set_min_size(list.size());
+                    ui.set_max_size(list.size());
+                    ui.spacing_mut().item_spacing.y = 4.0 * z;
+                    egui::ScrollArea::vertical()
+                        .id_salt(("agent-pick-scroll", node.id.0))
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.set_width(list.width());
+                            if chats.is_empty() {
+                                ui.label(
+                                    egui::RichText::new("No saved agents for this folder yet.")
+                                        .size(meta_px)
+                                        .color(Color32::from_rgb(160, 168, 180)),
+                                );
+                            }
+                            for chat in &chats {
+                                let resp = ui.add_sized(
+                                    [list.width(), row_h],
+                                    egui::Button::new(
+                                        egui::RichText::new(&chat.title)
+                                            .size(meta_px)
+                                            .color(Color32::from_rgb(230, 234, 242)),
+                                    )
+                                    .fill(Color32::from_rgba_unmultiplied(255, 255, 255, 10))
+                                    .stroke(egui::Stroke::NONE),
+                                );
+                                if resp.clicked() {
+                                    chosen = Some(Some(chat.id.clone()));
+                                }
+                            }
+                            let new = ui.add_sized(
+                                [list.width(), row_h],
+                                egui::Button::new(
+                                    egui::RichText::new("New conversation")
+                                        .size(meta_px)
+                                        .color(Color32::from_rgb(61, 156, 245)),
+                                )
+                                .fill(Color32::from_rgba_unmultiplied(61, 156, 245, 24))
+                                .stroke(egui::Stroke::NONE),
+                            );
+                            if new.clicked() {
+                                chosen = Some(None);
+                            }
+                        });
+                });
+        } else if canvas_text::legible(meta_px) {
+            let preview = if chats.is_empty() {
+                format!("{} — double-click to start", portal.title)
+            } else {
+                format!(
+                    "{} agents — double-click to choose",
+                    chats.len()
+                )
+            };
+            canvas_text::text(
+                painter,
+                list.left_top(),
+                Align2::LEFT_TOP,
+                &preview,
+                FontId::proportional(meta_px),
+                Color32::from_rgb(160, 168, 180),
+            );
+        }
+        if let Some(channel) = chosen {
+            self.set_agent_channel(node.id, channel);
+            self.agents.chat_picker = None;
+        }
+    }
+
     fn paint_agent_bound(
         &mut self,
         ui: &egui::Ui,
@@ -1008,6 +1198,15 @@ impl SlateApp {
         };
         if let Some(folder) = self.agent_folder_for(node.id) {
             self.request_agent_chats(folder);
+        }
+        if self
+            .agents
+            .chat_picker
+            .as_ref()
+            .is_some_and(|p| p.portal == node.id)
+        {
+            self.paint_agent_pick_list(ui, painter, xf, layout, node, portal, maximized);
+            return;
         }
         let interactive = maximized || self.agents.focused == Some(node.id);
         let title_px = canvas_text::authored_px(15.0, z);
@@ -1458,17 +1657,46 @@ impl SlateApp {
             self.toast("Bind a project folder before switching chats.");
             return;
         };
+        self.agent_focus(portal);
         self.request_agent_chats(folder.clone());
         if let Some(chats) = self.agents.chats.get(&chat_key(&folder)).cloned() {
-            self.agents.chat_picker = Some(ChatPicker {
-                portal,
-                folder: chat_key(&folder),
-                chats,
-            });
+            self.finish_chat_pick(portal, chat_key(&folder), chats);
         } else {
             self.agents.pending_chat_pick = Some(portal);
-            self.toast("Looking up saved Cursor chats for this folder…");
+            self.toast("Looking up agents for this folder…");
         }
+    }
+
+    pub(crate) fn dismiss_agent_picker(&mut self) -> bool {
+        self.agents.chat_picker.take().is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn present_agent_picker(&mut self, portal: NodeId, chats: Vec<CursorChat>) {
+        self.finish_chat_pick(portal, PathBuf::from("test-agents"), chats);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn agent_picker_titles(&self) -> Option<Vec<String>> {
+        self.agents
+            .chat_picker
+            .as_ref()
+            .map(|p| p.chats.iter().map(|c| c.title.clone()).collect())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pick_agent_from_list(&mut self, portal: NodeId, id: &str) -> bool {
+        let found = self
+            .agents
+            .chat_picker
+            .as_ref()
+            .is_some_and(|p| p.portal == portal && p.chats.iter().any(|c| c.id == id));
+        if !found {
+            return false;
+        }
+        self.set_agent_channel(portal, Some(id.to_string()));
+        self.agents.chat_picker = None;
+        true
     }
 
     pub(crate) fn set_agent_channel(&mut self, portal: NodeId, channel: Option<String>) {
@@ -1481,59 +1709,17 @@ impl SlateApp {
         });
     }
 
-    pub(crate) fn paint_agent_chat_picker(&mut self, ctx: &egui::Context) {
-        let Some(picker) = self.agents.chat_picker.as_ref() else {
+    fn finish_chat_pick(&mut self, portal: NodeId, path: PathBuf, chats: Vec<CursorChat>) {
+        self.agents.pending_chat_pick = None;
+        if chats.is_empty() {
             return;
-        };
-        let portal = picker.portal;
-        let folder = picker.folder.clone();
-        let chats = picker.chats.clone();
-        let dark = self.dark_mode;
-        let mut close = false;
-        let mut chosen: Option<Option<String>> = None;
-        egui::Area::new(Id::new("slate_agent_chat_picker"))
-            .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                menu::frame(dark).show(ui, |ui| {
-                    ui.set_min_width(280.0);
-                    ui.set_max_width(420.0);
-                    menu::heading(ui, "Switch chat", dark);
-                    menu::note(
-                        ui,
-                        "Saved chats Cursor stored for this folder — not a live attach to the IDE thread.",
-                        dark,
-                    );
-                    menu::note(ui, folder.display().to_string(), dark);
-                    menu::separator(ui, dark);
-                    if chats.is_empty() {
-                        menu::note(ui, "No saved chats found for this folder.", dark);
-                    }
-                    for chat in &chats {
-                        if menu::item(ui, MenuIcon::Chat, &chat.title, dark).clicked() {
-                            chosen = Some(Some(chat.id.clone()));
-                            close = true;
-                        }
-                    }
-                    if menu::item(ui, MenuIcon::Chat, "No chat selected", dark).clicked() {
-                        chosen = Some(None);
-                        close = true;
-                    }
-                    if menu::item(ui, MenuIcon::Cursor, "Open folder in Cursor", dark).clicked() {
-                        self.launch_agent_provider(portal);
-                        close = true;
-                    }
-                    if menu::item(ui, MenuIcon::None, "Cancel", dark).clicked() {
-                        close = true;
-                    }
-                });
-            });
-        if let Some(channel) = chosen {
-            self.set_agent_channel(portal, channel);
         }
-        if close {
-            self.agents.chat_picker = None;
-        }
+        self.agents.chats.insert(path.clone(), chats.clone());
+        self.agents.chat_picker = Some(ChatPicker {
+            portal,
+            folder: path,
+            chats,
+        });
     }
 
     fn agent_folder_for(&self, portal: NodeId) -> Option<PathBuf> {
@@ -1599,6 +1785,8 @@ impl SlateApp {
                         == Some(path.clone())
                     {
                         self.finish_chat_pick(portal, path, chats);
+                    } else if let Some(folder) = self.agent_folder_for(portal) {
+                        self.request_agent_chats(folder);
                     }
                 }
                 ctx.request_repaint();
@@ -1607,19 +1795,6 @@ impl SlateApp {
             Err(crossbeam_channel::TryRecvError::Disconnected) => {
                 self.agents.chats_rx = None;
             }
-        }
-    }
-
-    fn finish_chat_pick(&mut self, portal: NodeId, path: PathBuf, chats: Vec<CursorChat>) {
-        self.agents.pending_chat_pick = None;
-        if chats.len() > 1 {
-            self.agents.chat_picker = Some(ChatPicker {
-                portal,
-                folder: path,
-                chats,
-            });
-        } else if let Some(chat) = chats.first() {
-            self.set_agent_channel(portal, Some(chat.id.clone()));
         }
     }
 
@@ -1691,11 +1866,7 @@ fn classify_agent_failure(reason: String) -> (String, Vec<AgentRecover>) {
                 .into(),
             vec![AgentRecover::PickWorkspace],
         )
-    } else if lower.contains("node.js")
-        || lower.contains("node.exe")
-        || lower.contains("node was not found")
-        || lower.contains("atlas_node")
-    {
+    } else if looks_like_missing_node(&lower) {
         let mut actions = vec![AgentRecover::OpenUrl {
             label: "Download Node.js",
             url: "https://nodejs.org/en/download",
@@ -1703,11 +1874,14 @@ fn classify_agent_failure(reason: String) -> (String, Vec<AgentRecover>) {
         if let Some(setup) = setup {
             actions.push(setup);
         }
-        (
-            "Slate could not see node.exe — a GUI launch often misses the terminal PATH. Send again (we look in Program Files). If it is installed somewhere else, set ATLAS_NODE to that node.exe."
-                .into(),
-            actions,
-        )
+        let text = if raw.contains("Looked in:") {
+            raw
+        } else {
+            "Slate could not see node.exe. It looks in Program Files and on PATH. \
+Set ATLAS_NODE to your node.exe if it is installed somewhere else."
+                .into()
+        };
+        (text, actions)
     } else {
         let mut actions = Vec::new();
         if let Some(setup) = setup {
@@ -1715,6 +1889,17 @@ fn classify_agent_failure(reason: String) -> (String, Vec<AgentRecover>) {
         }
         (raw, actions)
     }
+}
+
+fn looks_like_missing_node(lower: &str) -> bool {
+    if lower.contains("npm") {
+        return false;
+    }
+    lower.contains("could not see node")
+        || lower.contains("looked in:")
+        || lower.contains("node.js was not found")
+        || lower.contains("node was not found")
+        || (lower.contains("atlas_node") && lower.contains("not"))
 }
 
 fn await_new_reply(turns: &[AgentTurn], req_at: u64) -> bool {
@@ -1885,6 +2070,16 @@ mod agent_await_tests {
     }
 
     #[test]
+    fn an_invalid_key_from_the_sidecar_offers_paste() {
+        let (_, actions) =
+            classify_agent_failure("Cursor startup failed: Invalid User API Key".into());
+        assert!(
+            actions.iter().any(|a| matches!(a, AgentRecover::PasteKey)),
+            "a 401 from Agent.create must finish in the portal"
+        );
+    }
+
+    #[test]
     fn an_api_key_failure_offers_the_dashboard() {
         let (reason, actions) = classify_agent_failure(
             "CURSOR_API_KEY is not set — the sidecar cannot reach Cursor agents without it.".into(),
@@ -1904,6 +2099,39 @@ mod agent_await_tests {
         assert!(
             actions.iter().any(|a| matches!(a, AgentRecover::PasteKey)),
             "must let the user finish in the portal"
+        );
+    }
+
+    #[test]
+    fn a_sidecar_spawn_error_is_not_rewritten_as_missing_node() {
+        let (reason, _) = classify_agent_failure(
+            "Could not start Cursor sidecar with C:\\Program Files\\nodejs\\node.exe: access denied"
+                .into(),
+        );
+        assert!(
+            reason.contains("access denied"),
+            "keep the real spawn error: {reason}"
+        );
+        assert!(
+            !reason.contains("Send again"),
+            "must not hide a spawn error behind the PATH sermon: {reason}"
+        );
+    }
+
+    #[test]
+    fn a_node_search_failure_keeps_the_paths_we_tried() {
+        let raw = "Slate could not see node.exe. Looked in:\nC:\\nowhere\\node.exe (not found)";
+        let (reason, actions) = classify_agent_failure(raw.into());
+        assert!(
+            reason.contains("Looked in:"),
+            "the tried paths are the next step: {reason}"
+        );
+        assert!(
+            actions.iter().any(|a| matches!(
+                a,
+                AgentRecover::OpenUrl { url, .. } if *url == "https://nodejs.org/en/download"
+            )),
+            "still offer the installer"
         );
     }
 

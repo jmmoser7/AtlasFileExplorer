@@ -18,6 +18,10 @@ Keep cells concrete: key names, state names, numbers, token names.
 Open-curve tools must inherit **P1.curve.pick** (or answer **D17**): stroke
 hit-testing for click and marquee — never the node AABB alone.
 
+Host portal contracts inherit **P2.PortalHost** and fill the Implementation
+reuse section (Art. XII). Do not start a new host from a paste of
+`board_web.rs`.
+
 ---
 
 ```markdown
@@ -27,7 +31,7 @@ Status: draft | agreed | shipped
 Family: tool | portal
 Reference: <source app + tool, e.g. "Rhino Line">
 Command: <CommandId> · Key: <chord> · Palette: <name + aliases>
-Inherits: P0.* (all), <P1.class>, <P2.archetype> — deviations flagged below.
+Inherits: P0.* (all), <P1.class>, <P2.archetype>[, P2.PortalHost if host] — deviations flagged below.
 
 ## Behavior matrix
 
@@ -61,4 +65,14 @@ expected outcome. Each becomes a headless test when the tool ships.
 ## Open questions
 
 Unresolved dimensions (empty once Status: agreed).
+
+## Implementation reuse (required when Family: portal)
+
+Name the crate/module/trait this subtype extends. Forbidden forks (do not
+start from a paste of `board_web.rs` / `board_atlas.rs`). Host subtypes
+inherit **P2.PortalHost**. Generated subtypes share `board_portal.rs`
+empty/loading helpers. Constitution Art. XII.
+
+Owner: <crate/module>
+Forbidden forks: <what not to copy>
 ```

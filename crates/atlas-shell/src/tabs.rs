@@ -569,8 +569,10 @@ pub fn portal_tab_bar(
             .size()
             .x;
     let pad = metrics.tab_horizontal_padding;
+    let shoulder = metrics.tab_shoulder_radius;
+    let live_reserve = if model.live { 16.0 * scale } else { 0.0 };
     let tab_left = bar.left() + frame_radius.max(4.0 * scale.max(0.4));
-    let tab_w = (text_w + pad * 2.0)
+    let tab_w = (text_w + pad * 2.0 + shoulder * 2.0 + live_reserve)
         .clamp(metrics.tab_min_width, metrics.tab_max_width)
         .min((maximize.left() - tab_left - 4.0).max(metrics.tab_min_width * 0.5));
     let tab_slot = Rect::from_min_max(
@@ -586,17 +588,27 @@ pub fn portal_tab_bar(
         colors,
         &metrics,
     );
-    crate::canvas_text::text(
-        &painter,
-        Pos2::new(paint.left() + pad, paint.center().y),
-        Align2::LEFT_CENTER,
-        title,
-        font,
-        palette.ink,
+    // The painted tab is inset by the shoulder; clip to that interior so
+    // glyphs cannot oversail the teal outline (P1.portal.chrome).
+    let text_left = paint.left() + shoulder + pad;
+    let text_right = (paint.right() - shoulder - pad - live_reserve).max(text_left);
+    let text_clip = Rect::from_min_max(
+        Pos2::new(text_left, paint.top()),
+        Pos2::new(text_right, paint.bottom()),
     );
+    if text_clip.width() > 1.0 {
+        crate::canvas_text::text(
+            &painter.with_clip_rect(text_clip),
+            Pos2::new(text_left, paint.center().y),
+            Align2::LEFT_CENTER,
+            title,
+            font,
+            palette.ink,
+        );
+    }
     if model.live {
         painter.circle_filled(
-            Pos2::new(paint.right() - 10.0 * scale, paint.center().y),
+            Pos2::new(paint.right() - shoulder - 6.0 * scale, paint.center().y),
             3.0 * scale,
             Color32::from_rgb(120, 220, 150),
         );

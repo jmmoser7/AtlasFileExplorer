@@ -40,3 +40,5 @@ Hard rules:
 6. The AI panel body is shared: both apps render it via
    `atlas_ai::ui::ai_body`. AI/Cursor behavior (workspace config, launcher,
    context beacon) lives in `crates/atlas-ai`, never per-app.
+7. Atlas **group preview** (collapsed-folder mosaic) is not a Slate
+   Article V portal. Do not share the word "portal" across those UIs.

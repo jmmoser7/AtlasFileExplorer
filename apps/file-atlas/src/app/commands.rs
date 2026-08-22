@@ -140,6 +140,13 @@ pub const SPECS: &[CommandSpec] = &[
         GLOBAL,
         &[],
     ),
+    gesture(
+        "dock.bar.toggle",
+        "Collapse / expand the primary toolbar",
+        "Navigation",
+        "Hover beside or below the icon bar (arrow) and click; blister on the readout redeploys",
+        ATLAS,
+    ),
     spec(
         "canvas.zoom_in",
         "Zoom in",

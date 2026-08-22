@@ -16,7 +16,9 @@ web identity tabs on the board, in-node chrome).
 **Forbidden:** a constant screen size so type, icons, or tabs “stay readable”
 while the host shrinks. `(size * z).clamp(8, 13)` is the same defect the
 moment the ceiling bites. When type is too small, **drop it** (LOD) — do not
-clamp it into a screen constant.
+clamp it into a screen constant. Copying a canvas object that already uses
+`canvas_scale` / `canvas_text` and then adding a floor is an Article XII
+defect (`paint_atlas_empty` vs `paint_portal_empty`).
 
 **Named exceptions only** (a contract must say so):
 

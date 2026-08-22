@@ -155,7 +155,9 @@ impl PortalKindRef {
         match self.0.as_str() {
             "repo_lens" => Some(PortalKind::RepoLens),
             "status_board" => Some(PortalKind::StatusBoard),
+            "agent" => Some(PortalKind::Agent),
             "web" => Some(PortalKind::Web),
+            "file_atlas" => Some(PortalKind::FileAtlas),
             _ => None,
         }
     }
@@ -242,10 +244,15 @@ impl Recipe {
                     PortalKind::Web => PortalNode::unbound_web(
                         p.title.clone().unwrap_or_else(|| "Web portal".into()),
                     ),
+                    PortalKind::FileAtlas => PortalNode::unbound_file_atlas(
+                        p.title.clone().unwrap_or_else(|| "File Atlas".into()),
+                    ),
                 };
                 node.class = match kind {
                     PortalKind::RepoLens | PortalKind::StatusBoard => PortalClass::Generated,
-                    PortalKind::Agent | PortalKind::Web => PortalClass::Host,
+                    PortalKind::Agent | PortalKind::Web | PortalKind::FileAtlas => {
+                        PortalClass::Host
+                    }
                 };
                 node.query = p.query.clone();
                 node.source = p.source.clone().map(|locator| SourceUri { locator });
@@ -479,6 +486,66 @@ mod tests {
         assert_eq!(p.kind, PortalKind::StatusBoard);
         assert!(p.source.is_none());
         assert_eq!(p.status, slate_doc::scene::StatusPortalQuery::default());
+    }
+
+    #[test]
+    fn a_web_recipe_places_an_unbound_host_portal() {
+        let recipe: Recipe = toml::from_str(
+            r#"
+            kind = "portal"
+            portal = "web"
+            title = "Web portal"
+            default_size = [960.0, 540.0]
+        "#,
+        )
+        .unwrap();
+        let specs = recipe.instantiate(r(), &ctx());
+        let NodeKind::Portal(p) = &specs[0].kind else {
+            panic!("expected a portal");
+        };
+        assert_eq!(p.class, PortalClass::Host);
+        assert_eq!(p.kind, PortalKind::Web);
+        assert!(p.source.is_none());
+    }
+
+    #[test]
+    fn an_agent_recipe_places_an_unbound_host_portal() {
+        let recipe: Recipe = toml::from_str(
+            r#"
+            kind = "portal"
+            portal = "agent"
+            title = "Agent portal"
+            default_size = [960.0, 540.0]
+        "#,
+        )
+        .unwrap();
+        let specs = recipe.instantiate(r(), &ctx());
+        let NodeKind::Portal(p) = &specs[0].kind else {
+            panic!("expected a portal");
+        };
+        assert_eq!(p.class, PortalClass::Host);
+        assert_eq!(p.kind, PortalKind::Agent);
+        assert!(p.source.is_none());
+    }
+
+    #[test]
+    fn a_file_atlas_recipe_places_an_unbound_host_portal() {
+        let recipe: Recipe = toml::from_str(
+            r#"
+            kind = "portal"
+            portal = "file_atlas"
+            title = "File Atlas"
+            default_size = [960.0, 540.0]
+        "#,
+        )
+        .unwrap();
+        let specs = recipe.instantiate(r(), &ctx());
+        let NodeKind::Portal(p) = &specs[0].kind else {
+            panic!("expected a portal");
+        };
+        assert_eq!(p.class, PortalClass::Host);
+        assert_eq!(p.kind, PortalKind::FileAtlas);
+        assert!(p.source.is_none());
     }
 
     #[test]

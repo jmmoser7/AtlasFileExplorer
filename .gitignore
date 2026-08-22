@@ -29,3 +29,6 @@ debug-*.log
 # Auto-generated agent portal sessions (hex ids). Named fixtures stay tracked.
 **/.atlas-ai/agent/agent-18*/**
 **/.atlas-ai/**/sidecar.log
+
+# Cursor sidecar npm install (Slate runs this on first Send)
+docs/agent/cursor-sidecar/node_modules/

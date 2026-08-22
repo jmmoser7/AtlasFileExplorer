@@ -32,7 +32,7 @@ pub struct UiTokens {
 impl Default for UiTokens {
     fn default() -> Self {
         Self {
-            schema_version: 7,
+            schema_version: 8,
             topbar: TopBarTokens::default(),
             dock: DockTokens::default(),
             home: HomeTokens::default(),
@@ -1042,6 +1042,10 @@ pub struct DockTokens {
     pub hover_chip_gap: f32,
     /// Flyout icon-strip squircles as a fraction of [`Self::icon_size`].
     pub flyout_icon_scale: f32,
+    /// The palette body itself: fieldset groups, caption row, and the dots.
+    pub palette: DockPaletteTokens,
+    /// Advanced catalog: a camera over tool cards, not a stacked list.
+    pub advanced: DockAdvancedTokens,
     pub light: DockThemeTokens,
     pub dark: DockThemeTokens,
 }
@@ -1084,6 +1088,8 @@ impl Default for DockTokens {
             panel_open_duration: 0.18,
             hover_chip_gap: 6.0,
             flyout_icon_scale: 0.65,
+            palette: DockPaletteTokens::default(),
+            advanced: DockAdvancedTokens::default(),
             light: DockThemeTokens::light(),
             dark: DockThemeTokens::dark(),
         }
@@ -1116,8 +1122,10 @@ impl DockTokens {
         self.dashboard_describe_delay = self.dashboard_describe_delay.clamp(0.0, 2.0);
         self.describe_fade_duration = self.describe_fade_duration.clamp(0.05, 1.0);
         self.panel_open_duration = self.panel_open_duration.clamp(0.05, 0.8);
-        self.hover_chip_gap = self.hover_chip_gap.clamp(2.0, 24.0);
+        self.hover_chip_gap = self.hover_chip_gap.clamp(0.0, 48.0);
         self.flyout_icon_scale = self.flyout_icon_scale.clamp(0.4, 1.0);
+        self.palette.normalize();
+        self.advanced.normalize();
     }
 
     pub fn round_for_storage(&mut self) {
@@ -1161,6 +1169,480 @@ impl DockTokens {
         ] {
             round3(value);
         }
+        self.palette.round_for_storage();
+        self.advanced.round_for_storage();
+    }
+}
+
+/// The palette body — what a dock icon opens.
+///
+/// Two presentations of one thing: an **icon strip** of fieldset groups, or a
+/// **stacked list** under a caption. Both carry the dot cluster, so its
+/// geometry is tuned once here rather than per presentation.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DockPaletteTokens {
+    /// Breathing room between a fieldset frame and the icons inside it.
+    pub group_pad: f32,
+    /// Space between neighboring fieldset groups, along and across the strip.
+    pub group_gap: f32,
+    pub group_radius: f32,
+    /// Fieldset boundary stroke. Zero paints no frame.
+    pub group_stroke: f32,
+    /// Fill multiply on a hosted palette while its primary icon (or the
+    /// palette itself) is hovered. Idle fieldsets use 0.42.
+    #[serde(default = "associate_fill_default")]
+    pub associate_fill: f32,
+    /// Stroke-width scale for that same hover. 1 = unchanged.
+    #[serde(default = "associate_stroke_default")]
+    pub associate_stroke: f32,
+    /// How far hover pushes gray toward white (dark) or black (light).
+    #[serde(default = "associate_tint_default")]
+    pub associate_tint: f32,
+    /// Primary-icon outline when that icon's palette is pinned. Idle
+    /// (undeployed) icons stay at 1 px.
+    #[serde(default = "pinned_stroke_default")]
+    pub pinned_stroke: f32,
+    /// Color density on a pinned icon's outline (same lighten/darken as hover).
+    #[serde(default = "pinned_tint_default")]
+    pub pinned_tint: f32,
+    /// Collapse-handle width / height when the primary dock is a blister.
+    #[serde(default = "blister_width_default")]
+    pub blister_width: f32,
+    #[serde(default = "blister_height_default")]
+    pub blister_height: f32,
+    /// How far the blister sinks into the readout bar (positive = down).
+    #[serde(default = "blister_sink_default")]
+    pub blister_sink: f32,
+    /// Hover hit band beside / below the primary icon bar that collapses it.
+    #[serde(default = "collapse_zone_default")]
+    pub collapse_zone: f32,
+    /// Pallet name in the box's top stroke (curves, ink, object snaps).
+    pub group_label_size: f32,
+    /// Pallet title's inset past the corner fillet.
+    pub group_label_inset: f32,
+    /// Lift the pallet name off the box stroke (positive = up).
+    pub pallet_label_lift: f32,
+    /// Category name on the unified rule (Shapes, Document settings).
+    pub category_label_size: f32,
+    /// Lift the category title up from the rule (positive = up).
+    pub group_label_lift: f32,
+    /// One underscore under every pallet in a category — stroke, offset
+    /// below the boxes (negative is up), and how far it runs past each
+    /// end of the cluster (negative insets).
+    pub rule_stroke: f32,
+    pub rule_offset: f32,
+    pub rule_extent: f32,
+    /// Gap the rule leaves around the embedded title.
+    pub rule_text_gap: f32,
+    /// Type on labeled strip icons (Object Snaps, grid, snap, …).
+    pub labeled_text_size: f32,
+    /// Gap between the two tertiary toggles sharing one icon's height.
+    pub tertiary_stack_gap: f32,
+    /// Width the strip reserves for the dot column beside the cluster.
+    pub controls_width: f32,
+    /// Caption row height and type size in stacked view.
+    pub caption_height: f32,
+    pub caption_text_size: f32,
+    pub dot_radius: f32,
+    /// Space between dots, edge to edge.
+    pub dot_gap: f32,
+    /// Dot column's offset out from the right edge of a strip cluster.
+    pub dot_offset: f32,
+    /// Hit slop across a vertical column, so the pointer need not be exact.
+    pub dot_hit_x: f32,
+    /// Hit slop across a horizontal ellipsis.
+    pub dot_hit_y: f32,
+    /// Hit reaching past the first and last dot of a horizontal ellipsis.
+    pub dot_hit_end: f32,
+    /// Gap between the dots and the single hover chip naming them.
+    pub dot_chip_gap: f32,
+}
+
+impl Default for DockPaletteTokens {
+    fn default() -> Self {
+        Self {
+            group_pad: 7.0,
+            group_gap: 10.0,
+            group_radius: 6.0,
+            group_stroke: 1.0,
+            associate_fill: 0.64,
+            associate_stroke: 1.28,
+            associate_tint: 0.28,
+            pinned_stroke: 1.55,
+            pinned_tint: 0.22,
+            blister_width: 72.0,
+            blister_height: 11.0,
+            blister_sink: 5.0,
+            collapse_zone: 22.0,
+            group_label_size: 10.0,
+            group_label_inset: 5.0,
+            pallet_label_lift: 0.0,
+            category_label_size: 10.0,
+            group_label_lift: 0.0,
+            rule_stroke: 1.0,
+            rule_offset: 0.0,
+            rule_extent: 0.0,
+            rule_text_gap: 4.0,
+            labeled_text_size: 9.0,
+            tertiary_stack_gap: 2.0,
+            controls_width: 24.0,
+            caption_height: 22.0,
+            caption_text_size: 11.0,
+            dot_radius: 1.65,
+            dot_gap: 2.1,
+            dot_offset: 8.0,
+            dot_hit_x: 22.0,
+            dot_hit_y: 16.0,
+            dot_hit_end: 10.0,
+            dot_chip_gap: 6.0,
+        }
+    }
+}
+
+impl DockPaletteTokens {
+    /// Center-to-center spacing of the dots.
+    pub fn dot_pitch(&self) -> f32 {
+        self.dot_radius * 2.0 + self.dot_gap
+    }
+
+    pub fn normalize(&mut self) {
+        self.group_pad = self.group_pad.clamp(0.0, 32.0);
+        self.group_gap = self.group_gap.clamp(0.0, 48.0);
+        self.group_radius = self.group_radius.clamp(0.0, 24.0);
+        self.group_stroke = self.group_stroke.clamp(0.0, 6.0);
+        self.associate_fill = self.associate_fill.clamp(0.3, 0.85);
+        self.associate_stroke = self.associate_stroke.clamp(1.0, 1.8);
+        self.associate_tint = self.associate_tint.clamp(0.0, 0.7);
+        self.pinned_stroke = self.pinned_stroke.clamp(1.0, 2.4);
+        self.pinned_tint = self.pinned_tint.clamp(0.0, 0.7);
+        self.blister_width = self.blister_width.clamp(24.0, 160.0);
+        self.blister_height = self.blister_height.clamp(4.0, 28.0);
+        self.blister_sink = self.blister_sink.clamp(0.0, 20.0);
+        self.collapse_zone = self.collapse_zone.clamp(8.0, 48.0);
+        self.group_label_size = self.group_label_size.clamp(6.0, 24.0);
+        self.group_label_inset = self.group_label_inset.clamp(0.0, 32.0);
+        self.pallet_label_lift = self.pallet_label_lift.clamp(-16.0, 24.0);
+        self.category_label_size = self.category_label_size.clamp(6.0, 24.0);
+        self.group_label_lift = self.group_label_lift.clamp(-16.0, 24.0);
+        self.rule_stroke = self.rule_stroke.clamp(0.0, 6.0);
+        self.rule_offset = self.rule_offset.clamp(-16.0, 16.0);
+        self.rule_extent = self.rule_extent.clamp(-24.0, 32.0);
+        self.rule_text_gap = self.rule_text_gap.clamp(0.0, 16.0);
+        self.labeled_text_size = self.labeled_text_size.clamp(6.0, 24.0);
+        self.tertiary_stack_gap = self.tertiary_stack_gap.clamp(0.0, 16.0);
+        self.controls_width = self.controls_width.clamp(8.0, 64.0);
+        self.caption_height = self.caption_height.clamp(12.0, 48.0);
+        self.caption_text_size = self.caption_text_size.clamp(7.0, 24.0);
+        self.dot_radius = self.dot_radius.clamp(0.5, 8.0);
+        self.dot_gap = self.dot_gap.clamp(0.0, 16.0);
+        self.dot_offset = self.dot_offset.clamp(0.0, 40.0);
+        // Slop is what makes a 3px dot clickable; never let it fall under the
+        // dot's own pitch or the cluster becomes a precision test.
+        self.dot_hit_x = self.dot_hit_x.clamp(self.dot_pitch(), 64.0);
+        self.dot_hit_y = self.dot_hit_y.clamp(self.dot_pitch(), 48.0);
+        self.dot_hit_end = self.dot_hit_end.clamp(0.0, 32.0);
+        self.dot_chip_gap = self.dot_chip_gap.clamp(0.0, 24.0);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        for value in [
+            &mut self.group_pad,
+            &mut self.group_gap,
+            &mut self.group_radius,
+            &mut self.group_stroke,
+            &mut self.associate_fill,
+            &mut self.associate_stroke,
+            &mut self.associate_tint,
+            &mut self.pinned_stroke,
+            &mut self.pinned_tint,
+            &mut self.blister_width,
+            &mut self.blister_height,
+            &mut self.blister_sink,
+            &mut self.collapse_zone,
+            &mut self.group_label_size,
+            &mut self.group_label_inset,
+            &mut self.pallet_label_lift,
+            &mut self.category_label_size,
+            &mut self.group_label_lift,
+            &mut self.rule_stroke,
+            &mut self.rule_offset,
+            &mut self.rule_extent,
+            &mut self.rule_text_gap,
+            &mut self.labeled_text_size,
+            &mut self.tertiary_stack_gap,
+            &mut self.controls_width,
+            &mut self.caption_height,
+            &mut self.caption_text_size,
+            &mut self.dot_radius,
+            &mut self.dot_gap,
+            &mut self.dot_offset,
+            &mut self.dot_hit_x,
+            &mut self.dot_hit_y,
+            &mut self.dot_hit_end,
+            &mut self.dot_chip_gap,
+        ] {
+            *value = (*value * 1_000.0).round() / 1_000.0;
+        }
+    }
+}
+
+fn associate_fill_default() -> f32 {
+    0.64
+}
+
+fn associate_stroke_default() -> f32 {
+    1.28
+}
+
+fn associate_tint_default() -> f32 {
+    0.28
+}
+
+fn pinned_stroke_default() -> f32 {
+    1.55
+}
+
+fn pinned_tint_default() -> f32 {
+    0.22
+}
+
+fn blister_width_default() -> f32 {
+    72.0
+}
+
+fn blister_height_default() -> f32 {
+    11.0
+}
+
+fn blister_sink_default() -> f32 {
+    5.0
+}
+
+fn collapse_zone_default() -> f32 {
+    22.0
+}
+
+/// Advanced dock catalog — a tinted infinite canvas of tool cards.
+///
+/// Window chrome (the host frame) is a named P0.9 exception. Cards, portal
+/// frames, and type on this surface scale with *this* camera, not the board's.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DockAdvancedTokens {
+    pub width_frac: f32,
+    pub height_frac: f32,
+    pub min_width: f32,
+    pub min_height: f32,
+    pub border_width: f32,
+    pub corner_radius: f32,
+    pub card_w: f32,
+    pub card_h: f32,
+    pub card_gap: f32,
+    pub card_radius: f32,
+    pub portal_pad: f32,
+    pub portal_title: f32,
+    pub portal_gap: f32,
+    pub portal_radius: f32,
+    pub cols: f32,
+    pub grid_step: f32,
+    pub zoom_min: f32,
+    pub zoom_max: f32,
+    pub light: DockAdvancedTheme,
+    pub dark: DockAdvancedTheme,
+}
+
+impl Default for DockAdvancedTokens {
+    fn default() -> Self {
+        Self {
+            width_frac: 0.78,
+            height_frac: 0.68,
+            min_width: 560.0,
+            min_height: 380.0,
+            border_width: 2.4,
+            corner_radius: 12.0,
+            card_w: 132.0,
+            card_h: 108.0,
+            card_gap: 18.0,
+            card_radius: 10.0,
+            portal_pad: 22.0,
+            portal_title: 22.0,
+            portal_gap: 40.0,
+            portal_radius: 14.0,
+            cols: 4.0,
+            grid_step: 32.0,
+            zoom_min: 0.2,
+            zoom_max: 4.0,
+            light: DockAdvancedTheme::light(),
+            dark: DockAdvancedTheme::dark(),
+        }
+    }
+}
+
+impl DockAdvancedTokens {
+    pub fn theme(&self, dark: bool) -> &DockAdvancedTheme {
+        if dark {
+            &self.dark
+        } else {
+            &self.light
+        }
+    }
+
+    pub fn normalize(&mut self) {
+        self.width_frac = self.width_frac.clamp(0.4, 0.95);
+        self.height_frac = self.height_frac.clamp(0.4, 0.92);
+        self.min_width = self.min_width.clamp(320.0, 1600.0);
+        self.min_height = self.min_height.clamp(240.0, 1200.0);
+        self.border_width = self.border_width.clamp(1.0, 8.0);
+        self.corner_radius = self.corner_radius.clamp(0.0, 28.0);
+        self.card_w = self.card_w.clamp(72.0, 240.0);
+        self.card_h = self.card_h.clamp(64.0, 200.0);
+        self.card_gap = self.card_gap.clamp(8.0, 48.0);
+        self.card_radius = self.card_radius.clamp(0.0, 28.0);
+        self.portal_pad = self.portal_pad.clamp(8.0, 48.0);
+        self.portal_title = self.portal_title.clamp(0.0, 40.0);
+        self.portal_gap = self.portal_gap.clamp(16.0, 96.0);
+        self.portal_radius = self.portal_radius.clamp(0.0, 28.0);
+        self.cols = self.cols.clamp(2.0, 8.0);
+        self.grid_step = self.grid_step.clamp(12.0, 96.0);
+        self.zoom_min = self.zoom_min.clamp(0.1, 1.0);
+        self.zoom_max = self.zoom_max.clamp(self.zoom_min + 0.2, 8.0);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        fn round3(value: &mut f32) {
+            *value = (*value * 1_000.0).round() / 1_000.0;
+        }
+        for value in [
+            &mut self.width_frac,
+            &mut self.height_frac,
+            &mut self.min_width,
+            &mut self.min_height,
+            &mut self.border_width,
+            &mut self.corner_radius,
+            &mut self.card_w,
+            &mut self.card_h,
+            &mut self.card_gap,
+            &mut self.card_radius,
+            &mut self.portal_pad,
+            &mut self.portal_title,
+            &mut self.portal_gap,
+            &mut self.portal_radius,
+            &mut self.cols,
+            &mut self.grid_step,
+            &mut self.zoom_min,
+            &mut self.zoom_max,
+        ] {
+            round3(value);
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DockAdvancedTheme {
+    pub canvas: [u8; 4],
+    pub border: [u8; 4],
+    pub veil: [u8; 4],
+    pub cast: [u8; 4],
+    pub grid: [u8; 4],
+    pub portal_fill: [u8; 4],
+    pub portal_border: [u8; 4],
+    pub card_fill: [u8; 4],
+    pub card_border: [u8; 4],
+    pub select: [u8; 4],
+    pub hover: [u8; 4],
+    pub badge: [u8; 4],
+    pub text: [u8; 4],
+    pub muted: [u8; 4],
+}
+
+impl DockAdvancedTheme {
+    fn light() -> Self {
+        Self {
+            canvas: [226, 232, 246, 255],
+            border: [72, 96, 168, 255],
+            veil: [28, 34, 56, 72],
+            cast: [70, 92, 168, 22],
+            grid: [92, 110, 168, 36],
+            portal_fill: [236, 240, 252, 210],
+            portal_border: [110, 128, 186, 180],
+            card_fill: [248, 250, 255, 245],
+            card_border: [168, 178, 210, 220],
+            select: [62, 96, 196, 255],
+            hover: [88, 118, 196, 160],
+            badge: [52, 122, 96, 255],
+            text: [28, 32, 48, 255],
+            muted: [92, 100, 128, 255],
+        }
+    }
+
+    fn dark() -> Self {
+        Self {
+            canvas: [12, 16, 32, 255],
+            border: [98, 128, 204, 255],
+            veil: [6, 8, 16, 110],
+            cast: [70, 100, 200, 32],
+            grid: [70, 90, 150, 40],
+            portal_fill: [20, 26, 46, 210],
+            portal_border: [86, 110, 176, 200],
+            card_fill: [26, 32, 52, 245],
+            card_border: [70, 86, 130, 220],
+            select: [130, 168, 255, 255],
+            hover: [110, 140, 220, 170],
+            badge: [86, 176, 140, 255],
+            text: [226, 232, 246, 255],
+            muted: [140, 150, 176, 255],
+        }
+    }
+
+    pub fn canvas_color(&self) -> Color32 {
+        rgba(self.canvas)
+    }
+    pub fn border_color(&self) -> Color32 {
+        rgba(self.border)
+    }
+    pub fn veil_color(&self) -> Color32 {
+        rgba(self.veil)
+    }
+    pub fn cast_color(&self) -> Color32 {
+        rgba(self.cast)
+    }
+    pub fn grid_color(&self) -> Color32 {
+        rgba(self.grid)
+    }
+    pub fn portal_fill_color(&self) -> Color32 {
+        rgba(self.portal_fill)
+    }
+    pub fn portal_border_color(&self) -> Color32 {
+        rgba(self.portal_border)
+    }
+    pub fn card_fill_color(&self) -> Color32 {
+        rgba(self.card_fill)
+    }
+    pub fn card_border_color(&self) -> Color32 {
+        rgba(self.card_border)
+    }
+    pub fn select_color(&self) -> Color32 {
+        rgba(self.select)
+    }
+    pub fn hover_color(&self) -> Color32 {
+        rgba(self.hover)
+    }
+    pub fn badge_color(&self) -> Color32 {
+        rgba(self.badge)
+    }
+    pub fn text_color(&self) -> Color32 {
+        rgba(self.text)
+    }
+    pub fn muted_color(&self) -> Color32 {
+        rgba(self.muted)
+    }
+}
+
+impl Default for DockAdvancedTheme {
+    fn default() -> Self {
+        Self::dark()
     }
 }
 
@@ -1174,6 +1656,14 @@ pub struct DockThemeTokens {
     pub border: [u8; 4],
     pub text: [u8; 4],
     pub muted_text: [u8; 4],
+    /// Pallet name sitting in the box border (curves, ink, …).
+    pub title: [u8; 4],
+    /// Category name on the underscore (Shapes, Document settings).
+    pub category: [u8; 4],
+    /// The category underscore itself.
+    pub rule: [u8; 4],
+    /// Accent red — active snaps, warnings, anything that should read hot.
+    pub red: [u8; 4],
 }
 
 impl DockThemeTokens {
@@ -1187,6 +1677,10 @@ impl DockThemeTokens {
             border: [215, 220, 226, 255],
             text: [24, 25, 27, 255],
             muted_text: [112, 116, 122, 255],
+            title: [24, 25, 27, 255],
+            category: [24, 25, 27, 255],
+            rule: [112, 116, 122, 255],
+            red: [176, 36, 36, 255],
         }
     }
 
@@ -1199,6 +1693,10 @@ impl DockThemeTokens {
             border: [54, 60, 66, 255],
             text: [235, 238, 241, 255],
             muted_text: [145, 150, 156, 255],
+            title: [235, 238, 241, 255],
+            category: [235, 238, 241, 255],
+            rule: [145, 150, 156, 255],
+            red: [220, 56, 52, 255],
         }
     }
 
@@ -1222,6 +1720,18 @@ impl DockThemeTokens {
     }
     pub fn muted_text_color(&self) -> Color32 {
         rgba(self.muted_text)
+    }
+    pub fn title_color(&self) -> Color32 {
+        rgba(self.title)
+    }
+    pub fn category_color(&self) -> Color32 {
+        rgba(self.category)
+    }
+    pub fn rule_color(&self) -> Color32 {
+        rgba(self.rule)
+    }
+    pub fn red_color(&self) -> Color32 {
+        rgba(self.red)
     }
 }
 
@@ -1908,10 +2418,12 @@ mod tests {
         assert!(!tokens.theme.light.dark_base);
         assert!(tokens.board_preview.select_line_weight > 0.0);
         assert!(tokens.board_preview.highlight_out >= tokens.board_preview.highlight_in);
-        assert_eq!(tokens.schema_version, 7);
-        assert!(tokens.board_forcefield.center_weight > tokens.board_forcefield.edge_weight);
+        assert_eq!(tokens.schema_version, 8);
+        assert!(tokens.dock.advanced.card_w > 0.0);
+        assert!(tokens.dock.advanced.border_width >= 1.0);
+        assert!(tokens.board_forcefield.center_weight > 0.0);
         assert!(tokens.menu.border_width <= 0.01);
-        assert!(tokens.menu.corner_radius >= 8.0);
+        assert!(tokens.menu.corner_radius >= 4.0);
         assert!(tokens.menu.divider_inset > 0.0);
     }
 

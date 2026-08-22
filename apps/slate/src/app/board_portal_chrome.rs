@@ -414,6 +414,7 @@ impl SlateApp {
                 PortalKind::RepoLens => "Repository",
                 PortalKind::StatusBoard => "Status",
                 PortalKind::Agent => "Agent",
+                PortalKind::FileAtlas => "File Atlas",
             }
         } else {
             title
@@ -487,6 +488,37 @@ impl SlateApp {
         let _ = (border, focused);
     }
 
+    /// Punch square leftover corners to the canvas fill (`palette.bg` — the
+    /// same colour `canvas` paints) so every portal kind shares one rounded
+    /// footprint (P2.PortalHost.shell / P1.portal.clip). Not `board_colors.bg`:
+    /// that is the ink-tool paper swatch and is often white on a dark board.
+    pub(crate) fn paint_portal_fillet_punch(
+        &self,
+        painter: &egui::Painter,
+        layout: &PortalChromeLayout,
+    ) {
+        board::paint_fillet_masks(painter, layout.frame, layout.radius, self.palette().bg);
+    }
+
+    /// Shared close of the host paint sequence: fillet punch → identity
+    /// chrome → hover/focus stroke. Kind-specific work is the body hook.
+    pub(crate) fn paint_portal_shell_finish(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        layout: &PortalChromeLayout,
+        id: NodeId,
+        portal: &PortalNode,
+        visiting: Option<&str>,
+        border: Color32,
+        focused: bool,
+        zoom: f32,
+    ) {
+        self.paint_portal_fillet_punch(painter, layout);
+        self.paint_portal_identity_chrome(ui, layout, id, portal, visiting);
+        self.paint_portal_frame_stroke(painter, layout, border, focused, zoom);
+    }
+
     pub(crate) fn paint_portal_frame_stroke(
         &self,
         painter: &egui::Painter,
@@ -495,7 +527,15 @@ impl SlateApp {
         focused: bool,
         zoom: f32,
     ) {
-        let width = if focused { 2.0_f32 } else { 1.0_f32 } * zoom.max(0.01);
+        let z = zoom.max(0.01);
+        let hit = portal_frame_tokens().border_hit_px * z;
+        let edge_hover = painter.ctx().pointer_latest_pos().is_some_and(|p| {
+            layout.frame.expand(hit).contains(p) && !layout.frame.shrink(hit).contains(p)
+        });
+        if !focused && !edge_hover {
+            return;
+        }
+        let width = if focused { 2.0_f32 } else { 1.0_f32 } * z;
         painter.rect_stroke(
             layout.frame,
             layout.radius,
@@ -545,6 +585,10 @@ impl SlateApp {
             PortalKind::Agent => {
                 let xf = fit_xf(node.rect, layout.body);
                 self.paint_agent_portal(ui, &painter, &xf, &node, &portal);
+            }
+            PortalKind::FileAtlas => {
+                let xf = fit_xf(node.rect, layout.body);
+                self.paint_atlas_portal(ui, &painter, &xf, &node, &portal);
             }
         }
 
@@ -601,6 +645,7 @@ mod tests {
             PortalKind::Agent,
             PortalKind::StatusBoard,
             PortalKind::RepoLens,
+            PortalKind::FileAtlas,
         ] {
             let layout = layout_for_portal(kind, frame, false, false, 1.0);
             assert!(
@@ -659,6 +704,7 @@ mod tests {
         assert!(!uses_identity_tab(PortalKind::Agent));
         assert!(!uses_identity_tab(PortalKind::RepoLens));
         assert!(!uses_identity_tab(PortalKind::StatusBoard));
+        assert!(!uses_identity_tab(PortalKind::FileAtlas));
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
         let layout = layout_for_portal(PortalKind::Agent, frame, false, false, 1.0);
         assert!(layout.bar.is_none());

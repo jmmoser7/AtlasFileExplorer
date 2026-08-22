@@ -9,7 +9,8 @@ mandate: if a request conflicts with an article, name the article and
 propose an alternative or amendment instead of silently complying.
 `ROADMAP.md` sequences the long-term build; `docs/facet-taxonomy.md` defines
 how file types are classified. Where this file and the constitution
-disagree, the constitution wins.
+disagree, the constitution wins. Article XII (one owner of knowledge) is
+always-applied as `.cursor/rules/dry.mdc` — do not restate it here.
 
 Rust + egui Windows desktop apps for visual file organization at scale. The
 repo is a **Cargo workspace** containing two launchable applications built on
@@ -29,7 +30,7 @@ shared crates:
 | Crate | Role | Safe to edit in parallel |
 |-------|------|--------------------------|
 | `crates/atlas-core` | UI-free backend: types, scanner (+ `skiplist.rs`), SQLite index, thumbnail pool + cache tiers, tree layout, journal, export, watcher, time-selection math (`timeline.rs`) | Yes — but read `docs/performance.md` first for `scanner.rs`, `thumbs.rs`, `rasterthumb.rs`, `owners.rs`, `metadata.rs` |
-| `crates/atlas-shell` | **Shared window chrome**: theme/Palette, tab strip, sidebar primitives, widgets, activity timeline, panel registry, command reference | Yes — but see the chrome rule below |
+| `crates/atlas-shell` | **Shared window chrome**: theme/Palette, tab strip, sidebar primitives, widgets, activity timeline, panel registry, command reference. **Folder map** (`folder_map`): File Atlas camera, leaders, collapse grips, and cards — both the standalone app and the Slate File Atlas portal call this; do not paint a second tree | Yes — but see Art. X / `.cursor/rules/shared-chrome.mdc` |
 | `crates/atlas-session` | In-process bridge for linked Slate⇄Atlas sessions | Yes |
 | `crates/atlas-ai` | AI / Cursor integration: shared AI-workspace config, Cursor launcher, live-link context beacon, the sidebar AI panel body | Yes |
 | `crates/slate-doc` | `.slate` document model: faceted tag system + the board scene graph (`scene.rs`: nodes, SVG-ceiling styles, invertible + authored `SceneCmd` journal) | Yes |
@@ -46,23 +47,24 @@ shared crates:
 Read `apps/file-atlas/src/app/ARCHITECTURE.md` and
 `apps/slate/src/app/ARCHITECTURE.md` before UI changes.
 
-## The shared-chrome rule (no divergence)
+## Shared chrome (Art. X)
 
-Both apps must look and feel identical. This is enforced structurally:
+See `.cursor/rules/shared-chrome.mdc` and `crates/atlas-shell/TOPBAR.md`.
+Apps pass data; shell paints. Do not restate those rules here.
 
-1. **All chrome painting lives in `atlas-shell`** — tab shapes, palette,
-   sidebar section cards, widgets, gear menus. The **unified top bar** (icon
-   portal + inline tabs) is documented in `crates/atlas-shell/TOPBAR.md`.
-   Apps supply *data* (tab specs, panel sets, command entries) and react to
-   returned actions.
-2. **Never define chrome colors, tab painting, or sidebar layout primitives
-   inside an app crate.** If an app needs a new chrome capability, add it to
-   `atlas-shell` so the other app gets it too.
-3. Panel *sets* (which sections exist) and canvas internals are app-specific
-   by design; their *rendering primitives* are not.
-4. Both apps must stay on the same egui/eframe version — dependency versions
-   are pinned once in the workspace `Cargo.toml` (`[workspace.dependencies]`);
-   member crates must use `{ workspace = true }`.
+## One owner of knowledge (Art. XII)
+
+See `.cursor/rules/dry.mdc`. Before adding a function longer than about
+fifteen lines, find the owner. Do not start `board_<kind>.rs` from a paste
+of `board_web.rs`. Host portals inherit **P2.PortalHost**. Same gesture,
+different result → kit recipe, not a forked tool. Parallel interpreters
+(`board.rs` vs `slate-artifact`) stay two.
+
+Before executing a plan that adds a portal host, a `board_*.rs` file, or
+copies File Atlas / another portal's behavior, launch the **`dry-review`**
+subagent (`.cursor/agents/dry-review.md`; prompt `/dry-review`) and wait
+for approve | extract-first | reject. Do not treat this chat as a live
+RPC — other conversations cannot message it.
 
 ## Commands & shortcuts
 
@@ -84,18 +86,8 @@ inside `cargo test --workspace`.
 
 ## Canvas-space scale (P0.9)
 
-Objects on a Slate board **and** a File Atlas canvas scale with zoom exactly
-as a shape does (`world × zoom`). Text, icons, badges, borders, and
-node-local tabs are canvas objects — they must not hold a constant screen
-size while the camera moves. Window chrome in `atlas-shell` and
-pointer-attached ghosts (`P2.GhostFollow`) are the named exceptions.
-Always-apply rule: `.cursor/rules/canvas-scale.mdc`. Pattern: **P0.9** in
-`docs/keymap/contracts/PATTERNS.md`. Type: `atlas-shell::canvas_text`.
-Cover Flow (home and any embed, including unbound agent portals):
-`atlas-shell::home::cover_flow_home` — never a second copy. Type on a
-yawed album face is per-glyph projected strips (not a full-face texture
-and not a live `galley`). Interactive portal embeds set
-`HomeModel.interactive` only in contents-focus (`P1.portal.contents-focus`).
+See `.cursor/rules/canvas-scale.mdc` and **P0.9** in
+`docs/keymap/contracts/PATTERNS.md`. Cover Flow is `atlas-shell::home` only.
 
 ## Board tools: grammar and recipe
 
@@ -349,5 +341,10 @@ When working in the cloud:
 - Agent D: `crates/circle-pack` / `crates/slate-doc` — geometry / document model
 - Shared chrome changes (`crates/atlas-shell`) should be a dedicated task, not
   mixed into app work.
+- Do not implement the same canvas or portal behavior in both apps in
+  parallel. Extract to the named owner first (Art. XII), then both sides
+  call it.
+- A single-app feature commit must not rewrite the other app's load or
+  paint path unless the PR is explicitly dual-app.
 
 Each agent should use its **own branch** (`feature/...`) and a separate PR.

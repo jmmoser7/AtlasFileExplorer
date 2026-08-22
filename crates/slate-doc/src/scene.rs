@@ -437,6 +437,8 @@ pub enum PortalKind {
     StatusBoard,
     Agent,
     Web,
+    /// File Atlas folder map hosted on a Slate board (not a File Atlas app feature).
+    FileAtlas,
 }
 
 /// Local-filesystem locator stub until full `SourceUri` (T2.1) lands.
@@ -483,6 +485,37 @@ pub struct StatusPortalQuery {
     pub show_waves: bool,
     pub show_deviations: bool,
     pub show_next: bool,
+}
+
+/// Authored File Atlas lens knobs (journaled). Scan, tree, thumbs, and the
+/// inner camera are derived and never stored on the node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AtlasPortalQuery {
+    pub sort: AtlasSort,
+}
+
+impl Default for AtlasPortalQuery {
+    fn default() -> Self {
+        Self {
+            sort: AtlasSort::Name,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AtlasSort {
+    Name,
+    Mtime,
+    Size,
+    Kind,
+}
+
+impl Default for AtlasSort {
+    fn default() -> Self {
+        Self::Name
+    }
 }
 
 impl Default for StatusPortalQuery {
@@ -775,6 +808,9 @@ pub struct PortalNode {
     /// side by side rather than in a `PortalQuery` enum.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web: Option<WebPortalRef>,
+    /// File Atlas lens sort. Defaulted so older portal nodes still load.
+    #[serde(default)]
+    pub atlas: AtlasPortalQuery,
     pub fill: Rgba,
 }
 
@@ -790,6 +826,7 @@ impl PortalNode {
             status: StatusPortalQuery::default(),
             agent: None,
             web: None,
+            atlas: AtlasPortalQuery::default(),
             fill: Rgba([18, 20, 24, 255]),
         }
     }
@@ -805,6 +842,7 @@ impl PortalNode {
             status: StatusPortalQuery::default(),
             agent: None,
             web: None,
+            atlas: AtlasPortalQuery::default(),
             fill: Rgba([14, 17, 20, 255]),
         }
     }
@@ -821,6 +859,7 @@ impl PortalNode {
             status: StatusPortalQuery::default(),
             agent: None,
             web: Some(WebPortalRef::default()),
+            atlas: AtlasPortalQuery::default(),
             fill: Rgba([20, 20, 26, 255]),
         }
     }
@@ -863,8 +902,34 @@ impl PortalNode {
                 channel: None,
             }),
             web: None,
+            atlas: AtlasPortalQuery::default(),
             fill: Rgba([16, 22, 34, 255]),
         }
+    }
+
+    /// Fresh unbound File Atlas lens — paints "Choose folder…" until bound.
+    pub fn unbound_file_atlas(title: impl Into<String>) -> Self {
+        Self {
+            class: PortalClass::Host,
+            kind: PortalKind::FileAtlas,
+            title: title.into(),
+            source: None,
+            query: RepoPortalQuery::default(),
+            status: StatusPortalQuery::default(),
+            agent: None,
+            web: None,
+            atlas: AtlasPortalQuery::default(),
+            fill: Rgba([16, 18, 22, 255]),
+        }
+    }
+
+    /// File Atlas lens bound at placement (folder drop).
+    pub fn bound_file_atlas(title: impl Into<String>, locator: impl Into<String>) -> Self {
+        let mut portal = Self::unbound_file_atlas(title);
+        portal.source = Some(SourceUri {
+            locator: locator.into(),
+        });
+        portal
     }
 }
 
@@ -2082,6 +2147,22 @@ mod tests {
         let portal: PortalNode = serde_json::from_str(older).expect("older portal parses");
         assert_eq!(portal.kind, PortalKind::Agent);
         assert_eq!(portal.web, None);
+    }
+
+    #[test]
+    fn a_file_atlas_portal_is_host_class_and_older_json_still_loads() {
+        let portal = PortalNode::bound_file_atlas("Folder", "shots");
+        assert_eq!(portal.class, PortalClass::Host);
+        assert_eq!(portal.kind, PortalKind::FileAtlas);
+        assert_eq!(portal.atlas.sort, AtlasSort::Name);
+        let older = r#"{
+            "class": "host",
+            "kind": "file_atlas",
+            "title": "Folder",
+            "fill": [16, 18, 22, 255]
+        }"#;
+        let loaded: PortalNode = serde_json::from_str(older).expect("file atlas parses");
+        assert_eq!(loaded.atlas, AtlasPortalQuery::default());
     }
 
     #[test]

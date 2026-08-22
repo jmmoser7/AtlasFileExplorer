@@ -27,7 +27,8 @@ npm start
 `ATLAS_AGENT_SESSION` is shown in the selected Agent portal inspector. The
 sidecar uses a local Cursor SDK runtime with `cwd = ATLAS_AGENT_CWD` (the
 bound project folder) when set, otherwise the AI workspace. Slate may spawn
-this script on Send when `node` is on PATH.
+this script on Send: it finds `node.exe` in Program Files (not only PATH)
+and runs `npm install` here when `@cursor/sdk` is missing.
 
 Agents must not edit `.slate` files directly. Board edits are proposed by
 writing stage files described in `../../agent-link-contract.md`; Slate commits

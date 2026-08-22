@@ -11,13 +11,13 @@
 //! `label`. App-specific icons use [`DockIcon::Custom`] with a painter fn.
 
 use crate::sidebar::{
-    paint_sidebar_icon_pill, sidebar_icon_row, SidebarTheme, SidebarTokens, TOGGLE_SLIDE_SECS,
+    paint_sidebar_icon_pill, sidebar_icon_row, sidebar_tool_row, SidebarTheme, TOGGLE_SLIDE_SECS,
 };
 use crate::theme::Palette;
-use crate::tokens::{DockThemeTokens, DockTokens};
+use crate::tokens::{DockPaletteTokens, DockThemeTokens, DockTokens};
 use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, FontId, Layout, Pos2, Rect, RichText, ScrollArea,
-    Sense, Shadow, Shape, Stroke, Vec2,
+    self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, ScrollArea, Sense, Shadow,
+    Shape, Stroke, Vec2,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -92,8 +92,8 @@ pub enum DockBodyLayout {
     #[default]
     List,
     Icons,
-    /// Full tool list + on-strip tags. Never the dock-wide default — only
-    /// while a strip's Advanced overlay is open.
+    /// Tinted catalog canvas of every tool in the palette. Never the
+    /// dock-wide default — only while a strip's Advanced overlay is open.
     Advanced,
 }
 
@@ -155,16 +155,17 @@ const BODY_LAYOUT_ID: &str = "atlas_dock_body_layout";
 const DOCK_SIDE_ID: &str = "atlas_dock_side";
 const STRIP_BUDGET_ID: &str = "atlas_dock_strip_budget";
 const STRIP_PALETTE_ID: &str = "atlas_dock_strip_palette";
+const STRIP_PALETTE_LABEL_ID: &str = "atlas_dock_strip_palette_label";
 const STRIP_HIDDEN_ID: &str = "atlas_dock_strip_hidden";
 const STRIP_VISIBLE_ID: &str = "atlas_dock_strip_visible";
-/// Four-dot column reserved on the primary row of a free strip.
-const STRIP_CONTROLS_W: f32 = 24.0;
+const STRIP_NATURAL_ID: &str = "atlas_dock_strip_natural";
+const STRIP_ASSOCIATE_ID: &str = "atlas_dock_strip_associate";
 
 /// Click / drop outcome from one [`floating_dock`] frame.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DockOutcome {
     pub clicked: Option<&'static str>,
-    /// Palette id whose 4th strip dot asked to embed a copy on the canvas.
+    /// Palette id whose Drop dot asked to embed a copy on the canvas.
     pub drop_to_canvas: Option<&'static str>,
 }
 
@@ -238,7 +239,7 @@ struct DockState {
     /// free-space icon strip when true. Toggling any list control, or a
     /// strip's stacked-view dot, flips this for the whole dock.
     icon_strip: bool,
-    /// Palette whose Advanced overlay is open (full list + on-strip tags).
+    /// Palette whose Advanced catalog canvas is open.
     advanced: Option<&'static str>,
     /// Tools hidden from each palette's icon strip. Empty vec = show all.
     hidden: HashMap<String, Vec<String>>,
@@ -274,6 +275,10 @@ struct DockState {
     /// the new rect on the same click that collapsed it — without this,
     /// that click is read as an outside dismiss.
     last_union_panels: Option<Rect>,
+    /// Primary icon bar tucked into a readout blister. Pinned palettes stay.
+    bar_collapsed: bool,
+    last_icon_rects: HashMap<&'static str, Rect>,
+    last_panel_rects: HashMap<&'static str, Rect>,
 }
 
 fn ease_out_cubic(t: f32) -> f32 {
@@ -287,6 +292,30 @@ const ICON_HOVER_MIX: f32 = 0.14;
 const ICON_ACTIVE_MIX: f32 = 0.18;
 /// Title-chip translucency (on top of the open animation).
 const HOVER_CHIP_OPACITY: f32 = 0.78;
+
+/// Dark mode lightens gray; light mode darkens it.
+fn associate_shade(color: Color32, dark: bool, tint: f32) -> Color32 {
+    let toward = if dark {
+        Color32::from_rgba_unmultiplied(255, 255, 255, color.a())
+    } else {
+        Color32::from_rgba_unmultiplied(0, 0, 0, color.a())
+    };
+    mix_icon_fill(color, toward, tint)
+}
+
+/// Primary-icon outline: pinned is always denser than idle; hover can go further.
+fn icon_outline(associated: bool, pinned: bool, p: &DockPaletteTokens) -> (f32, f32) {
+    let (width, tint) = if pinned {
+        (p.pinned_stroke.max(1.0), p.pinned_tint)
+    } else {
+        (1.0, 0.0)
+    };
+    if associated {
+        (width.max(p.associate_stroke), tint.max(p.associate_tint))
+    } else {
+        (width, tint)
+    }
+}
 
 fn mix_icon_fill(base: Color32, accent: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
@@ -378,7 +407,7 @@ pub fn paint_dock_icon(painter: &egui::Painter, rect: Rect, icon: DockIcon, colo
 }
 
 fn paint_builtin_icon(painter: &egui::Painter, rect: Rect, icon: DockIcon, color: Color32) {
-    let s = Stroke::new((rect.width() * 0.075).clamp(1.2, 1.8), color);
+    let s = Stroke::new((rect.width() * 0.075).max(0.4), color);
     match icon {
         DockIcon::Custom(paint) => paint(painter, rect, color),
         DockIcon::Filters => {
@@ -812,6 +841,25 @@ pub fn icon_strip_ids(ctx: &egui::Context, id: impl std::hash::Hash) -> Option<V
         })
 }
 
+/// Whether the primary icon bar is collapsed into the readout blister.
+/// `None` until the dock has rendered at least once this session.
+pub fn bar_collapsed(ctx: &egui::Context, id: impl std::hash::Hash) -> Option<bool> {
+    let state_id = egui::Id::new(("floating_dock", &id));
+    ctx.data_mut(|d| d.get_temp::<DockState>(state_id))
+        .filter(|s| s.seeded)
+        .map(|s| s.bar_collapsed)
+}
+
+pub fn set_bar_collapsed(ctx: &egui::Context, id: impl std::hash::Hash, collapsed: bool) {
+    let state_id = egui::Id::new(("floating_dock", &id));
+    ctx.data_mut(|d| {
+        if let Some(mut s) = d.get_temp::<DockState>(state_id) {
+            s.bar_collapsed = collapsed;
+            d.insert_temp(state_id, s);
+        }
+    });
+}
+
 /// Tools hidden from each palette's icon strip — for persisting to prefs.
 /// `None` until the dock has rendered at least once this session.
 pub fn strip_hidden(
@@ -833,6 +881,11 @@ pub fn strip_hidden(
         })
 }
 
+/// Flyout ids the Advanced catalog asked to duplicate as new tool types.
+pub fn take_catalog_duplicate(ctx: &egui::Context) -> Option<Vec<String>> {
+    crate::dock_advanced::take_duplicate(ctx)
+}
+
 /// Tool ids last shown on a palette's icon strip (after on-strip tags).
 /// Used when dropping a copy onto the canvas.
 pub fn last_strip_tools(ctx: &egui::Context, palette: &str) -> Vec<String> {
@@ -843,11 +896,18 @@ pub fn last_strip_tools(ctx: &egui::Context, palette: &str) -> Vec<String> {
     })
 }
 
-fn set_current_palette(ctx: &egui::Context, id: &'static str) {
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new(STRIP_PALETTE_ID), id));
+fn set_current_palette(ctx: &egui::Context, id: &'static str, label: &str) {
+    ctx.data_mut(|d| {
+        d.insert_temp(egui::Id::new(STRIP_PALETTE_ID), id);
+        d.insert_temp(egui::Id::new(STRIP_PALETTE_LABEL_ID), label.to_owned());
+    });
 }
 
-fn current_palette(ctx: &egui::Context) -> Option<&'static str> {
+fn current_palette_label(ctx: &egui::Context) -> Option<String> {
+    ctx.data(|d| d.get_temp(egui::Id::new(STRIP_PALETTE_LABEL_ID)))
+}
+
+pub(crate) fn current_palette(ctx: &egui::Context) -> Option<&'static str> {
     ctx.data(|d| d.get_temp(egui::Id::new(STRIP_PALETTE_ID)))
 }
 
@@ -855,20 +915,24 @@ fn sync_hidden_to_ctx(ctx: &egui::Context, hidden: &HashMap<String, Vec<String>>
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(STRIP_HIDDEN_ID), hidden.clone()));
 }
 
-fn hidden_from_ctx(ctx: &egui::Context) -> HashMap<String, Vec<String>> {
+pub(crate) fn hidden_from_ctx(ctx: &egui::Context) -> HashMap<String, Vec<String>> {
     ctx.data(|d| {
         d.get_temp::<HashMap<String, Vec<String>>>(egui::Id::new(STRIP_HIDDEN_ID))
             .unwrap_or_default()
     })
 }
 
-fn tool_hidden_in(hidden: &HashMap<String, Vec<String>>, palette: &str, tool: &str) -> bool {
+pub(crate) fn tool_hidden_in(
+    hidden: &HashMap<String, Vec<String>>,
+    palette: &str,
+    tool: &str,
+) -> bool {
     hidden
         .get(palette)
         .is_some_and(|tools| tools.iter().any(|t| t == tool))
 }
 
-fn set_tool_on_strip(ctx: &egui::Context, palette: &str, tool: &str, on: bool) {
+pub(crate) fn set_tool_on_strip(ctx: &egui::Context, palette: &str, tool: &str, on: bool) {
     ctx.data_mut(|d| {
         let mut hidden: HashMap<String, Vec<String>> = d
             .get_temp(egui::Id::new(STRIP_HIDDEN_ID))
@@ -913,8 +977,6 @@ fn stack_ids(state: &DockState) -> Vec<&'static str> {
 
 /// Gap kept between a panel and the canvas edge.
 const PANEL_EDGE_MARGIN: f32 = 12.0;
-/// Height of the caption row (label + minimize glyph) and the rule below it.
-const PANEL_CAPTION_H: f32 = 22.0;
 const PANEL_SEPARATOR_H: f32 = 10.0;
 /// A panel body never gets less than this, even on a tiny canvas.
 const PANEL_MIN_BODY_H: f32 = 120.0;
@@ -961,7 +1023,7 @@ fn panel_width(state: &DockState, id: &'static str, tokens: &DockTokens, canvas:
 /// Vertical space a panel body may use before it has to scroll: the canvas
 /// minus the edge margins and the panel's own chrome.
 fn panel_body_max_height(canvas: Rect, tokens: &DockTokens) -> f32 {
-    let chrome = tokens.popover_padding * 2.0 + PANEL_CAPTION_H + PANEL_SEPARATOR_H;
+    let chrome = tokens.popover_padding * 2.0 + tokens.palette.caption_height + PANEL_SEPARATOR_H;
     (canvas.height() - PANEL_EDGE_MARGIN * 2.0 - chrome).max(PANEL_MIN_BODY_H)
 }
 
@@ -991,6 +1053,7 @@ fn layout_panel_origins(
     open: &[(&'static str, Rect, Vec2)],
     tokens: &DockTokens,
     canvas: Rect,
+    bar_collapsed: bool,
 ) -> HashMap<&'static str, Pos2> {
     let mut origins = HashMap::new();
     if open.is_empty() {
@@ -1007,11 +1070,14 @@ fn layout_panel_origins(
             }
             let group_h = (cursor_y - tokens.stack_gap).max(0.0);
             let shift = canvas.center().y - group_h * 0.5;
-            let x = open
-                .iter()
-                .map(|(_, icon, _)| icon.right())
-                .fold(f32::NEG_INFINITY, f32::max)
-                + tokens.popover_gap;
+            let x = if bar_collapsed {
+                canvas.left() + tokens.left_margin
+            } else {
+                open.iter()
+                    .map(|(_, icon, _)| icon.right())
+                    .fold(f32::NEG_INFINITY, f32::max)
+                    + tokens.popover_gap
+            };
 
             for (id, y, size) in placed {
                 let top = canvas.top() + PANEL_EDGE_MARGIN;
@@ -1028,11 +1094,14 @@ fn layout_panel_origins(
             }
             let group_w = (cursor_x - tokens.stack_gap).max(0.0);
             let shift = canvas.center().x - group_w * 0.5;
-            let y = open
-                .iter()
-                .map(|(_, icon, _)| icon.top())
-                .fold(f32::INFINITY, f32::min)
-                - tokens.popover_gap;
+            let y = if bar_collapsed {
+                canvas.bottom() - tokens.bottom_margin
+            } else {
+                open.iter()
+                    .map(|(_, icon, _)| icon.top())
+                    .fold(f32::INFINITY, f32::min)
+                    - tokens.popover_gap
+            };
 
             for (id, x, size) in placed {
                 let half = size.x * 0.5;
@@ -1051,8 +1120,303 @@ pub fn flyout_icon_size(tokens: &DockTokens) -> f32 {
     tokens.icon_size * tokens.flyout_icon_scale
 }
 
+/// Design-pixel layout of a fieldset icon strip. The docked flyout and a
+/// canvas `DockStrip` both consume this so they cannot diverge.
+#[derive(Clone, Debug)]
+pub struct IconStripLayout {
+    pub size: Vec2,
+    groups: Vec<IconStripGroup>,
+}
+
+#[derive(Clone, Debug)]
+struct IconStripGroup {
+    label: Option<String>,
+    origin: Vec2,
+    frame: Vec2,
+    slots: Vec<IconStripSlot>,
+}
+
+#[derive(Clone, Debug)]
+struct IconStripSlot {
+    id: &'static str,
+    off: Vec2,
+    size: Vec2,
+}
+
+/// Uniform scale that fits `src` inside `dest` (contain, never stretch).
+pub fn contain_scale(dest: Vec2, src: Vec2) -> f32 {
+    if src.x < 1.0 || src.y < 1.0 {
+        return 1.0;
+    }
+    (dest.x / src.x).min(dest.y / src.y).max(0.0)
+}
+
+/// Measure the strip at docked-flyout design size. `budget` wraps groups
+/// the same way the window dock does; pass a large value for a one-row
+/// poster (canvas embeds).
+pub fn measure_icon_strip(
+    ctx: &egui::Context,
+    items: &[FlyoutItem<'_>],
+    tokens: &DockTokens,
+    side: DockSide,
+    budget: f32,
+) -> IconStripLayout {
+    let shown: Vec<&FlyoutItem<'_>> = items.iter().collect();
+    measure_icon_strip_refs(ctx, &shown, tokens, side, budget)
+}
+
+fn measure_icon_strip_refs(
+    ctx: &egui::Context,
+    shown: &[&FlyoutItem<'_>],
+    tokens: &DockTokens,
+    side: DockSide,
+    budget: f32,
+) -> IconStripLayout {
+    let groups = group_flyout_runs(shown);
+    let size = flyout_icon_size(tokens);
+    let gap = (tokens.icon_gap * tokens.flyout_icon_scale).max(4.0);
+    let laid = layout_fieldset_strip(
+        ctx,
+        &groups,
+        size,
+        gap,
+        budget.max(size),
+        side,
+        &tokens.palette,
+    );
+    IconStripLayout {
+        size: laid.cluster,
+        groups: laid
+            .groups
+            .into_iter()
+            .map(|g| IconStripGroup {
+                label: g.label.map(str::to_owned),
+                origin: g.origin,
+                frame: g.frame,
+                slots: g
+                    .slots
+                    .into_iter()
+                    .map(|s| IconStripSlot {
+                        id: s.item.id,
+                        off: s.off,
+                        size: s.size,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+impl IconStripLayout {
+    pub fn first_slot_id(&self) -> Option<&'static str> {
+        self.groups
+            .iter()
+            .find_map(|g| g.slots.first().map(|s| s.id))
+    }
+}
+
+/// Painted bounds of a canvas copy — the strip itself, not a second card.
+pub fn icon_strip_card_size(strip: &IconStripLayout, _tokens: &DockTokens) -> Vec2 {
+    strip.size
+}
+
+/// Painted card inside `dest` after contain-scale (centered, never stretched).
+pub fn icon_strip_card_rect(dest: Rect, layout: &IconStripLayout, tokens: &DockTokens) -> Rect {
+    let card = icon_strip_card_size(layout, tokens);
+    let scale = contain_scale(dest.size(), card);
+    let used = Vec2::new(card.x * scale, card.y * scale);
+    Rect::from_center_size(dest.center(), used)
+}
+
+/// Fillet of a contained strip — selection chrome must match the fieldset.
+pub fn icon_strip_card_radius(dest: Rect, layout: &IconStripLayout, tokens: &DockTokens) -> f32 {
+    tokens.palette.group_radius * contain_scale(dest.size(), icon_strip_card_size(layout, tokens))
+}
+
+/// Screen rect of one tool slot after the same contain transform paint uses.
+pub fn icon_strip_slot_rect(
+    dest: Rect,
+    layout: &IconStripLayout,
+    tokens: &DockTokens,
+    id: &str,
+) -> Option<Rect> {
+    let (strip_origin, scale) = icon_strip_placed(dest, layout, tokens);
+    if scale <= 0.0 {
+        return None;
+    }
+    for g in &layout.groups {
+        let frame = Rect::from_min_size(strip_origin + g.origin * scale, g.frame * scale);
+        for s in &g.slots {
+            if s.id == id {
+                return Some(Rect::from_min_size(frame.min + s.off * scale, s.size * scale));
+            }
+        }
+    }
+    None
+}
+
+/// Which tool sits under `screen`, using the same contain transform paint uses.
+pub fn icon_strip_hit(
+    dest: Rect,
+    layout: &IconStripLayout,
+    tokens: &DockTokens,
+    screen: Pos2,
+) -> Option<&'static str> {
+    let (strip_origin, scale) = icon_strip_placed(dest, layout, tokens);
+    if scale <= 0.0 {
+        return None;
+    }
+    for g in &layout.groups {
+        let frame = Rect::from_min_size(strip_origin + g.origin * scale, g.frame * scale);
+        for s in &g.slots {
+            let r = Rect::from_min_size(frame.min + s.off * scale, s.size * scale);
+            if r.contains(screen) {
+                return Some(s.id);
+            }
+        }
+    }
+    None
+}
+
+fn icon_strip_placed(
+    dest: Rect,
+    layout: &IconStripLayout,
+    tokens: &DockTokens,
+) -> (Pos2, f32) {
+    let card = icon_strip_card_size(layout, tokens);
+    let scale = contain_scale(dest.size(), card);
+    let used = Vec2::new(card.x * scale, card.y * scale);
+    let origin = dest.center() - used * 0.5;
+    (origin, scale)
+}
+
+/// Paint a canvas copy of a docked icon-strip palette — the same fieldset
+/// strip as the flyout, no second card around it. Returns a hovered tool
+/// id. Clicks are the caller's (board vs dock).
+pub fn paint_icon_strip_card(
+    ui: &egui::Ui,
+    dest: Rect,
+    title: &str,
+    items: &[FlyoutItem<'_>],
+    layout: &IconStripLayout,
+    tokens: &DockTokens,
+    hovered_id: Option<&str>,
+) -> f32 {
+    let th = if ui.visuals().dark_mode {
+        &tokens.dark
+    } else {
+        &tokens.light
+    };
+    let card = icon_strip_card_size(layout, tokens);
+    let scale = contain_scale(dest.size(), card);
+    if scale <= 0.0 {
+        return 0.0;
+    }
+    let (strip_origin, _) = icon_strip_placed(dest, layout, tokens);
+    paint_icon_strip_visuals(
+        ui,
+        strip_origin,
+        scale,
+        layout,
+        items,
+        tokens,
+        th,
+        hovered_id,
+        Some(title),
+        false,
+    );
+    if let Some(hid) = hovered_id {
+        if let Some(item) = items.iter().find(|it| it.id == hid) {
+            if let Some(rect) = icon_strip_slot_rect(dest, layout, tokens, hid) {
+                show_hover_chip(
+                    ui.ctx(),
+                    ui.id().with(("canvas_strip", hid)),
+                    Pos2::new(rect.center().x, rect.top() - 6.0 * scale.max(0.5)),
+                    Align2::CENTER_BOTTOM,
+                    item.label,
+                    item.hotkey,
+                    None,
+                    th,
+                );
+            }
+        }
+    }
+    scale
+}
+
 fn set_strip_budget(ctx: &egui::Context, budget: f32) {
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(STRIP_BUDGET_ID), budget));
+}
+
+fn set_strip_associate(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(STRIP_ASSOCIATE_ID), on));
+}
+
+fn strip_associate(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp(egui::Id::new(STRIP_ASSOCIATE_ID)))
+        .unwrap_or(false)
+}
+
+fn body_rect_at(origin: Pos2, pivot: Align2, size: Vec2) -> Rect {
+    let min = if pivot == Align2::CENTER_BOTTOM {
+        Pos2::new(origin.x - size.x * 0.5, origin.y - size.y)
+    } else {
+        origin
+    };
+    Rect::from_min_size(min, size)
+}
+
+fn collapse_zone_rects(side: DockSide, bar: Rect, canvas: Rect, zone: f32) -> [Rect; 3] {
+    match side {
+        DockSide::BottomCenter => [
+            Rect::from_min_max(
+                Pos2::new(bar.left() - zone, bar.bottom()),
+                Pos2::new(bar.right() + zone, canvas.bottom()),
+            ),
+            Rect::from_min_max(
+                Pos2::new((bar.left() - zone).max(canvas.left()), bar.top()),
+                Pos2::new(bar.left(), bar.bottom()),
+            ),
+            Rect::from_min_max(
+                Pos2::new(bar.right(), bar.top()),
+                Pos2::new((bar.right() + zone).min(canvas.right()), bar.bottom()),
+            ),
+        ],
+        DockSide::LeftCenter => [
+            Rect::from_min_max(
+                Pos2::new(canvas.left(), bar.top() - zone),
+                Pos2::new(bar.left(), bar.bottom() + zone),
+            ),
+            Rect::from_min_max(
+                Pos2::new(bar.left(), (bar.top() - zone).max(canvas.top())),
+                Pos2::new(bar.right(), bar.top()),
+            ),
+            Rect::from_min_max(
+                Pos2::new(bar.left(), bar.bottom()),
+                Pos2::new(bar.right(), (bar.bottom() + zone).min(canvas.bottom())),
+            ),
+        ],
+    }
+}
+
+fn paint_tiny_chevron(painter: &egui::Painter, center: Pos2, size: f32, color: Color32, down: bool) {
+    let h = size * 0.45;
+    let w = size * 0.55;
+    let (a, b, c) = if down {
+        (
+            Pos2::new(center.x - w, center.y - h * 0.4),
+            Pos2::new(center.x, center.y + h * 0.6),
+            Pos2::new(center.x + w, center.y - h * 0.4),
+        )
+    } else {
+        (
+            Pos2::new(center.x - w, center.y + h * 0.4),
+            Pos2::new(center.x, center.y - h * 0.6),
+            Pos2::new(center.x + w, center.y + h * 0.4),
+        )
+    };
+    painter.line_segment([a, b], Stroke::new(1.2_f32, color));
+    painter.line_segment([b, c], Stroke::new(1.2_f32, color));
 }
 
 fn strip_budget(ctx: &egui::Context) -> Option<f32> {
@@ -1065,14 +1429,124 @@ fn strip_icon_budget(side: DockSide, canvas: Rect, tokens: &DockTokens) -> f32 {
         DockSide::LeftCenter => canvas.height(),
     };
     let min = flyout_icon_size(tokens);
-    (span - PANEL_EDGE_MARGIN * 2.0 - STRIP_CONTROLS_W).max(min)
+    (span - PANEL_EDGE_MARGIN * 2.0 - tokens.palette.controls_width).max(min)
 }
 
-/// Hex-pack `count` icons. The primary line (bottom row / left column) fills
-/// first; overflow lines stagger by half a pitch. Offsets are top-left of
-/// each icon relative to the cluster origin (top-left of the bounding box).
-#[cfg(test)]
-fn hex_pack_offsets(
+/// Icons that fit on one primary line inside `budget`.
+fn icon_line_cap(size: f32, gap: f32, budget: f32) -> usize {
+    if budget + 0.5 < size {
+        return 1;
+    }
+    let pitch = size + gap;
+    (((budget - size) / pitch).floor() as i32 + 1).max(1) as usize
+}
+
+fn icon_line_along(cols: usize, size: f32, gap: f32) -> f32 {
+    let c = cols.max(1);
+    c as f32 * size + c.saturating_sub(1) as f32 * gap
+}
+
+/// Peel one column at a time from the widest group so icons stay in a
+/// sideways row and only the overflow steps onto the next line.
+fn accordion_peel_inners(
+    icon_counts: &[usize],
+    start_inners: &[f32],
+    icon: f32,
+    gap: f32,
+    group_pad: f32,
+    group_gap: f32,
+    budget: f32,
+) -> Vec<f32> {
+    let n = start_inners.len();
+    let mut inners = start_inners.to_vec();
+    if n == 0 {
+        return inners;
+    }
+    let frame_along = |inners: &[f32]| -> f32 {
+        inners.iter().map(|w| w + group_pad * 2.0).sum::<f32>()
+            + group_gap * n.saturating_sub(1) as f32
+    };
+    let cols_of = |inner: f32, count: usize| -> usize {
+        let cap = icon_line_cap(icon, gap, inner);
+        if count > 0 {
+            cap.min(count)
+        } else {
+            cap
+        }
+    };
+    let mut guard = 0;
+    while frame_along(&inners) > budget + 0.5 && guard < 256 {
+        guard += 1;
+        let mut best: Option<usize> = None;
+        let mut best_cols = 1usize;
+        for i in 0..n {
+            let cols = cols_of(inners[i], icon_counts[i]);
+            if cols > 1 && cols >= best_cols {
+                best_cols = cols;
+                best = Some(i);
+            }
+        }
+        let Some(i) = best else {
+            break;
+        };
+        inners[i] = icon_line_along(best_cols - 1, icon, gap);
+    }
+    inners
+}
+
+/// When the pinned band overflows, every category peels one column in the
+/// same round — no strip stays a single row while its neighbor is already
+/// stacked and overlapping it.
+fn accordion_band_budgets(
+    ids: &[&str],
+    naturals: &HashMap<String, f32>,
+    usable: f32,
+    stack_gap: f32,
+    min_along: f32,
+    pitch: f32,
+) -> Option<HashMap<String, f32>> {
+    if ids.is_empty() {
+        return None;
+    }
+    let mut widths = Vec::with_capacity(ids.len());
+    for id in ids {
+        let w = naturals.get(*id).copied()?;
+        if w < 1.0 {
+            return None;
+        }
+        widths.push(w);
+    }
+    let gaps = stack_gap * ids.len().saturating_sub(1) as f32;
+    let total = |w: &[f32]| w.iter().sum::<f32>() + gaps;
+    if total(&widths) <= usable + 1.0 {
+        return None;
+    }
+    let mut guard = 0;
+    while total(&widths) > usable + 1.0 && guard < 256 {
+        guard += 1;
+        let mut peeled = false;
+        for w in &mut widths {
+            if *w > min_along + 0.5 {
+                *w = (*w - pitch).max(min_along);
+                peeled = true;
+            }
+        }
+        if !peeled {
+            break;
+        }
+    }
+    Some(
+        ids.iter()
+            .zip(widths)
+            .map(|(id, w)| ((*id).to_owned(), w))
+            .collect(),
+    )
+}
+
+/// Wrap `count` icons into left-aligned rows. The primary line (bottom row /
+/// left column) fills first; overflow stacks the next line above (or to the
+/// right on a left dock) — an accordion, not a hex stagger.
+fn row_pack_offsets(
     count: usize,
     size: f32,
     gap: f32,
@@ -1083,16 +1557,13 @@ fn hex_pack_offsets(
         return (Vec::new(), Vec2::ZERO);
     }
     let pitch = size + gap;
-    let cross = pitch * 3.0_f32.sqrt() / 2.0;
-    let even_cap = (((budget - size) / pitch).floor() as i32 + 1).max(1) as usize;
-    let odd_cap = (((budget - size - pitch * 0.5) / pitch).floor() as i32 + 1).max(1) as usize;
+    let cap = icon_line_cap(size, gap, budget);
 
     let mut line_of = Vec::with_capacity(count);
     let mut slot_of = Vec::with_capacity(count);
     let mut i = 0;
     let mut line = 0usize;
     while i < count {
-        let cap = if line % 2 == 0 { even_cap } else { odd_cap };
         let take = (count - i).min(cap);
         for k in 0..take {
             line_of.push(line);
@@ -1106,18 +1577,16 @@ fn hex_pack_offsets(
     let mut max_along = size;
     let mut raw: Vec<Vec2> = Vec::with_capacity(count);
     for idx in 0..count {
-        let li = line_of[idx];
         let k = slot_of[idx];
-        let stagger = if li % 2 == 1 { pitch * 0.5 } else { 0.0 };
-        let along = stagger + k as f32 * pitch;
+        let along = k as f32 * pitch;
         max_along = max_along.max(along + size);
-        raw.push(Vec2::new(along, li as f32 * cross));
+        raw.push(Vec2::new(along, line_of[idx] as f32 * pitch));
     }
 
     match side {
         DockSide::BottomCenter => {
             let width = max_along;
-            let height = size + (n_lines.saturating_sub(1) as f32) * cross;
+            let height = size + (n_lines.saturating_sub(1) as f32) * pitch;
             let offsets = raw
                 .into_iter()
                 .map(|p| Vec2::new(p.x, height - size - p.y))
@@ -1125,7 +1594,7 @@ fn hex_pack_offsets(
             (offsets, Vec2::new(width, height))
         }
         DockSide::LeftCenter => {
-            let width = size + (n_lines.saturating_sub(1) as f32) * cross;
+            let width = size + (n_lines.saturating_sub(1) as f32) * pitch;
             let height = max_along;
             let offsets = raw
                 .into_iter()
@@ -1136,7 +1605,7 @@ fn hex_pack_offsets(
     }
 }
 
-/// Paint a flyout as a stacked list, a free-space hex-packed strip, or the
+/// Paint a flyout as a stacked list, a free-space icon strip, or the
 /// Advanced tag list, following [`current_body_layout`]. Hovering a strip
 /// icon shows the same name + linger-description chip as the primary dock.
 pub fn flyout_items(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str> {
@@ -1157,17 +1626,32 @@ fn flyout_list_theme(ui: &egui::Ui) -> SidebarTheme {
 }
 
 fn flyout_list(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str> {
+    // A drop to canvas is always an icon strip, whichever presentation the
+    // palette is wearing — so record the strip's contents here too, or Drop
+    // from stacked view would place an empty node.
+    if let Some(palette) = current_palette(ui.ctx()) {
+        let hidden = hidden_from_ctx(ui.ctx());
+        remember_strip_tools(
+            ui.ctx(),
+            palette,
+            items
+                .iter()
+                .filter(|item| !tool_hidden_in(&hidden, palette, item.id))
+                .map(|item| item.id.to_owned())
+                .collect(),
+        );
+    }
     let theme = flyout_list_theme(ui);
     let mut clicked = None;
     for item in items {
-        let mut resp = sidebar_icon_row(
-            ui,
-            item.label,
-            item.hotkey,
-            item.active,
-            theme,
-            |p, r, c| paint_builtin_icon(p, r, item.icon, c),
-        );
+        let paint = |p: &egui::Painter, r: Rect, c: Color32| {
+            paint_builtin_icon(p, r, item.icon, c);
+        };
+        let mut resp = if item.role == FlyoutRole::Toggle {
+            sidebar_icon_row(ui, item.label, item.hotkey, item.active, theme, paint)
+        } else {
+            sidebar_tool_row(ui, item.label, item.hotkey, item.active, theme, paint)
+        };
         if !item.description.is_empty() {
             resp = resp.on_hover_text(item.description);
         }
@@ -1179,67 +1663,11 @@ fn flyout_list(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'static s
 }
 
 fn flyout_advanced(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str> {
-    let palette = current_palette(ui.ctx()).unwrap_or("");
-    let hidden = hidden_from_ctx(ui.ctx());
-    let mut clicked = None;
-    let theme = flyout_list_theme(ui);
-    ui.label(RichText::new("On the strip").small().color(theme.sub));
-    ui.add_space(4.0);
-    for item in items {
-        let mut on_strip = !tool_hidden_in(&hidden, palette, item.id);
-        let row = ui.horizontal(|ui| {
-            ui.set_min_height(SidebarTokens::ICON_ROW_HEIGHT);
-            let (pill, _) = ui.allocate_exact_size(
-                Vec2::new(SidebarTokens::TOGGLE_TRACK_W, SidebarTokens::TOGGLE_TRACK_H),
-                Sense::hover(),
-            );
-            let label = ui.add(
-                egui::Label::new(RichText::new(item.label).color(theme.ink)).sense(Sense::click()),
-            );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui
-                    .checkbox(&mut on_strip, "on strip")
-                    .on_hover_text("Show this tool on the main toolbar")
-                    .changed()
-                {
-                    set_tool_on_strip(ui.ctx(), palette, item.id, on_strip);
-                }
-            });
-            let t = ui.ctx().animate_bool_with_time(
-                ui.id().with(("adv_slide", item.id)),
-                item.active,
-                TOGGLE_SLIDE_SECS,
-            );
-            paint_sidebar_icon_pill(
-                ui.painter(),
-                pill,
-                item.active,
-                label.hovered(),
-                t,
-                theme,
-                |p, r, c| paint_builtin_icon(p, r, item.icon, c),
-            );
-            label
-        });
-        let mut resp = row.inner;
-        if !item.description.is_empty() {
-            resp = resp.on_hover_text(item.description);
-        }
-        if resp.clicked() {
-            clicked = Some(item.id);
-        }
-    }
-    clicked
+    crate::dock_advanced::show(ui, items).or_else(|| crate::dock_advanced::take_use(ui.ctx()))
 }
 
-const FIELDSET_PAD: f32 = 7.0;
-const FIELDSET_RADIUS: f32 = 6.0;
-const FIELDSET_LABEL_PX: f32 = 10.0;
-const FIELDSET_GROUP_GAP: f32 = 10.0;
-const TERTIARY_STACK_GAP: f32 = 2.0;
-
-fn tertiary_slot_h(icon: f32) -> f32 {
-    ((icon - TERTIARY_STACK_GAP) * 0.5).max(8.0)
+fn tertiary_slot_h(icon: f32, p: &DockPaletteTokens) -> f32 {
+    ((icon - p.tertiary_stack_gap) * 0.5).max(8.0)
 }
 
 fn flyout_icon_strip(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str> {
@@ -1263,13 +1691,10 @@ fn flyout_icon_strip(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'st
     } else {
         &tokens.light
     };
-    let theme = flyout_list_theme(ui);
     let size = flyout_icon_size(&tokens);
-    let gap = (tokens.icon_gap * tokens.flyout_icon_scale).max(4.0);
     let side = current_dock_side(ui.ctx());
     let budget = strip_budget(ui.ctx()).unwrap_or_else(|| ui.available_width().max(size));
-    let groups = group_flyout_runs(&shown);
-    let laid = layout_fieldset_strip(ui, &groups, size, gap, budget, side);
+    let layout = measure_icon_strip_refs(ui.ctx(), &shown, &tokens, side, budget);
     let now = ui.ctx().input(|i| i.time);
     let dt = ui
         .ctx()
@@ -1281,33 +1706,35 @@ fn flyout_icon_strip(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'st
     let mut hovered_id: Option<&'static str> = None;
     let mut hovered_rect = Rect::NOTHING;
 
-    let (origin, _) = ui.allocate_exact_size(laid.cluster, Sense::hover());
-    for group in &laid.groups {
+    let (origin, _) = ui.allocate_exact_size(layout.size, Sense::hover());
+    for group in &layout.groups {
         let frame = Rect::from_min_size(origin.min + group.origin, group.frame);
-        paint_fieldset_frame(ui, frame, group.label, th);
         for slot in &group.slots {
             let rect = Rect::from_min_size(frame.min + slot.off, slot.size);
             let resp = ui
-                .interact(rect, ui.id().with(slot.item.id), Sense::click())
+                .interact(rect, ui.id().with(slot.id), Sense::click())
                 .on_hover_cursor(egui::CursorIcon::PointingHand);
-            let hovered = resp.hovered();
-            match slot.item.role {
-                FlyoutRole::Toggle => {
-                    paint_tertiary_toggle(ui, rect, slot.item, hovered, theme, size);
-                }
-                FlyoutRole::Icon => {
-                    paint_secondary_icon(ui.painter(), rect, slot.item, hovered, th);
-                }
-            }
-            if hovered {
-                hovered_id = Some(slot.item.id);
+            if resp.hovered() {
+                hovered_id = Some(slot.id);
                 hovered_rect = rect;
             }
             if resp.clicked() {
-                clicked = Some(slot.item.id);
+                clicked = Some(slot.id);
             }
         }
     }
+    paint_icon_strip_visuals(
+        ui,
+        origin.min,
+        1.0,
+        &layout,
+        items,
+        &tokens,
+        th,
+        hovered_id,
+        current_palette_label(ui.ctx()).as_deref(),
+        strip_associate(ui.ctx()),
+    );
 
     if let Some(id) = hovered_id {
         let (since, mut blend) = match hover {
@@ -1390,31 +1817,58 @@ struct StripLayout<'a> {
     groups: Vec<StripGroup<'a>>,
 }
 
-fn tertiary_col_w(ui: &egui::Ui, pair: &[&FlyoutItem<'_>], icon: f32) -> f32 {
-    let th = tertiary_slot_h(icon);
+fn tertiary_col_w(
+    ctx: &egui::Context,
+    pair: &[&FlyoutItem<'_>],
+    icon: f32,
+    p: &DockPaletteTokens,
+) -> f32 {
+    let th = tertiary_slot_h(icon, p);
     let track_w = (th * 1.9).max(16.0);
-    let font = FontId::proportional((th * 0.62).clamp(7.5, 10.0));
+    let font = FontId::proportional(p.labeled_text_size);
     let mut label_w = 0.0_f32;
     for item in pair {
-        let g = ui.fonts(|f| f.layout_no_wrap(item.label.to_owned(), font.clone(), Color32::WHITE));
+        let g = ctx.fonts(|f| f.layout_no_wrap(item.label.to_owned(), font.clone(), Color32::WHITE));
         label_w = label_w.max(g.size().x);
     }
     track_w + 4.0 + label_w + 4.0
 }
 
 fn layout_group_slots<'a>(
-    ui: &egui::Ui,
+    ctx: &egui::Context,
     items: &[&'a FlyoutItem<'a>],
     icon: f32,
     gap: f32,
     side: DockSide,
+    p: &DockPaletteTokens,
+    inner: f32,
 ) -> (Vec<StripSlot<'a>>, Vec2) {
-    let th = tertiary_slot_h(icon);
+    let all_icons = !items.is_empty() && items.iter().all(|it| it.role == FlyoutRole::Icon);
+    if all_icons {
+        let n = items.len();
+        let linear = n as f32 * icon + n.saturating_sub(1) as f32 * gap;
+        if linear > inner + 0.5 {
+            let (offs, content) = row_pack_offsets(n, icon, gap, inner, side);
+            let slots = items
+                .iter()
+                .zip(offs)
+                .map(|(item, off)| StripSlot {
+                    item: *item,
+                    off,
+                    size: Vec2::splat(icon),
+                })
+                .collect();
+            return (slots, content);
+        }
+    }
+    let th = tertiary_slot_h(icon, p);
     let mut slots = Vec::new();
     let mut i = 0;
     match side {
         DockSide::BottomCenter => {
             let mut x = 0.0;
+            let mut y = 0.0;
+            let mut row_h = icon;
             while i < items.len() {
                 if items[i].role == FlyoutRole::Toggle {
                     let mut pair = vec![items[i]];
@@ -1424,19 +1878,30 @@ fn layout_group_slots<'a>(
                     } else {
                         i += 1;
                     }
-                    let w = tertiary_col_w(ui, &pair, icon);
+                    let w = tertiary_col_w(ctx, &pair, icon, p);
+                    if x > 0.0 && x + w > inner {
+                        x = 0.0;
+                        y += row_h + gap;
+                        row_h = icon;
+                    }
                     for (k, item) in pair.into_iter().enumerate() {
                         slots.push(StripSlot {
                             item,
-                            off: Vec2::new(x, k as f32 * (th + TERTIARY_STACK_GAP)),
+                            off: Vec2::new(x, y + k as f32 * (th + p.tertiary_stack_gap)),
                             size: Vec2::new(w, th),
                         });
                     }
+                    row_h = row_h.max(icon);
                     x += w + gap;
                 } else {
+                    if x > 0.0 && x + icon > inner {
+                        x = 0.0;
+                        y += row_h + gap;
+                        row_h = icon;
+                    }
                     slots.push(StripSlot {
                         item: items[i],
-                        off: Vec2::new(x, 0.0),
+                        off: Vec2::new(x, y),
                         size: Vec2::splat(icon),
                     });
                     x += icon + gap;
@@ -1456,12 +1921,12 @@ fn layout_group_slots<'a>(
                     } else {
                         i += 1;
                     }
-                    let w = tertiary_col_w(ui, &pair, icon);
+                    let w = tertiary_col_w(ctx, &pair, icon, p);
                     max_w = max_w.max(w);
                     for (k, item) in pair.into_iter().enumerate() {
                         slots.push(StripSlot {
                             item,
-                            off: Vec2::new(0.0, y + k as f32 * (th + TERTIARY_STACK_GAP)),
+                            off: Vec2::new(0.0, y + k as f32 * (th + p.tertiary_stack_gap)),
                             size: Vec2::new(w, th),
                         });
                     }
@@ -1483,48 +1948,84 @@ fn layout_group_slots<'a>(
             }
         }
     }
-    let content = match side {
-        DockSide::BottomCenter => {
-            let w = slots
-                .iter()
-                .map(|s| s.off.x + s.size.x)
-                .fold(0.0_f32, f32::max);
-            Vec2::new(w, icon)
-        }
-        DockSide::LeftCenter => {
-            let w = slots
-                .iter()
-                .map(|s| s.off.x + s.size.x)
-                .fold(icon, f32::max);
-            let h = slots
-                .iter()
-                .map(|s| s.off.y + s.size.y)
-                .fold(0.0_f32, f32::max);
-            Vec2::new(w, h)
-        }
-    };
-    (slots, content)
+    let w = slots
+        .iter()
+        .map(|s| s.off.x + s.size.x)
+        .fold(0.0_f32, f32::max);
+    let h = slots
+        .iter()
+        .map(|s| s.off.y + s.size.y)
+        .fold(0.0_f32, f32::max);
+    (slots, Vec2::new(w, h.max(icon)))
 }
 
 fn layout_fieldset_strip<'a>(
-    ui: &egui::Ui,
+    ctx: &egui::Context,
     groups: &[(Option<&'a str>, Vec<&'a FlyoutItem<'a>>)],
     icon: f32,
     gap: f32,
     budget: f32,
     side: DockSide,
+    p: &DockPaletteTokens,
 ) -> StripLayout<'a> {
     let mut laid = Vec::new();
     let mut cursor = 0.0;
-    let mut cross = 0.0;
+    let cross = 0.0;
     let mut row_span = 0.0_f32;
     let mut max_along = 0.0_f32;
+    let open_inner = 16_384.0;
+    let mut parts: Vec<(Option<&'a str>, Vec<StripSlot<'a>>, Vec2)> = Vec::new();
     for (label, items) in groups {
-        let (slots, content) = layout_group_slots(ui, items, icon, gap, side);
-        let frame = Vec2::new(
-            content.x + FIELDSET_PAD * 2.0,
-            content.y + FIELDSET_PAD * 2.0,
+        let (slots, content) = layout_group_slots(ctx, items, icon, gap, side, p, open_inner);
+        parts.push((*label, slots, content));
+    }
+    let along_of = |content: Vec2| match side {
+        DockSide::BottomCenter => content.x + p.group_pad * 2.0,
+        DockSide::LeftCenter => content.y + p.group_pad * 2.0,
+    };
+    let natural: f32 = parts
+        .iter()
+        .map(|(_, _, c)| along_of(*c))
+        .sum::<f32>()
+        + p.group_gap * parts.len().saturating_sub(1) as f32;
+    if let Some(id) = current_palette(ctx) {
+        ctx.data_mut(|d| {
+            let mut map = d
+                .get_temp::<HashMap<String, f32>>(egui::Id::new(STRIP_NATURAL_ID))
+                .unwrap_or_default();
+            map.insert(id.to_owned(), natural);
+            d.insert_temp(egui::Id::new(STRIP_NATURAL_ID), map);
+        });
+    }
+    if natural > budget + 0.5 && !parts.is_empty() {
+        let counts: Vec<usize> = groups
+            .iter()
+            .map(|(_, items)| {
+                if !items.is_empty() && items.iter().all(|it| it.role == FlyoutRole::Icon) {
+                    items.len()
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let start: Vec<f32> = parts.iter().map(|(_, _, c)| along_of(*c) - p.group_pad * 2.0).collect();
+        let inners = accordion_peel_inners(
+            &counts,
+            &start,
+            icon,
+            gap,
+            p.group_pad,
+            p.group_gap,
+            budget,
         );
+        parts.clear();
+        for ((label, items), inner) in groups.iter().zip(inners) {
+            let (slots, content) = layout_group_slots(ctx, items, icon, gap, side, p, inner.max(icon));
+            parts.push((*label, slots, content));
+        }
+    }
+    for (label, slots, content) in parts {
+        let frame = Vec2::new(content.x + p.group_pad * 2.0, content.y + p.group_pad * 2.0);
         let along = match side {
             DockSide::BottomCenter => frame.x,
             DockSide::LeftCenter => frame.y,
@@ -1533,11 +2034,6 @@ fn layout_fieldset_strip<'a>(
             DockSide::BottomCenter => frame.y,
             DockSide::LeftCenter => frame.x,
         };
-        if cursor > 0.0 && cursor + along > budget {
-            cross += row_span + FIELDSET_GROUP_GAP;
-            cursor = 0.0;
-            row_span = 0.0;
-        }
         let origin = match side {
             DockSide::BottomCenter => Vec2::new(cursor, cross),
             DockSide::LeftCenter => Vec2::new(cross, cursor),
@@ -1545,27 +2041,40 @@ fn layout_fieldset_strip<'a>(
         let slots = slots
             .into_iter()
             .map(|mut s| {
-                s.off += Vec2::splat(FIELDSET_PAD);
+                s.off += Vec2::splat(p.group_pad);
                 s
             })
             .collect();
         laid.push(StripGroup {
-            label: *label,
+            label,
             origin,
             frame,
             slots,
         });
-        cursor += along + FIELDSET_GROUP_GAP;
+        cursor += along + p.group_gap;
         row_span = row_span.max(across);
-        max_along = max_along.max(cursor - FIELDSET_GROUP_GAP);
+        max_along = max_along.max(cursor - p.group_gap);
     }
-    let label_overhang = FIELDSET_LABEL_PX * 0.5 + 1.0;
+    let title_overhang = p.group_label_size * 0.5 + p.pallet_label_lift.max(0.0) + 1.0;
+    let band = category_rule_band(p);
     let cluster = match side {
-        DockSide::BottomCenter => Vec2::new(max_along, cross + row_span + label_overhang),
-        DockSide::LeftCenter => Vec2::new(cross + row_span, max_along + label_overhang),
+        DockSide::BottomCenter => {
+            Vec2::new(max_along, cross + row_span + title_overhang + band)
+        }
+        DockSide::LeftCenter => {
+            Vec2::new(cross + row_span, max_along + title_overhang + band)
+        }
     };
     for group in &mut laid {
-        group.origin.y += label_overhang;
+        match side {
+            DockSide::BottomCenter => {
+                // Sit every pallet on the category rule (the basedatum).
+                group.origin.y = title_overhang + (row_span - group.frame.y).max(0.0);
+            }
+            DockSide::LeftCenter => {
+                group.origin.y += title_overhang;
+            }
+        }
     }
     StripLayout {
         cluster,
@@ -1573,30 +2082,270 @@ fn layout_fieldset_strip<'a>(
     }
 }
 
-fn paint_fieldset_frame(ui: &egui::Ui, frame: Rect, label: Option<&str>, th: &DockThemeTokens) {
-    let fill = th.popover_fill_color().gamma_multiply(0.42);
-    ui.painter().rect_filled(frame, FIELDSET_RADIUS, fill);
-    let stroke = Stroke::new(1.0_f32, th.border_color().gamma_multiply(0.9));
-    ui.painter()
-        .rect_stroke(frame, FIELDSET_RADIUS, stroke, egui::StrokeKind::Inside);
-    if let Some(label) = label.filter(|s| !s.is_empty()) {
-        let galley = ui.fonts(|f| {
-            f.layout_no_wrap(
-                label.to_owned(),
-                FontId::proportional(FIELDSET_LABEL_PX),
-                th.muted_text_color(),
-            )
-        });
-        let text_pos = Pos2::new(
-            frame.left() + FIELDSET_RADIUS + 5.0,
-            frame.top() - galley.size().y * 0.5,
+fn paint_fieldset_frame(
+    ui: &egui::Ui,
+    frame: Rect,
+    pallet_name: Option<&str>,
+    th: &DockThemeTokens,
+    p: &DockPaletteTokens,
+    scale: f32,
+    associate: bool,
+) {
+    let radius = p.group_radius * scale;
+    let fill_k = if associate { p.associate_fill } else { 0.42 };
+    let mut fill = th.popover_fill_color().gamma_multiply(fill_k);
+    if associate {
+        fill = associate_shade(fill, ui.visuals().dark_mode, p.associate_tint);
+    }
+    ui.painter().rect_filled(frame, radius, fill);
+    let title = layout_border_title(
+        ui,
+        frame,
+        pallet_name,
+        radius,
+        p.group_label_inset * scale,
+        p.group_label_size * scale,
+        p.pallet_label_lift * scale,
+        p.rule_text_gap * scale,
+        th.title_color(),
+    );
+    let stroke_w = p.group_stroke
+        * scale
+        * if associate { p.associate_stroke } else { 1.0 };
+    if stroke_w > 0.0 {
+        let mut stroke_c = th.border_color()
+            .gamma_multiply(if associate { 1.0 } else { 0.9 });
+        if associate {
+            stroke_c = associate_shade(stroke_c, ui.visuals().dark_mode, p.associate_tint);
+        }
+        let stroke = Stroke::new(stroke_w.max(0.5), stroke_c);
+        match title.as_ref() {
+            Some(t) if t.gap_r > t.gap_l => {
+                stroke_round_rect_top_gap(ui.painter(), frame, radius, stroke, t.gap_l, t.gap_r);
+            }
+            _ => {
+                ui.painter()
+                    .rect_stroke(frame, radius, stroke, egui::StrokeKind::Inside);
+            }
+        }
+    }
+    if let Some(t) = title {
+        ui.painter().galley(t.pos, t.galley, th.title_color());
+    }
+}
+
+struct BorderTitle {
+    galley: std::sync::Arc<egui::Galley>,
+    pos: Pos2,
+    gap_l: f32,
+    gap_r: f32,
+}
+
+/// Pallet name sitting in a gap in the top stroke of that box.
+fn layout_border_title(
+    ui: &egui::Ui,
+    frame: Rect,
+    label: Option<&str>,
+    radius: f32,
+    inset: f32,
+    font_px: f32,
+    lift: f32,
+    gap: f32,
+    color: Color32,
+) -> Option<BorderTitle> {
+    let label = label.filter(|s| !s.is_empty())?;
+    if font_px < 6.0 {
+        return None;
+    }
+    let galley = ui.fonts(|f| {
+        f.layout_no_wrap(label.to_owned(), FontId::proportional(font_px), color)
+    });
+    let pos = Pos2::new(
+        frame.left() + radius + inset,
+        frame.top() - galley.size().y * 0.5 - lift,
+    );
+    let gap_l = pos.x - gap;
+    let gap_r = pos.x + galley.size().x + gap;
+    Some(BorderTitle {
+        galley,
+        pos,
+        gap_l,
+        gap_r,
+    })
+}
+
+/// Inside-stroke rounded rect with a break in the top edge for the pallet name.
+fn stroke_round_rect_top_gap(
+    painter: &egui::Painter,
+    frame: Rect,
+    radius: f32,
+    stroke: Stroke,
+    gap_l: f32,
+    gap_r: f32,
+) {
+    let hw = stroke.width * 0.5;
+    let r = frame.shrink(hw);
+    if r.width() <= 0.0 || r.height() <= 0.0 {
+        return;
+    }
+    let rad = (radius - hw)
+        .max(0.0)
+        .min(r.width() * 0.5)
+        .min(r.height() * 0.5);
+    let mut pts = Vec::new();
+    let push_arc = |pts: &mut Vec<Pos2>, c: Pos2, a0: f32, a1: f32| {
+        const N: usize = 6;
+        for i in 0..=N {
+            let t = i as f32 / N as f32;
+            let a = a0 + (a1 - a0) * t;
+            pts.push(c + Vec2::new(rad * a.cos(), rad * a.sin()));
+        }
+    };
+    let tau = std::f32::consts::TAU;
+    // Clockwise from the right side of the title gap, around to the left side.
+    if gap_r < r.right() - rad {
+        pts.push(Pos2::new(gap_r.max(r.left() + rad), r.top()));
+        pts.push(Pos2::new(r.right() - rad, r.top()));
+    } else {
+        pts.push(Pos2::new(r.right() - rad, r.top()));
+    }
+    if rad > 0.5 {
+        push_arc(&mut pts, Pos2::new(r.right() - rad, r.top() + rad), -tau * 0.25, 0.0);
+    }
+    pts.push(Pos2::new(r.right(), r.bottom() - rad));
+    if rad > 0.5 {
+        push_arc(&mut pts, Pos2::new(r.right() - rad, r.bottom() - rad), 0.0, tau * 0.25);
+    }
+    pts.push(Pos2::new(r.left() + rad, r.bottom()));
+    if rad > 0.5 {
+        push_arc(&mut pts, Pos2::new(r.left() + rad, r.bottom() - rad), tau * 0.25, tau * 0.5);
+    }
+    pts.push(Pos2::new(r.left(), r.top() + rad));
+    if rad > 0.5 {
+        push_arc(&mut pts, Pos2::new(r.left() + rad, r.top() + rad), tau * 0.5, tau * 0.75);
+    }
+    if gap_l > r.left() + rad {
+        pts.push(Pos2::new(gap_l.min(r.right() - rad), r.top()));
+    } else {
+        pts.push(Pos2::new(r.left() + rad, r.top()));
+    }
+    if pts.len() >= 2 {
+        painter.add(Shape::line(pts, stroke));
+    }
+}
+
+/// Space under the whole strip for one category rule and its title.
+fn category_rule_band(p: &DockPaletteTokens) -> f32 {
+    (p.category_label_size * 0.5 - p.group_label_lift + p.rule_offset).max(p.rule_stroke) + 2.0
+}
+
+/// Category name centered on one rule under every pallet in this flyout.
+fn paint_rule_title(
+    ui: &egui::Ui,
+    frame: Rect,
+    label: Option<&str>,
+    font_px: f32,
+    text: Color32,
+    rule: Color32,
+    p: &DockPaletteTokens,
+    scale: f32,
+) {
+    let label = label.filter(|s| !s.is_empty());
+    let rule_y = frame.bottom() + p.rule_offset * scale;
+    let x0 = frame.left() - p.rule_extent * scale;
+    let x1 = frame.right() + p.rule_extent * scale;
+    let stroke_w = p.rule_stroke * scale;
+    let gap = p.rule_text_gap * scale;
+
+    let mut hole_l = x0;
+    let mut hole_r = x0;
+    if let Some(label) = label {
+        if font_px >= 6.0 {
+            let galley = ui.fonts(|f| {
+                f.layout_no_wrap(label.to_owned(), FontId::proportional(font_px), text)
+            });
+            let text_pos = Pos2::new(
+                (x0 + x1) * 0.5 - galley.size().x * 0.5,
+                rule_y - galley.size().y * 0.5 - p.group_label_lift * scale,
+            );
+            hole_l = text_pos.x - gap;
+            hole_r = text_pos.x + galley.size().x + gap;
+            ui.painter().galley(text_pos, galley, text);
+        }
+    }
+
+    if stroke_w > 0.0 && x1 > x0 {
+        let stroke = Stroke::new(stroke_w.max(0.5), rule);
+        let painter = ui.painter();
+        if label.is_some() && hole_r > hole_l {
+            if hole_l > x0 {
+                painter.line_segment([Pos2::new(x0, rule_y), Pos2::new(hole_l, rule_y)], stroke);
+            }
+            if x1 > hole_r {
+                painter.line_segment([Pos2::new(hole_r, rule_y), Pos2::new(x1, rule_y)], stroke);
+            }
+        } else {
+            painter.line_segment([Pos2::new(x0, rule_y), Pos2::new(x1, rule_y)], stroke);
+        }
+    }
+}
+
+fn paint_icon_strip_visuals(
+    ui: &egui::Ui,
+    origin: Pos2,
+    scale: f32,
+    layout: &IconStripLayout,
+    items: &[FlyoutItem<'_>],
+    tokens: &DockTokens,
+    th: &DockThemeTokens,
+    hovered_id: Option<&str>,
+    palette_name: Option<&str>,
+    associate: bool,
+) {
+    let theme = flyout_list_theme(ui);
+    let icon = flyout_icon_size(tokens) * scale;
+    let p = &tokens.palette;
+    let mut union = Rect::NOTHING;
+    for g in &layout.groups {
+        let frame = Rect::from_min_size(origin + g.origin * scale, g.frame * scale);
+        union = union.union(frame);
+        paint_fieldset_frame(ui, frame, g.label.as_deref(), th, p, scale, associate);
+        for s in &g.slots {
+            let rect = Rect::from_min_size(frame.min + s.off * scale, s.size * scale);
+            let Some(item) = items.iter().find(|it| it.id == s.id) else {
+                continue;
+            };
+            let hovered = hovered_id == Some(s.id);
+            match item.role {
+                FlyoutRole::Toggle => {
+                    paint_tertiary_toggle(
+                        ui,
+                        rect,
+                        item,
+                        hovered,
+                        theme,
+                        icon,
+                        &tokens.palette,
+                        scale,
+                    );
+                }
+                FlyoutRole::Icon => {
+                    paint_secondary_icon(ui.painter(), rect, item, hovered, th, scale);
+                }
+            }
+        }
+    }
+    if union.is_positive() {
+        paint_rule_title(
+            ui,
+            union,
+            palette_name,
+            p.category_label_size * scale,
+            th.category_color(),
+            th.rule_color(),
+            p,
+            scale,
         );
-        let hole = Rect::from_min_size(
-            Pos2::new(text_pos.x - 3.0, frame.top() - 1.5),
-            Vec2::new(galley.size().x + 6.0, 3.0),
-        );
-        ui.painter().rect_filled(hole, 0.0, fill);
-        ui.painter().galley(text_pos, galley, th.muted_text_color());
     }
 }
 
@@ -1606,8 +2355,9 @@ fn paint_secondary_icon(
     item: &FlyoutItem<'_>,
     hovered: bool,
     th: &DockThemeTokens,
+    scale: f32,
 ) {
-    let r = rect.width() * 0.5 - 0.5;
+    let r = (rect.width() * 0.5 - 0.5 * scale).max(1.0);
     let stroke_c = if item.active || hovered {
         th.text_color()
     } else {
@@ -1622,10 +2372,14 @@ fn paint_secondary_icon(
     } else if hovered {
         painter.circle_filled(rect.center(), r, th.icon_hover_color().gamma_multiply(0.10));
     }
-    painter.circle_stroke(rect.center(), r, Stroke::new(1.0_f32, stroke_c));
+    painter.circle_stroke(
+        rect.center(),
+        r,
+        Stroke::new((1.0 * scale).max(0.6), stroke_c),
+    );
     paint_builtin_icon(
         painter,
-        rect.shrink((rect.width() * 0.22).max(2.5)),
+        rect.shrink((rect.width() * 0.22).max(2.5 * scale)),
         item.icon,
         th.text_color(),
     );
@@ -1638,10 +2392,12 @@ fn paint_tertiary_toggle(
     hovered: bool,
     theme: SidebarTheme,
     icon: f32,
+    p: &DockPaletteTokens,
+    scale: f32,
 ) {
-    let th = tertiary_slot_h(icon);
-    let track_h = (rect.height() * 0.72).min(th * 0.78).max(6.0);
-    let track_w = (track_h * 1.9).max(14.0);
+    let th = tertiary_slot_h(icon, p);
+    let track_h = (rect.height() * 0.72).min(th * 0.78);
+    let track_w = track_h * 1.9;
     let track = Rect::from_center_size(
         Pos2::new(rect.left() + track_w * 0.5, rect.center().y),
         Vec2::new(track_w, track_h),
@@ -1660,7 +2416,11 @@ fn paint_tertiary_toggle(
         theme,
         |p, r, c| paint_builtin_icon(p, r, item.icon, c),
     );
-    let font = FontId::proportional((rect.height() * 0.62).clamp(7.5, 10.0));
+    let font_px = p.labeled_text_size * scale;
+    if font_px < 6.0 {
+        return;
+    }
+    let font = FontId::proportional(font_px);
     let color = if item.active { theme.ink } else { theme.sub };
     let galley = ui.fonts(|f| f.layout_no_wrap(item.label.to_owned(), font, color));
     ui.painter().galley(
@@ -1733,6 +2493,7 @@ pub fn floating_dock(
     restore_pins: &[String],
     restore_icon_strips: &[String],
     restore_hidden: &[(String, Vec<String>)],
+    restore_bar_collapsed: bool,
     mut panel_body: impl FnMut(&mut egui::Ui, &'static str),
 ) -> DockOutcome {
     let mut tokens = crate::tokens::current().dock;
@@ -1777,6 +2538,7 @@ pub fn floating_dock(
             .cloned()
             .filter(|(k, v)| !k.is_empty() && !v.is_empty())
             .collect();
+        state.bar_collapsed = restore_bar_collapsed;
     }
     sync_hidden_to_ctx(ctx, &state.hidden);
 
@@ -1825,6 +2587,14 @@ pub fn floating_dock(
         {
             state.pinned.push(forced);
         }
+        if crate::tuning::dock_advanced_preview()
+            && visible
+                .iter()
+                .any(|item| item.id == forced && item.kind.opens_body())
+        {
+            state.icon_strip = true;
+            state.advanced = Some(forced);
+        }
     }
 
     // Reorder pinned to match icon strip order.
@@ -1859,6 +2629,13 @@ pub fn floating_dock(
 
     let pointer = ctx.pointer_latest_pos();
     let panel_owns = panel_owns_pointer(state.last_union_panels, pointer);
+    let palette_hover: Option<&'static str> = pointer.and_then(|p| {
+        state
+            .last_panel_rects
+            .iter()
+            .find(|(_, r)| r.expand(4.0).contains(p))
+            .map(|(id, _)| *id)
+    });
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(DOCK_SIDE_ID), side));
 
     let mut icon_rects: HashMap<&'static str, Rect> = HashMap::new();
@@ -1868,7 +2645,7 @@ pub fn floating_dock(
     // would leave the prior name stuck).
     let mut label_blocked_by_open = false;
     let mut hovered_icon: Option<&'static str> = None;
-    let bar_response = bar_area.show(ctx, |ui| {
+    let bar_response = (!state.bar_collapsed).then(|| bar_area.show(ctx, |ui| {
         let mut draw_items = |ui: &mut egui::Ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(tokens.icon_gap);
             for item in &visible {
@@ -1881,28 +2658,39 @@ pub fn floating_dock(
                 let hovered = chip_from_icon_hover(resp.hovered(), panel_owns);
                 let is_pinned = state.pinned.contains(&item.id);
                 let is_preview = state.body_preview == Some(item.id);
-                // Selected / pinned / hover fills are a bare whisper over the
-                // default — never a full-opacity swap that screams "active".
+                let associated = palette_hover == Some(item.id)
+                    || (resp.hovered() && (is_pinned || is_preview));
                 let base = th.icon_fill_color();
-                let fill = if item.active || is_pinned || is_preview {
+                let fill = if associated {
+                    associate_shade(base, ui.visuals().dark_mode, tokens.palette.associate_tint)
+                } else if item.active || is_pinned || is_preview {
                     mix_icon_fill(base, th.icon_active_color(), ICON_ACTIVE_MIX)
                 } else if hovered {
                     mix_icon_fill(base, th.icon_hover_color(), ICON_HOVER_MIX)
                 } else {
                     base
                 };
+                let dark = ui.visuals().dark_mode;
+                let (outline_w, outline_tint) = icon_outline(associated, is_pinned, &tokens.palette);
+                let outline = if outline_tint > 0.0 {
+                    associate_shade(th.border_color(), dark, outline_tint)
+                } else {
+                    th.border_color()
+                };
                 paint_squircle(
                     ui.painter(),
                     rect.shrink(0.5),
                     fill,
-                    Stroke::new(1.0_f32, th.border_color()),
+                    Stroke::new(outline_w, outline),
                     tokens.squircle_exponent,
                 );
                 paint_builtin_icon(ui.painter(), rect.shrink(7.0), item.icon, th.text_color());
 
+                if resp.hovered() {
+                    hovered_icon = Some(item.id);
+                }
                 if hovered {
                     state.last_inside_time = now;
-                    hovered_icon = Some(item.id);
                     // Title chip only when the panel isn't already open —
                     // pinned / volatile bodies carry their own caption.
                     if is_pinned || is_preview {
@@ -1935,7 +2723,13 @@ pub fn floating_dock(
                     state.last_inside_time = now;
                     if item.kind.opens_body() {
                         if state.pinned.contains(&item.id) {
-                            // Already pinned — single click is a no-op (use ─).
+                            if let Some(idx) = state.pinned.iter().position(|p| *p == item.id) {
+                                state.pinned.remove(idx);
+                            }
+                            state.panel_open.remove(&item.id);
+                            if state.advanced == Some(item.id) {
+                                state.advanced = None;
+                            }
                         } else if state.body_preview == Some(item.id) {
                             state.body_preview = None;
                             state.panel_open.remove(&item.id);
@@ -1960,11 +2754,102 @@ pub fn floating_dock(
                 ui.horizontal(|ui| draw_items(ui));
             }
         }
-    });
-    let bar_rect = bar_response.response.rect;
+    }));
+    let bar_rect = if let Some(resp) = bar_response {
+        state.last_icon_rects = icon_rects.clone();
+        resp.response.rect
+    } else {
+        icon_rects = state.last_icon_rects.clone();
+        Rect::NOTHING
+    };
 
-    // Hover only drives the title chip. Volatile bodies come from single-click.
-    let _ = hovered_icon;
+    let host_associate = hovered_icon
+        .filter(|id| state.pinned.contains(id) || state.body_preview == Some(*id))
+        .or(palette_hover);
+
+    if !state.bar_collapsed && bar_rect.width() > 4.0 {
+        let zones = collapse_zone_rects(side, bar_rect, canvas, tokens.palette.collapse_zone);
+        let mut zone_hover = false;
+        for (i, z) in zones.iter().enumerate() {
+            if z.width() < 6.0 || z.height() < 6.0 {
+                continue;
+            }
+            let shown = egui::Area::new(state_id.with(("cz", i)))
+                .order(egui::Order::Foreground)
+                .fixed_pos(z.min)
+                .constrain(false)
+                .show(ctx, |ui| ui.allocate_exact_size(z.size(), Sense::click()));
+            let resp = shown.inner.1;
+            if resp.hovered() {
+                zone_hover = true;
+                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if resp.clicked() {
+                state.bar_collapsed = true;
+            }
+        }
+        if zone_hover {
+            let tip = match side {
+                DockSide::BottomCenter => {
+                    Pos2::new(bar_rect.center().x, bar_rect.bottom() + 10.0)
+                }
+                DockSide::LeftCenter => Pos2::new(bar_rect.left() - 10.0, bar_rect.center().y),
+            };
+            paint_tiny_chevron(
+                &ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    state_id.with("cz_arrow"),
+                )),
+                tip,
+                10.0,
+                th.text_color().gamma_multiply(0.75),
+                matches!(side, DockSide::BottomCenter),
+            );
+        }
+    } else if state.bar_collapsed {
+        let bp = &tokens.palette;
+        let shown = egui::Area::new(state_id.with("blister"))
+            .order(egui::Order::Foreground)
+            .pivot(Align2::CENTER_TOP)
+            .fixed_pos(Pos2::new(
+                canvas.center().x,
+                canvas.bottom() - bp.blister_height * 0.35 + bp.blister_sink,
+            ))
+            .constrain(false)
+            .show(ctx, |ui| {
+                ui.allocate_exact_size(
+                    Vec2::new(bp.blister_width, bp.blister_height),
+                    Sense::click(),
+                )
+            });
+        let (rect, resp) = shown.inner;
+        let dark = ctx.style().visuals.dark_mode;
+        let fill = associate_shade(th.popover_fill_color(), dark, 0.12);
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            state_id.with("blister_paint"),
+        ));
+        painter.rect_filled(rect, bp.blister_height * 0.5, fill);
+        painter.rect_stroke(
+            rect,
+            bp.blister_height * 0.5,
+            Stroke::new(0.8_f32, th.border_color().gamma_multiply(0.45)),
+            egui::StrokeKind::Inside,
+        );
+        if resp.hovered() {
+            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+            paint_tiny_chevron(
+                &painter,
+                Pos2::new(rect.center().x, rect.top() - 8.0),
+                11.0,
+                th.text_color().gamma_multiply(0.85),
+                false,
+            );
+        }
+        if resp.clicked() {
+            state.bar_collapsed = false;
+        }
+    }
     if label_hover_candidate.is_none() && !label_blocked_by_open {
         // Pointer left every eligible icon — allow chips again next hover.
         // (Blocked-by-open keeps suppress so we don't flash a chip if the
@@ -2053,7 +2938,6 @@ pub fn floating_dock(
     let mut new_sizes: HashMap<&'static str, Vec2> = HashMap::new();
     let mut new_widths: HashMap<&'static str, f32> = HashMap::new();
     let mut new_content_h: HashMap<&'static str, f32> = HashMap::new();
-    let mut strip_hits: Vec<(&'static str, Rect, Rect)> = Vec::new();
     let mut tracer_for: Option<(&'static str, Rect, Rect)> = None;
 
     // ---- Hover preview panel (on-icon; does not join the centered stack) ----
@@ -2098,6 +2982,7 @@ pub fn floating_dock(
                     layout,
                     width,
                     body_max_h,
+                    tokens.palette.caption_height,
                     last_size,
                 );
                 let render = show_dock_body(
@@ -2116,9 +3001,16 @@ pub fn floating_dock(
                     canvas,
                     side,
                     state.pinned.is_empty(),
+                    None,
+                    host_associate == Some(preview_id)
+                        || pointer.is_some_and(|p| {
+                            last_size.is_some_and(|sz| {
+                                body_rect_at(origin, pivot, sz).expand(2.0).contains(p)
+                            })
+                        }),
                     |ui| {
                         set_body_layout(ui.ctx(), layout);
-                        set_current_palette(ui.ctx(), preview_id);
+                        set_current_palette(ui.ctx(), preview_id, &label);
                         panel_body(ui, preview_id);
                     },
                 );
@@ -2154,28 +3046,24 @@ pub fn floating_dock(
                 }
                 new_content_h.insert(preview_id, render.content_h);
                 new_sizes.insert(preview_id, render.rect.size());
+                state.last_panel_rects.insert(preview_id, render.rect);
                 union_panels = render.rect;
                 if state.advanced == Some(preview_id) {
+                    let title = visible
+                        .iter()
+                        .find(|item| item.id == preview_id)
+                        .map(|item| item.label)
+                        .unwrap_or("tools");
                     let adv = show_advanced_overlay(
                         ctx,
                         state_id.with(("advanced", preview_id)),
                         &tokens,
-                        th,
                         canvas,
-                        side,
-                        render.rect,
-                        width,
-                        body_max_h,
-                        last_h,
+                        title,
                         open,
-                        if layout == DockBodyLayout::Icons {
-                            "Stacked view"
-                        } else {
-                            "Icon strip"
-                        },
                         |ui| {
                             set_body_layout(ui.ctx(), DockBodyLayout::Advanced);
-                            set_current_palette(ui.ctx(), preview_id);
+                            set_current_palette(ui.ctx(), preview_id, &label);
                             panel_body(ui, preview_id);
                         },
                     );
@@ -2187,14 +3075,12 @@ pub fn floating_dock(
                         state.last_inside_time = now;
                     }
                 }
-                if layout == DockBodyLayout::Icons {
-                    if let Some(&icon) = icon_rects.get(&preview_id) {
-                        strip_hits.push((preview_id, icon, render.rect));
-                    }
-                } else if let Some(p) = pointer {
-                    if border_hovered(render.rect, p, tokens.tracer_border_hit) {
-                        if let Some(&icon_rect) = icon_rects.get(&preview_id) {
-                            tracer_for = Some((preview_id, icon_rect, render.rect));
+                if layout != DockBodyLayout::Icons {
+                    if let Some(p) = pointer {
+                        if border_hovered(render.rect, p, tokens.tracer_border_hit) {
+                            if let Some(&icon_rect) = icon_rects.get(&preview_id) {
+                                tracer_for = Some((preview_id, icon_rect, render.rect));
+                            }
                         }
                     }
                 }
@@ -2210,7 +3096,36 @@ pub fn floating_dock(
 
     // ---- Centered stack (pinned panels only) ----
     let open = stack_ids(&state);
-    let open_meta: Vec<(&'static str, Rect, Vec2)> = open
+    let strip_ids: Vec<&'static str> = open
+        .iter()
+        .copied()
+        .filter(|oid| {
+            let kind = visible
+                .iter()
+                .find(|item| item.id == *oid)
+                .map(|item| item.kind)
+                .unwrap_or(DockItemKind::Dashboard);
+            body_layout_for(&state, oid, kind) == DockBodyLayout::Icons
+        })
+        .collect();
+    let usable = strip_icon_budget(side, canvas, &tokens);
+    let naturals: HashMap<String, f32> = ctx.data(|d| {
+        d.get_temp::<HashMap<String, f32>>(egui::Id::new(STRIP_NATURAL_ID))
+            .unwrap_or_default()
+    });
+    // Only wrap inside a palette when the natural band no longer fits —
+    // every category stacks one column in the same round.
+    let icon_px = flyout_icon_size(&tokens);
+    let icon_gap = (tokens.icon_gap * tokens.flyout_icon_scale).max(4.0);
+    let strip_budgets = accordion_band_budgets(
+        &strip_ids,
+        &naturals,
+        usable,
+        tokens.stack_gap,
+        icon_px + tokens.palette.group_pad * 2.0,
+        icon_px + icon_gap,
+    );
+    let mut open_meta: Vec<(&'static str, Rect, Vec2)> = open
         .iter()
         .filter_map(|oid| {
             let icon = *icon_rects.get(oid)?;
@@ -2218,9 +3133,22 @@ pub fn floating_dock(
             Some((*oid, icon, size))
         })
         .collect();
-    let origins = layout_panel_origins(side, &open_meta, &tokens, canvas);
-
-    let mut pinned_strip_rects: Vec<Rect> = Vec::new();
+    if let Some(budgets) = strip_budgets.as_ref() {
+        for (id, _, size) in &mut open_meta {
+            let Some(&b) = budgets.get(*id) else {
+                continue;
+            };
+            match side {
+                DockSide::BottomCenter => size.x = size.x.min(b),
+                DockSide::LeftCenter => size.y = size.y.min(b),
+            }
+        }
+    }
+    let origins = layout_panel_origins(side, &open_meta, &tokens, canvas, state.bar_collapsed);
+    // Strip ⇄ stacked switches every palette at once, so exactly one palette
+    // offers it: the last one along the dock (rightmost on a bottom dock,
+    // bottom-most on a left dock). The rest carry three dots.
+    let toggle_owner = toggle_palette(side, &open, &origins);
 
     for oid in &open {
         let Some(&origin) = origins.get(oid) else {
@@ -2242,7 +3170,16 @@ pub fn floating_dock(
             .map(|item| item.kind)
             .unwrap_or(DockItemKind::Dashboard);
         let layout = body_layout_for(&state, oid, kind);
-        let last_size = state.panel_sizes.get(oid).copied();
+        let mut last_size = state.panel_sizes.get(oid).copied();
+        if let (Some(sz), Some(b)) = (
+            last_size.as_mut(),
+            strip_budgets.as_ref().and_then(|m| m.get(*oid).copied()),
+        ) {
+            match side {
+                DockSide::BottomCenter => sz.x = sz.x.min(b),
+                DockSide::LeftCenter => sz.y = sz.y.min(b),
+            }
+        }
         let pivot = match side {
             DockSide::LeftCenter => Align2::LEFT_TOP,
             DockSide::BottomCenter => Align2::CENTER_BOTTOM,
@@ -2263,6 +3200,7 @@ pub fn floating_dock(
             layout,
             width,
             body_max_h,
+            tokens.palette.caption_height,
             last_size,
         );
         let render = show_dock_body(
@@ -2280,10 +3218,17 @@ pub fn floating_dock(
             open_anim,
             canvas,
             side,
-            false,
+            toggle_owner == Some(*oid),
+            strip_budgets.as_ref().and_then(|m| m.get(*oid).copied()),
+            host_associate == Some(*oid)
+                || pointer.is_some_and(|p| {
+                    last_size.is_some_and(|sz| {
+                        body_rect_at(origin, pivot, sz).expand(2.0).contains(p)
+                    })
+                }),
             |ui| {
                 set_body_layout(ui.ctx(), layout);
-                set_current_palette(ui.ctx(), oid);
+                set_current_palette(ui.ctx(), oid, &label);
                 panel_body(ui, oid);
             },
         );
@@ -2322,6 +3267,7 @@ pub fn floating_dock(
         new_content_h.insert(*oid, render.content_h);
         let panel_rect = render.rect;
         new_sizes.insert(*oid, panel_rect.size());
+        state.last_panel_rects.insert(*oid, panel_rect);
         if union_panels == Rect::NOTHING {
             union_panels = panel_rect;
         } else {
@@ -2333,22 +3279,12 @@ pub fn floating_dock(
                 ctx,
                 state_id.with(("advanced", *oid)),
                 &tokens,
-                th,
                 canvas,
-                side,
-                panel_rect,
-                width,
-                body_max_h,
-                last_h,
+                &label,
                 open_anim,
-                if layout == DockBodyLayout::Icons {
-                    "Stacked view"
-                } else {
-                    "Icon strip"
-                },
                 |ui| {
                     set_body_layout(ui.ctx(), DockBodyLayout::Advanced);
-                    set_current_palette(ui.ctx(), oid);
+                    set_current_palette(ui.ctx(), oid, &label);
                     panel_body(ui, oid);
                 },
             );
@@ -2361,15 +3297,12 @@ pub fn floating_dock(
             }
         }
 
-        if layout == DockBodyLayout::Icons {
-            pinned_strip_rects.push(panel_rect);
-            if let Some(&icon_rect) = icon_rects.get(oid) {
-                strip_hits.push((*oid, icon_rect, panel_rect));
-            }
-        } else if let Some(p) = pointer {
-            if border_hovered(panel_rect, p, tokens.tracer_border_hit) {
-                if let Some(&icon_rect) = icon_rects.get(oid) {
-                    tracer_for = Some((*oid, icon_rect, panel_rect));
+        if layout != DockBodyLayout::Icons {
+            if let Some(p) = pointer {
+                if border_hovered(panel_rect, p, tokens.tracer_border_hit) {
+                    if let Some(&icon_rect) = icon_rects.get(oid) {
+                        tracer_for = Some((*oid, icon_rect, panel_rect));
+                    }
                 }
             }
         }
@@ -2378,24 +3311,6 @@ pub fn floating_dock(
             state.label_hover = None;
             state.label_hover_since = 0.0;
             state.describe_blend = 0.0;
-        }
-    }
-
-    if state.icon_strip && !pinned_strip_rects.is_empty() {
-        paint_strip_dividers(
-            &ctx.layer_painter(egui::LayerId::new(
-                egui::Order::Tooltip,
-                state_id.with("strip_dividers"),
-            )),
-            side,
-            &pinned_strip_rects,
-            th,
-        );
-    }
-
-    if let Some(p) = pointer {
-        if let Some(hit) = nearest_strip_at(p, &strip_hits, tokens.stack_gap.max(8.0)) {
-            tracer_for = Some(hit);
         }
     }
 
@@ -2460,6 +3375,9 @@ pub fn floating_dock(
             .get(id)
             .is_none_or(|prev| (prev - h).abs() > 1.0)
     });
+    state.last_panel_rects.retain(|id, _| {
+        new_sizes.contains_key(id) || state.body_preview == Some(*id)
+    });
     state.panel_sizes = new_sizes;
     state.panel_widths = new_widths;
     state.panel_content_h = new_content_h;
@@ -2502,7 +3420,13 @@ pub fn floating_dock(
         (false, Some(last)) => union_panels.union(last),
     };
     let pointer_inside = pointer.is_some_and(|p| {
-        bar_rect.expand(4.0).contains(p)
+        bar_rect.expand(tokens.palette.collapse_zone.max(4.0)).contains(p)
+            || (state.bar_collapsed
+                && Rect::from_center_size(
+                    Pos2::new(canvas.center().x, canvas.bottom()),
+                    Vec2::new(tokens.palette.blister_width + 16.0, 36.0),
+                )
+                .contains(p))
             || (hit_panels != Rect::NOTHING && hit_panels.expand(2.0).contains(p))
             || label_chip_rect.is_some_and(|r| r.expand(2.0).contains(p))
     });
@@ -2536,7 +3460,7 @@ pub fn floating_dock(
         ctx.request_repaint();
     }
     state.hidden = hidden_from_ctx(ctx);
-    if !state.icon_strip {
+    if !state.icon_strip && !crate::tuning::dock_advanced_preview() {
         state.advanced = None;
     }
     state.last_union_panels = (union_panels != Rect::NOTHING).then_some(union_panels);
@@ -2597,6 +3521,27 @@ struct PanelRender {
     content_h: f32,
 }
 
+/// Which open palette offers the strip ⇄ stacked toggle.
+///
+/// The toggle is dock-wide, so repeating it on every palette is three copies
+/// of one switch. It lives on the last palette along the dock — rightmost on a
+/// bottom dock, bottom-most on a left dock — where the eye finishes reading
+/// the band. `None` when nothing is pinned; the volatile body takes it then.
+fn toggle_palette(
+    side: DockSide,
+    open: &[&'static str],
+    origins: &HashMap<&'static str, Pos2>,
+) -> Option<&'static str> {
+    let along = |p: &Pos2| match side {
+        DockSide::BottomCenter => p.x,
+        DockSide::LeftCenter => p.y,
+    };
+    open.iter()
+        .filter_map(|id| origins.get(id).map(|o| (*id, along(o))))
+        .reduce(|best, next| if next.1 >= best.1 { next } else { best })
+        .map(|(id, _)| id)
+}
+
 fn body_layout_for(state: &DockState, _id: &str, kind: DockItemKind) -> DockBodyLayout {
     if kind.opens_body() && state.icon_strip {
         DockBodyLayout::Icons
@@ -2624,12 +3569,13 @@ fn dock_body_area(
     layout: DockBodyLayout,
     width: f32,
     body_max_h: f32,
+    caption_h: f32,
     last_size: Option<Vec2>,
 ) -> egui::Area {
     let default_size = if layout == DockBodyLayout::Icons {
         last_size.unwrap_or(Vec2::new(width.min(320.0), 48.0))
     } else {
-        Vec2::new(width, body_max_h + PANEL_CAPTION_H + PANEL_SEPARATOR_H)
+        Vec2::new(width, body_max_h + caption_h + PANEL_SEPARATOR_H)
     };
     egui::Area::new(id)
         .order(egui::Order::Tooltip)
@@ -2656,12 +3602,26 @@ fn show_dock_body(
     canvas: Rect,
     side: DockSide,
     show_strip_toggle: bool,
+    icon_budget: Option<f32>,
+    associate: bool,
     add_body: impl FnOnce(&mut egui::Ui),
 ) -> PanelRender {
+    set_strip_associate(ctx, associate);
     if layout == DockBodyLayout::Icons {
-        set_strip_budget(ctx, strip_icon_budget(side, canvas, tokens));
-        let _ = show_strip_toggle;
-        show_free_strip(ctx, area, tokens, th, pinned, open_anim, add_body)
+        set_strip_budget(
+            ctx,
+            icon_budget.unwrap_or_else(|| strip_icon_budget(side, canvas, tokens)),
+        );
+        show_free_strip(
+            ctx,
+            area,
+            tokens,
+            th,
+            pinned,
+            open_anim,
+            show_strip_toggle,
+            add_body,
+        )
     } else {
         show_panel(
             ctx,
@@ -2675,14 +3635,16 @@ fn show_dock_body(
             body_max_h,
             last_content_h,
             open_anim,
+            show_strip_toggle,
             add_body,
         )
     }
 }
 
 /// Fieldset icon strip: labeled frames of circular secondary icons and
-/// two-high tertiary toggles. A tight four-dot column on the right of
-/// this cluster (minimize, stacked view, Advanced, drop to canvas).
+/// two-high tertiary toggles. A tight dot column on the right of this
+/// cluster (minimize, Advanced, drop to canvas, then stacked-view).
+#[allow(clippy::too_many_arguments)]
 fn show_free_strip(
     ctx: &egui::Context,
     area: egui::Area,
@@ -2690,6 +3652,7 @@ fn show_free_strip(
     th: &DockThemeTokens,
     pinned: bool,
     open_anim: f32,
+    show_toggle: bool,
     add_body: impl FnOnce(&mut egui::Ui),
 ) -> PanelRender {
     let mut minimize = false;
@@ -2703,7 +3666,7 @@ fn show_free_strip(
         let body = ui.scope(add_body);
         let cluster = body.response.rect;
         content_h = cluster.height();
-        let clicks = put_strip_dots(ui, cluster, size, th, pinned);
+        let clicks = put_strip_dots(ui, cluster, size, th, &tokens.palette, pinned, show_toggle);
         minimize |= clicks.minimize;
         toggle_layout |= clicks.toggle_layout;
         advanced |= clicks.advanced;
@@ -2719,8 +3682,8 @@ fn show_free_strip(
     }
 }
 
-fn strip_primary_center(cluster: Rect, icon_size: f32) -> f32 {
-    cluster.bottom() - FIELDSET_PAD - icon_size * 0.5
+fn strip_primary_center(cluster: Rect, icon_size: f32, p: &DockPaletteTokens) -> f32 {
+    cluster.bottom() - category_rule_band(p) - p.group_pad - icon_size * 0.5
 }
 
 #[derive(Default)]
@@ -2731,85 +3694,98 @@ struct StripDotClicks {
     drop_to_canvas: bool,
 }
 
-const STRIP_DOT_R: f32 = 1.65;
-const STRIP_DOT_GAP: f32 = 2.1;
-/// Wide X slop on a vertical column so the pointer need not sit on the dots.
-const STRIP_DOT_HIT_X: f32 = 22.0;
-/// Wide Y slop on a horizontal ellipsis (stacked caption).
-const STRIP_DOT_HIT_Y: f32 = 16.0;
-/// Extra hit past the first/last horizontal dot ("either side of the dots").
-const STRIP_DOT_HIT_END: f32 = 10.0;
-
 #[derive(Clone, Copy)]
 enum DotAxis {
     Vertical,
     Horizontal,
 }
 
+/// How many dots a palette shows. Minimize, Advanced, and Drop act on *this*
+/// palette, so every one carries them; the layout toggle switches all palettes
+/// at once, so it rides on a single palette (see [`toggle_palette`]).
+fn dot_count(show_toggle: bool) -> usize {
+    if show_toggle {
+        4
+    } else {
+        3
+    }
+}
+
+/// Extent of the dot run, end dot to end dot.
+fn dot_span(p: &DockPaletteTokens, show_toggle: bool) -> f32 {
+    p.dot_pitch() * (dot_count(show_toggle) as f32 - 1.0)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn put_strip_dots(
     ui: &mut egui::Ui,
     cluster: Rect,
     icon_size: f32,
     th: &DockThemeTokens,
+    p: &DockPaletteTokens,
     pinned: bool,
+    show_toggle: bool,
 ) -> StripDotClicks {
-    let cx = cluster.right() + 8.0;
-    let cy = strip_primary_center(cluster, icon_size);
+    let cx = cluster.right() + p.dot_offset;
+    let cy = strip_primary_center(cluster, icon_size, p);
     paint_dots(
         ui,
         Pos2::new(cx, cy),
         th,
+        p,
         pinned,
         "Stacked view",
         DotAxis::Vertical,
-        true,
+        show_toggle,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_dots(
     ui: &mut egui::Ui,
     group_center: Pos2,
     th: &DockThemeTokens,
+    p: &DockPaletteTokens,
     pinned: bool,
     toggle_label: &str,
     axis: DotAxis,
-    include_drop: bool,
+    show_toggle: bool,
 ) -> StripDotClicks {
-    let pitch = STRIP_DOT_R * 2.0 + STRIP_DOT_GAP;
-    let n = if include_drop { 4 } else { 3 };
-    let span = pitch * (n as f32 - 1.0);
+    let pitch = p.dot_pitch();
+    let span = dot_span(p, show_toggle);
     let cx = group_center.x;
     let cy = group_center.y;
     let top = cy - span * 0.5;
     let left = cx - span * 0.5;
-    let labels = [
-        if pinned { "Minimize" } else { "Close" },
-        toggle_label,
-        "Advanced",
-        "Drop to canvas",
+    // Index into `clicks`, so omitting the toggle cannot shift what the
+    // remaining dots do.
+    let mut dots: Vec<(usize, &str)> = vec![
+        (0, if pinned { "Minimize" } else { "Close" }),
+        (2, "Advanced"),
+        (3, "Drop to canvas"),
     ];
+    if show_toggle {
+        dots.push((1, toggle_label));
+    }
+    let n = dots.len();
     let mut clicks = [false; 4];
     let mut hovered_label: Option<&str> = None;
-    for (i, label) in labels.iter().take(n).enumerate() {
+    for (i, (slot, label)) in dots.into_iter().enumerate() {
         let center = match axis {
             DotAxis::Vertical => Pos2::new(cx, top + i as f32 * pitch),
             DotAxis::Horizontal => Pos2::new(left + i as f32 * pitch, cy),
         };
         let last = i + 1 == n;
         let hit = match axis {
-            DotAxis::Vertical => Rect::from_center_size(center, Vec2::new(STRIP_DOT_HIT_X, pitch)),
+            DotAxis::Vertical => Rect::from_center_size(center, Vec2::new(p.dot_hit_x, pitch)),
             DotAxis::Horizontal => {
                 let end = i == 0 || last;
-                let w = if end {
-                    pitch + STRIP_DOT_HIT_END
-                } else {
-                    pitch
-                };
-                let mut r = Rect::from_center_size(center, Vec2::new(w, STRIP_DOT_HIT_Y));
+                let w = if end { pitch + p.dot_hit_end } else { pitch };
+                let mut r = Rect::from_center_size(center, Vec2::new(w, p.dot_hit_y));
                 if i == 0 {
-                    r = r.translate(Vec2::new(-STRIP_DOT_HIT_END * 0.5, 0.0));
+                    r = r.translate(Vec2::new(-p.dot_hit_end * 0.5, 0.0));
                 } else if last {
-                    r = r.translate(Vec2::new(STRIP_DOT_HIT_END * 0.5, 0.0));
+                    r = r.translate(Vec2::new(p.dot_hit_end * 0.5, 0.0));
                 }
                 r
             }
@@ -2818,21 +3794,28 @@ fn paint_dots(
             .allocate_rect(hit, Sense::click())
             .on_hover_cursor(egui::CursorIcon::PointingHand);
         let hovered = resp.hovered();
-        let fill = if hovered {
+        let is_toggle = slot == 1;
+        let fill = if is_toggle {
+            if hovered {
+                th.text_color()
+            } else {
+                th.text_color().gamma_multiply(0.92)
+            }
+        } else if hovered {
             th.text_color()
         } else {
             th.muted_text_color().gamma_multiply(0.85)
         };
-        ui.painter().circle_filled(center, STRIP_DOT_R, fill);
+        ui.painter().circle_filled(center, p.dot_radius, fill);
         if hovered {
             hovered_label = Some(label);
         }
-        clicks[i] = resp.clicked();
+        clicks[slot] = resp.clicked();
     }
     if let Some(label) = hovered_label {
         let chip_pos = match axis {
-            DotAxis::Vertical => Pos2::new(cx, top - 6.0),
-            DotAxis::Horizontal => Pos2::new(cx, cy - STRIP_DOT_R - 6.0),
+            DotAxis::Vertical => Pos2::new(cx, top - p.dot_chip_gap),
+            DotAxis::Horizontal => Pos2::new(cx, cy - p.dot_radius - p.dot_chip_gap),
         };
         show_hover_chip(
             ui.ctx(),
@@ -2851,58 +3834,6 @@ fn paint_dots(
         advanced: clicks[2],
         drop_to_canvas: clicks[3],
     }
-}
-
-fn paint_strip_dividers(
-    painter: &egui::Painter,
-    side: DockSide,
-    rects: &[Rect],
-    th: &DockThemeTokens,
-) {
-    if rects.len() < 2 {
-        return;
-    }
-    let stroke = Stroke::new(1.0_f32, th.muted_text_color().gamma_multiply(0.28));
-    for pair in rects.windows(2) {
-        let a = pair[0];
-        let b = pair[1];
-        match side {
-            DockSide::BottomCenter => {
-                let x = (a.right() + b.left()) * 0.5;
-                let y0 = a.top().min(b.top()) + 3.0;
-                let y1 = a.bottom().max(b.bottom()) - 3.0;
-                if y1 > y0 {
-                    painter.line_segment([Pos2::new(x, y0), Pos2::new(x, y1)], stroke);
-                }
-            }
-            DockSide::LeftCenter => {
-                let y = (a.bottom() + b.top()) * 0.5;
-                let x0 = a.left().min(b.left()) + 3.0;
-                let x1 = a.right().max(b.right()) - 3.0;
-                if x1 > x0 {
-                    painter.line_segment([Pos2::new(x0, y), Pos2::new(x1, y)], stroke);
-                }
-            }
-        }
-    }
-}
-
-fn nearest_strip_at(
-    pos: Pos2,
-    strips: &[(&'static str, Rect, Rect)],
-    pad: f32,
-) -> Option<(&'static str, Rect, Rect)> {
-    let mut best: Option<(&'static str, Rect, Rect, f32)> = None;
-    for &(id, icon, panel) in strips {
-        if !panel.expand(pad).contains(pos) {
-            continue;
-        }
-        let d = panel.center().distance(pos);
-        if best.is_none_or(|b| d < b.3) {
-            best = Some((id, icon, panel, d));
-        }
-    }
-    best.map(|(id, icon, panel, _)| (id, icon, panel))
 }
 
 /// Frame + caption + body, shared by hover-preview (volatile) and pinned
@@ -2925,6 +3856,7 @@ fn show_panel(
     body_max_h: f32,
     last_content_h: f32,
     open_anim: f32,
+    show_toggle: bool,
     add_body: impl FnOnce(&mut egui::Ui),
 ) -> PanelRender {
     let mut minimize = false;
@@ -2933,11 +3865,27 @@ fn show_panel(
     let mut drop_to_canvas = false;
     let mut content_h = 0.0;
     let needs_scroll = last_content_h > body_max_h + 1.0;
+    let associated = strip_associate(ctx);
     let response = area.show(ctx, |ui| {
         ui.set_opacity(open_anim);
-        popover_frame(tokens, th).show(ui, |ui| {
+        let mut frame = popover_frame(tokens, th);
+        if associated {
+            frame = frame.stroke(Stroke::new(
+                tokens.palette.associate_stroke.max(1.0),
+                th.border_color(),
+            ));
+        }
+        frame.show(ui, |ui| {
             ui.set_width((width - tokens.popover_padding * 2.0).max(1.0));
-            let cap = panel_caption(ui, label, pinned, toggle_label, th);
+            let cap = panel_caption(
+                ui,
+                label,
+                pinned,
+                toggle_label,
+                th,
+                &tokens.palette,
+                show_toggle,
+            );
             minimize |= cap.minimize;
             toggle_layout |= cap.toggle_layout;
             advanced |= cap.advanced;
@@ -2962,113 +3910,135 @@ fn show_panel(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn show_advanced_overlay(
     ctx: &egui::Context,
     id: egui::Id,
     tokens: &DockTokens,
-    th: &DockThemeTokens,
-    canvas: Rect,
-    side: DockSide,
-    strip: Rect,
-    width: f32,
-    body_max_h: f32,
-    last_content_h: f32,
+    _canvas: Rect,
+    _palette_label: &str,
     open_anim: f32,
-    toggle_label: &str,
     add_body: impl FnOnce(&mut egui::Ui),
 ) -> PanelRender {
-    let (origin, pivot) = match side {
-        DockSide::BottomCenter => (
-            Pos2::new(strip.center().x, strip.top() - 8.0),
-            Align2::CENTER_BOTTOM,
-        ),
-        DockSide::LeftCenter => (
-            Pos2::new(strip.right() + 10.0, strip.top()),
-            Align2::LEFT_TOP,
-        ),
-    };
-    let area = dock_body_area(
-        id,
-        side,
-        origin,
-        pivot,
-        canvas,
-        DockBodyLayout::Advanced,
-        width,
-        body_max_h,
-        None,
-    );
-    show_panel(
-        ctx,
-        area,
-        tokens,
-        th,
-        "Advanced",
-        false,
-        toggle_label,
-        width,
-        body_max_h,
-        last_content_h,
-        open_anim,
-        add_body,
-    )
+    let adv = &tokens.advanced;
+    let dark = ctx.style().visuals.dark_mode;
+    let ath = adv.theme(dark);
+    let mut minimize = false;
+    let screen = ctx.screen_rect();
+
+    // Middle — below the dock strip — so the Advanced dot can still close this.
+    let area = egui::Area::new(id)
+        .order(egui::Order::Middle)
+        .fixed_pos(screen.min)
+        .default_size(screen.size())
+        .constrain(false);
+
+    let mut content_h = 0.0;
+    let response = area.show(ctx, |ui| {
+        ui.set_opacity(open_anim);
+        let (body, _) = ui.allocate_exact_size(screen.size(), Sense::hover());
+        ui.painter().rect_filled(body, 0.0, ath.canvas_color());
+        ui.allocate_new_ui(egui::UiBuilder::new().max_rect(body), |ui| {
+            ui.set_min_size(body.size());
+            add_body(ui);
+            content_h = ui.min_rect().height();
+        });
+    });
+
+    if crate::dock_advanced::close_requested(ctx)
+        || (ctx.input(|i| i.key_pressed(egui::Key::Escape))
+            && !crate::dock_advanced::escape_consumed(ctx))
+    {
+        minimize = true;
+    }
+
+    PanelRender {
+        minimize,
+        toggle_layout: false,
+        advanced: false,
+        drop_to_canvas: false,
+        rect: response.response.rect,
+        content_h,
+    }
 }
 
-/// Panel title row: label left, optional "pinned", horizontal three-dot
-/// ellipsis top-right. The right cluster is reserved so "pinned" cannot
-/// sit on the dots.
+/// Panel title row: label left, optional "pinned", horizontal dot ellipsis
+/// top-right. The right cluster is reserved so "pinned" cannot sit on the
+/// dots. Stacked view carries the same actions as the strip column, Drop to
+/// canvas included — the presentation changes, the palette's powers do not.
+#[allow(clippy::too_many_arguments)]
 fn panel_caption(
     ui: &mut egui::Ui,
     label: &str,
     pinned: bool,
     toggle_label: &str,
     th: &DockThemeTokens,
+    p: &DockPaletteTokens,
+    show_toggle: bool,
 ) -> StripDotClicks {
     let mut clicks = StripDotClicks::default();
-    let pitch = STRIP_DOT_R * 2.0 + STRIP_DOT_GAP;
-    let dots = Vec2::new(pitch * 2.0 + STRIP_DOT_HIT_END * 2.0, STRIP_DOT_HIT_Y);
-    let pinned_w = if pinned { 40.0 } else { 0.0 };
-    let right_w = dots.x + if pinned { pinned_w + 8.0 } else { 0.0 };
+    let pinned_px = (p.caption_text_size * 0.82).clamp(8.0, 16.0);
+    let pinned_w = if pinned {
+        ui.fonts(|f| {
+            f.layout_no_wrap(
+                "pinned".to_owned(),
+                FontId::proportional(pinned_px),
+                th.muted_text_color(),
+            )
+        })
+        .size()
+        .x
+    } else {
+        0.0
+    };
+    let gap = 12.0;
+    let dots_w = dot_span(p, show_toggle) + p.dot_radius * 2.0;
+    let row_h = p.dot_hit_y.max(p.caption_height);
+    let right_w = dots_w + if pinned { pinned_w + gap } else { 0.0 };
     ui.allocate_ui_with_layout(
-        Vec2::new(ui.available_width(), dots.y.max(16.0)),
+        Vec2::new(ui.available_width(), row_h),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
-            let title_w = (ui.available_width() - right_w - 6.0).max(32.0);
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let title_w = (ui.available_width() - right_w - 8.0).max(24.0);
             ui.allocate_ui_with_layout(
-                Vec2::new(title_w, dots.y.max(16.0)),
+                Vec2::new(title_w, row_h),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     ui.add(
                         egui::Label::new(
-                            RichText::new(label).small().strong().color(th.text_color()),
+                            RichText::new(label)
+                                .size(p.caption_text_size)
+                                .strong()
+                                .color(th.text_color()),
                         )
                         .truncate()
                         .sense(Sense::hover()),
                     );
                 },
             );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (rect, _) = ui.allocate_exact_size(dots, Sense::hover());
-                clicks = paint_dots(
-                    ui,
-                    rect.center(),
-                    th,
-                    pinned,
-                    toggle_label,
-                    DotAxis::Horizontal,
-                    false,
+            ui.add_space((ui.available_width() - right_w).max(0.0));
+            if pinned {
+                ui.add(
+                    egui::Label::new(
+                        RichText::new("pinned")
+                            .size(pinned_px)
+                            .color(th.muted_text_color()),
+                    )
+                    .sense(Sense::hover()),
                 );
-                if pinned {
-                    ui.add_space(8.0);
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new("pinned").small().color(th.muted_text_color()),
-                        )
-                        .sense(Sense::hover()),
-                    );
-                }
-            });
+                ui.add_space(gap);
+            }
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(dots_w, row_h), Sense::hover());
+            clicks = paint_dots(
+                ui,
+                rect.center(),
+                th,
+                p,
+                pinned,
+                toggle_label,
+                DotAxis::Horizontal,
+                show_toggle,
+            );
         },
     );
     clicks
@@ -3104,6 +4074,40 @@ mod tests {
     fn dock_side_labels() {
         assert_eq!(DockSide::LeftCenter.label(), "Left edge");
         assert_eq!(DockSide::BottomCenter.label(), "Bottom edge");
+    }
+
+    #[test]
+    fn contain_scale_is_uniform_and_does_not_shrink_when_one_axis_grows() {
+        let src = Vec2::new(120.0, 36.0);
+        assert!((contain_scale(Vec2::new(240.0, 36.0), src) - 1.0).abs() < 1e-5);
+        assert!((contain_scale(Vec2::new(120.0, 72.0), src) - 1.0).abs() < 1e-5);
+        assert!((contain_scale(Vec2::new(240.0, 72.0), src) - 2.0).abs() < 1e-5);
+        assert!(contain_scale(Vec2::new(60.0, 18.0), src) < 1.0);
+    }
+
+    #[test]
+    fn icon_strip_card_grows_only_under_contain() {
+        let layout = IconStripLayout {
+            size: Vec2::new(100.0, 20.0),
+            groups: Vec::new(),
+        };
+        let mut tokens = DockTokens::default();
+        tokens.normalize();
+        let card = icon_strip_card_size(&layout, &tokens);
+        let dest1 = Rect::from_min_size(Pos2::ZERO, card);
+        let dest_wide = Rect::from_min_size(Pos2::ZERO, Vec2::new(card.x * 2.0, card.y));
+        let dest_both = Rect::from_min_size(Pos2::ZERO, card * 2.0);
+        let r1 = icon_strip_card_radius(dest1, &layout, &tokens);
+        let r_wide = icon_strip_card_radius(dest_wide, &layout, &tokens);
+        let r_both = icon_strip_card_radius(dest_both, &layout, &tokens);
+        assert!(
+            (r_wide - r1).abs() < 1e-4,
+            "wider dest must not change fillet ({r_wide} vs {r1})"
+        );
+        assert!(
+            (r_both / r1 - 2.0).abs() < 1e-4,
+            "uniform grow must double fillet ({r_both} vs {r1})"
+        );
     }
 
     #[test]
@@ -3163,6 +4167,41 @@ mod tests {
     }
 
     #[test]
+    fn associated_palette_is_only_a_whisper_denser() {
+        let p = DockPaletteTokens::default();
+        assert!(
+            p.associate_fill > 0.5 && p.associate_fill < 0.8,
+            "hover fill should read clearly over idle 0.42, got {}",
+            p.associate_fill
+        );
+        assert!(
+            p.associate_stroke > 1.15 && p.associate_stroke <= 1.5,
+            "hover stroke should thicken, got {}",
+            p.associate_stroke
+        );
+        assert!(p.associate_tint > 0.15);
+        assert!(
+            p.pinned_stroke > 1.2 && p.pinned_stroke > 1.0,
+            "pinned outline must read thicker than idle 1 px, got {}",
+            p.pinned_stroke
+        );
+        assert!(p.pinned_tint > 0.1);
+    }
+
+    #[test]
+    fn pinned_icon_outline_is_denser_than_idle() {
+        let p = DockPaletteTokens::default();
+        let idle = icon_outline(false, false, &p);
+        let pinned = icon_outline(false, true, &p);
+        let hover = icon_outline(true, false, &p);
+        let both = icon_outline(true, true, &p);
+        assert!(pinned.0 > idle.0 && pinned.1 > idle.1);
+        assert!(hover.0 > idle.0);
+        assert!(both.0 >= pinned.0 && both.0 >= hover.0);
+        assert!(both.1 >= pinned.1 && both.1 >= hover.1);
+    }
+
+    #[test]
     fn title_chip_only_while_the_pointer_is_on_the_icon() {
         assert!(chip_from_icon_hover(true, false));
         assert!(
@@ -3183,9 +4222,9 @@ mod tests {
     }
 
     #[test]
-    fn hex_pack_fills_the_bottom_row_first() {
+    fn row_pack_fills_the_bottom_row_first() {
         // size 20, gap 4, pitch 24. Budget 100 → 4 on the primary row.
-        let (offs, size) = hex_pack_offsets(5, 20.0, 4.0, 100.0, DockSide::BottomCenter);
+        let (offs, size) = row_pack_offsets(5, 20.0, 4.0, 100.0, DockSide::BottomCenter);
         assert_eq!(offs.len(), 5);
         let bottom_y = offs.iter().map(|o| o.y).fold(f32::NEG_INFINITY, f32::max);
         let bottom = offs
@@ -3198,21 +4237,78 @@ mod tests {
         );
         let top = offs.iter().find(|o| (o.y - bottom_y).abs() > 0.05).unwrap();
         assert!(
-            (top.x - 12.0).abs() < 0.05,
-            "odd row should stagger by half a pitch, got x={}",
+            top.x.abs() < 0.05,
+            "overflow row stays left-aligned, got x={}",
             top.x
         );
         assert!(size.y > 20.0, "two rows must grow the cluster height");
     }
 
     #[test]
-    fn hex_pack_left_dock_fills_the_near_column_first() {
-        let (offs, _) = hex_pack_offsets(5, 20.0, 4.0, 100.0, DockSide::LeftCenter);
+    fn row_pack_left_dock_fills_the_near_column_first() {
+        let (offs, _) = row_pack_offsets(5, 20.0, 4.0, 100.0, DockSide::LeftCenter);
         let left_x = offs.iter().map(|o| o.x).fold(f32::INFINITY, f32::min);
         let primary = offs.iter().filter(|o| (o.x - left_x).abs() < 0.05).count();
         assert_eq!(primary, 4);
         let overflow = offs.iter().find(|o| (o.x - left_x).abs() > 0.05).unwrap();
         assert!(overflow.x > left_x, "extra column goes to the right");
+    }
+
+    #[test]
+    fn accordion_peels_one_column_from_the_widest_group() {
+        // shapes=2, curves=5, ink=2. One column of curves is 24px.
+        let start = [44.0, 116.0, 44.0];
+        let out = accordion_peel_inners(&[2, 5, 2], &start, 20.0, 4.0, 8.0, 10.0, 250.0);
+        assert!(
+            (out[1] - 92.0).abs() < 0.1,
+            "curves should drop to 4-wide, got {}",
+            out[1]
+        );
+        assert!((out[0] - 44.0).abs() < 0.1);
+        assert!((out[2] - 44.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn accordion_keeps_rows_sideways_instead_of_towers() {
+        // Equal-share of 200px would force 1-icon columns. Peel should stop
+        // at 2-wide (44) once 2+2+2 frames fit: 60*3 + 10*2 = 200.
+        let start = [44.0, 116.0, 44.0];
+        let out = accordion_peel_inners(&[2, 5, 2], &start, 20.0, 4.0, 8.0, 10.0, 200.0);
+        for (i, w) in out.iter().enumerate() {
+            assert!(
+                *w >= 43.0,
+                "group {i} should stay at least 2-wide, got {w}"
+            );
+        }
+    }
+
+    #[test]
+    fn accordion_band_stacks_every_category_before_overlap() {
+        let mut naturals = HashMap::new();
+        naturals.insert("tool.shapes".into(), 400.0);
+        naturals.insert("tool.text".into(), 200.0);
+        let ids = ["tool.shapes", "tool.text"];
+        let map = accordion_band_budgets(&ids, &naturals, 500.0, 10.0, 40.0, 24.0)
+            .expect("band overflows");
+        let shapes = map["tool.shapes"];
+        let text = map["tool.text"];
+        let used = shapes + text + 10.0;
+        assert!(
+            used <= 500.5,
+            "should peel until the band fits, got {shapes} + {text}"
+        );
+        assert!(
+            used > 500.0 - 48.0,
+            "should not peel a wasted extra round, got {shapes} + {text}"
+        );
+        assert!(
+            text < 199.0,
+            "the short category must stack too, not stay one row while the other wraps, got {text}"
+        );
+        assert!(
+            shapes > text,
+            "the wide strip still stays wider, got {shapes} vs {text}"
+        );
     }
 
     #[test]
@@ -3260,7 +4356,7 @@ mod tests {
             ("tool.frame", frame_icon, Vec2::new(80.0, 30.0)),
             ("tool.shapes", shapes_icon, Vec2::new(500.0, 30.0)),
         ];
-        let origins = layout_panel_origins(DockSide::BottomCenter, &open, &tokens, canvas);
+        let origins = layout_panel_origins(DockSide::BottomCenter, &open, &tokens, canvas, false);
         let frame_x = origins.get("tool.frame").expect("frame").x;
         let shapes_x = origins.get("tool.shapes").expect("shapes").x;
         assert!(
@@ -3277,7 +4373,7 @@ mod tests {
         let icon = Rect::from_min_size(Pos2::new(10.0, 460.0), Vec2::splat(34.0));
         // A panel taller than the canvas would otherwise be centered off-screen.
         let open = [("filters", icon, Vec2::new(260.0, 1200.0))];
-        let origins = layout_panel_origins(DockSide::LeftCenter, &open, &tokens, canvas);
+        let origins = layout_panel_origins(DockSide::LeftCenter, &open, &tokens, canvas, false);
         let y = origins.get("filters").expect("origin").y;
         assert!(
             y >= canvas.top(),
@@ -3288,8 +4384,9 @@ mod tests {
 
     #[test]
     fn tertiary_pair_matches_secondary_icon() {
+        let p = DockPaletteTokens::default();
         let icon = 22.0;
-        let pair = tertiary_slot_h(icon) * 2.0 + TERTIARY_STACK_GAP;
+        let pair = tertiary_slot_h(icon, &p) * 2.0 + p.tertiary_stack_gap;
         assert!(
             (pair - icon).abs() < 0.01,
             "two tertiary slots ({pair}) must share one secondary icon ({icon})"
@@ -3312,15 +4409,62 @@ mod tests {
 
     #[test]
     fn strip_dots_pack_tighter_than_an_icon() {
-        let pitch = STRIP_DOT_R * 2.0 + STRIP_DOT_GAP;
-        let col_h = pitch * 3.0 + STRIP_DOT_R * 2.0;
+        let mut p = DockPaletteTokens::default();
+        p.normalize();
+        let col_h = dot_span(&p, true) + p.dot_radius * 2.0;
         assert!(
             col_h < 22.0,
             "four dots must sit inside one flyout icon ({col_h})"
         );
         assert!(
-            STRIP_DOT_HIT_X > pitch * 3.0,
+            p.dot_hit_x > dot_span(&p, true),
             "X hit must be far wider than the dots so the pointer need not be exact"
+        );
+    }
+
+    /// Strip and stacked are two presentations of one palette, so they offer
+    /// the same actions. Dropping a copy on the canvas was once strip-only,
+    /// which made the layout toggle a trapdoor: switch view, lose a power.
+    #[test]
+    fn both_presentations_can_drop_to_canvas() {
+        for show_toggle in [false, true] {
+            assert_eq!(
+                dot_count(show_toggle),
+                if show_toggle { 4 } else { 3 },
+                "Minimize, Advanced, and Drop are per-palette and never omitted"
+            );
+        }
+    }
+
+    /// The layout toggle switches every palette at once, so it appears once —
+    /// on the last palette along the dock.
+    #[test]
+    fn only_the_last_palette_offers_the_layout_toggle() {
+        let mut origins = HashMap::new();
+        origins.insert("tool.frame", Pos2::new(100.0, 800.0));
+        origins.insert("tool.shapes", Pos2::new(420.0, 800.0));
+        origins.insert("tool.text", Pos2::new(260.0, 800.0));
+        let open = ["tool.frame", "tool.shapes", "tool.text"];
+        assert_eq!(
+            toggle_palette(DockSide::BottomCenter, &open, &origins),
+            Some("tool.shapes"),
+            "rightmost palette owns the toggle on a bottom dock"
+        );
+
+        let mut origins = HashMap::new();
+        origins.insert("tool.frame", Pos2::new(10.0, 120.0));
+        origins.insert("tool.shapes", Pos2::new(10.0, 640.0));
+        let open = ["tool.frame", "tool.shapes"];
+        assert_eq!(
+            toggle_palette(DockSide::LeftCenter, &open, &origins),
+            Some("tool.shapes"),
+            "bottom-most palette owns the toggle on a left dock"
+        );
+
+        assert_eq!(
+            toggle_palette(DockSide::BottomCenter, &[], &HashMap::new()),
+            None,
+            "nothing pinned — the volatile body carries the toggle instead"
         );
     }
 

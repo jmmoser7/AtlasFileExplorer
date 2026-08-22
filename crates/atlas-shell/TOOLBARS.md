@@ -9,7 +9,7 @@ in `dock.rs` + panel bodies; apps must not diverge.
 |---------|--------|
 | **Hover** | Translucent title chip (tool / dashboard / action name). No body. |
 | **Linger** | After `dashboard_describe_delay`, the chip expands with `DockItem.description` (any kind that sets one). |
-| **Single click** | **Volatile** body — use it, move away, it collapses after `close_delay` (or Escape / outside click). |
+| **Single click** | **Volatile** body — use it, move away, it collapses after `close_delay` (or Escape / outside click). On an already-pinned icon, the same click **collapses** that palette (unpin). |
 | **Double click** | **Pin** — body joins the centered stack and persists until minimize or icon unpin. |
 | **Minimize** | First dot of the group (horizontal ellipsis on stacked captions, top of the four-dot column on the icon strip). Dismisses volatile, or unpins a pinned panel back to its icon. |
 
@@ -29,29 +29,36 @@ name chip up just because the pointer is still "inside" the dock.
 Chip fill uses `HOVER_CHIP_OPACITY` so the canvas stays readable underneath.
 
 **Body layout:** every pinned (and volatile) palette shares one dock-wide
-choice — stacked list or free-space icon strip. The icon strip uses a
-vertical four-dot column (Minimize / layout toggle / Advanced / Drop to
-canvas). Stacked captions use a horizontal three-dot ellipsis
-(Minimize / layout toggle / Advanced). The second dot switches **all**
-palettes; its hover text is **Icon strip** in the list and **Stacked
-view** in the strip. Hover labels appear in one place, centered above
-the dots. Icon-strip mode uses fieldset groups of secondary circular icons;
-tertiary toggles stack two-high on the same datum as one icon.
-Advanced lists every tool and tags
-which ones stay on the strip. Drop to canvas (Slate) journals a
+choice — stacked list or free-space icon strip. Minimize, Advanced, and
+Drop sit on every palette; the layout toggle sits only on the last
+palette along the dock. Hover labels appear in one place, centered above
+the dots. Icon-strip mode uses fieldset groups of secondary circular
+icons; each pallet is named in its top border, and one category
+underscore runs under all palettes in that flyout. Tertiary toggles
+stack two-high on the same datum as one icon.
+Advanced fills the screen with a tinted catalog canvas of every tool.
+The camera is the same as File Atlas / Slate (right-drag pans, wheel
+zooms). Card actions live on right-click and hover-linger (Add / Remove
+from toolbar, Copy to clipboard, Duplicate, Use) — linger yields to an
+open context menu.
+Drop to canvas (Slate) journals a
 `DockStrip` copy on the board; File Atlas ignores that dot. A click on
 a canvas-copy icon arms the command; click-hold-drag anywhere on that
-node moves the copy (`P1.dock-strip`). Hovering anywhere in a strip's
-vicinity holds the leader back to that palette's primary icon. Strip
-squircles are `flyout_icon_scale` of the primary dock icons and use the
-same hover chip. Stacked-list tool rows follow Document settings:
-sliding toggle pills (`sidebar_icon_row`), not menu-style selectable
-labels. Primary-icon name chips paint *after* panels on the Tooltip
+node moves the copy (`P1.dock-strip`). The copy paints through the same
+`dock` strip as the flyout (fieldset + category rule, contain-scale, no
+second card). Hover is bidirectional: the host icon lights its palettes and a
+hovered palette lights its host (darker in light mode, lighter in
+dark). Hover beside or below the icon bar and click to collapse it
+into a blister on the readout; pinned palettes stay and drop down. Strip squircles are `flyout_icon_scale` of the primary
+dock icons and use the
+same hover chip. Stacked-list **toggles** use pills (`sidebar_icon_row`);
+tools use `sidebar_tool_row`. Primary-icon name chips paint *after* panels on the Tooltip
 layer so they never hide behind a pinned toolbar.
 
 **Icon fill:** hover and selected / pinned states are a barely-perceptible
 mix toward the hover/active tokens (`ICON_HOVER_MIX` / `ICON_ACTIVE_MIX` in
-`dock.rs`), not a full-opacity fill swap.
+`dock.rs`), not a full-opacity fill swap. A **pinned** icon's outline is
+denser than an undeployed one (`pinned_stroke` / `pinned_tint`).
 
 ## Sizing & subsections
 
