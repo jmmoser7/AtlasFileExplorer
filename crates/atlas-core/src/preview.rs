@@ -298,7 +298,17 @@ mod tests {
 
     #[test]
     fn a_newer_tier_for_the_same_key_drops_the_queued_one() {
-        let pool = PreviewPool::new();
+        // Keep both requests queued before starting a worker. In-flight decodes
+        // are intentionally allowed to finish, so a live pool races this test.
+        let shared = Arc::new(Shared {
+            queue: Mutex::new(Vec::new()),
+            cv: Condvar::new(),
+        });
+        let (tx, rx) = unbounded();
+        let pool = PreviewPool {
+            shared: shared.clone(),
+            rx,
+        };
         let big = temp_png("supersede.png", 800, 800);
         pool.request(PreviewRequest {
             min_edge: crate::thumbs::THUMB_PX as u32,
@@ -318,6 +328,7 @@ mod tests {
             target_px: 512,
             pdf_page: None,
         });
+        std::thread::spawn(move || worker(shared, tx));
         let res = pool
             .rx
             .recv_timeout(std::time::Duration::from_secs(20))

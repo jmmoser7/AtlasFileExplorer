@@ -3,8 +3,13 @@ param([Parameter(Mandatory)][string]$AppDirectory, [Parameter(Mandatory)][string
     [Parameter(Mandatory)][string]$Channel, [Parameter(Mandatory)][string]$Version)
 $ErrorActionPreference = 'Stop'
 foreach ($file in @('slate.exe', 'native-file-atlas.exe', 'pdfium.dll', 'runtime/node.exe', 'runtime/node_modules/npm/bin/npm-cli.js',
-    'runtime/LICENSE', 'cursor-sidecar/index.mjs', 'cursor-sidecar/package-lock.json', 'PDFium-LICENSE', 'install-shortcuts.ps1')) {
+    'runtime/LICENSE', 'cursor-sidecar/index.mjs', 'cursor-sidecar/package-lock.json', 'PDFium-LICENSE', 'DEJAVU-LICENSE.txt', 'install-shortcuts.ps1')) {
     if (-not (Test-Path -LiteralPath (Join-Path $AppDirectory $file) -PathType Leaf)) { throw "Package is missing $file" }
+}
+$fonts = @(Get-ChildItem -LiteralPath (Join-Path $AppDirectory 'Rust-licenses') -Directory -Filter 'epaint_default_fonts-*')
+if ($fonts.Count -ne 1) { throw 'Missing default-font dependency notices.' }
+foreach ($notice in @('OFL.txt', 'UFL.txt', 'emoji-icon-font-mit-license.txt')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $fonts[0].FullName "fonts/$notice"))) { throw "Missing font notice: $notice" }
 }
 $distribution = Get-Content (Join-Path $AppDirectory 'atlas-release.json') -Raw | ConvertFrom-Json
 if ($distribution.channel -ne $Channel -or $distribution.version -ne $Version) { throw 'Release metadata mismatch.' }

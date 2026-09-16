@@ -37,6 +37,7 @@ foreach ($exe in @('slate.exe', 'native-file-atlas.exe')) {
     Copy-Item -LiteralPath (Join-Path $repo "target/release/$exe") -Destination $stage
 }
 Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $repo 'apps/slate/assets/fonts/DEJAVU-LICENSE.txt') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'distribution/install-shortcuts.ps1') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repo 'docs/distribution.md') -Destination (Join-Path $stage 'Distribution.md')
 # Windows PowerShell 5's UTF-8 writer adds a BOM, which serde_json rejects.
@@ -69,10 +70,19 @@ if ($LASTEXITCODE -ne 0) { throw 'Dependency metadata failed.' }
 $metadata.packages | Select-Object name, version, license, repository | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $licenses 'index.json') -Encoding utf8
 foreach ($package in $metadata.packages) {
     $dir = Split-Path -Parent $package.manifest_path
-    $texts = Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -match '^(LICENSE|LICENCE|COPYING|NOTICE)' }
+    # Embedded fonts and vendored libraries keep notices below the crate root.
+    $texts = Get-ChildItem -LiteralPath $dir -File -Recurse | Where-Object {
+        $_.Name -match '(^|[-_.])(LICENSE|LICENCE|COPYING|NOTICE|COPYRIGHT|AUTHORS|OFL|UFL)($|[-_.])' -and
+        $_.Extension -notin @('.rs', '.toml', '.json', '.lock', '.exe', '.dll', '.png', '.jpg', '.ttf', '.otf', '.woff', '.woff2')
+    }
     if ($texts) {
         $dest = New-Item -ItemType Directory -Force -Path (Join-Path $licenses "$($package.name)-$($package.version)")
-        $texts | Copy-Item -Destination $dest.FullName
+        foreach ($text in $texts) {
+            $relative = $text.FullName.Substring($dir.Length).TrimStart([char[]]'\/')
+            $destination = Join-Path $dest.FullName $relative
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+            Copy-Item -LiteralPath $text.FullName -Destination $destination
+        }
     }
 }
 Copy-Item -LiteralPath (Join-Path $repo 'Cargo.lock') -Destination $licenses.FullName
