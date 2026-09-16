@@ -4,7 +4,8 @@
 param()
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$test = Join-Path $repo ("target/update-smoke-" + [Guid]::NewGuid().ToString('N'))
+$scratch = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { Join-Path $repo 'target' }
+$test = Join-Path $scratch ("update-smoke-" + [Guid]::NewGuid().ToString('N'))
 $stage = Join-Path $test 'stage'
 $install = Join-Path $test 'installed'
 $first = Join-Path $test 'first'

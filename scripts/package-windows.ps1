@@ -17,10 +17,13 @@ if (-not $SkipBuild) {
     cargo build --locked --release -p slate -p native-file-atlas
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
 }
-$build = Join-Path $repo ("target/distribution/{0}-{1}-{2}" -f $Channel, $Version, [Guid]::NewGuid().ToString('N'))
+# CI staging belongs outside Cargo's cached target tree; otherwise each release
+# adds another complete Node/runtime/installer copy to the next build's cache.
+$scratch = if ($env:RUNNER_TEMP) { Join-Path $env:RUNNER_TEMP 'atlas-distribution' } else { Join-Path $repo 'target/distribution' }
+$build = Join-Path $scratch ("{0}-{1}-{2}" -f $Channel, $Version, [Guid]::NewGuid().ToString('N'))
 $stage = Join-Path $build 'app'
 $output = Join-Path $build 'Releases'
-$downloads = Join-Path $repo 'target/distribution/downloads'
+$downloads = Join-Path $scratch 'downloads'
 New-Item -ItemType Directory -Force -Path $stage, $output, $downloads | Out-Null
 
 function Get-VerifiedArchive([string]$Url, [string]$Hash, [string]$Name) {
