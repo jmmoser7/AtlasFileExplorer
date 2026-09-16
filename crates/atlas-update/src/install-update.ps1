@@ -33,8 +33,13 @@ try {
     if ($null -eq $running) { throw 'Update cancelled: close all Slate and File Atlas windows, then try again.' }
     # Framework-owned installation/rollback. No app restart until the exclusive
     # handle is released, and no Update.exe force-close while a workbook is open.
-    & (Join-Path $root 'Update.exe') apply --package $package --norestart --root $root --packageDir (Join-Path $root 'packages')
-    if ($LASTEXITCODE -ne 0) { throw "Installer failed with exit code $LASTEXITCODE." }
+    # Update.exe is a GUI-subsystem executable. PowerShell's call operator can
+    # return before it exits and leave LASTEXITCODE unset; wait on the process.
+    $installer = Start-Process -FilePath (Join-Path $root 'Update.exe') -ArgumentList @(
+        'apply', '--package', ('"' + $package + '"'), '--norestart',
+        '--root', ('"' + $root + '"'), '--packageDir', ('"' + (Join-Path $root 'packages') + '"')
+    ) -WindowStyle Hidden -Wait -PassThru
+    if ($installer.ExitCode -ne 0) { throw "Installer failed with exit code $($installer.ExitCode)." }
     $running.Dispose()
     $running = $null
     $errorFile = Join-Path $root 'atlas-update-error.txt'
