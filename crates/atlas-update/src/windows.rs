@@ -192,7 +192,9 @@ pub(super) fn schedule(release: &Release) -> Result<Event, String> {
         .spawn()
         .map_err(|e| e.to_string())?;
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(10) {
+    // The helper verifies the full bundled package before acknowledging. Allow
+    // slower disks time to hash it; this wait runs on the update worker only.
+    while start.elapsed() < Duration::from_secs(120) {
         if ready.is_file() {
             return Ok(Event::Scheduled);
         }

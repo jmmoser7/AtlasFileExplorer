@@ -36,7 +36,8 @@ foreach ($exe in @('slate.exe', 'native-file-atlas.exe')) {
 Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'distribution/install-shortcuts.ps1') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $repo 'docs/distribution.md') -Destination (Join-Path $stage 'Distribution.md')
-@{ channel = $Channel; version = $Version } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'atlas-release.json') -Encoding utf8
+# Windows PowerShell 5's UTF-8 writer adds a BOM, which serde_json rejects.
+[IO.File]::WriteAllText((Join-Path $stage 'atlas-release.json'), (@{ channel = $Channel; version = $Version } | ConvertTo-Json))
 
 # Same PDFium version as vendor/pdfium.dll, with its complete license bundle.
 $pdfArchive = Get-VerifiedArchive 'https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7920/pdfium-win-x64.tgz' 'bf25149815b34b00042f48a886653d469c817529dd9cccabb4b509b6465a9526' 'pdfium-7920-win-x64.tgz'
