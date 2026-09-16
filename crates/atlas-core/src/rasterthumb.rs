@@ -185,6 +185,7 @@ fn scaled_jpeg_oriented(bytes: &[u8], want_px: u32, turn: u16) -> Option<(u32, u
     Some(fit(orient(img, turn), want_px))
 }
 
+#[allow(clippy::chunks_exact_to_as_chunks)] // Keep the benchmarked decoder byte loop unchanged.
 fn to_dynamic(
     pixels: &[u8],
     w: u32,

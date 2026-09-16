@@ -505,10 +505,8 @@ fn ring_parents(rings: &[Vec<[f32; 2]>]) -> Vec<Option<usize>> {
             if areas[j] <= areas[i] {
                 continue;
             }
-            if point_in_ring(&rings[j], probe) {
-                if best.map_or(true, |(_, a)| areas[j] < a) {
-                    best = Some((j, areas[j]));
-                }
+            if point_in_ring(&rings[j], probe) && best.is_none_or(|(_, a)| areas[j] < a) {
+                best = Some((j, areas[j]));
             }
         }
         parent[i] = best.map(|(j, _)| j);
@@ -548,7 +546,7 @@ fn partition_islands(rings: &[Vec<[f32; 2]>]) -> Vec<Polygon> {
     let depths: Vec<usize> = (0..rings.len()).map(|i| nest_depth(i, &parent)).collect();
     let mut islands = Vec::new();
     for (i, ring) in rings.iter().enumerate() {
-        if depths[i] % 2 != 0 {
+        if !depths[i].is_multiple_of(2) {
             continue;
         }
         let mut island = vec![ring.clone()];

@@ -1526,6 +1526,7 @@ fn blister_geom(
     BlisterGeom { rect, seam }
 }
 
+#[allow(clippy::too_many_arguments)] // Shared chrome paint/input adapter.
 fn interact_blister(
     ctx: &egui::Context,
     state_id: egui::Id,
@@ -2388,7 +2389,7 @@ fn layout_group_slots<'a>(
                 .iter()
                 .zip(offs)
                 .map(|(item, off)| StripSlot {
-                    item: *item,
+                    item,
                     off,
                     size: Vec2::splat(icon),
                 })
@@ -2661,6 +2662,7 @@ struct BorderTitle {
 }
 
 /// Pallet name sitting in a gap in the top stroke of that box.
+#[allow(clippy::too_many_arguments)] // Shared chrome geometry/style inputs.
 fn layout_border_title(
     ui: &egui::Ui,
     frame: Rect,
@@ -2867,6 +2869,7 @@ fn paint_secondary_icon(
     );
 }
 
+#[allow(clippy::too_many_arguments)] // Shared chrome geometry/style inputs.
 fn paint_tertiary_toggle(
     ui: &egui::Ui,
     rect: Rect,
@@ -2902,6 +2905,7 @@ fn paint_tertiary_toggle(
     );
 }
 
+#[allow(clippy::too_many_arguments)] // Shared chrome geometry/style inputs.
 fn show_hover_chip(
     ctx: &egui::Context,
     id: egui::Id,
@@ -3009,13 +3013,13 @@ pub fn floating_dock(
         });
         state.hidden = restore_hidden
             .iter()
-            .cloned()
             .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+            .cloned()
             .collect();
         state.order = restore_order
             .iter()
-            .cloned()
             .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+            .cloned()
             .collect();
         state.bar_collapsed = restore_bar_collapsed;
     }
@@ -3350,7 +3354,7 @@ pub fn floating_dock(
         state_id,
         canvas,
         palette,
-        &th,
+        th,
         &tokens.palette,
         state.bar_collapsed,
         blister_anchor,
@@ -4093,6 +4097,7 @@ fn set_body_layout(ctx: &egui::Context, layout: DockBodyLayout) {
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(BODY_LAYOUT_ID), layout));
 }
 
+#[allow(clippy::too_many_arguments)] // Shared chrome placement inputs.
 fn dock_body_area(
     id: egui::Id,
     _side: DockSide,
@@ -4871,7 +4876,7 @@ mod tests {
         );
         assert!(p.associate_tint > 0.15);
         assert!(
-            p.pinned_stroke > 1.2 && p.pinned_stroke > 1.0,
+            p.pinned_stroke > 1.2,
             "pinned outline must read thicker than idle 1 px, got {}",
             p.pinned_stroke
         );
@@ -4911,9 +4916,11 @@ mod tests {
 
     #[test]
     fn flyout_squircles_are_sixty_five_percent_of_the_dock() {
-        let mut tokens = DockTokens::default();
-        tokens.icon_size = 34.0;
-        tokens.flyout_icon_scale = 0.65;
+        let mut tokens = DockTokens {
+            icon_size: 34.0,
+            flyout_icon_scale: 0.65,
+            ..Default::default()
+        };
         tokens.normalize();
         assert!((flyout_icon_size(&tokens) - 22.1).abs() < 0.01);
     }
@@ -5007,8 +5014,10 @@ mod tests {
 
     #[test]
     fn dashboards_can_use_the_icon_strip() {
-        let mut state = DockState::default();
-        state.icon_strip = true;
+        let mut state = DockState {
+            icon_strip: true,
+            ..Default::default()
+        };
         assert_eq!(
             body_layout_for(&state, "document.settings", DockItemKind::Dashboard),
             DockBodyLayout::Icons
@@ -5089,16 +5098,18 @@ mod tests {
 
     #[test]
     fn stacked_icon_row_is_taller_than_the_pill() {
-        assert!(
-            crate::sidebar::SidebarTokens::ICON_ROW_HEIGHT
-                >= crate::sidebar::SidebarTokens::TOGGLE_TRACK_H,
-            "toggle rows must fit the track"
-        );
-        assert!(
-            crate::sidebar::SidebarTokens::TOGGLE_TRACK_W
-                > crate::sidebar::SidebarTokens::TOGGLE_TRACK_H,
-            "toggle is a wide capsule, not a circle"
-        );
+        const {
+            assert!(
+                crate::sidebar::SidebarTokens::ICON_ROW_HEIGHT
+                    >= crate::sidebar::SidebarTokens::TOGGLE_TRACK_H,
+                "toggle rows must fit the track"
+            );
+            assert!(
+                crate::sidebar::SidebarTokens::TOGGLE_TRACK_W
+                    > crate::sidebar::SidebarTokens::TOGGLE_TRACK_H,
+                "toggle is a wide capsule, not a circle"
+            );
+        }
     }
 
     #[test]

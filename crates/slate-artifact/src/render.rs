@@ -277,6 +277,7 @@ fn render_slide(
     html.push_str("</section>\n");
 }
 
+#[allow(clippy::too_many_arguments)] // Interpreter inputs are kept explicit.
 fn render_node(
     html: &mut String,
     doc: &SlateDoc,

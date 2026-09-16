@@ -636,7 +636,7 @@ pub fn portal_tab_bar(
     let title = crate::widgets::trunc(model.title, metrics.tab_title_chars);
     let font = FontId::proportional(metrics.tab_text_size);
     let text_w =
-        crate::canvas_text::layout_no_wrap(&painter, title.clone(), font.clone(), Color32::WHITE)
+        crate::canvas_text::layout_no_wrap(painter, title.clone(), font.clone(), Color32::WHITE)
             .size()
             .x;
     let pad = metrics.tab_horizontal_padding;

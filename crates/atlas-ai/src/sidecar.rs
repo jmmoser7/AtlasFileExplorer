@@ -115,6 +115,7 @@ Install Node.js LTS from nodejs.org, or set ATLAS_NODE to that node.exe.",
     ))
 }
 
+#[allow(clippy::too_many_arguments)] // Process inputs and redirected streams are explicit.
 fn spawn_node(
     node: &Path,
     script: &Path,

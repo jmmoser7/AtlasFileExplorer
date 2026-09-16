@@ -117,11 +117,11 @@ impl Updater {
     pub fn check(&mut self, manual: bool) {
         self.started = true;
         self.visible |= manual;
-        if self.busy() || matches!(self.state, State::Scheduled) {
-            return;
-        }
         #[cfg(windows)]
-        if windows::installed_root().is_some() {
+        if !self.busy()
+            && !matches!(self.state, State::Scheduled)
+            && windows::installed_root().is_some()
+        {
             self.state = State::Checking;
             self.release = None;
             self.work(windows::check);

@@ -29,6 +29,7 @@ pub fn grip_positions(sr: Rect, z: f32, orient: atlas_core::tree::Orient) -> (Po
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Tree, recorded decision, and camera are separate owners.
 pub fn toggle_dir(
     tree: &mut Tree,
     di: u32,

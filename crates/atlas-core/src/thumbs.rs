@@ -525,6 +525,7 @@ pub fn is_network_path(p: &Path) -> bool {
     p.as_os_str().to_string_lossy().starts_with(r"\\")
 }
 
+#[allow(clippy::chunks_exact_to_as_chunks)] // Keep the benchmarked thumbnail loop unchanged.
 fn avg_of(rgba: &[u8]) -> [u8; 3] {
     let (mut r, mut g, mut b) = (0u64, 0u64, 0u64);
     let n = (rgba.len() / 4).max(1) as u64;

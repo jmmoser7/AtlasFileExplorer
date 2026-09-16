@@ -725,7 +725,7 @@ fn advance_flow(
             let dx = resp.drag_delta().x;
             if dx != 0.0 {
                 let detent = flow.position - flow.position.round();
-                let gain = drag_gain(detent, &tuning) / tuning.px_per_album_at_center();
+                let gain = drag_gain(detent, tuning) / tuning.px_per_album_at_center();
                 flow.position -= dx * gain;
                 let vel_sample = (-dx * gain / dt).clamp(-tuning.max_velocity, tuning.max_velocity);
                 flow.velocity = flow.velocity * 0.6 + vel_sample * 0.4;
@@ -766,7 +766,7 @@ fn advance_flow(
                 &mut flow.phase,
                 count,
                 dt,
-                &tuning,
+                tuning,
             );
             if moving {
                 ui.ctx().request_repaint();
@@ -1431,6 +1431,7 @@ fn layout_title_face(ctx: &egui::Context, title: &str, family: &FontFamily) -> O
 
 /// Project each cached glyph as a short column strip. Same `project_point` as
 /// the card; much smaller patches than a full-face title texture.
+#[allow(clippy::too_many_arguments)] // Projection and styling stay explicit in the painter.
 fn title_glyph_mesh(
     painter: &egui::Painter,
     ink: Color32,
@@ -1502,6 +1503,7 @@ fn title_glyph_mesh(
 /// shape that makes the image obey the same projection as the card carrying it.
 /// Each column's two vertices sit on the true filleted silhouette, so the artwork
 /// keeps its rounded corners without a second clip.
+#[allow(clippy::too_many_arguments)] // Projection and styling stay explicit in the painter.
 fn artwork_mesh(
     flow_center: Pos2,
     card_w: f32,
