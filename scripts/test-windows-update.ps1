@@ -51,6 +51,9 @@ try {
     $two = Start-Process -FilePath (Join-Path $install 'current/native-file-atlas.exe') -ArgumentList @(('"' + $test + '/stop-two"'), ('"' + $test + '/ready-two"')) -WindowStyle Hidden -PassThru
     Wait-ForFile (Join-Path $test 'ready-one')
     Wait-ForFile (Join-Path $test 'ready-two')
+    # Setup may launch the first version; only the upgrade's restart counts.
+    $restartMarker = Join-Path $install 'restarted-version.txt'
+    if (Test-Path -LiteralPath $restartMarker) { Remove-Item -LiteralPath $restartMarker }
     $coordinator = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $helper + '"'), '-InstallRoot', ('"' + $install + '"'), '-RequestPath', ('"' + $request + '"')) -WindowStyle Hidden -PassThru
     Wait-ForFile (Join-Path $install 'request.ready')
     Assert-Version '0.0.1'

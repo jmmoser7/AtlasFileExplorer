@@ -54,7 +54,7 @@ $nodeArchive = Get-VerifiedArchive 'https://nodejs.org/dist/v24.21.0/node-v24.21
 Expand-Archive -LiteralPath $nodeArchive -DestinationPath $build
 Copy-Item -LiteralPath (Join-Path $build 'node-v24.21.0-win-x64') -Destination (Join-Path $stage 'runtime') -Recurse
 $sidecar = New-Item -ItemType Directory -Path (Join-Path $stage 'cursor-sidecar')
-foreach ($file in @('index.mjs', 'package.json', 'package-lock.json', 'README.md')) {
+foreach ($file in @('index.mjs', 'package.json', 'package-lock.json', 'README.md', 'SETUP.md')) {
     Copy-Item -LiteralPath (Join-Path $repo "docs/agent/cursor-sidecar/$file") -Destination $sidecar.FullName
 }
 

@@ -31,20 +31,16 @@ jobs:
           rustup toolchain install stable --profile minimal --component rustfmt --component clippy
           rustup default stable
 
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-check-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-check-
+          key: tests
+          cache-on-failure: true
 
       - name: Formatting
         run: cargo fmt --all -- --check
 
       - name: Tests
-        run: cargo test --workspace
+        run: cargo test --locked --workspace --no-fail-fast
 
   lint:
     name: clippy (linux)

@@ -165,7 +165,7 @@ fn path_with_node_dir(node: &Path) -> Option<std::ffi::OsString> {
 
 fn node_candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
-    push_atlas_node(&mut out);
+    push_atlas_node(&mut out, std::env::var("ATLAS_NODE").ok().as_deref());
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             push_unique(
@@ -232,8 +232,8 @@ fn node_candidates() -> Vec<PathBuf> {
     out
 }
 
-fn push_atlas_node(out: &mut Vec<PathBuf>) {
-    let Ok(raw) = std::env::var("ATLAS_NODE") else {
+fn push_atlas_node(out: &mut Vec<PathBuf>, raw: Option<&str>) {
+    let Some(raw) = raw else {
         return;
     };
     let raw = raw.trim();
@@ -424,15 +424,15 @@ mod tests {
     }
 
     #[test]
-    fn npm_cli_sits_next_to_this_machines_node() {
-        let Ok(node) = resolve_node() else {
-            return;
-        };
-        assert!(
-            npm_cli_js(&node).is_some(),
-            "npm-cli.js must sit next to {} so a GUI spawn can install sidecar deps",
-            node.display()
-        );
+    fn npm_cli_resolves_from_the_distributed_runtime_layout() {
+        let root = std::env::temp_dir().join(format!("atlas-npm-layout-{}", std::process::id()));
+        let node = root.join("node.exe");
+        let script = root.join("node_modules/npm/bin/npm-cli.js");
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "// fixture").unwrap();
+        assert_eq!(npm_cli_js(&node), Some(script.clone()));
+        std::fs::remove_file(script).unwrap();
+        assert_eq!(npm_cli_js(&node), None);
     }
 
     #[test]
@@ -463,17 +463,10 @@ mod tests {
     }
 
     #[test]
-    fn a_miss_lists_every_candidate() {
-        let previous = std::env::var_os("ATLAS_NODE");
-        std::env::set_var("ATLAS_NODE", r"C:\definitely\not\a\real\atlas-node.exe");
-        let hits = node_candidates();
-        assert!(
-            hits.iter().any(|p| p.ends_with("atlas-node.exe")),
-            "{hits:?}"
-        );
-        match previous {
-            Some(v) => std::env::set_var("ATLAS_NODE", v),
-            None => std::env::remove_var("ATLAS_NODE"),
-        }
+    fn explicit_override_is_retained_even_when_missing() {
+        let missing = "missing-atlas-runtime/atlas-node.exe";
+        let mut hits = Vec::new();
+        push_atlas_node(&mut hits, Some(missing));
+        assert_eq!(hits, vec![PathBuf::from(missing)]);
     }
 }

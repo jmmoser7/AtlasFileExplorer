@@ -55,7 +55,7 @@ jobs:
           "ATLAS_RELEASE_VERSION=$version" >> $env:GITHUB_ENV
           "ATLAS_RELEASE_CHANNEL=$channel" >> $env:GITHUB_ENV
       - name: Test workspace on Windows
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace --no-fail-fast
       - name: Install pinned packaging tool
         run: dotnet tool install --global vpk --version 1.2.0
       - name: Test real installation and coordinated upgrade
