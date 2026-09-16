@@ -1,0 +1,15 @@
+
+running 1 test
+
+thread 'app::tests::gp9_export_packages_a_local_page_and_points_at_a_remote_one' (50280) panicked at apps\slate\src\app\tests.rs:3232:5:
+the packaged dashboard still runs in the artifact
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test app::tests::gp9_export_packages_a_local_page_and_points_at_a_remote_one ... FAILED
+
+failures:
+
+failures:
+    app::tests::gp9_export_packages_a_local_page_and_points_at_a_remote_one
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 332 filtered out; finished in 0.39s
+

@@ -47,6 +47,8 @@ const MAX_SOURCE_PIXELS: u64 = 180_000_000;
 const PREVIEW_WORKERS: usize = 2;
 
 pub struct PreviewRequest {
+    pub min_edge: u32,
+    pub local_only: bool,
     pub id: u32,
     pub path: PathBuf,
     /// Echoed back so callers can match results to their own cache keys.
@@ -131,8 +133,12 @@ fn worker(shared: Arc<Shared>, tx: Sender<PreviewResult>) {
         };
         // Results no larger than the thumbnail tier carry no extra detail;
         // report them as "can't beat the thumbnail" so callers stop asking.
-        let image = decode_preview(&req.path, req.target_px, req.pdf_page)
-            .filter(|(w, h, _)| (*w).max(*h) > crate::thumbs::THUMB_PX as u32);
+        let image = if req.local_only && crate::cloud::is_dehydrated(&req.path) {
+            None
+        } else {
+            decode_preview(&req.path, req.target_px, req.pdf_page)
+                .filter(|(w, h, _)| (*w).max(*h) > req.min_edge)
+        };
         let _ = tx.send(PreviewResult { id: req.id, image });
     }
 }
@@ -249,6 +255,8 @@ mod tests {
         let big = temp_png("pool_big.png", 640, 640);
         let tiny = temp_png("pool_tiny.png", 64, 64);
         pool.request(PreviewRequest {
+            min_edge: crate::thumbs::THUMB_PX as u32,
+            local_only: false,
             id: 1,
             path: big,
             key: "big".into(),
@@ -256,6 +264,8 @@ mod tests {
             pdf_page: None,
         });
         pool.request(PreviewRequest {
+            min_edge: crate::thumbs::THUMB_PX as u32,
+            local_only: false,
             id: 2,
             path: tiny,
             key: "tiny".into(),
@@ -291,6 +301,8 @@ mod tests {
         let pool = PreviewPool::new();
         let big = temp_png("supersede.png", 800, 800);
         pool.request(PreviewRequest {
+            min_edge: crate::thumbs::THUMB_PX as u32,
+            local_only: false,
             id: 1,
             path: big.clone(),
             key: "same".into(),
@@ -298,6 +310,8 @@ mod tests {
             pdf_page: None,
         });
         pool.request(PreviewRequest {
+            min_edge: crate::thumbs::THUMB_PX as u32,
+            local_only: false,
             id: 2,
             path: big,
             key: "same".into(),

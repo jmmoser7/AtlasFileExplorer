@@ -1,0 +1,134 @@
+    Checking libm v0.2.16
+    Checking atlas-core v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\atlas-core)
+    Checking itertools v0.11.0
+    Checking i_tree v0.18.0
+    Checking i_key_sort v0.10.3
+   Compiling native-file-atlas v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\apps\file-atlas)
+    Checking slate-doc v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\slate-doc)
+    Checking status-board v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\status-board)
+    Checking i_float v1.16.0
+    Checking earcutr v0.4.3
+    Checking i_shape v1.18.0
+    Checking i_overlay v4.5.2
+    Checking atlas-shell v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\atlas-shell)
+    Checking slate-kit v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\slate-kit)
+    Checking vector-ink v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink)
+    Checking slate-artifact v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\slate-artifact)
+    Checking atlas-ai v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\atlas-ai)
+    Checking slate v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\apps\slate)
+warning: function `group_scale_anchor` is never used
+    --> apps\slate\src\app\board.rs:1332:4
+     |
+1332 | fn group_scale_anchor(gb: WorldRect, handle: u8, from_center: bool) -> (f32, f32) {
+     |    ^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `finish_draw` is never used
+    --> apps\slate\src\app\board.rs:4933:19
+     |
+1571 | impl SlateApp {
+     | ------------- method in this implementation
+...
+4933 |     pub(crate) fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
+     |                   ^^^^^^^^^^^
+
+warning: method `dock_embed_first_tool_world` is never used
+   --> apps\slate\src\app\board_dock_embed.rs:161:19
+    |
+ 40 | impl SlateApp {
+    | ------------- method in this implementation
+...
+161 |     pub(crate) fn dock_embed_first_tool_world(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `hit_test_selection` is never used
+   --> apps\slate\src\app\board_handles.rs:173:8
+    |
+173 | pub fn hit_test_selection(screen: Pos2, geom: &SelectionGeom) -> Option<BoardHitTarget> {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: variant `Free` is never constructed
+  --> apps\slate\src\app\board_place.rs:45:5
+   |
+43 | pub enum PlaceConstraint {
+   |          --------------- variant in this enum
+44 |     /// Unmodified = free rect; Shift unused.
+45 |     Free,
+   |     ^^^^
+   |
+   = note: `PlaceConstraint` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `point_in_convex` is never used
+   --> apps\slate\src\app\board_portal_chrome.rs:792:4
+    |
+792 | fn point_in_convex(poly: &[Pos2], p: Pos2) -> bool {
+    |    ^^^^^^^^^^^^^^^
+
+warning: associated function `open` is never used
+  --> apps\slate\src\app\board_snap.rs:40:12
+   |
+38 | impl SnapScope {
+   | -------------- associated function in this implementation
+39 |     /// No culling — used by unit tests that only care about the math.
+40 |     pub fn open(threshold: f32) -> Self {
+   |            ^^^^
+
+warning: function `snap_bbox` is never used
+   --> apps\slate\src\app\board_snap.rs:254:8
+    |
+254 | pub fn snap_bbox(
+    |        ^^^^^^^^^
+
+warning: function `snap_resize_rect` is never used
+   --> apps\slate\src\app\board_snap.rs:471:8
+    |
+471 | pub fn snap_resize_rect(
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `constrain_draw_rect` is never used
+    --> apps\slate\src\app\board_snap.rs:1009:8
+     |
+1009 | pub fn constrain_draw_rect(raw: WorldRect, tool_square: bool, shift: bool) -> WorldRect {
+     |        ^^^^^^^^^^^^^^^^^^^
+
+warning: method `color` is never used
+   --> apps\slate\src\app\board_web.rs:152:8
+    |
+151 | impl WebHealth {
+    | -------------- method in this implementation
+152 |     fn color(self) -> Color32 {
+    |        ^^^^^
+
+warning: method `web_paste_url_text` is never used
+    --> apps\slate\src\app\board_web.rs:1147:19
+     |
+ 641 | impl SlateApp {
+     | ------------- method in this implementation
+...
+1147 |     pub(crate) fn web_paste_url_text(&mut self, text: &str) -> bool {
+     |                   ^^^^^^^^^^^^^^^^^^
+
+warning: field `target` is never read
+   --> apps\slate\src\app\board_web_win.rs:137:5
+    |
+128 | struct View {
+    |        ---- field in this struct
+...
+137 |     target: String,
+    |     ^^^^^^
+
+warning: function `grip_point` is never used
+  --> apps\slate\src\app\board_wire.rs:74:15
+   |
+74 | pub(crate) fn grip_point(rect: WorldRect, side: Side) -> Pos2 {
+   |               ^^^^^^^^^^
+
+warning: function `rect_edge_dist` is never used
+  --> apps\slate\src\app\board_wire.rs:86:4
+   |
+86 | fn rect_edge_dist(rect: WorldRect, p: Pos2) -> f32 {
+   |    ^^^^^^^^^^^^^^
+
+warning: `slate` (lib) generated 15 warnings
+    Finished `release` profile [optimized] target(s) in 36.81s

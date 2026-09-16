@@ -3,6 +3,7 @@
 //! A Slate workbook stores links to source files (not copies), a hierarchical
 //! faceted tag system, and persisted view state.
 
+pub mod agent_inputs;
 mod doc;
 mod error;
 mod ids;
@@ -24,7 +25,7 @@ pub use error::SlateLoadError;
 pub use ids::{GroupId, ItemId, TagId};
 pub use item::SlateItem;
 pub use lease::{Lease, LeaseInfo, LeaseState, LEASE_HEARTBEAT_SECS, LEASE_STALE_SECS};
-pub use link::{link_status, LinkStatus};
+pub use link::{link_status, LinkHealthCache, LinkHealthCounts, LinkStatus};
 pub use media::{media_kind, MediaKind};
 pub use osnap::{
     discrete_anchors, node_facets, ObjectSnapSet, RejectedSnap, SnapAnchor, SnapFacet, SnapKind,

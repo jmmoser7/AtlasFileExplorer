@@ -106,6 +106,11 @@ pub(crate) fn tessellate_run(
         return;
     }
 
+    if closed {
+        // emit_strip only connects neighboring stations. Repeat the first
+        // cross-section to cover the final edge back to the first join.
+        stations.push(stations[0]);
+    }
     emit_strip(mesh, &stations, feather);
 }
 
@@ -205,19 +210,18 @@ fn push_join(
             });
         }
         Join::Round => {
-            let a0 = n_in;
-            let a1 = n_out;
+            // Rotate the cross-section from the incoming to outgoing tangent.
+            // Repeating t_out here collapses the join and tapers the entire
+            // incoming edge toward the wrong cross-section.
+            let angle = (t_in[0] * t_out[1] - t_in[1] * t_out[0]).atan2(dot(t_in, t_out));
             for i in 0..=ROUND_SEGMENTS {
                 let t = i as f32 / ROUND_SEGMENTS as f32;
-                let nx = a0[0] * (1.0 - t) + a1[0] * t;
-                let ny = a0[1] * (1.0 - t) + a1[1] * t;
-                if normalize([nx, ny]).is_some() {
-                    stations.push(Station {
-                        pos,
-                        tangent: t_out,
-                        half,
-                    });
-                }
+                let (sin, cos) = (angle * t).sin_cos();
+                stations.push(Station {
+                    pos,
+                    tangent: [t_in[0] * cos - t_in[1] * sin, t_in[0] * sin + t_in[1] * cos],
+                    half,
+                });
             }
         }
     }
@@ -295,4 +299,60 @@ fn tangent_at_length(points: &[[f32; 2]], mut s: f32) -> [f32; 2] {
         s -= seg;
     }
     normalize(sub(points[points.len() - 1], points[points.len() - 2])).unwrap_or([1.0, 0.0])
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{kurbo::BezPath, point_in_mesh, stroke_mesh, Cap, Join, StrokeStyle};
+
+    #[test]
+    fn round_strokes_cover_each_edge_including_the_closed_seam() {
+        let style = StrokeStyle {
+            width: 1.5,
+            cap: Cap::Round,
+            join: Join::Round,
+            taper: None,
+            dash: None,
+        };
+        for svg in ["M4 4H20V20H4Z", "M4 4V20H20V4Z"] {
+            let mesh = stroke_mesh(&BezPath::from_svg(svg).unwrap(), &style, 0.0, 0.02);
+            let verts: Vec<_> = mesh.vertices.iter().map(|v| v.pos).collect();
+            for t in 5..20 {
+                for offset in [-0.5, 0.0, 0.5] {
+                    for p in [
+                        [t as f32, 4.0 + offset],
+                        [t as f32, 20.0 + offset],
+                        [4.0 + offset, t as f32],
+                        [20.0 + offset, t as f32],
+                    ] {
+                        assert!(
+                            point_in_mesh(&verts, &mesh.indices, p),
+                            "missing edge {p:?} in {svg}"
+                        );
+                    }
+                }
+            }
+            assert!(!point_in_mesh(&verts, &mesh.indices, [12.0, 12.0]));
+        }
+    }
+
+    #[test]
+    fn round_join_preserves_incoming_width_and_rounds_the_outer_corner() {
+        let style = StrokeStyle {
+            width: 2.0,
+            cap: Cap::Round,
+            join: Join::Round,
+            taper: None,
+            dash: None,
+        };
+        let mesh = stroke_mesh(&BezPath::from_svg("M0 0H10V10").unwrap(), &style, 0.0, 0.02);
+        let verts: Vec<_> = mesh.vertices.iter().map(|v| v.pos).collect();
+        for p in [[8.0, -0.8], [10.7, -0.7], [10.8, 2.0]] {
+            assert!(
+                point_in_mesh(&verts, &mesh.indices, p),
+                "missing join ink {p:?}"
+            );
+        }
+        assert!(!point_in_mesh(&verts, &mesh.indices, [10.9, -0.9]));
+    }
 }

@@ -12,17 +12,18 @@
 //! [`HomeModel::interactive`] to false until contents-focus
 //! (`P1.portal.contents-focus`).
 
-use crate::recent::{cover_cache_path, RecentEntry, RecentList};
+use crate::recent::{RecentEntry, RecentList};
 use crate::theme::Palette;
 use crate::tokens::{self, HomeTokens};
 use eframe::egui::epaint::Vertex;
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontFamily, FontId, Id, Mesh, Pos2, Rect, Sense, Stroke,
+    self, Align2, Color32, CornerRadius, FontFamily, FontId, Id, Mesh, Pos2, Rect, Sense,
     TextureId, Ui, Vec2,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 thread_local! {
     /// Reused column samples for the artwork mesh — the shelf paints a dozen
@@ -30,13 +31,18 @@ thread_local! {
     static ARTWORK_X: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
 }
 
+/// Trilinear filtering prevents fine artwork detail from sparkling under yaw.
+/// The native glow renderer generates the mip chain on the initial upload.
+pub const COVER_TEXTURE_OPTIONS: egui::TextureOptions =
+    egui::TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear));
+
 /// The one home surface both apps embed. Owns cover textures and shelf focus;
 /// apps only translate the returned action into their own open/new flows.
 pub struct HomeScreen {
     id_salt: &'static str,
     kind: HomeShelfKind,
     focus: usize,
-    textures: HashMap<PathBuf, egui::TextureHandle>,
+    textures: HashMap<PathBuf, (egui::TextureHandle, bool)>,
 }
 
 /// What the user asked the home shelf to do.
@@ -66,8 +72,11 @@ impl HomeScreen {
         self.ensure_textures(ui.ctx(), recents);
         let mut covers = covers_or_placeholders(&recents.entries, self.kind, 20);
         for c in &mut covers {
-            if let Some(tex) = self.textures.get(&c.path) {
-                c.texture = Some(tex.id());
+            if let Some((tex, theme_mask)) = self.textures.get(&c.path) {
+                c.texture = Some(HomeArtwork {
+                    texture: tex.id(),
+                    theme_mask: *theme_mask,
+                });
             }
         }
         let result = cover_flow_home(
@@ -100,26 +109,34 @@ impl HomeScreen {
     /// Upload baked cover PNGs as textures; keep pumping frames while covers
     /// are still baking on background threads.
     fn ensure_textures(&mut self, ctx: &egui::Context, recents: &RecentList) {
+        let mut uploaded = 0;
         for e in &recents.entries {
             if self.textures.contains_key(&e.path) {
                 continue;
             }
-            let cover = e.cover.clone().unwrap_or_else(|| cover_cache_path(&e.path));
-            if !cover.is_file() {
+            let cover = e.current_cover_path();
+            if !cover.is_file() || atlas_core::cloud::is_dehydrated(&cover) {
                 continue;
             }
             let Ok(img) = image::open(&cover) else {
                 continue;
             };
+            let theme_mask = cover == crate::recent::cover_cache_path(&e.path)
+                && matches!(img.color(), image::ColorType::La8 | image::ColorType::La16);
             let rgba = img.to_rgba8();
             let size = [rgba.width() as usize, rgba.height() as usize];
             let color = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
             let tex = ctx.load_texture(
                 format!("home-cover-{}", e.path.to_string_lossy()),
                 color,
-                egui::TextureOptions::LINEAR,
+                COVER_TEXTURE_OPTIONS,
             );
-            self.textures.insert(e.path.clone(), tex);
+            self.textures.insert(e.path.clone(), (tex, theme_mask));
+            uploaded += 1;
+            if uploaded == 2 {
+                ctx.request_repaint();
+                break;
+            }
         }
         let missing = recents
             .entries
@@ -132,12 +149,145 @@ impl HomeScreen {
 }
 
 /// One cover in the flow — data from the app, paint from the shell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct HomeArtwork {
+    pub texture: TextureId,
+    /// Generated grayscale-alpha diagram, tinted with the current ink color.
+    /// RGB artwork keeps its original colors in both themes.
+    pub theme_mask: bool,
+}
+
+const ALBUM_BROWSE_SCALE: f32 = 0.78;
+const ALBUM_SETTLE_SECONDS: f32 = 0.18;
+
+#[derive(Clone, Copy)]
+pub struct AlbumImage {
+    pub texture: Option<TextureId>,
+    pub size: Vec2,
+}
+
+/// Image-only presentation of the shared album motion. At rest the active image
+/// fills its portal; browsing reveals neighbors and then settles back to full bleed.
+pub fn image_album(
+    ui: &egui::Ui,
+    id: Id,
+    rect: Rect,
+    images: &[AlbumImage],
+    focus: usize,
+    interactive: bool,
+) -> usize {
+    if images.is_empty() {
+        return 0;
+    }
+    let response = ui.interact(
+        rect,
+        id.with("album-hit"),
+        if interactive && images.len() > 1 {
+            Sense::click_and_drag()
+        } else {
+            Sense::hover()
+        },
+    );
+    let state_id = id.with("album-motion");
+    let mut flow = ui.ctx().data_mut(|d| {
+        d.get_temp_mut_or_insert_with(state_id, CoverFlowState::default)
+            .clone()
+    });
+    let tokens = tokens::current().home;
+    let tuning = CoverFlowTuning::from_tokens(&tokens, rect.width() * ALBUM_BROWSE_SCALE);
+    let (focus, _, _) = advance_flow(
+        ui,
+        &response,
+        &mut flow,
+        images.len(),
+        focus,
+        interactive && images.len() > 1,
+        &tuning,
+    );
+    let resting = flow.phase == InteractionPhase::Idle;
+    let expansion =
+        ui.ctx()
+            .animate_bool_with_time(id.with("album-settle"), resting, ALBUM_SETTLE_SECONDS);
+    let painter = ui.painter_at(rect);
+    if resting && expansion > 0.999 {
+        if let Some(texture) = images[focus].texture {
+            painter.image(
+                texture,
+                rect,
+                album_uv(images[focus].size, rect.size()),
+                Color32::WHITE,
+            );
+        }
+    } else {
+        let scale = ALBUM_BROWSE_SCALE + (1.0 - ALBUM_BROWSE_SCALE) * expansion;
+        for (slot, logical) in visible_slots(flow.position, images.len(), 3) {
+            let off = slot_visual_offset(flow.position, slot, images.len());
+            let image = images[logical];
+            if let Some(texture) = image.texture {
+                let size = rect.size() * scale;
+                let uv = album_uv(image.size, size);
+                let key = Id::new((
+                    rect.min.x.to_bits(),
+                    rect.min.y.to_bits(),
+                    size.x.to_bits(),
+                    size.y.to_bits(),
+                    off.to_bits(),
+                    texture,
+                ));
+                let cache_id = id.with(("album-art", slot));
+                let cached = painter
+                    .ctx()
+                    .data(|d| d.get_temp::<CachedCoverPaint>(cache_id));
+                if let Some(cached) = cached.filter(|c| c.key == key) {
+                    painter.extend(cached.shapes.iter().cloned());
+                } else {
+                    let mut mesh = artwork_mesh(
+                        rect.center(),
+                        size.x,
+                        size.y,
+                        off,
+                        &tuning,
+                        Some(texture),
+                        Color32::WHITE,
+                        FacePass {
+                            reflected: false,
+                            height: 1.0,
+                            opacity: 1.0,
+                        },
+                        0.0,
+                    );
+                    for v in &mut mesh.vertices {
+                        v.uv = uv.min + v.uv.to_vec2() * uv.size();
+                    }
+                    let shapes: Arc<[egui::Shape]> = vec![egui::Shape::mesh(mesh)].into();
+                    painter.extend(shapes.iter().cloned());
+                    painter
+                        .ctx()
+                        .data_mut(|d| d.insert_temp(cache_id, CachedCoverPaint { key, shapes }));
+                }
+            }
+        }
+    }
+    ui.ctx().data_mut(|d| d.insert_temp(state_id, flow));
+    focus
+}
+
+fn album_uv(source: Vec2, host: Vec2) -> Rect {
+    let ratio = (host.x / host.y.max(1.0)) / (source.x / source.y.max(1.0)).max(0.001);
+    let size = if ratio < 1.0 {
+        egui::vec2(ratio, 1.0)
+    } else {
+        egui::vec2(1.0, 1.0 / ratio)
+    };
+    Rect::from_center_size(Pos2::new(0.5, 0.5), size)
+}
+
 #[derive(Clone)]
 pub struct HomeCover {
     pub path: PathBuf,
     pub title: String,
     /// High-res cover when ready; `None` draws a styled placeholder card.
-    pub texture: Option<TextureId>,
+    pub texture: Option<HomeArtwork>,
     /// Template / empty-shelf placeholders (synthetic paths — apps decide how to open).
     pub placeholder: bool,
 }
@@ -222,6 +372,8 @@ struct CoverFlowTuning {
     /// Ambient-occlusion halo reach (px) and strength (0..1).
     ao_size: f32,
     ao_strength: f32,
+    reflection_height: f32,
+    reflection_opacity: f32,
     /// Drag dead-zone in album units before gain ramps up.
     drag_dead_zone: f32,
     /// Minimum drag gain near rest (the "sticky" feel).
@@ -256,6 +408,8 @@ impl CoverFlowTuning {
             bevel: cover * t.corner_bevel_frac,
             ao_size: t.ao_size,
             ao_strength: t.ao_strength,
+            reflection_height: t.reflection_height_frac,
+            reflection_opacity: t.reflection_opacity,
             drag_dead_zone: 0.06,
             drag_gain_min: 0.35,
             drag_gain_max: 1.0,
@@ -482,54 +636,22 @@ fn normalize_position(position: &mut f32, count: usize) {
 }
 
 /// Draw the Cover Flow home into `ui`'s full available rect.
-pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> HomeResult {
-    let rect = model
-        .host
-        .unwrap_or_else(|| ui.available_rect_before_wrap());
-    let resp = ui.interact(
-        rect,
-        model.id.with("home_flow_hit"),
-        if model.interactive {
-            Sense::click_and_drag()
-        } else {
-            Sense::hover()
-        },
-    );
-    let painter = ui.painter_at(rect);
-    let count = model.covers.len();
+/// Shared gesture/motion owner for home covers and in-portal image albums.
+fn advance_flow(
+    ui: &egui::Ui,
+    resp: &egui::Response,
+    flow: &mut CoverFlowState,
+    count: usize,
+    app_focus: usize,
+    interactive: bool,
+    tuning: &CoverFlowTuning,
+) -> (usize, Option<HomeAction>, bool) {
     let mut action = None;
-
-    // Background: subtle mesh gradient (soft color blobs over the theme bg).
-    if model.backdrop {
-        paint_mesh_gradient(&painter, rect, palette);
-    }
-
-    // Square covers (album-art aspect), sized and centered by the live tokens.
-    let home_tokens = tokens::current().home;
-    let flow_center = Pos2::new(
-        rect.center().x,
-        rect.min.y + rect.height() * home_tokens.center_y_frac,
-    );
-    let raw_cover = rect.height() * home_tokens.cover_frac;
-    let cover = if model.honor_cover_limits {
-        raw_cover.clamp(home_tokens.cover_min, home_tokens.cover_max)
-    } else {
-        raw_cover
-    };
-    let (cover_w, cover_h) = (cover, cover);
-    let tuning = CoverFlowTuning::from_tokens(&home_tokens, cover);
-
-    let state_id = model.id.with("home_flow_state");
-    let mut flow = ui.ctx().data_mut(|d| {
-        d.get_temp_mut_or_insert_with(state_id, CoverFlowState::default)
-            .clone()
-    });
-
     if flow.cover_count != count {
         flow.position = if count == 0 {
             0.0
         } else {
-            model.focus.min(count - 1) as f32
+            app_focus.min(count - 1) as f32
         };
         flow.velocity = 0.0;
         flow.target = flow.position;
@@ -539,7 +661,7 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
         flow.cover_count = count;
     } else if count > 0 {
         // Gentle external focus sync when app changes focus without interaction.
-        let app_focus = model.focus.min(count - 1);
+        let app_focus = app_focus.min(count - 1);
         if flow.phase == InteractionPhase::Idle
             && flow.velocity.abs() < 0.01
             && mod_index(flow.position.round() as i32, count) != app_focus
@@ -550,8 +672,8 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
     }
 
     let dt = ui.input(|i| i.stable_dt).clamp(1.0 / 240.0, 1.0 / 20.0);
-    let pointer_down = model.interactive && resp.is_pointer_button_down_on();
-    let pointer_pressed = model.interactive
+    let pointer_down = interactive && resp.is_pointer_button_down_on();
+    let pointer_pressed = interactive
         && resp.hovered()
         && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
 
@@ -569,7 +691,7 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
         flow.stop_gesture = true;
     }
 
-    if model.interactive && count > 0 {
+    if interactive && count > 0 {
         // Wheel / trackpad: accumulate px, then step the target one detent at
         // a time so every advance is spring-animated (never a teleport).
         if resp.hovered() {
@@ -658,6 +780,68 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
         mod_index(flow.position.round() as i32, count)
     };
 
+    (focus, action, pointer_down)
+}
+
+pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> HomeResult {
+    let rect = model
+        .host
+        .unwrap_or_else(|| ui.available_rect_before_wrap());
+    let resp = ui.interact(
+        rect,
+        model.id.with("home_flow_hit"),
+        if model.interactive {
+            Sense::click_and_drag()
+        } else {
+            Sense::hover()
+        },
+    );
+    let painter = ui.painter_at(rect);
+    let count = model.covers.len();
+
+    // Background: subtle mesh gradient (soft color blobs over the theme bg).
+    if model.backdrop {
+        paint_mesh_gradient(&painter, model.id.with("backdrop"), rect, palette);
+    }
+
+    // Square covers (album-art aspect), sized and centered by the live tokens.
+    let home_tokens = tokens::current().home;
+    let flow_center = Pos2::new(
+        rect.center().x,
+        rect.min.y + rect.height() * home_tokens.center_y_frac,
+    );
+    let raw_cover = rect.height() * home_tokens.cover_frac;
+    let cover = if model.honor_cover_limits {
+        raw_cover.clamp(home_tokens.cover_min, home_tokens.cover_max)
+    } else {
+        raw_cover
+    };
+    // Keep the reflecting plane and caption clear of the bottom CTA on short
+    // windows too. The configured minimum is a preference, not an overflow.
+    let cover = cover.min(
+        rect.height() * (0.90 - home_tokens.center_y_frac).max(0.01)
+            / (0.5 + home_tokens.reflection_height_frac + 0.09),
+    );
+    let (cover_w, cover_h) = (cover, cover);
+    let tuning = CoverFlowTuning::from_tokens(&home_tokens, cover);
+
+    let state_id = model.id.with("home_flow_state");
+    let mut flow = ui.ctx().data_mut(|d| {
+        d.get_temp_mut_or_insert_with(state_id, CoverFlowState::default)
+            .clone()
+    });
+
+    let (focus, keyboard_action, pointer_down) = advance_flow(
+        ui,
+        &resp,
+        &mut flow,
+        count,
+        model.focus,
+        model.interactive,
+        &tuning,
+    );
+    let mut action = keyboard_action;
+
     if count > 0 {
         // Full bleed: paint enough slots that the rack runs off both screen
         // edges (projected side spacing shrinks with depth).
@@ -675,6 +859,7 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
             let cover = &model.covers[logical];
             paint_cover(
                 &painter,
+                model.id.with(("cover_paint", slot)),
                 palette,
                 flow_center,
                 cover_w,
@@ -699,10 +884,13 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
             let quad = project_cover(flow_center, cover_w, cover_h, focused_off, &tuning);
             let bottom = quad.bl.y.max(quad.br.y);
             painter.text(
-                Pos2::new(rect.center().x, bottom + 14.0),
+                Pos2::new(
+                    rect.center().x,
+                    bottom + cover_h * (tuning.reflection_height + 0.045),
+                ),
                 Align2::CENTER_TOP,
                 &cover.title,
-                FontId::proportional(13.0),
+                FontId::proportional(cover_h * 0.033),
                 palette.sub,
             );
         }
@@ -969,17 +1157,58 @@ pub fn title_face_tracking(font_px: f32, title_chars: usize) -> f32 {
 #[allow(clippy::too_many_arguments)]
 fn paint_cover(
     painter: &egui::Painter,
+    cache_id: Id,
     palette: &Palette,
     flow_center: Pos2,
     card_w: f32,
     card_h: f32,
     slot_offset: f32,
     tuning: &CoverFlowTuning,
-    texture: Option<TextureId>,
+    texture: Option<HomeArtwork>,
     placeholder: bool,
     title: &str,
     title_font: &FontFamily,
 ) {
+    let key = Id::new((
+        [
+            flow_center.x,
+            flow_center.y,
+            card_w,
+            card_h,
+            slot_offset,
+            tuning.side_step,
+            tuning.center_bulge,
+            tuning.bulge_width,
+            tuning.focal,
+            tuning.depth_max,
+            tuning.depth_width,
+            tuning.angle_max,
+            tuning.angle_width,
+            tuning.bevel,
+            tuning.ao_size,
+            tuning.ao_strength,
+            tuning.reflection_height,
+            tuning.reflection_opacity,
+            painter.ctx().pixels_per_point(),
+        ]
+        .map(f32::to_bits),
+        [palette.card, palette.ink, palette.bg],
+        palette.dark_mode,
+        texture,
+        placeholder,
+        title,
+        title_font,
+        painter.ctx().fonts(|f| f.font_image_size()),
+    ));
+    if let Some(cached) = painter
+        .ctx()
+        .data(|d| d.get_temp::<CachedCoverPaint>(cache_id))
+    {
+        if cached.key == key {
+            painter.extend(cached.shapes.iter().cloned());
+            return;
+        }
+    }
     let hw = card_w * 0.5;
     let hh = card_h * 0.5;
     let outline_local = fillet_outline(hw, hh, tuning.bevel);
@@ -988,40 +1217,110 @@ fn paint_cover(
         .map(|&(lx, ly)| project_point(flow_center, lx, ly, slot_offset, tuning))
         .collect();
 
-    paint_ambient_occlusion(painter, palette, &outline, tuning);
-
-    if let Some(tex) = texture {
-        paint_artwork(
-            painter,
-            flow_center,
-            card_w,
-            card_h,
-            slot_offset,
-            tuning,
-            tex,
-        );
-    } else {
-        let fill = if placeholder {
-            palette.card.gamma_multiply(0.75)
-        } else {
-            palette.card
+    let mut shapes = Vec::with_capacity(8);
+    shapes.push(egui::Shape::mesh(ambient_occlusion_mesh(
+        palette, &outline, tuning,
+    )));
+    let feather = painter.ctx().pixels_per_point().recip();
+    // Reflection first, then the face. Both use the same local geometry and
+    // perspective divide; mirroring screen y would detach the tilted feet.
+    for reflected in [true, false] {
+        if reflected && tuning.reflection_opacity <= 0.0 {
+            continue;
+        }
+        let pass = FacePass {
+            reflected,
+            height: tuning.reflection_height,
+            opacity: tuning.reflection_opacity * if palette.dark_mode { 1.0 } else { 0.65 },
         };
-        painter.add(egui::Shape::convex_polygon(
-            outline.clone(),
-            fill,
-            Stroke::NONE,
-        ));
-        paint_title_glyphs(
-            painter,
-            palette.ink,
+        shapes.push(egui::Shape::mesh(artwork_mesh(
             flow_center,
             card_w,
             card_h,
             slot_offset,
             tuning,
-            title,
-            title_font,
-        );
+            None,
+            palette.card,
+            pass,
+            feather,
+        )));
+        if let Some(art) = texture {
+            shapes.push(egui::Shape::mesh(artwork_mesh(
+                flow_center,
+                card_w,
+                card_h,
+                slot_offset,
+                tuning,
+                Some(art.texture),
+                if art.theme_mask {
+                    palette.ink
+                } else {
+                    Color32::WHITE
+                },
+                pass,
+                feather,
+            )));
+        } else {
+            shapes.push(egui::Shape::mesh(title_glyph_mesh(
+                painter,
+                palette.ink,
+                flow_center,
+                card_w,
+                card_h,
+                slot_offset,
+                tuning,
+                title,
+                title_font,
+                pass,
+            )));
+        }
+    }
+    shapes.insert(
+        1,
+        egui::Shape::mesh(contact_shadow_mesh(
+            palette,
+            flow_center,
+            card_w,
+            card_h,
+            slot_offset,
+            tuning,
+        )),
+    );
+    let shapes: Arc<[egui::Shape]> = shapes.into();
+    painter.extend(shapes.iter().cloned());
+    painter
+        .ctx()
+        .data_mut(|d| d.insert_temp(cache_id, CachedCoverPaint { key, shapes }));
+}
+
+#[derive(Clone)]
+struct CachedCoverPaint {
+    key: Id,
+    shapes: Arc<[egui::Shape]>,
+}
+
+#[derive(Clone, Copy)]
+struct FacePass {
+    reflected: bool,
+    height: f32,
+    opacity: f32,
+}
+
+impl FacePass {
+    fn local_y(self, y: f32, card_h: f32) -> f32 {
+        if self.reflected {
+            card_h - y
+        } else {
+            y
+        }
+    }
+
+    fn tint(self, color: Color32, y: f32, card_h: f32) -> Color32 {
+        if !self.reflected {
+            return color;
+        }
+        let distance = (card_h * 0.5 - y) / (card_h * self.height).max(0.001);
+        color.gamma_multiply(self.opacity * (1.0 - distance).clamp(0.0, 1.0).powi(2))
     }
 }
 
@@ -1132,7 +1431,7 @@ fn layout_title_face(ctx: &egui::Context, title: &str, family: &FontFamily) -> O
 
 /// Project each cached glyph as a short column strip. Same `project_point` as
 /// the card; much smaller patches than a full-face title texture.
-fn paint_title_glyphs(
+fn title_glyph_mesh(
     painter: &egui::Painter,
     ink: Color32,
     flow_center: Pos2,
@@ -1142,9 +1441,10 @@ fn paint_title_glyphs(
     tuning: &CoverFlowTuning,
     title: &str,
     title_font: &FontFamily,
-) {
+    pass: FacePass,
+) -> Mesh {
     let Some(face) = title_face(painter.ctx(), title, title_font) else {
-        return;
+        return Mesh::default();
     };
     let mut mesh = Mesh::with_texture(TextureId::default());
     let verts = face.glyphs.len() * (TITLE_GLYPH_COLS + 1) * 2;
@@ -1165,14 +1465,26 @@ fn paint_title_glyphs(
             let lx = x0 + (x1 - x0) * t;
             let u = g.u0 + (g.u1 - g.u0) * t;
             mesh.vertices.push(Vertex {
-                pos: project_point(flow_center, lx, y0, slot_offset, tuning),
+                pos: project_point(
+                    flow_center,
+                    lx,
+                    pass.local_y(y0, card_h),
+                    slot_offset,
+                    tuning,
+                ),
                 uv: egui::pos2(u, g.v0),
-                color: ink,
+                color: pass.tint(ink, y0, card_h),
             });
             mesh.vertices.push(Vertex {
-                pos: project_point(flow_center, lx, y1, slot_offset, tuning),
+                pos: project_point(
+                    flow_center,
+                    lx,
+                    pass.local_y(y1, card_h),
+                    slot_offset,
+                    tuning,
+                ),
                 uv: egui::pos2(u, g.v1),
-                color: ink,
+                color: pass.tint(ink, y1, card_h),
             });
         }
         for i in 0..TITLE_GLYPH_COLS as u32 {
@@ -1181,9 +1493,7 @@ fn paint_title_glyphs(
             mesh.add_triangle(a, a + 3, a + 2);
         }
     }
-    if !mesh.is_empty() {
-        painter.add(egui::Shape::mesh(mesh));
-    }
+    mesh
 }
 
 /// Paint the cover artwork as vertical strips across the card face.
@@ -1192,44 +1502,114 @@ fn paint_title_glyphs(
 /// shape that makes the image obey the same projection as the card carrying it.
 /// Each column's two vertices sit on the true filleted silhouette, so the artwork
 /// keeps its rounded corners without a second clip.
-fn paint_artwork(
-    painter: &egui::Painter,
+fn artwork_mesh(
     flow_center: Pos2,
     card_w: f32,
     card_h: f32,
     slot_offset: f32,
     tuning: &CoverFlowTuning,
-    tex: TextureId,
-) {
+    tex: Option<TextureId>,
+    tint: Color32,
+    pass: FacePass,
+    feather: f32,
+) -> Mesh {
     let hw = card_w * 0.5;
     let hh = card_h * 0.5;
     ARTWORK_X.with(|cols| {
         let mut cols = cols.borrow_mut();
         artwork_columns(hw, hh, tuning.bevel, &mut cols);
         if cols.len() < 2 {
-            return;
+            return Mesh::default();
         }
-        let mut mesh = Mesh::with_texture(tex);
-        mesh.vertices.reserve(cols.len() * 2);
-        mesh.indices.reserve((cols.len() - 1) * 6);
+        let rows = if pass.reflected { 16 } else { 1 };
+        let stride = rows + 1;
+        let mut mesh = Mesh::with_texture(tex.unwrap_or_default());
+        mesh.vertices.reserve(cols.len() * stride);
+        mesh.indices.reserve((cols.len() - 1) * rows * 6);
         for &lx in cols.iter() {
             let h = silhouette_half_height(lx, hw, hh, tuning.bevel);
             let u = lx / card_w + 0.5;
-            for ly in [-h, h] {
+            for row in 0..=rows {
+                let ly = -h + 2.0 * h * row as f32 / rows as f32;
                 mesh.vertices.push(Vertex {
-                    pos: project_point(flow_center, lx, ly, slot_offset, tuning),
-                    uv: egui::pos2(u, ly / card_h + 0.5),
-                    color: Color32::WHITE,
+                    pos: project_point(
+                        flow_center,
+                        lx,
+                        pass.local_y(ly, card_h),
+                        slot_offset,
+                        tuning,
+                    ),
+                    uv: if tex.is_some() {
+                        egui::pos2(u, ly / card_h + 0.5)
+                    } else {
+                        egui::epaint::WHITE_UV
+                    },
+                    color: pass.tint(tint, ly, card_h),
                 });
             }
         }
-        for i in 0..cols.len() as u32 - 1 {
-            let a = i * 2;
-            mesh.add_triangle(a, a + 1, a + 3);
-            mesh.add_triangle(a, a + 3, a + 2);
+        for i in 0..cols.len() - 1 {
+            for row in 0..rows {
+                let a = (i * stride + row) as u32;
+                let b = a + stride as u32;
+                mesh.add_triangle(a, a + 1, b + 1);
+                mesh.add_triangle(a, b + 1, b);
+            }
         }
-        painter.add(egui::Shape::mesh(mesh));
-    });
+        let last = (cols.len() - 1) * stride;
+        let boundary: Vec<u32> = (0..cols.len())
+            .map(|i| (i * stride) as u32)
+            .chain((1..=rows).map(|r| (last + r) as u32))
+            .chain(
+                (0..cols.len() - 1)
+                    .rev()
+                    .map(|i| (i * stride + rows) as u32),
+            )
+            .chain((1..rows).rev().map(|r| r as u32))
+            .collect();
+        feather_boundary(&mut mesh, &boundary, feather);
+        mesh
+    })
+}
+
+/// Raw epaint meshes bypass path AA. Give only the silhouette a one-device-pixel
+/// coverage fringe; internal column seams stay solid. UVs stay on the edge so
+/// clamp sampling cannot pull unrelated texels into the fringe.
+fn feather_boundary(mesh: &mut Mesh, boundary: &[u32], width: f32) {
+    let n = boundary.len();
+    let area: f32 = (0..n)
+        .map(|i| {
+            let a = mesh.vertices[boundary[i] as usize].pos;
+            let b = mesh.vertices[boundary[(i + 1) % n] as usize].pos;
+            a.x * b.y - b.x * a.y
+        })
+        .sum();
+    let original: Vec<Vertex> = boundary
+        .iter()
+        .map(|&i| mesh.vertices[i as usize])
+        .collect();
+    let start = mesh.vertices.len() as u32;
+    for i in 0..n {
+        let p = original[i].pos;
+        let normal = |edge: Vec2| {
+            let d = edge.normalized();
+            Vec2::new(d.y, -d.x) * area.signum()
+        };
+        let a = normal(p - original[(i + n - 1) % n].pos);
+        let b = normal(original[(i + 1) % n].pos - p);
+        let miter = (a + b) / (1.0 + a.dot(b)).max(0.25);
+        mesh.vertices[boundary[i] as usize].pos -= miter * width * 0.5;
+        mesh.vertices.push(Vertex {
+            pos: p + miter * width * 0.5,
+            color: Color32::TRANSPARENT,
+            ..original[i]
+        });
+    }
+    for i in 0..n {
+        let j = (i + 1) % n;
+        mesh.add_triangle(boundary[i], boundary[j], start + j as u32);
+        mesh.add_triangle(boundary[i], start + j as u32, start + i as u32);
+    }
 }
 
 /// Normalized sigmoid falloff over `t ∈ [0, 1]`: 1 at the card edge, 0 at the
@@ -1247,18 +1627,13 @@ fn ao_falloff(t: f32) -> f32 {
 /// space (further along +Y so the card feels seated) through several rings
 /// whose alpha follows a sigmoid falloff — occlusion that hugs the card's
 /// actual projected shape rather than a rectangle drop shadow.
-fn paint_ambient_occlusion(
-    painter: &egui::Painter,
-    palette: &Palette,
-    outline: &[Pos2],
-    tuning: &CoverFlowTuning,
-) {
+fn ambient_occlusion_mesh(palette: &Palette, outline: &[Pos2], tuning: &CoverFlowTuning) -> Mesh {
     if tuning.ao_strength <= 0.005 || tuning.ao_size <= 0.5 || outline.len() < 3 {
-        return;
+        return Mesh::default();
     }
     let n = outline.len();
     let centroid = outline.iter().fold(Vec2::ZERO, |acc, p| acc + p.to_vec2()) / n as f32;
-    let dark_theme = palette.bg.r() < 40;
+    let dark_theme = palette.dark_mode;
     // AO reads differently per theme: lighter bg shows more of the halo.
     let core_alpha = tuning.ao_strength * if dark_theme { 110.0 } else { 70.0 };
 
@@ -1290,13 +1665,71 @@ fn paint_ambient_occlusion(
             mesh.add_triangle(a + i, b + j, b + i);
         }
     }
-    painter.add(egui::Shape::mesh(mesh));
+    mesh
+}
+
+/// A low, soft footprint on the reflecting plane, aligned with the projected
+/// bottom edge. This anchors the album without a rectangular floating shadow.
+fn contact_shadow_mesh(
+    palette: &Palette,
+    center: Pos2,
+    w: f32,
+    h: f32,
+    offset: f32,
+    tuning: &CoverFlowTuning,
+) -> Mesh {
+    const SEGMENTS: usize = 48;
+    const RINGS: usize = 8;
+    let mut mesh = Mesh::default();
+    let strength = if palette.dark_mode { 85.0 } else { 55.0 } * tuning.ao_strength;
+    for ring in 0..=RINGS {
+        let r = ring as f32 / RINGS as f32;
+        let alpha = (strength * (1.0 - r * r).powi(3)) as u8;
+        for i in 0..SEGMENTS {
+            let a = std::f32::consts::TAU * i as f32 / SEGMENTS as f32;
+            mesh.vertices.push(Vertex {
+                pos: project_point(
+                    center,
+                    a.cos() * w * 0.61 * r,
+                    h * 0.5 + a.sin() * h * 0.055 * r,
+                    offset,
+                    tuning,
+                ),
+                uv: egui::epaint::WHITE_UV,
+                color: Color32::from_black_alpha(alpha),
+            });
+        }
+    }
+    for ring in 0..RINGS {
+        for i in 0..SEGMENTS {
+            let j = (i + 1) % SEGMENTS;
+            let a = (ring * SEGMENTS) as u32;
+            let b = a + SEGMENTS as u32;
+            mesh.add_triangle(a + i as u32, a + j as u32, b + j as u32);
+            mesh.add_triangle(a + i as u32, b + j as u32, b + i as u32);
+        }
+    }
+    mesh
 }
 
 /// Subtle mesh gradient: a coarse vertex grid tinted by a few soft color
 /// blobs over the theme background — calculated per-vertex, both themes.
-fn paint_mesh_gradient(painter: &egui::Painter, rect: Rect, palette: &Palette) {
-    let dark = palette.bg.r() < 40;
+fn paint_mesh_gradient(painter: &egui::Painter, cache_id: Id, rect: Rect, palette: &Palette) {
+    let key = Id::new((
+        [rect.min.x, rect.min.y, rect.max.x, rect.max.y].map(f32::to_bits),
+        palette.bg,
+        palette.dark_mode,
+    ));
+    if let Some(cached) = painter
+        .ctx()
+        .data(|d| d.get_temp::<CachedCoverPaint>(cache_id))
+    {
+        if cached.key == key {
+            painter.extend(cached.shapes.iter().cloned());
+            return;
+        }
+    }
+    let dark = palette.dark_mode;
     // (position in unit space, tint, reach) — chosen to stay quiet.
     let blobs: [(f32, f32, [f32; 3], f32); 4] = if dark {
         [
@@ -1359,7 +1792,11 @@ fn paint_mesh_gradient(painter: &egui::Painter, rect: Rect, palette: &Palette) {
             mesh.add_triangle(i + 1, i + stride + 1, i + stride);
         }
     }
-    painter.add(egui::Shape::mesh(mesh));
+    let shapes: Arc<[egui::Shape]> = vec![egui::Shape::mesh(mesh)].into();
+    painter.extend(shapes.iter().cloned());
+    painter
+        .ctx()
+        .data_mut(|d| d.insert_temp(cache_id, CachedCoverPaint { key, shapes }));
 }
 
 fn point_in_quad(p: Pos2, q: &Quad) -> bool {
@@ -1408,6 +1845,143 @@ fn pill_button(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn projected_artwork_has_a_device_pixel_coverage_edge() {
+        let mut tuning = CoverFlowTuning::for_cover(470.0);
+        tuning.angle_max = -80.0_f32.to_radians();
+        let pass = FacePass {
+            reflected: false,
+            height: 0.26,
+            opacity: 0.28,
+        };
+        for scale in [1.0, 1.5, 2.0] {
+            for offset in [-3.0, 0.0, 3.0] {
+                let mesh = artwork_mesh(
+                    egui::pos2(700.0, 350.0),
+                    470.0,
+                    470.0,
+                    offset,
+                    &tuning,
+                    Some(TextureId::Managed(1)),
+                    Color32::WHITE,
+                    pass,
+                    1.0 / scale,
+                );
+                assert!(mesh.is_valid());
+                let fringe = mesh.vertices.iter().filter(|v| v.color.a() == 0).count();
+                assert!(fringe > ARTWORK_COLS * 2, "all four edges need coverage");
+                assert!(mesh
+                    .vertices
+                    .iter()
+                    .all(|v| v.pos.x.is_finite() && v.pos.y.is_finite()));
+                assert!(mesh
+                    .vertices
+                    .iter()
+                    .all(|v| (0.0..=1.0).contains(&v.uv.x) && (0.0..=1.0).contains(&v.uv.y)));
+                // Every outer vertex has the same UV as its solid partner.
+                // The fringe is about one physical pixel even at a steep yaw.
+                for outer in mesh.vertices.iter().filter(|v| v.color.a() == 0) {
+                    let inner = mesh
+                        .vertices
+                        .iter()
+                        .find(|v| v.color.a() == 255 && v.uv == outer.uv)
+                        .unwrap();
+                    let width = inner.pos.distance(outer.pos) * scale;
+                    assert!((0.9..2.1).contains(&width), "fringe width {width}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reflection_meets_each_projected_foot_and_fades_to_transparent() {
+        let tuning = CoverFlowTuning::for_cover(400.0);
+        let pass = FacePass {
+            reflected: true,
+            height: 0.26,
+            opacity: 0.28,
+        };
+        let center = egui::pos2(600.0, 300.0);
+        for offset in [-4.0, -1.0, 0.0, 1.0, 4.0] {
+            for x in [-180.0, 0.0, 180.0] {
+                let foot = project_point(center, x, 200.0, offset, &tuning);
+                let reflected =
+                    project_point(center, x, pass.local_y(200.0, 400.0), offset, &tuning);
+                assert_eq!(foot, reflected);
+                let below = project_point(center, x, pass.local_y(150.0, 400.0), offset, &tuning);
+                assert!(below.y > foot.y);
+            }
+        }
+        let mut previous = 255;
+        for step in 0..=20 {
+            let y = 200.0 - 400.0 * pass.height * step as f32 / 20.0;
+            let alpha = pass.tint(Color32::WHITE, y, 400.0).a();
+            assert!(alpha <= previous);
+            previous = alpha;
+        }
+        assert_eq!(previous, 0);
+    }
+
+    #[test]
+    fn cached_cover_repaints_for_theme_without_replacing_its_texture() {
+        let ctx = egui::Context::default();
+        let id = Id::new("theme-cover-test");
+        let tuning = CoverFlowTuning::for_cover(260.0);
+        let art = Some(HomeArtwork {
+            texture: TextureId::Managed(7),
+            theme_mask: true,
+        });
+        let render = |palette: Palette| {
+            let _ = ctx.run(Default::default(), |ctx| {
+                let painter = ctx.layer_painter(egui::LayerId::background());
+                paint_cover(
+                    &painter,
+                    id,
+                    &palette,
+                    egui::pos2(300.0, 200.0),
+                    260.0,
+                    260.0,
+                    1.0,
+                    &tuning,
+                    art,
+                    false,
+                    "Folder",
+                    &FontFamily::Proportional,
+                );
+            });
+            ctx.data(|d| d.get_temp::<CachedCoverPaint>(id)).unwrap()
+        };
+        render(Palette::dark()); // let the font atlas initialize
+        let dark = render(Palette::dark());
+        let again = render(Palette::dark());
+        assert!(
+            Arc::ptr_eq(&dark.shapes, &again.shapes),
+            "idle frames reuse meshes"
+        );
+        let light = render(Palette::light());
+        assert_ne!(dark.key, light.key);
+        let mask_ink = |cached: &CachedCoverPaint| {
+            cached
+                .shapes
+                .iter()
+                .find_map(|s| match s {
+                    egui::Shape::Mesh(m)
+                        if m.texture_id == TextureId::Managed(7)
+                            && m.vertices.iter().any(|v| v.color.a() == 255) =>
+                    {
+                        m.vertices
+                            .iter()
+                            .find(|v| v.color.a() == 255)
+                            .map(|v| v.color)
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert_eq!(mask_ink(&dark), Palette::dark().ink);
+        assert_eq!(mask_ink(&light), Palette::light().ink);
+    }
 
     /// The artwork has to obey the same projection as the card it sits on.
     ///

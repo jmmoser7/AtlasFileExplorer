@@ -7,10 +7,10 @@ use super::{board_align, board_handles, board_place, board_wire, *};
 use eframe::egui::{Pos2, Rect as ERect, Vec2 as EVec2};
 use slate_doc::{NodeId, ViewKind};
 
-struct Harness {
-    ctx: egui::Context,
-    app: SlateApp,
-    base: PathBuf,
+pub(super) struct Harness {
+    pub(super) ctx: egui::Context,
+    pub(super) app: SlateApp,
+    pub(super) base: PathBuf,
 }
 
 fn now_nanos() -> u128 {
@@ -20,8 +20,179 @@ fn now_nanos() -> u128 {
         .as_nanos()
 }
 
+#[test]
+fn media_menu_has_three_registered_families() {
+    let mut h=Harness::new("media_menu");
+    h.app.ensure_work_tab(); h.app.leave_home(); h.app.doc_mut().view.active_view=ViewKind::Board;
+    let items=ui::tools::palette_strip_items(&h.app,"tool.media",&[]);
+    assert_eq!(items.iter().map(|i|i.label).collect::<Vec<_>>(),vec!["Image","3D","Video"]);
+    for id in ["board.media.image","board.media.model","board.media.video","board.media.page"] {
+        assert!(h.app.registry.by_id(atlas_commands::CommandId(id)).is_some());
+    }
+    assert_eq!(slate_doc::media_kind(std::path::Path::new("model.3dm")),slate_doc::MediaKind::Model);
+    assert_eq!(slate_doc::media_kind(std::path::Path::new("clip.mp4")),slate_doc::MediaKind::Video);
+    // Keep a picker pending so this routing test never opens a native dialog.
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    h.app.picker_rx = Some(rx);
+    for (icon, command) in [
+        ("media.image", "board.media.image"),
+        ("media.model", "board.media.model"),
+        ("media.video", "board.media.video"),
+    ] {
+        ui::tools::activate_flyout_id(&mut h.app, &h.ctx, icon);
+        assert_eq!(h.app.cmd_history.iter().last().unwrap().id.0, command);
+    }
+}
+
+#[test]
+fn link_health_follows_relink_removal_and_tab_switches() {
+    let mut h = Harness::new("link_health");
+    h.app.ensure_work_tab();
+    h.app.leave_home();
+    let exists = h.base.join("exists.txt");
+    let absent = h.base.join("absent.txt");
+    std::fs::write(&exists, "local test fixture").unwrap();
+    let id = h
+        .app
+        .doc_mut()
+        .add_item(exists.clone(), "exists.txt", 0, 0, "");
+    let wait_for = |app: &mut SlateApp, path: &Path, expected| {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            app.link_health_frame(&h.ctx);
+            if app.tab().link_health.status(path) == expected {
+                break;
+            }
+            assert!(Instant::now() < deadline, "link health did not settle");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    wait_for(&mut h.app, &exists, slate_doc::LinkStatus::Ok);
+    h.app.doc_mut().relink(id, absent.clone());
+    wait_for(&mut h.app, &absent, slate_doc::LinkStatus::Missing);
+    assert_eq!(h.app.tab().link_health.counts().missing, 1);
+    assert_eq!(
+        h.app.tab().link_health.status(&exists),
+        slate_doc::LinkStatus::Unknown
+    );
+    let first = h.app.active_tab;
+    h.app.new_tab();
+    h.app.doc_mut().add_item(exists.clone(), "exists.txt", 0, 0, "");
+    wait_for(&mut h.app, &exists, slate_doc::LinkStatus::Ok);
+    assert_eq!(h.app.tab().link_health.counts().missing, 0);
+    h.app.active_tab = first;
+    assert_eq!(h.app.tab().link_health.counts().missing, 1);
+    h.app.doc_mut().remove_item(id);
+    h.app.link_health_frame(&h.ctx);
+    assert_eq!(h.app.tab().link_health.counts().missing, 0);
+    assert_eq!(
+        h.app.tab().link_health.status(&absent),
+        slate_doc::LinkStatus::Unknown
+    );
+}
+
+#[test]
+fn media_picker_places_one_undo_group_and_ignores_late_or_cancelled_results() {
+    let mut h=Harness::new("media_picker");
+    h.app.ensure_work_tab(); h.app.leave_home(); h.app.doc_mut().view.active_view=ViewKind::Board;
+    let tab_id=h.app.tab().id;
+    let path=h.base.join("picture.png");
+    image::RgbaImage::from_pixel(16,16,image::Rgba([80,150,220,255])).save(&path).unwrap();
+    let (tx,rx)=crossbeam_channel::unbounded();
+    h.app.picker_rx=Some(rx);
+    tx.send(PickerMsg::AddMedia {tab_id,at:Pos2::new(80.0,100.0),paths:Some(vec![path.clone()])}).unwrap();
+    h.app.drain_pickers();
+    assert_eq!(h.app.doc().scene.nodes.len(),1);
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty());
+    h.app.new_tab();
+    let (tx,rx)=crossbeam_channel::unbounded();h.app.picker_rx=Some(rx);
+    tx.send(PickerMsg::AddMedia {tab_id,at:Pos2::ZERO,paths:Some(vec![path])}).unwrap();
+    h.app.drain_pickers();
+    assert!(h.app.doc().items.is_empty());
+    let (tx,rx)=crossbeam_channel::unbounded();h.app.picker_rx=Some(rx);
+    tx.send(PickerMsg::AddMedia {tab_id:h.app.tab().id,at:Pos2::ZERO,paths:None}).unwrap();
+    h.app.drain_pickers();
+    assert!(h.app.doc().scene.nodes.is_empty());
+}
+
+#[test]
+fn media_powerpoint_page_choice_is_undoable_and_keeps_the_source_link() {
+    let mut h=Harness::new("media_page");
+    h.app.ensure_work_tab(); h.app.leave_home(); h.app.doc_mut().view.active_view=ViewKind::Board;
+    let source=h.base.join("deck.pptx");
+    std::fs::write(&source,b"source remains linked").unwrap();
+    let ids=h.app.add_paths(std::slice::from_ref(&source));
+    h.app.place_items_on_board(&ids,Pos2::new(120.0,100.0));
+    h.app.documents.seed(source.clone(),pdf::documents::DocumentPreview {
+        path:h.base.join("preview.pdf"),revision:"test-deck".into(),pages:3,bytes:120,
+    });
+    let node=h.app.doc().scene.nodes[0].id;
+    assert!(h.app.dispatch(&h.ctx,atlas_commands::CommandId("board.media.page"),Some(format!("{}:2",ids[0].0))));
+    let page_item=match &h.app.doc().scene.node(node).unwrap().kind {slate_doc::NodeKind::Image(i)=>i.item,_=>panic!()};
+    assert_ne!(page_item,ids[0]);
+    assert_eq!(h.app.doc().item(page_item).unwrap().pdf_page,2);
+    assert_eq!(h.app.doc().item(page_item).unwrap().path,source);
+    h.app.board_undo();
+    assert!(matches!(&h.app.doc().scene.node(node).unwrap().kind,slate_doc::NodeKind::Image(i) if i.item==ids[0]));
+    h.app.board_redo();
+    assert!(matches!(&h.app.doc().scene.node(node).unwrap().kind,slate_doc::NodeKind::Image(i) if i.item==page_item));
+    assert_eq!(std::fs::read(&source).unwrap(),b"source remains linked");
+    h.app.tab_mut().read_only=true;
+    h.app.set_pdf_poster_page(page_item,0);
+    assert!(matches!(&h.app.doc().scene.node(node).unwrap().kind,slate_doc::NodeKind::Image(i) if i.item==page_item));
+}
+
+#[test]
+fn media_picker_hover_bridge_survives_moving_off_the_slide() {
+    let mut h=Harness::new("media_hover");
+    h.app.ensure_work_tab(); h.app.leave_home(); h.app.doc_mut().view.active_view=ViewKind::Board;
+    let source=h.base.join("deck.pptx");std::fs::write(&source,b"deck").unwrap();
+    let ids=h.app.add_paths(&[source]);h.app.place_items_on_board(&ids,Pos2::ZERO);
+    let card=ERect::from_min_size(Pos2::new(20.0,20.0),EVec2::new(100.0,100.0));
+    let popup=ERect::from_min_size(Pos2::new(20.0,128.0),EVec2::new(200.0,90.0));
+    h.app.documents.picker=Some((h.app.tab().id,ids[0],card,popup));
+    let screen=popup.center();
+    assert!(h.app.document_picker_contains(Some(screen)));
+    assert_eq!(h.app.board_hovered_pdf(h.app.board_xf().s2w(screen)).unwrap().0,ids[0]);
+    h.app.board_undo();
+    assert!(!h.app.document_picker_contains(Some(screen)));
+}
+
+#[test]
+fn media_page_command_preserves_grid_and_venn_item_selection() {
+    let mut h = Harness::new("media_grid_page");
+    h.app.ensure_work_tab();
+    h.app.leave_home();
+    let source = h.base.join("pages.pdf");
+    std::fs::write(&source, b"page fixture").unwrap();
+    let ids = h.app.add_paths(std::slice::from_ref(&source));
+    h.app.place_items_on_board(&ids, Pos2::ZERO);
+    h.app.documents.seed(source, pdf::documents::DocumentPreview {
+        path: h.base.join("preview.pdf"), revision: "grid-pages".into(), pages: 3, bytes: 120,
+    });
+    for (view, page) in [(ViewKind::Grid, 1), (ViewKind::Venn, 2)] {
+        h.app.doc_mut().view.active_view = view;
+        assert!(h.app.dispatch(&h.ctx, atlas_commands::CommandId("board.media.page"), Some(format!("{}:{page}", ids[0].0))));
+        assert_eq!(h.app.doc().item(ids[0]).unwrap().pdf_page, page);
+        assert_eq!(h.app.doc().items.len(), 1);
+    }
+}
+
 impl Harness {
-    fn new(tag: &str) -> Harness {
+    fn wait_for_export(&mut self) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while self.app.export_rx.is_some() {
+            self.app.poll_artifact_export(&self.ctx);
+            assert!(
+                std::time::Instant::now() < deadline,
+                "export worker did not finish"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    pub(super) fn new(tag: &str) -> Harness {
         let base = std::env::temp_dir().join(format!(
             "slate_test_{}_{}_{}",
             tag,
@@ -38,13 +209,13 @@ impl Harness {
         Harness { ctx, app, base }
     }
 
-    fn frame(&mut self) {
+    pub(super) fn frame(&mut self) {
         self.frame_with(|_| {});
     }
 
     /// One frame with real input, which is the only way to test what the board
     /// and a focused page each do with the same wheel notch or keystroke.
-    fn frame_with(&mut self, prepare: impl FnOnce(&mut egui::RawInput)) {
+    pub(super) fn frame_with(&mut self, prepare: impl FnOnce(&mut egui::RawInput)) {
         let mut input = egui::RawInput {
             screen_rect: Some(ERect::from_min_size(Pos2::ZERO, EVec2::new(1440.0, 900.0))),
             ..Default::default()
@@ -103,6 +274,29 @@ fn assert_invariants(app: &SlateApp) {
             "selection must reference live items"
         );
     }
+}
+
+#[test]
+fn headless_preferences_and_recents_are_instance_local() {
+    let mut first = Harness::new("prefs_first");
+    first.app.settings.board_wire_routing = slate_doc::WireRouting::Orthogonal;
+    first.app.settings.save();
+    first.app.dock_pins.push("selection".into());
+    first.app.save_chrome_prefs();
+    first
+        .app
+        .recents
+        .record(first.base.join("fixture.slate"), "Fixture");
+
+    let second = Harness::new("prefs_second");
+    assert_eq!(second.app.settings, settings::SlateSettings::default());
+    assert_eq!(
+        second.app.board_wire_routing,
+        slate_doc::WireRouting::Bezier
+    );
+    assert!(second.app.dock_pins.is_empty());
+    assert!(second.app.dock_icon_strips.is_empty());
+    assert!(second.app.recents.entries.is_empty());
 }
 
 #[test]
@@ -408,6 +602,7 @@ fn export_artifact_writes_html() {
         .place_items_on_board(&items, eframe::egui::Pos2::new(200.0, 200.0));
     let out = h.base.join("export");
     h.app.do_export(out.clone());
+    h.wait_for_export();
     let deck = out.join("Untitled-slides").join("index.html");
     assert!(deck.exists(), "expected {deck:?} to exist");
     let html = std::fs::read_to_string(deck).unwrap();
@@ -537,6 +732,7 @@ fn export_renders_kind_specific_cards() {
 
     let out = h.base.join("export");
     h.app.do_export(out.clone());
+    h.wait_for_export();
     let html = std::fs::read_to_string(out.join("Untitled-slides").join("index.html")).unwrap();
     assert!(html.contains("class=\"textcard\""), "text snippet card");
     assert!(html.contains("# Title"), "snippet content");
@@ -1216,6 +1412,8 @@ fn osnap_board(tag: &str) -> Harness {
     h.app.ensure_work_tab();
     h.app.doc_mut().view.active_view = ViewKind::Board;
     h.app.board_snap_grid = false;
+    // These fixtures exercise object snaps independently of alignment guides.
+    h.app.board_smart_guides = false;
     h.app.board_osnap = slate_doc::ObjectSnapSet::default();
     h
 }
@@ -1442,6 +1640,65 @@ fn kit_board(tag: &str, tool: board::BoardTool) -> Harness {
     h.app.doc_mut().view.active_view = ViewKind::Board;
     h.app.set_board_tool(tool);
     h
+}
+
+#[test]
+fn f3_opens_and_closes_the_selection_inspector_in_icon_strip_mode() {
+    use super::ui::tools::{DOCK_ID, SELECTION_PANEL_ID};
+    let mut h = kit_board("selection_f3", board::BoardTool::Select);
+    h.app.dock_pins.clear();
+    h.app.dock_icon_strips = vec!["*".into()];
+    h.app
+        .chrome_mut()
+        .set_tool(chrome::ToolPanel::Selection, true);
+    h.frame();
+    assert!(!atlas_shell::dock::panel_is_open(
+        &h.ctx,
+        DOCK_ID,
+        SELECTION_PANEL_ID
+    ));
+    for expected_open in [true, false, true] {
+        h.frame_with(|input| {
+            input.events.push(egui::Event::Key {
+                key: egui::Key::F3,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::default(),
+            })
+        });
+        assert_eq!(
+            atlas_shell::dock::panel_is_open(&h.ctx, DOCK_ID, SELECTION_PANEL_ID),
+            expected_open
+        );
+        assert_eq!(
+            h.app.chrome().tool(chrome::ToolPanel::Selection),
+            expected_open
+        );
+        h.frame_with(|input| {
+            input.events.push(egui::Event::Key {
+                key: egui::Key::F3,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::default(),
+            })
+        });
+    }
+    // A visible dock icon is not the same thing as an open body: after its
+    // minimize action, F3 must reopen immediately rather than hide the icon.
+    atlas_shell::dock::set_panel_open(&h.ctx, DOCK_ID, SELECTION_PANEL_ID, false);
+    h.frame();
+    assert!(h.app.chrome().tool(chrome::ToolPanel::Selection));
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("app.properties"), None));
+    h.frame();
+    assert!(atlas_shell::dock::panel_is_open(
+        &h.ctx,
+        DOCK_ID,
+        SELECTION_PANEL_ID
+    ));
 }
 
 fn drag(h: &mut Harness, tool: board::BoardTool, a: Pos2, b: Pos2) {
@@ -1886,6 +2143,84 @@ fn entering_atlas_peels_web_contents_focus() {
     );
 }
 
+fn bound_atlas_lens(tag: &str) -> (Harness, slate_doc::NodeId, PathBuf) {
+    let mut h = kit_board(tag, board::BoardTool::Select);
+    let folder = h.base.join("shots");
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("a.png");
+    std::fs::write(&file, [0u8; 8]).unwrap();
+    h.app.apply_folder_drop(
+        super::board_atlas::FolderDropKind::AtlasLens,
+        folder,
+        Pos2::ZERO,
+    );
+    let id = h.app.doc().scene.nodes[0].id;
+    for _ in 0..24 {
+        h.frame();
+        if h.app.atlas_file_count(id) > 0 {
+            break;
+        }
+    }
+    (h, id, file)
+}
+
+/// Contents-focus left-drag hands the same path File Explorer would (D22).
+#[test]
+fn a_focused_atlas_lens_drags_the_hovered_file_as_a_shell_path() {
+    let (mut h, id, file) = bound_atlas_lens("atlas_shell_drag");
+    assert!(
+        h.app.atlas_file_count(id) > 0,
+        "scan must have produced the dropped file"
+    );
+    h.app.atlas_focus(id);
+    h.app.atlas_hover_file(id, 0);
+    h.app.atlas_queue_shell_drag(id);
+    h.frame();
+    let paths = h
+        .app
+        .atlas_lenses
+        .last_shell_drag
+        .clone()
+        .expect("the card must become a shell drag");
+    assert_eq!(paths.len(), 1, "one hovered file becomes one shell item");
+    assert_eq!(
+        paths[0].file_name(),
+        file.file_name(),
+        "CF_HDROP must name the file under the cursor"
+    );
+}
+
+/// Right-drag stays a pan. It must not start a Windows drag (File Atlas rule).
+#[test]
+fn a_right_drag_inside_a_focused_atlas_lens_does_not_start_a_shell_drag() {
+    let (mut h, id, _) = bound_atlas_lens("atlas_rmb_no_drag");
+    h.app.atlas_focus(id);
+    h.app.atlas_hover_file(id, 0);
+    h.frame();
+    let xf = h.app.board_xf();
+    let on = xf
+        .rect_w2s(h.app.doc().scene.node(id).unwrap().rect)
+        .center();
+    h.frame_with(|input| {
+        input.events.push(egui::Event::PointerMoved(on));
+        input.events.push(egui::Event::PointerButton {
+            pos: on,
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        });
+    });
+    h.frame_with(|input| {
+        input
+            .events
+            .push(egui::Event::PointerMoved(on + EVec2::new(24.0, 12.0)));
+    });
+    assert!(
+        h.app.atlas_lenses.last_shell_drag.is_none(),
+        "right-drag must not hand the card to Windows"
+    );
+}
+
 // ---------- Tool arming preview (contracts/tool-arming.md GP1–GP6) ----------
 
 fn arming_board(tag: &str, tool: board::BoardTool) -> Harness {
@@ -2200,7 +2535,9 @@ fn arming_gp6_tool_switch_swaps_the_silhouette() {
 /// browser. The log is shared so a test can read what the page was sent.
 #[derive(Default)]
 struct FakeLog {
+    escape: bool,
     admitted: std::collections::HashSet<slate_doc::NodeId>,
+    admit_targets: Vec<(slate_doc::NodeId, String)>,
     inputs: Vec<board_web::WebInput>,
     current_urls: std::collections::HashMap<slate_doc::NodeId, String>,
     navigations: Vec<(slate_doc::NodeId, String)>,
@@ -2216,6 +2553,9 @@ impl FakeWebHost {
     fn navigations(&self) -> Vec<(slate_doc::NodeId, String)> {
         self.0.borrow().navigations.clone()
     }
+    fn admit_targets(&self) -> Vec<(slate_doc::NodeId, String)> {
+        self.0.borrow().admit_targets.clone()
+    }
     fn set_current_url(&self, id: slate_doc::NodeId, url: &str) {
         self.0.borrow_mut().current_urls.insert(id, url.to_string());
     }
@@ -2228,12 +2568,16 @@ impl FakeWebHost {
 }
 
 impl board_web::WebHost for FakeWebHost {
+    fn take_escape(&mut self) -> bool {
+        std::mem::take(&mut self.0.borrow_mut().escape)
+    }
     fn available(&self) -> bool {
         true
     }
     fn admit(&mut self, id: slate_doc::NodeId, req: &board_web::WebRequest) {
         let mut log = self.0.borrow_mut();
         log.admitted.insert(id);
+        log.admit_targets.push((id, req.target.clone()));
         log.current_urls
             .entry(id)
             .or_insert_with(|| req.target.clone());
@@ -2298,7 +2642,7 @@ fn web_settle(h: &mut Harness, sizes: &[(slate_doc::NodeId, f32)], frames: usize
     for _ in 0..frames {
         for (id, height) in sizes {
             let r = ERect::from_min_size(Pos2::ZERO, EVec2::new(height * 1.78, *height));
-            h.app.note_web_geometry(*id, r, clip);
+            h.app.note_web_geometry(*id, r, clip, 1.0);
         }
         h.frame();
     }
@@ -2391,6 +2735,40 @@ fn portal_web_home_returns_to_the_authored_locator_without_journaling() {
         host.current_url(id)
             .expect("fake host should report its derived location"),
         board_web::WEB_START_LOCATOR
+    );
+}
+
+/// Zooming out retains the live webview. Coming back must preserve the page
+/// the human had reached, not the authored Google home (D15 / D31).
+#[test]
+fn zooming_out_does_not_reset_a_visited_page_to_home() {
+    let mut h = web_board("web_resume_after_zoom");
+    let host = with_fake_host(&mut h);
+    h.app.place_web_portal_at(Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    web_settle(&mut h, &[(id, 540.0)], 2);
+    host.set_current_url(id, "https://example.com/result");
+    web_settle(&mut h, &[(id, 540.0)], 1);
+
+    web_settle(&mut h, &[(id, 40.0)], 2);
+    assert_eq!(
+        h.app.web.live_count(),
+        1,
+        "zoom keeps the visible browser alive"
+    );
+
+    web_settle(&mut h, &[(id, 540.0)], 2);
+    assert!(h.app.web.is_live(id), "zooming back in readmits");
+    let last = host
+        .admit_targets()
+        .into_iter()
+        .rev()
+        .find(|(admit_id, _)| *admit_id == id)
+        .map(|(_, target)| target)
+        .expect("a re-admit target");
+    assert_eq!(
+        last, "https://example.com/result",
+        "eviction must not send the page back to the authored home"
     );
 }
 
@@ -2592,7 +2970,10 @@ fn binding_a_project_with_agents_opens_the_picker() {
         panic!("expected a portal");
     };
     assert!(
-        p.agent.as_ref().and_then(|a| a.channel.as_deref()).is_none(),
+        p.agent
+            .as_ref()
+            .and_then(|a| a.channel.as_deref())
+            .is_none(),
         "picking is the user's; do not silently attach the first agent"
     );
     assert!(h.app.pick_agent_from_list(id, "two"));
@@ -2631,6 +3012,7 @@ fn a_failed_agent_send_names_the_failure() {
     let mut h = agent_board("agent_named_fail");
     h.app.place_agent_portal_at(Pos2::ZERO);
     let id = h.app.doc().scene.nodes[0].id;
+    h.app.set_agent_program(id, "local");
     h.app.ai.config.workspace_dir = Some(std::path::PathBuf::from("/definitely/not/here"));
     *h.app.agents.prompt_mut(id) = "what is 2+2?".into();
     h.app.send_agent_prompt(id);
@@ -2650,6 +3032,7 @@ fn sending_a_prompt_shows_thinking_not_silence() {
     let mut h = agent_board("agent_thinking");
     h.app.place_agent_portal_at(Pos2::ZERO);
     let id = h.app.doc().scene.nodes[0].id;
+    h.app.set_agent_program(id, "local");
     let ws = h.base.join("ai-ws");
     std::fs::create_dir_all(&ws).unwrap();
     h.app.ai.config.workspace_dir = Some(ws);
@@ -2784,6 +3167,120 @@ fn gp3_a_pasted_url_loads_without_a_second_gesture() {
     assert!(h.app.web.is_live(id), "no gate between paste and pixels");
 }
 
+#[test]
+fn web_url_drop_uses_os_position_and_is_one_undo_step() {
+    let mut h = web_board("web_url_drop_position");
+    h.frame();
+    h.app.tab_mut().cam.z = 0.75;
+    h.app.tab_mut().cam.offset = egui::vec2(80.0, -30.0);
+    let at = h.app.canvas_rect.center() + egui::vec2(70.0, 40.0);
+    let world = h.app.board_xf().s2w(at);
+    let before = h.app.tab().journal.undo_depth();
+    h.app
+        .external_drop
+        .push_test(super::external_drop::DropEvent {
+            payload: super::external_drop::Payload::Url(
+                " https://example.com/drop?q=1#anchor ".into(),
+            ),
+            at,
+            alt: false,
+        });
+    h.frame();
+    let (id, p) = only_portal(&h);
+    assert_eq!(
+        p.source.as_ref().unwrap().locator,
+        "https://example.com/drop?q=1#anchor"
+    );
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    assert!((rect.x + rect.w / 2.0 - world.x).abs() < 0.01);
+    assert!((rect.y + rect.h / 2.0 - world.y).abs() < 0.01);
+    assert_eq!(h.app.tab().journal.undo_depth(), before + 1);
+    assert!(h.app.web.has_consent("https://example.com"));
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty());
+    h.app.board_redo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+}
+
+#[test]
+fn web_url_drop_rebinds_the_hit_portal_and_undo_restores_it() {
+    let mut h = web_board("web_url_drop_rebind");
+    h.frame();
+    let at = h.app.canvas_rect.center();
+    assert!(h.app.drop_web_url("https://example.com/first", at));
+    let (id, _) = only_portal(&h);
+    assert!(h.app.drop_web_url("https://example.org/second", at));
+    assert_eq!(only_portal(&h).0, id);
+    assert_eq!(
+        only_portal(&h).1.source.as_ref().unwrap().locator,
+        "https://example.org/second"
+    );
+    h.app.board_undo();
+    assert_eq!(
+        only_portal(&h).1.source.as_ref().unwrap().locator,
+        "https://example.com/first"
+    );
+    h.app.doc_mut().scene.nodes[0].locked = true;
+    let before = h.app.tab().journal.undo_depth();
+    assert!(!h.app.drop_web_url("https://example.org/locked", at));
+    assert_eq!(h.app.tab().journal.undo_depth(), before);
+}
+
+#[test]
+fn web_url_drop_rejects_non_urls_and_non_editable_targets() {
+    let mut h = web_board("web_url_drop_reject");
+    h.frame();
+    let at = h.app.canvas_rect.center();
+    for text in [
+        "hello",
+        "https://",
+        "javascript:alert(1)",
+        "data:text/html,test",
+        "file:///x.html",
+        "https://example.com more text",
+        "https://a.test\nhttps://b.test",
+    ] {
+        assert!(!h.app.drop_web_url(text, at), "accepted {text}");
+    }
+    assert!(!h.app.drop_web_url(
+        "https://example.com",
+        h.app.canvas_rect.min - egui::vec2(1.0, 1.0)
+    ));
+    h.app.tab_mut().read_only = true;
+    assert!(!h.app.drop_web_url("https://example.com", at));
+    h.app.tab_mut().read_only = false;
+    h.app.doc_mut().view.active_view = ViewKind::Grid;
+    assert!(!h.app.drop_web_url("https://example.com", at));
+    assert!(h.app.doc().scene.nodes.is_empty());
+}
+
+#[test]
+fn web_url_drop_native_file_payload_keeps_html_and_alt_behavior() {
+    for alt in [false, true] {
+        let mut h = web_board(if alt {
+            "web_url_drop_alt"
+        } else {
+            "web_url_drop_html"
+        });
+        h.frame();
+        let path = h.base.join("dashboard.html");
+        std::fs::write(&path, "<h1>local test</h1>").unwrap();
+        h.app
+            .external_drop
+            .push_test(super::external_drop::DropEvent {
+                payload: super::external_drop::Payload::Files(vec![path]),
+                at: h.app.canvas_rect.center(),
+                alt,
+            });
+        h.frame();
+        assert_eq!(h.app.doc().scene.nodes.len(), 1);
+        assert_eq!(
+            matches!(&h.app.doc().scene.nodes[0].kind, NodeKind::Portal(_)),
+            !alt
+        );
+    }
+}
+
 /// GP3b — the case the gate is actually for: a workbook reopened from disk
 /// holds pages nobody in this session has permitted, and opening it must not
 /// quietly start talking to them.
@@ -2884,6 +3381,72 @@ fn maximize_covers_the_window_without_mutating_the_frame() {
     h.app.web_restore();
     assert!(h.app.portal_chrome.maximized.is_none());
     assert_eq!(h.app.web.focused, Some(id), "restore keeps page focus");
+}
+
+#[test]
+fn native_escape_restores_maximize_without_also_blurring_the_page() {
+    let (mut h, id, host) = focused_page("web_native_escape");
+    h.app.portal_maximize(id);
+    let before = h.app.doc().scene.clone();
+    host.0.borrow_mut().escape = true;
+    h.frame();
+    assert_eq!(h.app.portal_chrome.maximized, None);
+    assert_eq!(h.app.web.focused, Some(id));
+    assert_eq!(h.app.doc().scene, before);
+    host.0.borrow_mut().escape = true;
+    h.frame();
+    assert_eq!(h.app.web.focused, None);
+}
+
+#[test]
+fn escape_restores_maximize_even_with_a_retained_palette() {
+    let (mut h, id, _) = focused_page("web_escape_palette");
+    h.app.portal_maximize(id);
+    h.app.palette_state.open = true;
+    h.frame_with(|input| {
+        input.events.push(egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        })
+    });
+    assert_eq!(h.app.portal_chrome.maximized, None);
+}
+
+#[test]
+fn hover_preferences_toggle_one_kind_without_changing_selection() {
+    let mut h = web_board("hover_preferences");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    assert_eq!(
+        h.app.hover_preview_target(Some(Pos2::new(20.0, 20.0))),
+        Some(id)
+    );
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.hover_highlight"),
+        Some("shape".into())
+    ));
+    assert_eq!(
+        h.app.hover_preview_target(Some(Pos2::new(20.0, 20.0))),
+        None
+    );
+    assert!(h.app.settings.hover_highlight("image"));
+    assert!(h.app.board_sel.is_empty());
+    let saved = serde_json::to_string(&h.app.settings).unwrap();
+    let restored: settings::SlateSettings = serde_json::from_str(&saved).unwrap();
+    assert!(!restored.hover_highlight("shape"));
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.hover_highlight"),
+        Some("shape".into())
+    ));
+    assert_eq!(
+        h.app.hover_preview_target(Some(Pos2::new(20.0, 20.0))),
+        Some(id)
+    );
 }
 
 /// Identity-tab fold is per-portal derived state (P1.portal.chrome).
@@ -3036,8 +3599,18 @@ fn gp9_export_packages_a_local_page_and_points_at_a_remote_one() {
     std::fs::create_dir_all(dash.join("data")).unwrap();
     std::fs::write(dash.join("index.html"), "<h1>numbers</h1>").unwrap();
     std::fs::write(dash.join("data").join("rows.json"), "[]").unwrap();
-    h.app.divert_web_drops(&[dash], Pos2::ZERO);
-    let local = h.app.doc().scene.nodes.last().unwrap().id;
+    // Folder drops open the lens chooser; bind the dashboard explicitly so
+    // this export test does not depend on that separate interaction.
+    let local = h.app.add_web_portal(
+        WorldRect::new(20.0, 20.0, 320.0, 180.0),
+        None,
+        "test dashboard",
+    );
+    assert!(h.app.bind_web_path(local, dash));
+    assert!(matches!(
+        &h.app.doc().scene.node(local).unwrap().kind,
+        NodeKind::Portal(portal) if portal.kind == slate_doc::scene::PortalKind::Web
+    ));
     h.app.paste_web_url("https://example.com/live", Pos2::ZERO);
     let remote = h.app.doc().scene.nodes.last().unwrap().id;
     // Both inside the seeded 800x450 frame, so both land on the slide.
@@ -3051,6 +3624,7 @@ fn gp9_export_packages_a_local_page_and_points_at_a_remote_one() {
 
     let out = h.base.join("export");
     h.app.do_export(out.clone());
+    h.wait_for_export();
     let deck = out.join("Untitled-slides");
     let html = std::fs::read_to_string(deck.join("index.html")).unwrap();
 
@@ -3716,9 +4290,7 @@ fn selection_outline_follows_silhouette() {
     let slate_doc::scene::NodeKind::DockStrip(strip_data) = &sn.kind else {
         panic!("expected a dock strip");
     };
-    let (card, r) = h
-        .app
-        .dock_strip_screen_card(&h.ctx, &xf, &sn, strip_data);
+    let (card, r) = h.app.dock_strip_screen_card(&h.ctx, &xf, &sn, strip_data);
     let sharp = card.left_top();
     assert!(
         s_pts.iter().all(|p| p.distance(sharp) > r * 0.3),
@@ -3765,11 +4337,7 @@ fn dock_strip_click_arms_without_placing() {
 #[test]
 fn dock_strip_resize_contains_without_shrinking_icons() {
     let mut h = web_board("dock_scale");
-    let id = add_dock_strip(
-        &mut h.app,
-        "tool.shapes",
-        &["shape.rect", "shape.ellipse"],
-    );
+    let id = add_dock_strip(&mut h.app, "tool.shapes", &["shape.rect", "shape.ellipse"]);
     h.frame();
     h.app.tab_mut().cam.z = 1.0;
     let xf = h.app.board_xf();
@@ -3791,10 +4359,8 @@ fn dock_strip_resize_contains_without_shrinking_icons() {
     let dest = xf.rect_w2s(n.rect);
     let a = atlas_shell::dock::icon_strip_slot_rect(dest, &layout, &tokens, slot)
         .expect("slot at dest");
-    let wide = ERect::from_center_size(
-        dest.center(),
-        EVec2::new(dest.width() * 2.5, dest.height()),
-    );
+    let wide =
+        ERect::from_center_size(dest.center(), EVec2::new(dest.width() * 2.5, dest.height()));
     let b = atlas_shell::dock::icon_strip_slot_rect(wide, &layout, &tokens, slot)
         .expect("slot at wide dest");
     assert!(
@@ -4885,4 +5451,45 @@ fn split_gp6_esc_stack() {
     assert_eq!(h.app.board_tool, board::BoardTool::Select);
     assert!(h.app.trim.is_none());
     h.frame();
+}
+
+#[test]
+fn agent_program_choice_is_journaled_and_undo_restores_picker() {
+    let mut h = agent_board("program_choice");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.set_agent_program(id, "codex");
+    let NodeKind::Portal(p) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!()
+    };
+    assert_eq!(p.agent.as_ref().unwrap().provider, "codex");
+    assert_eq!(h.app.contents_focused(), Some(id));
+    h.app.board_undo();
+    let NodeKind::Portal(p) = &h.app.doc().scene.node(id).unwrap().kind else {
+        panic!()
+    };
+    assert!(p.agent.as_ref().unwrap().provider.is_empty());
+}
+
+#[test]
+fn host_focus_has_one_owner_when_switching_between_agent_and_web() {
+    let mut h = agent_board("one_host_focus");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let agent = h.app.doc().scene.nodes[0].id;
+    let node = h.app.doc_mut().scene.build_node(
+        WorldRect::new(800.0, 0.0, 300.0, 200.0),
+        NodeKind::Portal(slate_doc::PortalNode::unbound_web("Web")),
+    );
+    let web = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app.agent_focus(agent);
+    assert_eq!(h.app.contents_focused(), Some(agent));
+    h.app.web_focus(web);
+    assert_eq!(h.app.contents_focused(), Some(web));
+    assert_eq!(h.app.agents.focused, None);
+    h.app.agent_focus(agent);
+    assert_eq!(h.app.web.focused, None);
+    assert_eq!(h.app.contents_focused(), Some(agent));
+    h.app.contents_blur();
+    assert_eq!(h.app.contents_focused(), None);
 }

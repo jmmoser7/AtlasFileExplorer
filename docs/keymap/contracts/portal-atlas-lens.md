@@ -69,8 +69,8 @@ Rows keyed to `DIMENSIONS.md` in registry order. Every row is mirrored in
 | D19 | Source binding | One `SourceUri` naming a **local folder**, stored relative-first (Art. IX.2). Bound by `portal.atlas.source`. Health `Ok`/`Missing`/`Unknown`. Refused: files, URLs, cloud accounts, a File Atlas window handle. Rebind is a journaled `Patch` | pattern | 90 |
 | D20 | Query & parameters | v1 journaled query is `AtlasPortalQuery { sort }` only (default Name). Filter/search, if shown, is derived view-state (D31). Collapse, camera, scroll, and selection are never query fields | guess | 55 |
 | D21 | Regeneration & staleness | Scan starts on bind, refresh, and watcher events. Work is generation-tagged; a stale batch is dropped (Art. II.3). Cards stream in while discovery is still running. Last-good tree stays painted across a refresh. Same cloud/dehydrate guards as atlas-core | pattern | 85 |
-| D22 | Contents interaction | P1.portal.contents-focus (host). Click selects the frame. Double-click or Enter enters the Atlas canvas. Esc or a primary click outside the body leaves. In focus: File Atlas camera (wheel / pinch zoom, right/middle pan), collapse/expand via the same grips as the standalone app, select files (readout only). Double-click a file opens it in the OS viewer. After peel, the inner camera must not keep the wheel. Board drawing tools never reach the cards | precedent | 75 |
-| D23 | Level of detail | P0.9 on the inner surface: cards, type, icons, badges scale with inner zoom. Board zoom only shrinks the clip. When on-screen type is too small, drop it. Never clamp to a screen constant | pattern | 80 |
+| D22 | Contents interaction | P1.portal.contents-focus (host). Click selects the frame. Double-click or Enter enters the Atlas canvas. Esc or a primary click outside the body leaves. In focus: File Atlas camera (wheel / pinch zoom, right/middle pan), collapse/expand via the same grips as the standalone app, select files (readout only), left-drag a card out to Windows (`atlas_core::shell_drag`, same CF_HDROP as File Explorer — copy/link, never move). Double-click a file opens it in the OS viewer. After peel, the inner camera must not keep the wheel. Board drawing tools never reach the cards | precedent | 75 |
+| D23 | Level of detail | P0.9: the inner camera is portal-local. Board zoom scales the entire map with the frame; screen scale is inner zoom × board zoom, in and out of contents-focus. Board pan and frame movement carry the map with them. Leaving contents preserves the inner view. LOD uses the composed screen scale; drop type when too small, never clamp to a screen constant | stated | 100 |
 | D24 | Export serialization | Host (Art. V.3): `slate-artifact` emits a poster plus a pointer to the folder locator. Unbound/Missing export the state card. Not a regenerated SVG of every thumbnail | pattern | 80 |
 | D25 | Bake | `portal.atlas.bake` emits one journaled `Add` of an authored Image (the current poster) plus a provenance Text node naming the folder. The portal stays live. v1 does not copy file bytes onto the board | guess | 55 |
 | D26 | Collaboration & per-peer | P1.portal.sync. Each peer resolves the relative locator and runs atlas-core locally. A peer that cannot see the folder paints `Unknown` naming the locator. Inner camera and collapse do not sync (D31) | pattern | 85 |
@@ -108,6 +108,12 @@ Open in File Atlas uses the existing Slate-hosted File Atlas viewport.
 - **GP7.** Bake → authored poster + provenance text; portal stays live.
 - **GP8.** Agent may stage place/bind/sort. Agent cannot rename, move, or
   delete a file.
+- **GP9.** Enter contents, then leave → board wheel scales the frame and
+  cards together; board pan carries both. The inner camera stays unchanged.
+  Initial fit is identical at different board zooms. At non-unit board zoom,
+  clicking a painted card selects it, inner zoom stays pointer-anchored, and
+  a right-drag moves the map by the pointer's screen delta. Maximize/restore
+  preserves the local view and focused maximize routes the same navigation.
 
 ## Feel constants (proposed)
 

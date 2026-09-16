@@ -1,0 +1,110 @@
+{
+  "app": "file-atlas",
+  "pid": 31752,
+  "started_unix": 1789425150,
+  "persist": true,
+  "log_path": "C:\\Users\\jmoser\\AppData\\Local\\NativeFileAtlas\\session-log\\file-atlas.jsonl",
+  "latest_path": "C:\\Users\\jmoser\\AppData\\Local\\NativeFileAtlas\\session-log\\file-atlas-latest.json",
+  "frame": {
+    "n": 180,
+    "app_mean_ms": 5.678807,
+    "app_max_ms": 36.9538,
+    "p95_ms": 500.13852,
+    "max_ms": 521.1702,
+    "dropped": 178
+  },
+  "now": {
+    "entries": 10000,
+    "nodes": 0,
+    "selected": 0,
+    "thumbs_pending": 0,
+    "extra": 0,
+    "scan_active": false,
+    "view": "tree",
+    "tool": "view",
+    "last_stall_app_ms": 3.6969001
+  },
+  "last_stalls": [
+    {
+      "unix_ms": 1789427138956,
+      "app_ms": 3.6969001,
+      "delivered_ms": 496.2005,
+      "spans": "atlas.scan.ingest:0.0,atlas.thumbs.upload:0.0,atlas.watcher:0.0,atlas.canvas:3.2",
+      "view": "tree",
+      "tool": "view",
+      "entries": 10000,
+      "nodes": 0
+    },
+    {
+      "unix_ms": 1789427138461,
+      "app_ms": 5.0237,
+      "delivered_ms": 498.1334,
+      "spans": "atlas.scan.ingest:0.0,atlas.thumbs.upload:0.0,atlas.watcher:0.0,atlas.canvas:4.4",
+      "view": "tree",
+      "tool": "view",
+      "entries": 10000,
+      "nodes": 0
+    },
+    {
+      "unix_ms": 1789427137969,
+      "app_ms": 10.953401,
+      "delivered_ms": 488.7677,
+      "spans": "atlas.scan.ingest:0.0,atlas.thumbs.upload:0.0,atlas.watcher:0.0,atlas.canvas:3.3",
+      "view": "tree",
+      "tool": "view",
+      "entries": 10000,
+      "nodes": 0
+    },
+    {
+      "unix_ms": 1789427137472,
+      "app_ms": 3.6817,
+      "delivered_ms": 486.6182,
+      "spans": "atlas.scan.ingest:0.0,atlas.thumbs.upload:0.0,atlas.watcher:0.0,atlas.canvas:3.1",
+      "view": "tree",
+      "tool": "view",
+      "entries": 10000,
+      "nodes": 0
+    },
+    {
+      "unix_ms": 1789427136985,
+      "app_ms": 2.7174,
+      "delivered_ms": 499.08038,
+      "spans": "atlas.scan.ingest:0.0,atlas.thumbs.upload:0.0,atlas.watcher:0.0,atlas.canvas:2.2",
+      "view": "tree",
+      "tool": "view",
+      "entries": 10000,
+      "nodes": 0
+    },
+    {
+      "unix_ms": 1789427136498,
+      "app_ms": 15.045,
+      "delivered_ms": 487.3174,
+      "spans": "atlas.scan.ingest:0.0,atlas.thumbs.upload:0.0,atlas.watcher:0.0,atlas.canvas:3.2",
+      "view": "tree",
+      "tool": "view",
+      "entries": 10000,
+      "nodes": 0
+    },
+    {
+      "unix_ms": 1789427135997,
+      "app_ms": 1.7371,
+      "delivered_ms": 487.9376,
+      "spans": "atlas.scan.ingest:0.0,atlas.thumbs.upload:0.0,atlas.watcher:0.0,atlas.canvas:0.9",
+      "view": "tree",
+      "tool": "view",
+      "entries": 10000,
+      "nodes": 0
+    },
+    {
+      "unix_ms": 1789427135511,
+      "app_ms": 3.4088001,
+      "delivered_ms": 493.1359,
+      "spans": "atlas.scan.ingest:0.0,atlas.thumbs.upload:0.0,atlas.watcher:0.0,atlas.canvas:2.7",
+      "view": "tree",
+      "tool": "view",
+      "entries": 10000,
+      "nodes": 0
+    }
+  ],
+  "marks": []
+}

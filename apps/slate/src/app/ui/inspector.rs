@@ -5,11 +5,8 @@
 //! are invertible commands: continuous slider scrubs coalesce into single
 //! undo steps, and the same command surface will later back the MCP agent.
 //!
-//! Unwired (DV-12): `ToolPanel::Selection` still toggles from the menubar and
-//! the command registry, but no dock item renders [`selection_body`], so the
-//! panel never appears. The module-wide allow below keeps the code compiling
-//! (and the gap honest) until the dock item lands.
-#![allow(dead_code)]
+//! The shared dock hosts this form through `selection_body`. F3 and the
+//! Selection menu open the same panel as its dock icon.
 
 use super::super::board::to_rgba;
 use super::super::SlateApp;
@@ -143,6 +140,11 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                 theme,
                 |ui| corner_controls(app, ui, theme, &ids, &primary),
             );
+            if let Some(item) = app.doc().item(img.item) {
+                if let Some(error) = app.documents.error(&item.path) {
+                    ui.label(error);
+                }
+            }
             if kind == slate_doc::MediaKind::Model {
                 // 3D viewports: the camera pose is the framing — crop and
                 // pixel adjustments don't apply (in either renderer).
@@ -190,7 +192,26 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
         }
         // wave-2: connector inspector section (arrowheads, faint/default,
         // label) lands with the board interaction work.
-        NodeKind::Connector(_) => {}
+        NodeKind::Connector(c) => {
+            if ids.len() == 1 {
+                if let Some(binding) = c
+                    .binding
+                    .as_ref()
+                    .filter(|b| b.kind == slate_doc::agent_inputs::InputKind::Images)
+                {
+                    let mut all = binding.all_images;
+                    if ui
+                        .checkbox(&mut all, "All images")
+                        .on_hover_text(
+                            "Send the whole bundle. Turn off to use the displayed image.",
+                        )
+                        .changed()
+                    {
+                        app.toggle_agent_wire_output();
+                    }
+                }
+            }
+        }
         NodeKind::Portal(_) => {
             sidebar_collapsible_region(ui, tool_group, Id::new("portal"), "Portal", theme, |ui| {
                 portal_controls(app, ui, theme, &ids, &primary)
@@ -1442,7 +1463,10 @@ fn agent_portal_controls(
             None,
         );
     }
-    if source.is_some() && ui.button(RichText::new("Switch agent").small()).clicked() {
+    if agent.provider == "cursor"
+        && source.is_some()
+        && ui.button(RichText::new("Switch agent").small()).clicked()
+    {
         app.dispatch(
             ui.ctx(),
             atlas_commands::CommandId("portal.agent.switch_chat"),
@@ -1462,24 +1486,27 @@ fn agent_portal_controls(
             .small()
             .color(theme.sub),
     );
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Provider").small().color(theme.sub));
-        for provider in ["cursor", "local"] {
-            if ui
-                .selectable_label(agent.provider == provider, RichText::new(provider).small())
-                .clicked()
-            {
-                let provider = provider.to_string();
-                app.patch_nodes(ids, move |n| {
-                    if let NodeKind::Portal(p) = &mut n.kind {
-                        if let Some(agent) = &mut p.agent {
-                            agent.provider = provider.clone();
-                        }
-                    }
-                });
-            }
-        }
-    });
+    if ui.button("Choose program").clicked() {
+        app.dispatch(
+            ui.ctx(),
+            atlas_commands::CommandId("portal.agent.provider"),
+            None,
+        );
+    }
+    if agent.view == atlas_ai::agent::PortalView::Images && ui.button("Unbundle images").clicked() {
+        app.dispatch(
+            ui.ctx(),
+            atlas_commands::CommandId("portal.agent.unbundle"),
+            None,
+        );
+    }
+    if agent.provider == "codex" && ui.button("Stop response").clicked() {
+        app.dispatch(
+            ui.ctx(),
+            atlas_commands::CommandId("portal.agent.stop"),
+            None,
+        );
+    }
     ui.horizontal(|ui| {
         ui.label(RichText::new("Context").small().color(theme.sub));
         for (scope, label) in [
@@ -1519,48 +1546,58 @@ fn agent_portal_controls(
         }
     });
 
-    ui.label(RichText::new("Cursor API key").small().color(theme.sub));
-    ui.label(
-        RichText::new(if atlas_ai::cursor_key::is_configured() {
-            "Saved on this machine (or in CURSOR_API_KEY)."
-        } else {
-            "Not set — Get a key, then paste it here."
-        })
-        .small()
-        .color(theme.sub),
-    );
-    ui.horizontal(|ui| {
-        if ui.button(RichText::new("Get a key").small()).clicked() {
-            app.dispatch(
-                ui.ctx(),
-                atlas_commands::CommandId("portal.agent.get_key"),
-                None,
-            );
-        }
-        if ui.button(RichText::new("Setup steps").small()).clicked() {
-            if let Some(doc) = atlas_ai::sidecar::setup_doc() {
-                SlateApp::open_path(&doc);
+    if agent.provider == "cursor" {
+        ui.label(RichText::new("Cursor API key").small().color(theme.sub));
+        ui.label(
+            RichText::new(if atlas_ai::cursor_key::is_configured() {
+                "Saved on this machine (or in CURSOR_API_KEY)."
             } else {
-                app.open_url(atlas_ai::cursor_key::AUTH_DOCS_URL);
+                "Not set — Get a key, then paste it here."
+            })
+            .small()
+            .color(theme.sub),
+        );
+        ui.horizontal(|ui| {
+            if ui.button(RichText::new("Get a key").small()).clicked() {
+                app.dispatch(
+                    ui.ctx(),
+                    atlas_commands::CommandId("portal.agent.get_key"),
+                    None,
+                );
             }
+            if ui.button(RichText::new("Setup steps").small()).clicked() {
+                if let Some(doc) = atlas_ai::sidecar::setup_doc() {
+                    SlateApp::open_path(&doc);
+                } else {
+                    app.open_url(atlas_ai::cursor_key::AUTH_DOCS_URL);
+                }
+            }
+        });
+        let mut draft = app.agents.key_draft.clone();
+        if ui
+            .add(
+                egui::TextEdit::singleline(&mut draft)
+                    .password(true)
+                    .desired_width(ui.available_width())
+                    .hint_text("Paste API key"),
+            )
+            .changed()
+        {
+            app.agents.key_draft = draft;
         }
-    });
-    let mut draft = app.agents.key_draft.clone();
-    if ui
-        .add(
-            egui::TextEdit::singleline(&mut draft)
-                .password(true)
-                .desired_width(ui.available_width())
-                .hint_text("Paste API key"),
-        )
-        .changed()
-    {
-        app.agents.key_draft = draft;
+        if ui.button(RichText::new("Save key").small()).clicked() {
+            app.save_cursor_api_key(Some(primary.id));
+        }
     }
-    if ui.button(RichText::new("Save key").small()).clicked() {
-        app.save_cursor_api_key(Some(primary.id));
+    if agent.provider == "codex" {
+        ui.label(
+            RichText::new(
+                "Uses the installed Codex sign-in. Run codex login to sign in with ChatGPT.",
+            )
+            .small()
+            .color(theme.sub),
+        );
     }
-
     sidebar_subtle_divider(ui, theme);
     ui.label(RichText::new("Prompt").small().color(theme.sub));
     let mut draft = app.agents.prompt_mut(primary.id).clone();
@@ -1583,7 +1620,7 @@ fn agent_portal_controls(
         );
     }
 
-    let proposals: Vec<(String, String, String, usize)> = app
+    let proposals: Vec<(String, String, String, usize, bool)> = app
         .agents
         .pending_for(&agent.session)
         .map(|p| {
@@ -1592,13 +1629,14 @@ fn agent_portal_controls(
                 p.title.clone(),
                 p.author.clone(),
                 p.cmds.len(),
+                p.status == slate_doc::ProposalStatus::RecoveryRequired,
             )
         })
         .collect();
     if !proposals.is_empty() {
         sidebar_subtle_divider(ui, theme);
         ui.label(RichText::new("Staged proposals").small().strong());
-        for (id, title, author, count) in proposals {
+        for (id, title, author, count, recovery) in proposals {
             ui.group(|ui| {
                 ui.label(RichText::new(title).small().strong());
                 ui.label(
@@ -1609,11 +1647,15 @@ fn agent_portal_controls(
                     .small()
                     .color(theme.sub),
                 );
+                if recovery {
+                    ui.label(RichText::new("Acceptance needs review. Inspect the board before dismissing this proposal. Dismissal does not undo board changes.").small().color(theme.sub));
+                }
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new("Accept").small()).clicked() {
+                    if ui.add_enabled(!recovery, egui::Button::new(RichText::new("Accept").small())).clicked() {
                         app.accept_stage_proposal(&id);
                     }
-                    if ui.button(RichText::new("Reject").small()).clicked() {
+                    let dismiss = if recovery { "Dismiss after review" } else { "Reject" };
+                    if ui.button(RichText::new(dismiss).small()).clicked() {
                         app.reject_stage_proposal(&id);
                     }
                 });

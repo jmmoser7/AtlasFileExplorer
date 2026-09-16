@@ -1,0 +1,94 @@
+{
+  "format_version": 2,
+  "name": "staging",
+  "groups": [],
+  "items": [],
+  "view": {
+    "active_view": "board",
+    "cam_x": 468.4438,
+    "cam_y": 297.01065,
+    "zoom": 1.0907195
+  },
+  "scene": {
+    "nodes": [
+      {
+        "id": 2,
+        "rect": {
+          "x": 20.0,
+          "y": 20.0,
+          "w": 500.0,
+          "h": 500.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "portal": {
+            "class": "host",
+            "kind": "agent",
+            "title": "Staging verification",
+            "source": {
+              "locator": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\audit-2026-09-14"
+            },
+            "query": {
+              "include_remotes": true,
+              "max_commits": 2000,
+              "axis": "topological"
+            },
+            "status": {
+              "show_overview": true,
+              "show_phases": true,
+              "show_waves": true,
+              "show_deviations": true,
+              "show_next": true
+            },
+            "agent": {
+              "provider": "local-audit",
+              "session": "stabilization-20260915",
+              "context": "board",
+              "channel": null
+            },
+            "atlas": {
+              "sort": "name"
+            },
+            "fill": [
+              20,
+              25,
+              35,
+              255
+            ]
+          }
+        }
+      },
+      {
+        "id": 90002,
+        "rect": {
+          "x": 590.0,
+          "y": 50.0,
+          "w": 260.0,
+          "h": 180.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "frame": {
+            "title": "Inspector acceptance",
+            "order": 0,
+            "fill": [
+              44,
+              132,
+              112,
+              255
+            ],
+            "assignments": {}
+          }
+        }
+      }
+    ],
+    "next_node_id": 90002,
+    "next_group_key": 0
+  },
+  "lens_root": null,
+  "next_group_id": 1,
+  "next_tag_id": 1,
+  "next_item_id": 101
+}

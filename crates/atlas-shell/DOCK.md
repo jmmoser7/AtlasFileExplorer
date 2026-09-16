@@ -61,10 +61,25 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   dark mode and darker in light mode. Tune under **Host ↔ palette
   hover**. Single click on a pinned icon collapses that palette
   (unpin); double click still pins.
-- Hover **beside or below** the primary icon bar (arrow appears) and
-  click to collapse the bar into a **blister** on the readout. Pinned
-  palettes stay and drop down to fill the space. Hover the blister
-  (up-arrow) and click to redeploy.
+- A single **readout blister** sits on the canvas / readout seam,
+  with its shoulder endpoints exactly on that seam (or the window bottom
+  when readouts are hidden). The sink extends only the click target;
+  it never lowers the silhouette. Arrow size and lift stay within the
+  visible depth, including a two-pixel setting. The seam cover fades
+  with the fill and outline. The blister is
+  centered on the icon bar, and uses the top-bar tab silhouette
+  (`tabs::paint_tab_bubble`) plus the same accent stroke as an active
+  tab (`paint_tab_bubble_glow`). Fill is a theme RGB mixed toward the
+  host panel. Invisible until the pointer is beside / below the bar or
+  on the handle, then grows from zero depth with `hover_fade`.
+  With the icon bar open, it grows downward into the readouts with a
+  down arrow to collapse. With the icon bar collapsed, it grows upward
+  into the canvas with an up arrow to expand. When readouts are hidden,
+  both states grow into the canvas so the handle stays visible.
+  The hit region stays fixed throughout the animation. Hosted palettes use the same
+  fade when their icon is hovered. Tune under **Readout blister**.
+  Side / below zones still collapse the bar. Pinned palettes stay and
+  drop down.
 - Hover never joins the pinned stack. Volatile bodies retire after
   `close_delay` when abandoned, or on Escape / outside click.
 - Title chips are suppressed on pin/click until the pointer leaves, and never
@@ -82,20 +97,16 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   Icon-strip mode is **fieldset groups** of secondary circular icons at
   `flyout_icon_scale` (65% of the dock). Each group's **pallet** name
   (curves, ink, object snaps) sits in the top border of that frame.
-  One **horizontal rule** runs under every pallet in the flyout, the
-  width of those boxes, with the **category** (Shapes, Document
-  settings) centered in the line — not a pallet name, and not once
-  per box. When the pinned band no longer fits, icons wrap **inside**
+  Category labels and their underline are omitted beneath the flyout.
+  When the pinned band no longer fits, icons wrap **inside**
   a pallet as an accordion: a sideways row first, overflow stepping
   up. Every open category stacks one column in the same round so
   none overlap while another is still a single row. Pallets sit on
-  the category rule (the basedatum). Not a hex zigzag and not a
+  a common bottom datum. Not a hex zigzag and not a
   fair-share tower of one-icon boxes. Tertiary toggle
-  capsules stack two-high in the same vertical space as one secondary
-  icon, sharing that datum.   Pallet type (`group_label_size` / `pallet_label_lift`) and category
-  type (`category_label_size` / `group_label_lift`) tune separately;
-  their fills (`title` / `category`) are independent of the rule
-  stroke. The box stroke leaves a gap around the pallet name
+  dots stack two-high in the same vertical space as one secondary
+  icon, sharing that datum. Pallet type uses `group_label_size` /
+  `pallet_label_lift` and the `title` fill. The box stroke leaves a gap around the pallet name
   (`rule_text_gap`).
   Labeled icons (Object Snaps, grid…) use
   `labeled_text_size`. Hover chips lift by `hover_chip_gap`. Hover text for the dots appears in **one place**,
@@ -116,8 +127,13 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   pointer is on it. Copy to clipboard writes id + name;
   Duplicate (Slate) writes a new kit tool seeded from the card so a
   later edit can customize that portal type. Double-click still arms
-  the tool. Hidden tools stay off the main strip
-  (`ChromePrefs.panel_strip_hidden`). Drop to canvas journals a
+  the tool.   Hidden tools stay off the main strip
+  (`ChromePrefs.panel_strip_hidden`). Drag a catalog card onto its
+  home palette to add or reorder it: the strip fades into a
+  highlighted drop target and icons slide aside (iPhone-style) so
+  the tool can land in any slot. Slot order persists
+  (`ChromePrefs.panel_strip_order`). Escape cancels an in-flight
+  drop without closing Advanced. Drop to canvas journals a
   `DockStrip` node — a copy that does not pin, unpin, or replace the
   baseline dock; there is no limit on how many copies exist. A canvas
   copy is always an icon strip, so **both** presentations record their
@@ -128,7 +144,7 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   icon, **moves** the copy. Instant actions (join, grid, snaps, color
   swap) still fire on click. A canvas copy is the same fieldset strip
   as the docked flyout (`measure_icon_strip` / `paint_icon_strip_card`):
-  fieldset groups and one category rule, no second card around them.
+  fieldset groups, no category rule or second card around them.
   It is a contain-scaled poster of the docked intrinsic size
   — resizing the node does not reflow or shrink icons relative to each
   other. Selection / hover chrome follows the fieldset fillet
@@ -136,12 +152,26 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   anywhere in a strip's vicinity holds the leader back to that
   palette's primary icon so scanning between squircles does not flicker.
   Strip icons use the same name + linger-description chip as the primary
-  dock. Stacked-list **toggles** use sliding pills (`sidebar_icon_row`);
+  dock. Stacked-list **toggles** use dots (`sidebar_icon_row`);
   tools stay circular glyphs (`sidebar_tool_row`). White
   section headings, muted subsection labels, choice chips, segmented
   REACH, and subtle dividers.
 - Hover / selected icon fills are a subtle mix, not a full-opacity swap.
 - Pins persist across sessions via `ChromePrefs.pinned_panels` where wired.
+
+### Inspector forms and keyboard opening
+
+`DockItemKind::Inspector` hosts selection-dependent value editors through the
+same panel renderer. Its fields remain in a stacked form when tool palettes
+switch to icon strips. It offers Minimize / Close; Advanced and Drop describe
+tool catalogs and do not apply to a value editor. Inspectors do not take the
+dock-wide layout-toggle position away from a tool palette.
+
+Commands use `dock::panel_is_open` and `dock::set_panel_open` to open or close
+an existing body. Opening pins it so it stays available while the keyboard
+user moves to it. Requests apply after saved pins are restored; closing also
+clears that body's volatile and Advanced state. Apps decide icon availability
+separately and never read the dock's private egui state.
 
 ### Grouping rule (no visible separator)
 

@@ -16,6 +16,7 @@ use atlas_core::fsops::{self, FsOp, FsOpMsg, FsOpResult, FsOutcome};
 use atlas_core::index::{AssignState, Db, DbCmd, LoadedRoot};
 use atlas_core::journal::{Action, AssignVal, Journal, JournalEntry};
 use atlas_core::owners::{OwnerHandle, OwnerMsg};
+use atlas_core::pack_sheet::{PackedSheet, SheetSort};
 use atlas_core::scanner::{self, ScanHandle, ScanMsg};
 use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
 use atlas_core::timeline::{ActivityIndex, TimePicks};
@@ -42,6 +43,7 @@ use std::time::{Duration, Instant, SystemTime};
 mod chrome;
 mod commands;
 mod editprefs;
+mod folder_dialog;
 #[cfg(test)]
 mod tests;
 mod ui;
@@ -79,6 +81,15 @@ pub(crate) enum EditMode {
     #[default]
     View,
     Edit,
+}
+
+/// How the mapped folder is drawn. Tree is the tidy map; Packed is a
+/// flush contact sheet of thumbnail-able files (filters still apply).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum MapView {
+    #[default]
+    Tree,
+    Packed,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -720,6 +731,8 @@ pub struct AtlasApp {
     pub dock_icon_strips: Vec<String>,
     /// Tools hidden from each palette's icon strip (`palette → tool ids`).
     pub dock_strip_hidden: Vec<(String, Vec<String>)>,
+    /// Authored tool order on each palette strip (`palette → tool ids`).
+    pub dock_strip_order: Vec<(String, Vec<String>)>,
     /// Primary icon bar collapsed into the readout blister.
     pub dock_bar_collapsed: bool,
     /// Editing buffer for the never-scanned folder names (Advanced), one per
@@ -727,6 +740,11 @@ pub struct AtlasApp {
     /// text the user is typing, so it is not part of a workspace.
     pub(crate) skip_edit: String,
     filter_mode: FilterMode,
+    map_view: MapView,
+    sheet_sort: SheetSort,
+    /// Packed field width/height as a percent (100 = square).
+    sheet_aspect_pct: usize,
+    packed_sheet: Option<PackedSheet>,
     grid_cols: usize,
     portal_threshold: usize,
     align_groups_to_lowest: bool,
@@ -784,6 +802,10 @@ pub struct AtlasApp {
     /// `None` means the dialog was cancelled; `Some(vec)` may hold one or
     /// more folders to open on the same canvas.
     picker_rx: Option<(u64, Receiver<Option<Vec<PathBuf>>>)>,
+    /// Atlas window HWND, refreshed each frame so system pickers can own it.
+    /// Without an owner, Windows often opens `IFileOpenDialog` behind the
+    /// undecorated window and Atlas looks frozen.
+    dialog_owner: Option<folder_dialog::DialogOwner>,
     /// Export destination picker: bound to the root it was opened for, so a
     /// tab switch mid-dialog can't export another tab's staging.
     export_picker_rx: Option<(PathBuf, Receiver<Option<PathBuf>>)>,
@@ -1128,7 +1150,9 @@ impl TabState {
 
 impl AtlasApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_root: Option<PathBuf>) -> Self {
-        Self::with_db(&cc.egui_ctx, Db::open(), initial_root)
+        let mut app = Self::with_db(&cc.egui_ctx, Db::open(), initial_root);
+        app.dialog_owner = folder_dialog::DialogOwner::from_window(cc);
+        app
     }
 
     /// Construct Atlas for a linked Slate session: same app, plus a bridge
@@ -1218,9 +1242,14 @@ impl AtlasApp {
             dock_pins: chrome_prefs.pinned_panels,
             dock_icon_strips: chrome_prefs.panel_icon_strip,
             dock_strip_hidden: chrome_prefs.panel_strip_hidden,
+            dock_strip_order: chrome_prefs.panel_strip_order,
             dock_bar_collapsed: chrome_prefs.dock_bar_collapsed,
             skip_edit: skip_list_text(),
             filter_mode: FilterMode::Hide,
+            map_view: MapView::Tree,
+            sheet_sort: SheetSort::Name,
+            sheet_aspect_pct: 100,
+            packed_sheet: None,
             grid_cols: 10,
             portal_threshold: 100,
             align_groups_to_lowest: true,
@@ -1256,6 +1285,7 @@ impl AtlasApp {
             view_lod: 0,
             pending_load: None,
             picker_rx: None,
+            dialog_owner: None,
             export_picker_rx: None,
             search: String::new(),
             family_on: [fam_default; 10],
@@ -1440,15 +1470,16 @@ impl AtlasApp {
         if self.picker_rx.is_some() {
             return;
         }
+        // Stay on Home until a folder is chosen. Leaving first dumps the user
+        // on an empty tree if the picker is cancelled or opens behind Atlas.
         self.ensure_tab();
         let Some(tab_id) = self.tabs.get(tab_i).map(|t| t.id) else {
             return;
         };
+        let owner = self.dialog_owner;
         let (tx, rx) = unbounded();
         std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new()
-                .set_title("Choose folder(s) to map")
-                .pick_folders();
+            let picked = folder_dialog::pick_folders("Choose folder(s) to map", owner);
             let _ = tx.send(picked);
         });
         self.picker_rx = Some((tab_id, rx));
@@ -1460,11 +1491,13 @@ impl AtlasApp {
         if self.prewarm_picker_rx.is_some() {
             return;
         }
+        let owner = self.dialog_owner;
         let (tx, rx) = unbounded();
         std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new()
-                .set_title("Choose a folder to pre-warm (runs quietly in background)")
-                .pick_folder();
+            let picked = folder_dialog::pick_folder(
+                "Choose a folder to pre-warm (runs quietly in background)",
+                owner,
+            );
             let _ = tx.send(picked);
         });
         self.prewarm_picker_rx = Some(rx);
@@ -1829,6 +1862,7 @@ impl AtlasApp {
         self.rel_to_id = HashMap::new();
         self.textures = HashMap::new();
         self.tree = None;
+        self.packed_sheet = None;
         self.tree_dirty = false;
         self.tree_build_rx = None;
         self.dir_collapsed = HashMap::new();
@@ -4372,9 +4406,62 @@ impl AtlasApp {
                 self.structure_only,
             );
         }
+        self.rebuild_packed_sheet();
         self.bump_minimap();
         self.filter_dirty = false;
         self.auto_zoom_after_filter();
+    }
+
+    pub(crate) fn rebuild_packed_sheet(&mut self) {
+        let aspect = (self.sheet_aspect_pct.clamp(25, 400) as f32) / 100.0;
+        self.packed_sheet = Some(PackedSheet::build_with(
+            &self.entries,
+            &self.file_match,
+            self.sheet_sort,
+            self.tree.as_ref(),
+            self.portal_threshold,
+            aspect,
+        ));
+    }
+
+    pub(crate) fn set_map_view(&mut self, view: MapView) {
+        if self.map_view == view {
+            return;
+        }
+        self.map_view = view;
+        if view == MapView::Packed {
+            self.rebuild_packed_sheet();
+        }
+        self.bump_minimap();
+        self.pending_view = Some(ViewCmd::Fit);
+        self.push_history(
+            match view {
+                MapView::Tree => "view.layout.tree",
+                MapView::Packed => "view.layout.packed",
+            },
+            None,
+        );
+    }
+
+    pub(crate) fn set_sheet_sort(&mut self, sort: SheetSort) {
+        if self.sheet_sort == sort {
+            return;
+        }
+        self.sheet_sort = sort;
+        self.rebuild_packed_sheet();
+        self.bump_minimap();
+        self.push_history("view.sheet_sort", Some(sort.label().into()));
+    }
+
+    pub(crate) fn set_sheet_aspect_pct(&mut self, pct: usize) {
+        let pct = pct.clamp(25, 400);
+        if self.sheet_aspect_pct == pct {
+            return;
+        }
+        self.sheet_aspect_pct = pct;
+        self.rebuild_packed_sheet();
+        self.bump_minimap();
+        self.pending_view = Some(ViewCmd::Fit);
     }
 
     /// World bounds of every file still standing after the filter, ignoring the
@@ -4404,6 +4491,9 @@ impl AtlasApp {
     /// whole map when no filter is narrowing anything. `None` when there is
     /// nothing to frame.
     fn framed_bounds(&self) -> Option<Rect> {
+        if self.map_view == MapView::Packed {
+            return self.packed_sheet.as_ref().map(|s| s.bounds);
+        }
         match &self.tree {
             Some(t) if self.any_filter => self.match_bounds(t),
             // No filter: everything matches, so the honest frame is the map.
@@ -4801,11 +4891,10 @@ impl AtlasApp {
         let Some(root) = self.root.clone() else {
             return;
         };
+        let owner = self.dialog_owner;
         let (tx, rx) = unbounded();
         std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new()
-                .set_title("Choose export destination")
-                .pick_folder();
+            let picked = folder_dialog::pick_folder("Choose export destination", owner);
             let _ = tx.send(picked);
         });
         self.export_picker_rx = Some((root, rx));
@@ -4833,7 +4922,10 @@ impl AtlasApp {
 }
 
 impl eframe::App for AtlasApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if let Some(owner) = folder_dialog::DialogOwner::from_window(frame) {
+            self.dialog_owner = Some(owner);
+        }
         self.pump_frame(ctx);
     }
 }
@@ -4857,7 +4949,13 @@ impl AtlasApp {
                 thumbs_pending: self.thumbs_pending as u32,
                 extra: self.fs_backlog.len() as u32,
                 scan_active: self.scan_ui.is_some(),
-                view: if self.at_home { "home" } else { "tree" },
+                view: if self.at_home {
+                    "home"
+                } else if self.map_view == MapView::Packed {
+                    "packed"
+                } else {
+                    "tree"
+                },
                 tool: match self.edit_mode {
                     EditMode::View => "view",
                     EditMode::Edit => "edit",
@@ -5310,8 +5408,7 @@ impl AtlasApp {
             "app.new_tab" => self.home_new_workspace(),
             "app.fullscreen" => self.toggle_canvas_fullscreen(),
             "dock.bar.toggle" => {
-                let on =
-                    atlas_shell::dock::bar_collapsed(ctx, "file_atlas_tools").unwrap_or(false);
+                let on = atlas_shell::dock::bar_collapsed(ctx, "file_atlas_tools").unwrap_or(false);
                 atlas_shell::dock::set_bar_collapsed(ctx, "file_atlas_tools", !on);
                 self.dock_bar_collapsed = !on;
                 self.save_chrome_prefs();
@@ -5327,6 +5424,14 @@ impl AtlasApp {
             "atlas.mode_edit" => {
                 self.set_edit_mode(EditMode::Edit);
                 detail = Some("Edit".into());
+            }
+            "view.layout.tree" => {
+                self.set_map_view(MapView::Tree);
+                return;
+            }
+            "view.layout.packed" => {
+                self.set_map_view(MapView::Packed);
+                return;
             }
             "canvas.fit" => self.pending_view = Some(ViewCmd::Fit),
             "canvas.zoom_in" => self.zoom_at(self.canvas_rect.center(), 1.3),
@@ -5457,6 +5562,7 @@ impl AtlasApp {
             pinned_panels: self.dock_pins.clone(),
             panel_icon_strip: self.dock_icon_strips.clone(),
             panel_strip_hidden: self.dock_strip_hidden.clone(),
+            panel_strip_order: self.dock_strip_order.clone(),
             minimap: self.minimap_on,
             dock_bar_collapsed: self.dock_bar_collapsed,
         }
@@ -5561,24 +5667,31 @@ impl AtlasApp {
         self.focus_search_field = true;
     }
 
-    /// Tab / Shift+Tab: cycle the filtered `file_match` set in index order.
+    /// Tab / Shift+Tab: cycle the filtered set (sheet order in packed view).
     /// Selection is replaced; the camera pans (at the current zoom) only
     /// when the file is outside the comfortable view.
     fn cycle_match(&mut self, step: i32) {
-        let matched: Vec<u32> = self
-            .file_match
-            .iter()
-            .enumerate()
-            .filter(|&(i, &m)| m && self.entries.get(i).map(|e| !e.dead).unwrap_or(false))
-            .map(|(i, _)| i as u32)
-            .collect();
+        let matched: Vec<u32> = if self.map_view == MapView::Packed {
+            self.packed_sheet
+                .as_ref()
+                .map(|s| s.covers().collect())
+                .unwrap_or_default()
+        } else {
+            self.file_match
+                .iter()
+                .enumerate()
+                .filter(|&(i, &m)| m && self.entries.get(i).map(|e| !e.dead).unwrap_or(false))
+                .map(|(i, _)| i as u32)
+                .collect()
+        };
         if matched.is_empty() {
             return;
         }
         let cur = self
             .last_selected_file
             .filter(|f| self.selection.contains(f));
-        let next = match cur.and_then(|f| matched.binary_search(&f).ok()) {
+        let pos = cur.and_then(|f| matched.iter().position(|&id| id == f));
+        let next = match pos {
             Some(p) => {
                 let n = matched.len() as i32;
                 matched[(((p as i32 + step) % n + n) % n) as usize]
@@ -5590,25 +5703,34 @@ impl AtlasApp {
         self.selection.insert(next);
         self.last_selected_file = Some(next);
 
-        if let Some(t) = &self.tree {
-            if let Some(fp) = t.file_pos.get(next as usize) {
-                if fp.place != FilePlace::Hidden {
-                    let world = fp.rect();
-                    let screen = self.w2s_rect(world);
-                    let margin = 60.0f32
-                        .min(self.canvas_rect.width() * 0.25)
-                        .min(self.canvas_rect.height() * 0.25);
-                    let comfortable = self.canvas_rect.shrink(margin);
-                    if !comfortable.contains_rect(screen) {
-                        let z = self.cam.z;
-                        let c = world.center();
-                        let center = self.canvas_rect.center();
-                        self.fly_to(Camera {
-                            offset: Vec2::new(center.x - c.x * z, center.y - c.y * z),
-                            z,
-                        });
-                    }
-                }
+        let world = if self.map_view == MapView::Packed {
+            self.packed_sheet.as_ref().and_then(|s| {
+                s.tiles
+                    .iter()
+                    .position(|t| t.cover() == next)
+                    .and_then(|i| s.cell_rect(i))
+            })
+        } else {
+            self.tree.as_ref().and_then(|t| {
+                t.file_pos
+                    .get(next as usize)
+                    .and_then(|fp| (fp.place != FilePlace::Hidden).then_some(fp.rect()))
+            })
+        };
+        if let Some(world) = world {
+            let screen = self.w2s_rect(world);
+            let margin = 60.0f32
+                .min(self.canvas_rect.width() * 0.25)
+                .min(self.canvas_rect.height() * 0.25);
+            let comfortable = self.canvas_rect.shrink(margin);
+            if !comfortable.contains_rect(screen) {
+                let z = self.cam.z;
+                let c = world.center();
+                let center = self.canvas_rect.center();
+                self.fly_to(Camera {
+                    offset: Vec2::new(center.x - c.x * z, center.y - c.y * z),
+                    z,
+                });
             }
         }
     }
@@ -5783,7 +5905,6 @@ impl AtlasApp {
         let palette = self.palette();
         match self.home.show(ui, &palette, &self.recents) {
             Some(atlas_shell::home::HomeScreenAction::New) => {
-                self.home_new_workspace();
                 self.open_folder_dialog();
             }
             Some(atlas_shell::home::HomeScreenAction::Open(path)) => {
@@ -5858,6 +5979,11 @@ impl AtlasApp {
 
     /// Bounds of the mapped tree — what "fit" frames.
     fn map_bounds(&self, t: &Tree) -> Rect {
+        if self.map_view == MapView::Packed {
+            if let Some(sheet) = &self.packed_sheet {
+                return sheet.bounds;
+            }
+        }
         t.root_bounds()
     }
 
@@ -5883,6 +6009,10 @@ impl AtlasApp {
                 self.cam = self.cam_for_bounds(self.map_bounds(t), 1.2);
             }
             ViewCmd::Home => {
+                if self.map_view == MapView::Packed {
+                    self.cam = self.cam_for_bounds(self.map_bounds(t), 1.2);
+                    return;
+                }
                 // Opening view: root readable, thumbnails already visible.
                 let root = &t.dirs[0];
                 let z = 0.9;
@@ -6030,16 +6160,25 @@ impl AtlasApp {
         self.hovered_file = None;
         self.hovered_dir = None;
         self.hovered_dir_grip = None;
-        if let (Some(p), Some(t)) = (pointer, &self.tree) {
+        if let Some(p) = pointer {
             if rect.contains(p) && self.rubber_origin.is_none() {
-                let h = folder_map::hover_at(
-                    t,
-                    self.cam,
-                    p,
-                    self.orient,
-                    self.filter_mode == FilterMode::Hide && self.any_filter,
-                    self.structure_only,
-                );
+                let h = if self.map_view == MapView::Packed {
+                    self.packed_sheet
+                        .as_ref()
+                        .map(|sheet| folder_map::hover_sheet(sheet, self.cam, p))
+                        .unwrap_or_default()
+                } else if let Some(t) = &self.tree {
+                    folder_map::hover_at(
+                        t,
+                        self.cam,
+                        p,
+                        self.orient,
+                        self.filter_mode == FilterMode::Hide && self.any_filter,
+                        self.structure_only,
+                    )
+                } else {
+                    folder_map::MapHover::default()
+                };
                 self.hovered_file = h.file;
                 self.hovered_dir = h.dir;
                 self.hovered_dir_grip = h.grip;
@@ -6052,8 +6191,13 @@ impl AtlasApp {
         // cursor: dropping onto a thumbnail inside a folder still means that
         // folder, and the folder's whole rectangle is a target, not just its
         // header.
-        self.edit_drop_dir = match (self.edit_drag.is_some(), pointer, &self.tree) {
-            (true, Some(p), Some(t)) if rect.contains(p) => t.dir_at_point(self.s2w(p)),
+        self.edit_drop_dir = match (
+            self.map_view != MapView::Packed,
+            self.edit_drag.is_some(),
+            pointer,
+            &self.tree,
+        ) {
+            (true, true, Some(p), Some(t)) if rect.contains(p) => t.dir_at_point(self.s2w(p)),
             _ => None,
         };
 
@@ -6123,7 +6267,13 @@ impl AtlasApp {
                     root: &root,
                     lod,
                 };
-                folder_map::paint_tree(&painter, &tree, &mut args, &mut host);
+                if self.map_view == MapView::Packed {
+                    if let Some(sheet) = &self.packed_sheet {
+                        folder_map::paint_sheet(&painter, sheet, &mut args, &mut host);
+                    }
+                } else {
+                    folder_map::paint_tree(&painter, &tree, &mut args, &mut host);
+                }
             }
             self.tree = Some(tree);
         }
@@ -6222,7 +6372,11 @@ impl AtlasApp {
                         app.selection.clear();
                     }
                     let mut hits = Vec::new();
-                    if let Some(t) = &app.tree {
+                    if app.map_view == MapView::Packed {
+                        if let Some(sheet) = &app.packed_sheet {
+                            sheet.files_in_rect(world, &mut hits);
+                        }
+                    } else if let Some(t) = &app.tree {
                         t.files_in_rect(world, &mut hits);
                     }
                     for f in hits {
@@ -6651,12 +6805,14 @@ impl AtlasApp {
         ) else {
             return;
         };
-        match out {
-            ToggleOutcome::FlyTo(b) => {
-                self.pending_view = Some(ViewCmd::FlyToBounds(b));
-            }
-            ToggleOutcome::KeepNode { cam_delta } => {
-                self.cam.offset += cam_delta;
+        if self.map_view != MapView::Packed {
+            match out {
+                ToggleOutcome::FlyTo(b) => {
+                    self.pending_view = Some(ViewCmd::FlyToBounds(b));
+                }
+                ToggleOutcome::KeepNode { cam_delta } => {
+                    self.cam.offset += cam_delta;
+                }
             }
         }
         self.record_collapse_state();
@@ -6758,15 +6914,52 @@ impl AtlasApp {
     }
 
     /// Lower-right shared minimap overlay (M toggles; pinned flag persisted).
+    fn build_packed_minimap_model(&self, sheet: &PackedSheet) -> MinimapModel {
+        let palette = self.palette();
+        let fallback = palette.sub.gamma_multiply(0.7);
+        let mut blocks: Vec<(Rect, Color32)> = Vec::new();
+        if sheet.tiles.len() <= 30_000 {
+            for (i, tile) in sheet.tiles.iter().enumerate() {
+                let Some(cell) = sheet.cell_rect(i) else {
+                    continue;
+                };
+                let f = tile.cover();
+                let color = self
+                    .avg_color
+                    .get(f as usize)
+                    .copied()
+                    .flatten()
+                    .map(|[r, g, b]| Color32::from_rgb(r, g, b))
+                    .unwrap_or(fallback);
+                blocks.push((cell, color));
+            }
+        } else {
+            blocks.push((sheet.bounds, palette.sub.gamma_multiply(0.25)));
+        }
+        MinimapModel {
+            bounds: sheet.bounds,
+            blocks,
+            viewport: Rect::NOTHING,
+            generation: self.minimap_generation,
+        }
+    }
+
     fn draw_minimap(&mut self, ui: &mut egui::Ui, rect: Rect) {
         // Tree gone (tab switching / reload): never paint a stale model.
         if !self.minimap_on || self.tree.is_none() {
             return;
         }
         if self.minimap_model.is_none() {
-            let t = self.tree.take().unwrap();
-            self.minimap_model = Some(self.build_minimap_model(&t));
-            self.tree = Some(t);
+            if self.map_view == MapView::Packed {
+                if let Some(sheet) = &self.packed_sheet {
+                    self.minimap_model = Some(self.build_packed_minimap_model(sheet));
+                }
+            }
+            if self.minimap_model.is_none() {
+                let t = self.tree.take().unwrap();
+                self.minimap_model = Some(self.build_minimap_model(&t));
+                self.tree = Some(t);
+            }
         }
         let world_view = Rect::from_min_max(self.s2w(rect.min), self.s2w(rect.max));
         if let Some(model) = &mut self.minimap_model {

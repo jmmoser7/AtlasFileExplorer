@@ -1,0 +1,110 @@
+{
+  "app": "slate",
+  "pid": 40040,
+  "started_unix": 1789481436,
+  "persist": true,
+  "log_path": "C:\\Users\\jmoser\\AppData\\Local\\NativeFileAtlas\\session-log\\slate.jsonl",
+  "latest_path": "C:\\Users\\jmoser\\AppData\\Local\\NativeFileAtlas\\session-log\\slate-latest.json",
+  "frame": {
+    "n": 180,
+    "app_mean_ms": 26.180883,
+    "app_max_ms": 72.44981,
+    "p95_ms": 67.0635,
+    "max_ms": 82.5253,
+    "dropped": 169
+  },
+  "now": {
+    "entries": 100,
+    "nodes": 10000,
+    "selected": 1,
+    "thumbs_pending": 0,
+    "extra": 0,
+    "scan_active": false,
+    "view": "board",
+    "tool": "Select",
+    "last_stall_app_ms": 54.1243
+  },
+  "last_stalls": [
+    {
+      "unix_ms": 1789482327133,
+      "app_ms": 54.1243,
+      "delivered_ms": 65.4068,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:38.5,slate.canvas:38.5",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482327072,
+      "app_ms": 59.0385,
+      "delivered_ms": 58.0818,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:44.5,slate.canvas:44.5",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482327005,
+      "app_ms": 49.997097,
+      "delivered_ms": 67.589096,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:35.0,slate.canvas:35.0",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482326945,
+      "app_ms": 57.9366,
+      "delivered_ms": 67.0635,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:38.0,slate.canvas:38.0",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482326877,
+      "app_ms": 56.643097,
+      "delivered_ms": 65.0625,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:44.7,slate.canvas:44.7",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482326810,
+      "app_ms": 54.4432,
+      "delivered_ms": 56.7329,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:39.4,slate.canvas:39.5",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482326742,
+      "app_ms": 42.973,
+      "delivered_ms": 63.569,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:32.9,slate.canvas:32.9",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482326685,
+      "app_ms": 50.2321,
+      "delivered_ms": 82.5253,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:40.9,slate.canvas:41.0",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    }
+  ],
+  "marks": []
+}

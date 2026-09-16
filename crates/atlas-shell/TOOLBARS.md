@@ -28,37 +28,48 @@ behind (single-click) or beneath (pinned). Close-delay must not keep a
 name chip up just because the pointer is still "inside" the dock.
 Chip fill uses `HOVER_CHIP_OPACITY` so the canvas stays readable underneath.
 
-**Body layout:** every pinned (and volatile) palette shares one dock-wide
+**Body layout:** every pinned (and volatile) tool palette shares one dock-wide
 choice — stacked list or free-space icon strip. Minimize, Advanced, and
 Drop sit on every palette; the layout toggle sits only on the last
 palette along the dock. Hover labels appear in one place, centered above
 the dots. Icon-strip mode uses fieldset groups of secondary circular
-icons; each pallet is named in its top border, and one category
-underscore runs under all palettes in that flyout. Tertiary toggles
+icons; each pallet is named in its top border, with no category
+label or underscore beneath the flyout. Tertiary dot toggles
 stack two-high on the same datum as one icon.
 Advanced fills the screen with a tinted catalog canvas of every tool.
 The camera is the same as File Atlas / Slate (right-drag pans, wheel
 zooms). Card actions live on right-click and hover-linger (Add / Remove
 from toolbar, Copy to clipboard, Duplicate, Use) — linger yields to an
-open context menu.
+open context menu. Drag a card onto that palette's quick-access strip
+to place it: the home pallet highlights and icons rearrange under the
+pointer; drop commits the slot (`panel_strip_order`). A short lift
+is still a click (select). Escape cancels the drop.
 Drop to canvas (Slate) journals a
 `DockStrip` copy on the board; File Atlas ignores that dot. A click on
 a canvas-copy icon arms the command; click-hold-drag anywhere on that
 node moves the copy (`P1.dock-strip`). The copy paints through the same
-`dock` strip as the flyout (fieldset + category rule, contain-scale, no
+`dock` strip as the flyout (fieldset, contain-scale, no
 second card). Hover is bidirectional: the host icon lights its palettes and a
 hovered palette lights its host (darker in light mode, lighter in
 dark). Hover beside or below the icon bar and click to collapse it
 into a blister on the readout; pinned palettes stay and drop down. Strip squircles are `flyout_icon_scale` of the primary
 dock icons and use the
-same hover chip. Stacked-list **toggles** use pills (`sidebar_icon_row`);
+same hover chip. Stacked-list **toggles** use dots (`sidebar_icon_row`);
 tools use `sidebar_tool_row`. Primary-icon name chips paint *after* panels on the Tooltip
 layer so they never hide behind a pinned toolbar.
 
+Selection-dependent **Inspector** bodies use the same dock panel chrome but
+keep their editable fields in form layout in either dock mode. They offer
+Minimize / Close only, and do not own the tool palettes' layout-toggle dot.
+Keyboard commands open an inspector as a pin through the shared dock API;
+the body stays open while the user moves the pointer to its controls.
+
 **Icon fill:** hover and selected / pinned states are a barely-perceptible
-mix toward the hover/active tokens (`ICON_HOVER_MIX` / `ICON_ACTIVE_MIX` in
-`dock.rs`), not a full-opacity fill swap. A **pinned** icon's outline is
-denser than an undeployed one (`pinned_stroke` / `pinned_tint`).
+mix toward the hover/active tokens (`icon_hover_fill` / `ICON_ACTIVE_MIX`),
+not a full-opacity fill swap. Hover fill and tint are tuners under
+**Primary icon hover**; fade is shared with the readout blister. A
+**pinned** icon's outline is denser than an undeployed one
+(`pinned_stroke` / `pinned_tint`).
 
 ## Sizing & subsections
 

@@ -15,6 +15,16 @@ use crate::view::ViewState;
 /// Canonical file extension for Slate workbooks (without the leading dot).
 pub const SLATE_EXTENSION: &str = "slate";
 
+/// Runtime invalidation only; it is not authored document content.
+#[derive(Debug, Clone, Default)]
+struct ItemPathsRevision(u64);
+
+impl PartialEq for ItemPathsRevision {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
 /// A `.slate` workbook: links to files, facet tag groups, and persisted view state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SlateDoc {
@@ -22,6 +32,8 @@ pub struct SlateDoc {
     pub name: String,
     pub groups: Vec<TagGroup>,
     pub items: Vec<SlateItem>,
+    #[serde(skip)]
+    item_paths_revision: ItemPathsRevision,
     pub view: ViewState,
     /// The authored board (frames, shapes, text, placed images). Serialized
     /// with the workbook; absent in pre-board documents (defaults empty).
@@ -49,6 +61,7 @@ impl SlateDoc {
             name: name.into(),
             groups: Vec::new(),
             items: Vec::new(),
+            item_paths_revision: ItemPathsRevision::default(),
             view: ViewState::default(),
             scene: Scene::default(),
             lens_root: None,
@@ -193,6 +206,7 @@ impl SlateDoc {
             pdf_page,
             assignments: BTreeMap::new(),
         });
+        self.mark_item_paths_changed();
         id
     }
 
@@ -215,12 +229,24 @@ impl SlateDoc {
             return false;
         };
         self.items.remove(idx);
+        self.mark_item_paths_changed();
         true
     }
 
     /// Borrows an item by id.
     pub fn item(&self, id: ItemId) -> Option<&SlateItem> {
         self.items.iter().find(|item| item.id == id)
+    }
+
+    /// Changes only when linked paths/membership change, never for scene drags.
+    pub fn item_paths_revision(&self) -> u64 {
+        self.item_paths_revision.0
+    }
+
+    /// Call after directly replacing public `items` or editing their paths.
+    /// The normal add/remove/relink methods do this automatically.
+    pub fn mark_item_paths_changed(&mut self) {
+        self.item_paths_revision.0 = self.item_paths_revision.0.wrapping_add(1);
     }
 
     /// Assigns a tag to an item, replacing any existing tag from the same group.
@@ -357,6 +383,7 @@ impl SlateDoc {
         };
         item.path = new_path;
         item.file_name = file_name;
+        self.mark_item_paths_changed();
         true
     }
 
@@ -399,6 +426,42 @@ mod tests {
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn link_revision_tracks_sources_but_not_authored_equality_or_scene_edits() {
+        let mut doc = SlateDoc::new("links");
+        let initial = doc.item_paths_revision();
+        let id = doc.add_item("old.txt".into(), "old.txt", 0, 0, "");
+        assert_ne!(doc.item_paths_revision(), initial);
+        let added = doc.item_paths_revision();
+        assert_eq!(doc.add_item("old.txt".into(), "old.txt", 0, 0, ""), id);
+        doc.scene.build_node(
+            crate::scene::WorldRect {
+                x: 0.0,
+                y: 0.0,
+                w: 10.0,
+                h: 10.0,
+            },
+            crate::scene::NodeKind::Shape(crate::scene::ShapeNode {
+                shape: crate::scene::ShapeKind::Rect,
+                fill: None,
+                stroke: Default::default(),
+                corner: Default::default(),
+                flip: false,
+                path: None,
+            }),
+        );
+        assert_eq!(doc.item_paths_revision(), added);
+        assert!(doc.relink(id, "new.txt".into()));
+        assert_ne!(doc.item_paths_revision(), added);
+        let json = serde_json::to_string(&doc).unwrap();
+        assert!(!json.contains("item_paths_revision"));
+        let loaded: SlateDoc = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded, doc);
+        let relinked = doc.item_paths_revision();
+        assert!(doc.remove_item(id));
+        assert_ne!(doc.item_paths_revision(), relinked);
+    }
 
     fn unique_temp_dir(prefix: &str) -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);

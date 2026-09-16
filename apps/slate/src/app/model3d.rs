@@ -384,7 +384,13 @@ pub fn aspect_q(w: f32, h: f32) -> u32 {
 
 /// One poster per (model file, camera pose, node aspect).
 pub fn poster_file_name(cache_key: &str, cam: &ModelCamera, aspect_q: u32) -> String {
-    format!("{cache_key}-{:016x}-a{aspect_q}.png", cam.cache_hash())
+    // Mesh extraction has its own cache version: adding TL_Brep support
+    // must invalidate partial-model posters without flushing file thumbnails.
+    const CACHE_KEY_VERSION: u32 = 1;
+    format!(
+        "v{CACHE_KEY_VERSION}-{cache_key}-{:016x}-a{aspect_q}.png",
+        cam.cache_hash()
+    )
 }
 
 pub fn poster_path(cache_key: &str, cam: &ModelCamera, aspect_q: u32) -> PathBuf {
@@ -482,6 +488,11 @@ fn parse_with_progress(path: &Path, progress: &ParseProgress) -> Result<rhino_me
 }
 
 fn read_counted(path: &Path, progress: &ParseProgress) -> std::io::Result<Vec<u8>> {
+    if atlas_core::cloud::is_dehydrated(path) {
+        return Err(std::io::Error::other(
+            "Model is cloud-only or unavailable. Make it available locally, then unlock again.",
+        ));
+    }
     let mut file = std::fs::File::open(path)?;
     let total = file.metadata()?.len();
     progress.set_total(total);
@@ -531,6 +542,14 @@ pub struct LiveViewport {
     pub measure_preview: Option<[f32; 3]>,
     /// Completed measurements this live session (cleared on lock).
     pub measures: Vec<DistanceMeasurement>,
+}
+
+impl LiveViewport {
+    fn idle(&self) -> bool {
+        // Loading is not inactivity. Give the user a full idle interval
+        // after the first successful frame, even on a slow source.
+        self.tex.is_some() && self.last_interact.elapsed() >= AUTO_LOCK
+    }
 }
 
 struct GpuEntry {
@@ -824,6 +843,14 @@ impl SlateApp {
             };
             self.lock_model(oldest);
         }
+        // Explicit activation is also retry: a file saved with meshes after
+        // an earlier failure must not remain stuck until Slate restarts.
+        if matches!(
+            self.model3d.models.get(&info.cache_key).map(|e| &e.state),
+            Some(ModelState::Failed(_))
+        ) {
+            self.model3d.models.remove(&info.cache_key);
+        }
         self.model3d.request_model(&info.cache_key, &info.path);
         // Resolve now if bounds are already known; otherwise the first
         // rendered frame resolves it.
@@ -869,14 +896,23 @@ impl SlateApp {
         // Render the final pose at poster quality and cache it on disk.
         let cam = vp.cam;
         if cam.distance > 0.0 {
+            let aq = aspect_q(info.rect.w, info.rect.h);
+            let name = poster_file_name(&info.cache_key, &cam, aq);
+            // Keep the displayed frame alive throughout the transition,
+            // including a failed high-resolution render or disk write.
+            if let Some(tex) = vp.tex {
+                self.model3d.posters.insert(name.clone(), tex);
+            }
             if let Some(gl) = self.gl.clone() {
-                let aq = aspect_q(info.rect.w, info.rect.h);
                 let (pw, ph) = poster_size(aq);
                 if let Some(img) = self
                     .model3d
                     .render_image(&gl, &info.cache_key, &cam, pw, ph)
                 {
                     save_poster(&poster_path(&info.cache_key, &cam, aq), &img);
+                    if let Some(tex) = self.model3d.posters.get_mut(&name) {
+                        tex.set(img, egui::TextureOptions::LINEAR);
+                    }
                     self.model3d.want_poster.remove(&id);
                 }
             }
@@ -925,7 +961,7 @@ impl SlateApp {
             .model3d
             .live
             .iter()
-            .filter(|(_, v)| v.last_interact.elapsed() >= AUTO_LOCK)
+            .filter(|(_, v)| v.idle())
             .map(|(id, _)| *id)
             .collect();
         for id in idle {
@@ -1073,6 +1109,7 @@ impl SlateApp {
             match &mut vp.tex {
                 Some(tex) => tex.set(img, egui::TextureOptions::LINEAR),
                 None => {
+                    vp.last_interact = Instant::now();
                     vp.tex = Some(ctx.load_texture(
                         format!("slate-model-live-{}", id.0),
                         img,
@@ -1687,7 +1724,205 @@ fn bytemuck_u32_slice(v: &[u32]) -> &[u8] {
 
 #[cfg(test)]
 mod tests {
+    use super::super::tests::Harness;
     use super::*;
+
+    fn live_model(tag: &str) -> (Harness, NodeId) {
+        let mut h = Harness::new(tag);
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        let source = h.base.join("model.3dm");
+        std::fs::write(
+            &source,
+            include_bytes!(
+                "../../../../crates/rhino-mesh/tests/fixtures/brep_with_render_mesh.3dm"
+            ),
+        )
+        .unwrap();
+        let model = rhino_mesh::read_render_meshes(&source).unwrap();
+        let items = h.app.add_paths(&[source]);
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        h.app.place_items_on_board(&items, egui::Pos2::ZERO);
+        let id = h.app.doc().scene.nodes.last().unwrap().id;
+        let info = h.app.model_node_info(id).unwrap();
+        h.app.zoom_to_rect(info.rect);
+        h.frame();
+        let cam = resolve_camera(&info.cam, model.bounds_min, model.bounds_max);
+        h.app.model3d.live.insert(
+            id,
+            LiveViewport {
+                cache_key: info.cache_key,
+                cam,
+                before: info.cam,
+                last_interact: Instant::now(),
+                tex: Some(h.ctx.load_texture(
+                    "test-model-frame",
+                    egui::ColorImage::new([2, 2], egui::Color32::RED),
+                    Default::default(),
+                )),
+                rendered: Some((cam.cache_hash(), 2, 2)),
+                radius: bounds_sphere(model.bounds_min, model.bounds_max).1,
+                toolbar_expanded: false,
+                tool: ModelViewportTool::Navigate,
+                measure_first: None,
+                measure_preview: None,
+                measures: Vec::new(),
+            },
+        );
+        (h, id)
+    }
+
+    #[test]
+    fn model_input_routes_orbit_pan_and_zoom_without_moving_the_board() {
+        let (mut h, id) = live_model("model_input");
+        let rect = h.app.doc().scene.node(id).unwrap().rect;
+        let board_cam = h.app.tab().cam;
+        let start = h.app.canvas_rect.center();
+        let world = h.app.board_xf().s2w(start);
+        assert_eq!(h.app.live_model_at(world.x, world.y), Some(id));
+        assert_eq!(h.app.board_tool, super::super::board::BoardTool::Select);
+        // egui Areas settle their size across initial passes; the live
+        // toolbar must have its final hit rect before the pointer presses.
+        for _ in 0..3 {
+            h.frame_with(|input| input.events.push(egui::Event::PointerMoved(start)));
+        }
+        for pan in [false, true] {
+            let before = h.app.model3d.live[&id].cam;
+            let modifiers = egui::Modifiers {
+                shift: pan,
+                ..Default::default()
+            };
+            h.frame_with(|input| {
+                input.modifiers = modifiers;
+                input.events.push(egui::Event::PointerMoved(start));
+                input.events.push(egui::Event::PointerButton {
+                    pos: start,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers,
+                });
+            });
+            for dx in [20.0, 60.0] {
+                h.frame_with(|input| {
+                    input.modifiers = modifiers;
+                    input
+                        .events
+                        .push(egui::Event::PointerMoved(start + egui::vec2(dx, 20.0)));
+                });
+                assert!(
+                    matches!(
+                        h.app.board_drag,
+                        Some(super::super::board::BoardDrag::ModelOrbit { .. })
+                    ),
+                    "drag routing: {:?}, align={}, pointer={:?}, canvas={:?}",
+                    h.app.board_drag.as_ref().map(std::mem::discriminant),
+                    h.app.board_align_eat_press,
+                    h.ctx.pointer_hover_pos(),
+                    h.app.canvas_rect
+                );
+            }
+            h.frame_with(|input| {
+                input.modifiers = modifiers;
+                input.events.push(egui::Event::PointerButton {
+                    pos: start + egui::vec2(60.0, 20.0),
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers,
+                });
+            });
+            let after = h.app.model3d.live[&id].cam;
+            if pan {
+                assert_ne!(after.target, before.target, "Shift+drag pans the model");
+                assert_eq!((after.yaw, after.pitch), (before.yaw, before.pitch));
+            } else {
+                assert_ne!(after.yaw, before.yaw, "drag orbits the model");
+                assert_eq!(after.target, before.target);
+            }
+        }
+        let distance = h.app.model3d.live[&id].cam.distance;
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(start));
+            input.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, 50.0),
+                modifiers: Default::default(),
+            });
+        });
+        assert_ne!(h.app.model3d.live[&id].cam.distance, distance);
+        assert_eq!(h.app.doc().scene.node(id).unwrap().rect, rect);
+        assert_eq!(h.app.tab().cam.offset, board_cam.offset);
+        assert_eq!(h.app.tab().cam.z, board_cam.z);
+    }
+
+    #[test]
+    fn freezing_keeps_the_displayed_frame_and_journals_the_camera_without_gl() {
+        let (mut h, id) = live_model("model_freeze");
+        h.app.model_drag(id, 40.0, 20.0, false, 600.0);
+        let cam = h.app.model3d.live[&id].cam;
+        let texture = h.app.model3d.live[&id].tex.as_ref().unwrap().id();
+        h.app.lock_model(id);
+        let info = h.app.model_node_info(id).unwrap();
+        assert_eq!(info.cam, cam);
+        assert!(!h.app.model3d.live.contains_key(&id));
+        assert_eq!(
+            h.app.model_poster_texture(&h.ctx, &info).unwrap().id(),
+            texture
+        );
+        h.app.board_undo();
+        assert_eq!(
+            h.app.model_node_info(id).unwrap().cam,
+            ModelCamera::default()
+        );
+    }
+
+    #[test]
+    fn loading_does_not_consume_the_model_idle_interval() {
+        let (mut h, id) = live_model("model_idle");
+        let vp = h.app.model3d.live.get_mut(&id).unwrap();
+        vp.last_interact = Instant::now() - AUTO_LOCK - Duration::from_secs(1);
+        let tex = vp.tex.take();
+        assert!(!vp.idle());
+        vp.tex = tex;
+        assert!(vp.idle());
+        vp.last_interact = Instant::now();
+        assert!(!vp.idle());
+    }
+
+    #[test]
+    fn saving_and_changing_tabs_preserve_live_model_cameras() {
+        let (mut h, id) = live_model("model_save");
+        h.app.model_drag(id, 40.0, 20.0, true, 600.0);
+        let cam = h.app.model3d.live[&id].cam;
+        let tab_id = h.app.tab().id;
+        let path = h.base.join("model-view.slate");
+        h.app.save_doc_to(tab_id, path.clone());
+        assert!(h.app.model3d.live.is_empty());
+        assert_eq!(h.app.model_node_info(id).unwrap().cam, cam);
+        assert!(!h.app.tab().dirty);
+        let restored = slate_doc::SlateDoc::load_from(&path).unwrap();
+        let NodeKind::Image(restored_image) = &restored.scene.node(id).unwrap().kind else {
+            panic!("saved model node");
+        };
+        assert_eq!(restored_image.model, cam);
+
+        let (mut h, id) = live_model("model_new_tab");
+        h.app.model_drag(id, 40.0, 20.0, false, 600.0);
+        let cam = h.app.model3d.live[&id].cam;
+        h.app.tab_mut().dirty = false;
+        h.app.close_tab(h.app.active_tab);
+        assert!(
+            !h.app.tabs.is_empty(),
+            "closing must notice an unsaved live pose"
+        );
+        assert_eq!(h.app.model_node_info(id).unwrap().cam, cam);
+        let (mut h, id) = live_model("model_new_tab_live");
+        h.app.model_drag(id, 20.0, 10.0, false, 600.0);
+        let cam = h.app.model3d.live[&id].cam;
+        h.app.new_tab();
+        assert!(h.app.model3d.live.is_empty());
+        h.app.switch_tab(0);
+        assert_eq!(h.app.model_node_info(id).unwrap().cam, cam);
+    }
 
     fn cam(yaw: f32, pitch: f32, distance: f32) -> ModelCamera {
         ModelCamera {

@@ -1,0 +1,47 @@
+{
+  "source": "C:/Users/jmoser/Downloads/Untitled.3dm",
+  "bytes": 2752208,
+  "sha256": "0fbed6ec3bd3743fb2908492382d5b86da905212fe2bbef54bc7b7297cf53e7e",
+  "reference_library": "rhino3dm 8.35.0 (WASM)",
+  "archive_version": 80,
+  "objects": 71,
+  "geometry_types": {
+    "Brep": 71
+  },
+  "brep_faces": 423,
+  "cached_mesh_counts": {
+    "brep_render_meshes": 423
+  },
+  "render_mesh_geometry": {
+    "vertices": 26718,
+    "triangles": 27390,
+    "bounds_min": [
+      -23500,
+      -17500,
+      -550
+    ],
+    "bounds_max": [
+      23500,
+      17500,
+      12690
+    ]
+  },
+  "layer_count": 1,
+  "instance_definition_count": 0,
+  "object_visibility": {
+    "true": 71
+  },
+  "hidden_layers": 0,
+  "bounds_min": [
+    -23970.000000000007,
+    -17850.000000000004,
+    -550
+  ],
+  "bounds_max": [
+    23970.000000000007,
+    17850.000000000004,
+    12693.160567511306
+  ],
+  "units": "Millimeters",
+  "read_and_inventory_ms": 167.039
+}

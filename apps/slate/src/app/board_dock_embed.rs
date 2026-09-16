@@ -48,11 +48,7 @@ impl SlateApp {
         let items = palette_strip_items(
             self,
             palette_id,
-            if visible.is_empty() {
-                &[]
-            } else {
-                &visible
-            },
+            if visible.is_empty() { &[] } else { &visible },
         );
         if visible.is_empty() {
             visible = items.iter().map(|it| it.id.to_string()).collect();

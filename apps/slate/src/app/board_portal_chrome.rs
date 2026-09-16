@@ -15,6 +15,9 @@ use slate_doc::scene::{NodeId, NodeKind, PortalKind, PortalNode, WorldRect};
 use super::board::{self, rgba32, BoardXf};
 use super::SlateApp;
 
+/// Keep controls available briefly after page interaction, without changing its viewport.
+const WEB_CHROME_IDLE_SECS: f64 = 1.2;
+
 /// Derived chrome for every portal on the board.
 #[derive(Default)]
 pub struct PortalChrome {
@@ -39,6 +42,48 @@ pub struct PortalChromeLayout {
 }
 
 impl PortalChromeLayout {
+    /// Web chrome is an overlay. Paint and input call this same visibility policy.
+    pub(crate) fn retract_when_idle(&mut self, ctx: &egui::Context, id: NodeId, focused: bool) {
+        let (now, over, active, top) = ctx.input(|i| {
+            let over = i
+                .pointer
+                .hover_pos()
+                .is_some_and(|p| self.frame.contains(p));
+            let top = i.pointer.hover_pos().is_some_and(|p| {
+                self.bar.or(self.reveal).is_some_and(|r| r.contains(p)) || self.maximize.contains(p)
+            });
+            let active = over
+                && (i.pointer.delta() != egui::Vec2::ZERO
+                    || i.pointer.any_down()
+                    || i.raw_scroll_delta != egui::Vec2::ZERO)
+                || focused
+                    && i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
+                        )
+                    });
+            (i.time, over, active, top)
+        });
+        let key = egui::Id::new(("web_chrome_activity", id.0));
+        let last = ctx.data_mut(|d| {
+            if active || top {
+                d.insert_temp(key, now);
+            }
+            d.get_temp::<f64>(key)
+        });
+        let remaining = last.map_or(0.0, |t| WEB_CHROME_IDLE_SECS - (now - t));
+        if top || (over && remaining > 0.0) {
+            if !top {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(remaining));
+            }
+        } else {
+            self.bar = None;
+            self.reveal = None;
+            self.maximize = Rect::NOTHING;
+        }
+    }
+
     pub fn pointer_on_chrome(&self, p: Pos2) -> bool {
         self.bar.is_some_and(|r| r.contains(p))
             || self.reveal.is_some_and(|r| r.contains(p))
@@ -194,11 +239,8 @@ pub fn layout_portal_chrome(
         frame.left_top(),
         Pos2::new(frame.right(), frame.top() + tab_h),
     );
-    let body = if frame.height() <= tab_h + 4.0 {
-        Rect::from_min_max(bar.left_bottom(), bar.left_bottom())
-    } else {
-        Rect::from_min_max(Pos2::new(frame.left(), bar.bottom()), frame.right_bottom())
-    };
+    // Chrome overlays the page; revealing it must never resize the browser.
+    let body = frame;
     let page = Rect::from_min_max(
         Pos2::new(body.left() + border, body.top()),
         Pos2::new(body.right() - border, body.bottom() - border),
@@ -458,6 +500,15 @@ impl SlateApp {
                 self.portal_chrome.chrome_collapsed.remove(&id);
             }
         }
+        let reveal = self.contents_focused() == Some(id)
+            || self.portal_is_maximized(id)
+            || ui
+                .ctx()
+                .pointer_latest_pos()
+                .is_some_and(|p| layout.frame.contains(p));
+        if portal.kind == PortalKind::Agent && !reveal {
+            return;
+        }
         if tabs::portal_maximize_button(
             ui,
             &palette,
@@ -532,7 +583,7 @@ impl SlateApp {
         let edge_hover = painter.ctx().pointer_latest_pos().is_some_and(|p| {
             layout.frame.expand(hit).contains(p) && !layout.frame.shrink(hit).contains(p)
         });
-        if !focused && !edge_hover {
+        if !focused && (!edge_hover || !self.settings.hover_highlight("portal")) {
             return;
         }
         let width = if focused { 2.0_f32 } else { 1.0_f32 } * z;
@@ -561,7 +612,10 @@ impl SlateApp {
         let screen = ui.max_rect();
         self.canvas_rect = screen;
         let collapsed = self.portal_chrome_collapsed(id);
-        let layout = layout_for_portal(portal.kind, screen, collapsed, true, 1.0);
+        let mut layout = layout_for_portal(portal.kind, screen, collapsed, true, 1.0);
+        if portal.kind == PortalKind::Web {
+            layout.retract_when_idle(ui.ctx(), id, self.web.focused == Some(id));
+        }
         let pointer = ui.ctx().pointer_latest_pos();
         let restore = ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
             && pointer.is_some_and(|p| layout.maximize.contains(p));
@@ -588,6 +642,7 @@ impl SlateApp {
             }
             PortalKind::FileAtlas => {
                 let xf = fit_xf(node.rect, layout.body);
+                self.atlas_input_frame(ui, &xf, pointer);
                 self.paint_atlas_portal(ui, &painter, &xf, &node, &portal);
             }
         }
@@ -667,7 +722,7 @@ mod tests {
     }
 
     #[test]
-    fn expanded_layout_reserves_a_tab_bar() {
+    fn expanded_layout_overlays_a_tab_bar_without_resizing_the_page() {
         let frame = Rect::from_min_max(pos2(10.0, 20.0), pos2(410.0, 320.0));
         let layout = layout_portal_chrome(frame, false, false, 1.0);
         let bar = layout.bar.expect("tab bar");
@@ -683,7 +738,11 @@ mod tests {
             "web tab {} should be slimmer than the dashboard bar {dashboard}",
             bar.height()
         );
-        assert!(layout.body.top() >= bar.bottom() - 0.5);
+        assert_eq!(layout.body, frame);
+        assert_eq!(
+            layout.body,
+            layout_portal_chrome(frame, true, false, 1.0).body
+        );
         assert!(layout.reveal.is_none());
     }
 
@@ -696,6 +755,36 @@ mod tests {
         let bar_half = half.bar.expect("tab");
         assert!((bar_half.height() - bar_full.height() * 0.5).abs() < 0.05);
         assert!((half.radius - full.radius * 0.5).abs() < 0.05);
+    }
+
+    #[test]
+    fn idle_web_chrome_retracts_without_changing_page_or_stealing_input() {
+        let ctx = egui::Context::default();
+        let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
+        let run = |time, pointer, moved| {
+            let mut input = egui::RawInput {
+                time: Some(time),
+                ..Default::default()
+            };
+            if moved {
+                input.events.push(egui::Event::PointerMoved(pointer));
+            }
+            let mut result = layout_portal_chrome(frame, false, false, 1.0);
+            let _ = ctx.run(input, |ctx| {
+                result.retract_when_idle(ctx, NodeId(99), false)
+            });
+            result
+        };
+        let shown = run(1.0, pos2(100.0, 100.0), true);
+        assert!(shown.bar.is_some());
+        let hidden = run(3.0, pos2(100.0, 100.0), false);
+        assert!(hidden.bar.is_none());
+        assert!(!hidden.pointer_on_chrome(pos2(200.0, 2.0)));
+        assert_eq!(shown.body, hidden.body);
+        assert_eq!(shown.page, hidden.page);
+        let revealed = run(4.0, pos2(100.0, 2.0), true);
+        assert!(revealed.bar.is_some());
+        assert_eq!(revealed.body, frame);
     }
 
     #[test]

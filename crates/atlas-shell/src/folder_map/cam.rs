@@ -34,6 +34,16 @@ impl FolderCam {
         Rect::from_min_max(self.w2s(r.min), self.w2s(r.max))
     }
 
+    /// Compose a local view with its host surface (e.g. a portal on a board).
+    /// The local camera stays unchanged; paint and screen hit tests use this
+    /// composed camera, including its scale for LOD and pointer hit slop.
+    pub fn in_parent(self, parent: Self) -> Self {
+        Self {
+            offset: parent.w2s(self.offset.to_pos2()).to_vec2(),
+            z: self.z * parent.z,
+        }
+    }
+
     pub fn zoom_at(&mut self, screen: Pos2, factor: f32, profile: ZoomProfile) {
         let nz = profile.clamp(self.z * factor);
         if self.z <= f32::EPSILON {

@@ -7,9 +7,11 @@
 //! visibility is toggled from the app-icon portal (Preferences).
 
 use super::super::{
-    AtlasApp, DateFilterField, EditMode, FilterMode, FolderHeatMode, LeaderStyle, Orient, ViewCmd,
+    AtlasApp, DateFilterField, EditMode, FilterMode, FolderHeatMode, LeaderStyle, MapView, Orient,
+    ViewCmd,
 };
 use crate::app::chrome::ToolPanel;
+use atlas_core::pack_sheet::SheetSort;
 use atlas_core::types::{ExtGroup, FAMILIES};
 use atlas_shell::dock::{
     current_body_layout, floating_dock, flyout_items, DockBodyLayout, DockIcon, DockItem,
@@ -51,7 +53,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         DockItem {
             id: "display",
             label: "Display settings",
-            description: "Layout density, group previews, leader lines, and fit controls.",
+            description: "Tree or packed image sheet, density, group previews, and fit controls.",
             icon: DockIcon::Display,
             kind: DockItemKind::Dashboard,
             active: false,
@@ -62,7 +64,11 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
             id: "mode",
             label: "Mode",
             description: "Switch between safe browsing and Explorer-style file edits.",
-            icon: DockIcon::Mode,
+            icon: if app.edit_mode == EditMode::Edit {
+                DockIcon::ModeEdit
+            } else {
+                DockIcon::Mode
+            },
             kind: DockItemKind::Dashboard,
             active: app.edit_mode == EditMode::Edit,
             visible: chrome.tool(ToolPanel::Mode),
@@ -95,6 +101,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
     let restore = app.dock_pins.clone();
     let restore_strips = app.dock_icon_strips.clone();
     let restore_hidden = app.dock_strip_hidden.clone();
+    let restore_order = app.dock_strip_order.clone();
     let _ = floating_dock(
         ctx,
         "file_atlas_tools",
@@ -105,6 +112,7 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
         &restore,
         &restore_strips,
         &restore_hidden,
+        &restore_order,
         app.dock_bar_collapsed,
         |ui, id| match id {
             "filters" => basic_filters_body(app, ui, theme),
@@ -154,6 +162,12 @@ pub fn floating_tools_dock(app: &mut AtlasApp, ctx: &egui::Context) {
             prefs_dirty = true;
         }
     }
+    if let Some(order) = atlas_shell::dock::strip_order(ctx, "file_atlas_tools") {
+        if order != app.dock_strip_order {
+            app.dock_strip_order = order;
+            prefs_dirty = true;
+        }
+    }
     if let Some(collapsed) = atlas_shell::dock::bar_collapsed(ctx, "file_atlas_tools") {
         if collapsed != app.dock_bar_collapsed {
             app.dock_bar_collapsed = collapsed;
@@ -183,7 +197,7 @@ fn mode_body(app: &mut AtlasApp, ui: &mut egui::Ui, theme: SidebarTheme) {
                 label: "Edit",
                 description: "Explorer-style file edits (human-directed).",
                 hotkey: None,
-                icon: DockIcon::Mode,
+                icon: DockIcon::ModeEdit,
                 active: app.edit_mode == EditMode::Edit,
                 group: Some("mode"),
                 role: FlyoutRole::Icon,
@@ -534,6 +548,55 @@ fn display_settings_body(
         display_icon_strip(app, ui, ctx);
         return;
     }
+    sidebar_option_group(ui, "layout", theme, |ui| {
+        if ui
+            .selectable_label(app.map_view == MapView::Tree, "tree")
+            .on_hover_text("Folder map with leaders and cards")
+            .clicked()
+        {
+            app.set_map_view(MapView::Tree);
+        }
+        if ui
+            .selectable_label(app.map_view == MapView::Packed, "packed")
+            .on_hover_text("Flush grid of images — no borders or fillets")
+            .clicked()
+        {
+            app.set_map_view(MapView::Packed);
+        }
+    });
+    if app.map_view == MapView::Packed {
+        sidebar_option_group(ui, "sort", theme, |ui| {
+            for sort in [
+                SheetSort::Name,
+                SheetSort::Modified,
+                SheetSort::Created,
+                SheetSort::Size,
+                SheetSort::Type,
+            ] {
+                if ui
+                    .selectable_label(app.sheet_sort == sort, sort.label())
+                    .clicked()
+                {
+                    app.set_sheet_sort(sort);
+                }
+            }
+        });
+        let mut aspect = app.sheet_aspect_pct;
+        sidebar_slider_block(ui, |ui| {
+            if thin_sidebar_slider(
+                ui,
+                &mut aspect,
+                25..=400,
+                "field aspect",
+                "%",
+                "Width of the packed field relative to its height (100% is square)",
+                theme.sub,
+            ) {
+                app.set_sheet_aspect_pct(aspect);
+            }
+        });
+    }
+
     sidebar_toolbar_row(ui, |ui| {
         if ui.button("Fit").on_hover_text("F").clicked() {
             app.pending_view = Some(ViewCmd::Fit);
@@ -584,7 +647,7 @@ fn display_settings_body(
             10..=1000,
             "stack threshold",
             "items",
-            "Child-count threshold where collapsed folders become group previews",
+            "Collapsed folders over this many items become a group preview (tree) or one cover tile (packed)",
             theme.sub,
         );
     });
@@ -766,6 +829,10 @@ fn display_settings_body(
         // Moving the threshold is a deliberate re-decision, so it is recorded.
         app.record_collapse_state();
         app.relayout();
+        app.rebuild_packed_sheet();
+        if app.map_view == MapView::Packed {
+            app.pending_view = Some(ViewCmd::Fit);
+        }
     }
 }
 
@@ -861,6 +928,26 @@ fn filters_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui) {
 fn display_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context) {
     let items = [
         FlyoutItem {
+            id: "display.tree",
+            label: "Tree",
+            description: "Folder map with leaders and cards.",
+            hotkey: None,
+            icon: DockIcon::Display,
+            active: app.map_view == MapView::Tree,
+            group: Some("layout"),
+            role: FlyoutRole::Icon,
+        },
+        FlyoutItem {
+            id: "display.packed",
+            label: "Packed",
+            description: "Flush grid of images — no borders or fillets.",
+            hotkey: None,
+            icon: DockIcon::Grid,
+            active: app.map_view == MapView::Packed,
+            group: Some("layout"),
+            role: FlyoutRole::Icon,
+        },
+        FlyoutItem {
             id: "display.fit",
             label: "Fit",
             description: "Fit the tree to the canvas (F).",
@@ -893,6 +980,8 @@ fn display_icon_strip(app: &mut AtlasApp, ui: &mut egui::Ui, ctx: &egui::Context
     ];
     if let Some(id) = flyout_items(ui, &items) {
         match id {
+            "display.tree" => app.set_map_view(MapView::Tree),
+            "display.packed" => app.set_map_view(MapView::Packed),
             "display.fit" => app.pending_view = Some(ViewCmd::Fit),
             "display.orient" => {
                 app.orient = match app.orient {

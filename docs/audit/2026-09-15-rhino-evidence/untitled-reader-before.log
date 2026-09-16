@@ -1,0 +1,5 @@
+source=C:/Users/jmoser/Downloads/Untitled.3dm
+bytes=2752208
+result=NoMeshes
+message=no extractable meshes (file may be wireframe-only or saved with "Save Small")
+read_and_parse_ms=2.775

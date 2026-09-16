@@ -74,6 +74,12 @@ When you add or change any user-facing input binding:
 - **Mode dock → View / Edit** — View is the default safe browsing mode. Edit
   enables human-directed filesystem rename, move, copy, new-folder, and delete
   operations for the active tab.
+- **Display dock → layout** — **Tree** is the folder map. **Packed** is a
+  flush contact sheet of images and videos in the mapped folder (same filters;
+  sort by name, modified, created, size, or type). Tiles have no card border
+  or corner fillet. Collapsed folders over the **stack threshold** (default
+  100) become one cover tile — click to expand. **Field aspect** stretches
+  the whole sheet wide or tall.
 - **Display dock → stack threshold** — child-count at which a collapsed folder
   paints as a **group preview**. This is not a Slate portal (Art. V); the
   internal field is still `portal_threshold`.

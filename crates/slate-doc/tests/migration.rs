@@ -544,6 +544,7 @@ fn v2_document() -> SlateDoc {
     }
 
     let connector = ConnectorNode {
+        binding: None,
         a: ConnectorEnd::Anchored {
             node: image_id,
             side: Side::Right,

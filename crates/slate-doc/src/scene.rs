@@ -19,7 +19,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::ids::{GroupId, ItemId, TagId};
 use crate::spatial::SpatialIndex;
@@ -552,6 +552,14 @@ pub struct AgentPortalRef {
     /// IDE-thread attach — the portal cannot become that window (Art. I.2).
     #[serde(default)]
     pub channel: Option<String>,
+    /// Image output manifest, resolved by the shared SourceUri owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<SourceUri>,
+    /// A child created by Unbundle begins with this immutable output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<atlas_agent::ImageOutput>,
+    #[serde(default)]
+    pub view: atlas_agent::PortalView,
 }
 
 /// How a web portal's rendered page is fitted into its frame (D20).
@@ -900,6 +908,9 @@ impl PortalNode {
                 provider,
                 context: AgentContextScope::Selection,
                 channel: None,
+                bundle: None,
+                seed: None,
+                view: atlas_agent::PortalView::Chat,
             }),
             web: None,
             atlas: AtlasPortalQuery::default(),
@@ -933,12 +944,8 @@ impl PortalNode {
     }
 }
 
-fn new_agent_session_id() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("agent-{nanos:x}")
+pub fn new_agent_session_id() -> String {
+    format!("agent-{}", atlas_agent::request_id())
 }
 
 /// A placed image: a link into the workbook item pool plus placement styling.
@@ -1287,6 +1294,9 @@ pub struct ConnectorNode {
     pub label: Option<String>,
     #[serde(default)]
     pub display: WireDisplay,
+    /// None is a decorative wire. Bound wires use these existing A/B endpoints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<crate::agent_inputs::WireBinding>,
 }
 
 // ---------- derived connector geometry ----------
@@ -1505,16 +1515,26 @@ pub enum NodeKind {
 }
 
 impl NodeKind {
+    /// Stable primary node categories, also used by per-kind UI preferences.
+    pub const KIND_NAMES: [&'static str; 7] = [
+        "frame",
+        "image",
+        "shape",
+        "text",
+        "connector",
+        "portal",
+        "dock_strip",
+    ];
     pub fn kind_name(&self) -> &'static str {
-        match self {
-            NodeKind::Frame(_) => "frame",
-            NodeKind::Image(_) => "image",
-            NodeKind::Shape(_) => "shape",
-            NodeKind::Text(_) => "text",
-            NodeKind::Connector(_) => "connector",
-            NodeKind::Portal(_) => "portal",
-            NodeKind::DockStrip(_) => "dock_strip",
-        }
+        Self::KIND_NAMES[match self {
+            NodeKind::Frame(_) => 0,
+            NodeKind::Image(_) => 1,
+            NodeKind::Shape(_) => 2,
+            NodeKind::Text(_) => 3,
+            NodeKind::Connector(_) => 4,
+            NodeKind::Portal(_) => 5,
+            NodeKind::DockStrip(_) => 6,
+        }]
     }
 }
 
@@ -1582,8 +1602,10 @@ impl Node {
 
 /// Flat scene graph. `nodes` order is z-order for content (later = on top);
 /// frames paint behind all content regardless of position in the vec.
+/// Node IDs must remain unique and stable, including when importing nodes
+/// through the public vector. Prefer journal commands for authored changes.
 ///
-/// [`Scene::scene_gen`] and the spatial index are derived — skipped on
+/// [`Scene::scene_gen`], the spatial index and ID lookup are derived — skipped on
 /// serde and ignored by [`PartialEq`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Scene {
@@ -1597,6 +1619,25 @@ pub struct Scene {
     scene_gen: u64,
     #[serde(skip)]
     spatial: RefCell<SpatialIndex>,
+    /// Derived lookup only; vector order remains the authored z-order.
+    #[serde(skip)]
+    node_positions: RefCell<NodePositions>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct NodePositions {
+    len: usize,
+    positions: HashMap<NodeId, usize>,
+}
+
+impl NodePositions {
+    fn rebuild(&mut self, nodes: &[Node]) {
+        self.positions.clear();
+        self.len = nodes.len();
+        for (index, node) in nodes.iter().enumerate() {
+            self.positions.entry(node.id).or_insert(index);
+        }
+    }
 }
 
 impl PartialEq for Scene {
@@ -1720,19 +1761,37 @@ impl Scene {
     }
 
     pub fn node(&self, id: NodeId) -> Option<&Node> {
-        self.nodes.iter().find(|n| n.id == id)
+        self.index_of(id).map(|index| &self.nodes[index])
     }
 
     pub fn node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
         // In-place edits (drag preview) bypass [`SceneCmd`]; invalidate the
         // spatial cache so the next query rebuilds from live rects.
-        let idx = self.nodes.iter().position(|n| n.id == id)?;
+        let idx = self.index_of(id)?;
         self.bump_gen();
         Some(&mut self.nodes[idx])
     }
 
     pub fn index_of(&self, id: NodeId) -> Option<usize> {
-        self.nodes.iter().position(|n| n.id == id)
+        let mut lookup = self.node_positions.borrow_mut();
+        if lookup.len != self.nodes.len() {
+            lookup.rebuild(&self.nodes);
+        }
+        if let Some(&index) = lookup.positions.get(&id) {
+            // The public vector is also used by importers and test fixtures.
+            // Verify the slot so reordered/replaced nodes cannot return a
+            // different identity. Geometry-only edits keep this cache warm.
+            if self.nodes.get(index).is_some_and(|node| node.id == id) {
+                return Some(index);
+            }
+            lookup.rebuild(&self.nodes);
+            return lookup.positions.get(&id).copied();
+        }
+        // An importer can replace an identity without changing vector length.
+        // Missing IDs are uncommon in paint; retain correctness for that API.
+        let index = self.nodes.iter().position(|node| node.id == id)?;
+        lookup.rebuild(&self.nodes);
+        Some(index)
     }
 
     /// Frames in slide order (ascending `order`, ties by id for stability).
@@ -1858,7 +1917,9 @@ impl Scene {
     pub fn apply(&mut self, cmd: &SceneCmd) -> bool {
         let ok = match cmd {
             SceneCmd::Add { index, node } => {
-                if self.index_of(node.id).is_some() || *index > self.nodes.len() {
+                // Do not rebuild the lazy lookup after each insertion in a
+                // bulk command group. The next read builds it once.
+                if *index > self.nodes.len() || self.nodes.iter().any(|n| n.id == node.id) {
                     return false;
                 }
                 self.nodes.insert(*index, node.clone());
@@ -1879,10 +1940,10 @@ impl Scene {
                 }
                 // Patch must not go through [`Self::node_mut`] — that bumps
                 // gen on lookup; we bump once below on success.
-                let Some(n) = self.nodes.iter_mut().find(|n| n.id == before.id) else {
+                let Some(index) = self.index_of(before.id) else {
                     return false;
                 };
-                *n = (**after).clone();
+                self.nodes[index] = (**after).clone();
                 true
             }
         };
@@ -2048,6 +2109,121 @@ mod tests {
             node: img,
         });
         (scene, frame_id, img_id)
+    }
+
+    #[test]
+    fn node_lookup_survives_live_edits_journal_and_reload() {
+        let (mut scene, frame, image) = scene_with_frame_and_image();
+        assert_eq!(scene.index_of(image), Some(1));
+        let before = scene.node(image).unwrap().clone();
+        scene.node_mut(image).unwrap().rect.x += 35.0;
+        let after = scene.node(image).unwrap().clone();
+        let mut journal = SceneJournal::default();
+        journal.record(vec![SceneCmd::Patch {
+            before: Box::new(before.clone()),
+            after: Box::new(after.clone()),
+        }]);
+        assert!(journal.undo(&mut scene));
+        assert_eq!(scene.node(image), Some(&before));
+        assert!(journal.redo(&mut scene));
+        assert_eq!(scene.node(image), Some(&after));
+        let removed = scene.node(frame).unwrap().clone();
+        assert!(journal.commit(
+            &mut scene,
+            vec![SceneCmd::Remove {
+                index: 0,
+                node: removed
+            }]
+        ));
+        assert_eq!(scene.index_of(image), Some(0));
+        assert!(scene.node(frame).is_none());
+        assert!(journal.undo(&mut scene));
+        assert_eq!(scene.index_of(image), Some(1));
+        let json = serde_json::to_string(&scene).unwrap();
+        assert!(!json.contains("node_positions"));
+        let restored: Scene = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.node(image), Some(&after));
+        assert_eq!(scene, restored);
+    }
+
+    #[test]
+    fn node_lookup_recovers_from_importer_vector_changes() {
+        let (mut scene, frame, image) = scene_with_frame_and_image();
+        assert_eq!(scene.index_of(image), Some(1));
+        scene.nodes.swap(0, 1);
+        assert_eq!(scene.index_of(image), Some(0));
+        assert_eq!(scene.index_of(frame), Some(1));
+        let replacement = scene.build_duplicate(&scene.nodes[0].clone(), 0.0, 0.0);
+        let replacement_id = replacement.id;
+        scene.nodes[0] = replacement;
+        assert_eq!(scene.index_of(replacement_id), Some(0));
+        assert!(scene.node(image).is_none());
+        scene.nodes.clear();
+        assert!(scene.node(frame).is_none());
+    }
+
+    #[test]
+    fn node_lookup_survives_bulk_add_and_identity_replacement() {
+        let (mut scene, frame, image) = scene_with_frame_and_image();
+        assert_eq!(scene.index_of(image), Some(1));
+        let source = scene.node(image).unwrap().clone();
+        let first = scene.build_duplicate(&source, 10.0, 0.0);
+        let second = scene.build_duplicate(&source, 20.0, 0.0);
+        let ids = [first.id, second.id];
+        let mut journal = SceneJournal::default();
+        assert!(journal.commit(
+            &mut scene,
+            vec![
+                SceneCmd::Add {
+                    index: 2,
+                    node: first
+                },
+                SceneCmd::Add {
+                    index: 3,
+                    node: second
+                },
+            ]
+        ));
+        assert_eq!(scene.index_of(ids[0]), Some(2));
+        assert_eq!(scene.index_of(ids[1]), Some(3));
+        assert!(journal.undo(&mut scene));
+        assert!(scene.node(ids[0]).is_none());
+        assert_eq!(scene.index_of(frame), Some(0));
+        assert!(journal.redo(&mut scene));
+        assert_eq!(scene.index_of(ids[1]), Some(3));
+        // Importer misuse must not return the old identity's node.
+        scene.node_mut(ids[1]).unwrap().id = NodeId(100);
+        assert!(scene.node(ids[1]).is_none());
+        assert_eq!(scene.index_of(NodeId(100)), Some(3));
+    }
+
+    #[test]
+    #[ignore = "release lookup timing for the 10,000-node stabilization fixture"]
+    fn benchmark_ten_thousand_node_lookups() {
+        let mut scene = Scene::default();
+        for i in 0..10_000 {
+            let node = scene.build_node(
+                WorldRect::new(i as f32, 0.0, 1.0, 1.0),
+                NodeKind::Image(ImageNode::new(ItemId(1))),
+            );
+            scene.nodes.push(node);
+        }
+        let ids: Vec<_> = scene.nodes.iter().map(|n| n.id).collect();
+        assert!(scene.node(ids[0]).is_some());
+        let start = std::time::Instant::now();
+        for _ in 0..100 {
+            for &id in &ids {
+                std::hint::black_box(scene.node(id).unwrap());
+            }
+        }
+        println!("1,000,000 warm indexed lookups: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        for _ in 0..100 {
+            for &id in &ids {
+                std::hint::black_box(scene.nodes.iter().find(|n| n.id == id).unwrap());
+            }
+        }
+        println!("1,000,000 baseline linear lookups: {:?}", start.elapsed());
     }
 
     #[test]
@@ -2836,6 +3012,7 @@ mod tests {
 
     fn test_connector(a: ConnectorEnd, b: ConnectorEnd) -> ConnectorNode {
         ConnectorNode {
+            binding: None,
             a,
             b,
             stroke: Stroke {

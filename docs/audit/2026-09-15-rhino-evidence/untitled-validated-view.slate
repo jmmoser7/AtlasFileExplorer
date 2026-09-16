@@ -1,0 +1,96 @@
+{
+  "format_version": 2,
+  "name": "rhino-validation",
+  "groups": [],
+  "items": [
+    {
+      "id": 1,
+      "path": "C:\\Users\\jmoser\\Downloads\\Untitled.3dm",
+      "file_name": "Untitled.3dm",
+      "size": 2752208,
+      "mtime": 1789497101,
+      "cache_key": "rhino-validation-2752208-639250939014525485",
+      "pdf_page": 0,
+      "assignments": {}
+    }
+  ],
+  "view": {
+    "active_view": "board",
+    "cam_x": 0.0,
+    "cam_y": 0.0,
+    "zoom": 1.0
+  },
+  "scene": {
+    "nodes": [
+      {
+        "id": 1,
+        "rect": {
+          "x": -480.0,
+          "y": -320.0,
+          "w": 960.0,
+          "h": 640.0
+        },
+        "rotation_deg": 0.0,
+        "opacity": 1.0,
+        "kind": {
+          "image": {
+            "item": 1,
+            "crop": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            },
+            "corner": "square",
+            "stroke": {
+              "width": 0.0,
+              "color": [
+                0,
+                0,
+                0,
+                255
+              ],
+              "dash": "solid",
+              "cap": "Butt",
+              "join": "Miter",
+              "profile": "Uniform"
+            },
+            "adjust": {
+              "brightness": 1.0,
+              "contrast": 1.0,
+              "saturate": 1.0,
+              "grayscale": 0.0,
+              "sepia": 0.0,
+              "hue_deg": 0.0,
+              "overlay": null
+            },
+            "video": {
+              "start": 0.0,
+              "end": null,
+              "autoplay": true,
+              "looped": true,
+              "muted": true,
+              "controls": false
+            },
+            "model": {
+              "target": [
+                0.0,
+                0.0,
+                6070.0
+              ],
+              "yaw": -0.14539814,
+              "pitch": 0.74,
+              "distance": 86100.66
+            }
+          }
+        }
+      }
+    ],
+    "next_node_id": 2,
+    "next_group_key": 0
+  },
+  "lens_root": null,
+  "next_group_id": 1,
+  "next_tag_id": 1,
+  "next_item_id": 2
+}

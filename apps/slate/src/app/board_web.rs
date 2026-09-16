@@ -36,8 +36,24 @@ use super::SlateApp;
 /// one locator.
 pub(crate) const WEB_START_LOCATOR: &str = "https://www.google.com/";
 
-/// Below this on-screen height, a portal is a chrome strip and nothing else.
+/// Clipboard and external drops must contain one whole remote URL, not prose
+/// or a list of URLs. Classification remains owned by slate-doc.
+pub(crate) fn web_url_text(text: &str) -> Option<&str> {
+    let url = text.trim();
+    (url.len() <= 65_536
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+        && web_origin(url).is_some()
+        && classify_web_locator(url, false) == Ok(WebSourceKind::Remote))
+    .then_some(url)
+}
+
+/// Below this on-screen height (physical pixels), a portal is not worth a
+/// live webview. The last poster still paints — a blank fill is D30.
 pub const LOD_STRIP_PX: f32 = 96.0;
+/// Cap on a live capture in physical pixels so a zoomed-in portal cannot
+/// allocate a 8K readback (Art. II).
+pub const RASTER_MAX_PX: f32 = 1920.0;
+pub const RASTER_MAX_PIXELS: f32 = 2_073_600.0;
 /// On-screen height at which a portal becomes eligible for the live pool.
 ///
 /// This is not a taste threshold, it is a cost one, so it sits low enough that a
@@ -46,17 +62,18 @@ pub const LOD_STRIP_PX: f32 = 96.0;
 /// 0.6 — the page looked broken rather than budgeted. An explicitly focused
 /// portal ignores this entirely (see [`admit`]).
 pub const LIVE_MIN_PX: f32 = 160.0;
-/// Stay live down to this height if the portal was already admitted (Schmitt
-/// trigger). Crossing 160 px every frame must not create/destroy WebView2.
-pub const LIVE_DEMOTE_PX: f32 = 128.0;
 /// Webviews alive at once, across the whole board.
 pub const LIVE_POOL: usize = 6;
 /// Render rate for pooled portals that do not hold input focus.
-pub const IDLE_FPS: f32 = 5.0;
-/// Readback cadence for the focused portal. D3D readback + texture upload is
-/// the expensive part; pacing it keeps page input from turning into a busy
-/// repaint loop.
+pub const IDLE_FPS: f32 = 30.0;
+/// Readback cadence for a focused portal that is sitting still.
 pub const FOCUSED_FPS: f32 = 30.0;
+/// Readback cadence while the focused page is being scrolled, dragged, or
+/// typed into. Idle stays at [`FOCUSED_FPS`] so a parked cursor does not
+/// restart the busy readback loop that used to jutter the board.
+pub const INTERACTIVE_FPS: f32 = 60.0;
+/// How long after the last page input the interactive cadence holds.
+pub const INTERACTIVE_HOLD_SECS: f32 = 0.18;
 /// Contents textures uploaded per frame; the rest wait in the backlog.
 pub const UPLOADS_PER_FRAME: usize = atlas_core::display::WEB_UPLOADS_PER_FRAME;
 /// Border band that stays a Slate target while a portal holds input focus.
@@ -153,7 +170,7 @@ impl WebHealth {
 /// What a portal is worth drawing at its current on-screen size (D23).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WebLod {
-    /// Chrome strip only; no texture is bound at all.
+    /// No live webview. The last poster still paints (D23 + D30).
     Strip,
     /// The cached poster.
     Poster,
@@ -212,6 +229,17 @@ pub struct WebRequest {
     /// CSS pixels the page lays out at.
     pub width_css: u32,
     pub height_css: u32,
+    /// Capture size in physical pixels. Fit keeps `width_css` for layout and
+    /// rasters at this size so a 2× display is not a 1× bitmap stretched.
+    pub raster_w: u32,
+    pub raster_h: u32,
+}
+
+impl WebRequest {
+    pub fn rasterization_scale(&self) -> f64 {
+        let css = self.width_css.max(1) as f64;
+        (self.raster_w.max(1) as f64 / css).clamp(0.25, 4.0)
+    }
 }
 
 /// Input forwarded to the one portal holding input focus (D22). Composition
@@ -262,6 +290,10 @@ pub enum WebInput {
 /// every state above run and be tested on a machine with no WebView2 at all
 /// (Art. I.3).
 pub trait WebHost {
+    /// Escape intercepted by the native browser, forwarded to Slate's cancel stack.
+    fn take_escape(&mut self) -> bool {
+        false
+    }
     /// Whether a runtime exists at all. `false` puts every portal in
     /// [`WebState::NoRuntime`] rather than stalling (D29).
     fn available(&self) -> bool;
@@ -356,7 +388,8 @@ struct WebView {
     state: WebState,
     poster: Option<egui::TextureHandle>,
     poster_at: Option<Instant>,
-    /// Physical on-screen height last frame; 0 when off screen.
+    /// Physical on-screen size last frame; 0 when not yet painted.
+    width_px: f32,
     height_px: f32,
     area_px: f32,
     on_screen: bool,
@@ -374,6 +407,10 @@ struct WebView {
     poll_inflight: bool,
     /// Last off-thread existence probe. `None` means not yet answered.
     source_exists: Option<bool>,
+    /// In-page URL last seen while this portal was live. Survives pool
+    /// eviction so zooming the camera does not send the user back to the
+    /// authored home. Never journaled (D15 / D31).
+    resume_url: Option<String>,
 }
 
 impl WebView {
@@ -384,6 +421,7 @@ impl WebView {
             state: WebState::Unknown,
             poster: None,
             poster_at: None,
+            width_px: 0.0,
             height_px: 0.0,
             area_px: 0.0,
             on_screen: false,
@@ -395,6 +433,7 @@ impl WebView {
             reload_pending: false,
             poll_inflight: false,
             source_exists: None,
+            resume_url: None,
         }
     }
 }
@@ -428,6 +467,9 @@ pub struct WebRuntime {
     uploads_this_frame: usize,
     /// Portals with a frame waiting for an upload slot.
     backlog: Vec<NodeId>,
+    /// Last wheel / drag / key that reached the focused page. Drives the
+    /// interactive readback burst (D29).
+    last_page_input: Option<Instant>,
     /// Off-thread local-source probes (Art. II.2 — never `metadata` on the
     /// frame loop; a share can take seconds).
     poll_tx: crossbeam_channel::Sender<SourcePoll>,
@@ -447,6 +489,7 @@ impl Default for WebRuntime {
             next_generation: 1,
             uploads_this_frame: 0,
             backlog: Vec::new(),
+            last_page_input: None,
             poll_tx,
             poll_rx,
         }
@@ -454,6 +497,25 @@ impl Default for WebRuntime {
 }
 
 impl WebRuntime {
+    fn note_page_input(&mut self) {
+        self.last_page_input = Some(Instant::now());
+    }
+
+    fn recently_interactive(&self) -> bool {
+        self.last_page_input
+            .is_some_and(|t| t.elapsed().as_secs_f32() < INTERACTIVE_HOLD_SECS)
+    }
+
+    fn focused_frame_interval(&self, id: NodeId) -> Duration {
+        if self.focused == Some(id) && self.recently_interactive() {
+            Duration::from_secs_f32(1.0 / INTERACTIVE_FPS)
+        } else if self.focused == Some(id) {
+            Duration::from_secs_f32(1.0 / FOCUSED_FPS)
+        } else {
+            Duration::from_secs_f32(1.0 / IDLE_FPS)
+        }
+    }
+
     /// Replace the pixel backend. The app installs the platform host at
     /// startup; tests install a fake to drive the pool without a browser.
     pub fn set_host(&mut self, host: Box<dyn WebHost>) {
@@ -555,7 +617,9 @@ fn size_keeps_slot(c: &Candidate) -> bool {
     if lod_for(c.height_px) == WebLod::Eligible {
         return true;
     }
-    c.was_live && c.height_px >= LIVE_DEMOTE_PX
+    // Keep a visible browser alive while zooming; size controls painting, not
+    // document lifetime. The pool cap and off-screen eviction still apply.
+    c.was_live && c.height_px > 0.0
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +670,20 @@ impl SlateApp {
     /// Per-frame web portal work: resolve state, run the pool, spend the upload
     /// budget. Nothing here blocks, and nothing here reaches the network.
     pub(crate) fn web_pump(&mut self, ctx: &egui::Context) {
+        let _span = atlas_core::session_log::span("slate.web.pump");
+        if self.web.host.take_escape() {
+            ctx.input_mut(|i| {
+                if !i.key_pressed(egui::Key::Escape) {
+                    i.events.push(egui::Event::Key {
+                        key: egui::Key::Escape,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                }
+            });
+        }
         self.web.uploads_this_frame = 0;
         self.drain_source_polls();
         let portals = self.web_portals();
@@ -616,7 +694,7 @@ impl SlateApp {
                     self.web.host.evict(id);
                     self.web.views.remove(&id);
                 }
-                self.web.focused = None;
+                self.web_blur();
             }
             return;
         }
@@ -634,7 +712,7 @@ impl SlateApp {
             self.web.views.remove(&id);
         }
         if self.web.focused.is_some_and(|id| !live_ids.contains(&id)) {
-            self.web.focused = None;
+            self.web_blur();
         }
 
         let workbook = self.tab().path.clone();
@@ -646,11 +724,44 @@ impl SlateApp {
             let key = view_key(portal, &web);
             let regenerate = self.web.views.get(id).is_none_or(|v| v.key != key);
             if regenerate {
+                self.remember_web_visit(*id);
+                let locator = portal
+                    .source
+                    .as_ref()
+                    .map(|s| s.locator.as_str())
+                    .unwrap_or_default();
+                let resume = self.web.views.get(id).and_then(|v| {
+                    v.key
+                        .starts_with(&format!("{locator}|"))
+                        .then(|| v.resume_url.clone())
+                        .flatten()
+                });
                 let generation = self.web.generation();
                 self.web.host.evict(*id);
                 let mut view = WebView::new(key);
                 view.generation = generation;
+                view.resume_url = resume;
+                // Viewport changes restart the host, not the last good image.
+                // A different source must never inherit another page's poster.
+                if let Some(old) = self.web.views.get_mut(id) {
+                    if old.key.starts_with(&format!("{locator}|")) {
+                        view.poster = old.poster.take();
+                        view.poster_at = old.poster_at;
+                    }
+                }
                 self.web.views.insert(*id, view);
+            }
+            if self.portal_chrome.maximized == Some(*id) {
+                let screen = ctx.screen_rect();
+                let collapsed = self.portal_chrome_collapsed(*id);
+                let layout = layout_portal_chrome(screen, collapsed, true, 1.0);
+                if let Some(v) = self.web.views.get_mut(id) {
+                    let ppp = ctx.pixels_per_point().max(0.01);
+                    v.width_px = layout.body.width() * ppp;
+                    v.height_px = layout.body.height() * ppp;
+                    v.area_px = v.width_px * v.height_px;
+                    v.on_screen = true;
+                }
             }
             let (state, renderable) =
                 self.resolve_web_state(*id, portal, workbook.as_deref(), host_ok);
@@ -673,16 +784,6 @@ impl SlateApp {
         let admitted = admit(&candidates, LIVE_POOL);
         let admitted_set: HashSet<NodeId> = admitted.iter().copied().collect();
         for (id, portal, rect) in &portals {
-            if self.portal_chrome.maximized == Some(*id) {
-                let screen = ctx.screen_rect();
-                let collapsed = self.portal_chrome_collapsed(*id);
-                let layout = layout_portal_chrome(screen, collapsed, true, 1.0);
-                if let Some(v) = self.web.views.get_mut(id) {
-                    v.height_px = layout.body.height();
-                    v.area_px = layout.body.width() * layout.body.height();
-                    v.on_screen = true;
-                }
-            }
             let want_live = admitted_set.contains(id);
             let was_live = self.web.views.get(id).is_some_and(|v| v.live);
             if want_live {
@@ -691,7 +792,7 @@ impl SlateApp {
                 // ready would otherwise leave the portal stuck on Loading with
                 // `live` already true and no further admit.
                 let layout_rect = self.web_layout_world(*id, *rect, ctx);
-                if let Some(req) = self.web_request(portal, workbook.as_deref(), layout_rect) {
+                if let Some(req) = self.web_request(*id, portal, workbook.as_deref(), layout_rect) {
                     self.web.host.admit(*id, &req);
                     if let Some(v) = self.web.views.get_mut(id) {
                         v.live = true;
@@ -699,13 +800,14 @@ impl SlateApp {
                             let _ = self.web.host.reload(*id);
                         }
                     }
+                    self.remember_web_visit(*id);
                 }
             } else if was_live {
                 // Last uploaded frame only — no D3D11 readback on the frame
                 // loop (D21). Live frames already land through the upload budget.
-                if let Some(img) = self.web.host.last_frame(*id) {
-                    self.upload_poster(ctx, *id, img);
-                }
+                self.remember_web_visit(*id);
+                // The existing texture already owns the last accepted frame.
+                // Do not replace it with a teardown capture or an unbudgeted upload.
                 self.web.host.evict(*id);
                 if let Some(v) = self.web.views.get_mut(id) {
                     v.live = false;
@@ -720,6 +822,12 @@ impl SlateApp {
                 pending.push(id);
             }
         }
+        if let Some(fid) = self.web.focused {
+            if pending.iter().any(|id| *id == fid) {
+                pending.retain(|id| *id != fid);
+                pending.insert(0, fid);
+            }
+        }
         let mut carried = Vec::new();
         let mut next_upload_due: Option<Duration> = None;
         let now = Instant::now();
@@ -729,21 +837,24 @@ impl SlateApp {
                 next_upload_due = Some(Duration::ZERO);
                 continue;
             }
-            let frame_interval = if self.web.focused == Some(id) {
-                Duration::from_secs_f32(1.0 / FOCUSED_FPS)
-            } else {
-                Duration::from_secs_f32(1.0 / IDLE_FPS)
-            };
+            let interactive = self.web.focused == Some(id) && self.web.recently_interactive();
+            let frame_interval = self.web.focused_frame_interval(id);
             let Some(view) = self.web.views.get_mut(&id) else {
                 continue;
             };
-            if let Some(last) = view.last_frame_probe {
-                let elapsed = last.elapsed();
-                if elapsed < frame_interval {
-                    carried.push(id);
-                    let remaining = frame_interval - elapsed;
-                    next_upload_due = Some(next_upload_due.map_or(remaining, |d| d.min(remaining)));
-                    continue;
+            if !view.live || (view.height_px < LOD_STRIP_PX && self.web.focused != Some(id)) {
+                continue;
+            }
+            if !interactive {
+                if let Some(last) = view.last_frame_probe {
+                    let elapsed = last.elapsed();
+                    if elapsed < frame_interval {
+                        carried.push(id);
+                        let remaining = frame_interval - elapsed;
+                        next_upload_due =
+                            Some(next_upload_due.map_or(remaining, |d| d.min(remaining)));
+                        continue;
+                    }
                 }
             }
             view.last_frame_probe = Some(now);
@@ -767,25 +878,34 @@ impl SlateApp {
             ctx.request_repaint_after(next_upload_due.unwrap_or(Duration::ZERO));
         }
         if self.web.views.values().any(|v| v.live) {
-            // Pooled portals animate; the capture/readback path is paced above
-            // so the repaint request should be paced too, even for focus.
-            let after = if self.web.focused.is_some() {
-                Duration::from_secs_f32(1.0 / FOCUSED_FPS)
+            let after = if let Some(fid) = self.web.focused {
+                self.web.focused_frame_interval(fid)
             } else {
                 Duration::from_secs_f32(1.0 / IDLE_FPS)
             };
             ctx.request_repaint_after(after);
         }
+        // Painting renews visibility. A culled/hidden portal must not keep a
+        // stale on-screen flag (and browser slot) forever.
+        for view in self.web.views.values_mut() {
+            view.on_screen = false;
+        }
     }
 
     fn upload_poster(&mut self, ctx: &egui::Context, id: NodeId, img: egui::ColorImage) {
-        let tex = ctx.load_texture(
-            format!("slate-web-{}", id.0),
-            img,
-            egui::TextureOptions::LINEAR,
-        );
+        if !web_frame_has_content(&img) {
+            return;
+        }
         if let Some(v) = self.web.views.get_mut(&id) {
-            v.poster = Some(tex);
+            if let Some(tex) = &mut v.poster {
+                tex.set(img, egui::TextureOptions::LINEAR);
+            } else {
+                v.poster = Some(ctx.load_texture(
+                    format!("slate-web-{}", id.0),
+                    img,
+                    egui::TextureOptions::LINEAR,
+                ));
+            }
             v.poster_at = Some(Instant::now());
         }
     }
@@ -908,7 +1028,9 @@ impl SlateApp {
                 false,
             );
         }
-        if !on_screen || (!focused && lod_for(height) != WebLod::Eligible) {
+        if !on_screen
+            || (!focused && !view.is_some_and(|v| v.live) && lod_for(height) != WebLod::Eligible)
+        {
             let state = if height > 0.0 && height < LIVE_MIN_PX && on_screen {
                 WebState::TooSmall
             } else {
@@ -933,6 +1055,7 @@ impl SlateApp {
 
     fn web_request(
         &self,
+        id: NodeId,
         portal: &PortalNode,
         workbook: Option<&Path>,
         rect: slate_doc::scene::WorldRect,
@@ -942,7 +1065,7 @@ impl SlateApp {
         let looks_like_dir = !locator.to_ascii_lowercase().ends_with(".html")
             && !locator.to_ascii_lowercase().ends_with(".htm");
         let kind = classify_web_locator(&locator, looks_like_dir).ok()?;
-        let target = match kind {
+        let authored = match kind {
             WebSourceKind::Remote => locator,
             WebSourceKind::LocalFile => resolve_web_source(workbook, &locator)
                 .to_string_lossy()
@@ -952,12 +1075,22 @@ impl SlateApp {
                 .to_string_lossy()
                 .into_owned(),
         };
+        let target = self.resume_target(id, &authored);
         let (width_css, height_css) = css_size(&web, rect);
+        let (raster_w, raster_h) = self
+            .web
+            .views
+            .get(&id)
+            .filter(|v| v.width_px > 2.0 && v.height_px > 2.0)
+            .map(|v| raster_for(width_css, height_css, v.width_px, v.height_px))
+            .unwrap_or_else(|| raster_for(width_css, height_css, 0.0, 0.0));
         Some(WebRequest {
             target,
             kind,
             width_css,
             height_css,
+            raster_w,
+            raster_h,
         })
     }
 
@@ -982,10 +1115,35 @@ impl SlateApp {
         )
     }
 
+    fn remember_web_visit(&mut self, id: NodeId) {
+        let Some(url) = self.web.host.current_url(id) else {
+            return;
+        };
+        if let Some(v) = self.web.views.get_mut(&id) {
+            v.resume_url = Some(url);
+        }
+    }
+
+    fn resume_target(&self, id: NodeId, authored: &str) -> String {
+        let Some(url) = self
+            .web
+            .views
+            .get(&id)
+            .and_then(|v| v.resume_url.as_deref())
+        else {
+            return authored.to_string();
+        };
+        if same_page(authored, url) {
+            return authored.to_string();
+        }
+        if classify_web_locator(url, false).is_ok() {
+            return url.to_string();
+        }
+        authored.to_string()
+    }
+
     pub(crate) fn web_visiting_label(&self, id: NodeId, portal: &PortalNode) -> Option<String> {
-        self.web
-            .host
-            .current_url(id)
+        self.web_display_url(id)
             .filter(|url| {
                 portal
                     .source
@@ -1004,6 +1162,9 @@ impl SlateApp {
     /// The locator shown on the tab / copied by `portal.web.copy_url`.
     pub(crate) fn web_display_url(&self, id: NodeId) -> Option<String> {
         if let Some(url) = self.web.host.current_url(id) {
+            return Some(url);
+        }
+        if let Some(url) = self.web.views.get(&id).and_then(|v| v.resume_url.clone()) {
             return Some(url);
         }
         self.doc().scene.node(id).and_then(|n| match &n.kind {
@@ -1073,10 +1234,12 @@ impl SlateApp {
 
     /// Record what the board just painted, so the next pump's admission has
     /// real on-screen sizes to sort by.
-    pub(crate) fn note_web_geometry(&mut self, id: NodeId, srect: Rect, clip: Rect) {
+    pub(crate) fn note_web_geometry(&mut self, id: NodeId, srect: Rect, clip: Rect, ppp: f32) {
         if let Some(v) = self.web.views.get_mut(&id) {
-            v.height_px = srect.height();
-            v.area_px = srect.width() * srect.height();
+            let ppp = ppp.max(0.01);
+            v.width_px = srect.width() * ppp;
+            v.height_px = srect.height() * ppp;
+            v.area_px = v.width_px * v.height_px;
             v.on_screen = clip.intersects(srect);
         }
     }
@@ -1084,26 +1247,34 @@ impl SlateApp {
     /// Take input focus (D22). Rendering is unaffected — this is only about
     /// where pointer and keyboard go.
     pub(crate) fn web_focus(&mut self, id: NodeId) {
+        self.portal_enter_interactive(id);
+    }
+
+    pub(crate) fn web_enter_contents(&mut self, id: NodeId) {
         if self
             .doc()
             .scene
             .node(id)
             .is_some_and(|n| matches!(&n.kind, NodeKind::Portal(p) if p.kind == PortalKind::Web))
         {
-            let _ = self.agent_blur();
-            let _ = self.atlas_blur();
-            let _ = self.portal_clear_focus();
             self.web.focused = Some(id);
             if let Some(v) = self.web.views.get_mut(&id) {
                 v.last_focus = Some(Instant::now());
             }
-            self.board_sel = std::iter::once(id).collect();
         }
     }
 
     /// Release input focus without tearing the page down: scroll position,
     /// form contents, and running charts survive (D12).
     pub(crate) fn web_blur(&mut self) -> bool {
+        if self.web.focused.is_some() {
+            self.contents_blur()
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn web_leave_contents(&mut self) -> bool {
         let had = self.web.focused.take();
         if let Some(id) = had {
             // Let the page settle its hover and drag state instead of freezing
@@ -1152,10 +1323,10 @@ impl SlateApp {
                 return false;
             }
         }
-        let Some(req) = self.web_request(portal, self.tab().path.as_deref(), node.rect) else {
-            return false;
-        };
-        if !self.web.host.navigate(id, &req.target) {
+        if let Some(v) = self.web.views.get_mut(&id) {
+            v.resume_url = None;
+        }
+        if !self.web.host.navigate(id, &locator) {
             self.web.host.evict(id);
             self.web.views.remove(&id);
         }
@@ -1247,11 +1418,10 @@ impl SlateApp {
         self.bind_web_source_with_entry(id, locator, entry)
     }
 
-    /// Drop the cached poster so the next admission recaptures (D21).
+    /// Request another capture while retaining the last good poster (D21).
     pub(crate) fn web_recapture(&mut self, id: NodeId) {
         if let Some(v) = self.web.views.get_mut(&id) {
-            v.poster = None;
-            v.poster_at = None;
+            v.last_frame_probe = None;
         }
     }
 
@@ -1294,21 +1464,62 @@ impl SlateApp {
     /// Pasted clipboard text that names a page becomes a portal at the pointer
     /// (D01). Returns false for anything else, so the ordinary paste continues.
     pub(crate) fn paste_web_url(&mut self, text: &str, at: egui::Pos2) -> bool {
-        let trimmed = text.trim();
-        if web_origin(trimmed).is_none() {
+        self.place_web_url(text, at, "pasted")
+    }
+
+    fn place_web_url(&mut self, text: &str, at: egui::Pos2, detail: &'static str) -> bool {
+        let Some(trimmed) = web_url_text(text) else {
             return false;
-        }
-        if classify_web_locator(trimmed, false) != Ok(WebSourceKind::Remote) {
-            return false;
-        }
+        };
         let rect = slate_doc::scene::WorldRect::new(
             at.x - PORTAL_W * 0.5,
             at.y - PORTAL_H * 0.5,
             PORTAL_W,
             PORTAL_H,
         );
-        self.add_web_portal(rect, Some(trimmed.to_string()), "pasted");
+        self.add_web_portal(rect, Some(trimmed.to_string()), detail);
         true
+    }
+
+    pub(crate) fn web_drop_enabled(&self) -> bool {
+        !self.at_home
+            && !self.tab().read_only
+            && self.presenting.is_none()
+            && self.doc().view.active_view == slate_doc::ViewKind::Board
+    }
+
+    /// External links use the existing source/placement commands, with OS drop
+    /// coordinates (egui may not receive pointer motion during an OLE drag).
+    pub(crate) fn drop_web_url(&mut self, text: &str, screen: Pos2) -> bool {
+        if !self.web_drop_enabled() || !self.canvas_rect.contains(screen) {
+            return false;
+        }
+        let Some(url) = web_url_text(text) else {
+            return false;
+        };
+        let at = self.board_xf().s2w(screen);
+        let hit = self.portal_chrome.maximized.or_else(|| {
+            super::board_path::board_pick_node_routed(
+                &self.doc().scene,
+                at.x,
+                at.y,
+                self.tab().cam.z,
+                true,
+                self.board_wire_routing,
+            )
+        });
+        if let Some(node) = hit.and_then(|id| self.doc().scene.node(id)) {
+            if matches!(&node.kind, NodeKind::Portal(p) if p.kind == PortalKind::Web) {
+                if node.locked {
+                    return false;
+                }
+                return self.bind_web_source(node.id, url.to_string());
+            }
+        }
+        if self.portal_chrome.maximized.is_some() {
+            return false;
+        }
+        self.place_web_url(url, at, "dropped")
     }
 
     /// What the artifact writer needs from every web portal: local material to
@@ -1667,21 +1878,21 @@ impl SlateApp {
             return false;
         };
         let Some(node) = self.doc().scene.node(id).cloned() else {
-            self.web.focused = None;
+            self.web_blur();
             return false;
         };
         let NodeKind::Portal(ref portal) = node.kind else {
-            self.web.focused = None;
+            self.web_blur();
             return false;
         };
         if self.portal_chrome.maximized == Some(id) {
             return false;
         }
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            return self.web_blur();
-        }
+        // Escape is owned exclusively by the command cancel stack. Handling
+        // it here too would peel focus in the same frame as restoring maximize.
         let srect = xf.rect_w2s(node.rect);
-        let layout = layout_portal_chrome(srect, self.portal_chrome_collapsed(id), false, xf.z);
+        let mut layout = layout_portal_chrome(srect, self.portal_chrome_collapsed(id), false, xf.z);
+        layout.retract_when_idle(ui.ctx(), id, true);
         if pointer.is_some_and(|p| layout.pointer_on_chrome(p)) {
             return false;
         }
@@ -1811,8 +2022,13 @@ impl SlateApp {
         });
         self.web.pointer_down = buttons;
         events.extend(self.web_keyboard_events(ui));
+        let interacting = events.iter().any(page_input_is_interactive);
         for event in events {
             self.web.host.send_input(id, event);
+        }
+        if interacting {
+            self.web.note_page_input();
+            ui.ctx().request_repaint();
         }
         ui.ctx().set_cursor_icon(
             self.web
@@ -1859,9 +2075,10 @@ impl SlateApp {
         portal: &PortalNode,
     ) {
         let srect = xf.rect_w2s(node.rect);
-        self.note_web_geometry(node.id, srect, ui.clip_rect());
+        self.note_web_geometry(node.id, srect, ui.clip_rect(), ui.ctx().pixels_per_point());
         let collapsed = self.portal_chrome_collapsed(node.id);
-        let layout = layout_portal_chrome(srect, collapsed, false, xf.z);
+        let mut layout = layout_portal_chrome(srect, collapsed, false, xf.z);
+        layout.retract_when_idle(ui.ctx(), node.id, self.web.focused == Some(node.id));
         self.paint_web_portal_in_rect(ui, painter, node, portal, &layout, xf.z);
         let visiting = self.web_visiting_label(node.id, portal);
         let focused = self.web.focused == Some(node.id);
@@ -1897,8 +2114,12 @@ impl SlateApp {
         let fade = |c: Color32| c.gamma_multiply(alpha);
         let state = self.web.state(node.id);
         let focused = self.web.focused == Some(node.id);
-        let live = self.web.is_live(node.id);
-        self.note_web_geometry(node.id, layout.frame, ui.clip_rect());
+        self.note_web_geometry(
+            node.id,
+            layout.frame,
+            ui.clip_rect(),
+            ui.ctx().pixels_per_point(),
+        );
 
         self.paint_portal_frame_fill(
             painter,
@@ -1908,10 +2129,6 @@ impl SlateApp {
             focused,
         );
 
-        if lod_for(layout.frame.height()) == WebLod::Strip {
-            return;
-        }
-
         let body = layout.body;
         if body.width() < 2.0 || body.height() < 2.0 {
             return;
@@ -1919,7 +2136,8 @@ impl SlateApp {
         let clip = body.intersect(layout.frame);
         let poster = self.web.views.get(&node.id).and_then(|v| v.poster.clone());
         if let Some(tex) = poster {
-            let stale = !live;
+            // A resource-saving still frame is the page, not a disabled slide.
+            let stale = matches!(state, WebState::Missing { .. });
             let tint =
                 Color32::WHITE.gamma_multiply(if stale { STALE_ALPHA * alpha } else { alpha });
             let outline = board::portal_content_outline(layout.frame, clip, layout.radius);
@@ -2076,7 +2294,12 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 /// Hand a URL or path to the platform's own handler.
 fn open_externally(target: &str) -> Result<(), std::io::Error> {
-    #[cfg(windows)]
+    #[cfg(test)]
+    {
+        let _ = target;
+        Ok(())
+    }
+    #[cfg(all(windows, not(test)))]
     {
         // `explorer` treats both URLs and paths as shell targets, and unlike
         // `cmd /C start` it needs no quoting dance.
@@ -2085,14 +2308,14 @@ fn open_externally(target: &str) -> Result<(), std::io::Error> {
             .spawn()
             .map(|_| ())
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(test)))]
     {
         std::process::Command::new("open")
             .arg(target)
             .spawn()
             .map(|_| ())
     }
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(unix, not(target_os = "macos"), not(test)))]
     {
         std::process::Command::new("xdg-open")
             .arg(target)
@@ -2117,6 +2340,21 @@ fn view_key(portal: &PortalNode, web: &WebPortalRef) -> String {
     format!("{locator}|{}|{}|{zoom}", web.entry, web.viewport.width_css)
 }
 
+/// Empty compositor/startup frames must never replace a useful still. Treat
+/// fully transparent and uniform black/white clears as unavailable captures.
+/// Other solid colours remain valid (including the native capture test page).
+pub(super) fn web_frame_has_content(image: &egui::ColorImage) -> bool {
+    if image.size[0] == 0 || image.size[1] == 0 || image.pixels.is_empty() {
+        return false;
+    }
+    let first = image.pixels[0];
+    let clear = first == Color32::BLACK || first == Color32::WHITE;
+    image
+        .pixels
+        .iter()
+        .any(|p| p.a() != 0 && (!clear || *p != first))
+}
+
 /// The CSS viewport a page is laid out at. `Auto` hands the frame's own size to
 /// the page so resizing reflows; the others lay out at the authored width and
 /// scale the result (D20).
@@ -2138,9 +2376,124 @@ pub fn css_size(web: &WebPortalRef, rect: slate_doc::scene::WorldRect) -> (u32, 
     }
 }
 
+fn page_input_is_interactive(event: &WebInput) -> bool {
+    match event {
+        WebInput::Wheel { .. }
+        | WebInput::Down { .. }
+        | WebInput::Up { .. }
+        | WebInput::Key { .. }
+        | WebInput::Text(_) => true,
+        WebInput::Move { buttons, .. } => *buttons != 0,
+        WebInput::Leave => false,
+    }
+}
+
+/// Stable capture size for a live page, bounded independently of camera zoom.
+pub fn raster_for(css_w: u32, css_h: u32, _screen_w: f32, _screen_h: f32) -> (u32, u32) {
+    // Camera zoom must not resize the browser or recreate capture buffers.
+    // Preserve page aspect while bounding both edge length and total pixels.
+    let (w, h) = (css_w.max(1) as f32, css_h.max(1) as f32);
+    let scale = 1.0_f32
+        .min(RASTER_MAX_PX / w.max(h))
+        .min((RASTER_MAX_PIXELS / (w * h)).sqrt());
+    (
+        (w * scale).floor().max(1.0) as u32,
+        (h * scale).floor().max(1.0) as u32,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn camera_zoom_does_not_resize_or_unbound_the_capture() {
+        let normal = raster_for(1280, 720, 1280.0, 720.0);
+        for size in [0.0, 20.0, 4096.0, 1.0e20, f32::INFINITY] {
+            assert_eq!(raster_for(1280, 720, size, size), normal);
+        }
+        for (w, h) in [(u32::MAX, u32::MAX), (9000, 3000), (1, u32::MAX)] {
+            let (rw, rh) = raster_for(w, h, 0.0, 0.0);
+            assert!(rw >= 1 && rh >= 1);
+            assert!(rw.max(rh) <= RASTER_MAX_PX as u32);
+            assert!((rw as u64) * (rh as u64) <= RASTER_MAX_PIXELS as u64);
+        }
+        let (w, h) = raster_for(7680, 4320, 1.0e10, 1.0e10);
+        assert!((w as f32 / h as f32 - 16.0 / 9.0).abs() < 0.002);
+    }
+
+    #[test]
+    fn successive_web_frames_reuse_the_texture() {
+        let ctx = egui::Context::default();
+        let mut app = SlateApp::with_ctx(&ctx, None);
+        let id = NodeId(99);
+        app.web.views.insert(id, WebView::new("test".into()));
+        app.upload_poster(&ctx, id, egui::ColorImage::new([4, 4], Color32::RED));
+        let texture = app.web.views[&id].poster.as_ref().unwrap().id();
+        app.upload_poster(&ctx, id, egui::ColorImage::new([4, 4], Color32::BLUE));
+        assert_eq!(app.web.views[&id].poster.as_ref().unwrap().id(), texture);
+    }
+
+    #[test]
+    fn blank_capture_and_refresh_never_replace_the_last_good_poster() {
+        let ctx = egui::Context::default();
+        let mut app = SlateApp::with_ctx(&ctx, None);
+        let id = NodeId(99);
+        app.web.views.insert(id, WebView::new("test".into()));
+        app.upload_poster(&ctx, id, egui::ColorImage::new([8, 8], Color32::RED));
+        let texture = app.web.views[&id].poster.as_ref().unwrap().id();
+        let captured = app.web.views[&id].poster_at;
+        for clear in [Color32::TRANSPARENT, Color32::BLACK, Color32::WHITE] {
+            app.upload_poster(&ctx, id, egui::ColorImage::new([8, 8], clear));
+            assert_eq!(app.web.views[&id].poster_at, captured);
+            assert_eq!(app.web.views[&id].poster.as_ref().unwrap().id(), texture);
+        }
+        app.web_recapture(id);
+        assert_eq!(app.web.views[&id].poster_at, captured);
+        assert_eq!(app.web.views[&id].poster.as_ref().unwrap().id(), texture);
+        let mut page = egui::ColorImage::new([8, 8], Color32::WHITE);
+        page.pixels[0] = Color32::BLACK;
+        assert!(
+            web_frame_has_content(&page),
+            "a white page with content is valid"
+        );
+        app.upload_poster(&ctx, id, page);
+        assert_eq!(app.web.views[&id].poster.as_ref().unwrap().id(), texture);
+        assert!(app.web.views[&id].poster_at > captured);
+    }
+
+    #[test]
+    fn poster_survives_eviction_and_same_source_regeneration() {
+        let ctx = egui::Context::default();
+        let mut app = SlateApp::with_ctx(&ctx, None);
+        app.leave_home();
+        app.ensure_work_tab();
+        app.paste_web_url("https://example.com/page", Pos2::ZERO);
+        app.web_pump(&ctx);
+        let id = app.doc().scene.nodes.last().unwrap().id;
+        app.upload_poster(&ctx, id, egui::ColorImage::new([8, 8], Color32::BLUE));
+        let texture = app.web.views[&id].poster.as_ref().unwrap().id();
+        // Off-screen/native-host unavailable: demote a previously live page.
+        app.web.views.get_mut(&id).unwrap().live = true;
+        app.web_pump(&ctx);
+        assert!(!app.web.views[&id].live);
+        assert_eq!(app.web.views[&id].poster.as_ref().unwrap().id(), texture);
+        // A changed viewport key must regenerate the host but keep this source's still.
+        app.web
+            .views
+            .get_mut(&id)
+            .unwrap()
+            .key
+            .push_str("-old-viewport");
+        app.web_pump(&ctx);
+        assert_eq!(app.web.views[&id].poster.as_ref().unwrap().id(), texture);
+        app.bind_web_source(id, "https://example.org/different".into());
+        app.web_pump(&ctx);
+        assert!(
+            app.web.views[&id].poster.is_none(),
+            "rebind cannot show the old source"
+        );
+    }
 
     fn candidate(id: u64, height: f32, area: f32) -> Candidate {
         Candidate {
@@ -2153,6 +2506,39 @@ mod tests {
             renderable: true,
             was_live: false,
         }
+    }
+
+    #[test]
+    fn page_scroll_is_interactive_hover_is_not() {
+        assert!(page_input_is_interactive(&WebInput::Wheel {
+            x: 0.0,
+            y: 0.0,
+            delta: 40.0,
+            horizontal: false,
+        }));
+        assert!(!page_input_is_interactive(&WebInput::Move {
+            x: 1.0,
+            y: 1.0,
+            buttons: 0,
+        }));
+        assert!(page_input_is_interactive(&WebInput::Move {
+            x: 1.0,
+            y: 1.0,
+            buttons: 1,
+        }));
+        let mut rt = WebRuntime::default();
+        assert!(!rt.recently_interactive());
+        rt.note_page_input();
+        assert!(rt.recently_interactive());
+        assert_eq!(
+            rt.focused_frame_interval(NodeId(1)),
+            Duration::from_secs_f32(1.0 / IDLE_FPS)
+        );
+        rt.focused = Some(NodeId(1));
+        assert_eq!(
+            rt.focused_frame_interval(NodeId(1)),
+            Duration::from_secs_f32(1.0 / INTERACTIVE_FPS)
+        );
     }
 
     #[test]
@@ -2221,8 +2607,8 @@ mod tests {
         let mut demoted = candidate(1, 120.0, 10_000.0);
         demoted.was_live = true;
         assert!(
-            admit(&[demoted], LIVE_POOL).is_empty(),
-            "below LIVE_DEMOTE_PX a live portal must yield"
+            !admit(&[demoted], LIVE_POOL).is_empty(),
+            "zoom alone must not destroy the running browser"
         );
     }
 
@@ -2271,6 +2657,16 @@ mod tests {
             css_size(&web, rect),
             (800, 400),
             "Auto makes the frame the viewport"
+        );
+        assert_eq!(
+            raster_for(1280, 640, 1920.0, 1080.0),
+            (1280, 640),
+            "Fit captures its CSS viewport independently of camera zoom"
+        );
+        assert_eq!(
+            raster_for(1280, 640, 40.0, 22.0),
+            (1280, 640),
+            "zooming out must not resize capture buffers"
         );
     }
 }

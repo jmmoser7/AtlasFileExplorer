@@ -239,7 +239,7 @@ impl Recipe {
                     ),
                     PortalKind::Agent => PortalNode::unbound_agent(
                         p.title.clone().unwrap_or_else(|| "Agent portal".into()),
-                        "cursor",
+                        "",
                     ),
                     PortalKind::Web => PortalNode::unbound_web(
                         p.title.clone().unwrap_or_else(|| "Web portal".into()),

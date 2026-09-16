@@ -17,6 +17,7 @@ pub mod journal;
 pub mod metadata;
 pub mod office;
 pub mod owners;
+pub mod pack_sheet;
 pub mod pdf;
 pub mod preview;
 pub mod rasterthumb;

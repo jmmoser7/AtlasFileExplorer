@@ -47,6 +47,83 @@ impl TabChromeColors {
     }
 }
 
+/// Chrome-tab bubble: convex far edge + concave shoulders that flare into the host.
+/// The dock readout blister calls this so it cannot drift from the top-bar tab.
+#[derive(Clone, Copy)]
+pub struct TabBubble {
+    pub far_radius: f32,
+    pub shoulder_radius: f32,
+}
+
+impl TabBubble {
+    pub fn from_topbar(metrics: &TopBarTokens) -> Self {
+        Self {
+            far_radius: metrics.tab_top_radius,
+            shoulder_radius: metrics.tab_shoulder_radius,
+        }
+    }
+}
+
+/// Which edge of the rect is the host the bubble blends into.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TabHost {
+    /// Shoulders on the bottom (top-bar tab; blister rising into the canvas).
+    Bottom,
+    /// Shoulders on the top (blister hanging down into the readout).
+    Top,
+}
+
+/// Scanline x-bounds of a tab bubble. `host` flips the silhouette vertically.
+pub fn tab_scanline_x(rect: Rect, y: f32, bubble: TabBubble, host: TabHost) -> (f32, f32) {
+    let y = match host {
+        TabHost::Bottom => y,
+        TabHost::Top => rect.top() + rect.bottom() - y,
+    };
+    let depth = rect.height().max(1.0);
+    let shoulder = bubble.shoulder_radius.max(0.0).min(depth * 0.45);
+    let radius = bubble.far_radius.max(0.0).min(depth * 0.45);
+    let body_left = rect.left() + shoulder;
+    let body_right = rect.right() - shoulder;
+
+    if y < rect.top() + radius {
+        let dy = y - (rect.top() + radius);
+        let dx = (radius * radius - dy * dy).max(0.0).sqrt();
+        (body_left + radius - dx, body_right - radius + dx)
+    } else if y > rect.bottom() - shoulder && shoulder > 0.0 {
+        let t = ((y - (rect.bottom() - shoulder)) / shoulder).clamp(0.0, 1.0);
+        let flare = shoulder * (1.0 - (1.0 - t * t).sqrt());
+        (body_left - flare, body_right + flare)
+    } else {
+        (body_left, body_right)
+    }
+}
+
+/// Opaque tab-shaped fill. Glow / emboss stay with the top-bar painter.
+pub fn paint_tab_bubble(
+    painter: &egui::Painter,
+    rect: Rect,
+    fill_top: Color32,
+    fill_bottom: Color32,
+    bubble: TabBubble,
+    host: TabHost,
+) {
+    let y0 = rect.top().floor();
+    let y1 = rect.bottom().ceil();
+    let h = (y1 - y0).max(1.0);
+    let mut y = y0;
+    while y <= y1 {
+        let t = ((y - y0) / h).clamp(0.0, 1.0);
+        let (left, right) = tab_scanline_x(rect, y, bubble, host);
+        if right - left >= 0.5 {
+            painter.line_segment(
+                [Pos2::new(left, y), Pos2::new(right, y)],
+                Stroke::new(1.35_f32, lerp_color(fill_top, fill_bottom, t)),
+            );
+        }
+        y += 1.0;
+    }
+}
+
 fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
     Color32::from_rgba_unmultiplied(
@@ -137,37 +214,49 @@ fn paint_vertical_gradient_top_fillet(
     }
 }
 
-fn active_tab_x_bounds(rect: Rect, y: f32, metrics: &TopBarTokens) -> (f32, f32) {
-    let shoulder = metrics.tab_shoulder_radius.max(0.0);
-    let body_left = rect.left() + shoulder;
-    let body_right = rect.right() - shoulder;
-    let radius = metrics.tab_top_radius.max(0.0);
+/// Closed silhouette of a tab bubble. The dock blister and the top-bar
+/// active tab share this so the accent stroke cannot drift.
+pub fn tab_bubble_outline(rect: Rect, bubble: TabBubble, host: TabHost) -> Vec<Pos2> {
+    let mut points = Vec::new();
+    let samples = (rect.height() * 1.5).ceil().max(2.0) as usize;
+    for i in (0..=samples).rev() {
+        let y = rect.top() + rect.height() * i as f32 / samples as f32;
+        points.push(Pos2::new(tab_scanline_x(rect, y, bubble, host).0, y));
+    }
+    for i in 0..=samples {
+        let y = rect.top() + rect.height() * i as f32 / samples as f32;
+        points.push(Pos2::new(tab_scanline_x(rect, y, bubble, host).1, y));
+    }
+    points
+}
 
-    if y < rect.top() + radius {
-        let dy = y - (rect.top() + radius);
-        let dx = (radius * radius - dy * dy).max(0.0).sqrt();
-        (body_left + radius - dx, body_right - radius + dx)
-    } else if y > rect.bottom() - shoulder {
-        let t = ((y - (rect.bottom() - shoulder)) / shoulder).clamp(0.0, 1.0);
-        let flare = shoulder * (1.0 - (1.0 - t * t).sqrt());
-        (body_left - flare, body_right + flare)
-    } else {
-        (body_left, body_right)
+/// The active-tab cyan falloff (three nested strokes). `fade` is 1 for a
+/// top-bar tab; the dock blister passes its hover reveal.
+pub fn paint_tab_bubble_glow(
+    painter: &egui::Painter,
+    outline: &[Pos2],
+    colors: TabChromeColors,
+    metrics: &TopBarTokens,
+    fade: f32,
+) {
+    let fade = fade.clamp(0.0, 1.0);
+    if outline.len() < 2 || fade < 0.01 {
+        return;
+    }
+    for (width, opacity) in [
+        (metrics.glow_outer_width, metrics.glow_outer_opacity),
+        (metrics.glow_middle_width, metrics.glow_middle_opacity),
+        (metrics.glow_core_width, metrics.glow_core_opacity),
+    ] {
+        painter.add(Shape::line(
+            outline.to_vec(),
+            Stroke::new(width, colors.accent_stroke.gamma_multiply(opacity * fade)),
+        ));
     }
 }
 
 fn active_tab_outline(rect: Rect, metrics: &TopBarTokens) -> Vec<Pos2> {
-    let mut points = Vec::new();
-    let samples = (rect.height() * 1.5).ceil() as usize;
-    for i in (0..=samples).rev() {
-        let y = rect.top() + rect.height() * i as f32 / samples as f32;
-        points.push(Pos2::new(active_tab_x_bounds(rect, y, metrics).0, y));
-    }
-    for i in 0..=samples {
-        let y = rect.top() + rect.height() * i as f32 / samples as f32;
-        points.push(Pos2::new(active_tab_x_bounds(rect, y, metrics).1, y));
-    }
-    points
+    tab_bubble_outline(rect, TabBubble::from_topbar(metrics), TabHost::Bottom)
 }
 
 fn paint_active_tab(
@@ -178,46 +267,22 @@ fn paint_active_tab(
     colors: TabChromeColors,
     metrics: &TopBarTokens,
 ) {
-    let steps = rect.height().ceil().max(1.0) as usize;
-    for step in 0..steps {
-        let t = step as f32 / steps as f32;
-        let y = rect.top() + rect.height() * t;
-        let (left, right) = active_tab_x_bounds(rect, y, metrics);
-        painter.line_segment(
-            [Pos2::new(left, y), Pos2::new(right, y)],
-            Stroke::new(1.35_f32, lerp_color(fill_top, fill_bottom, t)),
-        );
-    }
+    paint_tab_bubble(
+        painter,
+        rect,
+        fill_top,
+        fill_bottom,
+        TabBubble::from_topbar(metrics),
+        TabHost::Bottom,
+    );
 
-    // Three nested strokes reproduce the reference's soft cyan falloff.
-    let outline = active_tab_outline(rect, metrics);
-    painter.add(Shape::line(
-        outline.clone(),
-        Stroke::new(
-            metrics.glow_outer_width,
-            colors
-                .accent_stroke
-                .gamma_multiply(metrics.glow_outer_opacity),
-        ),
-    ));
-    painter.add(Shape::line(
-        outline.clone(),
-        Stroke::new(
-            metrics.glow_middle_width,
-            colors
-                .accent_stroke
-                .gamma_multiply(metrics.glow_middle_opacity),
-        ),
-    ));
-    painter.add(Shape::line(
-        outline,
-        Stroke::new(
-            metrics.glow_core_width,
-            colors
-                .accent_stroke
-                .gamma_multiply(metrics.glow_core_opacity),
-        ),
-    ));
+    paint_tab_bubble_glow(
+        painter,
+        &active_tab_outline(rect, metrics),
+        colors,
+        metrics,
+        1.0,
+    );
 
     // A faint inner highlight gives the raised/embossed top edge.
     let inner = Rect::from_min_max(
@@ -550,10 +615,16 @@ pub fn portal_tab_bar(
     // that would produce 5 px type on a 12 px bar.
     let scale = (h / tokens.topbar.height.max(1.0)).max(0.0);
     let mut metrics = tokens.topbar.scaled(scale);
-    metrics.tab_top_inset = (h * 0.08).min(2.0);
-    metrics.tab_text_size = (h * 0.62).max(1.0);
-    metrics.tab_horizontal_padding = (h * 0.45).max(4.0);
-    let inner_r = frame_radius.min(h * 0.45);
+    // Portal-specific proportions: keep the identity blister clear of the
+    // outer fillet and center smaller type within its own painted bounds.
+    const INSET_FRAC: f32 = 0.20;
+    const TEXT_FRAC: f32 = 0.48;
+    const PADDING_FRAC: f32 = 0.35;
+    const RADIUS_FRAC: f32 = 0.22;
+    metrics.tab_top_inset = h * INSET_FRAC;
+    metrics.tab_text_size = h * TEXT_FRAC;
+    metrics.tab_horizontal_padding = h * PADDING_FRAC;
+    let inner_r = h * RADIUS_FRAC;
     metrics.tab_top_radius = inner_r;
     metrics.tab_shoulder_radius = inner_r;
 
@@ -571,10 +642,10 @@ pub fn portal_tab_bar(
     let pad = metrics.tab_horizontal_padding;
     let shoulder = metrics.tab_shoulder_radius;
     let live_reserve = if model.live { 16.0 * scale } else { 0.0 };
-    let tab_left = bar.left() + frame_radius.max(4.0 * scale.max(0.4));
+    let tab_left = bar.left() + frame_radius.max(h * INSET_FRAC);
     let tab_w = (text_w + pad * 2.0 + shoulder * 2.0 + live_reserve)
         .clamp(metrics.tab_min_width, metrics.tab_max_width)
-        .min((maximize.left() - tab_left - 4.0).max(metrics.tab_min_width * 0.5));
+        .min((maximize.left() - tab_left - h * INSET_FRAC).max(0.0));
     let tab_slot = Rect::from_min_max(
         Pos2::new(tab_left, bar.top()),
         Pos2::new(tab_left + tab_w, bar.bottom()),
@@ -666,4 +737,23 @@ pub fn portal_reveal_hint(ui: &Ui, palette: &Palette, strip: Rect, id_salt: u64)
         Sense::click(),
     )
     .clicked()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flipped_tab_scanline_mirrors_the_host_edge() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(48.0, 16.0));
+        let bubble = TabBubble {
+            far_radius: 5.0,
+            shoulder_radius: 7.0,
+        };
+        let y = rect.top() + 1.5;
+        let up = tab_scanline_x(rect, y, bubble, TabHost::Bottom);
+        let flipped_y = rect.top() + rect.bottom() - y;
+        let down = tab_scanline_x(rect, flipped_y, bubble, TabHost::Top);
+        assert!((up.0 - down.0).abs() < 1e-3 && (up.1 - down.1).abs() < 1e-3);
+    }
 }

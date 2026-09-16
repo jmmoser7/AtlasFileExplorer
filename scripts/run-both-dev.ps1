@@ -25,6 +25,8 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+& (Join-Path $PSScriptRoot "install-shortcuts.ps1") -Configuration Debug
+
 $slate = Join-Path $root "target\debug\slate.exe"
 $atlas = Join-Path $root "target\debug\native-file-atlas.exe"
 if (-not (Test-Path $slate) -or -not (Test-Path $atlas)) {

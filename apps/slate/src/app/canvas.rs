@@ -10,7 +10,7 @@ use atlas_shell::menu::{self, MenuIcon};
 use atlas_shell::{canvas_scale, canvas_text};
 use circle_pack::{venn_layout, Circle, VennItem, VennSet};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
-use slate_doc::{link_status, ItemId, LinkStatus, TagId, ViewKind};
+use slate_doc::{ItemId, LinkStatus, TagId, ViewKind};
 use std::collections::BTreeMap;
 
 const SECTION_GAP: f32 = 56.0;
@@ -466,27 +466,31 @@ impl SlateApp {
     }
 
     pub(crate) fn open_url(&self, url: &str) {
-        #[cfg(windows)]
+        #[cfg(test)]
+        let _ = url;
+        #[cfg(all(windows, not(test)))]
         {
             let _ = std::process::Command::new("cmd")
                 .args(["/C", "start", "", url])
                 .spawn();
         }
-        #[cfg(not(windows))]
+        #[cfg(all(not(windows), not(test)))]
         {
             let _ = std::process::Command::new("xdg-open").arg(url).spawn();
         }
     }
 
     pub(crate) fn open_path(path: &std::path::Path) {
-        #[cfg(windows)]
+        #[cfg(test)]
+        let _ = path;
+        #[cfg(all(windows, not(test)))]
         {
             let _ = std::process::Command::new("cmd")
                 .args(["/C", "start", ""])
                 .arg(path)
                 .spawn();
         }
-        #[cfg(not(windows))]
+        #[cfg(all(not(windows), not(test)))]
         {
             let _ = std::process::Command::new("xdg-open").arg(path).spawn();
         }
@@ -741,6 +745,7 @@ impl SlateApp {
                 } else {
                     self.toast("That workbook is no longer available");
                     self.recents.remove_missing();
+                    #[cfg(not(test))]
                     self.recents.save("slate");
                 }
             }
@@ -896,7 +901,7 @@ impl SlateApp {
                 .is_some_and(|matches| !matches.contains(&pl.id));
             let fade = if dim { 0.35 } else { 1.0 };
             let name = item.file_name.clone();
-            let missing = link_status(item) == LinkStatus::Missing;
+            let missing = self.tab().link_health.status(&item.path) == LinkStatus::Missing;
             let selected = self.selection.contains(&pl.id);
             let is_hovered = hovered == Some(pl.id);
 

@@ -18,6 +18,21 @@ pub fn spawn_cursor_sidecar(
     session: &str,
     project_cwd: &Path,
 ) -> Result<Child, String> {
+    spawn_cursor_sidecar_in(
+        ai_workspace,
+        session,
+        project_cwd,
+        &crate::agent::agent_dir(ai_workspace, session),
+    )
+}
+
+/// Continue a saved link directory even if the default AI workspace changed.
+pub fn spawn_cursor_sidecar_in(
+    ai_workspace: &Path,
+    session: &str,
+    project_cwd: &Path,
+    link_dir: &Path,
+) -> Result<Child, String> {
     let api_key = crate::cursor_key::resolve().ok_or_else(|| {
         "Cursor API key is not set. Get one from the Cursor dashboard, then paste it in this portal."
             .to_string()
@@ -31,7 +46,7 @@ or set ATLAS_CURSOR_SIDECAR to index.mjs."
     let dir = script.parent().unwrap_or(ai_workspace);
     ensure_sidecar_deps(&node, dir)?;
 
-    let log = crate::agent::agent_dir(ai_workspace, session).join("sidecar.log");
+    let log = link_dir.join("sidecar.log");
     if let Some(parent) = log.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -46,6 +61,7 @@ or set ATLAS_CURSOR_SIDECAR to index.mjs."
         ai_workspace,
         session,
         project_cwd,
+        link_dir,
         &api_key,
         log_file,
         err_file,
@@ -105,6 +121,7 @@ fn spawn_node(
     ai_workspace: &Path,
     session: &str,
     project_cwd: &Path,
+    link_dir: &Path,
     api_key: &str,
     log_file: File,
     err_file: File,
@@ -115,6 +132,7 @@ fn spawn_node(
         .env("ATLAS_AI_WORKSPACE", ai_workspace)
         .env("ATLAS_AGENT_SESSION", session)
         .env("ATLAS_AGENT_CWD", project_cwd)
+        .env("ATLAS_AGENT_LINK_DIR", link_dir)
         .env("CURSOR_API_KEY", api_key)
         .stdout(log_file)
         .stderr(err_file);

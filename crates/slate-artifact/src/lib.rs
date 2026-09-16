@@ -22,6 +22,8 @@ pub use render::render_html;
 /// Options controlling how the HTML artifact is written to disk.
 #[derive(Debug, Clone, Default)]
 pub struct ExportOptions {
+    /// Completed linked image outputs, active image first. No live runtime is exported.
+    pub agent_images: BTreeMap<slate_doc::NodeId, Vec<PathBuf>>,
     /// Inline image assets as base64 data URIs instead of copying to assets/.
     /// Videos, documents, and other card-backed originals are always copied.
     pub inline_assets: bool,
@@ -123,6 +125,31 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}-{n}"));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
+    }
+
+    #[test]
+    fn media_export_keeps_distinct_posters_for_two_pages_of_one_deck() {
+        let dir=unique_temp_dir("slate-media-export");
+        let source=dir.join("deck.pptx");fs::write(&source,b"original deck").unwrap();
+        let mut doc=SlateDoc::default();
+        let mut options=ExportOptions::default();
+        let mut ids=Vec::new();
+        for page in 0..2u16 {
+            let id=doc.add_item_page(source.clone(),"Deck",13,0,format!("page-{page}"),page);
+            ids.push(id);
+            let node=doc.scene.build_node(WorldRect::new(page as f32*400.0,0.0,320.0,180.0),NodeKind::Image(ImageNode::new(id)));
+            let index=doc.scene.nodes.len();doc.scene.apply(&SceneCmd::Add {index,node});
+            let poster=dir.join(format!("page-{page}.png"));fs::write(&poster,[page as u8]).unwrap();
+            options.thumbs.insert(id,poster);
+        }
+        let report=assets::build_assets(&doc,&dir.join("out"),&options).unwrap();
+        assert_eq!(report.copied,3,"one original plus two page posters");
+        let first=report.map.item_thumb(ids[0],&source).unwrap();
+        let second=report.map.item_thumb(ids[1],&source).unwrap();
+        assert_ne!(first,second);
+        let html=render_html(&doc,&report.map);
+        assert!(html.contains(first));assert!(html.contains(second));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     fn add_frame(scene: &mut Scene, order: u32, rect: WorldRect) -> NodeId {
@@ -514,6 +541,7 @@ mod tests {
 
     fn wire(a: ConnectorEnd, b: ConnectorEnd, display: WireDisplay) -> NodeKind {
         NodeKind::Connector(ConnectorNode {
+            binding: None,
             a,
             b,
             stroke: Stroke {
@@ -994,5 +1022,27 @@ mod tests {
         assert!(html.contains("Empty board"));
         assert!(!html.contains("<section class=\"slide"));
         let _ = fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn image_portal_export_contains_bundle_pixels_without_live_controls() {
+        let mut doc = SlateDoc::new("Bundle");
+        let node = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 400.0, 300.0),
+            NodeKind::Portal(slate_doc::PortalNode::unbound_agent("Images", "image-link")),
+        );
+        let id = node.id;
+        doc.scene.apply(&SceneCmd::Add { index: 0, node });
+        let mut assets = AssetMap::default();
+        assets.insert_agent_images(
+            id,
+            vec!["assets/first.png".into(), "assets/second.png".into()],
+        );
+        let html = render_html(&doc, &assets);
+        assert!(html.contains("agent-image-bundle"));
+        assert!(html.contains("assets/first.png"));
+        assert!(html.contains("assets/second.png"));
+        assert!(!html.contains(">Generate<"));
+        assert!(html.contains("data-provider=\"image-link\""));
+        assert!(!html.contains("live agent state is not exported"));
     }
 }

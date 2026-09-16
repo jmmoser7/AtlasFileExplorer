@@ -1,0 +1,110 @@
+{
+  "app": "slate",
+  "pid": 40040,
+  "started_unix": 1789481436,
+  "persist": true,
+  "log_path": "C:\\Users\\jmoser\\AppData\\Local\\NativeFileAtlas\\session-log\\slate.jsonl",
+  "latest_path": "C:\\Users\\jmoser\\AppData\\Local\\NativeFileAtlas\\session-log\\slate-latest.json",
+  "frame": {
+    "n": 180,
+    "app_mean_ms": 43.24744,
+    "app_max_ms": 60.8569,
+    "p95_ms": 130.977,
+    "max_ms": 137.1651,
+    "dropped": 180
+  },
+  "now": {
+    "entries": 100,
+    "nodes": 10000,
+    "selected": 1,
+    "thumbs_pending": 0,
+    "extra": 0,
+    "scan_active": false,
+    "view": "board",
+    "tool": "Select",
+    "last_stall_app_ms": 41.645798
+  },
+  "last_stalls": [
+    {
+      "unix_ms": 1789482472697,
+      "app_ms": 41.645798,
+      "delivered_ms": 98.8976,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:33.1,slate.canvas:33.1",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482472597,
+      "app_ms": 40.6577,
+      "delivered_ms": 104.3412,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:31.1,slate.canvas:31.1",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482472493,
+      "app_ms": 41.8045,
+      "delivered_ms": 104.2618,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:32.7,slate.canvas:32.8",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482472397,
+      "app_ms": 49.8686,
+      "delivered_ms": 117.2359,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:33.8,slate.canvas:33.9",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482472281,
+      "app_ms": 51.0055,
+      "delivered_ms": 113.2275,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:41.8,slate.canvas:41.9",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482472175,
+      "app_ms": 57.5918,
+      "delivered_ms": 97.4735,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:38.7,slate.canvas:38.7",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482472059,
+      "app_ms": 40.0396,
+      "delivered_ms": 89.3873,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:32.6,slate.canvas:32.7",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    },
+    {
+      "unix_ms": 1789482471967,
+      "app_ms": 36.4783,
+      "delivered_ms": 137.1651,
+      "spans": "slate.thumbs:0.0,slate.previews:0.0,slate.board.paint:29.0,slate.canvas:29.0",
+      "view": "board",
+      "tool": "Select",
+      "entries": 100,
+      "nodes": 10000
+    }
+  ],
+  "marks": []
+}

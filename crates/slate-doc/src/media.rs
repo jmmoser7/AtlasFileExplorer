@@ -10,6 +10,91 @@ use std::path::Path;
 
 use crate::doc::SLATE_EXTENSION;
 
+const IMAGES: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "tif", "tiff", "avif", "ico",
+];
+const VIDEOS: &[&str] = &[
+    "mp4", "webm", "ogv", "m4v", "mov", "avi", "mkv", "wmv", "mpg", "mpeg",
+];
+const POWERPOINT: &[&str] = &[
+    "ppt", "pptx", "pps", "ppsx", "pptm", "ppsm", "pot", "potx", "potm",
+];
+const DOCUMENTS: &[&str] = &[
+    "doc", "docx", "xls", "xlsx", "odt", "odp", "ods", "rtf", "key", "pages", "numbers", "indd",
+    "psd", "ai",
+];
+
+/// Picker families use the same extension taxonomy as both interpreters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MediaGroup {
+    Image,
+    Model,
+    Video,
+}
+
+impl MediaGroup {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Image => "Image",
+            Self::Model => "3D",
+            Self::Video => "Video",
+        }
+    }
+    pub fn extensions(self) -> Vec<&'static str> {
+        match self {
+            Self::Image => IMAGES
+                .iter()
+                .chain(DOCUMENTS)
+                .chain(POWERPOINT)
+                .copied()
+                .chain(["pdf"])
+                .collect(),
+            Self::Model => vec!["3dm"],
+            Self::Video => VIDEOS.to_vec(),
+        }
+    }
+    pub fn accepts(self, path: &Path) -> bool {
+        match self {
+            Self::Image => matches!(
+                media_kind(path),
+                MediaKind::Image | MediaKind::Pdf | MediaKind::Doc
+            ),
+            Self::Model => media_kind(path) == MediaKind::Model,
+            Self::Video => media_kind(path) == MediaKind::Video,
+        }
+    }
+}
+
+pub fn is_powerpoint(path: &Path) -> bool {
+    path.extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|s| POWERPOINT.contains(&s.to_ascii_lowercase().as_str()))
+}
+
+pub fn has_pages(path: &Path) -> bool {
+    media_kind(path) == MediaKind::Pdf || is_powerpoint(path)
+}
+
+#[cfg(test)]
+mod picker_tests {
+    use super::*;
+    #[test]
+    fn picker_filters_and_media_kinds_agree() {
+        for group in [MediaGroup::Image, MediaGroup::Model, MediaGroup::Video] {
+            for ext in group.extensions() {
+                assert!(group.accepts(Path::new(&format!("file.{ext}"))), "{ext}");
+            }
+            assert!(!group.accepts(Path::new("workbook.slate")));
+        }
+        for file in ["photo.JPG", "pages.pdf", "deck.PPTX", "deck.ppt"] {
+            assert!(MediaGroup::Image.accepts(Path::new(file)));
+        }
+        assert!(has_pages(Path::new("deck.PPTX")));
+        assert!(!has_pages(Path::new("photo.jpg")));
+        assert!(!MediaGroup::Model.accepts(Path::new("unsupported.obj")));
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaKind {
     /// Web-displayable raster/vector images (`<img>`).
@@ -57,11 +142,8 @@ pub fn media_kind(path: &Path) -> MediaKind {
         return MediaKind::Other;
     };
     match ext.as_str() {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "tif" | "tiff" | "avif"
-        | "ico" => MediaKind::Image,
-        "mp4" | "webm" | "ogv" | "m4v" | "mov" | "avi" | "mkv" | "wmv" | "mpg" | "mpeg" => {
-            MediaKind::Video
-        }
+        e if IMAGES.contains(&e) => MediaKind::Image,
+        e if VIDEOS.contains(&e) => MediaKind::Video,
         // Only .3dm for now: Model implies the board can extract meshes and
         // drive an interactive viewport (rhino-mesh crate). Other 3D formats
         // (obj/stl/gltf…) stay `Other` until they have a mesh loader too.
@@ -71,8 +153,7 @@ pub fn media_kind(path: &Path) -> MediaKind {
         | "rs" | "py" | "js" | "ts" | "html" | "css" | "sh" | "bat" | "ini" | "cfg" => {
             MediaKind::Text
         }
-        "doc" | "docx" | "ppt" | "pptx" | "xls" | "xlsx" | "odt" | "odp" | "ods" | "rtf"
-        | "key" | "pages" | "numbers" | "indd" | "psd" | "ai" => MediaKind::Doc,
+        e if DOCUMENTS.contains(&e) || POWERPOINT.contains(&e) => MediaKind::Doc,
         e if e == SLATE_EXTENSION => MediaKind::Workbook,
         _ => MediaKind::Other,
     }

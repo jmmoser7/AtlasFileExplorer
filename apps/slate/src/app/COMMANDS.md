@@ -11,6 +11,17 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
 
 ## Rule for every change
 
+`board.hover_highlight` opens the hover preferences. With a primary node
+kind as its detail (`frame`, `image`, `shape`, `text`, `connector`, `portal`,
+`dock_strip`), it toggles that kind's passive hover outline. The checkboxes
+are under Preferences → Advanced settings → Board hover highlights and
+persist in `slate-settings.json`.
+
+Web portals accept dropped page links and selected HTTP(S) URL text on the
+Board: empty canvas creates a portal; an unlocked web portal receives a new
+URL. Both are undoable. Native Chrome/Edge tab-strip docking is not supported;
+drag the address-bar URL or a page link instead.
+
 1. **Register it** in `apps/slate/src/app/commands.rs` → `SPECS` as an
    `atlas_commands::CommandSpec`: stable namespaced `id`
    (`"board.tool.select"`, `"app.save"`, …), `category`, `name`, `binding`
@@ -45,6 +56,10 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
 
 ## Keymap wave 2a bindings (registry, overlays, small commands)
 
+- **F3 / Selection inspector** — opens the existing Selection dock body as a
+  pinned form; press again to close it. After minimizing with the mouse, F3
+  reopens it immediately. Editable fields stay available when tool palettes
+  use icon strips. The menu dispatches the same `app.properties` command.
 - **Space (tap) / Enter (idle)** — repeat the last repeatable command
   (Rhino semantics). Space fires on release, only for taps < 250 ms with no
   pointer use while held — Space+drag stays pan. Enter defers to crop mode,
@@ -95,7 +110,8 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
 - **Four-dot column** (stacked caption and icon strip, per palette):
   Minimize, layout toggle (dock-wide: Icon strip / Stacked view),
   Advanced (fullscreen catalog canvas of the palette's tools — same
-  camera as the board; right-click or linger for toolbar / clipboard /
+  camera as the board; drag a card onto the home strip to add or
+  reorder it; right-click or linger for toolbar / clipboard /
   Duplicate / Use; linger yields to an open context menu), Drop to canvas (`board.dock.drop` — journals
   a `DockStrip` node; unlimited copies; baseline dock stays independent).
   Hover labels share one chip centered above the dots. A click on a
@@ -403,8 +419,11 @@ Camera-only — never journaled, never repeatable.
   `portal.atlas.*`). Place from the Portals flyout. Binding is a later
   non-modal step, or a folder drop through the lens chooser (File Atlas is
   the default; Place files on the board dumps images). View-only: no
-  filesystem writes. Open in File Atlas uses the existing Slate-hosted
-  viewport. Bake writes a poster + provenance; the portal stays live.
+  filesystem writes. In contents-focus, left-drag a card to another
+  application the same way File Explorer does (`portal.atlas.drag_out`,
+  `atlas_core::shell_drag` — copy or link, never move). Open in File Atlas
+  uses the existing Slate-hosted viewport. Bake writes a poster +
+  provenance; the portal stays live.
 - **Web portal** is a host portal: a new one starts at
   `https://www.google.com/` so the page itself can be used as a search
   surface. Rebind it to a URL, an `.html` file, or a folder with an entry
@@ -446,3 +465,25 @@ Camera-only — never journaled, never repeatable.
 - **In linked Atlas**: the same right-click menu appears on Atlas files under
   "Slate tags"; click-hold-drag carries thumbnails into the Slate window
   (arriving uncategorized).
+
+### Minimal Agent portals (15 September 2026)
+
+New placements show the installed/configured program icon grid. `portal.agent.provider` returns to that grid. Codex uses a portal-owned conversation and installed ChatGPT sign-in. Connect Text or Image nodes with existing wire gestures, then Send/Generate to capture their inputs. `portal.agent.unbundle` splits completed images in one undo group. `portal.agent.stop` interrupts the active Codex turn. Image albums use contents-focus for scroll and arrow navigation; hover reveals Generate and shared Maximize.
+
+
+## Media
+
+The primary Media palette contains Image, 3D, and Video. These dispatch
+`board.media.image`, `board.media.model`, and `board.media.video`; each opens a
+filtered file picker and places the selected files through the existing board
+placement path. Results are scoped to the requesting tab; cancel adds nothing.
+Image includes raster/vector pictures, PDF, PowerPoint, and other print-document
+previews. 3D uses the existing Rhino `.3dm` viewer. Video uses existing poster,
+trim, and HTML playback behavior.
+
+PowerPoint stays linked to its source and renders a derived PDF locally using
+installed PowerPoint. Conversion and PDF page counting run on bounded workers;
+cloud-only files are not downloaded. Hover a PDF or deck to browse pages. Clicking
+a page dispatches `board.media.page` and journals the board page change. Large
+decks show 32 pages per picker window. Without PowerPoint, place an exported PDF.
+See `docs/keymap/contracts/media.md`.

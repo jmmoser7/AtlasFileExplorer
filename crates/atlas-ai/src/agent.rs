@@ -4,9 +4,7 @@
 //! context and prompt requests here; any local sidecar can read them and write
 //! session state back. Cursor is only one provider resolved by name.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -28,37 +26,41 @@ pub struct AgentProvider {
     pub id: String,
     pub display_name: String,
     pub launch: LaunchKind,
+    #[serde(default)]
+    pub view: PortalView,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LaunchKind {
     Cursor,
+    Codex,
     None,
 }
 
 pub fn providers() -> Vec<AgentProvider> {
-    vec![
-        provider_by_id("cursor"),
-        AgentProvider {
-            id: "local".into(),
-            display_name: "Local agent".into(),
-            launch: LaunchKind::None,
-        },
-    ]
+    ["cursor", "codex", "local", "image-link"]
+        .into_iter()
+        .map(provider_by_id)
+        .collect()
 }
 
 pub fn provider_by_id(id: &str) -> AgentProvider {
-    match id {
-        "cursor" => AgentProvider {
-            id: "cursor".into(),
-            display_name: "Cursor".into(),
-            launch: LaunchKind::Cursor,
-        },
-        _ => AgentProvider {
-            id: "local".into(),
-            display_name: "Local agent".into(),
-            launch: LaunchKind::None,
+    let (name, launch) = match id {
+        "cursor" => ("Cursor", LaunchKind::Cursor),
+        "codex" => ("Codex · ChatGPT", LaunchKind::Codex),
+        "local" => ("Local agent", LaunchKind::None),
+        "image-link" => ("Image link", LaunchKind::None),
+        _ => (id, LaunchKind::None),
+    };
+    AgentProvider {
+        id: id.into(),
+        display_name: name.into(),
+        launch,
+        view: if id == "image-link" {
+            PortalView::Images
+        } else {
+            PortalView::Chat
         },
     }
 }
@@ -66,100 +68,119 @@ pub fn provider_by_id(id: &str) -> AgentProvider {
 pub fn launch_provider(provider: &str, workspace: &Path) -> Result<(), String> {
     match provider_by_id(provider).launch {
         LaunchKind::Cursor => crate::launch::launch_cursor(workspace),
-        LaunchKind::None => Ok(()),
+        LaunchKind::Codex => crate::runtime::launch_codex(workspace),
+        LaunchKind::None => Err(
+            "This sidecar has no application launcher. Open its link folder to configure it."
+                .into(),
+        ),
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentContext {
-    pub app: &'static str,
-    pub session: String,
-    pub provider: String,
-    pub workbook: Option<PathBuf>,
-    pub format_version: u32,
-    pub scope: String,
-    pub selection: Vec<String>,
-    pub viewport: Option<Viewport>,
-    pub board_summary: String,
-    pub generated_at: u64,
+pub use atlas_agent::*;
+
+enum LinkWork {
+    Context(PathBuf, AgentContext),
+    Request(PathBuf, AgentRequest),
+    Read(PathBuf),
 }
 
-impl AgentContext {
-    pub fn fingerprint(&self) -> u64 {
-        let mut h = DefaultHasher::new();
-        self.app.hash(&mut h);
-        self.session.hash(&mut h);
-        self.provider.hash(&mut h);
-        self.workbook.hash(&mut h);
-        self.format_version.hash(&mut h);
-        self.scope.hash(&mut h);
-        self.selection.hash(&mut h);
-        self.board_summary.hash(&mut h);
-        if let Some(v) = &self.viewport {
-            v.hash_into(&mut h);
+/// The UI only exchanges small messages. All filesystem work stays on a worker.
+pub struct AgentLink {
+    tx: crossbeam_channel::Sender<LinkWork>,
+    latest: std::sync::Arc<std::sync::Mutex<Option<AgentSession>>>,
+    next_read: Option<Instant>,
+    next_write: Option<Instant>,
+}
+impl Default for AgentLink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AgentLink {
+    pub fn new() -> Self {
+        let (tx, rx) = crossbeam_channel::bounded(8);
+        let latest = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let result = latest.clone();
+        std::thread::spawn(move || {
+            let mut link = FileAgentLink::new();
+            while let Ok(work) = rx.recv() {
+                let update = match work {
+                    LinkWork::Context(dir, ctx) => {
+                        link.tick_write_context_in(&dir, &ctx);
+                        None
+                    }
+                    LinkWork::Request(dir, req) => {
+                        link.send_request_in(&dir, &req)
+                            .err()
+                            .map(|e| AgentSession {
+                                request: req.id.clone(),
+                                status: AgentStatus::Error(format!(
+                                    "Could not write agent request: {e}"
+                                )),
+                                provider: String::new(),
+                                turns: vec![],
+                                updated_at: req.at,
+                                bundle: Default::default(),
+                            })
+                    }
+                    LinkWork::Read(path) => link.tick_read_session_file(&path),
+                };
+                if update.is_some() {
+                    if let Ok(mut value) = result.lock() {
+                        *value = update;
+                    }
+                }
+            }
+        });
+        Self {
+            tx,
+            latest,
+            next_read: None,
+            next_write: None,
         }
-        h.finish()
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Viewport {
-    pub x: f32,
-    pub y: f32,
-    pub w: f32,
-    pub h: f32,
-    pub zoom: f32,
-}
-
-impl Viewport {
-    fn hash_into(&self, h: &mut DefaultHasher) {
-        self.x.to_bits().hash(h);
-        self.y.to_bits().hash(h);
-        self.w.to_bits().hash(h);
-        self.h.to_bits().hash(h);
-        self.zoom.to_bits().hash(h);
+    pub fn tick_write_context(&mut self, ws: &Path, id: &str, ctx: &AgentContext) -> bool {
+        self.tick_write_context_in(&agent_dir(ws, id), ctx)
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentRequest {
-    pub id: String,
-    pub prompt: String,
-    pub at: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentSession {
-    #[serde(default)]
-    pub status: AgentStatus,
-    #[serde(default)]
-    pub provider: String,
-    #[serde(default)]
-    pub turns: Vec<AgentTurn>,
-    #[serde(default)]
-    pub updated_at: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentStatus {
-    #[default]
-    Idle,
-    Thinking,
-    Offline,
-    Error(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentTurn {
-    pub role: String,
-    pub text: String,
-    #[serde(default)]
-    pub at: u64,
+    pub fn tick_write_context_in(&mut self, dir: &Path, ctx: &AgentContext) -> bool {
+        if self
+            .next_write
+            .is_some_and(|t| t.elapsed() < WRITE_INTERVAL)
+        {
+            return false;
+        }
+        self.next_write = Some(Instant::now());
+        self.tx
+            .try_send(LinkWork::Context(dir.into(), ctx.clone()))
+            .is_ok()
+    }
+    pub fn send_request(&mut self, ws: &Path, id: &str, req: &AgentRequest) -> std::io::Result<()> {
+        self.send_request_in(&agent_dir(ws, id), req)
+    }
+    pub fn send_request_in(&mut self, dir: &Path, req: &AgentRequest) -> std::io::Result<()> {
+        self.tx
+            .try_send(LinkWork::Request(dir.into(), req.clone()))
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "Agent link is busy. Try again.",
+                )
+            })
+    }
+    pub fn tick_read_session(&mut self, ws: &Path, id: &str) -> Option<AgentSession> {
+        self.tick_read_session_file(&agent_dir(ws, id).join("session.json"))
+    }
+    pub fn tick_read_session_file(&mut self, path: &Path) -> Option<AgentSession> {
+        if self.next_read.is_none_or(|t| t.elapsed() >= READ_INTERVAL) {
+            self.next_read = Some(Instant::now());
+            let _ = self.tx.try_send(LinkWork::Read(path.into()));
+        }
+        self.latest.try_lock().ok()?.take()
+    }
 }
 
 #[derive(Debug, Default)]
-pub struct AgentLink {
+struct FileAgentLink {
     last_write_attempt: Option<Instant>,
     last_fingerprint: u64,
     last_read_attempt: Option<Instant>,
@@ -167,17 +188,21 @@ pub struct AgentLink {
     readmes: BTreeMap<String, bool>,
 }
 
-impl AgentLink {
+impl FileAgentLink {
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[cfg(test)]
     pub fn tick_write_context(
         &mut self,
         ai_workspace: &Path,
         session: &str,
         ctx: &AgentContext,
     ) -> bool {
+        self.tick_write_context_in(&agent_dir(ai_workspace, session), ctx)
+    }
+    fn tick_write_context_in(&mut self, dir: &Path, ctx: &AgentContext) -> bool {
         if let Some(t) = self.last_write_attempt {
             if t.elapsed() < WRITE_INTERVAL {
                 return false;
@@ -189,36 +214,42 @@ impl AgentLink {
         if fp == self.last_fingerprint {
             return false;
         }
-        let dir = agent_dir(ai_workspace, session);
-        if std::fs::create_dir_all(&dir).is_err() {
+        if std::fs::create_dir_all(dir).is_err() {
             return false;
         }
         if atomic_write_json(&dir.join("context.json"), ctx).is_err() {
             return false;
         }
         self.last_fingerprint = fp;
-        self.write_readme_if_needed(session, &dir);
+        self.write_readme_if_needed(&dir.to_string_lossy(), dir);
         true
     }
 
+    #[cfg(test)]
     pub fn send_request(
         &mut self,
         ai_workspace: &Path,
         session: &str,
         req: &AgentRequest,
     ) -> std::io::Result<()> {
-        let dir = agent_dir(ai_workspace, session);
+        self.send_request_in(&agent_dir(ai_workspace, session), req)
+    }
+    fn send_request_in(&mut self, dir: &Path, req: &AgentRequest) -> std::io::Result<()> {
         std::fs::create_dir_all(&dir)?;
         atomic_write_json(&dir.join("request.json"), req)?;
-        self.write_readme_if_needed(session, &dir);
+        self.write_readme_if_needed(&dir.to_string_lossy(), dir);
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn tick_read_session(
         &mut self,
         ai_workspace: &Path,
         session: &str,
     ) -> Option<AgentSession> {
+        self.tick_read_session_file(&agent_dir(ai_workspace, session).join("session.json"))
+    }
+    fn tick_read_session_file(&mut self, path: &Path) -> Option<AgentSession> {
         if let Some(t) = self.last_read_attempt {
             if t.elapsed() < READ_INTERVAL {
                 return None;
@@ -226,11 +257,14 @@ impl AgentLink {
         }
         self.last_read_attempt = Some(Instant::now());
 
-        let path = agent_dir(ai_workspace, session).join("session.json");
         let metadata = std::fs::metadata(&path).ok()?;
         let mtime = metadata.modified().ok()?;
         if self.last_session_mtime == Some(mtime) {
             return None;
+        }
+        if metadata.len() > 16 * 1024 * 1024 {
+            self.last_session_mtime = Some(mtime);
+            return Some(AgentSession{request:String::new(),provider:String::new(),turns:vec![],updated_at:0,bundle:Default::default(),status:AgentStatus::Error("The sidecar session exceeds 16 MB. Archive its older turns in the source program.".into())});
         }
         let text = std::fs::read_to_string(&path).ok()?;
         let session = serde_json::from_str::<AgentSession>(&text).ok()?;
@@ -260,7 +294,7 @@ pub fn agent_dir(ai_workspace: &Path, session: &str) -> PathBuf {
     ai_workspace.join(LINK_DIR).join("agent").join(session)
 }
 
-fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
+pub(crate) fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(value)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let tmp = path.with_extension("json.tmp");
@@ -310,7 +344,7 @@ mod tests {
     #[test]
     fn context_write_is_fingerprint_gated() {
         let ws = temp_workspace("write");
-        let mut link = AgentLink::new();
+        let mut link = FileAgentLink::new();
         let ctx = context();
         assert!(link.tick_write_context(&ws, "s1", &ctx));
         assert!(!link.tick_write_context(&ws, "s1", &ctx));
@@ -321,10 +355,42 @@ mod tests {
     }
 
     #[test]
+    fn saved_link_directory_is_used_for_context_request_and_session() {
+        let ws = temp_workspace("saved_link");
+        let dir = ws.join("saved-project-link");
+        let mut link = FileAgentLink::new();
+        assert!(link.tick_write_context_in(&dir, &context()));
+        let request = AgentRequest {
+            id: "saved-run".into(),
+            prompt: "Continue".into(),
+            at: 1,
+            inputs: Default::default(),
+        };
+        link.send_request_in(&dir, &request).unwrap();
+        let state = AgentSession {
+            request: request.id,
+            status: AgentStatus::Idle,
+            provider: "codex".into(),
+            turns: vec![],
+            updated_at: 2,
+            bundle: Default::default(),
+        };
+        atomic_write_json(&dir.join("session.json"), &state).unwrap();
+        assert_eq!(
+            link.tick_read_session_file(&dir.join("session.json")),
+            Some(state)
+        );
+        assert!(dir.join("request.json").is_file());
+        assert!(dir.join("context.json").is_file());
+        let _ = std::fs::remove_dir_all(ws);
+    }
+
+    #[test]
     fn request_and_session_round_trip_on_mtime() {
         let ws = temp_workspace("session");
-        let mut link = AgentLink::new();
+        let mut link = FileAgentLink::new();
         let req = AgentRequest {
+            inputs: Default::default(),
             id: "r1".into(),
             prompt: "Summarize".into(),
             at: 1,
@@ -334,6 +400,8 @@ mod tests {
         assert!(text.contains("Summarize"));
 
         let session = AgentSession {
+            request: String::new(),
+            bundle: Default::default(),
             status: AgentStatus::Thinking,
             provider: "cursor".into(),
             turns: vec![AgentTurn {

@@ -134,7 +134,8 @@ impl SlateApp {
             return None;
         }
         let n = self.doc().scene.node(id)?;
-        if !self.node_offers_bbox_transform(n) {
+        if !self.node_offers_bbox_transform(n) || !self.settings.hover_highlight(n.kind.kind_name())
+        {
             return None;
         }
         Some(id)
@@ -190,6 +191,9 @@ impl SlateApp {
             let Some(n) = self.doc().scene.node(*id) else {
                 continue;
             };
+            if !self.settings.hover_highlight(n.kind.kind_name()) {
+                continue;
+            }
             let eased = ease_in_out_cubic(*progress);
             let outline = self.node_screen_outline(painter.ctx(), xf, n);
             painter.add(egui::Shape::closed_line(

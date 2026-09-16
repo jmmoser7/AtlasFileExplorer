@@ -1,0 +1,516 @@
+   Compiling atlas-shell v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\atlas-shell)
+   Compiling native-file-atlas v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\apps\file-atlas)
+   Compiling atlas-ai v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\atlas-ai)
+   Compiling slate v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\apps\slate)
+warning: method `color` is never used
+   --> apps\slate\src\app\board_web.rs:152:8
+    |
+151 | impl WebHealth {
+    | -------------- method in this implementation
+152 |     fn color(self) -> Color32 {
+    |        ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `target` is never read
+   --> apps\slate\src\app\board_web_win.rs:137:5
+    |
+128 | struct View {
+    |        ---- field in this struct
+...
+137 |     target: String,
+    |     ^^^^^^
+
+warning: `slate` (lib test) generated 2 warnings
+    Finished `release` profile [optimized] target(s) in 5m 23s
+     Running unittests src\lib.rs (target\release\deps\atlas_shell-fc2e79f178f08ba6.exe)
+
+running 105 tests
+test canvas_scale::tests::canvas_sizes_double_when_zoom_doubles ... ok
+test canvas_text::tests::text_scales_one_for_one_with_its_host ... ok
+test canvas_text::tests::text_too_small_to_read_is_dropped_rather_than_clamped ... ok
+test canvas_text::tests::the_floor_is_the_only_clamp ... ok
+test covers::tests::a_tile_crops_to_the_cell_instead_of_squashing ... ok
+test covers::tests::cells_tile_the_cover_with_no_gutter ... ok
+test covers::tests::a_tile_keeps_the_center_of_the_picture ... ok
+test canvas_text::tests::the_ladder_is_coarse_but_never_visibly_soft ... ok
+test dock::tests::accordion_keeps_rows_sideways_instead_of_towers ... ok
+test covers::tests::degenerate_sources_do_not_panic ... ok
+test dock::tests::accordion_band_stacks_every_category_before_overlap ... ok
+test dock::tests::accordion_peels_one_column_from_the_widest_group ... ok
+test dock::tests::associated_palette_is_only_a_whisper_denser ... ok
+test dock::tests::both_presentations_can_drop_to_canvas ... ok
+test dock::tests::collapse_zone_below_survives_zero_bottom_margin ... ok
+test dock::tests::body_height_budget_spans_the_canvas ... ok
+test dock::tests::contain_scale_is_uniform_and_does_not_shrink_when_one_axis_grows ... ok
+test dock::tests::dashboards_can_use_the_icon_strip ... ok
+test dock::tests::dock_side_labels ... ok
+test dock::tests::collapsed_launch_still_has_icon_anchors ... ok
+test dock::tests::hidden_tools_are_per_palette ... ok
+test dock::tests::flyout_squircles_are_sixty_five_percent_of_the_dock ... ok
+test dock::tests::insert_index_is_before_or_after_the_closest_slot ... ok
+test dock::tests::icon_strip_card_grows_only_under_contain ... ok
+test covers::tests::a_recipe_bump_retires_the_previous_generation ... ok
+test dock::tests::layout_toggle_is_dock_wide ... ok
+test dock::tests::only_the_last_palette_offers_the_layout_toggle ... ok
+test dock::tests::panel_narrows_again_once_content_fits_easily ... ok
+test dock::tests::panel_widens_while_content_overflows_then_stops_at_max ... ok
+test dock::tests::pinned_icon_outline_is_denser_than_idle ... ok
+test dock::tests::pinned_strips_keep_primary_icon_order ... ok
+test dock::tests::row_pack_fills_the_bottom_row_first ... ok
+test dock::tests::row_pack_left_dock_fills_the_near_column_first ... ok
+test dock::tests::squircle_is_wider_than_circle_at_diagonal ... ok
+test dock::tests::squircle_points_stay_inside_rect ... ok
+test dock::tests::stacked_icon_row_is_taller_than_the_pill ... ok
+test dock::tests::strip_dots_pack_tighter_than_an_icon ... ok
+test dock::tests::strip_order_lists_known_ids_then_leftovers ... ok
+test dock::tests::width_never_exceeds_a_narrow_canvas ... ok
+test dock_advanced::tests::cards_sit_inside_their_portal ... ok
+test dock_advanced::tests::empty_catalog_has_unit_bounds ... ok
+test dock_advanced::tests::fit_camera_keeps_bounds_in_view ... ok
+test dock_advanced::tests::portals_do_not_overlap ... ok
+test dock::tests::tall_panel_is_anchored_inside_the_canvas ... ok
+test covers::tests::structure_cover_writes_png ... ok
+test dock::tests::title_chip_only_while_the_pointer_is_on_the_icon ... ok
+test grid_fade::tests::fades_to_zero ... ok
+test grid_fade::tests::full_strength_immediately_after_bump ... ok
+test dock::tests::width_holds_inside_the_dead_zone ... ok
+test dock::tests::tertiary_pair_matches_secondary_icon ... ok
+test grid_fade::tests::starts_hidden ... ok
+test home::tests::artwork_tracks_the_card_projection_at_a_hard_yaw ... ok
+test home::tests::artwork_columns_span_the_face_and_keep_the_corners_round ... ok
+test history_ui::tests::plain_text_log_marks_human_and_agents ... ok
+test home::tests::circular_offset_shortest_path_across_seam ... ok
+test home::tests::inertia_hands_over_to_spring_and_settles_on_integer ... ok
+test home::tests::integrate_motion_finite_under_large_dt ... ok
+test home::tests::perspective_left_card_mirrored ... ok
+test home::tests::mod_index_wraps_both_directions ... ok
+test home::tests::perspective_right_card_outer_edge_receded ... ok
+test dock::tests::inspector_commands_override_saved_pins_and_keep_forms_in_strip_mode ... ok
+test home::tests::a_title_face_grows_with_the_card ... ok
+test home::tests::projection_is_exact_down_a_column ... ok
+test home::tests::sigmoid_packing_tightens_toward_sides ... ok
+test home::tests::visible_slots_no_duplicate_when_short_list ... ok
+test home::tests::a_mono_title_face_lays_out_glyphs ... ok
+test home::tests::snapping_animates_toward_target_and_settles_exactly ... ok
+test home::tests::the_strip_silhouette_is_the_rounded_rect_the_outline_traces ... ok
+test menu::tests::menu_frame_has_no_border_by_default ... ok
+test menu::tests::menu_tokens_match_the_style_reference ... ok
+test menubar::tests::window_button_rects_tile_the_right_edge ... ok
+test minimap::tests::bounds_corners_map_inside_inner ... ok
+test minimap::tests::fit_preserves_aspect_and_centers ... ok
+test minimap::tests::rasterize_fills_expected_pixels ... ok
+test minimap::tests::world_panel_round_trip ... ok
+test prefs::tests::pins_round_trip ... ok
+test prefs::tests::old_prefs_without_pins_still_load ... ok
+test tabs::tests::flipped_tab_scanline_mirrors_the_host_edge ... ok
+test home::tests::a_title_face_lays_out_glyphs_once ... ok
+test taper::tests::zero_length_is_noop_safe ... ok
+test theme::tests::palette_from_tokens_matches_previous_constants ... ok
+test theme::tests::the_danger_slot_is_deep_red_in_both_themes ... ok
+test theme::tests::visuals_are_derived_from_palette ... ok
+test theme::tests::visuals_match_previous_constants ... ok
+test timeline::tests::clamping_never_leaves_the_span_or_inverts ... ok
+test timeline::tests::empty_buckets_are_inert_and_let_the_pointer_through ... ok
+test timeline::tests::mute_reduces_saturation_and_opacity ... ok
+test theme::tests::user_theme_file_overrides_builtin ... ok
+test timeline::tests::a_finer_bucket_stays_concentric_with_its_day ... ok
+test timeline::tests::a_left_press_routes_handles_before_grip_and_grip_only_when_movable ... ok
+test timeline::tests::both_layers_grow_on_one_curve ... ok
+test timeline::tests::cells_fill_their_slot_at_every_zoom ... ok
+test theme::tests::example_theme_declares_every_slot ... ok
+test palette::tests::stationary_pointer_preserves_arrow_navigation_and_enter_while_motion_selects_rows ... ok
+test timeline::tests::selection_lights_the_window_then_the_picks ... ok
+test timeline::tests::the_axis_maps_time_to_x_and_back ... ok
+test timeline::tests::tick_steps_reach_seconds_and_years ... ok
+test timeline::tests::ticks_align_to_bucket_boundaries ... ok
+test tokens::tests::canvas_tab_fillets_track_zoom ... ok
+test theme::tests::unknown_theme_slot_falls_back_without_panicking ... ok
+test tokens::tests::checked_in_tokens_parse ... ok
+test tokens::tests::hex_accepts_alpha_and_rejects_nonsense ... ok
+test tokens::tests::slot_names_all_resolve ... ok
+test tokens::tests::hex_round_trips_through_toml ... ok
+test canvas_text::tests::zooming_does_not_make_text_climb_a_staircase ... ok
+
+test result: ok. 105 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running unittests src\lib.rs (target\release\deps\slate-c417cd308368eda3.exe)
+
+running 333 tests
+test app::board::tests::grid_drop_caps_at_ten_columns_and_centers ... ok
+test app::board::tests::group_scale_anchor_is_opposite_corner_or_center ... ok
+test app::board::tests::single_drop_centers_on_point ... ok
+test app::board_agent::agent_await_tests::a_new_assistant_turn_counts ... ok
+test app::board_agent::agent_await_tests::the_chip_names_unreachable_on_failure ... ok
+test app::board_align::tests::align_center_h_centers_in_the_union ... ok
+test app::board_agent::agent_await_tests::a_sidecar_spawn_error_is_not_rewritten_as_missing_node ... ok
+test app::board_agent::agent_await_tests::a_node_search_failure_keeps_the_paths_we_tried ... ok
+test app::board_agent::agent_await_tests::the_chip_pulses_while_thinking ... ok
+test app::board_agent::agent_await_tests::an_invalid_key_from_the_sidecar_offers_paste ... ok
+test app::board_agent::agent_await_tests::an_older_assistant_turn_is_not_this_reply ... ok
+test app::board_agent::agent_await_tests::an_api_key_failure_offers_the_dashboard ... ok
+test app::board_align::tests::align_left_shares_the_left_datum ... ok
+test app::board_align::tests::bottom_and_left_clusters_sit_outside_the_group_box ... ok
+test app::board_align::tests::distribute_h_keeps_ends_and_even_gaps ... ok
+test app::board_align::tests::distribute_icon_disabled_for_two ... ok
+test app::board_align::tests::distribute_is_identity_for_two ... ok
+test app::board_align::tests::icon_hit_does_not_overlap_the_inner_bbox ... ok
+test app::board_align::tests::locked_ids_do_not_move_in_preview ... ok
+test app::board_color::tests::point_segment_distance ... ok
+test app::board_color::tests::width_stepping_clamps_at_one_pixel ... ok
+test app::board_color::tests::width_stepping_is_reversible_at_tier_boundaries ... ok
+test app::board_atlas::tests::a_plain_folder_offers_atlas_and_place_contents ... ok
+test app::board_color::tests::width_stepping_tiers_match_photoshop_table ... ok
+test app::board_crop::tests::content_rect_inverts_crop ... ok
+test app::board_crop::tests::content_rect_of_full_crop_is_the_node_rect ... ok
+test app::board_crop::tests::edge_drag_cannot_grow_past_the_content ... ok
+test app::board_crop::tests::edge_drag_corner_adjusts_both_axes ... ok
+test app::board_crop::tests::edge_drag_left_moves_mask_not_content ... ok
+test app::board_crop::tests::edge_drag_respects_minimum_window_size ... ok
+test app::board_crop::tests::local_transforms_match_rotation ... ok
+test app::board_crop::tests::pan_moves_content_with_the_pointer_and_clamps ... ok
+test app::board_flags::tests::dup_remap_allocates_one_fresh_key_per_source_group ... ok
+test app::board_flags::tests::expansion_pulls_in_whole_group_and_skips_flagged_members ... ok
+test app::board_forcefield::tests::new_guide_spawns_one_pulse ... ok
+test app::board_forcefield::tests::pulse_dies_after_lifetime ... ok
+test app::board_forcefield::tests::staying_snapped_does_not_loop ... ok
+test app::board_handles::tests::edge_band_hits_between_handles ... ok
+test app::board_handles::tests::handle_squares_and_rotate_offset_track_zoom ... ok
+test app::board_handles::tests::resize_handles_cover_corners_and_edges ... ok
+test app::board_handles::tests::rotate_zone_is_outside_the_corner ... ok
+test app::board_handles::tests::rotated_node_maps_n_handle_to_horizontal_cursor ... ok
+test app::board_handles::tests::wide_box_corner_uses_diagonal_cursor ... ok
+test app::board_osnap::tests::end_beats_near_on_the_same_corner ... ok
+test app::board_osnap::tests::hidden_node_is_skipped ... ok
+test app::board_osnap::tests::picks_rect_corner_as_end ... ok
+test app::board_osnap::tests::tan_from_outside_circle ... ok
+test app::board_path::tests::arc_approximates_circle ... ok
+test app::board_path::tests::cache_hits_share_geometry_without_copying_vectors ... ok
+test app::board_path::tests::diagonal_line_picks_stroke_not_bbox_interior ... ok
+test app::board_path::tests::hit_stroke_path_node ... ok
+test app::board_path::tests::legacy_line_shape_uses_stroke_pick ... ok
+test app::board_path::tests::oversized_geometry_renders_without_flushing_the_cache ... ok
+test app::board_path::tests::path_content_hash_is_stable_and_bucket_sensitive ... ok
+test app::board_path::tests::rotating_a_warm_path_rebuilds_the_stroke_geometry ... ok
+test app::board_path::tests::round_trip_world_points ... ok
+test app::board_path::tests::path_mesh_cache_evicts_oldest_instead_of_clearing ... ok
+test app::board_path::tests::stroke_and_fill_share_a_byte_budget_and_hits_get_a_second_chance ... ok
+test app::board_place::tests::frame_preset_aspect_sizes_from_dx ... ok
+test app::board_place::tests::frame_shift_is_square_not_preset ... ok
+test app::board_place::tests::free_constraint_is_the_normalized_drag ... ok
+test app::board_place::tests::ghost_kind_covers_the_create_family ... ok
+test app::board_place::tests::negative_drag_grows_toward_the_cursor ... ok
+test app::board_place::tests::portal_shift_locks_16_9 ... ok
+test app::board_place::tests::portal_unmodified_is_free_aspect ... ok
+test app::board_place::tests::rect_shift_makes_square_from_the_normalized_origin ... ok
+test app::board_portal::tests::source_locator_prefers_relative ... ok
+test app::board_portal::tests::status_query_defaults_map ... ok
+test app::board_portal_chrome::tests::content_outline_stays_inside_the_fillet ... ok
+test app::board_portal::tests::query_defaults_map_to_repo_graph ... ok
+test app::board_snap::tests::draw_second_corner_snaps_live_rect_not_cursor_point ... ok
+test app::board_snap::tests::draw_shift_makes_square ... ok
+test app::board_snap::tests::effective_ortho_truth_table ... ok
+test app::board_portal_chrome::tests::web_tab_hosts_maximize_in_the_window_slot ... ok
+test app::board_portal_chrome::tests::only_web_portals_have_an_identity_tab ... ok
+test app::board_portal_chrome::tests::collapsed_layout_exposes_a_reveal_strip_and_full_body ... ok
+test app::board_portal_chrome::tests::on_canvas_the_tab_bar_tracks_zoom ... ok
+test app::board_portal_chrome::tests::maximize_icon_sits_upper_right_without_a_tab ... ok
+test app::board_portal_chrome::tests::maximized_layout_has_no_fillet ... ok
+test app::board_portal_chrome::tests::every_portal_kind_uses_the_same_fillet ... ok
+test app::board_portal_chrome::tests::expanded_layout_reserves_a_tab_bar ... ok
+test app::board_snap::tests::every_corner_center_scale_keeps_the_center ... ok
+test app::board_snap::tests::every_corner_group_free_scale_pins ... ok
+test app::board_snap::tests::every_corner_free_scale_is_independent ... ok
+test app::board_snap::tests::every_corner_group_scale_pins_and_scales ... ok
+test app::board_snap::tests::every_corner_keep_size_pins_the_stack ... ok
+test app::board_snap::tests::every_corner_uniform_grows_both_axes ... ok
+test app::board_snap::tests::every_corner_uniform_scale_pins_the_opposite ... ok
+test app::board_snap::tests::every_edge_keep_size_pins_the_stack ... ok
+test app::board_snap::tests::far_row_does_not_align ... ok
+test app::board_snap::tests::keep_size_without_pin_walks_nw_ne_sw ... ok
+test app::board_snap::tests::marquee_hits_rotated_node ... ok
+test app::board_snap::tests::group_center_scale_keeps_union_center ... ok
+test app::board_snap::tests::orbit_rotates_about_center ... ok
+test app::board_snap::tests::ortho_snaps_to_45_degree_steps ... ok
+test app::board_snap::tests::occluded_target_is_ignored ... ok
+test app::board_snap::tests::remap_group_keep_size_translates_without_scaling ... ok
+test app::board_snap::tests::resize_locks_aspect_with_shift ... ok
+test app::board_snap::tests::resize_right_edge_snaps ... ok
+test app::board_snap::tests::rotated_180_edge_resize_moves_the_grabbed_world_edge ... ok
+test app::board_snap::tests::rotated_90_edge_resize_moves_the_grabbed_world_edge ... ok
+test app::board_snap::tests::rotation_snaps_to_45 ... ok
+test app::board_snap::tests::snap_aligns_left_edges ... ok
+test app::board_web::tests::a_hundred_tiled_pages_admit_only_the_pool ... ok
+test app::board_web::tests::a_portal_that_cannot_render_never_takes_a_slot ... ok
+test app::board_web::tests::auto_zoom_reflows_and_fit_scales ... ok
+test app::board_web::tests::input_focus_always_keeps_its_slot ... ok
+test app::board_snap::tests::snap_point_aligns_to_nearby_edge ... ok
+test app::board_web::tests::locators_resolve_workbook_relative_first ... ok
+test app::board_web::tests::lod_buckets_follow_on_screen_height ... ok
+test app::board_web::tests::oscillating_height_around_the_live_gate_does_not_evict ... ok
+test app::board_web::tests::page_scroll_is_interactive_hover_is_not ... ok
+test app::board_web_win::tests::a_local_page_paints_into_a_texture ... ignored
+test app::board_web_win::tests::an_arbitrary_public_page_loads_and_paints ... ignored
+test app::board_web_win::tests::eviction_releases_the_view ... ignored
+test app::board_web_win::tests::a_windows_path_becomes_a_file_uri_and_a_url_is_left_alone ... ok
+test app::board_web::tests::zoomed_out_or_off_screen_pages_run_nothing ... ok
+test app::board_wire::tests::cache_key_is_stable_and_geometry_sensitive ... ok
+test app::board_wire::tests::nearest_side_projects_fraction ... ok
+test app::board_wire::tests::rect_edge_distance_inside_and_out ... ok
+test app::clipboard::tests::remap_gives_fresh_ids_and_preserves_relative_geometry ... ok
+test app::clipboard::tests::payload_includes_bridging_connector_and_degrades_outside_anchor ... ok
+test app::dispatch::shortcut_tests::ctrl_shortcuts_survive_modifier_release_before_the_frame ... ok
+test app::commands::tests::alias_chords_resolve_and_do_not_collide ... ok
+test app::commands::tests::never_repeat_set_matches_spec ... ok
+test app::dispatch::shortcut_tests::bare_key_does_not_acquire_a_modifier_pressed_later ... ok
+test app::commands::tests::registry_validates ... ok
+test app::imagefx::tests::brightness_doubles_gray ... ok
+test app::clipboard::tests::remap_offsets_free_points_and_shares_group_keys ... ok
+test app::dispatch::shortcut_tests::event_modifiers_match_exactly_and_repeat_presses_still_work ... ok
+test app::imagefx::tests::contrast_preserves_mid_gray ... ok
+test app::imagefx::tests::grayscale_makes_channels_equal ... ok
+test app::imagefx::tests::hue_rotate_360_is_near_identity ... ok
+test app::dispatch::shortcut_tests::releases_and_other_keys_do_not_trigger_a_chord ... ok
+test app::imagefx::tests::invert_applies_after_brightness ... ok
+test app::imagefx::tests::invert_flips_channels ... ok
+test app::imagefx::tests::overlay_full_and_half_alpha ... ok
+test app::imagefx::tests::identity_preserves_pixels ... ok
+test app::imagefx::tests::alpha_preserved_through_filters ... ok
+test app::imagefx::tests::sepia_on_white_matches_matrix ... ok
+test app::kits::tests::every_shipped_tool_names_a_grammar_the_core_implements ... ok
+test app::kits::tests::a_tool_with_a_recipe_is_always_a_grammar_that_recipe_accepts ... ok
+test app::kits::tests::the_builtin_registry_loads_without_errors ... ok
+test app::kits::tests::a_recipe_is_available_for_every_tool_that_claims_a_kit_entry ... ok
+test app::kits::tests::all_lists_every_board_tool_exactly_once ... ok
+test app::kits::tests::the_drag_rect_family_is_exactly_the_tools_that_start_a_draw_gesture ... ok
+test app::lens::tests::degree_counts_preserve_edge_direction ... ok
+test app::lens::tests::lens_find_node_by_name_prefers_exact_match ... ok
+test app::lens::tests::lens_orthogonal_route_uses_horizontal_then_vertical_legs ... ok
+test app::board_path::tests::ten_thousand_visible_paths_stay_warm_in_paint_order ... ok
+test app::lens::tests::subtree_ids_include_root_and_descendants ... ok
+test app::model3d::tests::aspect_quantization_is_stable ... ok
+test app::model3d::tests::distance_measurement_length ... ok
+test app::kits::tests::duplicating_a_catalog_card_writes_a_derived_kit_tool ... ok
+test app::model3d::tests::eye_orbits_z_up ... ok
+test app::model3d::tests::auto_fit_resolves_target_and_distance ... ok
+test app::model3d::tests::look_at_places_target_on_view_axis ... ok
+test app::model3d::tests::orbit_clamps_pitch_and_wraps_yaw ... ok
+test app::model3d::tests::pan_moves_target_in_view_plane ... ok
+test app::model3d::tests::parse_progress_checkpoints_are_monotonic ... ok
+test app::model3d::tests::parse_progress_clamps_overshoot ... ok
+test app::model3d::tests::poster_keys_are_pose_and_aspect_specific ... ok
+test app::model3d::tests::poster_size_honors_aspect ... ok
+test app::overlays::tests::reading_order_non_overlapping_stack_is_top_to_bottom ... ok
+test app::overlays::tests::reading_order_rows_by_overlap_then_x ... ok
+test app::settings::tests::clamp_repairs_out_of_range_values ... ok
+test app::settings::tests::partial_json_fills_defaults ... ok
+test app::model3d::tests::quantize_px_steps_and_clamps ... ok
+test app::kits::tests::the_user_kit_folder_sits_next_to_the_theme_folder ... ok
+test app::model3d::tests::raycast_hits_a_simple_triangle ... ok
+test app::settings::tests::roundtrip_preserves_values ... ok
+test app::overlays::tests::reading_order_empty_is_empty ... ok
+test app::model3d::tests::zoom_clamps_to_radius_range ... ok
+test app::tests::a_failed_agent_send_names_the_failure ... ok
+test app::tests::a_focused_agent_portal_captures_the_wheel ... ok
+test app::tests::a_placed_agent_portal_has_no_identity_tab_and_no_folder ... ok
+test app::tests::a_kit_tool_with_an_unknown_grammar_leaves_the_builtin_working ... ok
+test app::tests::a_placed_file_atlas_lens_is_unbound_at_the_recipe_size ... ok
+test app::tests::a_drawn_rectangle_takes_its_style_from_the_kit_recipe ... ok
+test app::tests::a_folder_that_only_has_index_htm_binds_that_entry ... ok
+test app::tests::a_drag_inside_a_focused_page_moves_nothing_on_the_board ... ok
+test app::tests::a_javascript_locator_is_refused_and_says_why ... ok
+test app::tests::a_focused_page_runs_however_small_it_is_painted ... ok
+test app::tests::a_focused_atlas_lens_drags_the_hovered_file_as_a_shell_path ... ok
+test app::tests::a_bound_status_board_lays_out_the_fixture_and_undo_is_frame_only ... ok
+test app::tests::a_placed_status_board_portal_is_unbound_at_the_recipe_size ... ok
+test app::tests::a_placed_repository_lens_portal_is_unbound_at_the_recipe_size ... ok
+test app::tests::a_single_existing_agent_is_still_a_choice ... ok
+test app::tests::a_recipe_driven_draw_is_a_single_undo_step ... ok
+test app::tests::align_gp4_one_undo ... ok
+test app::tests::align_gp1_align_left ... ok
+test app::tests::align_gp2_align_bottom ... ok
+test app::tests::align_gp3_distribute_horizontal ... ok
+test app::tests::a_user_kit_overrides_what_a_builtin_tool_produces ... ok
+test app::tests::align_gp5_widget_hit_misses_the_box ... ok
+test app::tests::a_right_drag_inside_a_focused_atlas_lens_does_not_start_a_shell_drag ... ok
+test app::tests::armed_rect_hover_snaps_and_emits_forcefield ... ok
+test app::tests::arming_gp1_frame_ghost_follows_without_a_node ... ok
+test app::tests::arming_gp3_rect_shift_drag_is_square ... ok
+test app::tests::arming_gp2_web_portal_click_place_clears_the_ghost ... ok
+test app::tests::arming_gp4_ellipse_drag_commits_and_disarms ... ok
+test app::tests::bbox_chrome_is_live_without_selection ... ok
+test app::tests::arming_gp6_tool_switch_swaps_the_silhouette ... ok
+test app::tests::arming_gp5_escape_disarms_without_a_node ... ok
+test app::tests::board_paint_culls_offscreen_nodes ... ok
+test app::tests::binding_a_project_with_agents_opens_the_picker ... ok
+test app::tests::an_agent_channel_survives_save_and_reopen ... ok
+test app::tests::body_hover_targets_the_unselected_node ... ok
+test app::tests::board_view_renders_and_survives_frames ... ok
+test app::tests::click_vs_drag_uses_screen_pixels_not_world ... ok
+test app::tests::combination_buckets_drive_grid_sections ... ok
+test app::tests::canvas_click_release_places_a_default_rect ... FAILED
+test app::tests::board_undo_redo_round_trip ... ok
+test app::tests::delete_degrades_connector_ends_to_free ... ok
+test app::tests::clicking_another_portal_peels_atlas_focus ... ok
+test app::tests::dock_strip_drag_moves_regardless_of_armed_tool ... ok
+test app::tests::dock_strip_click_arms_without_placing ... ok
+test app::tests::dock_strip_resize_contains_without_shrinking_icons ... ok
+test app::tests::drag_past_threshold_still_scales ... ok
+test app::tests::draw_rect_second_corner_emits_forcefield ... ok
+test app::tests::draw_rect_shift_does_not_silence_forcefield ... ok
+test app::tests::entering_atlas_peels_web_contents_focus ... ok
+test app::tests::escape_peels_focus_and_never_reaches_the_page ... ok
+test app::tests::drop_on_tagged_frame_inherits_tag ... ok
+test app::tests::edge_hover_does_not_arm_a_body_highlight ... ok
+test app::tests::eraser_release_is_one_undo_group ... ok
+test app::tests::duplicate_and_delete_board_nodes ... ok
+test app::tests::f3_opens_and_closes_the_selection_inspector_in_icon_strip_mode ... ok
+test app::tests::binding_an_agent_portal_folder_survives_save_and_reopen ... ok
+test app::tests::gp11_portal_web_source_detail_binds_a_url ... ok
+test app::tests::gp2_a_folder_is_a_portal_only_when_it_holds_an_entry_file ... ok
+test app::tests::gp12_bake_copies_the_poster_and_leaves_the_portal_in_place ... ok
+test app::tests::gp1_a_clicked_web_portal_takes_the_shared_portal_default_size ... ok
+test app::tests::gp2_dropping_a_dashboard_makes_a_portal_and_leaves_other_files_alone ... ok
+test app::tests::gp1_a_drawn_web_portal_commits_the_start_locator ... ok
+test app::tests::every_drag_rect_tool_click_places_default_size ... ok
+test app::tests::every_drag_rect_tool_second_corner_snaps ... ok
+test app::tests::gp2_dropping_a_folder_binds_a_file_atlas_lens ... ok
+test app::tests::gp2_place_folder_contents_makes_image_nodes ... ok
+test app::tests::gp5_a_page_painted_too_small_runs_nothing_and_says_so ... ok
+test app::tests::gp3_a_pasted_url_loads_without_a_second_gesture ... ok
+test app::tests::gp4_releasing_input_focus_leaves_the_page_running ... ok
+test app::tests::group_box_corner_is_diagonal_resize ... ok
+test app::tests::grid_layout_is_cached_across_unchanged_paints ... ok
+test app::tests::gp8_twelve_eligible_pages_run_exactly_the_pool ... ok
+test app::tests::grid_and_venn_views_render_seeded_doc ... ok
+test app::tests::empty_app_pumps_frames ... ok
+test app::tests::full_res_preview_upgrades_and_evicts ... ok
+test app::tests::hidden_and_locked_leave_selection_paths ... ok
+test app::tests::group_reposition_keeps_member_size ... ok
+test app::tests::join_fill_mesh_covers_concave_union ... ok
+test app::tests::gp3_a_page_restored_from_disk_waits_for_permission ... ok
+test app::tests::join_gp1_open_paths ... ok
+test app::tests::join_gp2_closed_union ... ok
+test app::tests::join_gp5_disjoint_is_noop ... ok
+test app::tests::join_gp4_nested_union ... ok
+test app::tests::join_gp3_open_plus_closed ... ok
+test app::tests::join_gp6_command_id ... ok
+test app::tests::join_leaves_a_far_object ... ok
+test app::tests::join_one_closed_is_noop ... ok
+test app::tests::group_every_handle_scale_and_reposition ... ok
+test app::tests::gp7_a_missing_local_source_names_the_locator_it_tried ... ok
+test app::tests::join_skips_text ... ok
+test app::tests::join_two_open_paths_keeps_first_style ... ok
+test app::tests::line_gp3_shift_inverts_ortho ... ok
+test app::tests::line_gp2_drag_grammar ... ok
+test app::tests::line_gp1_click_grammar ... ok
+test app::tests::line_gp5_escape_layering ... ok
+test app::tests::line_create_matches_last_edited_style ... ok
+test app::tests::line_gp4_tab_lock_and_numeric_entry ... ok
+test app::tests::lens_view_pumps_without_panic ... ok
+test app::tests::line_gp6_grip_edit_snaps_and_journals_once ... ok
+test app::tests::line_pick_stroke_not_bbox ... ok
+test app::tests::line_multi_select_all_simple_lines ... ok
+test app::tests::maximize_covers_the_window_without_mutating_the_frame ... ok
+test app::tests::model_nodes_survive_headless_frames ... ok
+test app::tests::paste_url_rebinds_the_selected_portal ... ok
+test app::tests::osnap_gp1_end_on_rect_corner ... ok
+test app::tests::mutual_exclusion_within_group ... ok
+test app::tests::osnap_gp3_tan_from_prior_point ... ok
+test app::tests::osnap_gp2_tan_inert_on_first_pick ... FAILED
+test app::tests::opening_same_workbook_twice_focuses_existing_tab ... ok
+test app::tests::osnap_gp4_master_disable ... FAILED
+test app::tests::placed_frames_claim_consecutive_slide_orders ... ok
+test app::tests::path_node_add_undo_via_journal ... ok
+test app::tests::portal_tab_fold_toggles_without_a_journal_entry ... ok
+test app::tests::primary_click_outside_a_focused_page_releases_focus ... ok
+test app::tests::primary_click_outside_a_focused_atlas_lens_releases_focus ... ok
+test app::tests::portal_web_home_returns_to_the_authored_locator_without_journaling ... ok
+test app::tests::portals_do_not_rotate ... ok
+test app::tests::rect_and_ellipse_click_place_default_size ... ok
+test app::tests::remove_group_strips_assignments_via_menu_path ... ok
+test app::tests::presentation_mode_enters_and_exits ... ok
+test app::tests::sending_a_prompt_shows_thinking_not_silence ... ok
+test app::tests::rotated_180_resize_moves_the_grabbed_edge ... ok
+test app::tests::selection_outline_follows_silhouette ... ok
+test app::tests::selecting_an_agent_portal_does_not_capture_the_wheel ... ok
+test app::tests::split_gp1_crossing_lines ... ok
+test app::tests::split_gp2_rect_cut_by_line ... ok
+test app::tests::split_gp3_hole_keeps_disk_and_ring ... ok
+test app::tests::split_gp4_ctrl_n_still_new_tab ... ok
+test app::tests::split_gp5_per_click_undo ... ok
+test app::tests::the_wheel_zooms_the_board_again_once_focus_is_released ... ok
+test app::tests::sticky_tab_spawn_offsets_right ... ok
+test app::tests::split_gp6_esc_stack ... ok
+test app::tests::the_wheel_inside_a_focused_page_scrolls_it_instead_of_zooming_the_board ... ok
+test app::tests::tab_lifecycle_is_safe ... ok
+test app::tests::scene_persists_through_save_and_reload ... ok
+test app::tests::save_and_reopen_round_trip ... ok
+test app::tests::slate_files_never_become_items ... ok
+test app::tests::trim_gp4_ctrl_n_still_new_tab ... ok
+test app::tests::trim_gp5_per_click_undo ... ok
+test app::tests::slate_thumb_lru_caps_resident_textures ... ok
+test app::tests::trim_gp1_crossing_lines ... ok
+test app::tests::trim_gp2_rect_cut_by_line ... ok
+test app::tests::trim_text_clip_punches_a_hole ... ok
+test app::tests::trim_gp6_esc_stack ... ok
+test app::tests::trim_gp3_hole_punch ... ok
+test app::tests::typing_into_a_page_does_not_reach_the_board_tools ... ok
+test app::tests::wheel_after_atlas_blur_does_not_change_inner_zoom ... ok
+test app::tests::undecodable_sources_fail_once_and_stop_asking ... ok
+test app::tests::wire_routing_toggle_is_session_not_journaled ... FAILED
+test app::tests::wire_grips_preview_only_the_handle_under_the_pointer ... ok
+test app::tests::wire_grip_press_beats_edge_resize ... ok
+test app::tests::wire_under_node_does_not_steal_pick ... ok
+test app::tests::video_trim_settings_survive_save_and_reload ... ok
+test app::tests::without_a_runtime_a_portal_degrades_instead_of_stalling ... ok
+test app::tests::zooming_out_does_not_reset_a_visited_page_to_home ... ok
+test app::tests::workbook_cannot_load_into_itself ... ok
+test app::tests::export_artifact_writes_html ... ok
+test app::tests::workbook_camera_round_trips_through_save ... ok
+test app::tests::gp9_export_packages_a_local_page_and_points_at_a_remote_one ... FAILED
+test app::tests::export_renders_kind_specific_cards ... ok
+
+failures:
+
+---- app::tests::canvas_click_release_places_a_default_rect stdout ----
+
+thread 'app::tests::canvas_click_release_places_a_default_rect' (5516) panicked at apps\slate\src\app\tests.rs:2221:5:
+assertion `left == right` failed: click-release must place, got RectShape
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- app::tests::osnap_gp2_tan_inert_on_first_pick stdout ----
+
+thread 'app::tests::osnap_gp2_tan_inert_on_first_pick' (48508) panicked at apps\slate\src\app\tests.rs:1281:5:
+assertion failed: (p.x - cursor.x).abs() < 0.01 && (p.y - cursor.y).abs() < 0.01
+
+---- app::tests::osnap_gp4_master_disable stdout ----
+
+thread 'app::tests::osnap_gp4_master_disable' (48960) panicked at apps\slate\src\app\tests.rs:1331:5:
+assertion failed: (p.x - cursor.x).abs() < 0.01 && (p.y - cursor.y).abs() < 0.01
+
+---- app::tests::wire_routing_toggle_is_session_not_journaled stdout ----
+
+thread 'app::tests::wire_routing_toggle_is_session_not_journaled' (52584) panicked at apps\slate\src\app\tests.rs:4888:5:
+assertion `left == right` failed
+  left: Orthogonal
+ right: Bezier
+
+---- app::tests::gp9_export_packages_a_local_page_and_points_at_a_remote_one stdout ----
+
+thread 'app::tests::gp9_export_packages_a_local_page_and_points_at_a_remote_one' (45508) panicked at apps\slate\src\app\tests.rs:3232:5:
+the packaged dashboard still runs in the artifact
+
+
+failures:
+    app::tests::canvas_click_release_places_a_default_rect
+    app::tests::gp9_export_packages_a_local_page_and_points_at_a_remote_one
+    app::tests::osnap_gp2_tan_inert_on_first_pick
+    app::tests::osnap_gp4_master_disable
+    app::tests::wire_routing_toggle_is_session_not_journaled
+
+test result: FAILED. 325 passed; 5 failed; 3 ignored; 0 measured; 0 filtered out; finished in 26.40s
+
+error: test failed, to rerun pass `-p slate --lib`

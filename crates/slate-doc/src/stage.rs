@@ -2,12 +2,13 @@
 //! accept or reject them as one attributed journal group.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
-use crate::scene::{CmdAuthor, Scene, SceneCmd, SceneJournal};
+use crate::scene::{CmdAuthor, NodeId, Scene, SceneCmd, SceneJournal};
 use crate::SlateDoc;
 
 const READ_INTERVAL: Duration = Duration::from_secs(1);
@@ -26,6 +27,8 @@ pub enum ProposalStatus {
     Accepted,
     Rejected,
     Stale,
+    /// An interrupted acceptance must be reviewed, never automatically replayed.
+    RecoveryRequired,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -47,41 +50,214 @@ pub enum StaleReason {
     UnsupportedFormat { found: u32, expected: u32 },
     EmptyProposal,
     CommandRejected,
+    UnsavedWorkbook,
+    WorkbookMismatch,
+    NotPending,
+    NodeChanged { node: NodeId },
+}
+
+impl std::fmt::Display for StaleReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedFormat { found, expected } => {
+                write!(f, "format {found} is unsupported (expected {expected})")
+            }
+            Self::EmptyProposal => f.write_str("the proposal contains no commands"),
+            Self::CommandRejected => f.write_str("a command no longer applies to this board"),
+            Self::UnsavedWorkbook => {
+                f.write_str("save the workbook and request a new proposal with its saved path")
+            }
+            Self::WorkbookMismatch => f.write_str("the proposal targets a different workbook"),
+            Self::NotPending => f.write_str("the proposal is no longer pending"),
+            Self::NodeChanged { node } => write!(
+                f,
+                "node {} changed after this proposal was prepared",
+                node.0
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProposalResult {
+    /// Durable replay barrier; a crash here leaves acceptance unconfirmed.
+    Applying,
     Accepted,
     Rejected,
-    Stale { reason: StaleReason },
+    Stale {
+        reason: StaleReason,
+    },
 }
 
 pub fn accept(
     proposal: &Proposal,
+    workbook: Option<&Path>,
     scene: &mut Scene,
     journal: &mut SceneJournal,
 ) -> Result<(), StaleReason> {
+    let cmds = prepared_cmds(proposal, workbook, scene)?;
+    if journal.commit_as(scene, cmds, CmdAuthor::Agent(proposal.author.clone())) {
+        Ok(())
+    } else {
+        Err(StaleReason::CommandRejected)
+    }
+}
+
+fn prepared_cmds(
+    proposal: &Proposal,
+    workbook: Option<&Path>,
+    scene: &Scene,
+) -> Result<Vec<SceneCmd>, StaleReason> {
     if proposal.target.format_version != SlateDoc::CURRENT {
         return Err(StaleReason::UnsupportedFormat {
             found: proposal.target.format_version,
             expected: SlateDoc::CURRENT,
         });
     }
+    let (Some(target), Some(workbook)) = (proposal.target.workbook.as_deref(), workbook) else {
+        return Err(StaleReason::UnsavedWorkbook);
+    };
+    if !same_workbook(target, workbook) {
+        return Err(StaleReason::WorkbookMismatch);
+    }
+    if proposal.status != ProposalStatus::Pending {
+        return Err(StaleReason::NotPending);
+    }
     if proposal.cmds.is_empty() {
         return Err(StaleReason::EmptyProposal);
     }
 
-    let cmds = normalized_cmds(&proposal.cmds, scene);
     let mut check = scene.clone();
-    if !check.apply_all(&cmds) {
-        return Err(StaleReason::CommandRejected);
+    let mut cmds = Vec::with_capacity(proposal.cmds.len());
+    for original in &proposal.cmds {
+        // Check the evolving proposal state: a later command may legitimately
+        // address a node added or patched by an earlier command in this group.
+        let cmd = match original {
+            SceneCmd::Add { node, .. } => SceneCmd::Add {
+                index: check.nodes.len(),
+                node: node.clone(),
+            },
+            SceneCmd::Patch { before, .. } => {
+                if check.node(before.id) != Some(before.as_ref()) {
+                    return Err(StaleReason::NodeChanged { node: before.id });
+                }
+                original.clone()
+            }
+            SceneCmd::Remove { node, .. } => {
+                if check.node(node.id) != Some(node) {
+                    return Err(StaleReason::NodeChanged { node: node.id });
+                }
+                original.clone()
+            }
+        };
+        if !check.apply(&cmd) {
+            return Err(StaleReason::CommandRejected);
+        }
+        cmds.push(cmd);
     }
-    if journal.commit_as(scene, cmds, CmdAuthor::Agent(proposal.author.clone())) {
-        Ok(())
+    Ok(cmds)
+}
+
+// Identity comparison is lexical and never touches a potentially remote source.
+// Agents should echo the path in context.json; aliases through symlinks are not
+// resolved here. Unsaved documents have no usable identity in the v1 contract.
+fn same_workbook(a: &Path, b: &Path) -> bool {
+    let normalize = |path: &Path| {
+        let mut out = PathBuf::new();
+        for part in path.components() {
+            match part {
+                Component::CurDir => {}
+                Component::ParentDir
+                    if matches!(out.components().next_back(), Some(Component::Normal(_))) =>
+                {
+                    out.pop();
+                }
+                other => out.push(other.as_os_str()),
+            }
+        }
+        out
+    };
+    let (a, b) = (normalize(a), normalize(b));
+    if cfg!(windows) {
+        a.as_os_str()
+            .as_encoded_bytes()
+            .eq_ignore_ascii_case(b.as_os_str().as_encoded_bytes())
     } else {
-        Err(StaleReason::CommandRejected)
+        a == b
     }
+}
+
+#[derive(Debug)]
+pub struct AcceptRecordError {
+    /// True only when the journal commit completed but final confirmation failed.
+    pub applied: bool,
+    pub error: io::Error,
+}
+
+/// Persist a replay barrier before committing, then confirm the decision.
+/// Disk and the in-memory journal are not an atomic transaction: interruption
+/// leaves `Applying`, which requires human review instead of automatic replay.
+pub fn accept_and_record(
+    proposal: &Proposal,
+    workbook: Option<&Path>,
+    scene: &mut Scene,
+    journal: &mut SceneJournal,
+    ai_workspace: &Path,
+) -> Result<ProposalResult, AcceptRecordError> {
+    accept_and_record_with_writer(proposal, workbook, scene, journal, ai_workspace, |result| {
+        write_result(ai_workspace, &proposal.id, result)
+    })
+}
+
+fn accept_and_record_with_writer(
+    proposal: &Proposal,
+    workbook: Option<&Path>,
+    scene: &mut Scene,
+    journal: &mut SceneJournal,
+    ai_workspace: &Path,
+    mut write: impl FnMut(&ProposalResult) -> io::Result<()>,
+) -> Result<ProposalResult, AcceptRecordError> {
+    let before = |error| AcceptRecordError {
+        applied: false,
+        error,
+    };
+    if read_result(ai_workspace, &proposal.id)
+        .map_err(before)?
+        .is_some()
+    {
+        return Err(before(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "a decision already exists; review the workbook before dismissing this proposal",
+        )));
+    }
+    let cmds = match prepared_cmds(proposal, workbook, scene) {
+        Ok(cmds) => cmds,
+        Err(reason @ (StaleReason::WorkbookMismatch | StaleReason::UnsavedWorkbook)) => {
+            // Changing tabs or saving is a recoverable UI action. Do not
+            // consume a proposal that may still apply in its intended workbook.
+            return Err(before(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                reason.to_string(),
+            )));
+        }
+        Err(reason) => {
+            let result = ProposalResult::Stale { reason };
+            write(&result).map_err(before)?;
+            return Ok(result);
+        }
+    };
+    write(&ProposalResult::Applying).map_err(before)?;
+    if !journal.commit_as(scene, cmds, CmdAuthor::Agent(proposal.author.clone())) {
+        return Err(before(io::Error::other(
+            "acceptance could not finish; review the workbook before dismissing this proposal",
+        )));
+    }
+    write(&ProposalResult::Accepted).map_err(|error| AcceptRecordError {
+        applied: true,
+        error,
+    })?;
+    Ok(ProposalResult::Accepted)
 }
 
 pub fn reject(_proposal: &Proposal) -> ProposalResult {
@@ -97,6 +273,7 @@ pub fn result_path(ai_workspace: &Path, id: &str) -> PathBuf {
 }
 
 pub fn write_result(ai_workspace: &Path, id: &str, result: &ProposalResult) -> std::io::Result<()> {
+    validate_id(id)?;
     let dir = stage_dir(ai_workspace);
     std::fs::create_dir_all(&dir)?;
     let path = result_path(ai_workspace, id);
@@ -106,23 +283,35 @@ pub fn write_result(ai_workspace: &Path, id: &str, result: &ProposalResult) -> s
     std::fs::rename(tmp, path)
 }
 
-fn normalized_cmds(cmds: &[SceneCmd], scene: &Scene) -> Vec<SceneCmd> {
-    cmds.iter()
-        .cloned()
-        .map(|cmd| match cmd {
-            SceneCmd::Add { node, .. } => SceneCmd::Add {
-                index: scene.nodes.len(),
-                node,
-            },
-            other => other,
-        })
-        .collect()
+fn validate_id(id: &str) -> io::Result<()> {
+    if id.is_empty()
+        || !id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "proposal id must be a file name using letters, digits, dots, hyphens or underscores",
+        ));
+    }
+    Ok(())
+}
+
+pub fn read_result(ai_workspace: &Path, id: &str) -> io::Result<Option<ProposalResult>> {
+    validate_id(id)?;
+    match std::fs::read(result_path(ai_workspace, id)) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 #[derive(Debug, Default)]
 pub struct StageWatcher {
     last_read_attempt: Option<Instant>,
-    mtimes: BTreeMap<PathBuf, SystemTime>,
+    mtimes: BTreeMap<PathBuf, (SystemTime, Option<SystemTime>)>,
 }
 
 impl StageWatcher {
@@ -131,8 +320,8 @@ impl StageWatcher {
     }
 
     /// Polls `<ai-workspace>/.atlas-ai/stage/*.json` at most once per second.
-    /// Result files are ignored. Returns proposals whose file appeared or whose
-    /// mtime changed since the last successful load.
+    /// Final decisions suppress replay, including after restart. An unfinished
+    /// or unreadable decision is returned as `RecoveryRequired`, never Pending.
     pub fn tick_read(&mut self, ai_workspace: &Path) -> Vec<Proposal> {
         if let Some(t) = self.last_read_attempt {
             if t.elapsed() < READ_INTERVAL {
@@ -164,16 +353,35 @@ impl StageWatcher {
             let Ok(mtime) = metadata.modified() else {
                 continue;
             };
-            if self.mtimes.get(&path).copied() == Some(mtime) {
+            let id = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default();
+            let result_mtime = std::fs::metadata(result_path(ai_workspace, id))
+                .and_then(|m| m.modified())
+                .ok();
+            let stamp = (mtime, result_mtime);
+            if self.mtimes.get(&path).copied() == Some(stamp) {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            let Ok(proposal) = serde_json::from_str::<Proposal>(&text) else {
+            let Ok(mut proposal) = serde_json::from_str::<Proposal>(&text) else {
                 continue;
             };
-            self.mtimes.insert(path, mtime);
+            if proposal.id != id || validate_id(id).is_err() {
+                continue;
+            }
+            let decision = read_result(ai_workspace, id);
+            self.mtimes.insert(path, stamp);
+            match decision {
+                Ok(Some(ProposalResult::Applying)) | Err(_) => {
+                    proposal.status = ProposalStatus::RecoveryRequired
+                }
+                Ok(Some(_)) => continue,
+                Ok(None) => {}
+            }
             out.push(proposal);
         }
         out
@@ -225,13 +433,17 @@ mod tests {
             title: "Test proposal".into(),
             created_at: 1,
             target: ProposalTarget {
-                workbook: None,
+                workbook: Some(target_workbook().to_path_buf()),
                 format_version: SlateDoc::CURRENT,
             },
             cmds,
             session: Some("agent-test".into()),
             status: ProposalStatus::Pending,
         }
+    }
+
+    fn target_workbook() -> &'static Path {
+        Path::new("/audit/test.slate")
     }
 
     #[test]
@@ -241,7 +453,7 @@ mod tests {
         let p = proposal(vec![SceneCmd::Add { index: 99, node }]);
         let mut journal = SceneJournal::default();
 
-        accept(&p, &mut scene, &mut journal).unwrap();
+        accept(&p, Some(target_workbook()), &mut scene, &mut journal).unwrap();
         assert_eq!(scene.nodes.len(), 1);
         assert_eq!(
             journal.last_author(),
@@ -264,8 +476,8 @@ mod tests {
         ]);
         let mut journal = SceneJournal::default();
 
-        let err = accept(&p, &mut scene, &mut journal).unwrap_err();
-        assert_eq!(err, StaleReason::CommandRejected);
+        let err = accept(&p, Some(target_workbook()), &mut scene, &mut journal).unwrap_err();
+        assert_eq!(err, StaleReason::NodeChanged { node: NodeId(9999) });
         assert!(scene.nodes.is_empty());
         assert!(journal.last_author().is_none());
     }
@@ -302,7 +514,7 @@ mod tests {
         let mut p = proposal(vec![SceneCmd::Add { index: 0, node }]);
         p.target.format_version = SlateDoc::CURRENT + 1;
         let mut journal = SceneJournal::default();
-        let err = accept(&p, &mut scene, &mut journal).unwrap_err();
+        let err = accept(&p, Some(target_workbook()), &mut scene, &mut journal).unwrap_err();
         assert_eq!(
             err,
             StaleReason::UnsupportedFormat {
@@ -324,8 +536,342 @@ mod tests {
         let id = node.id;
         let p = proposal(vec![SceneCmd::Add { index: 0, node }]);
         let mut journal = SceneJournal::default();
-        accept(&p, &mut scene, &mut journal).unwrap();
+        accept(&p, Some(target_workbook()), &mut scene, &mut journal).unwrap();
         assert_eq!(scene.nodes.last().map(|n| n.id), Some(id));
+    }
+
+    #[test]
+    fn wrong_workbook_and_unsaved_targets_never_mutate_the_scene() {
+        let mut scene = Scene::default();
+        let node = sample_node(&mut scene);
+        let mut p = proposal(vec![SceneCmd::Add { index: 0, node }]);
+        let mut journal = SceneJournal::default();
+        assert_eq!(
+            accept(
+                &p,
+                Some(Path::new("/audit/other.slate")),
+                &mut scene,
+                &mut journal
+            ),
+            Err(StaleReason::WorkbookMismatch)
+        );
+        assert_eq!(
+            accept(&p, None, &mut scene, &mut journal),
+            Err(StaleReason::UnsavedWorkbook)
+        );
+        p.target.workbook = None;
+        assert_eq!(
+            accept(&p, None, &mut scene, &mut journal),
+            Err(StaleReason::UnsavedWorkbook)
+        );
+        assert!(scene.nodes.is_empty());
+        assert!(!journal.can_undo());
+    }
+
+    #[test]
+    fn wrong_workbook_refusal_can_be_retried_in_the_correct_saved_workbook() {
+        let ws = temp_workspace("recoverable_target");
+        let mut scene = Scene::default();
+        let node = sample_node(&mut scene);
+        let p = proposal(vec![SceneCmd::Add { index: 0, node }]);
+        let mut journal = SceneJournal::default();
+        for workbook in [Some(Path::new("/audit/other.slate")), None] {
+            let error = accept_and_record(&p, workbook, &mut scene, &mut journal, &ws).unwrap_err();
+            assert!(!error.applied);
+            assert_eq!(error.error.kind(), io::ErrorKind::InvalidInput);
+            assert_eq!(read_result(&ws, &p.id).unwrap(), None);
+            assert!(scene.nodes.is_empty());
+            assert!(!journal.can_undo());
+        }
+        assert_eq!(
+            accept_and_record(&p, Some(target_workbook()), &mut scene, &mut journal, &ws).unwrap(),
+            ProposalResult::Accepted
+        );
+        assert_eq!(scene.nodes.len(), 1);
+        std::fs::remove_dir_all(ws).unwrap();
+    }
+
+    #[test]
+    fn workbook_identity_normalizes_lexically_without_io() {
+        assert!(same_workbook(
+            Path::new("/missing/sub/../board.slate"),
+            Path::new("/missing/./board.slate")
+        ));
+        assert!(!same_workbook(
+            Path::new("/a/board.slate"),
+            Path::new("/b/board.slate")
+        ));
+        #[cfg(windows)]
+        assert!(same_workbook(
+            Path::new(r"C:\MISSING\sub\..\Board.slate"),
+            Path::new("c:/missing/board.slate")
+        ));
+    }
+
+    #[test]
+    fn stale_patch_preserves_intervening_human_edit_and_undo() {
+        let mut scene = Scene::default();
+        let original = sample_node(&mut scene);
+        let id = original.id;
+        assert!(scene.apply(&SceneCmd::Add {
+            index: 0,
+            node: original.clone()
+        }));
+        let mut agent_after = original.clone();
+        agent_after.rect = agent_after.rect.translated(250.0, 0.0);
+        let stale = proposal(vec![SceneCmd::Patch {
+            before: Box::new(original.clone()),
+            after: Box::new(agent_after),
+        }]);
+        let mut human_after = original.clone();
+        if let NodeKind::Shape(shape) = &mut human_after.kind {
+            shape.fill = Some(Rgba([200, 100, 50, 255]));
+        }
+        let mut journal = SceneJournal::default();
+        assert!(journal.commit(
+            &mut scene,
+            vec![SceneCmd::Patch {
+                before: Box::new(original.clone()),
+                after: Box::new(human_after.clone())
+            }]
+        ));
+        assert_eq!(
+            accept(&stale, Some(target_workbook()), &mut scene, &mut journal),
+            Err(StaleReason::NodeChanged { node: id })
+        );
+        assert_eq!(scene.node(id), Some(&human_after));
+        assert_eq!(journal.last_author(), Some(&CmdAuthor::Human));
+
+        // A freshly based proposal remains valid; undo restores the exact
+        // human state immediately before acceptance, including the new color.
+        let mut fresh_after = human_after.clone();
+        fresh_after.rect = fresh_after.rect.translated(250.0, 0.0);
+        let fresh = proposal(vec![SceneCmd::Patch {
+            before: Box::new(human_after.clone()),
+            after: Box::new(fresh_after),
+        }]);
+        accept(&fresh, Some(target_workbook()), &mut scene, &mut journal).unwrap();
+        assert!(journal.undo(&mut scene));
+        assert_eq!(scene.node(id), Some(&human_after));
+        assert!(journal.undo(&mut scene));
+        assert_eq!(scene.node(id), Some(&original));
+    }
+
+    #[test]
+    fn stale_remove_does_not_delete_a_changed_node_or_apply_earlier_commands() {
+        let mut scene = Scene::default();
+        let original = sample_node(&mut scene);
+        assert!(scene.apply(&SceneCmd::Add {
+            index: 0,
+            node: original.clone()
+        }));
+        let mut changed = original.clone();
+        changed.rect = changed.rect.translated(30.0, 0.0);
+        assert!(scene.apply(&SceneCmd::Patch {
+            before: Box::new(original.clone()),
+            after: Box::new(changed.clone())
+        }));
+        let added = sample_node(&mut scene);
+        let p = proposal(vec![
+            SceneCmd::Add {
+                index: 0,
+                node: added,
+            },
+            SceneCmd::Remove {
+                index: 0,
+                node: original.clone(),
+            },
+        ]);
+        let mut journal = SceneJournal::default();
+        assert_eq!(
+            accept(&p, Some(target_workbook()), &mut scene, &mut journal),
+            Err(StaleReason::NodeChanged { node: original.id })
+        );
+        assert_eq!(scene.nodes, vec![changed]);
+        assert!(!journal.can_undo());
+    }
+
+    #[test]
+    fn proposal_preflight_follows_commands_in_order() {
+        let mut scene = Scene::default();
+        let first = sample_node(&mut scene);
+        let second = sample_node(&mut scene);
+        let mut patched = first.clone();
+        patched.rect = patched.rect.translated(40.0, 0.0);
+        let p = proposal(vec![
+            SceneCmd::Add {
+                index: 99,
+                node: first.clone(),
+            },
+            SceneCmd::Add {
+                index: 99,
+                node: second.clone(),
+            },
+            SceneCmd::Patch {
+                before: Box::new(first),
+                after: Box::new(patched.clone()),
+            },
+        ]);
+        let mut journal = SceneJournal::default();
+        accept(&p, Some(target_workbook()), &mut scene, &mut journal).unwrap();
+        assert_eq!(scene.nodes, vec![patched, second]);
+        assert!(journal.undo(&mut scene));
+        assert!(scene.nodes.is_empty());
+    }
+
+    #[test]
+    fn recorded_acceptance_survives_watcher_restart_without_replay() {
+        let ws = temp_workspace("decisions");
+        std::fs::create_dir_all(stage_dir(&ws)).unwrap();
+        let mut scene = Scene::default();
+        let node = sample_node(&mut scene);
+        let accepted = proposal(vec![SceneCmd::Add { index: 0, node }]);
+        let mut rejected = proposal(Vec::new());
+        rejected.id = "rejected".into();
+        for p in [&accepted, &rejected] {
+            std::fs::write(
+                stage_dir(&ws).join(format!("{}.json", p.id)),
+                serde_json::to_vec(p).unwrap(),
+            )
+            .unwrap();
+        }
+        assert_eq!(StageWatcher::new().tick_read(&ws).len(), 2);
+        let mut journal = SceneJournal::default();
+        assert_eq!(
+            accept_and_record(
+                &accepted,
+                Some(target_workbook()),
+                &mut scene,
+                &mut journal,
+                &ws
+            )
+            .unwrap(),
+            ProposalResult::Accepted
+        );
+        write_result(&ws, &rejected.id, &reject(&rejected)).unwrap();
+        assert!(StageWatcher::new().tick_read(&ws).is_empty());
+        assert_eq!(
+            read_result(&ws, &accepted.id).unwrap(),
+            Some(ProposalResult::Accepted)
+        );
+        assert!(journal.undo(&mut scene));
+        assert!(scene.nodes.is_empty());
+        let replay = accept_and_record(
+            &accepted,
+            Some(target_workbook()),
+            &mut scene,
+            &mut journal,
+            &ws,
+        )
+        .unwrap_err();
+        assert!(!replay.applied);
+        assert_eq!(replay.error.kind(), io::ErrorKind::AlreadyExists);
+        assert!(scene.nodes.is_empty());
+        std::fs::remove_dir_all(ws).unwrap();
+    }
+
+    #[test]
+    fn interrupted_or_unreadable_acceptance_requires_review_without_reapplying() {
+        let ws = temp_workspace("interrupted");
+        std::fs::create_dir_all(stage_dir(&ws)).unwrap();
+        let mut scene = Scene::default();
+        let node = sample_node(&mut scene);
+        let p = proposal(vec![SceneCmd::Add { index: 0, node }]);
+        std::fs::write(
+            stage_dir(&ws).join("p1.json"),
+            serde_json::to_vec(&p).unwrap(),
+        )
+        .unwrap();
+        write_result(&ws, &p.id, &ProposalResult::Applying).unwrap();
+        let mut journal = SceneJournal::default();
+        for unreadable in [false, true] {
+            if unreadable {
+                std::fs::write(result_path(&ws, &p.id), b"partial-json").unwrap();
+            }
+            let loaded = StageWatcher::new().tick_read(&ws);
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded[0].status, ProposalStatus::RecoveryRequired);
+            let error =
+                accept_and_record(&p, Some(target_workbook()), &mut scene, &mut journal, &ws)
+                    .unwrap_err();
+            assert!(!error.applied);
+            assert!(scene.nodes.is_empty());
+            assert!(!journal.can_undo());
+        }
+        write_result(&ws, &p.id, &reject(&p)).unwrap();
+        assert!(StageWatcher::new().tick_read(&ws).is_empty());
+        std::fs::remove_dir_all(ws).unwrap();
+    }
+
+    #[test]
+    fn failed_final_confirmation_keeps_barrier_and_exactly_one_undoable_commit() {
+        let ws = temp_workspace("confirmation_failure");
+        let mut scene = Scene::default();
+        let node = sample_node(&mut scene);
+        let p = proposal(vec![SceneCmd::Add {
+            index: 0,
+            node: node.clone(),
+        }]);
+        let mut journal = SceneJournal::default();
+        let error = accept_and_record_with_writer(
+            &p,
+            Some(target_workbook()),
+            &mut scene,
+            &mut journal,
+            &ws,
+            |result| {
+                if *result == ProposalResult::Accepted {
+                    Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "injected final confirmation failure",
+                    ))
+                } else {
+                    write_result(&ws, &p.id, result)
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(error.applied);
+        assert_eq!(error.error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(scene.nodes, vec![node]);
+        assert_eq!(
+            journal.last_author(),
+            Some(&CmdAuthor::Agent(p.author.clone()))
+        );
+        assert_eq!(
+            read_result(&ws, &p.id).unwrap(),
+            Some(ProposalResult::Applying)
+        );
+        let replay = accept_and_record(&p, Some(target_workbook()), &mut scene, &mut journal, &ws)
+            .unwrap_err();
+        assert!(!replay.applied);
+        assert_eq!(scene.nodes.len(), 1);
+        assert!(journal.undo(&mut scene));
+        assert!(scene.nodes.is_empty());
+        assert!(!journal.can_undo());
+        std::fs::remove_dir_all(ws).unwrap();
+    }
+
+    #[test]
+    fn result_write_failure_and_invalid_id_never_apply_the_proposal() {
+        let ws = temp_workspace("unwritable");
+        std::fs::create_dir_all(ws.join(".atlas-ai")).unwrap();
+        std::fs::write(stage_dir(&ws), "a file blocks the stage directory").unwrap();
+        let mut scene = Scene::default();
+        let node = sample_node(&mut scene);
+        let mut p = proposal(vec![SceneCmd::Add { index: 0, node }]);
+        let mut journal = SceneJournal::default();
+        let error = accept_and_record(&p, Some(target_workbook()), &mut scene, &mut journal, &ws)
+            .unwrap_err();
+        assert!(!error.applied);
+        p.id = "../../outside".into();
+        let error = accept_and_record(&p, Some(target_workbook()), &mut scene, &mut journal, &ws)
+            .unwrap_err();
+        assert_eq!(error.error.kind(), io::ErrorKind::InvalidInput);
+        assert!(!error.applied);
+        assert!(scene.nodes.is_empty());
+        assert!(!journal.can_undo());
+        std::fs::remove_dir_all(ws).unwrap();
     }
 
     #[test]

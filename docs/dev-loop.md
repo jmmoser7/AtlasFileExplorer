@@ -79,6 +79,21 @@ cargo atlas "C:\path\to\folder"          # open a folder in the debug build
 These prefer `bacon` (with MSVC env fixups when needed). They do not change
 how the apps behave.
 
+## Desktop shortcuts
+
+Create or refresh Windows Desktop shortcuts after a successful release build:
+
+```powershell
+.\scripts\build-release.ps1
+```
+
+The fast two-app dev loop also refreshes the same shortcuts after it builds,
+pointing them at `target\debug`. The release wrapper repoints them at
+`target\release`. Both targets are stable paths, so pin each Desktop shortcut
+to the taskbar once through Windows; future builds preserve that taskbar pin.
+Windows intentionally keeps taskbar pinning user-controlled, so the scripts do
+not rewrite the user's taskbar layout.
+
 ## Chrome visual tuning (already live)
 
 For spacing/colors/geometry of shared chrome, keep using the existing

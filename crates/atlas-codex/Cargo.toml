@@ -1,0 +1,9 @@
+[package]
+name = "atlas-codex"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+atlas-agent.workspace = true
+serde.workspace = true
+serde_json.workspace = true

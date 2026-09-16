@@ -19,6 +19,9 @@ use atlas_shell::sidebar::{
 use eframe::egui::{self, Color32, Id, Rect, RichText};
 use slate_doc::{GroupId, TagId, ViewKind};
 
+pub(crate) const DOCK_ID: &str = "slate_tools";
+pub(crate) const SELECTION_PANEL_ID: &str = "selection";
+
 macro_rules! board_dock_icon {
     ($name:ident, $icon:expr) => {
         fn $name(p: &egui::Painter, r: Rect, c: Color32) {
@@ -26,12 +29,15 @@ macro_rules! board_dock_icon {
         }
     };
 }
+board_dock_icon!(icon_media, ToolIcon::Media);
+board_dock_icon!(icon_image, ToolIcon::Image);
+board_dock_icon!(icon_model, ToolIcon::Model);
+board_dock_icon!(icon_video, ToolIcon::Video);
 board_dock_icon!(icon_frame, ToolIcon::Frame);
 board_dock_icon!(icon_portals, ToolIcon::Portals);
 board_dock_icon!(icon_shapes, ToolIcon::Shapes);
 board_dock_icon!(icon_text, ToolIcon::Text);
 board_dock_icon!(icon_sticky, ToolIcon::Sticky);
-board_dock_icon!(icon_grid, ToolIcon::Grid);
 board_dock_icon!(icon_colors, ToolIcon::Colors);
 board_dock_icon!(icon_rect, ToolIcon::Rect);
 board_dock_icon!(icon_ellipse, ToolIcon::Ellipse);
@@ -145,6 +151,16 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
 
     let items = [
         DockItem {
+            id: "tool.media",
+            label: "Media",
+            description: "Place images and print media, Rhino 3D models, or video. PowerPoint renders as PDF pages.",
+            icon: DockIcon::Custom(icon_media),
+            kind: DockItemKind::Tool,
+            active: false,
+            visible: board,
+            gap_before: false,
+        },
+        DockItem {
             id: "tool.frame",
             label: "Frame",
             description: "Place a slide frame — Letter, Tabloid, 16:9, or a custom size.",
@@ -195,7 +211,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             id: "tool.actions",
             label: "Actions",
             description: "Edit commands — Trim (Ctrl+T), Split (Ctrl+Shift+T), Join (Ctrl+J).",
-            icon: DockIcon::Custom(icon_trim),
+            icon: DockIcon::Actions,
             kind: DockItemKind::Tool,
             active: matches!(tool, BoardTool::Trim | BoardTool::Split),
             visible: board,
@@ -205,7 +221,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             id: "object.properties",
             label: "Object properties",
             description: "Ink / paper colors and the workbook’s faceted tag groups.",
-            icon: DockIcon::Custom(icon_colors),
+            icon: DockIcon::ObjectProperties,
             kind: DockItemKind::Dashboard,
             active: false,
             visible: board || app.chrome().tool(ToolPanel::Tags),
@@ -215,7 +231,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             id: "document.settings",
             label: "Document settings",
             description: "Board grid, object snaps, smart-guide reach, and wire routing.",
-            icon: DockIcon::Custom(icon_grid),
+            icon: DockIcon::DocumentSettings,
             kind: DockItemKind::Dashboard,
             active: app.board_show_grid
                 || app.board_snap_grid
@@ -225,6 +241,16 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             visible: board,
             gap_before: false,
         },
+        DockItem {
+            id: SELECTION_PANEL_ID,
+            label: "Selection",
+            description: "F3 — properties of the selected objects.",
+            icon: DockIcon::Selection,
+            kind: DockItemKind::Inspector,
+            active: !app.board_sel.is_empty(),
+            visible: app.chrome().tool(ToolPanel::Selection),
+            gap_before: false,
+        },
     ];
 
     let palette = app.palette();
@@ -232,12 +258,13 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
     let restore = app.dock_pins.clone();
     let restore_strips = app.dock_icon_strips.clone();
     let restore_hidden = app.dock_strip_hidden.clone();
+    let restore_order = app.dock_strip_order.clone();
     let DockOutcome {
         clicked,
         drop_to_canvas,
     } = floating_dock(
         ctx,
-        "slate_tools",
+        DOCK_ID,
         canvas,
         &palette,
         app.dock_side,
@@ -245,8 +272,10 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         &restore,
         &restore_strips,
         &restore_hidden,
+        &restore_order,
         app.dock_bar_collapsed,
         |ui, id| match id {
+            "tool.media" => media_flyout(app, ui),
             "tool.frame" => frame_flyout(app, ui, theme),
             "tool.portals" => portals_flyout(app, ui, theme),
             "tool.shapes" => shapes_flyout(app, ui, theme),
@@ -254,31 +283,38 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             "tool.actions" => actions_flyout(app, ui, theme),
             "object.properties" => object_properties_body(app, ui, theme),
             "document.settings" => document_settings_body(app, ui, theme),
+            SELECTION_PANEL_ID => super::inspector::selection_body(app, ui, theme),
             _ => {}
         },
     );
 
     // Persist pinned palettes and flyout layout across sessions.
     let mut prefs_dirty = false;
-    if let Some(pins) = atlas_shell::dock::pinned_ids(ctx, "slate_tools") {
+    if let Some(pins) = atlas_shell::dock::pinned_ids(ctx, DOCK_ID) {
         if pins != app.dock_pins {
             app.dock_pins = pins;
             prefs_dirty = true;
         }
     }
-    if let Some(strips) = atlas_shell::dock::icon_strip_ids(ctx, "slate_tools") {
+    if let Some(strips) = atlas_shell::dock::icon_strip_ids(ctx, DOCK_ID) {
         if strips != app.dock_icon_strips {
             app.dock_icon_strips = strips;
             prefs_dirty = true;
         }
     }
-    if let Some(hidden) = atlas_shell::dock::strip_hidden(ctx, "slate_tools") {
+    if let Some(hidden) = atlas_shell::dock::strip_hidden(ctx, DOCK_ID) {
         if hidden != app.dock_strip_hidden {
             app.dock_strip_hidden = hidden;
             prefs_dirty = true;
         }
     }
-    if let Some(collapsed) = atlas_shell::dock::bar_collapsed(ctx, "slate_tools") {
+    if let Some(order) = atlas_shell::dock::strip_order(ctx, DOCK_ID) {
+        if order != app.dock_strip_order {
+            app.dock_strip_order = order;
+            prefs_dirty = true;
+        }
+    }
+    if let Some(collapsed) = atlas_shell::dock::bar_collapsed(ctx, DOCK_ID) {
         if collapsed != app.dock_bar_collapsed {
             app.dock_bar_collapsed = collapsed;
             prefs_dirty = true;
@@ -319,6 +355,13 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             app.dispatch(ctx, CommandId("board.tool.trim"), Some("dock".into()));
         }
         _ => {}
+    }
+}
+
+fn media_flyout(app: &mut SlateApp, ui: &mut egui::Ui) {
+    let items = palette_strip_items(app, "tool.media", &[]);
+    if let Some(id) = flyout_items(ui, &items) {
+        activate_flyout_id(app, ui.ctx(), id);
     }
 }
 
@@ -1092,6 +1135,9 @@ pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &s
         _ => {}
     }
     let cmd = match id {
+        "media.image" => Some("board.media.image"),
+        "media.model" => Some("board.media.model"),
+        "media.video" => Some("board.media.video"),
         "prop.swap" => Some("board.colors.swap"),
         "prop.reset" => Some("board.colors.default"),
         "settings.grid" => Some("board.grid"),
@@ -1117,6 +1163,7 @@ pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &s
 
 pub(crate) fn palette_title(id: &str) -> &'static str {
     match id {
+        "tool.media" => "Media",
         "tool.frame" => "Frame",
         "tool.portals" => "Portals",
         "tool.shapes" => "Shapes",
@@ -1136,6 +1183,11 @@ pub(crate) fn palette_strip_items<'a>(
     visible: &[String],
 ) -> Vec<FlyoutItem<'a>> {
     let mut items = match palette_id {
+        "tool.media" => vec![
+            FlyoutItem { id: "media.image", label: "Image", description: "Images and print media: JPG, PNG, PDF, PowerPoint, and document previews.", hotkey: None, icon: DockIcon::Custom(icon_image), active: false, group: Some("media"), role: FlyoutRole::Icon },
+            FlyoutItem { id: "media.model", label: "3D", description: "Place a Rhino .3dm file using the existing interactive 3D viewer.", hotkey: None, icon: DockIcon::Custom(icon_model), active: false, group: Some("media"), role: FlyoutRole::Icon },
+            FlyoutItem { id: "media.video", label: "Video", description: "Place a video poster with trim controls. Supported videos play in the HTML artifact.", hotkey: None, icon: DockIcon::Custom(icon_video), active: false, group: Some("media"), role: FlyoutRole::Icon },
+        ],
         "tool.frame" => {
             let preset = app.board_frame_preset;
             vec![
@@ -1227,7 +1279,8 @@ pub(crate) fn palette_strip_items<'a>(
                 FlyoutItem {
                     id: "portal.atlas",
                     label: "File Atlas",
-                    description: "Live folder map on the board — File Atlas's canvas, not its window.",
+                    description:
+                        "Live folder map on the board — File Atlas's canvas, not its window.",
                     hotkey: None,
                     icon: DockIcon::Custom(icon_atlas),
                     active: tool == BoardTool::AtlasPortal && app.armed_kit_id.is_none(),
@@ -1263,7 +1316,12 @@ pub(crate) fn palette_strip_items<'a>(
                     Some(BoardTool::Ellipse.hotkey()),
                     "shapes",
                 ),
-                (BoardTool::Line, "shape.line", Some(BoardTool::Line.hotkey()), "curves"),
+                (
+                    BoardTool::Line,
+                    "shape.line",
+                    Some(BoardTool::Line.hotkey()),
+                    "curves",
+                ),
                 (BoardTool::Arc, "shape.arc", None, "curves"),
                 (BoardTool::Polyline, "shape.polyline", None, "curves"),
                 (BoardTool::BezierSpan, "shape.bezier", None, "curves"),
@@ -1485,7 +1543,12 @@ pub(crate) fn palette_strip_items<'a>(
     };
     if !visible.is_empty() {
         items.retain(|it| visible.iter().any(|v| v == it.id));
-        items.sort_by_key(|it| visible.iter().position(|v| v == it.id).unwrap_or(usize::MAX));
+        items.sort_by_key(|it| {
+            visible
+                .iter()
+                .position(|v| v == it.id)
+                .unwrap_or(usize::MAX)
+        });
     }
     items
 }

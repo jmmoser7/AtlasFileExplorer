@@ -15,6 +15,8 @@ Desktop.ini
 # Agent / app runtime diagnostics (never source)
 debug-*.log
 *.ndjson
+/.codex/*.log
+/.codex/portal-protocol-schema/
 
 # Live-link beacons and stage proposals the apps rewrite while running.
 # Keep committed READMEs and hand-authored fixtures; ignore the rest.
@@ -28,6 +30,9 @@ debug-*.log
 **/.atlas-ai/lens/overlay.json
 # Auto-generated agent portal sessions (hex ids). Named fixtures stay tracked.
 **/.atlas-ai/agent/agent-18*/**
+**/.atlas-ai/agent/agent-req-*/**
+**/.atlas-ai/agent/audit-*/**
+**/.atlas-ai/agent/stabilization-*/**
 **/.atlas-ai/**/sidecar.log
 
 # Cursor sidecar npm install (Slate runs this on first Send)

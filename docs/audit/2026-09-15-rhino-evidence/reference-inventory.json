@@ -1,0 +1,33 @@
+{
+  "source": "C:/Users/jmoser/Downloads/Grid_AA_Stacked.3dm",
+  "bytes": 721780,
+  "sha256": "9955e73d238d7ad143b0afbada9420741717eafc24c8f1e3c22ec6722cd47eb4",
+  "reference_library": "rhino3dm 8.35.0 (WASM)",
+  "archive_version": 80,
+  "objects": 2989,
+  "geometry_types": {
+    "LineCurve": 2555,
+    "ArcCurve": 305,
+    "PolylineCurve": 129
+  },
+  "brep_faces": 0,
+  "cached_mesh_counts": {},
+  "layer_count": 10,
+  "instance_definition_count": 0,
+  "object_visibility": {
+    "true": 2989
+  },
+  "hidden_layers": 0,
+  "bounds_min": [
+    -464663.93901885016,
+    -783633.7573912914,
+    -5000.000000000001
+  ],
+  "bounds_max": [
+    336600.0000000017,
+    92834.66049716022,
+    15000.000000000002
+  ],
+  "units": "Millimeters",
+  "read_and_inventory_ms": 75.896
+}

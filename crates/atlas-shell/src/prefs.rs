@@ -7,6 +7,29 @@ use crate::dock::DockSide;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Shared preference chrome; callers own the category keys and saved values.
+pub fn hover_highlight_section(ui: &mut eframe::egui::Ui, rows: &mut [(&str, bool)]) -> bool {
+    let mut changed = false;
+    ui.collapsing("Board hover highlights", |ui| {
+        ui.label("Highlight objects when the pointer rests over them.");
+        for (name, enabled) in rows {
+            let label = match *name {
+                "frame" => "Frames",
+                "image" => "Images and placed media",
+                "shape" => "Shapes and paths",
+                "text" => "Text",
+                "connector" => "Connectors",
+                "portal" => "Portals",
+                "dock_strip" => "Placed toolbars",
+                _ => name,
+            };
+            changed |= ui.checkbox(enabled, label).changed();
+        }
+        ui.label("Selection, focus, and editing handles stay visible.");
+    });
+    changed
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChromePrefs {
@@ -20,6 +43,9 @@ pub struct ChromePrefs {
     /// Tools hidden from each palette's icon strip (`palette → tool ids`).
     #[serde(default)]
     pub panel_strip_hidden: Vec<(String, Vec<String>)>,
+    /// Authored tool order on each palette strip (`palette → tool ids`).
+    #[serde(default)]
+    pub panel_strip_order: Vec<(String, Vec<String>)>,
     /// Canvas minimap pinned open (toggled by `M`; shared overlay chrome).
     pub minimap: bool,
     /// Primary icon bar collapsed into the readout blister.
@@ -34,6 +60,7 @@ impl ChromePrefs {
             pinned_panels: Vec::new(),
             panel_icon_strip: Vec::new(),
             panel_strip_hidden: Vec::new(),
+            panel_strip_order: Vec::new(),
             minimap: false,
             dock_bar_collapsed: false,
         }
@@ -68,6 +95,7 @@ impl Default for ChromePrefs {
             pinned_panels: Vec::new(),
             panel_icon_strip: Vec::new(),
             panel_strip_hidden: Vec::new(),
+            panel_strip_order: Vec::new(),
             minimap: false,
             dock_bar_collapsed: false,
         }
@@ -93,6 +121,10 @@ mod tests {
             pinned_panels: vec!["tags".into(), "tool.curve".into()],
             panel_icon_strip: vec!["tool.shapes".into()],
             panel_strip_hidden: vec![("tool.shapes".into(), vec!["shape.eraser".into()])],
+            panel_strip_order: vec![(
+                "tool.shapes".into(),
+                vec!["shape.rect".into(), "shape.ellipse".into()],
+            )],
             minimap: true,
             dock_bar_collapsed: false,
         };

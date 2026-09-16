@@ -113,6 +113,8 @@ pub struct PortalRuntime {
     status_caches: HashMap<NodeId, StatusCache>,
     /// Portal currently in interactive focus (dims the rest of the board).
     pub interactive: Option<NodeId>,
+    /// Authoritative contents focus. Per-provider slots are enter/leave hook mirrors.
+    pub contents: Option<NodeId>,
     next_generation: u64,
 }
 
@@ -125,6 +127,7 @@ impl Default for PortalRuntime {
             caches: HashMap::new(),
             status_caches: HashMap::new(),
             interactive: None,
+            contents: None,
             next_generation: 1,
         }
     }
@@ -499,6 +502,10 @@ impl SlateApp {
     }
 
     pub(crate) fn bind_portal_source(&mut self, portal: NodeId, path: PathBuf) {
+        if self.agent_is_running(portal) {
+            self.toast("Stop this response before changing its source.");
+            return;
+        }
         let workbook = self.tab().path.clone();
         let locator = source_locator(workbook.as_deref(), &path);
         let Some(before) = self.doc().scene.node(portal).cloned() else {
@@ -737,6 +744,7 @@ impl SlateApp {
         let had = self.portals.interactive.is_some()
             || self.portals.caches.values().any(|c| c.focus_oid.is_some());
         self.portals.interactive = None;
+        self.portals.contents = None;
         for c in self.portals.caches.values_mut() {
             c.focus_oid = None;
         }
@@ -837,15 +845,7 @@ impl SlateApp {
         if chrome {
             let border = fade(self.palette().border_strong);
             self.paint_portal_shell_finish(
-                ui,
-                painter,
-                &layout,
-                node.id,
-                portal,
-                None,
-                border,
-                false,
-                xf.z,
+                ui, painter, &layout, node.id, portal, None, border, false, xf.z,
             );
         } else {
             self.paint_portal_fillet_punch(painter, &layout);
@@ -1211,6 +1211,7 @@ impl SlateApp {
             }
         }
         if let Some((_, oid)) = best {
+            self.portal_enter_interactive(id);
             if let Some(cache) = self.portals.caches.get_mut(&id) {
                 cache.focus_oid = Some(oid);
             }
@@ -1228,30 +1229,27 @@ impl SlateApp {
             return;
         };
         self.contents_blur();
+        self.portals.contents = Some(id);
         match kind {
-            PortalKind::Agent => self.agent_focus(id),
-            PortalKind::Web => self.web_focus(id),
-            PortalKind::FileAtlas => self.atlas_focus(id),
+            PortalKind::Agent => self.agent_enter_contents(id),
+            PortalKind::Web => self.web_enter_contents(id),
+            PortalKind::FileAtlas => self.atlas_enter_contents(id),
             _ => {
                 self.portals.interactive = Some(id);
-                self.board_sel = std::iter::once(id).collect();
             }
         }
+        self.board_sel = std::iter::once(id).collect();
     }
 
     /// One contents-focus slot for every host portal (P1.portal.contents-focus).
     pub(crate) fn contents_focused(&self) -> Option<NodeId> {
-        self.web
-            .focused
-            .or(self.agents.focused)
-            .or(self.atlas_lenses.focused)
-            .or(self.portals.interactive)
+        self.portals.contents
     }
 
     pub(crate) fn contents_blur(&mut self) -> bool {
-        let a = self.web_blur();
-        let b = self.agent_blur();
-        let c = self.atlas_blur();
+        let a = self.web_leave_contents();
+        let b = self.agent_leave_contents();
+        let c = self.atlas_leave_contents();
         let d = self.portal_clear_focus();
         a || b || c || d
     }

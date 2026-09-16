@@ -55,17 +55,8 @@ impl SlateApp {
     /// thumbnail, else `None` (caller paints its placeholder). Queues the
     /// thumbnail and any preview upgrade as side effects — never blocks.
     pub fn item_texture(&mut self, item_id: ItemId, desired_px: f32) -> Option<TextureHandle> {
-        let (key, path, pdf_page) = self.doc().item(item_id).map(|it| {
-            (
-                pdf::item_thumb_key(it),
-                it.path.clone(),
-                if it.pdf_page == 0 {
-                    None
-                } else {
-                    Some(it.pdf_page)
-                },
-            )
-        })?;
+        let fallback_key = pdf::item_thumb_key(self.doc().item(item_id)?);
+        let (key, path, _, pdf_page) = self.resolved_item_preview(item_id)?;
         if key.is_empty() {
             return None;
         }
@@ -75,12 +66,59 @@ impl SlateApp {
             self.request_thumb(item_id);
         }
 
-        let settings = &self.settings.preview;
-        let wants_preview = settings.enabled
-            && desired_px > THUMB_PX as f32 * UPGRADE_FACTOR
-            && slate_doc::media_kind(&path) != slate_doc::MediaKind::Text;
+        if let Some(texture) = self.path_preview(
+            key.clone(),
+            path.clone(),
+            pdf_page,
+            desired_px,
+            desired_px > THUMB_PX as f32 * UPGRADE_FACTOR
+                && slate_doc::media_kind(&path) != slate_doc::MediaKind::Text,
+            false,
+        ) {
+            return Some(texture);
+        }
+        match self.textures.get(&key) {
+            Some(ThumbState::Ready(t)) => {
+                self.thumb_used.insert(key, self.frame_no);
+                Some(t.clone())
+            }
+            _ => match self.textures.get(&fallback_key) {
+                Some(ThumbState::Ready(t)) => Some(t.clone()),
+                _ => None,
+            },
+        }
+    }
+
+    /// Linked generated assets use the same bounded preview queue and LRU as placed images.
+    pub(crate) fn linked_image_texture(
+        &mut self,
+        path: std::path::PathBuf,
+        revision: &str,
+        desired_px: f32,
+    ) -> Option<TextureHandle> {
+        let key = format!("agent-image:{revision}:{}", path.to_string_lossy());
+        self.path_preview(key, path, None, desired_px, true, true)
+    }
+
+    fn path_preview(
+        &mut self,
+        key: String,
+        path: std::path::PathBuf,
+        pdf_page: Option<u16>,
+        desired_px: f32,
+        allow_upgrade: bool,
+        linked: bool,
+    ) -> Option<TextureHandle> {
+        let wants_preview = (linked || self.settings.preview.enabled) && allow_upgrade;
         if wants_preview {
-            let tier = tier_for(desired_px, settings.max_px);
+            let tier = tier_for(
+                if linked && !self.settings.preview.enabled {
+                    THUMB_PX as f32
+                } else {
+                    desired_px
+                },
+                self.settings.preview.max_px,
+            );
             let satisfied = matches!(self.preview_cache.get(&key), Some(e) if e.px >= tier);
             if !satisfied
                 && !self.preview_failed.contains(&key)
@@ -93,6 +131,8 @@ impl SlateApp {
                 self.preview_slots.insert(slot, (key.clone(), tier));
                 self.preview_inflight.insert(key.clone(), tier);
                 self.previews.request(PreviewRequest {
+                    min_edge: if linked { 0 } else { THUMB_PX as u32 },
+                    local_only: linked,
                     id: slot,
                     path,
                     key: key.clone(),
@@ -108,16 +148,7 @@ impl SlateApp {
             }
         }
 
-        if let Some(e) = self.preview_cache.get(&key) {
-            return Some(e.tex.clone());
-        }
-        match self.textures.get(&key) {
-            Some(ThumbState::Ready(t)) => {
-                self.thumb_used.insert(key, self.frame_no);
-                Some(t.clone())
-            }
-            _ => None,
-        }
+        self.preview_cache.get(&key).map(|e| e.tex.clone())
     }
 
     /// Upload finished decodes. Runs once per frame before painting.

@@ -1,0 +1,9 @@
+source=C:/Users/jmoser/Downloads/Untitled.3dm
+bytes=2752208
+result=ready
+parts=423
+vertices=26718
+triangles=27390
+bounds_min=[-23500.0, -17500.0, -550.0]
+bounds_max=[23500.0, 17500.0, 12690.0]
+read_and_parse_ms=38.205

@@ -895,6 +895,10 @@ pub struct HomeTokens {
     pub ao_size: f32,
     /// Ambient-occlusion strength (0 = off).
     pub ao_strength: f32,
+    /// Visible reflection depth as a fraction of the cover height.
+    pub reflection_height_frac: f32,
+    /// Reflection opacity at contact, fading quadratically to zero.
+    pub reflection_opacity: f32,
     /// Saturating side-cover depth push-back (px).
     pub depth_max: f32,
     /// Sigmoid width of the depth ramp.
@@ -928,6 +932,8 @@ impl Default for HomeTokens {
             corner_bevel_frac: 0.045,
             ao_size: 26.0,
             ao_strength: 0.55,
+            reflection_height_frac: 0.26,
+            reflection_opacity: 0.28,
             depth_max: 90.0,
             depth_width: 0.9,
             focal: 900.0,
@@ -954,6 +960,8 @@ impl HomeTokens {
         self.corner_bevel_frac = self.corner_bevel_frac.clamp(0.0, 0.2);
         self.ao_size = self.ao_size.clamp(0.0, 120.0);
         self.ao_strength = self.ao_strength.clamp(0.0, 1.0);
+        self.reflection_height_frac = self.reflection_height_frac.clamp(0.05, 0.6);
+        self.reflection_opacity = self.reflection_opacity.clamp(0.0, 0.6);
         self.depth_max = self.depth_max.clamp(0.0, 600.0);
         self.depth_width = self.depth_width.clamp(0.1, 4.0);
         self.focal = self.focal.clamp(200.0, 4000.0);
@@ -981,6 +989,8 @@ impl HomeTokens {
             &mut self.corner_bevel_frac,
             &mut self.ao_size,
             &mut self.ao_strength,
+            &mut self.reflection_height_frac,
+            &mut self.reflection_opacity,
             &mut self.depth_max,
             &mut self.depth_width,
             &mut self.focal,
@@ -1206,14 +1216,46 @@ pub struct DockPaletteTokens {
     /// Color density on a pinned icon's outline (same lighten/darken as hover).
     #[serde(default = "pinned_tint_default")]
     pub pinned_tint: f32,
-    /// Collapse-handle width / height when the primary dock is a blister.
+    /// Primary-icon fill mix toward the hover color (0 = no fill change).
+    #[serde(default = "icon_hover_fill_default")]
+    pub icon_hover_fill: f32,
+    /// Alpha of that hover fill (0 = see-through plate, 1 = solid).
+    #[serde(default = "icon_hover_opacity_default")]
+    pub icon_hover_opacity: f32,
+    /// Extra lighten (dark) / darken (light) on a hovered primary icon.
+    #[serde(default = "icon_hover_tint_default")]
+    pub icon_hover_tint: f32,
+    /// Hover fade for primary icons and the readout blister (seconds).
+    #[serde(default = "hover_fade_default")]
+    pub hover_fade: f32,
+    /// Collapse-handle width / depth when the primary dock is a blister.
     #[serde(default = "blister_width_default")]
     pub blister_width: f32,
     #[serde(default = "blister_height_default")]
     pub blister_height: f32,
-    /// How far the blister sinks into the readout bar (positive = down).
+    /// How far the tab bites into the readout (or page edge) so the
+    /// shoulders cover the panel stroke and melt into the host fill.
     #[serde(default = "blister_sink_default")]
     pub blister_sink: f32,
+    /// Convex fillet on the far edge (tab-top radius).
+    #[serde(default = "blister_radius_default")]
+    pub blister_radius: f32,
+    /// Concave flare where the blister meets the readout / canvas.
+    #[serde(default = "blister_shoulder_default")]
+    pub blister_shoulder: f32,
+    /// How strongly the blister takes its tab fill (0 = host color).
+    #[serde(default = "blister_fill_default")]
+    pub blister_fill: f32,
+    /// How strongly the tab accent stroke sits on the blister.
+    #[serde(default = "blister_stroke_default")]
+    pub blister_stroke: f32,
+    /// Embedded chevron size, idle opacity, and lift (positive = up).
+    #[serde(default = "blister_arrow_default")]
+    pub blister_arrow: f32,
+    #[serde(default = "blister_arrow_opacity_default")]
+    pub blister_arrow_opacity: f32,
+    #[serde(default = "blister_arrow_lift_default")]
+    pub blister_arrow_lift: f32,
     /// Hover hit band beside / below the primary icon bar that collapses it.
     #[serde(default = "collapse_zone_default")]
     pub collapse_zone: f32,
@@ -1271,9 +1313,20 @@ impl Default for DockPaletteTokens {
             associate_tint: 0.28,
             pinned_stroke: 1.55,
             pinned_tint: 0.22,
+            icon_hover_fill: 0.22,
+            icon_hover_opacity: 1.0,
+            icon_hover_tint: 0.16,
+            hover_fade: 0.14,
             blister_width: 72.0,
-            blister_height: 11.0,
+            blister_height: 14.0,
             blister_sink: 5.0,
+            blister_radius: 5.0,
+            blister_shoulder: 7.0,
+            blister_fill: 1.0,
+            blister_stroke: 1.0,
+            blister_arrow: 7.0,
+            blister_arrow_opacity: 0.4,
+            blister_arrow_lift: 0.0,
             collapse_zone: 22.0,
             group_label_size: 10.0,
             group_label_inset: 5.0,
@@ -1311,14 +1364,25 @@ impl DockPaletteTokens {
         self.group_gap = self.group_gap.clamp(0.0, 48.0);
         self.group_radius = self.group_radius.clamp(0.0, 24.0);
         self.group_stroke = self.group_stroke.clamp(0.0, 6.0);
-        self.associate_fill = self.associate_fill.clamp(0.3, 0.85);
+        self.associate_fill = self.associate_fill.clamp(0.0, 0.85);
         self.associate_stroke = self.associate_stroke.clamp(1.0, 1.8);
         self.associate_tint = self.associate_tint.clamp(0.0, 0.7);
         self.pinned_stroke = self.pinned_stroke.clamp(1.0, 2.4);
         self.pinned_tint = self.pinned_tint.clamp(0.0, 0.7);
-        self.blister_width = self.blister_width.clamp(24.0, 160.0);
-        self.blister_height = self.blister_height.clamp(4.0, 28.0);
+        self.icon_hover_fill = self.icon_hover_fill.clamp(0.0, 1.0);
+        self.icon_hover_opacity = self.icon_hover_opacity.clamp(0.0, 1.0);
+        self.icon_hover_tint = self.icon_hover_tint.clamp(0.0, 0.7);
+        self.hover_fade = self.hover_fade.clamp(0.04, 0.45);
+        self.blister_width = self.blister_width.clamp(16.0, 960.0);
+        self.blister_height = self.blister_height.clamp(2.0, 48.0);
         self.blister_sink = self.blister_sink.clamp(0.0, 20.0);
+        self.blister_radius = self.blister_radius.clamp(0.0, 24.0);
+        self.blister_shoulder = self.blister_shoulder.clamp(0.0, 20.0);
+        self.blister_fill = self.blister_fill.clamp(0.0, 1.0);
+        self.blister_stroke = self.blister_stroke.clamp(0.0, 1.0);
+        self.blister_arrow = self.blister_arrow.clamp(3.0, 16.0);
+        self.blister_arrow_opacity = self.blister_arrow_opacity.clamp(0.0, 1.0);
+        self.blister_arrow_lift = self.blister_arrow_lift.clamp(-20.0, 20.0);
         self.collapse_zone = self.collapse_zone.clamp(8.0, 48.0);
         self.group_label_size = self.group_label_size.clamp(6.0, 24.0);
         self.group_label_inset = self.group_label_inset.clamp(0.0, 32.0);
@@ -1356,9 +1420,20 @@ impl DockPaletteTokens {
             &mut self.associate_tint,
             &mut self.pinned_stroke,
             &mut self.pinned_tint,
+            &mut self.icon_hover_fill,
+            &mut self.icon_hover_opacity,
+            &mut self.icon_hover_tint,
+            &mut self.hover_fade,
             &mut self.blister_width,
             &mut self.blister_height,
             &mut self.blister_sink,
+            &mut self.blister_radius,
+            &mut self.blister_shoulder,
+            &mut self.blister_fill,
+            &mut self.blister_stroke,
+            &mut self.blister_arrow,
+            &mut self.blister_arrow_opacity,
+            &mut self.blister_arrow_lift,
             &mut self.collapse_zone,
             &mut self.group_label_size,
             &mut self.group_label_inset,
@@ -1407,12 +1482,60 @@ fn pinned_tint_default() -> f32 {
     0.22
 }
 
+fn icon_hover_fill_default() -> f32 {
+    0.22
+}
+
+fn icon_hover_opacity_default() -> f32 {
+    1.0
+}
+
+fn icon_hover_tint_default() -> f32 {
+    0.16
+}
+
+fn hover_fade_default() -> f32 {
+    0.14
+}
+
 fn blister_width_default() -> f32 {
     72.0
 }
 
 fn blister_height_default() -> f32 {
-    11.0
+    14.0
+}
+
+fn blister_radius_default() -> f32 {
+    5.0
+}
+
+fn blister_shoulder_default() -> f32 {
+    7.0
+}
+
+fn blister_fill_default() -> f32 {
+    1.0
+}
+
+fn blister_theme_fill_default() -> [u8; 4] {
+    [20, 22, 26, 255]
+}
+
+fn blister_stroke_default() -> f32 {
+    1.0
+}
+
+fn blister_arrow_default() -> f32 {
+    7.0
+}
+
+fn blister_arrow_opacity_default() -> f32 {
+    0.4
+}
+
+fn blister_arrow_lift_default() -> f32 {
+    0.0
 }
 
 fn blister_sink_default() -> f32 {
@@ -1653,6 +1776,9 @@ pub struct DockThemeTokens {
     pub icon_hover: [u8; 4],
     pub icon_active: [u8; 4],
     pub popover_fill: [u8; 4],
+    /// Readout blister body. Missing in older token files → host panel fill.
+    #[serde(default = "blister_theme_fill_default")]
+    pub blister_fill: [u8; 4],
     pub border: [u8; 4],
     pub text: [u8; 4],
     pub muted_text: [u8; 4],
@@ -1674,6 +1800,7 @@ impl DockThemeTokens {
             icon_hover: [240, 242, 245, 242],
             icon_active: [232, 240, 244, 242],
             popover_fill: [248, 249, 250, 248],
+            blister_fill: [248, 249, 250, 255],
             border: [215, 220, 226, 255],
             text: [24, 25, 27, 255],
             muted_text: [112, 116, 122, 255],
@@ -1690,6 +1817,7 @@ impl DockThemeTokens {
             icon_hover: [24, 28, 33, 242],
             icon_active: [20, 32, 36, 242],
             popover_fill: [18, 20, 22, 248],
+            blister_fill: [20, 22, 26, 255],
             border: [54, 60, 66, 255],
             text: [235, 238, 241, 255],
             muted_text: [145, 150, 156, 255],
@@ -1711,6 +1839,9 @@ impl DockThemeTokens {
     }
     pub fn popover_fill_color(&self) -> Color32 {
         rgba(self.popover_fill)
+    }
+    pub fn blister_fill_color(&self) -> Color32 {
+        rgba(self.blister_fill)
     }
     pub fn border_color(&self) -> Color32 {
         rgba(self.border)

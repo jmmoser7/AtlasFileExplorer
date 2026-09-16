@@ -151,7 +151,9 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
             app.push_history("app.home", None);
         }
         Some("file.open_folder") => {
-            app.home_new_workspace();
+            if !app.at_home && app.root.is_some() {
+                app.home_new_workspace();
+            }
             app.open_folder_dialog();
             app.push_history("app.open", None);
         }

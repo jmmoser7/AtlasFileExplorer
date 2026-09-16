@@ -23,7 +23,7 @@ use eframe::egui::{self, Color32, CornerRadius, Pos2, RichText, Stroke, Vec2};
 /// One result row: command label plus an optional dim binding hint.
 pub struct PaletteRow {
     pub label: String,
-    /// Shortcut / binding text shown right-aligned; may be empty.
+    /// Binding hint shown right-aligned when it fits, and in the row tooltip.
     pub hint: String,
 }
 
@@ -179,7 +179,7 @@ pub fn palette_ui(
                             Vec2::new(ui.available_width(), pt.row_height),
                             egui::Sense::click(),
                         );
-                        if row_resp.hovered() {
+                        if row_resp.hovered() && ctx.input(|i| i.pointer.delta() != Vec2::ZERO) {
                             state.selected = i;
                         }
                         if row_resp.clicked() {
@@ -189,22 +189,46 @@ pub fn palette_ui(
                             ui.painter().rect_filled(rect, 6.0, th.icon_hover_color());
                         }
                         let text_y = rect.center().y;
-                        ui.painter().text(
-                            Pos2::new(rect.left() + 8.0, text_y),
-                            egui::Align2::LEFT_CENTER,
-                            &row.label,
+                        // Command names get the row width. Some registry hints are
+                        // descriptive sentences, so only inline a hint that fits
+                        // beside the name; retain the full wording on hover.
+                        let mut label_job = egui::text::LayoutJob::simple_singleline(
+                            row.label.clone(),
                             egui::FontId::proportional(pt.text_size),
                             th.text_color(),
                         );
+                        label_job.wrap = egui::text::TextWrapping {
+                            max_width: (rect.width() - 16.0).max(0.0),
+                            max_rows: 1,
+                            break_anywhere: true,
+                            ..Default::default()
+                        };
+                        let label = ui.fonts(|f| f.layout_job(label_job));
                         if !row.hint.is_empty() {
-                            ui.painter().text(
-                                Pos2::new(rect.right() - 8.0, text_y),
-                                egui::Align2::RIGHT_CENTER,
-                                &row.hint,
+                            let hint = ui.painter().layout_no_wrap(
+                                row.hint.clone(),
                                 egui::FontId::proportional(pt.text_size - 1.5),
                                 th.muted_text_color(),
                             );
+                            if label.size().x + hint.size().x + 12.0 <= rect.width() - 16.0 {
+                                ui.painter().galley(
+                                    Pos2::new(
+                                        rect.right() - 8.0 - hint.size().x,
+                                        text_y - hint.size().y / 2.0,
+                                    ),
+                                    hint,
+                                    th.muted_text_color(),
+                                );
+                            }
+                            row_resp.on_hover_text(format!("{}\n{}", row.label, row.hint));
+                        } else if label.elided {
+                            row_resp.on_hover_text(&row.label);
                         }
+                        ui.painter().galley(
+                            Pos2::new(rect.left() + 8.0, text_y - label.size().y / 2.0),
+                            label,
+                            th.text_color(),
+                        );
                     }
                     if shown == 0 && !state.query.is_empty() {
                         ui.label(
@@ -233,4 +257,137 @@ pub fn palette_ui(
         state.open = false;
     }
     action
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(
+        ctx: &egui::Context,
+        state: &mut PaletteState,
+        rows: &[PaletteRow],
+        time: &mut f64,
+        events: Vec<egui::Event>,
+    ) -> (PaletteAction, egui::FullOutput) {
+        *time += 1.0 / 60.0;
+        let mut action = PaletteAction::None;
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    Pos2::ZERO,
+                    Vec2::new(1000.0, 800.0),
+                )),
+                time: Some(*time),
+                events,
+                ..Default::default()
+            },
+            |ctx| action = palette_ui(ctx, state, rows),
+        );
+        (action, output)
+    }
+
+    fn key(key: egui::Key, pressed: bool) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    fn label_center(output: &egui::FullOutput, label: &str) -> Pos2 {
+        fn find(shape: &egui::Shape, label: &str) -> Option<Pos2> {
+            match shape {
+                egui::Shape::Text(text) if text.galley.text() == label => {
+                    Some(text.pos + text.galley.size() / 2.0)
+                }
+                egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| find(shape, label)),
+                _ => None,
+            }
+        }
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| find(&shape.shape, label))
+            .unwrap_or_else(|| panic!("palette did not paint command label {label:?}"))
+    }
+
+    #[test]
+    fn stationary_pointer_preserves_arrow_navigation_and_enter_while_motion_selects_rows() {
+        let ctx = egui::Context::default();
+        let mut state = PaletteState::default();
+        state.open_at(Pos2::new(100.0, 100.0), Pos2::ZERO);
+        let rows = ["First command", "Second command", "Third command"].map(|label| PaletteRow {
+            label: label.into(),
+            hint: String::new(),
+        });
+        let mut time = 0.0;
+
+        // Let the Area finish sizing and register its hit rectangles, then
+        // derive pointer targets from actual painted labels, not row offsets.
+        frame(&ctx, &mut state, &rows, &mut time, vec![]);
+        let (_, output) = frame(&ctx, &mut state, &rows, &mut time, vec![]);
+        let first = label_center(&output, &rows[0].label);
+        let third = label_center(&output, &rows[2].label);
+        frame(
+            &ctx,
+            &mut state,
+            &rows,
+            &mut time,
+            vec![egui::Event::PointerMoved(first)],
+        );
+        frame(
+            &ctx,
+            &mut state,
+            &rows,
+            &mut time,
+            vec![egui::Event::PointerMoved(third)],
+        );
+        assert_eq!(state.selected, 2, "moving the mouse must select its row");
+        frame(
+            &ctx,
+            &mut state,
+            &rows,
+            &mut time,
+            vec![egui::Event::PointerMoved(first)],
+        );
+        assert_eq!(state.selected, 0);
+
+        // The mouse now rests over row zero. Keyboard events must move the
+        // selection and keep it there without requiring the mouse to leave.
+        let (action, _) = frame(
+            &ctx,
+            &mut state,
+            &rows,
+            &mut time,
+            vec![key(egui::Key::ArrowDown, true)],
+        );
+        assert!(matches!(action, PaletteAction::None));
+        assert_eq!(
+            state.selected, 1,
+            "stationary hover must not undo ArrowDown"
+        );
+        frame(
+            &ctx,
+            &mut state,
+            &rows,
+            &mut time,
+            vec![key(egui::Key::ArrowDown, false)],
+        );
+        assert_eq!(
+            state.selected, 1,
+            "idle hover must preserve keyboard selection"
+        );
+        let (action, _) = frame(
+            &ctx,
+            &mut state,
+            &rows,
+            &mut time,
+            vec![key(egui::Key::Enter, true)],
+        );
+        assert!(matches!(action, PaletteAction::Execute(1)));
+        assert!(!state.open);
+    }
 }

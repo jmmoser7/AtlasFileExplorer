@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 /// Minimum interval between context-beacon writes.
+const PROGRAM_HOVER_SECONDS: f32 = 0.12;
 const BEACON_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Per-app AI panel state. Construct once, keep on the app struct, call
@@ -224,4 +225,75 @@ pub fn ai_body(panel: &mut AiPanel, ui: &mut egui::Ui, theme: SidebarTheme) {
         ui.add_space(2.0);
         ui.label(RichText::new(status).small().italics().color(theme.sub));
     }
+}
+/// Program selection uses only icons and names. The portal supplies focus and
+/// discovery data; this shared AI surface owns its appearance.
+pub fn program_grid(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    id: egui::Id,
+    programs: &[crate::agent::AgentProvider],
+    interactive: bool,
+    zoom: f32,
+) -> Option<String> {
+    let cell = egui::vec2(112.0, 96.0) * zoom;
+    let columns = ((rect.width() / cell.x).floor() as usize)
+        .clamp(1, 4)
+        .min(programs.len().max(1));
+    let rows = programs.len().div_ceil(columns);
+    let origin = rect.center() - egui::vec2(columns as f32 * cell.x, rows as f32 * cell.y) * 0.5;
+    let painter = ui.painter_at(rect);
+    for (i, program) in programs.iter().enumerate() {
+        let slot = egui::Rect::from_min_size(
+            origin + egui::vec2((i % columns) as f32 * cell.x, (i / columns) as f32 * cell.y),
+            cell,
+        )
+        .shrink(6.0 * zoom);
+        let response = ui.interact(
+            slot,
+            id.with(i),
+            if interactive {
+                egui::Sense::click()
+            } else {
+                egui::Sense::hover()
+            },
+        );
+        let hover = ui.ctx().animate_bool_with_time(
+            id.with(("hover", i)),
+            response.hovered(),
+            PROGRAM_HOVER_SECONDS,
+        );
+        painter.rect_filled(
+            slot,
+            10.0 * zoom,
+            egui::Color32::from_white_alpha((hover * 12.0) as u8),
+        );
+        let icon = match program.id.as_str() {
+            "cursor" => atlas_shell::icons::Icon::Select,
+            "codex" => atlas_shell::icons::Icon::Ai,
+            "image-link" => atlas_shell::icons::Icon::Brush,
+            _ => atlas_shell::icons::Icon::Lens,
+        };
+        atlas_shell::icons::paint(
+            &painter,
+            egui::Rect::from_center_size(
+                slot.center() - egui::vec2(0.0, 10.0 * zoom),
+                egui::vec2(30.0, 30.0) * zoom,
+            ),
+            icon,
+            ui.visuals().text_color(),
+        );
+        atlas_shell::canvas_text::text(
+            &painter,
+            egui::pos2(slot.center().x, slot.bottom() - 12.0 * zoom),
+            egui::Align2::CENTER_CENTER,
+            &program.display_name,
+            egui::FontId::proportional(12.0 * zoom),
+            ui.visuals().text_color(),
+        );
+        if response.clicked() {
+            return Some(program.id.clone());
+        }
+    }
+    None
 }

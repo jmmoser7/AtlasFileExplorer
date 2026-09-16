@@ -46,6 +46,7 @@ pub mod folder_map;
 pub mod grid_fade;
 pub mod history_ui;
 pub mod home;
+pub mod icons;
 pub mod menu;
 pub mod menubar;
 pub mod minimap;

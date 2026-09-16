@@ -1,0 +1,17 @@
+fixture=target/stabilization-2026-09-15/mixed-10000.slate; paths=4000; zoom=0.07; assumed_pixels_per_point=1; conservative_bucket_upper=0.088388348
+Owner style: solid width=2, miter join, uniform profile; feather=1.25/zoom. Values are geometry counts, not frame benchmarks.
+representative id=51 tolerance=0.250000000 projected_tol=0.017500000 counts[flat,fill_v,fill_i,stroke_v,stroke_i]=[15, 15, 30, 60, 252]
+representative cubic: max_sampled_error_world=0.236212659 max_sampled_error_px=0.016534886 conservative_sample_bound_px=0.016642466 (adds speed/(2*samples)+1e-6 world numeric allowance)
+TOTAL tolerance=0.250000000 counts[flat,fill_v,fill_i,stroke_v,stroke_i]=[57723, 57723, 113169, 230892, 967014] output_vertex_bytes=5772300 output_index_bytes=4320732
+representative id=51 tolerance=1.000000000 projected_tol=0.070000000 counts[flat,fill_v,fill_i,stroke_v,stroke_i]=[9, 9, 18, 36, 144]
+representative cubic: max_sampled_error_world=0.765769515 max_sampled_error_px=0.053603866 conservative_sample_bound_px=0.053711446 (adds speed/(2*samples)+1e-6 world numeric allowance)
+TOTAL tolerance=1.000000000 counts[flat,fill_v,fill_i,stroke_v,stroke_i]=[33657, 33657, 64971, 134628, 533826] output_vertex_bytes=3365700 output_index_bytes=2395188
+representative id=51 tolerance=2.000000000 projected_tol=0.140000000 counts[flat,fill_v,fill_i,stroke_v,stroke_i]=[7, 7, 12, 28, 108]
+representative cubic: max_sampled_error_world=1.665875334 max_sampled_error_px=0.116611273 conservative_sample_bound_px=0.116718854 (adds speed/(2*samples)+1e-6 world numeric allowance)
+TOTAL tolerance=2.000000000 counts[flat,fill_v,fill_i,stroke_v,stroke_i]=[26977, 26977, 44931, 107908, 413586] output_vertex_bytes=2697700 output_index_bytes=1834068
+representative id=51 tolerance=2.828427125 projected_tol=0.197989899 counts[flat,fill_v,fill_i,stroke_v,stroke_i]=[6, 6, 12, 24, 90]
+representative cubic: max_sampled_error_world=2.497537342 max_sampled_error_px=0.174827614 conservative_sample_bound_px=0.174935194 (adds speed/(2*samples)+1e-6 world numeric allowance)
+TOTAL tolerance=2.828427125 counts[flat,fill_v,fill_i,stroke_v,stroke_i]=[24000, 24000, 40080, 96000, 360000] output_vertex_bytes=2400000 output_index_bytes=1600320
+representative id=51 tolerance=3.571428571 projected_tol=0.250000000 counts[flat,fill_v,fill_i,stroke_v,stroke_i]=[6, 6, 12, 24, 90]
+representative cubic: max_sampled_error_world=2.492806226 max_sampled_error_px=0.174496436 conservative_sample_bound_px=0.174604016 (adds speed/(2*samples)+1e-6 world numeric allowance)
+TOTAL tolerance=3.571428571 counts[flat,fill_v,fill_i,stroke_v,stroke_i]=[22680, 22680, 40080, 90720, 336240] output_vertex_bytes=2268000 output_index_bytes=1505280

@@ -930,7 +930,7 @@ impl SlateApp {
         adjust: &ImageAdjust,
         desired_px: f32,
     ) -> Option<egui::TextureHandle> {
-        let key = super::pdf::item_thumb_key(self.doc().item(item)?);
+        let (key, _, _, _) = self.resolved_item_preview(item)?;
         if key.is_empty() {
             return None;
         }
@@ -2185,7 +2185,7 @@ impl SlateApp {
         // the board. Its chrome strip and a thin border band stay Slate targets,
         // so the frame can always be grabbed and released.
         self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
-        let web_capture = self.web_input_frame(ui, &xf, pointer)
+        let web_capture = self.document_picker_contains(pointer) || self.web_input_frame(ui, &xf, pointer)
             || self.agent_shelf_captures(&xf, pointer)
             || self.atlas_input_frame(ui, &xf, pointer);
         let _ = self.dock_embed_frame(
@@ -2250,6 +2250,7 @@ impl SlateApp {
             canvas_nav = true;
         }
         if canvas_nav {
+            self.documents.picker = None;
             self.bump_grid_fade(now);
         }
 
@@ -2685,6 +2686,7 @@ impl SlateApp {
         {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
+        self.paint_wire_grips(&painter, &xf);
         for n in nodes
             .iter()
             .filter(|n| !n.is_frame() && !matches!(n.kind, NodeKind::Connector(_)))
@@ -2803,8 +2805,6 @@ impl SlateApp {
         if self.board_crop.is_none() {
             self.paint_hover_preview(&painter, &xf, palette.select);
         }
-        // Connector grips on the hovered node (Select tool).
-        self.paint_wire_grips(&painter, &xf);
 
         // Crop-mode overlay: ghosted full image, scrim, crop border +
         // handles, content grabber.
@@ -5019,7 +5019,7 @@ impl SlateApp {
     fn add_agent_portal(&mut self, rect: WorldRect, detail: &'static str) {
         let node = self.doc_mut().scene.build_node(
             rect,
-            NodeKind::Portal(PortalNode::unbound_agent("Agent portal", "cursor")),
+            NodeKind::Portal(PortalNode::unbound_agent("Agent portal", "")),
         );
         let id = node.id;
         self.add_nodes(vec![node]);
@@ -5743,6 +5743,17 @@ impl SlateApp {
                                     self.open_agent_chat_picker(node_id);
                                     close = true;
                                 }
+                            }
+                            if menu::item(ui, MenuIcon::Duplicate, "Unbundle images", dark)
+                                .clicked()
+                            {
+                                self.board_sel = std::iter::once(node_id).collect();
+                                self.dispatch(
+                                    ui.ctx(),
+                                    atlas_commands::CommandId("portal.agent.unbundle"),
+                                    None,
+                                );
+                                close = true;
                             }
                             let focused = self.agents.focused == Some(node_id);
                             if menu::item(

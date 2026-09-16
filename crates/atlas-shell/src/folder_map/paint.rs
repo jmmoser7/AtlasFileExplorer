@@ -4,6 +4,7 @@ use super::input::MapHover;
 use crate::canvas_scale;
 use crate::theme::Palette;
 use crate::widgets::group_digits;
+use atlas_core::pack_sheet::{PackedSheet, SheetTile};
 use atlas_core::tree::{self, FilePlace, Orient, Tree};
 use atlas_core::types::{date_string, human_size, Family, FileEntry};
 use eframe::egui::{
@@ -90,6 +91,83 @@ pub fn paint_tree<M: MapMedia>(
     let view = Rect::from_min_max(args.cam.s2w(args.canvas.min), args.cam.s2w(args.canvas.max));
     if !tree.dirs.is_empty() {
         paint_branch(painter, tree, 0, view, args, media);
+    }
+}
+
+/// Flush image tiles: no card fill, no fillet, no default border.
+pub fn paint_sheet<M: MapMedia>(
+    painter: &Painter,
+    sheet: &PackedSheet,
+    args: &mut PaintArgs<'_>,
+    media: &mut M,
+) {
+    let view = Rect::from_min_max(args.cam.s2w(args.canvas.min), args.cam.s2w(args.canvas.max));
+    for (_i, world, tile) in sheet.visible_cells(view) {
+        paint_sheet_tile(painter, args, media, tile, world);
+    }
+}
+
+fn paint_sheet_tile<M: MapMedia>(
+    painter: &Painter,
+    args: &mut PaintArgs<'_>,
+    media: &mut M,
+    tile: SheetTile,
+    world: Rect,
+) {
+    let p = args.palette;
+    let f = tile.cover();
+    let Some(e) = args.entries.get(f as usize) else {
+        return;
+    };
+    let sr = args.cam.w2s_rect(world);
+    if sr.width() < 0.5 || sr.height() < 0.5 {
+        return;
+    }
+    let selected = args.selection.contains(&f);
+    let hovered = match tile {
+        SheetTile::File(id) => args.hover.file == Some(id),
+        SheetTile::Stack { dir, .. } => args.hover.dir == Some(dir),
+    };
+    let fam_color = e.family.color();
+
+    if args.lod == 0 {
+        media.request_color(f);
+        let c = media
+            .avg_color(f)
+            .map(|[r, g, b]| Color32::from_rgb(r, g, b))
+            .unwrap_or(fam_color.gamma_multiply(0.5));
+        painter.rect_filled(sr, CornerRadius::ZERO, c);
+    } else {
+        media.request_preview(f);
+        let mut drew = false;
+        if let Some((tex, size)) = media.texture(f) {
+            let uv = cover_uv(size, sr.size());
+            painter.image(tex, sr, uv, Color32::WHITE);
+            drew = true;
+        }
+        if !drew {
+            media.request_color(f);
+            let c = media
+                .avg_color(f)
+                .map(|[r, g, b]| Color32::from_rgb(r, g, b))
+                .unwrap_or(fam_color.gamma_multiply(0.28));
+            painter.rect_filled(sr, CornerRadius::ZERO, c);
+        }
+        if hovered && !selected {
+            painter.rect_filled(
+                sr,
+                CornerRadius::ZERO,
+                Color32::from_rgba_unmultiplied(255, 255, 255, 28),
+            );
+        }
+    }
+    if selected {
+        painter.rect_stroke(
+            sr,
+            CornerRadius::ZERO,
+            Stroke::new(canvas_scale::px(2.0, args.cam.z), p.select),
+            StrokeKind::Inside,
+        );
     }
 }
 

@@ -1,0 +1,11 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling memchr v2.8.2
+   Compiling quote v1.0.46
+   Compiling serde_json v1.0.150
+error: failed to run custom build command for `proc-macro2 v1.0.106`
+
+Caused by:
+  could not execute process `C:\Users\jmoser\source\repos\AtlasFileExplorer\target\release\build\proc-macro2-540ea1394ea54145\build-script-build` (never executed)
+
+Caused by:
+  Access is denied. (os error 5)

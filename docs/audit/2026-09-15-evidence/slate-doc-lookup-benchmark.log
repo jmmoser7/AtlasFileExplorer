@@ -1,0 +1,8 @@
+
+running 1 test
+1,000,000 warm indexed lookups: 50.8271ms
+1,000,000 baseline linear lookups: 9.0832706s
+test scene::tests::benchmark_ten_thousand_node_lookups ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 123 filtered out; finished in 9.18s
+

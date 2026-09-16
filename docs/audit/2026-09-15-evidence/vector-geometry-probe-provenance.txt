@@ -1,0 +1,30 @@
+rustc=rustc 1.97.1 (8bab26f4f 2026-07-14)
+owner_args=["--crate-type=rlib","--edition=2021","--crate-name=vector_ink","-O","-C","lto=thin","crates/vector-ink/src/lib.rs","--extern","kurbo=target/release/deps/libkurbo-7f22ec646f8585d5.rlib","--extern","i_overlay=target/release/deps/libi_overlay-9f56ba9de3e2517b.rlib","--extern","earcutr=target/release/deps/libearcutr-3caa3a0ff639ac2f.rlib","-L","dependency=target/release/deps","-o","C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\stabilization-2026-09-15\\libvector_ink_probe.rlib"]
+probe_args=["--edition=2021","-O","-C","lto=thin","C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\stabilization-2026-09-15\\vector-geometry-probe.rs","--extern","vector_ink=C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\stabilization-2026-09-15\\libvector_ink_probe.rlib","--extern","serde_json=target/release/deps/libserde_json-04fd830b1a8d7864.rlib","-L","dependency=target/release/deps","-o","C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\stabilization-2026-09-15\\vector-geometry-probe.exe","-L","native=C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\VC\\Tools\\MSVC\\14.29.30133\\lib\\x64","-L","native=C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.19041.0\\ucrt\\x64","-L","native=C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.19041.0\\um\\x64"]
+vector-ink owner compiled afresh; dependency rlibs reused; no Cargo or product edit.
+Fixture reconstruction asserts zero rotation, closed cubic+line, width=2 solid miter uniform.
+Only curve-boundary sampling error is bounded; stroke-offset/topology/pixel appearance are not certified.
+
+Algorithm : SHA256
+Hash      : 4082C90D5AEE31790CC7EE6699322C4D20E0E9FA9589E952A1E6D71F3B37765F
+Path      : C:\Users\jmoser\source\repos\AtlasFileExplorer\target\stabilization-2026-09-15\mixed-10000.slate
+
+Algorithm : SHA256
+Hash      : 1736EFB65EDB6217557CBF17661D46854896B8F8FC155F58B95CE2DFB273FC57
+Path      : C:\Users\jmoser\source\repos\AtlasFileExplorer\target\stabilization-2026-09-15\vector-geometry-probe.rs
+
+
+Executed separately after direct compilation: vector-geometry-probe.exe target/stabilization-2026-09-15/mixed-10000.slate; exit=0.
+Source revision evidence below:
+5307ae48f162b53cdc7b4b2b1eb6bd36cd9411e8 Split, honest booleans, dock strips, and a local Cursor key
+732A309CC24DE7AB22B92E5CCF99DF9875F71ED5FEC3EA52620C8C7A6DDB147B C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\clean.rs
+F424474828DF74CE822E541E8FFE50B92922F6CE3AEA033987700EE9829624E7 C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\dash.rs
+6E437533CACC68300F704E786D78102AB92F96FD67CFD33C4EA9D8DEC568B17D C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\edit.rs
+694E2512DA6B7C2DA1E9ECD32613DA3C53AF234BB0DDE005473F8DE7A9C4F0A7 C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\fit.rs
+C39A03AA9A750C4801924F20B1216809D21505983061B381DD4DBC965AA542D2 C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\flatten.rs
+6751FF172FD92FF7270EFE1E711F9FB6C0EEB386CF83297EB0A84ADA3E9255FC C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\geom.rs
+A785504986F5933BD37A67C38C01E56ACE5D2CD66E3B6C9BEE383A9089620A80 C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\hit.rs
+2246B2E0272886565127FAFABD4AD0F425CF5C3543573961AA2511471FCA1467 C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\lib.rs
+D0893DBBA2D64606ED75F4386F146ED7B49319CBBE561A4DA9C7C0A4580E0068 C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\mesh.rs
+E717D587349BFEE1D519390EA2A8F79AE0BF3FC4170248F2B33D4F66AE461003 C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\stroke.rs
+F2B18B336C1543D7A7726897894BCE4DE0C18C73AC644CA4C43D2FDE73CC3499 C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink\src\trim.rs

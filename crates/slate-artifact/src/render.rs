@@ -305,7 +305,7 @@ fn render_node(
         NodeKind::Portal(p) if p.kind == PortalKind::Web => {
             render_web_portal(html, assets, node, p, rel);
         }
-        NodeKind::Portal(p) => render_portal(html, node, p, rel, workbook_dir),
+        NodeKind::Portal(p) => render_portal(html, node, p, rel, workbook_dir, assets),
     }
 }
 
@@ -315,6 +315,7 @@ fn render_portal(
     portal: &PortalNode,
     rel: WorldRect,
     workbook_dir: Option<&Path>,
+    assets: &AssetMap,
 ) {
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
@@ -338,6 +339,32 @@ fn render_portal(
             html.push_str("</div>");
         }
         PortalKind::Agent => {
+            if let Some(images) = assets.agent_images(node.id).filter(|v| !v.is_empty()) {
+                html.push_str("<div data-provider=\"");
+                html.push_str(&escape_html(
+                    portal
+                        .agent
+                        .as_ref()
+                        .map(|a| a.provider.as_str())
+                        .unwrap_or(""),
+                ));
+                html.push_str("\" data-session=\"");
+                html.push_str(&escape_html(
+                    portal
+                        .agent
+                        .as_ref()
+                        .map(|a| a.session.as_str())
+                        .unwrap_or(""),
+                ));
+                html.push_str("\" aria-description=\"Completed linked outputs; live agent runtime is not exported\" class=\"agent-image-bundle\" tabindex=\"0\" aria-label=\"Generated image bundle\" style=\"width:100%;height:100%;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none\">");
+                for url in images {
+                    html.push_str("<img alt=\"Generated image\" loading=\"lazy\" style=\"width:100%;height:100%;flex:0 0 100%;object-fit:cover;scroll-snap-align:start\" src=\"");
+                    html.push_str(&escape_html(url));
+                    html.push_str("\">");
+                }
+                html.push_str("</div></div>\n");
+                return;
+            }
             let pointer = portal
                 .agent
                 .as_ref()
@@ -676,7 +703,7 @@ fn render_image(
         match media_kind(path) {
             MediaKind::Image => render_img_tag(html, url, img),
             MediaKind::Video if web_safe_video(path) => {
-                render_video_tag(html, url, img, path, assets.thumb(path));
+                render_video_tag(html, url, img, path, assets.item_thumb(img.item, path));
             }
             MediaKind::Text => {
                 render_text_card(html, url, file_name, assets.snippet(path), path);
@@ -686,7 +713,7 @@ fn render_image(
             // the generic item thumbnail, always linking to the copied
             // original so viewers can open it in Rhino.
             MediaKind::Model => {
-                let poster = assets.model_poster(node.id).or_else(|| assets.thumb(path));
+                let poster = assets.model_poster(node.id).or_else(|| assets.item_thumb(img.item, path));
                 match poster {
                     Some(poster_url) => {
                         render_poster_card(html, url, path, poster_url);
@@ -698,7 +725,7 @@ fn render_image(
             // still carry one as an item), anything else: poster thumbnail
             // when available, labeled card otherwise — always linking to the
             // copied original.
-            _ => render_file_card(html, url, file_name, path, assets.thumb(path)),
+            _ => render_file_card(html, url, file_name, path, assets.item_thumb(img.item, path)),
         }
     }
 

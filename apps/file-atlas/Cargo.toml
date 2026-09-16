@@ -17,6 +17,10 @@ atlas-ai = { workspace = true }
 eframe = { workspace = true }
 crossbeam-channel = { workspace = true }
 rfd = { workspace = true }
+raw-window-handle = "0.6"
 image = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

@@ -1,5 +1,56 @@
 # Canvas command project — change log
 
+## 2026-09-16 — File Atlas portal follows board scale
+
+- Keep the inner folder camera in portal-local units and compose it with
+  the board transform for painting, LOD, and picking. Leaving contents
+  preserves the local view while board zoom/pan carries the entire map.
+- Initial fit is independent of board zoom; focused pan/zoom converts
+  pointer input to local units. Maximized Atlas uses the same input handler.
+- Corrected `portal-atlas-lens` D23's contradictory clip-only scaling rule
+  and added GP9 regression coverage for rendered cards and navigation.
+- Validation: release build and final regression test compilation passed.
+  Windows denied launching the tests and `cargo xtask contracts` (OS error 5),
+  so execution and live interaction remain unverified.
+
+## 2026-09-16 — Retain valid web portal stills
+
+- Low-resource portals retain the last valid frame at full opacity. Reject
+  transparent and uniform black/white clears at native capture and upload.
+- Eviction, same-source viewport regeneration, and recapture preserve the
+  texture; rebinding to a different source still discards the old image.
+- Validation: release build, test compilation, and contract audit passed.
+  Windows denied launching the focused test executable (OS error 5), so
+  executable tests and live zoom behavior remain unverified.
+
+
+## 2026-09-15 — Retracting web portal chrome
+
+- Slimmed and inset the URL blister. The bar overlays the page and retracts
+  after 1.2 seconds of idle time; interaction or the top edge reveals it.
+- Page bounds remain full-frame when chrome hides, reveals, or folds.
+
+
+## 2026-09-15 — Web portal stability and hover preferences
+
+- Camera zoom no longer resizes live browser captures or destroys a visible
+  portal's session. Captures are bounded; GPU readback never waits for a copy.
+- Animation sampling targets 30 fps without focus; texture uploads reuse the
+  existing texture. Native Escape restores maximized portals through the
+  command cancel stack.
+- `board.hover_highlight`: local passive-outline preferences for the seven
+  primary node types, under Preferences → Advanced settings.
+- Validation: `cargo check --release -p slate --tests` passed, and the release
+  test executable built. Windows denied launching both that executable and
+  `cargo xtask contracts` (OS error 5); test outcomes and live animation feel
+  remain unverified.
+
+## 2026-08-24 — File Atlas portal drag-out
+
+- Contents-focus left-drag on a File Atlas card calls `atlas_core::shell_drag`
+  (same CF_HDROP as standalone File Atlas / Explorer). Copy or link, never
+  move. `portal.atlas.drag_out`.
+
 ## 2026-08-22 — Article XII (one owner of knowledge)
 
 - Constitution **Art. XII**: knowledge has one owner; incidental copies
@@ -398,3 +449,7 @@ brush preset cycling (,/.) + F6 color panel, graphic styles (Shift+F5),
 Shift+letter tool-family cycling, segment-splitting eraser, image-pixel
 eyedropper, nested groups, show-hidden picker, Atlas command palette,
 shared fg/bg chrome primitive, connector relations in the AI beacon.
+
+## 2026-09-15 — Agent portal refinement
+
+Approved minimal icon picker, hover chrome, semantic input wires, in-node image albums and journaled Unbundle. Added `portal.agent.unbundle` and `portal.agent.stop`. No new shortcuts. See `contracts/portal-agent-link.md`.

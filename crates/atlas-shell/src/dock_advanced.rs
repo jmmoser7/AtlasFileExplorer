@@ -9,8 +9,10 @@ use crate::canvas_scale;
 use crate::canvas_text;
 use crate::commands::TurboPanState;
 use crate::dock::{
-    current_palette, hidden_from_ctx, paint_dock_icon, set_tool_on_strip, tool_hidden_in,
-    FlyoutItem, FlyoutRole,
+    begin_catalog_place, catalog_place, catalog_strip_painted, clear_catalog_place,
+    current_palette, hidden_from_ctx, paint_catalog_drop_overlay, paint_catalog_ghost,
+    paint_dock_icon, place_tool_on_strip, set_tool_on_strip, tool_hidden_in, FlyoutItem,
+    FlyoutRole, CATALOG_LIFT_PX,
 };
 use crate::menu::{self, MenuIcon};
 use crate::tokens::{DockAdvancedTheme, DockAdvancedTokens};
@@ -45,8 +47,34 @@ struct AdvView {
 
 #[derive(Clone)]
 enum AdvDrag {
-    Pan { last: Pos2 },
-    Marquee { start_world: Pos2 },
+    Pan {
+        last: Pos2,
+    },
+    Marquee {
+        start_world: Pos2,
+    },
+    /// Card press; becomes [`AdvDrag::Place`] after [`CATALOG_LIFT_PX`].
+    Lift {
+        id: &'static str,
+        start: Pos2,
+    },
+    /// Icon follows the pointer; home strip is a drop target.
+    Place {
+        id: &'static str,
+    },
+}
+
+impl AdvDrag {
+    fn catalog_id(&self) -> Option<&'static str> {
+        match *self {
+            Self::Lift { id, .. } | Self::Place { id } => Some(id),
+            _ => None,
+        }
+    }
+
+    fn is_catalog(&self) -> bool {
+        matches!(self, Self::Lift { .. } | Self::Place { .. })
+    }
 }
 
 /// One tool card in world units (zoom = 1).
@@ -204,16 +232,24 @@ pub(crate) fn show(ui: &mut Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str
     let close_rect = close_hit_rect(viewport);
     let over_close = pointer.is_some_and(|p| close_rect.contains(p));
     let over = pointer.is_some_and(|p| viewport.contains(p));
-    let panning = interact_camera(
-        ui,
-        &mut view,
-        &tokens,
-        viewport,
-        &layout,
-        &resp,
-        over && !over_close,
-    );
-    let activate = if panning || over_close {
+    let placing = view.drag.as_ref().is_some_and(|d| d.is_catalog());
+    let panning = if placing {
+        false
+    } else {
+        interact_camera(
+            ui,
+            &mut view,
+            &tokens,
+            viewport,
+            &layout,
+            &resp,
+            over && !over_close,
+        )
+    };
+    let activate = if placing {
+        step_catalog_drag(ui, items, &mut view, viewport, palette);
+        None
+    } else if panning || over_close {
         None
     } else {
         interact_cards(ui, items, &layout, &mut view, viewport, &resp, over)
@@ -240,6 +276,7 @@ pub(crate) fn show(ui: &mut Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str
     }
 
     let allow_menu = !panning
+        && !placing
         && view.secondary_travel < PAN_MENU_PX
         && !view.turbo.should_suppress_context_menu();
     view.turbo.acknowledge_context_menu();
@@ -259,15 +296,22 @@ pub(crate) fn show(ui: &mut Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str
         linger_delay,
     );
     paint_chrome(
-        ui,
-        &painter,
-        viewport,
-        items,
-        palette,
-        &theme,
-        dark,
-        close_rect,
+        ui, &painter, viewport, items, palette, &theme, dark, close_rect,
     );
+
+    if view.drag.as_ref().is_some_and(|d| d.is_catalog()) {
+        if !catalog_strip_painted(ui.ctx()) {
+            paint_catalog_drop_overlay(ui.ctx(), items);
+        }
+        if let Some(id) = view.drag.as_ref().and_then(|d| d.catalog_id()) {
+            if let Some(item) = items.iter().find(|item| item.id == id) {
+                if let Some(p) = ui.input(|i| i.pointer.hover_pos().or(i.pointer.latest_pos())) {
+                    paint_catalog_ghost(ui.ctx(), item, p);
+                    ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+                }
+            }
+        }
+    }
 
     ui.ctx().data_mut(|d| d.insert_temp(view_id, view));
     activate
@@ -304,7 +348,13 @@ fn world_rect_to_screen(world: Rect, viewport: Rect, view: &AdvView) -> Rect {
     )
 }
 
-fn zoom_at(view: &mut AdvView, viewport: Rect, screen: Pos2, factor: f32, tokens: &DockAdvancedTokens) {
+fn zoom_at(
+    view: &mut AdvView,
+    viewport: Rect,
+    screen: Pos2,
+    factor: f32,
+    tokens: &DockAdvancedTokens,
+) {
     let world = screen_to_world(screen, viewport, view);
     let z = (view.z * factor).clamp(tokens.zoom_min, tokens.zoom_max);
     view.pan = Vec2::new(
@@ -312,6 +362,66 @@ fn zoom_at(view: &mut AdvView, viewport: Rect, screen: Pos2, factor: f32, tokens
         world.y - (screen.y - viewport.min.y) / z,
     );
     view.z = z;
+}
+
+fn step_catalog_drag(
+    ui: &mut Ui,
+    items: &[FlyoutItem<'_>],
+    view: &mut AdvView,
+    _viewport: Rect,
+    palette: &str,
+) {
+    let Some(drag) = view.drag.clone() else {
+        return;
+    };
+    if !drag.is_catalog() {
+        return;
+    }
+    let pointer = ui.input(|i| i.pointer.hover_pos().or(i.pointer.latest_pos()));
+    let released = ui.input(|i| i.pointer.primary_released());
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        clear_catalog_place(ui.ctx());
+        view.drag = None;
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(Id::new(ESCAPE_ID), true));
+        return;
+    }
+
+    match drag {
+        AdvDrag::Lift { start, id } => {
+            let travel = pointer.map(|p| (p - start).length()).unwrap_or(0.0);
+            let placing = travel >= CATALOG_LIFT_PX;
+            begin_catalog_place(ui.ctx(), items, palette, id, placing);
+            if placing {
+                view.drag = Some(AdvDrag::Place { id });
+                view.linger_id = None;
+                view.linger_menu_rect = None;
+                view.sel.clear();
+                view.sel.insert(id.to_owned());
+            }
+            if released {
+                if travel < CATALOG_LIFT_PX {
+                    view.sel.clear();
+                    view.sel.insert(id.to_owned());
+                }
+                clear_catalog_place(ui.ctx());
+                view.drag = None;
+            }
+        }
+        AdvDrag::Place { id } => {
+            begin_catalog_place(ui.ctx(), items, palette, id, true);
+            if released {
+                if catalog_place(ui.ctx()).is_some_and(|p| p.over_strip) {
+                    let insert = catalog_place(ui.ctx()).map(|p| p.insert).unwrap_or(0);
+                    place_tool_on_strip(ui.ctx(), items, palette, id, insert);
+                }
+                clear_catalog_place(ui.ctx());
+                view.drag = None;
+            }
+        }
+        _ => {}
+    }
+    ui.ctx().request_repaint();
 }
 
 fn interact_camera(
@@ -323,6 +433,9 @@ fn interact_camera(
     host: &egui::Response,
     over: bool,
 ) -> bool {
+    if view.drag.as_ref().is_some_and(|d| d.is_catalog()) {
+        return false;
+    }
     let continuing_pan = matches!(view.drag, Some(AdvDrag::Pan { .. }));
     if !over && !continuing_pan {
         return false;
@@ -444,8 +557,8 @@ fn interact_camera(
         view.secondary_travel = 0.0;
     }
 
-    let secondary_pan = host.dragged_by(egui::PointerButton::Secondary)
-        && view.secondary_travel >= PAN_MENU_PX;
+    let secondary_pan =
+        host.dragged_by(egui::PointerButton::Secondary) && view.secondary_travel >= PAN_MENU_PX;
     let pan_buttons = secondary_pan
         || host.dragged_by(egui::PointerButton::Middle)
         || (space && host.dragged_by(egui::PointerButton::Primary));
@@ -492,6 +605,10 @@ fn interact_cards(
         ui.ctx()
             .data_mut(|d| d.insert_temp(Id::new(ESCAPE_ID), true));
         view.drag = None;
+        return None;
+    }
+
+    if view.drag.as_ref().is_some_and(|d| d.is_catalog()) {
         return None;
     }
 
@@ -608,14 +725,26 @@ fn interact_cards(
         return None;
     }
 
-    if host.drag_started_by(egui::PointerButton::Primary)
-        && ui.input(|i| !i.key_down(egui::Key::Space))
-        && (hit.is_none() || shift)
-    {
-        view.drag = Some(AdvDrag::Marquee { start_world: world });
+    let space = ui.input(|i| i.key_down(egui::Key::Space));
+    if host.drag_started_by(egui::PointerButton::Primary) && !space {
+        if let Some(id) = hit.filter(|_| !shift) {
+            view.drag = Some(AdvDrag::Lift { id, start: screen });
+            view.linger_id = None;
+            view.linger_menu_rect = None;
+            begin_catalog_place(
+                ui.ctx(),
+                items,
+                current_palette(ui.ctx()).unwrap_or(""),
+                id,
+                false,
+            );
+            return None;
+        }
+        if hit.is_none() || shift {
+            view.drag = Some(AdvDrag::Marquee { start_world: world });
+        }
     }
 
-    let _ = items;
     None
 }
 
@@ -740,16 +869,23 @@ fn paint_cards(
         let Some(item) = items.iter().find(|i| i.id == card.id) else {
             continue;
         };
+        let lifted = view.drag.as_ref().and_then(|d| d.catalog_id()) == Some(card.id);
+        if lifted && matches!(view.drag, Some(AdvDrag::Place { .. })) {
+            continue;
+        }
         let selected = view.sel.contains(card.id);
         let hovered = ui
             .input(|i| i.pointer.hover_pos())
             .is_some_and(|p| rect.contains(p));
         let radius = canvas_scale::px(tokens.card_radius, view.z);
-        let fill = if hovered || selected {
+        let mut fill = if hovered || selected {
             theme.card_fill_color()
         } else {
             theme.card_fill_color().gamma_multiply(0.92)
         };
+        if lifted {
+            fill = fill.gamma_multiply(0.45);
+        }
         painter.rect_filled(rect, radius, fill);
 
         let pad = canvas_scale::px(10.0, view.z);

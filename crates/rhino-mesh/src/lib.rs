@@ -44,6 +44,9 @@ use std::path::Path;
 pub(crate) const UUID_ON_MESH: &str = "4ed7d4e4-e947-11d3-bfe5-0010830122f0";
 /// ON_Brep — opennurbs_brep.cpp.
 const UUID_ON_BREP: &str = "60b5dbc5-e660-11d3-bfe4-0010830122f0";
+/// Rhino's TL_Brep alias. ON_ClassId::ClassId in opennurbs_object.cpp
+/// maps this class to ON_Brep; it uses the same cached-face-mesh layout.
+const UUID_TL_BREP: &str = "f06fc243-a32a-4608-9dd8-a7d2c4ce2a36";
 /// ON_Extrusion — opennurbs_beam.cpp.
 const UUID_ON_EXTRUSION: &str = "36f53175-72b8-4d47-bf1f-b4e6fc24f4b9";
 
@@ -250,7 +253,7 @@ fn read_object_class(class: &[u8]) -> Vec<RawMesh> {
             TCODE_OPENNURBS_CLASS_DATA => {
                 return match class_uuid.as_deref() {
                     Some(UUID_ON_MESH) => mesh::parse_mesh(chunk.content).into_iter().collect(),
-                    Some(UUID_ON_BREP) => brep::parse_brep_meshes(chunk.content),
+                    Some(UUID_ON_BREP | UUID_TL_BREP) => brep::parse_brep_meshes(chunk.content),
                     Some(UUID_ON_EXTRUSION) => brep::parse_extrusion_meshes(chunk.content),
                     // Everything else (curves, points, annotations, lights,
                     // SubD, instance definitions/references, ...) is ignored.

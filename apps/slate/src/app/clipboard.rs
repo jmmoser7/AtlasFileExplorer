@@ -101,6 +101,11 @@ pub fn remap_for_paste(
                 n.group = Some(*group_map.entry(g).or_insert_with(&mut next_group));
             }
             if let NodeKind::Connector(c) = &mut n.kind {
+                if let Some(binding) = &mut c.binding {
+                    if binding.order.is_empty() {
+                        binding.order = vec![src.id.0];
+                    }
+                }
                 for end in [&mut c.a, &mut c.b] {
                     match *end {
                         ConnectorEnd::Anchored { node, side, t } => {
@@ -288,6 +293,7 @@ mod tests {
         scene.build_node(
             WorldRect::new(0.0, 0.0, 1.0, 1.0),
             NodeKind::Connector(ConnectorNode {
+                binding: None,
                 a: ConnectorEnd::Anchored {
                     node: a,
                     side: Side::Right,
@@ -419,6 +425,7 @@ mod tests {
         let free_wire = scene.build_node(
             WorldRect::new(0.0, 0.0, 1.0, 1.0),
             NodeKind::Connector(ConnectorNode {
+                binding: None,
                 a: ConnectorEnd::Free { point: [5.0, 6.0] },
                 b: ConnectorEnd::Free { point: [7.0, 8.0] },
                 stroke: Stroke::none(),

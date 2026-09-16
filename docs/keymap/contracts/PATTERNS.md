@@ -75,6 +75,12 @@ is searchable.
 
 ### P1.node — every board node
 
+- **P1.node.hover-preference** passive hover highlights can be disabled per
+  primary node kind in Preferences → Advanced settings → Board hover
+  highlights. Defaults preserve existing highlighting. This is a local
+  preference, never document data; selection/focus indicators, hit-testing,
+  and editing handles remain unchanged.
+
 - **P1.node.flags** lock / hide / group semantics (Ctrl+L/H/G family);
   locked nodes still feed smart guides.
 - **P1.node.select** click select, Shift+click add/toggle, marquee;
@@ -324,7 +330,7 @@ duplication. New portal contracts reference these and add only deviations.
   Web portal pixels are visually full-bleed to the frame/body outline; the
   invisible focused-page border hit band is input-only, never a bezel.
   **Deviates** a square `clip_rect` / `painter.image` of the AABB.
-- **P1.portal.chrome** Identity tab is **web-only**. Painted by
+- **P1.portal.chrome** Identity tab is **web-only**. Its bar overlays the full-bleed page and retracts after 1.2 seconds of inactivity or pointer departure. Interaction or the top-edge area reveals it; viewport bounds never change. Idle chrome has no painted controls. The inset identity blister uses smaller centered type. Painted by
   `atlas-shell::tabs::portal_tab_bar` (the workbook tab language: one
   active tab, no `+`). The tab shows the locator. The strip is slimmer
   than the Slate / File Atlas top bar (`portal_frame.tab_height_scale`,

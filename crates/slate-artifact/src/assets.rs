@@ -20,8 +20,10 @@ const SNIPPET_MAX_LINES: usize = 30;
 /// `render_html` stays a pure function of `(doc, assets)`.
 #[derive(Debug, Default, Clone)]
 pub struct AssetMap {
+    agent_images: BTreeMap<u64, Vec<String>>,
     urls: BTreeMap<String, String>,
     thumbs: BTreeMap<String, String>,
+    item_thumbs: BTreeMap<ItemId, String>,
     snippets: BTreeMap<String, String>,
     /// Frozen-camera poster URLs for 3D model nodes, keyed by node id (one
     /// placed model = one saved perspective = one poster).
@@ -33,6 +35,12 @@ pub struct AssetMap {
 }
 
 impl AssetMap {
+    pub fn agent_images(&self, node: NodeId) -> Option<&[String]> {
+        self.agent_images.get(&node.0).map(Vec::as_slice)
+    }
+    pub fn insert_agent_images(&mut self, node: NodeId, images: Vec<String>) {
+        self.agent_images.insert(node.0, images);
+    }
     pub fn get(&self, path: &Path) -> Option<&str> {
         self.urls.get(&path_to_key(path)).map(String::as_str)
     }
@@ -43,6 +51,10 @@ impl AssetMap {
 
     pub fn thumb(&self, path: &Path) -> Option<&str> {
         self.thumbs.get(&path_to_key(path)).map(String::as_str)
+    }
+
+    pub fn item_thumb(&self, item: ItemId, path: &Path) -> Option<&str> {
+        self.item_thumbs.get(&item).map(String::as_str).or_else(|| self.thumb(path))
     }
 
     pub fn insert_thumb(&mut self, path: PathBuf, url: String) {
@@ -131,11 +143,10 @@ pub fn build_assets(
             continue;
         }
         let key = path_to_key(&path);
-        if map.urls.contains_key(&key) {
-            continue;
-        }
+        let already_copied = map.urls.contains_key(&key);
 
         let kind = media_kind(&path);
+        if !already_copied {
         let url = match kind {
             MediaKind::Image if opts.inline_assets => data_uri(&path)?,
             MediaKind::Image => copy_file(&path, &mut assets_dir_ready, &mut copied)?,
@@ -143,6 +154,7 @@ pub fn build_assets(
             _ => copy_file(&path, &mut assets_dir_ready, &mut copied)?,
         };
         map.urls.insert(key.clone(), url);
+        }
 
         // Everything that isn't an inline <img> or a playing <video> renders
         // as a card; cards and videos both benefit from a poster thumbnail.
@@ -157,7 +169,8 @@ pub fn build_assets(
                     } else {
                         copy_file(thumb_path, &mut assets_dir_ready, &mut copied)?
                     };
-                    map.thumbs.insert(key.clone(), url);
+                    map.item_thumbs.insert(item_id, url.clone());
+                    map.thumbs.entry(key.clone()).or_insert(url);
                 }
             }
         }
@@ -193,6 +206,30 @@ pub fn build_assets(
             copy_file(poster, &mut assets_dir_ready, &mut copied)?
         };
         map.model_posters.insert(node.id.0, url);
+    }
+
+    // Generated results are linked images, packaged through the same asset writer.
+    for (id, images) in &opts.agent_images {
+        let mut urls = Vec::new();
+        for path in images {
+            if !path.is_file() {
+                missing += 1;
+                continue;
+            }
+            let url = if let Some(url) = map.get(path) {
+                url.to_string()
+            } else {
+                let url = if opts.inline_assets {
+                    data_uri(path)?
+                } else {
+                    copy_file(path, &mut assets_dir_ready, &mut copied)?
+                };
+                map.insert(path.clone(), url.clone());
+                url
+            };
+            urls.push(url);
+        }
+        map.insert_agent_images(*id, urls);
     }
 
     // Web portals. Local material is copied whole — a dashboard is its entry
@@ -319,13 +356,10 @@ fn placed_items(scene: &Scene, doc: &SlateDoc) -> Vec<(ItemId, PathBuf)> {
         }
     }
 
-    let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut out: Vec<(ItemId, PathBuf)> = Vec::new();
     for id in ids {
         if let Some(item) = doc.item(id) {
-            if seen.insert(path_to_key(&item.path)) {
-                out.push((id, item.path.clone()));
-            }
+            out.push((id, item.path.clone()));
         }
     }
     out

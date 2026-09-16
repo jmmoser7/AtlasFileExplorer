@@ -5,6 +5,8 @@ edition.workspace = true
 description = "AI / Cursor integration shared by File Atlas and Slate: workspace link, launcher, context beacon, sidebar panel"
 
 [dependencies]
+atlas-agent.workspace = true
+atlas-codex.workspace = true
 atlas-core = { workspace = true }
 atlas-shell = { workspace = true }
 eframe = { workspace = true }

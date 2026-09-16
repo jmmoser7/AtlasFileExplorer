@@ -12,7 +12,7 @@
 //! Everything here is derived state. Nothing in this file touches the journal,
 //! and the page has no channel back into Slate (Art. VII.4).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -31,8 +31,8 @@ use windows::Win32::Foundation::{HMODULE, HWND, POINT, RECT};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_CPU_ACCESS_READ,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_READ, D3D11_SDK_VERSION,
-    D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_FLAG_DO_NOT_WAIT,
+    D3D11_MAP_READ, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
@@ -66,7 +66,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_RIGHT_BUTTON,
 };
 use webview2_com::{
-    CallDevToolsProtocolMethodCompletedHandler,
+    AcceleratorKeyPressedEventHandler, CallDevToolsProtocolMethodCompletedHandler,
     CreateCoreWebView2CompositionControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler,
     NavigationCompletedEventHandler, NewWindowRequestedEventHandler,
@@ -123,6 +123,7 @@ struct Pending {
     url: Option<String>,
     /// Set once the visual tree has been handed to the controller.
     attached: bool,
+    cancelled: bool,
 }
 
 struct View {
@@ -132,7 +133,10 @@ struct View {
     item: Option<GraphicsCaptureItem>,
     pool: Option<Direct3D11CaptureFramePool>,
     session: Option<GraphicsCaptureSession>,
-    staging: Option<ID3D11Texture2D>,
+    staging: [Option<ID3D11Texture2D>; 2],
+    pending_copy: [bool; 2],
+    next_copy: usize,
+    scale: f64,
     size: (u32, u32),
     target: String,
     /// The most recent readback, kept so a demoted portal still has a poster.
@@ -155,14 +159,16 @@ pub struct Webview2Host {
     env_failed: Rc<RefCell<bool>>,
     views: HashMap<NodeId, View>,
     /// Admissions that arrived before the environment finished creating.
-    deferred: Vec<(NodeId, WebRequest)>,
+    deferred: HashMap<NodeId, WebRequest>,
+    escape: Rc<Cell<bool>>,
+    wake: egui::Context,
 }
 
 impl Webview2Host {
     /// `None` when there is no Evergreen runtime, no GPU device, or no
     /// composition support — the caller keeps the null host and every portal
     /// reports `NoRuntime` rather than stalling (D29).
-    pub fn new(parent: HWND, user_data: &std::path::Path) -> Option<Self> {
+    pub fn new(parent: HWND, user_data: &std::path::Path, wake: egui::Context) -> Option<Self> {
         if !runtime_installed() {
             return None;
         }
@@ -227,7 +233,9 @@ impl Webview2Host {
             env,
             env_failed,
             views: HashMap::new(),
-            deferred: Vec::new(),
+            deferred: HashMap::new(),
+            escape: Rc::new(Cell::new(false)),
+            wake,
         })
     }
 
@@ -237,12 +245,13 @@ impl Webview2Host {
         let env = match self.env.borrow().clone() {
             Some(env) => env,
             None => {
-                self.deferred.push((id, req.clone()));
+                self.deferred.insert(id, req.clone());
                 return Ok(());
             }
         };
 
-        let (w, h) = (req.width_css.max(1), req.height_css.max(1));
+        let (w, h) = (req.raster_w.max(1), req.raster_h.max(1));
+        let scale = req.rasterization_scale();
         let root = self.compositor.CreateContainerVisual()?;
         root.SetSize(Vector2 {
             X: w as f32,
@@ -263,6 +272,8 @@ impl Webview2Host {
             right: w as i32,
             bottom: h as i32,
         };
+        let escape = self.escape.clone();
+        let wake = self.wake.clone();
         let handler = CreateCoreWebView2CompositionControllerCompletedHandler::create(Box::new(
             move |result: windows::core::Result<()>,
                   comp: Option<ICoreWebView2CompositionController>| {
@@ -273,7 +284,22 @@ impl Webview2Host {
                     });
                     return Ok(());
                 };
-                if let Err(e) = attach(&comp, &visual, bounds, &target, &sink) {
+                if sink.borrow().cancelled {
+                    if let Ok(controller) = comp.cast::<ICoreWebView2Controller>() {
+                        let _ = unsafe { controller.Close() };
+                    }
+                    return Ok(());
+                }
+                if let Err(e) = attach(
+                    &comp,
+                    &visual,
+                    bounds,
+                    scale,
+                    &target,
+                    &sink,
+                    escape.clone(),
+                    wake.clone(),
+                ) {
                     sink.borrow_mut().error = Some(format!("WebView2 could not start: {e}"));
                 }
                 Ok(())
@@ -289,7 +315,10 @@ impl Webview2Host {
                 item: None,
                 pool: None,
                 session: None,
-                staging: None,
+                staging: [None, None],
+                pending_copy: [false; 2],
+                next_copy: 0,
+                scale,
                 size: (w, h),
                 target: req.target.clone(),
                 last: None,
@@ -337,20 +366,39 @@ impl Webview2Host {
         view.session = Some(session);
     }
 
-    fn resize(&mut self, id: NodeId, w: u32, h: u32) {
+    fn resize(&mut self, id: NodeId, req: &WebRequest) {
         let Some(view) = self.views.get_mut(&id) else {
             return;
         };
+        if !view.shared.borrow().attached {
+            return;
+        }
+        let (w, h) = (req.raster_w.max(1), req.raster_h.max(1));
+        if view.size == (w, h) && view.scale == req.rasterization_scale() {
+            return;
+        }
         if view.size == (w, h) {
+            view.scale = req.rasterization_scale();
+            if let Some(controller) = view.shared.borrow().controller.clone() {
+                if let Ok(c3) = controller.cast::<ICoreWebView2Controller3>() {
+                    let _ = unsafe { c3.SetRasterizationScale(req.rasterization_scale()) };
+                }
+            }
             return;
         }
         view.size = (w, h);
-        view.staging = None;
+        view.scale = req.rasterization_scale();
+        view.staging = [None, None];
+        view.pending_copy = [false; 2];
+        view.next_copy = 0;
         let _ = view.root.SetSize(Vector2 {
             X: w as f32,
             Y: h as f32,
         });
         if let Some(controller) = view.shared.borrow().controller.clone() {
+            if let Ok(c3) = controller.cast::<ICoreWebView2Controller3>() {
+                let _ = unsafe { c3.SetRasterizationScale(req.rasterization_scale()) };
+            }
             let _ = unsafe {
                 controller.SetBounds(RECT {
                     left: 0,
@@ -373,44 +421,81 @@ impl Webview2Host {
         }
     }
 
-    /// Copy the newest captured frame into CPU memory. This is the expensive
-    /// step, which is why the pool is small and the idle rate is low.
+    /// Read a completed GPU copy without waiting, then queue the newest frame.
+    /// Capture dimensions and the per-frame upload budget bound the CPU work.
     fn read_frame(&mut self, id: NodeId) -> Option<egui::ColorImage> {
-        let (pool, size) = {
-            let view = self.views.get(&id)?;
-            (view.pool.clone()?, view.size)
-        };
-        let frame = pool.TryGetNextFrame().ok()?;
-        let surface = frame.Surface().ok()?;
-        let access: IDirect3DDxgiInterfaceAccess = surface.cast().ok()?;
-        let source: ID3D11Texture2D = unsafe { access.GetInterface() }.ok()?;
-
-        let staging = match self.views.get(&id).and_then(|v| v.staging.clone()) {
-            Some(s) => s,
-            None => {
-                let s = create_staging(&self.device, size.0, size.1).ok()?;
-                if let Some(v) = self.views.get_mut(&id) {
-                    v.staging = Some(s.clone());
-                }
-                s
-            }
-        };
-
-        let image = unsafe {
-            self.context.CopyResource(&staging, &source);
+        let _span = atlas_core::session_log::span("slate.web.readback");
+        let view = self.views.get_mut(&id)?;
+        let pool = view.pool.as_ref()?;
+        let size = view.size;
+        let read = (view.next_copy + 1) % 2;
+        let mut image = None;
+        if view.pending_copy[read] {
+            let staging = view.staging[read].as_ref()?;
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-            self.context
-                .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
-                .ok()?;
-            let img = bgra_to_color_image(&mapped, size.0 as usize, size.1 as usize);
-            self.context.Unmap(&staging, 0);
-            img
-        };
-        let _ = frame.Close();
-        if let Some(v) = self.views.get_mut(&id) {
-            v.last = Some(image.clone());
+            // Never wait for the GPU on the UI thread. Retry this copy on a
+            // later frame; the existing portal texture remains on screen.
+            unsafe {
+                self.context.Map(
+                    staging,
+                    0,
+                    D3D11_MAP_READ,
+                    D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32,
+                    Some(&mut mapped),
+                )
+            }
+            .ok()?;
+            image = Some(bgra_to_color_image(
+                &mapped,
+                size.0 as usize,
+                size.1 as usize,
+            ));
+            unsafe {
+                self.context.Unmap(staging, 0);
+            }
+            view.pending_copy[read] = false;
         }
-        Some(image)
+        // The capture pool has two buffers. Prefer the newest and close every
+        // acquired frame, including stale frames from a previous resize.
+        let mut newest = pool.TryGetNextFrame().ok();
+        if let Ok(frame) = pool.TryGetNextFrame() {
+            if let Some(old) = newest.replace(frame) {
+                let _ = old.Close();
+            }
+        }
+        if let Some(frame) = newest {
+            let source = frame
+                .Surface()
+                .ok()
+                .and_then(|s| s.cast::<IDirect3DDxgiInterfaceAccess>().ok())
+                .and_then(|a| unsafe { a.GetInterface::<ID3D11Texture2D>() }.ok());
+            if let Some(source) = source {
+                let mut desc = D3D11_TEXTURE2D_DESC::default();
+                unsafe {
+                    source.GetDesc(&mut desc);
+                }
+                if (desc.Width, desc.Height) == size {
+                    let write = view.next_copy;
+                    if view.staging[write].is_none() {
+                        view.staging[write] = create_staging(&self.device, size.0, size.1).ok();
+                    }
+                    if let Some(staging) = &view.staging[write] {
+                        unsafe {
+                            self.context.CopyResource(staging, &source);
+                            self.context.Flush();
+                        }
+                        view.pending_copy[write] = true;
+                        view.next_copy = read;
+                    }
+                }
+            }
+            let _ = frame.Close();
+        }
+        let image = image.filter(super::board_web::web_frame_has_content);
+        if let Some(img) = &image {
+            view.last = Some(img.clone());
+        }
+        image
     }
 
     fn webview(&self, id: NodeId) -> Option<ICoreWebView2> {
@@ -435,6 +520,9 @@ impl Webview2Host {
 }
 
 impl WebHost for Webview2Host {
+    fn take_escape(&mut self) -> bool {
+        self.escape.replace(false)
+    }
     fn available(&self) -> bool {
         !*self.env_failed.borrow()
     }
@@ -450,25 +538,21 @@ impl WebHost for Webview2Host {
                 let _ = self.create_view(pending_id, &pending);
             }
         }
-        match self.views.get(&id).map(|v| v.target.clone()) {
-            Some(target) if target == req.target => {
-                self.resize(id, req.width_css.max(1), req.height_css.max(1));
-            }
-            Some(_) => {
-                self.evict(id);
-                let _ = self.create_view(id, req);
-            }
-            None => {
-                let _ = self.create_view(id, req);
-            }
+        if self.views.contains_key(&id) {
+            // In-page navigation and camera zoom must not rebuild the webview.
+            self.resize(id, req);
+        } else {
+            let _ = self.create_view(id, req);
         }
         self.start_capture(id);
     }
 
     fn evict(&mut self, id: NodeId) {
+        self.deferred.remove(&id);
         let Some(view) = self.views.remove(&id) else {
             return;
         };
+        view.shared.borrow_mut().cancelled = true;
         if let Some(session) = &view.session {
             let _ = session.Close();
         }
@@ -675,18 +759,22 @@ fn attach(
     comp: &ICoreWebView2CompositionController,
     visual: &ContainerVisual,
     bounds: RECT,
+    scale: f64,
     target: &str,
     sink: &Rc<RefCell<Pending>>,
+    escape: Rc<Cell<bool>>,
+    wake: egui::Context,
 ) -> windows::core::Result<()> {
     unsafe { comp.SetRootVisualTarget(visual) }?;
     let controller: ICoreWebView2Controller = comp.cast()?;
     unsafe {
-        // Raw pixels and a fixed rasterization scale: the board's camera is
-        // what scales a portal, so the page must not also react to monitor DPI.
+        // Raw pixels: the capture is the portal's on-screen physical size.
+        // RasterizationScale is physical/CSS so Fit still lays out at
+        // width_css and the bitmap matches the frame (not a 1× stretch).
         if let Ok(c3) = controller.cast::<ICoreWebView2Controller3>() {
             let _ = c3.SetBoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS);
             let _ = c3.SetShouldDetectMonitorScaleChanges(false);
-            let _ = c3.SetRasterizationScale(1.0);
+            let _ = c3.SetRasterizationScale(scale);
         }
         // Transparent, so a page that does not paint a background shows the
         // portal's own fill rather than white.
@@ -701,6 +789,54 @@ fn attach(
         controller.SetBounds(bounds)?;
         controller.SetIsVisible(true)?;
     }
+    let accelerator = AcceleratorKeyPressedEventHandler::create(Box::new(move |sender, args| {
+        if let Some(args) = args {
+            let mut key = 0;
+            let mut kind = Default::default();
+            unsafe {
+                args.VirtualKey(&mut key)?;
+                args.KeyEventKind(&mut kind)?;
+            }
+            if key == 0x1b {
+                unsafe {
+                    args.SetHandled(true)?;
+                }
+                use webview2_com::Microsoft::Web::WebView2::Win32::{
+                    COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
+                    COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+                };
+                if kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
+                    || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
+                {
+                    let mut status = Default::default();
+                    unsafe {
+                        args.PhysicalKeyStatus(&mut status)?;
+                    }
+                    if !status.WasKeyDown.as_bool() {
+                        // Return native keyboard ownership too; subsequent keys
+                        // must go through Slate's routing after Escape.
+                        if let Some(controller) = sender {
+                            let mut parent = HWND::default();
+                            if unsafe { controller.ParentWindow(&mut parent) }.is_ok() {
+                                let _ = unsafe {
+                                    windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(
+                                        parent,
+                                    ))
+                                };
+                            }
+                        }
+                        escape.set(true);
+                        wake.request_repaint();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }));
+    let mut accelerator_token = 0;
+    unsafe {
+        controller.add_AcceleratorKeyPressed(&accelerator, &mut accelerator_token)?;
+    }
     let webview = unsafe { controller.CoreWebView2() }?;
     if let Ok(settings) = unsafe { webview.Settings() } {
         unsafe {
@@ -714,8 +850,11 @@ fn attach(
         }
     }
 
-    let errors = sink.clone();
+    let errors = Rc::downgrade(sink);
     let nav = NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
+        let Some(errors) = errors.upgrade() else {
+            return Ok(());
+        };
         if let Some(args) = args {
             let mut ok = windows::core::BOOL(0);
             let _ = unsafe { args.IsSuccess(&mut ok) };
@@ -974,7 +1113,7 @@ pub(crate) mod probe {
     pub(crate) fn host(tag: &str) -> Option<Webview2Host> {
         let dir = std::env::temp_dir().join(format!("slate-web-probe-{tag}"));
         std::fs::create_dir_all(&dir).ok()?;
-        Webview2Host::new(window(), &dir.join("udf"))
+        Webview2Host::new(window(), &dir.join("udf"), egui::Context::default())
     }
 }
 
@@ -1057,6 +1196,8 @@ mod tests {
             kind: WebSourceKind::LocalFile,
             width_css: 320,
             height_css: 200,
+            raster_w: 320,
+            raster_h: 200,
         };
         let (frames, red) = run_until(&mut host, id, &req, 45, |img| {
             img.pixels
@@ -1083,6 +1224,8 @@ mod tests {
             kind: WebSourceKind::Remote,
             width_css: 1024,
             height_css: 700,
+            raster_w: 1024,
+            raster_h: 700,
         };
         // Any page that renders text puts dark pixels on a light background;
         // an unpainted capture is uniformly transparent.
@@ -1109,6 +1252,8 @@ mod tests {
             kind: WebSourceKind::Remote,
             width_css: 200,
             height_css: 120,
+            raster_w: 200,
+            raster_h: 120,
         };
         let (frames, _) = run_until(&mut host, id, &req, 30, |_| true);
         assert!(frames > 0);

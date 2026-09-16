@@ -126,6 +126,22 @@ impl SlateApp {
                 self.export_artifact_dialog();
                 true
             }
+            "board.media.image" | "board.media.model" | "board.media.video" => {
+                let group = match id.0 {
+                    "board.media.model" => slate_doc::media::MediaGroup::Model,
+                    "board.media.video" => slate_doc::media::MediaGroup::Video,
+                    _ => slate_doc::media::MediaGroup::Image,
+                };
+                self.add_media_dialog(group);
+                true
+            }
+            "board.media.page" => {
+                if let Some((item, page)) = detail.as_deref().and_then(|s| s.split_once(':'))
+                    .and_then(|(a,b)| Some((a.parse::<u64>().ok()?, b.parse::<u16>().ok()?))) {
+                    self.set_pdf_poster_page(slate_doc::ItemId(item), page);
+                    true
+                } else { false }
+            }
             "app.add_files" => {
                 self.add_files_dialog();
                 true
@@ -176,6 +192,23 @@ impl SlateApp {
                 self.chrome_mut().advanced_open = true;
                 true
             }
+            "board.hover_highlight" => {
+                if let Some(kind) = detail.as_deref() {
+                    if !slate_doc::scene::NodeKind::KIND_NAMES.contains(&kind) {
+                        return false;
+                    }
+                    if !self.settings.hover_highlight_disabled.remove(kind) {
+                        self.settings
+                            .hover_highlight_disabled
+                            .insert(kind.to_owned());
+                    }
+                    self.board_hover_glow.clear();
+                    self.settings.save();
+                } else {
+                    self.chrome_mut().advanced_open = true;
+                }
+                true
+            }
             "app.preferences" => {
                 self.chrome_mut().advanced_open = true;
                 true
@@ -194,9 +227,12 @@ impl SlateApp {
                 true
             }
             "app.properties" => {
-                let on = !self.chrome().tool(super::chrome::ToolPanel::Selection);
+                use super::ui::tools::{DOCK_ID, SELECTION_PANEL_ID};
+                let on = !(self.chrome().tool(super::chrome::ToolPanel::Selection)
+                    && atlas_shell::dock::panel_is_open(ctx, DOCK_ID, SELECTION_PANEL_ID));
                 self.chrome_mut()
                     .set_tool(super::chrome::ToolPanel::Selection, on);
+                atlas_shell::dock::set_panel_open(ctx, DOCK_ID, SELECTION_PANEL_ID, on);
                 detail = detail.or(Some(if on { "shown" } else { "hidden" }.into()));
                 true
             }
@@ -346,6 +382,9 @@ impl SlateApp {
             "portal.chrome.toggle" => self.portal_toggle_chrome_selected(),
             "portal.agent.bind" => self.pick_selected_agent_project(),
             "portal.agent.send" => self.send_selected_agent_prompt(),
+            "portal.agent.wire_output" => self.toggle_agent_wire_output(),
+            "portal.agent.unbundle" => self.unbundle_selected_agent(),
+            "portal.agent.stop" => self.stop_selected_agent(),
             "portal.agent.provider" => self.toggle_selected_agent_provider(),
             "portal.agent.reveal" => self.reveal_selected_agent_link(),
             "portal.agent.launch" => self.launch_selected_agent_provider(),
@@ -1106,7 +1145,11 @@ impl SlateApp {
 
         // --- Escape: cancel a pending bare-letter hold first; else stack ---
         let mut cancelled_hold = false;
-        if keys.escape && !palette_open {
+        if keys.escape && self.portal_chrome.maximized.is_some() {
+            // Maximize is an app-level mode, even if an editor or palette
+            // retained keyboard focus when the portal was maximized.
+            self.dispatch(ctx, CommandId("app.cancel"), None);
+        } else if keys.escape && !palette_open {
             if self.bare_letter_hold.take().is_some() {
                 cancelled_hold = true;
             } else if self.search.open {
@@ -1306,15 +1349,21 @@ impl SlateApp {
     }
 }
 
-/// Chord match against this frame's input: exact modifier state + key press.
+/// Match the modifier snapshot on the press, not the frame's final state.
+/// A quick Ctrl+Z can arrive with Ctrl already released by the next frame;
+/// reading `i.modifiers` would reinterpret that Undo press as the bare Z tool.
 fn chord_pressed(i: &egui::InputState, chord: Chord) -> bool {
     let Some(key) = to_egui_key(chord.key) else {
         return false;
     };
-    i.key_pressed(key)
-        && i.modifiers.ctrl == chord.ctrl
-        && i.modifiers.shift == chord.shift
-        && i.modifiers.alt == chord.alt
+    i.events.iter().any(|event| {
+        matches!(event, egui::Event::Key {
+            key: event_key, pressed: true, modifiers, ..
+        } if *event_key == key
+            && modifiers.ctrl == chord.ctrl
+            && modifiers.shift == chord.shift
+            && modifiers.alt == chord.alt)
+    })
 }
 
 /// The pre-registry suppression gates, applied per chord shape:
@@ -1427,4 +1476,86 @@ fn to_egui_key(key: Key) -> Option<egui::Key> {
         Key::Plus => E::Plus,
         Key::Minus => E::Minus,
     })
+}
+
+#[cfg(test)]
+mod shortcut_tests {
+    use super::*;
+
+    fn key_event(
+        key: egui::Key,
+        modifiers: egui::Modifiers,
+        pressed: bool,
+        repeat: bool,
+    ) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat,
+            modifiers,
+        }
+    }
+
+    #[test]
+    fn ctrl_shortcuts_survive_modifier_release_before_the_frame() {
+        for (key, event_key) in [(Key::Z, egui::Key::Z), (Key::S, egui::Key::S)] {
+            let mut input = egui::InputState::default();
+            input.modifiers = egui::Modifiers::NONE;
+            input.events = vec![
+                key_event(event_key, egui::Modifiers::CTRL, true, false),
+                key_event(event_key, egui::Modifiers::CTRL, false, false),
+            ];
+            assert!(chord_pressed(&input, Chord::ctrl(key)), "lost Ctrl+{key:?}");
+            assert!(
+                !chord_pressed(&input, Chord::bare(key)),
+                "Ctrl+{key:?} became a bare tool key"
+            );
+        }
+    }
+
+    #[test]
+    fn bare_key_does_not_acquire_a_modifier_pressed_later() {
+        let mut input = egui::InputState::default();
+        input.modifiers = egui::Modifiers::CTRL;
+        input.events = vec![key_event(egui::Key::Z, egui::Modifiers::NONE, true, false)];
+        assert!(chord_pressed(&input, Chord::bare(Key::Z)));
+        assert!(!chord_pressed(&input, Chord::ctrl(Key::Z)));
+    }
+
+    #[test]
+    fn event_modifiers_match_exactly_and_repeat_presses_still_work() {
+        for bits in 0..8 {
+            let modifiers = egui::Modifiers {
+                ctrl: bits & 1 != 0,
+                shift: bits & 2 != 0,
+                alt: bits & 4 != 0,
+                ..Default::default()
+            };
+            let mut input = egui::InputState::default();
+            input.modifiers = egui::Modifiers::NONE;
+            input.events = vec![key_event(egui::Key::Z, modifiers, true, true)];
+            for expected in 0..8 {
+                let chord = Chord {
+                    key: Key::Z,
+                    ctrl: expected & 1 != 0,
+                    shift: expected & 2 != 0,
+                    alt: expected & 4 != 0,
+                };
+                assert_eq!(chord_pressed(&input, chord), bits == expected);
+            }
+        }
+    }
+
+    #[test]
+    fn releases_and_other_keys_do_not_trigger_a_chord() {
+        let mut input = egui::InputState::default();
+        input.modifiers = egui::Modifiers::CTRL;
+        input.events = vec![
+            key_event(egui::Key::Z, egui::Modifiers::CTRL, false, false),
+            key_event(egui::Key::S, egui::Modifiers::CTRL, true, false),
+        ];
+        assert!(!chord_pressed(&input, Chord::ctrl(Key::Z)));
+        assert!(chord_pressed(&input, Chord::ctrl(Key::S)));
+    }
 }

@@ -16,6 +16,8 @@ pub fn run() -> eframe::Result {
             .with_inner_size([1440.0, 900.0])
             .with_min_inner_size([800.0, 500.0])
             .with_title("Slate")
+            // Slate's OLE target also accepts URL text; winit's accepts files only.
+            .with_drag_and_drop(!cfg!(windows))
             // OS decorations off: the shared chrome draws its own title bar
             // (icon + menus + window buttons — see atlas_shell::menubar).
             .with_decorations(false),

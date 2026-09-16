@@ -1,0 +1,67 @@
+{
+  "timestamp": "2026-09-15T11:54:15.4012270-04:00",
+  "base_commit": "6338b1ccc4f1e1188445fae717233fce124652dd",
+  "note": "Dirty shared workspace preserved; source after final tests and normal release check",
+  "files": [
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\crates\\atlas-shell\\src\\palette.rs",
+      "Hash": "AEF37003A82050C4A47330BBDFF39E6B482179F805353A6BDC42E16E867AD7B9"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\crates\\atlas-shell\\src\\dock.rs",
+      "Hash": "24289A446F04E2D600F11DAB318FF0A84FC8E0B09C34B560B6C0E2C7EC0FAFB9"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\dispatch.rs",
+      "Hash": "B3B017B7E4F59B4095C666BE431409DB7D0D2A62D49383CD0A1565CC0AAF5DA8"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\ui\\tools.rs",
+      "Hash": "B5BBBAA14D92F79B522229C847C7D6A4ED403FA94A9CC3D4A36C545A32C9566B"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\ui\\inspector.rs",
+      "Hash": "C577FB7DBDB1BF32AD2DDA76C5E3143EB389371609DAA735BF95EECA26B99B2D"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\settings.rs",
+      "Hash": "FFA385C8E5D51CF2CA63F65A21E9059D37706AE712AA750E7A22BE9C3D6750B9"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\canvas.rs",
+      "Hash": "F9F18A5FB500E953116BFD9184225A925879E0C5D9C8F1794754C0C169B2062B"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\mod.rs",
+      "Hash": "58F41490825C3AC8215A7B69565CCCC27733A67B06BF5B411847892DC05BF9BD"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\overlays.rs",
+      "Hash": "C29363BE5028ECC6953E8F15A797E6E613D666050C262BD1FE3F34278DDF084F"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\board_web.rs",
+      "Hash": "6215D34AD518B14BCCF4BC6A662E33A25123FB67476AFE56A7DB8C0272E05779"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\tests.rs",
+      "Hash": "54E6B3E89B908E2AFABAD0F8936860CFE18EF7D3AACCC386110D3F6BFD601EC0"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\crates\\slate-doc\\src\\scene.rs",
+      "Hash": "CCD8CF08472BDA87351174CA4162ABC558BAAD051ECDF459EC0C96B2E7568CC3"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\crates\\slate-doc\\src\\stage.rs",
+      "Hash": "3E92A82302DFF5FFDA5F0769F0AFAEFB24C0DE7B88C629166BC3DF8DD5BC4F24"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\board_path.rs",
+      "Hash": "F1B41ABC0F212F0E1155FC16CB04603E42C1C976C17E94E1F807A280E78C41E7"
+    },
+    {
+      "Path": "C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\apps\\slate\\src\\app\\board_agent.rs",
+      "Hash": "BA10B18BFB3E568F8CB2A16EC2E53B78FB2857AC71CE89028AFD3D75CBEF4F8D"
+    }
+  ]
+}

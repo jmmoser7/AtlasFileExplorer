@@ -130,6 +130,27 @@ pub const SPECS: &[CommandSpec] = &[
         ATLAS,
         &[],
     ),
+    gesture(
+        "view.layout.tree",
+        "Layout: tree",
+        "Navigation",
+        "Display dock → Tree",
+        ATLAS,
+    ),
+    gesture(
+        "view.layout.packed",
+        "Layout: packed",
+        "Navigation",
+        "Display dock → Packed",
+        ATLAS,
+    ),
+    gesture(
+        "view.sheet_sort",
+        "Packed sheet sort",
+        "Navigation",
+        "Display dock → sort (name / modified / created / size / type)",
+        ATLAS,
+    ),
     spec(
         "app.fullscreen",
         "Hide / show the bottom readout bar",

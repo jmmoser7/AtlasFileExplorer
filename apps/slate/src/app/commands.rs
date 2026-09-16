@@ -60,6 +60,10 @@ const fn ctrl_shift(key: Key) -> Chord {
 /// on category changes), documentation rows first within their historical
 /// order, dispatchable additions after.
 pub static SPECS: &[CommandSpec] = &[
+    spec("board.media.image", "Board", "Media: Image", "Media > Image: choose images, PDFs, PowerPoint, or print documents", None, Repeat::Repeatable, BOARD, &["image", "picture", "pdf", "powerpoint", "ppt", "print media"]),
+    spec("board.media.model", "Board", "Media: 3D", "Media > 3D: choose a Rhino .3dm model", None, Repeat::Repeatable, BOARD, &["3d", "rhino", "model", "3dm"]),
+    spec("board.media.video", "Board", "Media: Video", "Media > Video: choose a video file", None, Repeat::Repeatable, BOARD, &["video", "movie", "mp4"]),
+    spec("board.media.page", "Media", "Media: show page", "Click a page in the PDF / PowerPoint page picker", None, Repeat::Never, Availability(Availability::BOARD_VIEW.0 | Availability::GRID_VENN.0), &["slide", "page", "poster page"]),
     // ----- Navigation -------------------------------------------------------
     spec(
         "nav.pan",
@@ -441,7 +445,7 @@ pub static SPECS: &[CommandSpec] = &[
         "board.portal.web",
         "Board",
         "Web portal",
-        "Palette: web portal; click or drag places a Google start page; drag a browser tab, paste a URL, or drop an .html file / index.html folder (Board view)",
+        "Palette: web portal; click or drag places a Google start page; drop a page link or URL text to create/rebind a portal, paste a URL, or drop an .html file / index.html folder (Board view)",
         None,
         Repeat::Never,
         BOARD,
@@ -514,6 +518,16 @@ pub static SPECS: &[CommandSpec] = &[
         Repeat::Never,
         BOARD,
         &["open in file atlas", "atlas window"],
+    ),
+    spec(
+        "portal.atlas.drag_out",
+        "Board",
+        "File Atlas: drag files to another application",
+        "In contents-focus, left-drag a file or folder card — same shell drop as File Explorer (copy or link, never move). Esc cancels",
+        None,
+        Repeat::Never,
+        BOARD,
+        &["drag out", "drop files", "atlas drag"],
     ),
     spec(
         "portal.web.source",
@@ -695,6 +709,9 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD,
         &["agent provider", "cursor provider"],
     ),
+    spec("portal.agent.wire_output", "Board", "Image wire: toggle whole bundle", "Toggle between all images and a pinned current image on the selected wire", None, Repeat::Never, BOARD, &["all images", "pin current image", "image wire output"]),
+    spec("portal.agent.unbundle", "Board", "Agent portal: unbundle images", "Split completed images into independent generator portals, in one undo step", None, Repeat::Never, BOARD, &["unbundle", "split image bundle"]),
+    spec("portal.agent.stop", "Board", "Agent portal: stop response", "Interrupt this portal's Codex turn", None, Repeat::Never, BOARD, &["stop agent", "cancel generation"]),
     spec(
         "portal.agent.reveal",
         "Board",
@@ -1949,6 +1966,9 @@ pub static SPECS: &[CommandSpec] = &[
         GLOBAL,
         &["log"],
     ),
+    spec("board.hover_highlight", "Board", "Hover highlight preferences",
+        "Preferences > Advanced settings > Board hover highlights (per primary node type)",
+        None, Repeat::Never, GLOBAL, &["hover", "highlight"]),
     spec(
         "app.preferences",
         "Commands",

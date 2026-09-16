@@ -1,0 +1,197 @@
+   Compiling slate-doc v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\slate-doc)
+   Compiling atlas-core v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\atlas-core)
+   Compiling native-file-atlas v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\apps\file-atlas)
+   Compiling vector-ink v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\vector-ink)
+   Compiling status-board v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\status-board)
+   Compiling slate-kit v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\slate-kit)
+   Compiling slate-artifact v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\slate-artifact)
+   Compiling xtask v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\xtask)
+   Compiling atlas-shell v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\atlas-shell)
+   Compiling atlas-ai v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\atlas-ai)
+   Compiling slate v0.1.0 (C:\Users\jmoser\source\repos\AtlasFileExplorer\apps\slate)
+warning: function `group_scale_anchor` is never used
+    --> apps\slate\src\app\board.rs:1332:4
+     |
+1332 | fn group_scale_anchor(gb: WorldRect, handle: u8, from_center: bool) -> (f32, f32) {
+     |    ^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `finish_draw` is never used
+    --> apps\slate\src\app\board.rs:4933:19
+     |
+1571 | impl SlateApp {
+     | ------------- method in this implementation
+...
+4933 |     pub(crate) fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
+     |                   ^^^^^^^^^^^
+
+warning: method `dock_embed_first_tool_world` is never used
+   --> apps\slate\src\app\board_dock_embed.rs:161:19
+    |
+ 40 | impl SlateApp {
+    | ------------- method in this implementation
+...
+161 |     pub(crate) fn dock_embed_first_tool_world(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `hit_test_selection` is never used
+   --> apps\slate\src\app\board_handles.rs:173:8
+    |
+173 | pub fn hit_test_selection(screen: Pos2, geom: &SelectionGeom) -> Option<BoardHitTarget> {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: variant `Free` is never constructed
+  --> apps\slate\src\app\board_place.rs:45:5
+   |
+43 | pub enum PlaceConstraint {
+   |          --------------- variant in this enum
+44 |     /// Unmodified = free rect; Shift unused.
+45 |     Free,
+   |     ^^^^
+   |
+   = note: `PlaceConstraint` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `point_in_convex` is never used
+   --> apps\slate\src\app\board_portal_chrome.rs:792:4
+    |
+792 | fn point_in_convex(poly: &[Pos2], p: Pos2) -> bool {
+    |    ^^^^^^^^^^^^^^^
+
+warning: associated function `open` is never used
+  --> apps\slate\src\app\board_snap.rs:40:12
+   |
+38 | impl SnapScope {
+   | -------------- associated function in this implementation
+39 |     /// No culling — used by unit tests that only care about the math.
+40 |     pub fn open(threshold: f32) -> Self {
+   |            ^^^^
+
+warning: function `snap_bbox` is never used
+   --> apps\slate\src\app\board_snap.rs:254:8
+    |
+254 | pub fn snap_bbox(
+    |        ^^^^^^^^^
+
+warning: function `snap_resize_rect` is never used
+   --> apps\slate\src\app\board_snap.rs:471:8
+    |
+471 | pub fn snap_resize_rect(
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `constrain_draw_rect` is never used
+    --> apps\slate\src\app\board_snap.rs:1009:8
+     |
+1009 | pub fn constrain_draw_rect(raw: WorldRect, tool_square: bool, shift: bool) -> WorldRect {
+     |        ^^^^^^^^^^^^^^^^^^^
+
+warning: method `color` is never used
+   --> apps\slate\src\app\board_web.rs:152:8
+    |
+151 | impl WebHealth {
+    | -------------- method in this implementation
+152 |     fn color(self) -> Color32 {
+    |        ^^^^^
+
+warning: method `web_paste_url_text` is never used
+    --> apps\slate\src\app\board_web.rs:1147:19
+     |
+ 641 | impl SlateApp {
+     | ------------- method in this implementation
+...
+1147 |     pub(crate) fn web_paste_url_text(&mut self, text: &str) -> bool {
+     |                   ^^^^^^^^^^^^^^^^^^
+
+warning: field `target` is never read
+   --> apps\slate\src\app\board_web_win.rs:137:5
+    |
+128 | struct View {
+    |        ---- field in this struct
+...
+137 |     target: String,
+    |     ^^^^^^
+
+warning: function `grip_point` is never used
+  --> apps\slate\src\app\board_wire.rs:74:15
+   |
+74 | pub(crate) fn grip_point(rect: WorldRect, side: Side) -> Pos2 {
+   |               ^^^^^^^^^^
+
+warning: function `rect_edge_dist` is never used
+  --> apps\slate\src\app\board_wire.rs:86:4
+   |
+86 | fn rect_edge_dist(rect: WorldRect, p: Pos2) -> f32 {
+   |    ^^^^^^^^^^^^^^
+
+warning: method `color` is never used
+   --> apps\slate\src\app\board_web.rs:152:8
+    |
+151 | impl WebHealth {
+    | -------------- method in this implementation
+152 |     fn color(self) -> Color32 {
+    |        ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `slate` (lib) generated 15 warnings
+warning: `slate` (lib test) generated 2 warnings (1 duplicate)
+    Finished `test` profile [optimized + debuginfo] target(s) in 7m 04s
+     Running unittests src\lib.rs (target\debug\deps\atlas_ai-5194cad11ca2bef4.exe)
+
+running 20 tests
+test config::tests::missing_workspace_is_invalid ... ok
+test cursor_chats::tests::a_transcript_line_yields_the_first_prompt ... ok
+test cursor_chats::tests::composer_json_yields_named_chats ... ok
+test cursor_chats::tests::a_windows_project_path_slugs_like_cursor ... ok
+test cursor_chats::tests::random_objects_with_an_id_are_not_chats ... ok
+test cursor_recents::tests::a_percent_encoded_drive_letter_decodes ... ok
+test cursor_recents::tests::a_windows_file_uri_decodes_to_a_path ... ok
+test sidecar::tests::a_miss_lists_every_candidate ... ok
+test sidecar::tests::sidecar_script_resolves_from_this_crate ... ok
+test sidecar::tests::sidecar_sdk_is_present_when_node_modules_exists ... ok
+test sidecar::tests::this_machine_program_files_node_is_found ... ok
+test sidecar::tests::well_known_windows_node_is_a_candidate_without_env ... ok
+test sidecar::tests::npm_cli_sits_next_to_this_machines_node ... ok
+test config::tests::set_workspace_scaffolds_link_and_mcp ... ok
+test agent::tests::context_write_is_fingerprint_gated ... ok
+test cursor_key::tests::save_then_load_from_the_override_path ... ok
+test context::tests::beacon_round_trip_and_fingerprint_stability ... ok
+test config::tests::existing_mcp_config_is_not_clobbered ... ok
+test agent::tests::request_and_session_round_trip_on_mtime ... ok
+test cursor_chats::tests::this_repo_lists_its_cursor_agents_when_present ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.28s
+
+     Running unittests src\lib.rs (target\debug\deps\atlas_commands-54694ab5b23319bc.exe)
+
+running 19 tests
+test history::tests::last_repeatable_skips_unknown_ids_and_can_be_none ... ok
+test history::tests::ring_buffer_caps_at_500 ... ok
+test cancel::tests::empty_input_pops_nothing ... ok
+test cancel::tests::full_stack_pops_in_documented_order ... ok
+test cancel::tests::order_is_independent_of_input_order ... ok
+test history::tests::eviction_preserves_recency_order ... ok
+test history::tests::last_repeatable_skips_never_entries_and_repeat_itself ... ok
+test palette::tests::aliases_match ... ok
+test palette::tests::availability_filters ... ok
+test palette::tests::case_insensitive_and_subsequence ... ok
+test palette::tests::empty_query_lists_all_available_sorted_by_name ... ok
+test palette::tests::no_match_yields_nothing ... ok
+test palette::tests::prefix_beats_subsequence ... ok
+test registry::tests::lookup_by_id_and_chord ... ok
+test registry::tests::validate_accepts_disjoint_views_for_same_chord ... ok
+test registry::tests::validate_reports_chord_collisions_and_duplicate_ids ... ok
+test spec::tests::availability_matches_views_and_selection ... ok
+test spec::tests::availability_set_ops ... ok
+test spec::tests::bare_letter_chords_are_type_to_command_ambiguous ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src\lib.rs (target\debug\deps\atlas_core-9587e4a385ac28c3.exe)
+error: test failed, to rerun pass `-p atlas-core --lib`
+
+Caused by:
+  could not execute process `C:\Users\jmoser\source\repos\AtlasFileExplorer\target\debug\deps\atlas_core-9587e4a385ac28c3.exe` (never executed)
+
+Caused by:
+  Access is denied. (os error 5)

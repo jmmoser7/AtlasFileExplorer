@@ -2,6 +2,142 @@
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
   "updated": "2026-08-22",
   "tools": {
+    "media": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Existing media import and shared dock",
+      "inherits": [
+        "P0.*",
+        "P1.node"
+      ],
+      "canvas": "media-tool-contract",
+      "variants": [
+        "image",
+        "model",
+        "video"
+      ],
+      "decisions": {
+        "D01": {
+          "behavior": "Add a primary Media icon with Image, 3D, and Video sub-icons. Image includes flat/print media such as JPG, PDF, and PowerPoint. 3D connects to the existing Rhino viewer.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D02": {
+          "behavior": "Each sub-icon runs a one-shot file-import command. After choosing files, use the existing placement flow. Repeat opens that category's picker again.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D03": {
+          "behavior": "Click a sub-icon, choose one or more files in a category-filtered native picker, and place them through the existing file-import path. External file drops use the same media resolution. No new drawing grammar.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D04": {
+          "behavior": "The Media primary icon inherits the shared dock's click-to-open and double-click-to-pin behavior. The sub-icons are actions; existing file drag-and-drop behavior is reused.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D05": {
+          "behavior": "P1.node.select, P1.node.move, and P1.node.transform apply after placement. No additional Media-specific modifiers.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D06": {
+          "behavior": "P1.node.osnap and P1.node.transform. Any placement point uses the existing resolved placement path; conversion never changes a placed node's geometry.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D07": {
+          "behavior": "n/a: choosing linked media has no direction-lock gesture.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D08": {
+          "behavior": "Use existing node sizing and inspector controls after placement. No new numeric-entry mode.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D09": {
+          "behavior": "Keep a deck's available thumbnail while its PDF preview loads in the background. Show Loading, Ready, or a useful conversion error. Refresh stale derived previews without blocking the camera.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D10": {
+          "behavior": "Use the existing file picker, file-drop, selection, and transform cursors. The Media menu does not introduce an armed drawing cursor.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D11": {
+          "behavior": "P0.2 and P0.3: placement and authored page changes are journaled. Link the original PowerPoint; store its generated PDF only as a derived cache. Converting a file never writes back to the source.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D12": {
+          "behavior": "P0.1. Canceling the picker adds nothing. A late background result must not populate a different tab or resurrect a deleted item.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D13": {
+          "behavior": "P1.node.transform. Reuse existing image/PDF selection and the existing Rhino node presentation.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D14": {
+          "behavior": "Reuse the PDF page picker for PowerPoint slides, existing image controls, and existing Rhino camera controls. Video keeps its current poster and trim controls; playback is currently in the HTML artifact.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D15": {
+          "behavior": "PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. No new 3D formats or video decoder in this change. JPG and other supported image formats remain native previews.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D16": {
+          "behavior": "Use existing linked-image node defaults and source aspect ratio; preserve the authored frame when derived previews refresh.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        },
+        "D17": {
+          "behavior": "P1.node.select and existing media hit-testing. Rhino interaction stays with its current viewer and focus controls.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-15"
+        }
+      }
+    },
     "text": {
       "status": "proposed",
       "family": "tool",
@@ -664,7 +800,7 @@
       }
     },
     "portal-agent-link": {
-      "status": "draft",
+      "status": "agreed",
       "family": "portal",
       "reference": "Cursor SDK sidecar + local agent file contract",
       "inherits": [
@@ -674,249 +810,249 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D01.",
+          "behavior": "Palette: \"agent portal\" + Enter; Portals dock flyout; command `board.portal.agent`; board view only.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D02": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D02.",
+          "behavior": "One-shot: placement returns to Select; Space/Enter may repeat via the registry history.",
           "source": "pattern",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D03": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D03.",
-          "source": "pattern",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "P2.DragShape. Place the frame, then choose a program in its icon grid. The program choice configures that same portal.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D04": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D04.",
+          "behavior": "Travel > 4 px defines the frame; below it places a 960x540 default portal centered on the click.",
           "source": "precedent",
           "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D05": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D05.",
+          "behavior": "Shift locks 16:9 during drag, matching Repository Lens portal placement. Ctrl/Alt unassigned in v1.",
           "source": "precedent",
-          "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D06": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D06.",
+          "behavior": "Grid snap and smart guides apply to the frame rect; agent contents never snap.",
           "source": "pattern",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D07": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D07.",
-          "source": "pattern",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Default source output is on the right; destination input is on the left. Wire direction follows semantic A/B binding and survives moving nodes.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D08": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D08.",
+          "behavior": "n/a in v1; dimensions are edited by resizing the frame.",
           "source": "guess",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D09": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D09.",
+          "behavior": "Quiet at rest. Chooser contains only icons and names. Chat identity and actions reveal on hover or contents focus. Image portals are full bleed without labels; hover/focus reveals Generate and the shared Maximize control. Wire affordance is a subtle animated blister behind the edge; resting wires have no port rings.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D10": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D10.",
-          "source": "pattern",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "P1.portal.contents-focus. Hover gives feedback without taking the board wheel. Contents focus enables chat input and album gestures.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D11": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D11.",
+          "behavior": "One journaled `Add` of `PortalNode { class: Host, kind: Agent, agent: Some(..) }`. Session/status/turns are derived.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D12": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D12.",
+          "behavior": "Esc peels one layer per press (P0.1): maximize → contents focus → drag draft → armed tool → selection. Releasing contents focus leaves the shelf / poster intact. Agent sidecar work is out-of-process and is not cancelled by board Esc.",
           "source": "pattern",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) \u2014 no prior selection. Portals do not rotate. Agent transcript/proposals are inspector controls, not canvas grips.",
-          "source": "pattern",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Portals do not rotate. Agent transcript/proposals are inspector controls, not canvas grips.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D14": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D14.",
+          "behavior": "Choose program, source folder, context scope, prompt, Open in program, Stop and Unbundle are portal-local controls. Program changes journal a fresh session.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D15": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D15.",
+          "behavior": "Minimal sidecars for real programs. No embedded IDE, dashboard, or claim to attach to the desktop task. Ollama and ComfyUI adapters are future work.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D16": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D16.",
+          "behavior": "No. Host portals use portal styling and do not consume shape/text style state.",
           "source": "pattern",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D17": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D17.",
+          "behavior": "The frame picks on its rect. Turn text and proposal badges painted inside the portal are not independently selectable.",
           "source": "pattern",
           "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D18": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D18.",
+          "behavior": "**Host.** The foreign local agent owns its own runtime; Slate owns no mutations inside the portal. Agent board edits stage for acceptance.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D19": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D19.",
+          "behavior": "SourceUri remains the relative-first project locator. AgentPortalRef stores provider, independent session, optional bundle locator and optional immutable seed image. Unknown provider ids survive load.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D20": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D20.",
+          "behavior": "Journaled binding: provider, session, scope, opaque channel, view kind and seed output provenance. Existing ConnectorNode A/B endpoints carry typed Text or Images semantics, optional output pin, All-images mode and stable ordering tokens. No parallel graph.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D21": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D21.",
-          "source": "pattern",
-          "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Context updates are throttled to one second and snapshot inputs at Send/Generate. Editing connected text changes the next run input; it does not execute a program. Missing upstream results prevent a run with an explicit message.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D22": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D22.",
+          "behavior": "P1.portal.contents-focus. Double-click/Enter enables composer or image album. Send/Ctrl+Enter captures context and runs once. Multiple image references retain wire order. Album motion uses the shared home owner and settles to full bleed. Esc leaves focus; explicit Stop interrupts the portal Codex turn.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D23": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D23.",
-          "source": "guess",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "P0.9. Icons, type and controls scale with the canvas. Small type is omitted. Image previews are lazy, budgeted and use the shared preview pool; only nearby album entries request textures.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D24": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D24.",
+          "behavior": "HTML exports completed images as a full-bleed scroll-snap bundle, active image first. Chat remains an honest host poster. No execution controls are exported.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D25": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D25.",
+          "behavior": "Unbundle creates a generator portal for every completed image in one undo group. The active image retains the original NodeId; children retain settings, prompt provenance and incoming wires, with fresh independent session ids. Redo reuses those identities; image files and histories are retained.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D26": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D26.",
-          "source": "pattern",
-          "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Frame and binding sync as document data. Runtime history, hover and album focus remain local view state. Linked assets are references.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D27": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D27.",
+          "behavior": "Adapters consume immutable snapshots. Proposed board edits continue through staged SceneCmd acceptance; the new Codex thread enforces a read-only filesystem sandbox.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D28": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D28.",
-          "source": "pattern",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Request ids combine process, clock and monotonic sequence. Sidecars persist submitted request identities before execution; restart never silently replays a paid request. Image ids and provenance remain stable through unbundle.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D29": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D29.",
-          "source": "pattern",
-          "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "No protocol or file polling on the frame loop. Bounded worker queues, one-second context/read cadence, bounded preview requests, shared texture LRU. Program discovery runs in the background.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D30": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D30.",
+          "behavior": "Application presence is separate from agent readiness. No session means Not connected; a historical idle session means Ready, never proof that the application is live. Failure names the cause and setup action. Codex uses its own installed sign-in; Cursor retains key setup.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D31": {
-          "behavior": "See docs/keymap/contracts/portal-agent-link.md behavior matrix row D31.",
-          "source": "pattern",
-          "confidence": 75,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Journaled: binding, connector semantics, split command group and immutable child seeds. Derived: draft prompt, completed session outputs, hover, album focus and running status.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D32": {
-          "behavior": "The agent runtime is out-of-process and user-run: Slate never spawns it (D15) and reaches it only through JSON files under the AI workspace the human established. Slate loads no page, script, or network endpoint on the portal's behalf, so there is no origin consent to grant - the trust boundary is the human's decision to run the sidecar, and staged proposals are the acceptance gate for everything it produces (D27, Art. VII.6).",
-          "source": "pattern",
-          "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Codex adapter is a separate renderer-free leaf crate; installed Codex owns ChatGPT authentication. Portal-owned conversations start/resume read-only with approvals disabled; unsupported tool approval requests are rejected. Existing Cursor sidecar policy remains separate.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D33": {
-          "behavior": "No identity tab (web-only). Maximize is the four-corner square in the upper-right. Right-click: Maximize.",
+          "behavior": "No identity tab. Shared Maximize and portal actions reveal on hover/focus. Image pixels fill the node at rest. Program grid has neither header nor footer.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D34": {
-          "behavior": "P1.portal.maximize. Fills the window at the screen aspect; Esc restores.",
+          "behavior": "**P1.portal.maximize.** Fills the window at the screen aspect; Esc restores.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         },
         "D35": {
-          "behavior": "P1.portal.local-ui. Provider, scope, and sidecar controls live on this portal's inspector. None appear in Document Settings.",
+          "behavior": "P1.portal.local-ui. Provider, scope, sidecar setup and bundle commands stay on the portal/inspector. The board-wide panel gains no provider-specific settings.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-15"
         }
       }
     },
@@ -1064,11 +1200,11 @@
       "canvas": "portal-web-embed-contract",
       "decisions": {
         "D01": {
-          "behavior": "Command board.portal.web, board tabs only. Palette: \"web portal\" (aliases: embed, web page, iframe, url, dashboard, html). Portals dock flyout row. No single-key chord. Three drop-in entry paths create a bound portal at the pointer without arming a tool: dragging a browser tab or link out of Edge / Chrome / Firefox onto the board (the OLE payload carries UniformResourceLocatorW, text/uri-list, or CF_UNICODETEXT; atlas-core::shell_drag grows a URL arm beside its file arm); pasting an http(s) URL onto the board (Ctrl+V of clipboard text that parses as one); and dropping a .html/.htm file or a folder containing index.html, which makes a portal instead of a text card (Alt-drop keeps the text card, D05).",
+          "behavior": "Command board.portal.web, board tabs only. Palette: \"web portal\" (aliases: embed, web page, iframe, url, dashboard, html). Portals dock flyout row. No single-key chord. Three drop-in entry paths create a bound portal at the pointer without arming a tool: dragging a page link or selected URL text out of Edge / Chrome / Firefox onto the board (Windows OLE UniformResourceLocatorW, text/uri-list, or CF_UNICODETEXT received by Slate external_drop; native browser tab-strip docking is unsupported; see browser-drop research); pasting an http(s) URL onto the board (Ctrl+V of clipboard text that parses as one); and dropping a .html/.htm file or a folder containing index.html, which makes a portal instead of a text card (Alt-drop keeps the text card, D05).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-08"
+          "decided": "2026-09-15"
         },
         "D02": {
           "behavior": "P2.PortalPlace: one-shot, commit returns to Select, Space/Enter re-arms.",
@@ -1162,7 +1298,7 @@
           "decided": "2026-08-16"
         },
         "D15": {
-          "behavior": "Cut, each a decision (Art. III): browser chrome (multiple tabs, address bar / omnibox, bookmarks, history UI, devtools, downloads, printing, a cookie jar shared with the user's real browser, persisted logins across sessions, notifications / geolocation / camera / mic / clipboard-read, scraping page DOM into board nodes, writing back to the source HTML file (Art. IX.5), and typed frame dimensions (D08). Not cut: in-page back/forward/reload/home commands, the Slate identity tab of P1.portal.chrome (one tab, the locator, maximize / fold), and _blank links navigating the same webview instead of opening popups. Not cut, deferred to its own contract: the declared control surface of D18. Arbitrary JS bridges, host objects, and page-initiated postMessage into Slate remain permanently cut. Page-internal navigation while focused is allowed but never persisted: the authored locator is the home. The default Google start page is a locator, not Slate chrome.",
+          "behavior": "Cut, each a decision (Art. III): browser chrome (multiple tabs, address bar / omnibox, bookmarks, history UI, devtools, downloads, printing, a cookie jar shared with the user's real browser, persisted logins across sessions, notifications / geolocation / camera / mic / clipboard-read, scraping page DOM into board nodes, writing back to the source HTML file (Art. IX.5), and typed frame dimensions (D08). Not cut: in-page back/forward/reload/home commands, the Slate identity tab of P1.portal.chrome (one tab, the locator, maximize / fold), and _blank links navigating the same webview instead of opening popups. Not cut, deferred to its own contract: the declared control surface of D18. Arbitrary JS bridges, host objects, and page-initiated postMessage into Slate remain permanently cut. Page-internal navigation is derived session state: losing a pool slot (zoom out, off-screen, budget) resumes the last URL, not the authored home. It is never written into the .slate. Home returns to the authored locator. The default Google start page is a locator, not Slate chrome.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1190,11 +1326,11 @@
           "decided": "2026-08-08"
         },
         "D19": {
-          "behavior": "SourceUri.locator holds exactly one of: an http(s) URL; a path to an .html/.htm file; or a path to a directory plus WebPortalRef.entry (default index.html) for a multi-file dashboard. Newly placed web portals default to the remote start locator https://www.google.com/; that URL is journaled like any other source. Paths are relative to the workbook first, absolute as fallback (Art. IX.2). Rebound by the inspector, the empty-state button after clearing, or by dropping a file/folder/tab on a portal; rebinding is a journaled Patch that discards the cached poster. Refused: javascript: and data: URIs, non-http(s) schemes (ftp:, about:, custom protocol handlers), .slate files (diverted to open as a tab), and non-HTML files (which stay ordinary board items).",
+          "behavior": "SourceUri.locator holds exactly one of: an http(s) URL; a path to an .html/.htm file; or a path to a directory plus WebPortalRef.entry (default index.html) for a multi-file dashboard. Newly placed web portals default to the remote start locator https://www.google.com/; that URL is journaled like any other source. Paths are relative to the workbook first, absolute as fallback (Art. IX.2). Rebound by the inspector, the empty-state button after clearing, or by dropping URL text/a link on an unlocked web portal (one journaled rebind; locked portals refuse it); rebinding is a journaled Patch that discards the cached poster. Refused: javascript: and data: URIs, non-http(s) schemes (ftp:, about:, custom protocol handlers), .slate files (diverted to open as a tab), and non-HTML files (which stay ordinary board items).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-09-15"
         },
         "D20": {
           "behavior": "Journaled: viewport.width_css (default 1280) - the CSS width the page is laid out at; viewport.zoom = Fit (scale the render to the frame width, default) | Fixed(f32) | Auto (frame size drives the CSS viewport, so resize reflows like a browser window); entry (folder sources); interactive_allowed (default true); poster_capture = OnBind | Manual (never a timer in v1); export_mode (D24); title; frame rect and fill. Derived: scroll offset, page history, live state, poster texture, load errors.",
@@ -1204,7 +1340,7 @@
           "decided": "2026-08-08"
         },
         "D21": {
-          "behavior": "Poster recapture triggers: bind/rebind, viewport change, explicit portal.web.recapture, pool eviction (D29), and - for local file/folder sources only - an mtime change found by a worker-thread poll no more often than portal.web.poll_secs (1.0). Remote URLs never auto-recapture: a network fetch is never implicit. Capture runs off-thread, generation-tagged; a stale capture is discarded, never painted (Art. II.3). While capturing, the previous poster stays at portal.web.stale_alpha (0.6) with a progress strip. Source gone: Missing, last poster retained and dimmed, locator named (P1.portal.health).",
+          "behavior": "Poster recapture triggers: bind/rebind, viewport change, explicit `portal.web.recapture`, pool eviction (D29), and — for local file/folder sources only — an mtime change found by a worker-thread poll no more often than `portal.web.poll_secs` (1.0). Remote URLs never auto-recapture: a network fetch is never implicit. GPU capture/copy is asynchronous and readback is polled without waiting, generation-tagged; a stale capture is discarded, never painted (Art. II.3). While capturing, the last valid poster stays at full authored opacity until a valid replacement arrives; recapture never clears it. Source gone: `Missing`, last poster retained and dimmed, locator named (P1.portal.health).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1218,11 +1354,11 @@
           "decided": "2026-08-16"
         },
         "D23": {
-          "behavior": "Buckets key on the portal's on-screen height in physical pixels, so a hundred tiled pages zoomed out cost nothing. Below portal.web.lod_strip_px (96): chrome strip only, no texture bound. From 96 to portal.web.live_min_px (160), or off-screen at any size: the cached poster. At or above 160 and on screen: eligible for the live pool, admitted by the D29 priority; an eligible portal that misses admission paints its poster and reports Budgeted. Double-clicking a portal below the live threshold zooms the camera to fit it first, then takes input focus - and a focused portal ignores the size gate entirely, so the human is never told 'too small' after asking to run the page.",
+          "behavior": "New portals below 160 physical pixels high use their poster; on-screen portals at or above 160 are eligible for the bounded live pool. Input focus overrides the initial size gate. Once admitted, a portal keeps its browser session while visible, even when zoomed smaller; off-screen or capacity eviction still releases it. Below 96 pixels, fresh readback pauses and the last poster remains. Camera zoom scales the existing texture, never browser bounds. Captures use the CSS viewport, proportionally capped at a 1920-pixel longest edge and 2,073,600 pixels, preserving aspect ratio. Maximize may change viewport aspect without replacing the browser. Once a valid frame exists, low-resource/off-screen states, host recreation, viewport changes, and explicit recapture retain it at full authored opacity until a new valid frame arrives. Fully transparent or uniform black/white compositor clears cannot replace it. A different source clears the old poster; a genuinely missing source may dim it.",
           "source": "pattern",
           "confidence": 75,
           "verdict": "approved",
-          "decided": "2026-08-08"
+          "decided": "2026-09-15"
         },
         "D24": {
           "behavior": "Two modes, journaled per portal, defaulting by source kind (OQ2 = A). Local file/folder: packaged iframe - build_assets copies the entry file and its folder into assets/ and rewrites the locator (Art. IX.4 fork, origin recorded in the manifest), and the writer emits <iframe src=\"assets/...\" sandbox=\"allow-scripts allow-same-origin\" title=...> plus a caption naming the origin. Remote URL: poster + pointer (Art. V.3) - <a href=url><img poster></a> with a caption reading \"Live page, captured <date>\", and an honesty note where the site would refuse framing. export_mode: Iframe is opt-in for remote and says in its caption that the frame loads live from the network.",
@@ -1260,11 +1396,11 @@
           "decided": "2026-08-08"
         },
         "D29": {
-          "behavior": "A pool, not a webview per page. At most portal.web.live_pool (6) webviews exist at once, admitted from the eligible set (D23) by priority: input-focused first, then greatest on-screen area, then most recently focused. Eviction captures a poster on the way out, so a demoted portal degrades to its last frame rather than blanking. Contents composite offscreen into a texture (WebView2 visual hosting), so portals obey z-order and opacity like any node and stay axis-aligned. Frame rates are budgeted, not free: the input-focused portal's readback/upload path is paced at portal.web.focused_fps (30), other pooled portals at portal.web.idle_fps (5), and texture uploads are capped at portal.web.uploads_per_frame (2) per frame with the remainder held in a backlog that requests a timed repaint - the per-frame-budget rule the scanner and watcher already follow. Poster capture is async and generation-tagged; posters cache by (locator, content hash or capture epoch, viewport width) and evict with the thumbnail tier (Art. II.2). Nothing on the frame loop touches the network or the filesystem; the local mtime poll is a worker at >= 1 s. The research-hub case is therefore a hundred cached textures, at most six processes, and none at all once the board zooms past the strip threshold. A missing WebView2 runtime degrades every portal to NoRuntime, never a stall.",
+          "behavior": "At most six webviews exist, prioritized by input focus, on-screen area, and recency. Focused interaction targets 60 fps; other visible live portals target 30 fps. At most two texture uploads per frame; excess work remains queued. Existing textures update in place. Two staging textures pipeline GPU copies; Map uses DO_NOT_WAIT so an unfinished copy leaves the previous image visible and retries later. Resize discards mismatched capture frames. Deferred admissions are deduplicated and cancelled on eviction. Hidden/off-screen portals release their slots; visible zoomed-small portals retain sessions within the same six-view cap. Local source probes remain asynchronous. Missing runtime reports NoRuntime.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-09-15"
         },
         "D30": {
           "behavior": "Unbound (\"Choose page or file...\"). Unknown - not yet resolved, neutral marker, never blocking (P1.portal.health). Blocked - remote origin not yet permitted, host named. Loading. Live. Budgeted - eligible but outside the live pool, showing its last frame and saying so. Poster(age) - stale by construction, age stated. Missing - file gone, DNS failure, or 404, locator named, last poster kept. Refused(reason) - unsupported or dangerous scheme. NoRuntime - WebView2 runtime absent, with what to install. TooSmall - below live_min_px. NotFramable - export-time note when a remote site refuses iframing. Every state names itself in the frame rather than blanking it.",
@@ -1274,7 +1410,7 @@
           "decided": "2026-08-08"
         },
         "D31": {
-          "behavior": "Journaled authored intent: frame rect / rotation / opacity / fill, title, locator, entry, viewport width and zoom mode, interactive_allowed, poster_capture mode, export mode. Derived per-peer: poster texture and its capture time, live/pool membership, input focus, scroll offset, page navigation history, load errors, origin consent grants, WebView2 runtime availability, maximize, identity-tab fold.",
+          "behavior": "Journaled authored intent: frame rect / rotation / opacity / fill, title, locator, entry, viewport width and zoom mode, interactive_allowed, poster_capture mode, export mode. Derived per-peer: poster texture and its capture time, live/pool membership, input focus, scroll offset, page navigation history (survives pool eviction this session), load errors, origin consent grants, WebView2 runtime availability, maximize, identity-tab fold.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1288,7 +1424,7 @@
           "decided": "2026-08-16"
         },
         "D33": {
-          "behavior": "P1.portal.chrome. One Slate identity tab shows the locator (or the page being visited). The strip is 40% the height of the Slate / File Atlas top bar. Text is clipped to the tab content bounds; truncation is allowed, oversail is not. Maximize is the only chrome button on that strip (glyph highlight, no fill). Fold via right-click Hide tab or portal.chrome.toggle; a folded tab is recovered from the top-interior reveal strip. The four-corner maximize square sits in the tab bar's window-control slot (far right). Right-click on the tab or the frame: Copy URL, Paste URL (journaled rebind), Maximize, Hide/Show tab.",
+          "behavior": "**P1.portal.chrome.** A slim, inset Slate identity blister shows the locator with smaller centered type. The top bar overlays the full-bleed page; it never reserves browser viewport space. It retracts after 1.2 seconds without pointer, wheel, or keyboard activity and hides when the pointer leaves. Page interaction or hovering the top bar area reveals it again. Idle portals paint no tab, reveal hint, or maximize glyph. Revealing/folding chrome does not resize, reload, or move the page. Maximize remains at the far right when revealed; Escape restores a maximized portal even with hidden chrome. Explicit Hide/Show tab remains available from the portal context menu and portal.chrome.toggle; a manually folded tab uses its top-interior reveal strip.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2394,18 +2530,18 @@
           "decided": "2026-08-21"
         },
         "D22": {
-          "behavior": "P1.portal.contents-focus. Click selects the frame. Double-click or Enter enters the Atlas canvas. Esc or a primary click outside the body leaves. In focus: File Atlas FolderCam (wheel/pinch zoom, right/middle pan), collapse grips, select (readout). After peel the inner camera must not keep the wheel. Double-click a file opens in the OS. Board tools never reach the cards.",
+          "behavior": "P1.portal.contents-focus. Click selects the frame. Double-click or Enter enters the Atlas canvas. Esc or a primary click outside the body leaves. In focus: File Atlas FolderCam (wheel/pinch zoom, right/middle pan), collapse grips, select (readout), left-drag a card out via atlas_core::shell_drag (copy/link, never move). After peel the inner camera must not keep the wheel. Double-click a file opens in the OS. Board tools never reach the cards.",
           "source": "precedent",
           "confidence": 75,
           "verdict": "approved",
           "decided": "2026-08-22"
         },
         "D23": {
-          "behavior": "P0.9 on the inner surface: cards/type/icons scale with inner zoom. Board zoom only shrinks the clip. Drop type when too small. Never clamp to a screen constant.",
-          "source": "pattern",
-          "confidence": 80,
+          "behavior": "P0.9: the inner camera is portal-local. Board zoom scales the entire map with the frame; screen scale is inner zoom × board zoom, in and out of contents-focus. Board pan and frame movement carry the map with them. Leaving contents preserves the inner view. LOD uses the composed screen scale; drop type when too small, never clamp to a screen constant.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-21"
+          "decided": "2026-09-16"
         },
         "D24": {
           "behavior": "Host: slate-artifact emits a poster plus a pointer to the folder locator. Unbound/Missing export the state card. Not a regenerated SVG of every thumbnail.",

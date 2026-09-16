@@ -212,9 +212,50 @@ mod enabled {
                     &mut dock.bottom_margin,
                     0.0..=96.0,
                 );
-                scalar(ui, "Offset from canvas left", &mut dock.left_margin, 0.0..=96.0);
+                scalar(
+                    ui,
+                    "Offset from canvas left",
+                    &mut dock.left_margin,
+                    0.0..=96.0,
+                );
                 scalar(ui, "Panel stack gap", &mut dock.stack_gap, 0.0..=32.0);
 
+                ui.separator();
+                ui.label(RichText::new("Primary icon hover").strong());
+                ui.label(
+                    RichText::new(
+                        "Fill of a master icon while the pointer is on it. \
+                         Dark mode lightens; light mode darkens. Fade is \
+                         shared with the readout blister.",
+                    )
+                    .small(),
+                );
+                scalar(
+                    ui,
+                    "Icon hover fill",
+                    &mut dock.palette.icon_hover_fill,
+                    0.0..=1.0,
+                );
+                scalar(
+                    ui,
+                    "Icon hover opacity",
+                    &mut dock.palette.icon_hover_opacity,
+                    0.0..=1.0,
+                );
+                rgba(ui, "Icon hover · dark", &mut dock.dark.icon_hover);
+                rgba(ui, "Icon hover · light", &mut dock.light.icon_hover);
+                scalar(
+                    ui,
+                    "Icon hover tint",
+                    &mut dock.palette.icon_hover_tint,
+                    0.0..=0.7,
+                );
+                scalar(
+                    ui,
+                    "Hover fade (sec)",
+                    &mut dock.palette.hover_fade,
+                    0.04..=0.45,
+                );
                 ui.separator();
                 ui.label(RichText::new("Host \u{2194} palette hover").strong());
                 ui.label(
@@ -227,9 +268,9 @@ mod enabled {
                 );
                 scalar(
                     ui,
-                    "Fill density",
+                    "Palette fill density",
                     &mut dock.palette.associate_fill,
-                    0.3..=0.85,
+                    0.0..=0.85,
                 );
                 scalar(
                     ui,
@@ -258,29 +299,65 @@ mod enabled {
                     &mut dock.palette.pinned_stroke,
                     1.0..=2.4,
                 );
-                scalar(
-                    ui,
-                    "Pinned tint",
-                    &mut dock.palette.pinned_tint,
-                    0.0..=0.7,
-                );
+                scalar(ui, "Pinned tint", &mut dock.palette.pinned_tint, 0.0..=0.7);
                 ui.separator();
-                ui.label(RichText::new("Primary-dock blister").strong());
+                ui.label(RichText::new("Readout blister").strong());
                 ui.label(
                     RichText::new(
-                        "Click beside or below the icon bar to collapse it \
-                         into a handle on the readout. Pinned palettes stay.",
+                        "One tab-shaped handle on the canvas / readout seam. \
+                         It is the readout (or the page bottom) flowing upward; \
+                         the chevron flips when the icon bar is collapsed. \
+                         Same fade as primary-icon hover.",
                     )
                     .small(),
                 );
-                scalar(ui, "Blister width", &mut dock.palette.blister_width, 24.0..=160.0);
+                scalar(ui, "Width", &mut dock.palette.blister_width, 16.0..=960.0);
+                scalar(ui, "Depth", &mut dock.palette.blister_height, 2.0..=48.0);
                 scalar(
                     ui,
-                    "Blister height",
-                    &mut dock.palette.blister_height,
-                    4.0..=28.0,
+                    "Shoulder bite",
+                    &mut dock.palette.blister_sink,
+                    0.0..=20.0,
                 );
-                scalar(ui, "Blister sink", &mut dock.palette.blister_sink, 0.0..=20.0);
+                scalar(
+                    ui,
+                    "Far radius",
+                    &mut dock.palette.blister_radius,
+                    0.0..=24.0,
+                );
+                scalar(
+                    ui,
+                    "Shoulder radius",
+                    &mut dock.palette.blister_shoulder,
+                    0.0..=20.0,
+                );
+                scalar(ui, "Fill mix", &mut dock.palette.blister_fill, 0.0..=1.0);
+                rgba(ui, "Fill · dark", &mut dock.dark.blister_fill);
+                rgba(ui, "Fill · light", &mut dock.light.blister_fill);
+                scalar(
+                    ui,
+                    "Tab stroke",
+                    &mut dock.palette.blister_stroke,
+                    0.0..=1.0,
+                );
+                scalar(
+                    ui,
+                    "Arrow size",
+                    &mut dock.palette.blister_arrow,
+                    3.0..=16.0,
+                );
+                scalar(
+                    ui,
+                    "Arrow lift",
+                    &mut dock.palette.blister_arrow_lift,
+                    -20.0..=20.0,
+                );
+                scalar(
+                    ui,
+                    "Arrow opacity",
+                    &mut dock.palette.blister_arrow_opacity,
+                    0.0..=1.0,
+                );
                 scalar(
                     ui,
                     "Collapse hover zone",
@@ -1014,6 +1091,7 @@ mod enabled {
                 rgba(ui, "Icon hover", &mut theme.icon_hover);
                 rgba(ui, "Icon active", &mut theme.icon_active);
                 rgba(ui, "Popover fill", &mut theme.popover_fill);
+                rgba(ui, "Blister fill", &mut theme.blister_fill);
                 rgba(ui, "Border", &mut theme.border);
                 rgba(ui, "Text", &mut theme.text);
                 rgba(ui, "Muted text", &mut theme.muted_text);
@@ -1497,6 +1575,18 @@ mod enabled {
                 );
                 scalar(ui, "AO reach (px)", &mut home.ao_size, 0.0..=120.0);
                 scalar(ui, "AO strength", &mut home.ao_strength, 0.0..=1.0);
+                scalar(
+                    ui,
+                    "Reflection depth",
+                    &mut home.reflection_height_frac,
+                    0.05..=0.6,
+                );
+                scalar(
+                    ui,
+                    "Reflection opacity",
+                    &mut home.reflection_opacity,
+                    0.0..=0.6,
+                );
                 ui.separator();
                 ui.label(RichText::new("Motion feel").strong());
                 scalar(ui, "Inertia friction", &mut home.friction, 0.2..=20.0);

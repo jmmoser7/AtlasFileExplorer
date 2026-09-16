@@ -410,15 +410,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-agent"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "atlas-ai"
 version = "0.1.0"
 dependencies = [
+ "atlas-agent",
+ "atlas-codex",
  "atlas-core",
  "atlas-shell",
  "crossbeam-channel",
  "eframe",
  "rfd",
  "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "atlas-codex"
+version = "0.1.0"
+dependencies = [
+ "atlas-agent",
  "serde",
  "serde_json",
 ]
@@ -461,6 +480,7 @@ dependencies = [
  "serde",
  "serde_json",
  "toml 0.8.23",
+ "vector-ink",
 ]
 
 [[package]]
@@ -3226,9 +3246,11 @@ dependencies = [
  "crossbeam-channel",
  "eframe",
  "image",
+ "raw-window-handle",
  "rfd",
  "serde",
  "serde_json",
+ "winresource",
 ]
 
 [[package]]
@@ -4502,6 +4524,7 @@ dependencies = [
 name = "slate-doc"
 version = "0.1.0"
 dependencies = [
+ "atlas-agent",
  "serde",
  "serde_json",
 ]

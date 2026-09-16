@@ -116,7 +116,21 @@ pub fn covers_dir() -> PathBuf {
 ///
 /// * 2 — mosaic tiles crop to the cell instead of being squashed into it, and
 ///   the cells tile the full cover with no background gutter.
-pub const COVER_RECIPE_VERSION: u32 = 2;
+/// * 3 — generated diagrams are theme masks; mosaic gaps are transparent.
+pub const COVER_RECIPE_VERSION: u32 = 3;
+
+impl RecentEntry {
+    /// A persisted cache pointer must not bypass recipe invalidation. Explicit
+    /// custom artwork outside the managed cache remains a valid override.
+    pub fn current_cover_path(&self) -> PathBuf {
+        let current = cover_cache_path(&self.path);
+        self.cover
+            .as_ref()
+            .filter(|path| path.parent() != current.parent())
+            .cloned()
+            .unwrap_or(current)
+    }
+}
 
 /// Stable cover filename for a filesystem path, scoped to the bake recipe.
 pub fn cover_cache_path(for_path: &Path) -> PathBuf {
@@ -145,5 +159,24 @@ pub fn prune_stale_covers() {
         if name.ends_with(".png") && !name.starts_with(&prefix) {
             let _ = std::fs::remove_file(entry.path());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persisted_old_cover_pointer_cannot_bypass_recipe_version() {
+        let mut entry = RecentEntry {
+            path: PathBuf::from("C:/fixture/folder"),
+            title: "Folder".into(),
+            opened_at: 0,
+            cover: Some(covers_dir().join("v2-old-cover.png")),
+        };
+        assert_eq!(entry.current_cover_path(), cover_cache_path(&entry.path));
+        let custom = PathBuf::from("C:/fixture/custom-art.png");
+        entry.cover = Some(custom.clone());
+        assert_eq!(entry.current_cover_path(), custom);
     }
 }

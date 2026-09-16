@@ -9,6 +9,7 @@ use slate_doc::{Node, NodeId, NodeKind};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc as Shared;
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
 use vector_ink::{flatten, hit_stroke, stroke_mesh, Cap, InkMesh, Join, StrokeStyle};
 
@@ -19,7 +20,11 @@ pub(crate) const FEATHER_PX: f32 = 1.25;
 /// Screen-px pick slop beyond half the stroke width (D17 / P1.curve.pick).
 pub(crate) const PICK_SLOP_PX: f32 = 4.0;
 const MIN_PATH_BOUNDS: f32 = 8.0;
-const CACHE_CAP: usize = 256;
+// Bound geometry by its cost, not by the number of visible paths. A 256-entry
+// FIFO misses on every frame of a 257-path board. The entry limit separately
+// bounds metadata, including empty meshes, while allowing 10k stroke+fill pairs.
+const CACHE_BYTES: usize = 64 * 1024 * 1024;
+const CACHE_ENTRIES: usize = 32_768;
 
 /// In-progress multi-click / freehand path gestures.
 #[derive(Clone, Debug)]
@@ -37,33 +42,110 @@ pub enum BoardPathDraft {
     },
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(crate) struct CachedInkMesh {
     vertices: Vec<[f32; 2]>,
     alphas: Vec<f32>,
     indices: Vec<u32>,
 }
 
-#[derive(Default)]
+type FillTriangles = (Vec<[f32; 2]>, Vec<u32>);
+
+#[derive(Clone)]
+enum CachedGeometry {
+    Stroke(Shared<CachedInkMesh>),
+    Fill(Shared<FillTriangles>),
+}
+
+impl CachedGeometry {
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Stroke(mesh) => {
+                mesh.vertices.capacity() * std::mem::size_of::<[f32; 2]>()
+                    + mesh.alphas.capacity() * std::mem::size_of::<f32>()
+                    + mesh.indices.capacity() * std::mem::size_of::<u32>()
+            }
+            Self::Fill(tris) => {
+                tris.0.capacity() * std::mem::size_of::<[f32; 2]>()
+                    + tris.1.capacity() * std::mem::size_of::<u32>()
+            }
+        }
+    }
+}
+
+// The final flag separates fill and stroke hashes for the same node.
+type GeometryKey = (NodeId, u64, bool);
+
+struct GeometryEntry {
+    geometry: CachedGeometry,
+    referenced: bool,
+}
+
 pub struct PathMeshCache {
-    map: HashMap<(NodeId, u64), CachedInkMesh>,
-    order: VecDeque<(NodeId, u64)>,
-    /// Closed path fills: cached earcut verts + indices (concave-safe).
-    tris: HashMap<(NodeId, u64), (Vec<[f32; 2]>, Vec<u32>)>,
-    tris_order: VecDeque<(NodeId, u64)>,
+    map: HashMap<GeometryKey, GeometryEntry>,
+    clock: VecDeque<GeometryKey>,
+    resident_bytes: usize,
+    budget_bytes: usize,
+    entry_limit: usize,
     /// Cache misses this paint — reset at the start of `board_canvas`.
     pub tess_misses: u32,
 }
 
+impl Default for PathMeshCache {
+    fn default() -> Self {
+        Self {
+            map: HashMap::new(),
+            clock: VecDeque::new(),
+            resident_bytes: 0,
+            budget_bytes: CACHE_BYTES,
+            entry_limit: CACHE_ENTRIES,
+            tess_misses: 0,
+        }
+    }
+}
+
 impl PathMeshCache {
-    fn evict_lru<V>(map: &mut HashMap<(NodeId, u64), V>, order: &mut VecDeque<(NodeId, u64)>) {
-        while map.len() > CACHE_CAP {
-            if let Some(old) = order.pop_front() {
-                map.remove(&old);
-            } else {
-                break;
+    fn get(&mut self, key: GeometryKey) -> Option<CachedGeometry> {
+        let entry = self.map.get_mut(&key)?;
+        entry.referenced = true;
+        Some(entry.geometry.clone())
+    }
+
+    fn insert(&mut self, key: GeometryKey, geometry: CachedGeometry) {
+        let bytes = geometry.bytes();
+        // One exceptionally complex shape must not flush everything else.
+        // Its caller still owns and paints the result for this frame.
+        if bytes > self.budget_bytes || self.entry_limit == 0 {
+            return;
+        }
+        // Clock replacement gives recently reused entries a second chance.
+        // Each resident entry has exactly one queue slot; hits only set a bit,
+        // so neither geometry nor recency records allocate on a warm paint.
+        while self.resident_bytes + bytes > self.budget_bytes || self.map.len() >= self.entry_limit
+        {
+            let old = self
+                .clock
+                .pop_front()
+                .expect("cache entry has a clock slot");
+            let entry = self
+                .map
+                .get_mut(&old)
+                .expect("clock slot has a cache entry");
+            if std::mem::take(&mut entry.referenced) {
+                self.clock.push_back(old);
+            } else if let Some(entry) = self.map.remove(&old) {
+                self.resident_bytes -= entry.geometry.bytes();
             }
         }
+        self.resident_bytes += bytes;
+        self.map.insert(
+            key,
+            GeometryEntry {
+                geometry,
+                referenced: false,
+            },
+        );
+        self.clock.push_back(key);
     }
 
     pub(crate) fn get_or_tessellate(
@@ -71,20 +153,19 @@ impl PathMeshCache {
         node_id: NodeId,
         key: u64,
         build: impl FnOnce() -> InkMesh,
-    ) -> CachedInkMesh {
-        if let Some(c) = self.map.get(&(node_id, key)) {
-            return c.clone();
+    ) -> Shared<CachedInkMesh> {
+        let key = (node_id, key, false);
+        if let Some(CachedGeometry::Stroke(c)) = self.get(key) {
+            return c;
         }
         self.tess_misses = self.tess_misses.saturating_add(1);
         let ink = build();
-        let cached = CachedInkMesh {
+        let cached = Shared::new(CachedInkMesh {
             vertices: ink.vertices.iter().map(|v| v.pos).collect(),
             alphas: ink.vertices.iter().map(|v| v.alpha).collect(),
             indices: ink.indices,
-        };
-        self.map.insert((node_id, key), cached.clone());
-        self.order.push_back((node_id, key));
-        Self::evict_lru(&mut self.map, &mut self.order);
+        });
+        self.insert(key, CachedGeometry::Stroke(cached.clone()));
         cached
     }
 
@@ -93,21 +174,20 @@ impl PathMeshCache {
         node_id: NodeId,
         key: u64,
         build: impl FnOnce() -> (Vec<[f32; 2]>, Vec<u32>),
-    ) -> (Vec<[f32; 2]>, Vec<u32>) {
-        if let Some(t) = self.tris.get(&(node_id, key)) {
-            return t.clone();
+    ) -> Shared<FillTriangles> {
+        let key = (node_id, key, true);
+        if let Some(CachedGeometry::Fill(t)) = self.get(key) {
+            return t;
         }
         self.tess_misses = self.tess_misses.saturating_add(1);
-        let t = build();
-        self.tris.insert((node_id, key), t.clone());
-        self.tris_order.push_back((node_id, key));
-        Self::evict_lru(&mut self.tris, &mut self.tris_order);
+        let t = Shared::new(build());
+        self.insert(key, CachedGeometry::Fill(t.clone()));
         t
     }
 
     #[cfg(test)]
     pub(crate) fn stroke_len(&self) -> usize {
-        self.map.len()
+        self.map.keys().filter(|(_, _, fill)| !fill).count()
     }
 }
 
@@ -451,7 +531,13 @@ fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
     }
 }
 
-fn path_content_hash(path: &PathData, stroke: &Stroke, rect: WorldRect, bucket: i64) -> u64 {
+fn path_content_hash(
+    path: &PathData,
+    stroke: &Stroke,
+    rect: WorldRect,
+    rotation_deg: f32,
+    bucket: i64,
+) -> u64 {
     let mut h = DefaultHasher::new();
     hash_path_data(&mut h, path);
     hash_stroke(&mut h, stroke);
@@ -459,6 +545,7 @@ fn path_content_hash(path: &PathData, stroke: &Stroke, rect: WorldRect, bucket: 
     hash_f32(&mut h, rect.y);
     hash_f32(&mut h, rect.w);
     hash_f32(&mut h, rect.h);
+    hash_f32(&mut h, rotation_deg);
     bucket.hash(&mut h);
     h.finish()
 }
@@ -482,6 +569,7 @@ pub(crate) fn ink_mesh_to_epaint(
 ) -> egui::Mesh {
     use egui::epaint::{Vertex, WHITE_UV};
     let mut mesh = egui::Mesh::default();
+    mesh.vertices.reserve(cached.vertices.len());
     for (pos, alpha) in cached.vertices.iter().zip(cached.alphas.iter()) {
         let sp = xf.w2s(Pos2::new(pos[0], pos[1]));
         let c = fade(base_color.gamma_multiply(*alpha));
@@ -870,28 +958,34 @@ pub fn paint_path_shape(
     if path.is_empty() && !path.closed {
         return;
     }
-    let bez = path_data_to_world_bez(path, node.rect, node.rotation_deg);
+    // Both a fill and a stroke may miss together. Build their shared path only
+    // then; a warm paint does not allocate a BezPath or walk its segments twice.
+    let mut bez = None;
     if shape.fill.is_some() && path.closed {
         // egui PathShape fills with a triangle fan from vertex 0 — convex
         // only (emilk/egui#513). Join/Trim boolean results are concave, so
         // every closed path fill goes through cached earcut.
         let fill_key = path_fill_hash(path, node.rect, node.rotation_deg);
-        let (verts, idx) = app.path_mesh_cache.get_or_fill_tris(node.id, fill_key, || {
-            let contours = vector_ink::flatten_contours(&bez, 0.25);
+        let triangles = app.path_mesh_cache.get_or_fill_tris(node.id, fill_key, || {
+            let bez = bez
+                .get_or_insert_with(|| path_data_to_world_bez(path, node.rect, node.rotation_deg));
+            let contours = vector_ink::flatten_contours(bez, 0.25);
             vector_ink::fill_triangles(&contours)
         });
+        let (verts, idx) = triangles.as_ref();
         if !idx.is_empty() {
             if let Some(fill) = shape.fill {
                 let mut mesh = egui::Mesh::default();
+                mesh.vertices.reserve(verts.len());
                 let color = fade(rgba32(fill));
-                for v in &verts {
+                for v in verts {
                     mesh.vertices.push(egui::epaint::Vertex {
                         pos: xf.w2s(Pos2::new(v[0], v[1])),
                         uv: Pos2::ZERO,
                         color,
                     });
                 }
-                mesh.indices = idx;
+                mesh.indices = idx.clone();
                 painter.add(Shape::mesh(mesh));
             }
         }
@@ -900,12 +994,14 @@ pub fn paint_path_shape(
         return;
     }
     let bucket = zoom_bucket(xf.z);
-    let key = path_content_hash(path, &shape.stroke, node.rect, bucket);
-    let style = stroke_style_world(&shape.stroke, xf.z);
-    let feather = FEATHER_PX / xf.z.max(0.05);
-    let cached = app
-        .path_mesh_cache
-        .get_or_tessellate(node.id, key, || stroke_mesh(&bez, &style, feather, 0.25));
+    let key = path_content_hash(path, &shape.stroke, node.rect, node.rotation_deg, bucket);
+    let cached = app.path_mesh_cache.get_or_tessellate(node.id, key, || {
+        let bez =
+            bez.get_or_insert_with(|| path_data_to_world_bez(path, node.rect, node.rotation_deg));
+        let style = stroke_style_world(&shape.stroke, xf.z);
+        let feather = FEATHER_PX / xf.z.max(0.05);
+        stroke_mesh(bez, &style, feather, 0.25)
+    });
     let base = fade(rgba32(shape.stroke.color));
     let mesh = ink_mesh_to_epaint(&cached, xf, base, fade);
     painter.add(Shape::mesh(mesh));
@@ -1330,16 +1426,19 @@ mod tests {
         };
         let stroke = default_curve_stroke(Rgba::BLACK);
         let rect = WorldRect::new(0.0, 0.0, 10.0, 10.0);
-        let a = path_content_hash(&path, &stroke, rect, 8);
-        let b = path_content_hash(&path, &stroke, rect, 8);
-        let c = path_content_hash(&path, &stroke, rect, 9);
+        let a = path_content_hash(&path, &stroke, rect, 0.0, 8);
+        let b = path_content_hash(&path, &stroke, rect, 0.0, 8);
+        let c = path_content_hash(&path, &stroke, rect, 0.0, 9);
         assert_eq!(a, b);
         assert_ne!(a, c);
     }
 
     #[test]
     fn path_mesh_cache_evicts_oldest_instead_of_clearing() {
-        let mut cache = PathMeshCache::default();
+        let mut cache = PathMeshCache {
+            entry_limit: 256,
+            ..Default::default()
+        };
         let empty = || InkMesh {
             vertices: Vec::new(),
             indices: Vec::new(),
@@ -1348,10 +1447,127 @@ mod tests {
             cache.get_or_tessellate(NodeId(i), i, empty);
         }
         let n = cache.stroke_len();
-        assert!(n <= CACHE_CAP, "cache grew to {n}");
+        assert_eq!(n, 256, "empty meshes must still obey the metadata bound");
         assert!(
             n > 0,
             "nuclear clear would leave the cache empty after a burst"
         );
+        assert!(!cache.map.contains_key(&(NodeId(0), 0, false)));
+    }
+
+    fn triangle_ink() -> InkMesh {
+        InkMesh {
+            vertices: [[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]]
+                .into_iter()
+                .map(|pos| vector_ink::InkVertex { pos, alpha: 1.0 })
+                .collect(),
+            indices: vec![0, 1, 2],
+        }
+    }
+
+    fn triangle_fill() -> FillTriangles {
+        (vec![[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]], vec![0, 1, 2])
+    }
+
+    #[test]
+    fn ten_thousand_visible_paths_stay_warm_in_paint_order() {
+        let mut cache = PathMeshCache::default();
+        for id in 0..10_000 {
+            cache.get_or_fill_tris(NodeId(id), 0, triangle_fill);
+            cache.get_or_tessellate(NodeId(id), 0, triangle_ink);
+        }
+        assert_eq!(cache.tess_misses, 20_000);
+        cache.tess_misses = 0;
+        for _ in 0..3 {
+            for id in 0..10_000 {
+                cache.get_or_fill_tris(NodeId(id), 0, || panic!("warm fill rebuilt"));
+                cache.get_or_tessellate(NodeId(id), 0, || panic!("warm stroke rebuilt"));
+            }
+        }
+        assert_eq!(cache.tess_misses, 0);
+        assert!(cache.resident_bytes <= CACHE_BYTES);
+        assert!(cache.map.len() <= CACHE_ENTRIES);
+        assert_eq!(cache.clock.len(), cache.map.len());
+    }
+
+    #[test]
+    fn cache_hits_share_geometry_without_copying_vectors() {
+        let mut cache = PathMeshCache::default();
+        let stroke = cache.get_or_tessellate(NodeId(1), 7, triangle_ink);
+        let hit = cache.get_or_tessellate(NodeId(1), 7, || panic!("cache miss"));
+        assert!(Shared::ptr_eq(&stroke, &hit));
+        let fill = cache.get_or_fill_tris(NodeId(1), 7, triangle_fill);
+        let hit = cache.get_or_fill_tris(NodeId(1), 7, || panic!("cache miss"));
+        assert!(Shared::ptr_eq(&fill, &hit));
+    }
+
+    #[test]
+    fn stroke_and_fill_share_a_byte_budget_and_hits_get_a_second_chance() {
+        let mut cache = PathMeshCache {
+            budget_bytes: 84, // One 48-byte stroke and one 36-byte fill.
+            ..Default::default()
+        };
+        cache.get_or_tessellate(NodeId(1), 0, triangle_ink);
+        cache.get_or_fill_tris(NodeId(2), 0, triangle_fill);
+        assert_eq!(cache.resident_bytes, 84);
+        cache.get_or_tessellate(NodeId(1), 0, || panic!("cache miss"));
+        cache.get_or_fill_tris(NodeId(3), 0, triangle_fill);
+        assert!(cache.map.contains_key(&(NodeId(1), 0, false)));
+        assert!(!cache.map.contains_key(&(NodeId(2), 0, true)));
+        assert_eq!(cache.resident_bytes, 84);
+        for id in 4..100 {
+            cache.get_or_fill_tris(NodeId(id), 0, triangle_fill);
+            assert!(cache.resident_bytes <= cache.budget_bytes);
+            assert_eq!(cache.clock.len(), cache.map.len());
+        }
+    }
+
+    #[test]
+    fn oversized_geometry_renders_without_flushing_the_cache() {
+        let mut cache = PathMeshCache {
+            budget_bytes: 48,
+            ..Default::default()
+        };
+        let resident = cache.get_or_tessellate(NodeId(1), 0, triangle_ink);
+        let large = cache.get_or_tessellate(NodeId(2), 0, || InkMesh {
+            vertices: vec![
+                vector_ink::InkVertex {
+                    pos: [1.0, 2.0],
+                    alpha: 1.0
+                };
+                20
+            ],
+            indices: vec![],
+        });
+        assert_eq!(large.vertices.len(), 20);
+        assert_eq!(cache.resident_bytes, 48);
+        assert_eq!(cache.map.len(), 1);
+        let hit = cache.get_or_tessellate(NodeId(1), 0, || panic!("resident flushed"));
+        assert!(Shared::ptr_eq(&resident, &hit));
+    }
+
+    #[test]
+    fn rotating_a_warm_path_rebuilds_the_stroke_geometry() {
+        let path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
+            ..Default::default()
+        };
+        let stroke = default_curve_stroke(Rgba::BLACK);
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let mut cache = PathMeshCache::default();
+        let mut paint = |rotation| {
+            let key = path_content_hash(&path, &stroke, rect, rotation, zoom_bucket(1.0));
+            cache.get_or_tessellate(NodeId(1), key, || {
+                let bez = path_data_to_world_bez(&path, rect, rotation);
+                stroke_mesh(&bez, &stroke_style_world(&stroke, 1.0), FEATHER_PX, 0.25)
+            })
+        };
+        let initial = paint(0.0);
+        let rotated = paint(90.0);
+        let restored = paint(0.0);
+        assert_ne!(initial.vertices, rotated.vertices);
+        assert!(Shared::ptr_eq(&initial, &restored));
+        assert_eq!(cache.tess_misses, 2);
     }
 }

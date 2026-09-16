@@ -390,9 +390,8 @@ mod tests {
 
     #[test]
     fn a_windows_project_path_slugs_like_cursor() {
-        let slug = cursor_project_slug(Path::new(
-            r"C:\Users\jmoser\source\repos\AtlasFileExplorer",
-        ));
+        let slug =
+            cursor_project_slug(Path::new(r"C:\Users\jmoser\source\repos\AtlasFileExplorer"));
         assert_eq!(slug, "c-Users-jmoser-source-repos-AtlasFileExplorer");
         let verbatim = cursor_project_slug(Path::new(
             r"\\?\C:\Users\jmoser\source\repos\AtlasFileExplorer",

@@ -88,6 +88,49 @@ fn brep_render_meshes_one_part_per_face() {
 }
 
 #[test]
+fn rhino_tl_brep_alias_keeps_all_cached_face_meshes() {
+    // Rhino's TL_Brep class is demoted to ON_Brep by ON_ClassId::ClassId
+    // (opennurbs_object.cpp). rhino3dm-generated fixtures use ON_Brep
+    // directly, which previously hid this failure on real Rhino saves.
+    let mut bytes = std::fs::read(fixture("brep_with_render_mesh.3dm")).unwrap();
+    let expected = read_render_meshes_from(&bytes).unwrap();
+    let on_brep = [
+        0xc5, 0xdb, 0xb5, 0x60, 0x60, 0xe6, 0xd3, 0x11, 0xbf, 0xe4, 0x00, 0x10, 0x83, 0x01, 0x22,
+        0xf0,
+    ];
+    let tl_brep = [
+        0x43, 0xc2, 0x6f, 0xf0, 0x2a, 0xa3, 0x08, 0x46, 0x9d, 0xd8, 0xa7, 0xd2, 0xc4, 0xce, 0x2a,
+        0x36,
+    ];
+    let offsets: Vec<_> = bytes
+        .windows(16)
+        .enumerate()
+        .filter_map(|(i, uuid)| (uuid == on_brep).then_some(i))
+        .collect();
+    assert_eq!(offsets.len(), 1);
+    let offset = offsets[0];
+    // This reader deliberately skips CRC validation; only class dispatch
+    // changes here, leaving the fixture's nested mesh data untouched.
+    bytes[offset..offset + 16].copy_from_slice(&tl_brep);
+    let actual = read_render_meshes_from(&bytes).expect("Rhino TL_Brep render meshes");
+    assert_eq!(actual.parts.len(), 6);
+    assert_eq!(actual.bounds_min, expected.bounds_min);
+    assert_eq!(actual.bounds_max, expected.bounds_max);
+    for (actual, expected) in actual.parts.iter().zip(&expected.parts) {
+        assert_part_invariants(actual);
+        assert_eq!(actual.positions, expected.positions);
+        assert_eq!(actual.normals, expected.normals);
+        assert_eq!(actual.indices, expected.indices);
+    }
+
+    bytes[offset..offset + 16].fill(0x42);
+    assert!(
+        matches!(read_render_meshes_from(&bytes), Err(ReadError::NoMeshes)),
+        "an unknown class must not be assumed to use the Brep format"
+    );
+}
+
+#[test]
 fn extrusion_render_mesh_cache() {
     let model = read_render_meshes(&fixture("extrusion.3dm")).expect("read");
     // One extrusion whose render cache holds a unit UV sphere:

@@ -38,7 +38,7 @@ never a chain of short `line_segment` strokes (those produce the jaggies).
 
 Tune under **Dock · Partition & tracers** in the UI tuner.
 
-## Textured meshes under perspective (`home::paint_artwork`)
+## Textured meshes under perspective (`home::artwork_mesh`)
 
 **`epaint` has no perspective-correct texturing.** A `Mesh` vertex carries `pos`,
 `uv`, and `color` — there is no `w`, so the tessellator interpolates UVs *affinely*
@@ -73,9 +73,55 @@ Rules for any projected textured mesh:
    column samples live in a `thread_local`.
 5. **Type is not artwork.** A photo hides a 0.006 px affine residual. A stem
    does not — it reads as a ripple. Title-faces therefore do **not** ride
-   `paint_artwork`. Layout once, then project each glyph as its own short
-   strip (`home::paint_title_glyphs`). Same `project_point`, much smaller
+   `artwork_mesh`. Layout once, then project each glyph as its own short
+   strip (`home::title_glyph_mesh`). Same `project_point`, much smaller
    patches.
+
+### Cover Flow edges, themes, and the reflecting plane
+
+The August 3 strip-mesh change fixed affine texture distortion but raw meshes
+do not receive egui's path anti-aliasing. `home::feather_boundary` gives the
+outer silhouette a one-device-pixel coverage fringe, including the rounded
+corners. Internal strip boundaries stay fully opaque. Linear texture sampling
+alone cannot smooth the boundary of a triangle. Cover textures also use linear
+mipmap filtering on the native glow renderer: shrinking/foreshortened artwork
+samples pre-filtered levels rather than letting fine details alias internally.
+
+Generated folder/workbook covers are grayscale-alpha PNG coverage masks,
+painted in the current `Palette::ink` over `Palette::card`. RGB(A) artwork
+keeps its original colors; empty mosaic cells are transparent. This is recipe
+generation 3. `RecentEntry::current_cover_path` retires persisted pointers to
+older managed cache files, while preserving explicit artwork outside the cache.
+Theme changes only change vertex colors, without re-reading sources or
+re-uploading textures. Cover sampling must skip dehydrated cloud files.
+
+`FacePass` mirrors local y about the album's bottom **before** projection, so
+a tilted album and its reflection share the same feet. Reflection opacity
+falls quadratically to transparent, with a lower strength in light mode. The
+projected footprint below the album is soft and low; the broader silhouette
+occlusion is restrained. The `[home]` reflection depth/opacity and AO tokens
+are exposed in the existing UI tuner. The label sits below the reflection.
+
+This treatment is informed by visual inspection of
+[Apple's original iTunes 7 promotional image](https://theapplewiki.com/wiki/File:ITunes_7.png):
+attached mirrored artwork, a dark receding stage, and reflection fading beneath
+the covers. These are observed visual cues, not claims about Apple's private
+rendering implementation. The contact-shadow shape and light-mode adaptation
+are this renderer's design choices.
+
+Album meshes (face, reflected face, glyphs, and shadows) and the background are
+cached until geometry, artwork, font atlas, pixel density, or palette changes.
+Motion invalidates geometry; idle frames reuse it. The native visual fixture
+uses this renderer directly:
+
+```powershell
+cargo run -p atlas-shell --example cover_flow -- --capture C:/temp/flow
+```
+
+It captures both themes using the same texture handles, then exits. Without
+`--capture`, drag/arrow through the shelf and press `T` to switch the fixture's
+theme. Geometry, coverage-fringe, reflection contact/fade, theme/cache, and PNG
+recipe regressions live in the `atlas-shell` unit tests.
 
 ### Extending the aesthetic
 

@@ -1,0 +1,61 @@
+
+thread 'main' (16816) panicked at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library\core\src\num\f32.rs:1565:9:
+min > max, or either was NaN. min = 877.76263, max = 877.7626
+stack backtrace:
+   0: std::panicking::panic_handler
+             at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library\std\src\panicking.rs:689
+   1: core::panicking::panic_fmt
+             at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library\core\src\panicking.rs:80
+   2: atlas_shell::dock::interact_blister
+   3: atlas_shell::dock::floating_dock::<&str, slate::app::ui::tools::floating_tools_dock::{closure#0}>
+   4: slate::app::ui::tools::floating_tools_dock
+   5: <slate::app::SlateApp>::update_app
+   6: <slate::app::SlateApp as eframe::epi::App>::update
+   7: <egui::context::Context>::run::<<eframe::native::epi_integration::EpiIntegration>::update::{closure#0}>
+   8: <eframe::native::epi_integration::EpiIntegration>::update
+   9: <eframe::native::glow_integration::GlowWinitApp as eframe::native::winit_integration::WinitApp>::run_ui_and_paint
+  10: RINvNtNtCs3ry65oWNjj2_6eframe6native18event_loop_context23with_event_loop_contextNCNvXs_NtB4_3runINtB1o_15WinitAppWrapperNtNtB4_16glow_integration12GlowWinitAppEINtNtCs2X75vya8tcH_5winit11application18ApplicationHandlerNtNtB4_17winit_integration9UserEventE
+  11: RNCINvMs1_NtNtNtCs2X75vya8tcH_5winit13platform_impl7windows10event_loopINtB8_9EventLoopNtNtNtCs3ry65oWNjj2_6eframe6native17winit_integration9UserEventE13run_on_demandNCINvMs4_NtBe_10event_loopINtB2N_9EventLoopB1n_E7run_appINtNtB1r_3run15WinitAppWrapperNtNt
+  12: <winit::platform_impl::windows::event_loop::runner::EventLoopRunner<winit::platform_impl::windows::event_loop::UserEventPlaceholder>>::catch_unwind::<(), winit::platform_impl::windows::event_loop::public_window_callback_inner::{closure#4}>
+  13: <winit::platform_impl::windows::event_loop::runner::EventLoopRunner<winit::platform_impl::windows::event_loop::UserEventPlaceholder>>::send_event
+  14: winit::platform_impl::windows::event_loop::public_window_callback_inner::{closure#4}
+  15: <winit::platform_impl::windows::event_loop::runner::EventLoopRunner<winit::platform_impl::windows::event_loop::UserEventPlaceholder>>::catch_unwind::<(), winit::platform_impl::windows::event_loop::public_window_callback_inner::{closure#4}>
+  16: winit::platform_impl::windows::event_loop::public_window_callback
+  17: CallWindowProcW
+  18: CallWindowProcW
+  19: wglSwapLayerBuffers
+  20: CallWindowProcW
+  21: CallWindowProcW
+  22: accesskit_windows::subclass::wnd_proc
+  23: CallWindowProcW
+  24: GetFocus
+  25: GetWindowDpiAwarenessContext
+  26: KiUserCallbackDispatcher
+  27: NtUserDispatchMessage
+  28: IsWindowUnicode
+  29: <winit::platform_impl::windows::event_loop::EventLoop<eframe::native::winit_integration::UserEvent>>::dispatch_peeked_messages
+  30: RINvMs1_NtNtNtCs2X75vya8tcH_5winit13platform_impl7windows10event_loopINtB6_9EventLoopNtNtNtCs3ry65oWNjj2_6eframe6native17winit_integration9UserEventE13run_on_demandNCINvYINtNtBc_10event_loop9EventLoopB1l_ENtNtNtBc_8platform13run_on_demand23EventLoopExtRunO
+  31: eframe::native::run::run_and_return::<eframe::native::glow_integration::GlowWinitApp>
+  32: RINvMs2_NtNtCslFVcyoAu48q_3std6thread5localINtB6_8LocalKeyINtNtCs55qC6OcLGgs_4core4cell7RefCellINtNtBZ_6option6OptionINtNtCs2X75vya8tcH_5winit10event_loop9EventLoopNtNtNtCs3ry65oWNjj2_6eframe6native17winit_integration9UserEventEEEE4withNCINvNtB2G_3run15wit
+  33: eframe::run_native
+  34: slate::run
+  35: <alloc::collections::btree::map::IntoIter<slate_doc::scene::NodeId, alloc::vec::Vec<slate_doc::ids::ItemId>> as core::ops::drop::Drop>::drop
+  36: <alloc::collections::btree::map::IntoIter<slate_doc::scene::NodeId, alloc::vec::Vec<slate_doc::ids::ItemId>> as core::ops::drop::Drop>::drop
+  37: std::rt::lang_start_internal::closure$0
+             at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library\std\src\rt.rs:175
+  38: std::panicking::catch_unwind::do_call
+             at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library\std\src\panicking.rs:581
+  39: std::panicking::catch_unwind
+             at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library\std\src\panicking.rs:544
+  40: std::panic::catch_unwind
+             at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library\std\src\panic.rs:359
+  41: std::rt::lang_start_internal
+             at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library\std\src\rt.rs:171
+  42: main
+  43: invoke_main
+             at D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:78
+  44: __scrt_common_main_seh
+             at D:\a\_work\1\s\src\vctools\crt\vcstartup\src\startup\exe_common.inl:288
+  45: BaseThreadInitThunk
+  46: RtlUserThreadStart
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.

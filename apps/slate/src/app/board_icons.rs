@@ -7,6 +7,10 @@ use eframe::egui::{self, Color32, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2}
 /// Icon glyphs for toolbar buttons and hover submenus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToolIcon {
+    Media,
+    Image,
+    Model,
+    Video,
     Select,
     Pan,
     Frame,
@@ -53,6 +57,10 @@ pub enum ToolIcon {
 impl ToolIcon {
     pub fn label(self) -> &'static str {
         match self {
+            ToolIcon::Media => "Media",
+            ToolIcon::Image => "Image",
+            ToolIcon::Model => "3D",
+            ToolIcon::Video => "Video",
             ToolIcon::Select => "Select",
             ToolIcon::Pan => "Pan",
             ToolIcon::Frame => "Frame",
@@ -90,372 +98,49 @@ impl ToolIcon {
     }
 }
 
-fn pt(r: Rect, x: f32, y: f32) -> Pos2 {
-    Pos2::new(r.min.x + r.width() * x, r.min.y + r.height() * y)
-}
-
-fn stroke_w(r: Rect) -> f32 {
-    (r.width() * 0.075).clamp(1.15, 1.85)
-}
-
-/// Paint a tool icon into `r` (square-ish rect).
+/// Paint through the shared shell icon catalog.
 pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: Color32) {
-    let w = stroke_w(r);
-    let s = Stroke::new(w, color);
-
-    match icon {
-        ToolIcon::Select => {
-            // Pointer arrow — tip upper-left, tail lower-right.
-            let tip = pt(r, 0.18, 0.16);
-            let tail = pt(r, 0.84, 0.86);
-            let wing = pt(r, 0.30, 0.30);
-            painter.line_segment([tip, tail], s);
-            painter.line_segment([tip, wing], s);
-            painter.line_segment([wing, pt(r, 0.38, 0.22)], s);
-        }
-        ToolIcon::Pan => {
-            // Open hand — palm block + finger strokes + thumb hook.
-            let palm = Rect::from_min_max(pt(r, 0.28, 0.50), pt(r, 0.88, 0.92));
-            painter.rect_stroke(palm, 2.0, s, egui::StrokeKind::Inside);
-            for x in [0.36, 0.48, 0.60, 0.72] {
-                painter.line_segment([pt(r, x, 0.18), pt(r, x, 0.50)], s);
-            }
-            painter.line_segment([pt(r, 0.14, 0.62), pt(r, 0.28, 0.48)], s);
-            painter.line_segment([pt(r, 0.14, 0.62), pt(r, 0.20, 0.74)], s);
-        }
-        ToolIcon::Frame => {
-            // Slide frame — outer rect + title-bar tick.
-            let outer = Rect::from_min_max(pt(r, 0.14, 0.12), pt(r, 0.86, 0.88));
-            painter.rect_stroke(outer, 1.5, s, egui::StrokeKind::Inside);
-            painter.line_segment([pt(r, 0.14, 0.24), pt(r, 0.86, 0.24)], s);
-        }
-        ToolIcon::Shapes => {
-            let rect = Rect::from_min_max(pt(r, 0.10, 0.28), pt(r, 0.58, 0.82));
-            painter.rect_stroke(rect, 1.5, s, egui::StrokeKind::Inside);
-            painter.add(egui::Shape::circle_stroke(
-                pt(r, 0.68, 0.38),
-                r.width() * 0.22,
-                s,
-            ));
-        }
-        ToolIcon::Rect => {
-            let rect = Rect::from_min_max(pt(r, 0.16, 0.22), pt(r, 0.84, 0.78));
-            painter.rect_stroke(rect, 1.5, s, egui::StrokeKind::Inside);
-        }
-        ToolIcon::Ellipse => {
-            painter.add(egui::Shape::ellipse_stroke(
-                r.center(),
-                Vec2::new(r.width() * 0.34, r.height() * 0.28),
-                s,
-            ));
-        }
-        ToolIcon::Curve => {
-            // Pen nib + short stroke (curve tool family).
-            painter.line_segment([pt(r, 0.20, 0.78), pt(r, 0.46, 0.22)], s);
-            painter.line_segment([pt(r, 0.46, 0.22), pt(r, 0.54, 0.34)], s);
-            painter.line_segment([pt(r, 0.54, 0.34), pt(r, 0.82, 0.28)], s);
-            painter.line_segment([pt(r, 0.20, 0.78), pt(r, 0.34, 0.62)], s);
-        }
-        ToolIcon::Line => {
-            painter.line_segment([pt(r, 0.16, 0.82), pt(r, 0.84, 0.18)], s);
-        }
-        ToolIcon::Arc => {
-            painter.add(egui::Shape::line(
-                vec![
-                    pt(r, 0.14, 0.72),
-                    pt(r, 0.28, 0.38),
-                    pt(r, 0.56, 0.22),
-                    pt(r, 0.82, 0.34),
-                ],
-                s,
-            ));
-        }
-        ToolIcon::Polyline => {
-            painter.add(egui::Shape::line(
-                vec![
-                    pt(r, 0.12, 0.70),
-                    pt(r, 0.38, 0.48),
-                    pt(r, 0.52, 0.62),
-                    pt(r, 0.72, 0.28),
-                    pt(r, 0.88, 0.44),
-                ],
-                s,
-            ));
-        }
-        ToolIcon::Bezier => {
-            painter.add(egui::Shape::CubicBezier(
-                egui::epaint::CubicBezierShape::from_points_stroke(
-                    [
-                        pt(r, 0.12, 0.72),
-                        pt(r, 0.36, 0.18),
-                        pt(r, 0.64, 0.82),
-                        pt(r, 0.88, 0.28),
-                    ],
-                    false,
-                    Color32::TRANSPARENT,
-                    s,
-                ),
-            ));
-        }
-        ToolIcon::Pen => {
-            painter.add(egui::Shape::line(
-                vec![
-                    pt(r, 0.14, 0.78),
-                    pt(r, 0.30, 0.62),
-                    pt(r, 0.42, 0.70),
-                    pt(r, 0.58, 0.40),
-                    pt(r, 0.78, 0.52),
-                    pt(r, 0.88, 0.30),
-                ],
-                s,
-            ));
-        }
-        ToolIcon::Text => {
-            // Serif T inside a light text-box hint.
-            let box_r = Rect::from_min_max(pt(r, 0.14, 0.20), pt(r, 0.86, 0.80));
-            painter.rect_stroke(
-                box_r,
-                1.5,
-                Stroke::new(w * 0.85, color.gamma_multiply(0.55)),
-                egui::StrokeKind::Inside,
-            );
-            painter.line_segment([pt(r, 0.28, 0.32), pt(r, 0.72, 0.32)], s);
-            painter.line_segment([pt(r, 0.50, 0.32), pt(r, 0.50, 0.72)], s);
-        }
-        ToolIcon::Ruler => {
-            // Ruler bar with tick marks.
-            let bar = Rect::from_min_max(pt(r, 0.22, 0.38), pt(r, 0.86, 0.62));
-            painter.rect_stroke(bar, 1.5, s, egui::StrokeKind::Inside);
-            for x in [0.30, 0.42, 0.54, 0.66, 0.78] {
-                let h = if (x - 0.54f32).abs() < 0.01 {
-                    0.22
-                } else {
-                    0.14
-                };
-                painter.line_segment([pt(r, x, 0.38), pt(r, x, 0.38 + h)], s);
-            }
-        }
-        ToolIcon::ChevronRight => {
-            painter.add(egui::Shape::line(
-                vec![pt(r, 0.34, 0.22), pt(r, 0.62, 0.50), pt(r, 0.34, 0.78)],
-                s,
-            ));
-        }
-        ToolIcon::ChevronLeft => {
-            painter.add(egui::Shape::line(
-                vec![pt(r, 0.66, 0.22), pt(r, 0.38, 0.50), pt(r, 0.66, 0.78)],
-                s,
-            ));
-        }
-        ToolIcon::Grid => {
-            // 3×3 lattice.
-            for f in [0.38, 0.62] {
-                painter.line_segment([pt(r, 0.16, f), pt(r, 0.84, f)], s);
-                painter.line_segment([pt(r, f, 0.16), pt(r, f, 0.84)], s);
-            }
-            let outer = Rect::from_min_max(pt(r, 0.16, 0.16), pt(r, 0.84, 0.84));
-            painter.rect_stroke(outer, 1.0, s, egui::StrokeKind::Inside);
-        }
-        ToolIcon::Snap => {
-            // Horseshoe magnet with pole ticks and a target dot.
-            painter.add(egui::Shape::line(
-                vec![
-                    pt(r, 0.30, 0.20),
-                    pt(r, 0.30, 0.52),
-                    pt(r, 0.38, 0.68),
-                    pt(r, 0.54, 0.72),
-                    pt(r, 0.68, 0.62),
-                    pt(r, 0.72, 0.44),
-                    pt(r, 0.72, 0.20),
-                ],
-                s,
-            ));
-            painter.line_segment([pt(r, 0.24, 0.28), pt(r, 0.38, 0.28)], s);
-            painter.line_segment([pt(r, 0.64, 0.28), pt(r, 0.80, 0.28)], s);
-            painter.circle_filled(pt(r, 0.51, 0.88), r.width() * 0.05, color);
-        }
-        ToolIcon::Align => {
-            // Two offset bars snapping to a shared left datum.
-            painter.line_segment([pt(r, 0.24, 0.14), pt(r, 0.24, 0.86)], s);
-            let top = Rect::from_min_max(pt(r, 0.30, 0.24), pt(r, 0.84, 0.42));
-            let bottom = Rect::from_min_max(pt(r, 0.30, 0.58), pt(r, 0.64, 0.76));
-            painter.rect_stroke(top, 1.0, s, egui::StrokeKind::Inside);
-            painter.rect_stroke(bottom, 1.0, s, egui::StrokeKind::Inside);
-        }
-        ToolIcon::Brush => {
-            // Handle + ferrule + expressive tip stroke.
-            painter.line_segment([pt(r, 0.72, 0.14), pt(r, 0.44, 0.50)], s);
-            painter.line_segment([pt(r, 0.80, 0.22), pt(r, 0.52, 0.58)], s);
-            painter.line_segment([pt(r, 0.44, 0.50), pt(r, 0.52, 0.58)], s);
-            painter.add(egui::Shape::convex_polygon(
-                vec![pt(r, 0.44, 0.50), pt(r, 0.52, 0.58), pt(r, 0.24, 0.82)],
-                color,
-                Stroke::NONE,
-            ));
-        }
-        ToolIcon::Eraser => {
-            // Tilted eraser block over a swept line.
-            let a = pt(r, 0.34, 0.24);
-            let b = pt(r, 0.62, 0.16);
-            let c = pt(r, 0.82, 0.48);
-            let d = pt(r, 0.54, 0.58);
-            painter.add(egui::Shape::closed_line(vec![a, b, c, d], s));
-            painter.line_segment([pt(r, 0.42, 0.40), pt(r, 0.66, 0.32)], s);
-            painter.line_segment([pt(r, 0.16, 0.80), pt(r, 0.70, 0.80)], s);
-        }
-        ToolIcon::Eyedropper => {
-            // Dropper body + tip + sample drop.
-            painter.line_segment([pt(r, 0.74, 0.16), pt(r, 0.36, 0.58)], s);
-            painter.line_segment([pt(r, 0.66, 0.10), pt(r, 0.86, 0.30)], s);
-            painter.add(egui::Shape::convex_polygon(
-                vec![pt(r, 0.36, 0.58), pt(r, 0.44, 0.66), pt(r, 0.20, 0.84)],
-                color,
-                Stroke::NONE,
-            ));
-        }
-        ToolIcon::Sticky => {
-            // Square note with a dog-eared corner.
-            painter.add(egui::Shape::line(
-                vec![
-                    pt(r, 0.18, 0.18),
-                    pt(r, 0.82, 0.18),
-                    pt(r, 0.82, 0.60),
-                    pt(r, 0.60, 0.82),
-                    pt(r, 0.18, 0.82),
-                    pt(r, 0.18, 0.18),
-                ],
-                s,
-            ));
-            painter.line_segment([pt(r, 0.82, 0.60), pt(r, 0.60, 0.60)], s);
-            painter.line_segment([pt(r, 0.60, 0.60), pt(r, 0.60, 0.82)], s);
-        }
-        ToolIcon::DirectSelect => {
-            // Hollow pointer (the white-arrow convention).
-            let tip = pt(r, 0.30, 0.14);
-            painter.add(egui::Shape::closed_line(
-                vec![
-                    tip,
-                    pt(r, 0.30, 0.70),
-                    pt(r, 0.44, 0.56),
-                    pt(r, 0.56, 0.82),
-                    pt(r, 0.64, 0.76),
-                    pt(r, 0.52, 0.52),
-                    pt(r, 0.70, 0.52),
-                ],
-                s,
-            ));
-        }
-        ToolIcon::Colors => {
-            // Overlapping fg/bg swatches.
-            let back = Rect::from_min_max(pt(r, 0.38, 0.38), pt(r, 0.84, 0.84));
-            painter.rect_stroke(back, 1.5, s, egui::StrokeKind::Inside);
-            let front = Rect::from_min_max(pt(r, 0.16, 0.16), pt(r, 0.62, 0.62));
-            painter.rect_filled(front, 1.5, color);
-        }
-        ToolIcon::Portals => {
-            // Portal frame with a diamond peephole (distinct from Frame's title bar).
-            let outer = Rect::from_min_max(pt(r, 0.16, 0.16), pt(r, 0.84, 0.84));
-            painter.rect_stroke(outer, 1.5, s, egui::StrokeKind::Inside);
-            painter.add(egui::Shape::closed_line(
-                vec![
-                    pt(r, 0.50, 0.30),
-                    pt(r, 0.68, 0.50),
-                    pt(r, 0.50, 0.70),
-                    pt(r, 0.32, 0.50),
-                ],
-                s,
-            ));
-        }
-        ToolIcon::RepoLens => {
-            // Branching commit graph: trunk + fork + merge tips.
-            painter.line_segment([pt(r, 0.18, 0.72), pt(r, 0.46, 0.72)], s);
-            painter.line_segment([pt(r, 0.46, 0.72), pt(r, 0.62, 0.40)], s);
-            painter.line_segment([pt(r, 0.46, 0.72), pt(r, 0.82, 0.72)], s);
-            painter.line_segment([pt(r, 0.62, 0.40), pt(r, 0.82, 0.40)], s);
-            for p in [
-                pt(r, 0.18, 0.72),
-                pt(r, 0.46, 0.72),
-                pt(r, 0.62, 0.40),
-                pt(r, 0.82, 0.40),
-                pt(r, 0.82, 0.72),
-            ] {
-                painter.circle_filled(p, r.width() * 0.055, color);
-            }
-        }
-        ToolIcon::StatusBoard => {
-            // KPI bars: three stacked progress marks.
-            painter.rect_stroke(
-                Rect::from_min_max(pt(r, 0.16, 0.16), pt(r, 0.84, 0.84)),
-                1.5,
-                s,
-                egui::StrokeKind::Inside,
-            );
-            for (y, w) in [(0.32, 0.62), (0.50, 0.48), (0.68, 0.34)] {
-                painter.line_segment([pt(r, 0.26, y), pt(r, w, y)], s);
-            }
-        }
-        ToolIcon::AtlasLens => {
-            // Folder card: a map of files, not a File Atlas window.
-            painter.rect_stroke(
-                Rect::from_min_max(pt(r, 0.18, 0.28), pt(r, 0.82, 0.80)),
-                1.5,
-                s,
-                egui::StrokeKind::Inside,
-            );
-            painter.line_segment([pt(r, 0.18, 0.40), pt(r, 0.82, 0.40)], s);
-            painter.rect_filled(
-                Rect::from_min_max(pt(r, 0.28, 0.50), pt(r, 0.46, 0.68)),
-                0.5,
-                color.gamma_multiply(0.55),
-            );
-            painter.rect_filled(
-                Rect::from_min_max(pt(r, 0.54, 0.50), pt(r, 0.72, 0.68)),
-                0.5,
-                color.gamma_multiply(0.35),
-            );
-        }
-        ToolIcon::WebPortal => {
-            // Globe: outline, one meridian, one equator — a page from elsewhere.
-            let c = pt(r, 0.5, 0.5);
-            let rad = r.width() * 0.34;
-            painter.circle_stroke(c, rad, s);
-            painter.line_segment([pt(r, 0.16, 0.5), pt(r, 0.84, 0.5)], s);
-            // Meridian as an ellipse approximated by two mirrored quadratics.
-            let top = pt(r, 0.5, 0.16);
-            let bottom = pt(r, 0.5, 0.84);
-            for side in [-1.0_f32, 1.0] {
-                let bulge = rad * 0.55 * side;
-                let mut pts = Vec::with_capacity(9);
-                for i in 0..=8 {
-                    let t = i as f32 / 8.0;
-                    let y = top.y + (bottom.y - top.y) * t;
-                    let x = c.x + bulge * (std::f32::consts::PI * t).sin();
-                    pts.push(Pos2::new(x, y));
-                }
-                painter.add(egui::Shape::line(pts, s));
-            }
-        }
-        ToolIcon::Trim => {
-            // Rectangle with a cutting line through it — the dying half is
-            // a lighter second stroke so the icon reads as "cut away".
-            let body = Rect::from_min_max(pt(r, 0.18, 0.28), pt(r, 0.82, 0.78));
-            painter.rect_stroke(body, 1.5, s, egui::StrokeKind::Inside);
-            painter.line_segment([pt(r, 0.10, 0.18), pt(r, 0.90, 0.88)], s);
-        }
-        ToolIcon::Join => {
-            // Two open strokes meeting at a shared end.
-            painter.line_segment([pt(r, 0.12, 0.72), pt(r, 0.50, 0.42)], s);
-            painter.line_segment([pt(r, 0.50, 0.42), pt(r, 0.88, 0.72)], s);
-            painter.circle_filled(pt(r, 0.50, 0.42), (r.width() * 0.07).max(1.4), color);
-        }
-        ToolIcon::Split => {
-            // Two halves of a rect with a gap — both sides stay.
-            let left = Rect::from_min_max(pt(r, 0.16, 0.28), pt(r, 0.46, 0.78));
-            let right = Rect::from_min_max(pt(r, 0.54, 0.28), pt(r, 0.84, 0.78));
-            painter.rect_stroke(left, 1.5, s, egui::StrokeKind::Inside);
-            painter.rect_stroke(right, 1.5, s, egui::StrokeKind::Inside);
-        }
-    }
+    use atlas_shell::icons::{self, Icon};
+    let icon = match icon {
+        ToolIcon::Media => Icon::Media,
+        ToolIcon::Image => Icon::Image,
+        ToolIcon::Model => Icon::Model,
+        ToolIcon::Video => Icon::Video,
+        ToolIcon::Select => Icon::Select,
+        ToolIcon::Pan => Icon::Pan,
+        ToolIcon::Frame => Icon::Frame,
+        ToolIcon::Shapes => Icon::Shapes,
+        ToolIcon::Rect => Icon::Rect,
+        ToolIcon::Ellipse => Icon::Ellipse,
+        ToolIcon::Curve => Icon::Pen,
+        ToolIcon::Line => Icon::Line,
+        ToolIcon::Arc => Icon::Arc,
+        ToolIcon::Polyline => Icon::Polyline,
+        ToolIcon::Bezier => Icon::Bezier,
+        ToolIcon::Pen => Icon::Pen,
+        ToolIcon::Text => Icon::Text,
+        ToolIcon::Ruler => Icon::Ruler,
+        ToolIcon::ChevronRight => Icon::ChevronRight,
+        ToolIcon::ChevronLeft => Icon::ChevronLeft,
+        ToolIcon::Grid => Icon::Grid,
+        ToolIcon::Snap => Icon::Snap,
+        ToolIcon::Align => Icon::Align,
+        ToolIcon::Brush => Icon::Brush,
+        ToolIcon::Eraser => Icon::Eraser,
+        ToolIcon::Eyedropper => Icon::Eyedropper,
+        ToolIcon::Sticky => Icon::Sticky,
+        ToolIcon::DirectSelect => Icon::DirectSelect,
+        ToolIcon::Colors => Icon::Colors,
+        ToolIcon::Portals => Icon::Portals,
+        ToolIcon::RepoLens => Icon::RepoLens,
+        ToolIcon::StatusBoard => Icon::StatusBoard,
+        ToolIcon::AtlasLens => Icon::AtlasLens,
+        ToolIcon::WebPortal => Icon::WebPortal,
+        ToolIcon::Trim => Icon::Trim,
+        ToolIcon::Join => Icon::Join,
+        ToolIcon::Split => Icon::Split,
+    };
+    icons::paint(painter, r, icon, color);
 }
 
 /// Square toolbar chip with a painted icon.

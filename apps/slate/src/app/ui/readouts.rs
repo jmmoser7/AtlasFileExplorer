@@ -5,7 +5,6 @@ use super::super::SlateApp;
 use atlas_shell::menu;
 use atlas_shell::widgets::{gear_menu, group_digits, menu_check_row};
 use eframe::egui::{self, RichText};
-use slate_doc::{link_status, LinkStatus};
 
 fn readouts_gear(app: &mut SlateApp, ui: &mut egui::Ui) {
     gear_menu(ui, "slate_readouts_gear", |ui| {
@@ -101,12 +100,8 @@ pub fn status_bar(app: &mut SlateApp, ctx: &egui::Context) {
             }
 
             if app.tab().chrome.readout(ReadoutPanel::LinkHealth) {
-                let missing = app
-                    .doc()
-                    .items
-                    .iter()
-                    .filter(|it| link_status(it) == LinkStatus::Missing)
-                    .count();
+                let health = app.tab().link_health.counts();
+                let missing = health.missing;
                 if missing > 0 {
                     ui.label(
                         RichText::new(format!("· {missing} missing link(s)"))
@@ -115,6 +110,16 @@ pub fn status_bar(app: &mut SlateApp, ctx: &egui::Context) {
                     .on_hover_text(
                         "Some linked files no longer exist at their saved path. \
                          Right-click an item to relink it.",
+                    );
+                }
+                if health.unknown > 0 {
+                    ui.label(
+                        RichText::new(format!("· {} link(s) unverified", health.unknown))
+                            .color(palette.sub),
+                    )
+                    .on_hover_text(
+                        "These links are still being checked or their source is unavailable. \
+                         Link checks run in the background and refresh periodically.",
                     );
                 }
             }

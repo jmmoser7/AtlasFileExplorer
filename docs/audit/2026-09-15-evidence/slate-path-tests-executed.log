@@ -1,0 +1,17 @@
+
+running 12 tests
+test app::board_path::tests::cache_hits_share_geometry_without_copying_vectors ... ok
+test app::board_path::tests::arc_approximates_circle ... ok
+test app::board_path::tests::diagonal_line_picks_stroke_not_bbox_interior ... ok
+test app::board_path::tests::hit_stroke_path_node ... ok
+test app::board_path::tests::legacy_line_shape_uses_stroke_pick ... ok
+test app::board_path::tests::oversized_geometry_renders_without_flushing_the_cache ... ok
+test app::board_path::tests::path_content_hash_is_stable_and_bucket_sensitive ... ok
+test app::board_path::tests::path_mesh_cache_evicts_oldest_instead_of_clearing ... ok
+test app::board_path::tests::rotating_a_warm_path_rebuilds_the_stroke_geometry ... ok
+test app::board_path::tests::round_trip_world_points ... ok
+test app::board_path::tests::stroke_and_fill_share_a_byte_budget_and_hits_get_a_second_chance ... ok
+test app::board_path::tests::ten_thousand_visible_paths_stay_warm_in_paint_order ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 316 filtered out; finished in 0.02s
+

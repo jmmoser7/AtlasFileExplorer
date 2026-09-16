@@ -6,6 +6,8 @@
 //! See `docs/keymap/specs/connectors.md`. Geometry is derived, never stored
 //! (`slate_doc::connector_route`); one gesture = one journaled step.
 
+const WIRE_BLISTER_SECONDS: f32 = 0.14;
+
 use super::board::{rgba32, BoardXf};
 use super::{board_path, SlateApp};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Stroke as EStroke, Vec2};
@@ -263,20 +265,35 @@ impl SlateApp {
     }
 
     pub(crate) fn paint_wire_grips(&self, painter: &egui::Painter, xf: &BoardXf) {
-        let Some(grips) = self.wire_grips else { return };
-        let Some(side) = grips.hovered else { return };
-        let Some(n) = self.doc().scene.node(grips.node) else {
+        let key = egui::Id::new("wire-blister-last");
+        if let Some(grips) = self.wire_grips {
+            painter.ctx().data_mut(|d| d.insert_temp(key, grips));
+        }
+        let Some(grips) = painter.ctx().data(|d| d.get_temp::<GripHover>(key)) else {
             return;
         };
-        let palette = self.palette();
-        let g = xf.w2s(port_point(n, side, 0.5));
-        let r = atlas_shell::canvas_scale::px(6.0, xf.z);
-        painter.circle_filled(g, r, palette.bg);
-        painter.circle_stroke(
-            g,
-            r,
-            EStroke::new(atlas_shell::canvas_scale::px(2.0, xf.z), palette.accent),
+        let Some(side) = grips.hovered else {
+            return;
+        };
+        let Some(node) = self.doc().scene.node(grips.node) else {
+            return;
+        };
+        let visible = self
+            .wire_grips
+            .is_some_and(|g| g.node == grips.node && g.hovered == Some(side));
+        let progress = painter.ctx().animate_bool_with_time(
+            egui::Id::new(("wire-blister", grips.node.0, side)),
+            visible,
+            WIRE_BLISTER_SECONDS,
         );
+        if progress <= 0.001 {
+            return;
+        }
+        let edge = xf.w2s(port_point(node, side, 0.5));
+        let r = atlas_shell::canvas_scale::px(6.0, xf.z);
+        let normal = WireHost::from_node(node).outward(side, 0.5);
+        let center = edge + egui::vec2(normal[0], normal[1]) * (r * (progress - 1.0));
+        painter.circle_filled(center, r, self.palette().accent.gamma_multiply(0.45));
     }
 
     // ----- gesture begin / update / end -----
@@ -524,8 +541,16 @@ impl SlateApp {
                 }
             },
             WireMode::Detach { conn, before, .. } => {
-                if let Some(after) = self.doc().scene.node(conn).cloned() {
+                if let Some(mut after) = self.doc().scene.node(conn).cloned() {
+                    if let (NodeKind::Connector(old), NodeKind::Connector(new)) =
+                        (&before.kind, &mut after.kind)
+                    {
+                        new.binding = slate_doc::agent_inputs::rebind(&self.doc().scene, old, new);
+                    }
                     if after != before {
+                        if let Some(node) = self.doc_mut().scene.node_mut(conn) {
+                            *node = after.clone();
+                        }
                         self.tab_mut().journal.record(vec![SceneCmd::Patch {
                             before: Box::new(before),
                             after: Box::new(after),
@@ -555,7 +580,13 @@ impl SlateApp {
                 let cmds: Vec<SceneCmd> = items
                     .iter()
                     .filter_map(|(id, _, before)| {
-                        let after = self.doc().scene.node(*id)?.clone();
+                        let mut after = self.doc().scene.node(*id)?.clone();
+                        if let (NodeKind::Connector(old), NodeKind::Connector(new)) =
+                            (&before.kind, &mut after.kind)
+                        {
+                            new.binding =
+                                slate_doc::agent_inputs::rebind(&self.doc().scene, old, new);
+                        }
                         (after != *before).then(|| SceneCmd::Patch {
                             before: Box::new(before.clone()),
                             after: Box::new(after),
@@ -564,6 +595,13 @@ impl SlateApp {
                     .collect();
                 if !cmds.is_empty() {
                     let n = cmds.len();
+                    for cmd in &cmds {
+                        if let SceneCmd::Patch { after, .. } = cmd {
+                            if let Some(node) = self.doc_mut().scene.node_mut(after.id) {
+                                *node = after.as_ref().clone();
+                            }
+                        }
+                    }
                     self.tab_mut().journal.record(cmds);
                     self.tab_mut().dirty = true;
                     self.note_scene_change();
@@ -599,7 +637,8 @@ impl SlateApp {
     /// Journaled connector Add (stroke = fg default, no arrows).
     pub(crate) fn add_connector(&mut self, a: ConnectorEnd, b: ConnectorEnd) -> Option<NodeId> {
         let stroke = self.default_wire_stroke();
-        let conn = ConnectorNode {
+        let mut conn = ConnectorNode {
+            binding: slate_doc::agent_inputs::infer_binding(&self.doc().scene, &a, &b),
             a,
             b,
             stroke,
@@ -608,6 +647,13 @@ impl SlateApp {
             label: None,
             display: WireDisplay::Default,
         };
+        if let Some(binding) = &mut conn.binding {
+            if binding.kind == slate_doc::agent_inputs::InputKind::Images {
+                let source = if binding.input_b { &conn.a } else { &conn.b };
+                binding.output = slate_doc::agent_inputs::endpoint_node(source)
+                    .and_then(|id| self.agent_active_output(id));
+            }
+        }
         let scene = &self.doc().scene;
         let obstacles = scene_wire_obstacles(scene);
         let rect = connector_aabb_routed(

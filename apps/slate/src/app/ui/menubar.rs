@@ -105,9 +105,17 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
                     .icon(MenuIcon::Tag)
                     .checked(chrome.tool(ToolPanel::Tags))
                     .separated(),
-                MenuItem::new("tools.selection", "Show Selection dock")
+                MenuItem::new("tools.selection", "Selection inspector")
                     .icon(MenuIcon::Details)
-                    .checked(chrome.tool(ToolPanel::Selection)),
+                    .shortcut("F3")
+                    .checked(
+                        chrome.tool(ToolPanel::Selection)
+                            && atlas_shell::dock::panel_is_open(
+                                ctx,
+                                super::tools::DOCK_ID,
+                                super::tools::SELECTION_PANEL_ID,
+                            ),
+                    ),
                 MenuItem::new("tools.view", "Show View dock")
                     .icon(MenuIcon::View)
                     .checked(chrome.tool(ToolPanel::Display)),
@@ -247,8 +255,7 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
             app.chrome_mut().set_tool(ToolPanel::Tags, on);
         }
         Some("tools.selection") => {
-            let on = !app.chrome().tool(ToolPanel::Selection);
-            app.chrome_mut().set_tool(ToolPanel::Selection, on);
+            app.dispatch(ctx, CommandId("app.properties"), Some("menu".into()));
         }
         Some("tools.view") => {
             let on = !app.chrome().tool(ToolPanel::Display);

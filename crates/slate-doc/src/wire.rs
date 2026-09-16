@@ -1634,6 +1634,7 @@ mod tests {
             group: None,
             clip: None,
             kind: NodeKind::Connector(ConnectorNode {
+                binding: None,
                 a,
                 b,
                 stroke: Stroke::default(),

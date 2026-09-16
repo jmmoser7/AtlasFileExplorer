@@ -1,0 +1,13 @@
+---
+description: Shared Quiet outline tool and primary palette icon system
+globs: crates/atlas-shell/src/icons.rs,crates/atlas-shell/assets/tool-icons.json,crates/atlas-shell/src/dock.rs,apps/*/src/app/board_icons.rs,apps/*/src/app/ui/tools.rs
+alwaysApply: false
+---
+
+# Tool icons
+
+Read `crates/atlas-shell/ICONS.md` before changing tool or palette glyphs.
+That specification owns the design rules; do not duplicate them here.
+Geometry belongs in `crates/atlas-shell/assets/tool-icons.json` and painting in
+`atlas_shell::icons`. Apps map semantic commands to the shared icon IDs.
+Keep the specimen generator consuming the shared catalog.

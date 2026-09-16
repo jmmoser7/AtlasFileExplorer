@@ -38,6 +38,20 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
             ui.separator();
             ui.add_space(6.0);
             preview_section(app, ui);
+            ui.separator();
+            let mut hover_rows = slate_doc::scene::NodeKind::KIND_NAMES
+                .map(|name| (name, app.settings.hover_highlight(name)));
+            if atlas_shell::prefs::hover_highlight_section(ui, &mut hover_rows) {
+                for (name, enabled) in hover_rows {
+                    if enabled != app.settings.hover_highlight(name) {
+                        app.dispatch(
+                            ctx,
+                            atlas_commands::CommandId("board.hover_highlight"),
+                            Some(name.into()),
+                        );
+                    }
+                }
+            }
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(6.0);

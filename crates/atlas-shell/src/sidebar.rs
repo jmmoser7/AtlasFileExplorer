@@ -139,18 +139,26 @@ pub fn sidebar_toolbar_row(ui: &mut Ui, add_controls: impl FnOnce(&mut Ui)) {
     ui.add_space(SidebarTokens::ROW_GAP);
 }
 
-/// Stacked-list toggle: wide capsule track, circular knob on the **left**
-/// carrying the icon, label in a fixed gutter. `active` lights the track
-/// and the knob (on); off is a dim track and a muted knob. The knob does
-/// not slide — left alignment is what keeps a two-column snap grid as two
-/// clean vertical tracks.
+pub fn paint_toggle_dot(
+    painter: &egui::Painter,
+    center: Pos2,
+    radius: f32,
+    hovered: bool,
+    active: f32,
+    theme: SidebarTheme,
+) {
+    let off = theme.sub.gamma_multiply(if hovered { 0.85 } else { 0.55 });
+    let fill = off.lerp_to_gamma(theme.ink, active);
+    painter.circle_filled(center, radius, fill);
+}
+
 pub fn sidebar_icon_row(
     ui: &mut Ui,
     label: &str,
     hotkey: Option<&str>,
     active: bool,
     theme: SidebarTheme,
-    paint_icon: impl FnOnce(&egui::Painter, Rect, Color32),
+    _paint_icon: impl FnOnce(&egui::Painter, Rect, Color32),
 ) -> egui::Response {
     let height = SidebarTokens::ICON_ROW_HEIGHT;
     let (rect, resp) = ui.allocate_exact_size(
@@ -161,28 +169,22 @@ pub fn sidebar_icon_row(
         Sense::click(),
     );
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
-    let track = Rect::from_center_size(
-        Pos2::new(
-            rect.left() + SidebarTokens::TOGGLE_TRACK_W * 0.5,
-            rect.center().y,
-        ),
-        Vec2::new(SidebarTokens::TOGGLE_TRACK_W, SidebarTokens::TOGGLE_TRACK_H),
-    );
+    let font_size = crate::tokens::current().dock.palette.labeled_text_size;
+    let diameter = font_size * 0.72;
     let t = ui
         .ctx()
         .animate_bool_with_time(resp.id.with("slide"), active, TOGGLE_SLIDE_SECS);
-    paint_sidebar_icon_pill(
+    paint_toggle_dot(
         ui.painter(),
-        track,
-        active,
+        Pos2::new(rect.left() + diameter * 0.5, rect.center().y),
+        diameter * 0.5,
         resp.hovered(),
         t,
         theme,
-        paint_icon,
     );
-    let label_x = rect.left() + SidebarTokens::TOGGLE_TRACK_W + 8.0;
+    let label_x = rect.left() + diameter + 8.0;
     let galley =
-        ui.fonts(|f| f.layout_no_wrap(label.to_owned(), FontId::proportional(13.0), theme.ink));
+        ui.fonts(|f| f.layout_no_wrap(label.to_owned(), FontId::proportional(font_size), theme.ink));
     if let Some(key) = hotkey {
         let kg =
             ui.fonts(|f| f.layout_no_wrap(key.to_owned(), FontId::proportional(11.0), theme.sub));
@@ -203,7 +205,7 @@ pub fn sidebar_icon_row(
 }
 
 /// Stacked-list tool: circular glyph + label. Not a toggle — only
-/// [`sidebar_icon_row`] paints the sliding pill.
+/// [`sidebar_icon_row`] paints the dot toggle.
 pub fn sidebar_tool_row(
     ui: &mut Ui,
     label: &str,
@@ -234,7 +236,14 @@ pub fn sidebar_tool_row(
     ui.painter().circle_stroke(
         icon.center(),
         r,
-        Stroke::new(1.0_f32, if active || resp.hovered() { theme.ink } else { theme.sub }),
+        Stroke::new(
+            1.0_f32,
+            if active || resp.hovered() {
+                theme.ink
+            } else {
+                theme.sub
+            },
+        ),
     );
     paint_icon(
         ui.painter(),

@@ -63,11 +63,14 @@ impl SlateApp {
     }
 
     pub(crate) fn save_chrome_prefs(&self) {
+        // Headless interaction tests retain changes only in their app instance.
+        #[cfg(not(test))]
         atlas_shell::prefs::ChromePrefs {
             dock_side: self.dock_side,
             pinned_panels: self.dock_pins.clone(),
             panel_icon_strip: self.dock_icon_strips.clone(),
             panel_strip_hidden: self.dock_strip_hidden.clone(),
+            panel_strip_order: self.dock_strip_order.clone(),
             minimap: self.minimap_on,
             dock_bar_collapsed: self.dock_bar_collapsed,
         }

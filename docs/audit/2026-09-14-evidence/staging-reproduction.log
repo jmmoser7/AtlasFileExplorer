@@ -1,0 +1,5 @@
+AUDIT REPRODUCTIONS: assertions below confirm existing defects; these are not product test passes.
+REPRODUCED wrong_target: target=C:\Users\jmoser\source\repos\AtlasFileExplorer\target\audit-2026-09-14\stage-probe\artifacts\workbook-a.slate active=C:\Users\jmoser\source\repos\AtlasFileExplorer\target\audit-2026-09-14\stage-probe\artifacts\workbook-b.slate accepted=true active_nodes=1
+REPRODUCED stale_before: before_accept_title="Human intervening title" after_accept_title="Original title" after_undo_title="Original title"; undo_restores_intervening_human_edit=false
+REPRODUCED restart_replay: decided_proposals_reloaded_as_pending=["accepted-once", "rejected-once"] workspace=C:\Users\jmoser\source\repos\AtlasFileExplorer\target\audit-2026-09-14\stage-probe\artifacts\restart-38576-1789427133719453700
+SUMMARY: all 3 existing staging defects reproduced via public slate-doc APIs; no application launched; no existing workbook modified.

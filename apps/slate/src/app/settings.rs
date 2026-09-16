@@ -7,6 +7,7 @@
 
 use atlas_core::preview::{MAX_PX_DEFAULT, MAX_PX_MAX, MAX_PX_MIN};
 use serde::{Deserialize, Serialize};
+#[cfg(not(test))]
 use std::path::PathBuf;
 
 /// Bounds and default for the preview memory budget (MB of decoded RGBA).
@@ -94,6 +95,9 @@ impl SnapReach {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SlateSettings {
+    /// Primary NodeKind names whose passive hover outline is disabled.
+    /// Empty preserves the existing behavior for old settings files.
+    pub hover_highlight_disabled: std::collections::BTreeSet<String>,
     pub preview: PreviewSettings,
     /// Board ortho constraint toggle (F8). The toggle + readout land now;
     /// the 45° gesture math arrives with the board-tools wave.
@@ -120,6 +124,7 @@ pub struct SlateSettings {
 impl Default for SlateSettings {
     fn default() -> Self {
         SlateSettings {
+            hover_highlight_disabled: Default::default(),
             preview: PreviewSettings::default(),
             board_ortho: false,
             board_osnap: slate_doc::ObjectSnapSet::default(),
@@ -134,20 +139,34 @@ impl Default for SlateSettings {
     }
 }
 
+#[cfg(not(test))]
 fn settings_path() -> PathBuf {
     atlas_core::index::data_dir().join("slate-settings.json")
 }
 
 impl SlateSettings {
+    pub fn hover_highlight(&self, kind: &str) -> bool {
+        !self.hover_highlight_disabled.contains(kind)
+    }
     pub fn load() -> SlateSettings {
-        std::fs::read_to_string(settings_path())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .map(SlateSettings::clamped)
-            .unwrap_or_default()
+        // Headless interaction tests must not inherit the developer's tools.
+        #[cfg(test)]
+        {
+            Self::default()
+        }
+        #[cfg(not(test))]
+        {
+            std::fs::read_to_string(settings_path())
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .map(SlateSettings::clamped)
+                .unwrap_or_default()
+        }
     }
 
     pub fn save(&self) {
+        // Tests exercise the session setting without changing personal prefs.
+        #[cfg(not(test))]
         if let Ok(json) = serde_json::to_string_pretty(self) {
             let path = settings_path();
             let tmp = path.with_extension("json.tmp");

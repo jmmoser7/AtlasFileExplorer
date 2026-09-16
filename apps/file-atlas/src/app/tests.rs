@@ -6,6 +6,8 @@
 //! checks the workspace invariants that keep tab switching crash-free.
 
 use super::*;
+use atlas_core::pack_sheet::SheetSort;
+use atlas_core::types::Family;
 use std::path::Path;
 
 struct Harness {
@@ -502,6 +504,68 @@ fn picker_result_lands_on_the_tab_that_asked() {
     h.pump_until_idle();
     assert_eq!(h.app.root.as_ref(), Some(&root_b));
     assert_eq!(h.app.entries.len(), 7);
+}
+
+#[test]
+fn cancelled_picker_stays_on_home() {
+    let mut h = Harness::new("picker_cancel_home");
+    assert!(h.app.at_home);
+    h.app.ensure_tab();
+    let tab_id = h.app.tabs[0].id;
+    let (tx, rx) = unbounded();
+    h.app.picker_rx = Some((tab_id, rx));
+    tx.send(None).unwrap();
+    h.frame();
+    assert!(h.app.at_home, "cancel must not leave Cover Flow");
+    assert!(h.app.root.is_none());
+}
+
+#[test]
+fn packed_sheet_keeps_filters_and_sorts() {
+    let mut h = Harness::new("packed_sheet");
+    let root = make_tree(&h._base.join("proj"), 9);
+    h.app.set_root(root);
+    h.pump_until_idle();
+    h.app.set_map_view(MapView::Packed);
+    let sheet = h.app.packed_sheet.as_ref().expect("sheet after packed");
+    let covers: Vec<u32> = sheet.covers().collect();
+    assert!(
+        !covers.is_empty(),
+        "image/video tiles should land on the sheet"
+    );
+    for &f in &covers {
+        let e = &h.app.entries[f as usize];
+        assert!(
+            matches!(e.family, Family::Image | Family::Video),
+            "packed tiles are images/videos, got {}",
+            e.ext
+        );
+        assert!(h.app.file_match[f as usize]);
+    }
+    let by_name = covers;
+    h.app.set_sheet_sort(SheetSort::Modified);
+    let by_mtime: Vec<u32> = h.app.packed_sheet.as_ref().unwrap().covers().collect();
+    assert_eq!(by_name.len(), by_mtime.len());
+    for i in 1..by_mtime.len() {
+        let a = h.app.entries[by_mtime[i - 1] as usize].mtime;
+        let b = h.app.entries[by_mtime[i] as usize].mtime;
+        assert!(a >= b, "modified sort is newest first");
+    }
+}
+
+#[test]
+fn picker_from_home_opens_the_folder() {
+    let mut h = Harness::new("picker_from_home");
+    let root = make_tree(&h._base.join("proj"), 3);
+    assert!(h.app.at_home);
+    h.app.ensure_tab();
+    let tab_id = h.app.tabs[0].id;
+    let (tx, rx) = unbounded();
+    h.app.picker_rx = Some((tab_id, rx));
+    tx.send(Some(vec![root.clone()])).unwrap();
+    h.frame();
+    assert!(!h.app.at_home);
+    assert_eq!(h.app.root.as_ref(), Some(&root));
 }
 
 #[test]

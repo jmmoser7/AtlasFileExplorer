@@ -1,0 +1,7 @@
+source=C:\Users\jmoser\source\repos\AtlasFileExplorer\crates\slate-doc\src\lib.rs
+rustc=rustc 1.97.1 (8bab26f4f 2026-07-14)
+arguments=["--test","--edition=2021","--crate-name","slate_doc","-O","-C","lto=thin","crates/slate-doc/src/lib.rs","--extern","serde=target/release/deps/libserde-33f41493c0974c22.rlib","--extern","serde_json=target/release/deps/libserde_json-04fd830b1a8d7864.rlib","-L","dependency=target/release/deps","-L","native=C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\VC\\Tools\\MSVC\\14.29.30133\\lib\\x64","-L","native=C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.19041.0\\ucrt\\x64","-L","native=C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.19041.0\\um\\x64","-o","C:\\Users\\jmoser\\source\\repos\\AtlasFileExplorer\\target\\stabilization-2026-09-15\\slate-doc-direct-tests.exe"]
+serde fingerprint=e921a6d189d62635 (little endian)
+serde_json fingerprint=943d18bf4e52f735 (little endian)
+These are matching existing Cargo release dependencies; changed slate-doc source is compiled afresh.
+This direct optimized test build is not cargo test or a full-workspace validation.

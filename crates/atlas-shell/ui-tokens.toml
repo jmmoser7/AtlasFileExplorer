@@ -174,13 +174,13 @@ accent_white_mix = 0.0
 
 [dock]
 icon_size = 43.0
-icon_gap = 14.0
+icon_gap = 11.0
 icon_text_size = 14.300000190734863
 label_text_size = 11.5
 squircle_exponent = 2.5
 popover_width = 270.0
 popover_max_height = 450.0
-popover_gap = 5.0
+popover_gap = 7.0
 popover_padding = 6.0
 popover_corner_radius = 10.5
 shadow_offset_x = 0.0
@@ -189,9 +189,9 @@ shadow_blur = 20.0
 shadow_spread = 1.0
 shadow_opacity = 0.25999999046325684
 close_delay = 0.44999998807907104
-left_margin = 15.0
-bottom_margin = 0.0
-stack_gap = 7.0
+left_margin = 22.0
+bottom_margin = 6.0
+stack_gap = 6.0
 partition_gap = 8.0
 partition_extend = 120.0
 partition_max_thickness = 0.5
@@ -204,42 +204,53 @@ tracer_border_hit = 10.0
 dashboard_describe_delay = 1.2000000476837158
 describe_fade_duration = 0.2800000011920929
 panel_open_duration = 0.18000000715255737
-hover_chip_gap = 16.0
+hover_chip_gap = 31.0
 flyout_icon_scale = 0.699999988079071
 
 [dock.palette]
-group_pad = 7.5
+group_pad = 5.0
 group_gap = 10.0
-group_radius = 11.0
+group_radius = 24.0
 group_stroke = 2.0999999046325684
-associate_fill = 0.64
-associate_stroke = 1.28
-associate_tint = 0.28
-pinned_stroke = 1.55
-pinned_tint = 0.22
-blister_width = 72.0
-blister_height = 11.0
+associate_fill = 0.0
+associate_stroke = 1.0
+associate_tint = 0.3799999952316284
+pinned_stroke = 1.0
+pinned_tint = 0.699999988079071
+icon_hover_fill = 0.0
+icon_hover_opacity = 1.0
+icon_hover_tint = 0.0
+hover_fade = 0.14000000059604645
+blister_width = 200.0
+blister_height = 2.0
 blister_sink = 5.0
+blister_radius = 15.199999809265137
+blister_shoulder = 7.0
+blister_fill = 0.44999998807907104
+blister_stroke = 1.0
+blister_arrow = 7.0
+blister_arrow_opacity = 0.4000000059604645
+blister_arrow_lift = -7.0
 collapse_zone = 22.0
-group_label_size = 11.5
-group_label_inset = 5.0
+group_label_size = 12.0
+group_label_inset = 3.0
 pallet_label_lift = 1.0
 category_label_size = 13.0
 group_label_lift = -2.0
-rule_stroke = 0.6000000238418579
-rule_offset = 8.0
-rule_extent = 0.0
-rule_text_gap = 6.0
+rule_stroke = 0.4000000059604645
+rule_offset = 6.5
+rule_extent = -6.0
+rule_text_gap = 5.199999809265137
 labeled_text_size = 9.5
-tertiary_stack_gap = 0.10000000149011612
-controls_width = 27.0
+tertiary_stack_gap = 3.0
+controls_width = 26.0
 caption_height = 32.0
 caption_text_size = 12.5
 dot_radius = 2.5
 dot_gap = 4.5
 dot_offset = 8.0
 dot_hit_x = 22.0
-dot_hit_y = 21.0
+dot_hit_y = 23.0
 dot_hit_end = 10.0
 dot_chip_gap = 17.0
 
@@ -443,9 +454,9 @@ icon_fill = [
     238,
 ]
 icon_hover = [
-    240,
-    242,
-    245,
+    249,
+    249,
+    249,
     242,
 ]
 icon_active = [
@@ -459,6 +470,12 @@ popover_fill = [
     249,
     250,
     248,
+]
+blister_fill = [
+    92,
+    99,
+    114,
+    255,
 ]
 border = [
     215,
@@ -528,6 +545,12 @@ popover_fill = [
     22,
     248,
 ]
+blister_fill = [
+    77,
+    111,
+    159,
+    255,
+]
 border = [
     54,
     60,
@@ -575,15 +598,17 @@ red = [
 cover_frac = 0.550000011920929
 cover_min = 350.0
 cover_max = 470.0
-center_y_frac = 0.550000011920929
+center_y_frac = 0.43
 side_step_frac = 0.33000001311302185
 center_bulge_frac = 0.75
 bulge_width = 0.6000000238418579
 angle_max_deg = -80.0
 angle_width = 1.7000000476837158
 corner_bevel_frac = 0.03500000014901161
-ao_size = 118.0
-ao_strength = 0.10000000149011612
+ao_size = 34.0
+ao_strength = 0.32
+reflection_height_frac = 0.26
+reflection_opacity = 0.28
 depth_max = 210.0
 depth_width = 2.0
 focal = 1250.0

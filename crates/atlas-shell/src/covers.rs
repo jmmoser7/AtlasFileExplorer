@@ -14,10 +14,12 @@ use std::sync::{Mutex, OnceLock};
 const COVER_W: u32 = 512;
 const COVER_H: u32 = 512;
 const MOSAIC_N: usize = 9;
-const BG: Rgba<u8> = Rgba([0x1c, 0x20, 0x26, 255]);
-const CARD: Rgba<u8> = Rgba([0x2a, 0x32, 0x3c, 255]);
-const CARD_BORDER: Rgba<u8> = Rgba([0x45, 0x55, 0x66, 255]);
-const LINE: Rgba<u8> = Rgba([0x55, 0x66, 0x77, 255]);
+// Generated diagrams are white coverage masks, tinted by the live palette.
+// Empty mosaic cells are transparent so the album material follows the theme.
+const BG: Rgba<u8> = Rgba([255, 255, 255, 0]);
+const CARD: Rgba<u8> = Rgba([255, 255, 255, 18]);
+const CARD_BORDER: Rgba<u8> = Rgba([255, 255, 255, 70]);
+const LINE: Rgba<u8> = Rgba([255, 255, 255, 95]);
 
 /// Build (or reuse) a folder cover from media and/or a structure diagram.
 pub fn bake_folder_cover(root: &Path) -> Option<PathBuf> {
@@ -27,7 +29,9 @@ pub fn bake_folder_cover(root: &Path) -> Option<PathBuf> {
     }
     let samples = sample_media(root, MOSAIC_N);
     if !samples.is_empty() {
-        return bake_mosaic_cover(root, &samples);
+        if let Some(cover) = bake_mosaic_cover(root, &samples) {
+            return Some(cover);
+        }
     }
     bake_folder_structure_cover(root)
 }
@@ -42,7 +46,11 @@ pub fn bake_mosaic_cover(key_path: &Path, samples: &[PathBuf]) -> Option<PathBuf
         return None;
     }
     let mut canvas = image::RgbaImage::from_pixel(COVER_W, COVER_H, BG);
+    let mut decoded = 0;
     for (i, path) in samples.iter().take(MOSAIC_N).enumerate() {
+        if atlas_core::cloud::is_dehydrated(path) {
+            continue;
+        }
         let Ok(src) = image::open(path) else {
             continue;
         };
@@ -50,6 +58,10 @@ pub fn bake_mosaic_cover(key_path: &Path, samples: &[PathBuf]) -> Option<PathBuf
         let (y0, y1) = cell_bounds((i / 3) as u32, 3, COVER_H);
         let img = fill_cell(&src.to_rgba8(), x1 - x0, y1 - y0);
         image::imageops::overlay(&mut canvas, &img, x0 as i64, y0 as i64);
+        decoded += 1;
+    }
+    if decoded == 0 {
+        return None;
     }
     save_cover(&out, canvas)
 }
@@ -106,7 +118,9 @@ fn fill_cell(src: &image::RgbaImage, cell_w: u32, cell_h: u32) -> image::RgbaIma
 /// Workbook cover: mosaic when linked images exist, otherwise a workbook tile.
 pub fn bake_workbook_cover(key_path: &Path, media: &[PathBuf]) -> Option<PathBuf> {
     if !media.is_empty() {
-        return bake_mosaic_cover(key_path, media);
+        if let Some(cover) = bake_mosaic_cover(key_path, media) {
+            return Some(cover);
+        }
     }
     bake_workbook_tile_cover(key_path)
 }
@@ -173,9 +187,9 @@ fn cache_hit(out: &Path) -> bool {
     out.is_file() && std::fs::metadata(out).map(|m| m.len() > 0).unwrap_or(false)
 }
 
-fn save_cover(out: &Path, canvas: image::RgbaImage) -> Option<PathBuf> {
+fn save_cover(out: &Path, canvas: impl Into<image::DynamicImage>) -> Option<PathBuf> {
     let _ = std::fs::create_dir_all(covers_dir());
-    canvas.save(out).ok()?;
+    canvas.into().save(out).ok()?;
     Some(out.to_path_buf())
 }
 
@@ -202,7 +216,11 @@ fn bake_folder_structure_cover(root: &Path) -> Option<PathBuf> {
     let children = immediate_subdir_names(root, 6);
     let mut canvas = image::RgbaImage::from_pixel(COVER_W, COVER_H, BG);
     paint_mini_tree(&mut canvas, &root_name, &children);
-    save_cover(&out, canvas)
+    // PNG grayscale+alpha identifies a theme mask; RGB(A) is always artwork.
+    save_cover(
+        &out,
+        image::DynamicImage::ImageRgba8(canvas).into_luma_alpha8(),
+    )
 }
 
 fn bake_workbook_tile_cover(key_path: &Path) -> Option<PathBuf> {
@@ -220,11 +238,7 @@ fn bake_workbook_tile_cover(key_path: &Path) -> Option<PathBuf> {
     let card_h = 180u32;
     let x0 = (COVER_W - card_w) / 2;
     let y0 = (COVER_H - card_h) / 2 - 20;
-    for (i, tint) in [
-        (0i32, CARD),
-        (4, CARD.gamma_multiply(0.92)),
-        (8, CARD.gamma_multiply(0.85)),
-    ] {
+    for (i, tint) in [(0i32, CARD), (4, CARD.fade(0.92)), (8, CARD.fade(0.85))] {
         fill_rect(
             &mut canvas,
             x0 + i as u32,
@@ -243,7 +257,10 @@ fn bake_workbook_tile_cover(key_path: &Path) -> Option<PathBuf> {
         );
     }
     let _ = name; // reserved for future label rendering
-    save_cover(&out, canvas)
+    save_cover(
+        &out,
+        image::DynamicImage::ImageRgba8(canvas).into_luma_alpha8(),
+    )
 }
 
 fn immediate_subdir_names(root: &Path, limit: usize) -> Vec<String> {
@@ -422,17 +439,17 @@ fn sample_media(root: &Path, limit: usize) -> Vec<PathBuf> {
     out
 }
 
-trait RgbaGamma {
-    fn gamma_multiply(self, gamma: f32) -> Self;
+trait RgbaCoverage {
+    fn fade(self, opacity: f32) -> Self;
 }
 
-impl RgbaGamma for Rgba<u8> {
-    fn gamma_multiply(self, gamma: f32) -> Self {
+impl RgbaCoverage for Rgba<u8> {
+    fn fade(self, opacity: f32) -> Self {
         Rgba([
-            ((self.0[0] as f32) * gamma).round().clamp(0.0, 255.0) as u8,
-            ((self.0[1] as f32) * gamma).round().clamp(0.0, 255.0) as u8,
-            ((self.0[2] as f32) * gamma).round().clamp(0.0, 255.0) as u8,
-            self.0[3],
+            self.0[0],
+            self.0[1],
+            self.0[2],
+            ((self.0[3] as f32) * opacity).round().clamp(0.0, 255.0) as u8,
         ])
     }
 }
@@ -542,6 +559,22 @@ mod tests {
         let _ = std::fs::create_dir_all(&sub);
         let out = bake_folder_structure_cover(&dir).expect("structure cover");
         assert!(out.is_file());
+        let mask = image::open(&out).unwrap();
+        assert_eq!(mask.color(), image::ColorType::La8);
+        let mask = mask.to_rgba8();
+        assert_eq!(
+            mask.get_pixel(0, 0).0[3],
+            0,
+            "background follows live palette"
+        );
+        assert!(
+            mask.pixels().any(|p| p.0[3] > 0),
+            "diagram must remain visible"
+        );
+        assert!(
+            mask.pixels().all(|p| p.0[..3] == [255, 255, 255]),
+            "mask carries no baked dark color"
+        );
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(out);
     }

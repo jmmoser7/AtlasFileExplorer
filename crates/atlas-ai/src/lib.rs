@@ -26,6 +26,7 @@ pub mod cursor_chats;
 pub mod cursor_key;
 pub mod cursor_recents;
 pub mod launch;
+pub mod runtime;
 pub mod sidecar;
 pub mod ui;
 

@@ -1,6 +1,7 @@
 use super::cam::FolderCam;
 use super::collapse::{grip_positions, DirGrip};
 use crate::canvas_scale;
+use atlas_core::pack_sheet::{PackedSheet, SheetTile};
 use atlas_core::tree::{Hit, Orient, Tree};
 use eframe::egui::Pos2;
 
@@ -9,6 +10,24 @@ pub struct MapHover {
     pub file: Option<u32>,
     pub dir: Option<u32>,
     pub grip: Option<DirGrip>,
+}
+
+/// Packed-sheet hover: a file tile selects the file; a stack cover is the
+/// folder (click expands, same recorded collapse as the tree).
+pub fn hover_sheet(sheet: &PackedSheet, cam: FolderCam, screen: Pos2) -> MapHover {
+    match sheet.hit_tile(cam.s2w(screen)) {
+        Some(SheetTile::File(f)) => MapHover {
+            file: Some(f),
+            dir: None,
+            grip: None,
+        },
+        Some(SheetTile::Stack { dir, .. }) => MapHover {
+            file: None,
+            dir: Some(dir),
+            grip: None,
+        },
+        None => MapHover::default(),
+    }
 }
 
 /// File-first hover, then directory, then collapse grips — File Atlas order.

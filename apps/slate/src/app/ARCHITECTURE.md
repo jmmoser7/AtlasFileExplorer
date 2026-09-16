@@ -246,6 +246,22 @@ point-to-point works now; curve/surface/volume modes need brep/NURBS metadata.
 
 ### Web portals (`board_web.rs`, `board_web_win.rs`)
 
+Live captures have stable CSS-derived dimensions, capped proportionally at
+1920 pixels on the longest edge and 2,073,600 total pixels. Camera zoom only
+scales the existing texture. Visible admitted pages retain their sessions
+through zoom; off-screen pages still release bounded pool slots. Native
+readback pipelines two staging textures and polls with `DO_NOT_WAIT`, keeping
+the previous image while a GPU copy is unfinished. Uploads update an existing
+egui texture. Native WebView2 Escape is forwarded to the one command cancel
+stack, which restores maximize before releasing contents focus.
+
+Incoming Windows URL/link and file drops are adapted by `external_drop.rs`.
+The root viewport disables winit's file-only target and installs one OLE
+target. It queues bounded payloads and the actual client drop coordinates;
+`board_web` owns URL placement/rebinding and the existing file path handles
+files. Native Chrome/Edge tab-strip docking is not a standard URL payload;
+see `docs/keymap/research/browser-drop.md`.
+
 A web portal is a host-class portal whose contents are a page — an `http(s)`
 URL, or a local `.html` file or folder. The frame, the locator, and the
 viewport parameters are journaled; the rendered page never is.
@@ -319,6 +335,17 @@ thumbnail cache (`atlas_core::thumbs`), which both apps read.
 
 ## Workbook lifecycle invariants
 
+Link health is derived per-tab state in `slate_doc::LinkHealthCache`. The
+readout and Grid/Venn paint only cached results; neither may call the blocking
+`link_status` helper. Two lazy workers perform metadata-only checks with a
+bounded queue and generation-tagged results, refreshing every 30 seconds.
+Inaccessible or unchecked sources are Unknown, not Missing. The app drains and
+schedules bounded work under `slate.link_health`; `slate.readouts` measures the
+chrome separately. Reconciliation follows `SlateDoc::item_paths_revision`
+(add/remove/relink), not scene edits. Code that directly replaces public `items`
+or edits their paths must call `mark_item_paths_changed`; replacing a tab's whole
+document must reset `link_health_revision`.
+
 1. `tabs` is never empty; `active_tab` always in bounds.
 2. Every document mutation goes through `SlateApp::doc_mut()` (sets `dirty`).
 3. Dirty tabs refuse to close (toast, no data loss).
@@ -334,3 +361,36 @@ thumbnail cache (`atlas_core::thumbs`), which both apps read.
    heartbeated each frame; `close_tab` and app exit release it.
 
 `tests.rs` drives the real frame loop headlessly over these invariants.
+
+
+### Agent portal refinement (2026-09-15)
+
+The neutral DTOs live in `atlas-agent`; `atlas-ai::agent` re-exports them and
+supervises background file exchange. `atlas-codex` is the renderer-free Codex
+app-server leaf. `slate-doc::agent_inputs` resolves canvas context and typed
+ConnectorNode bindings once per run; adapters consume that snapshot. There is
+no second wire graph. Unbundle prepares one validated SceneCmd group.
+
+`board_portal::portal_enter_interactive` / `contents_blur` own the authoritative
+contents-focus slot. Agent/web/Atlas enter/leave hooks mirror that selection and
+perform only provider-specific effects. `atlas-shell::home::advance_flow` owns
+both home-cover and image-album motion. Image results use the shared bounded
+preview path and remain linked assets; portal chrome owns hover Maximize.
+
+
+### Media and PowerPoint previews
+
+`ui/tools.rs` adds Media with Image / 3D / Video. File-picker results carry the
+requesting tab and placement point. All three use existing linked item placement;
+Rhino and Video retain their existing interpreters.
+
+`pdf::documents` owns source-scoped, bounded background preparation for PDFs and
+PowerPoint. It keeps the source locator intact, keys derived PDFs by source
+revision and render version, and retains the last preview during refresh.
+`atlas_core::office::powerpoint` is the Windows automation leaf: hidden, read-only,
+macro-disabled PowerPoint conversion to a local cache destination. It is never
+called from scanning, thumbnail warming, or frame-loop source I/O. Other machines
+can use an exported PDF without Office. The existing thumbnail/preview pools render
+the prepared PDF; `pdf.rs` owns page browsing. Board page selection patches the
+linked page item through the scene journal, so undo/redo works. HTML export stores
+posters per item rather than collapsing distinct selected pages of the same source.
