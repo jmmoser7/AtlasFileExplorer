@@ -37,6 +37,7 @@ pub struct SnapScope {
 
 impl SnapScope {
     /// No culling — used by unit tests that only care about the math.
+    #[cfg(test)]
     pub fn open(threshold: f32) -> Self {
         Self {
             threshold,
@@ -251,6 +252,7 @@ fn best_axis_snap(
 }
 
 /// Snap a proposed bounding box to nearby object edges/centers.
+#[cfg(test)]
 pub fn snap_bbox(
     proposed: WorldRect,
     exclude: &[NodeId],
@@ -468,6 +470,7 @@ impl ResizeSnapEdges {
 }
 
 /// Snap only the moving edges of a resize rect.
+#[cfg(test)]
 pub fn snap_resize_rect(
     proposed: WorldRect,
     exclude: &[NodeId],
@@ -1006,6 +1009,7 @@ pub fn ortho_snap_point(origin: Pos2, p: Pos2) -> Pos2 {
 }
 
 /// Shift-constrain a rubber-band draw rect (square for shapes/frames).
+#[cfg(test)]
 pub fn constrain_draw_rect(raw: WorldRect, tool_square: bool, shift: bool) -> WorldRect {
     if !shift || !tool_square {
         return raw.normalized();

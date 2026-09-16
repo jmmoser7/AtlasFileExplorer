@@ -1696,8 +1696,10 @@ fn draw_rect_shift_does_not_silence_forcefield() {
     h.app.board_drag =
         h.app
             .begin_gesture_for_test(Pos2::new(10.0, 10.0), start, Default::default());
-    let mut mods = egui::Modifiers::default();
-    mods.shift = true;
+    let mods = egui::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
     h.app.update_gesture_for_test(end, mods);
     assert!(
         !h.app.board_snap_guides.is_empty(),
@@ -2068,7 +2070,7 @@ fn gp2_dropping_a_folder_binds_a_file_atlas_lens() {
     std::fs::write(folder.join("a.png"), [0u8; 8]).unwrap();
     let rest = h
         .app
-        .queue_folder_drop_choosers(&[folder.clone()], Pos2::ZERO);
+        .queue_folder_drop_choosers(std::slice::from_ref(&folder), Pos2::ZERO);
     assert!(rest.is_empty());
     assert_eq!(h.app.atlas_lenses.pending_drops.len(), 1);
     h.app.apply_folder_drop(
@@ -2538,8 +2540,10 @@ fn canvas_click_release_places_a_default_rect() {
 #[test]
 fn arming_gp3_rect_shift_drag_is_square() {
     let mut h = arming_board("arming_gp3", board::BoardTool::RectShape);
-    let mut mods = egui::Modifiers::default();
-    mods.shift = true;
+    let mods = egui::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
     h.app.finish_draw(
         Pos2::new(0.0, 0.0),
         Pos2::new(120.0, 40.0),
@@ -4371,7 +4375,7 @@ fn selection_outline_follows_silhouette() {
         "an ellipse highlight must be circular, not a box"
     );
 
-    let portal = h.app.doc().scene.nodes.iter().rev().next().unwrap();
+    let portal = h.app.doc().scene.nodes.last().unwrap();
     let p_pts = h.app.node_screen_outline(&h.ctx, &xf, portal);
     assert!(
         p_pts.len() > 4,
@@ -4671,10 +4675,12 @@ fn group_reposition_keeps_member_size() {
         group_before: gb,
         handle: board_handles::ResizeHandle::E as u8,
     });
-    let mut mods = egui::Modifiers::default();
-    mods.ctrl = true;
-    mods.alt = true;
-    mods.shift = true;
+    let mods = egui::Modifiers {
+        ctrl: true,
+        alt: true,
+        shift: true,
+        ..Default::default()
+    };
     h.app.update_gesture_for_test(Pos2::new(300.0, 30.0), mods);
     let ra = h.app.doc().scene.node(a).unwrap().rect;
     let rb = h.app.doc().scene.node(b).unwrap().rect;
@@ -4826,8 +4832,10 @@ fn rotated_180_resize_moves_the_grabbed_edge() {
         .map(|c| c.1)
         .fold(f32::NEG_INFINITY, f32::max);
     let (cx, _) = n.rect.center();
-    let mut mods = egui::Modifiers::default();
-    mods.alt = true; // skip object-snap so the pin is the only translation
+    let mods = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    }; // skip object-snap so the pin is the only translation
     h.app
         .update_gesture_for_test(Pos2::new(cx, top0 - 20.0), mods);
 

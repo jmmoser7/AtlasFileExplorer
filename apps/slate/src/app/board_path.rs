@@ -810,22 +810,19 @@ pub fn board_pick_node_routed(
         if matches!(n.kind, NodeKind::Connector(_)) {
             continue;
         }
-        match &n.kind {
-            NodeKind::Shape(s) => {
-                if shape_uses_stroke_pick(n, s) {
-                    if hit_shape_stroke(n, s, wx, wy, zoom) {
-                        return Some(n.id);
-                    }
-                    continue;
+        if let NodeKind::Shape(s) = &n.kind {
+            if shape_uses_stroke_pick(n, s) {
+                if hit_shape_stroke(n, s, wx, wy, zoom) {
+                    return Some(n.id);
                 }
-                if s.shape == ShapeKind::Path {
-                    if hit_path_node(n, s, wx, wy, zoom) {
-                        return Some(n.id);
-                    }
-                    continue;
-                }
+                continue;
             }
-            _ => {}
+            if s.shape == ShapeKind::Path {
+                if hit_path_node(n, s, wx, wy, zoom) {
+                    return Some(n.id);
+                }
+                continue;
+            }
         }
         if n.rect.contains_rotated(wx, wy, n.rotation_deg) {
             return Some(n.id);

@@ -42,7 +42,7 @@ pub fn sync(state: &mut Forcefield, guides: &[SnapGuide], now: f64, tokens: Boar
     });
     for g in guides {
         let key = (g.axis, quantize(g.pos));
-        if state.held.iter().any(|&h| h == key) {
+        if state.held.contains(&key) {
             continue;
         }
         if state.pulses.iter().any(|p| same_field(p, g.axis, g.pos)) {

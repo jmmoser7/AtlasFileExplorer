@@ -157,16 +157,6 @@ pub enum WebHealth {
     Missing,
 }
 
-impl WebHealth {
-    fn color(self) -> Color32 {
-        match self {
-            WebHealth::Ok => Color32::from_rgb(120, 200, 140),
-            WebHealth::Unknown => Color32::from_rgb(150, 160, 175),
-            WebHealth::Missing => Color32::from_rgb(230, 130, 120),
-        }
-    }
-}
-
 /// What a portal is worth drawing at its current on-screen size (D23).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WebLod {
@@ -823,7 +813,7 @@ impl SlateApp {
             }
         }
         if let Some(fid) = self.web.focused {
-            if pending.iter().any(|id| *id == fid) {
+            if pending.contains(&fid) {
                 pending.retain(|id| *id != fid);
                 pending.insert(0, fid);
             }
@@ -1196,6 +1186,7 @@ impl SlateApp {
         true
     }
 
+    #[cfg(test)]
     pub(crate) fn web_paste_url_text(&mut self, text: &str) -> bool {
         self.web_paste_url_text_of(None, text)
     }

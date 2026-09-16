@@ -553,6 +553,7 @@ impl SlateApp {
 
     /// Shared close of the host paint sequence: fillet punch → identity
     /// chrome → hover/focus stroke. Kind-specific work is the body hook.
+    #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
     pub(crate) fn paint_portal_shell_finish(
         &mut self,
         ui: &egui::Ui,
@@ -684,6 +685,29 @@ fn fit_xf(world: WorldRect, dest: Rect) -> BoardXf {
         offset: eframe::egui::vec2(world.x + world.w * 0.5, world.y + world.h * 0.5),
         z,
     }
+}
+
+#[cfg(test)]
+fn point_in_convex(poly: &[Pos2], p: Pos2) -> bool {
+    if poly.len() < 3 {
+        return false;
+    }
+    let mut sign = 0.0f32;
+    for i in 0..poly.len() {
+        let a = poly[i];
+        let b = poly[(i + 1) % poly.len()];
+        let cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        if cross.abs() < 1e-3 {
+            continue;
+        }
+        let s = cross.signum();
+        if sign == 0.0 {
+            sign = s;
+        } else if s != sign {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -876,26 +900,4 @@ mod tests {
             "the inset page corner must still be clipped"
         );
     }
-}
-
-fn point_in_convex(poly: &[Pos2], p: Pos2) -> bool {
-    if poly.len() < 3 {
-        return false;
-    }
-    let mut sign = 0.0f32;
-    for i in 0..poly.len() {
-        let a = poly[i];
-        let b = poly[(i + 1) % poly.len()];
-        let cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-        if cross.abs() < 1e-3 {
-            continue;
-        }
-        let s = cross.signum();
-        if sign == 0.0 {
-            sign = s;
-        } else if s != sign {
-            return false;
-        }
-    }
-    true
 }

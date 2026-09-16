@@ -614,9 +614,11 @@ mod tests {
     #[test]
     fn picks_rect_corner_as_end() {
         let scene = scene_with(vec![rect_node(1, 100.0, 50.0, 80.0, 40.0)]);
-        let mut set = ObjectSnapSet::default();
-        set.mid = false;
-        set.center = false;
+        let set = ObjectSnapSet {
+            mid: false,
+            center: false,
+            ..Default::default()
+        };
         let hit = pick(
             &scene,
             Pos2::new(102.0, 51.0),
@@ -635,8 +637,10 @@ mod tests {
     #[test]
     fn end_beats_near_on_the_same_corner() {
         let scene = scene_with(vec![rect_node(1, 0.0, 0.0, 40.0, 40.0)]);
-        let mut set = ObjectSnapSet::default();
-        set.near = true;
+        let set = ObjectSnapSet {
+            near: true,
+            ..Default::default()
+        };
         let hit = pick(
             &scene,
             Pos2::new(1.0, 1.0),
@@ -674,11 +678,13 @@ mod tests {
     #[test]
     fn tan_from_outside_circle() {
         let scene = scene_with(vec![ellipse_node(1, 0.0, 0.0, 100.0, 100.0)]);
-        let mut set = ObjectSnapSet::default();
-        set.end = false;
-        set.mid = false;
-        set.center = false;
-        set.tangent = true;
+        let set = ObjectSnapSet {
+            end: false,
+            mid: false,
+            center: false,
+            tangent: true,
+            ..Default::default()
+        };
         let from = Pos2::new(200.0, 50.0);
         let pts = tangents_on_ellipse(WorldRect::new(0.0, 0.0, 100.0, 100.0), 0.0, [200.0, 50.0]);
         let cursor = Pos2::new(pts[0][0] + 1.0, pts[0][1] + 1.0);

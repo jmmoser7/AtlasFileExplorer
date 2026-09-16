@@ -61,20 +61,22 @@ impl raw_window_handle::HasDisplayHandle for DialogOwner {
     }
 }
 
-pub(crate) fn pick_folders(title: &str, owner: Option<DialogOwner>) -> Option<Vec<PathBuf>> {
-    let mut dlg = rfd::FileDialog::new().set_title(title);
+pub(crate) fn pick_folders(title: &str, _owner: Option<DialogOwner>) -> Option<Vec<PathBuf>> {
+    let dlg = rfd::FileDialog::new().set_title(title);
     #[cfg(windows)]
-    if let Some(owner) = owner {
-        dlg = dlg.set_parent(&owner);
-    }
+    let dlg = match _owner {
+        Some(owner) => dlg.set_parent(&owner),
+        None => dlg,
+    };
     dlg.pick_folders()
 }
 
-pub(crate) fn pick_folder(title: &str, owner: Option<DialogOwner>) -> Option<PathBuf> {
-    let mut dlg = rfd::FileDialog::new().set_title(title);
+pub(crate) fn pick_folder(title: &str, _owner: Option<DialogOwner>) -> Option<PathBuf> {
+    let dlg = rfd::FileDialog::new().set_title(title);
     #[cfg(windows)]
-    if let Some(owner) = owner {
-        dlg = dlg.set_parent(&owner);
-    }
+    let dlg = match _owner {
+        Some(owner) => dlg.set_parent(&owner),
+        None => dlg,
+    };
     dlg.pick_folder()
 }

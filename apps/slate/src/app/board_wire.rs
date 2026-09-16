@@ -73,6 +73,7 @@ pub struct PendingWire {
 
 // ---------- pure geometry helpers ----------
 
+#[cfg(test)]
 pub(crate) fn grip_point(rect: WorldRect, side: Side) -> Pos2 {
     let p = WireHost::from_rect(rect).anchor(side, 0.5);
     Pos2::new(p[0], p[1])
@@ -85,6 +86,7 @@ fn port_point(node: &Node, side: Side, t: f32) -> Pos2 {
 
 /// Distance from a point to the rect outline (0 on the boundary; positive
 /// inside and outside alike).
+#[cfg(test)]
 fn rect_edge_dist(rect: WorldRect, p: Pos2) -> f32 {
     let (l, r, t, b) = (rect.x, rect.x + rect.w, rect.y, rect.y + rect.h);
     if p.x >= l && p.x <= r && p.y >= t && p.y <= b {

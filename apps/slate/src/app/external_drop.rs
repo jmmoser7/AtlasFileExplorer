@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg_attr(not(windows), allow(dead_code))] // OS drop construction is Windows-only.
 pub(super) enum Payload {
     Url(String),
     Files(Vec<PathBuf>),

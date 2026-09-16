@@ -158,6 +158,7 @@ impl SlateApp {
     }
 
     /// World-space center of the first tool slot — tests and diagnostics.
+    #[cfg(test)]
     pub(crate) fn dock_embed_first_tool_world(
         &self,
         ctx: &egui::Context,

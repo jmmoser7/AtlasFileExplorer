@@ -107,6 +107,7 @@ struct AtlasView {
     hover: MapHover,
 }
 
+#[derive(Default)]
 pub struct AtlasRuntime {
     pub focused: Option<NodeId>,
     sessions: HashMap<PathBuf, AtlasSession>,
@@ -116,20 +117,6 @@ pub struct AtlasRuntime {
     pending_shell_drag: Option<Vec<PathBuf>>,
     #[cfg(test)]
     pub(crate) last_shell_drag: Option<Vec<PathBuf>>,
-}
-
-impl Default for AtlasRuntime {
-    fn default() -> Self {
-        Self {
-            focused: None,
-            sessions: HashMap::new(),
-            views: HashMap::new(),
-            pending_drops: VecDeque::new(),
-            pending_shell_drag: None,
-            #[cfg(test)]
-            last_shell_drag: None,
-        }
-    }
 }
 
 fn canonical(path: &Path) -> PathBuf {
@@ -892,7 +879,6 @@ impl SlateApp {
         {
             self.atlas_lenses.last_shell_drag = Some(paths);
             ctx.input_mut(|i| i.pointer = egui::PointerState::default());
-            return;
         }
         #[cfg(not(test))]
         {
