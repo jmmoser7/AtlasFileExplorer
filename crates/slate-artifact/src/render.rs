@@ -277,6 +277,7 @@ fn render_slide(
     html.push_str("</section>\n");
 }
 
+#[allow(clippy::too_many_arguments)] // Interpreter inputs are kept explicit.
 fn render_node(
     html: &mut String,
     doc: &SlateDoc,
@@ -713,7 +714,9 @@ fn render_image(
             // the generic item thumbnail, always linking to the copied
             // original so viewers can open it in Rhino.
             MediaKind::Model => {
-                let poster = assets.model_poster(node.id).or_else(|| assets.item_thumb(img.item, path));
+                let poster = assets
+                    .model_poster(node.id)
+                    .or_else(|| assets.item_thumb(img.item, path));
                 match poster {
                     Some(poster_url) => {
                         render_poster_card(html, url, path, poster_url);
@@ -725,7 +728,13 @@ fn render_image(
             // still carry one as an item), anything else: poster thumbnail
             // when available, labeled card otherwise — always linking to the
             // copied original.
-            _ => render_file_card(html, url, file_name, path, assets.item_thumb(img.item, path)),
+            _ => render_file_card(
+                html,
+                url,
+                file_name,
+                path,
+                assets.item_thumb(img.item, path),
+            ),
         }
     }
 

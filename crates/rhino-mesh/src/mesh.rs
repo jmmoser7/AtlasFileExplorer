@@ -68,7 +68,9 @@ pub fn read_compressed_buffer(cur: &mut Cursor<'_>) -> Option<Vec<u8>> {
 
 fn floats3(bytes: &[u8]) -> Vec<[f32; 3]> {
     bytes
-        .chunks_exact(12)
+        .as_chunks::<12>()
+        .0
+        .iter()
         .map(|c| {
             [
                 f32::from_le_bytes([c[0], c[1], c[2], c[3]]),
@@ -81,7 +83,9 @@ fn floats3(bytes: &[u8]) -> Vec<[f32; 3]> {
 
 fn doubles3_to_f32(bytes: &[u8]) -> Vec<[f32; 3]> {
     bytes
-        .chunks_exact(24)
+        .as_chunks::<24>()
+        .0
+        .iter()
         .map(|c| {
             let d = |o: usize| {
                 f64::from_le_bytes([

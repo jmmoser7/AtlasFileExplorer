@@ -15,6 +15,10 @@ pub fn window(app: &mut SlateApp, ctx: &egui::Context) {
         .open(&mut open)
         .default_width(340.0)
         .show(ctx, |ui| {
+            if atlas_shell::updates::section(ui, &app.updater) {
+                app.dispatch(ctx, atlas_commands::CommandId("app.updates.check"), None);
+            }
+            ui.separator();
             ui.label(
                 egui::RichText::new(
                     "Slate workbooks store links to files — never copies — plus \

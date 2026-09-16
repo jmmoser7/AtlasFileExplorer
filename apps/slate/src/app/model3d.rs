@@ -282,7 +282,7 @@ pub fn raycast_model(
     for part in &model.parts {
         let idx = &part.indices;
         let pos = &part.positions;
-        for tri in idx.chunks_exact(3) {
+        for tri in idx.as_chunks::<3>().0 {
             let i0 = tri[0] as usize;
             let i1 = tri[1] as usize;
             let i2 = tri[2] as usize;

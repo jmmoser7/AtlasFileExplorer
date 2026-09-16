@@ -231,6 +231,7 @@ pub enum ThumbState {
 }
 
 pub struct SlateApp {
+    pub(crate) updater: atlas_update::Updater,
     pub thumbs: ThumbPool,
     pub tabs: Vec<SlateTab>,
     pub active_tab: usize,
@@ -566,6 +567,7 @@ impl SlateApp {
             atlas_shell::dock::DockSide::BottomCenter,
         );
         let mut app = SlateApp {
+            updater: atlas_update::Updater::default(),
             thumbs: ThumbPool::new(),
             tabs: vec![],
             active_tab: 0,
@@ -1365,7 +1367,9 @@ impl SlateApp {
 
     /// Ensure a texture request is in flight for the item's thumbnail.
     pub fn request_thumb(&mut self, item_id: ItemId) {
-        let Some((key, path, size, pdf_page)) = self.resolved_item_preview(item_id) else { return; };
+        let Some((key, path, size, pdf_page)) = self.resolved_item_preview(item_id) else {
+            return;
+        };
         if key.is_empty() || self.textures.contains_key(&key) {
             return;
         }
@@ -1724,6 +1728,19 @@ impl SlateApp {
         ctx.request_repaint_after(Duration::from_millis(if pending { 100 } else { 1000 }));
     }
 
+    /// A restart must account for every workbook, including inactive tabs.
+    pub(crate) fn update_close_blocked(&self) -> Option<&'static str> {
+        if self.tabs.iter().any(|tab| tab.dirty) {
+            Some("Save all open workbooks before restarting.")
+        } else if self.export_rx.is_some() || self.picker_rx.is_some() {
+            Some("Finish the open file dialog or export before restarting.")
+        } else {
+            self.atlas
+                .as_ref()
+                .and_then(|session| session.atlas.update_close_blocked())
+        }
+    }
+
     /// One full UI frame (split out for testability, mirroring Atlas).
     pub fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
@@ -1870,6 +1887,21 @@ impl SlateApp {
         // Presentation overlay paints above everything, last.
         self.present_frame(ctx);
         self.session_render_atlas(ctx);
+        let blocked = self.update_close_blocked();
+        if let Some(action) = atlas_shell::updates::window(ctx, &mut self.updater, blocked) {
+            self.dispatch(ctx, atlas_commands::CommandId(action), None);
+        }
+        if matches!(self.updater.state, atlas_update::State::Scheduled)
+            && self.update_close_blocked().is_none()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if let Some(reason) = self.update_close_blocked() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.toast(reason);
+            }
+        }
 
         // Preview upkeep after painting so this frame's `last_used` marks
         // are fresh; keep pumping frames while decodes are in flight.

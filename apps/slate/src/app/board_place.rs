@@ -42,6 +42,7 @@ pub mod place_tokens {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PlaceConstraint {
     /// Unmodified = free rect; Shift unused.
+    #[allow(dead_code)] // Supported placement grammar, currently exercised by tests.
     Free,
     /// Unmodified = free; Shift → square (P1.shape.aspect).
     SquareOnShift,

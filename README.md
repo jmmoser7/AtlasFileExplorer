@@ -3,6 +3,11 @@
 A native Windows tool for visually organizing tens of thousands of files.
 Rust + egui, GPU-rendered, fully non-destructive.
 
+**Install Slate and File Atlas:** download the Windows `Setup.exe` from
+[Releases](https://github.com/jmmoser7/AtlasFileExplorer/releases/latest).
+Installed copies offer updates when opened. See [distribution and release
+instructions](docs/distribution.md) for stable/preview channels and signing.
+
 Have an idea for it? [`EXTENDING.md`](EXTENDING.md) triages a proposal against
 the project's [constitution](CONSTITUTION.md) in about ten minutes — weekend or
 rewrite, and where in the tree it lands.
@@ -97,9 +102,9 @@ cargo build --release
 Binary lands at `target/release/native-file-atlas.exe`. Optionally pass a
 folder path as the first argument to open it on launch.
 
-For PDF previews, place `pdfium.dll` in `vendor/` before building — the build
-script copies it next to the exe automatically. You can also copy it manually
-beside `native-file-atlas.exe`. Without pdfium, PDFs only preview when a shell
+For PDF previews in source builds, keep `pdfium.dll` in `vendor/` when running
+from the repository, or copy it beside the executables. The Windows installer
+bundles it automatically. Without pdfium, PDFs only preview when a shell
 PDF handler is installed and Explorer has already cached a real thumbnail.
 
 Run tests with `cargo test`.

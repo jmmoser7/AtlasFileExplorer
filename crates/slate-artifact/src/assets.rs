@@ -54,7 +54,10 @@ impl AssetMap {
     }
 
     pub fn item_thumb(&self, item: ItemId, path: &Path) -> Option<&str> {
-        self.item_thumbs.get(&item).map(String::as_str).or_else(|| self.thumb(path))
+        self.item_thumbs
+            .get(&item)
+            .map(String::as_str)
+            .or_else(|| self.thumb(path))
     }
 
     pub fn insert_thumb(&mut self, path: PathBuf, url: String) {
@@ -147,13 +150,13 @@ pub fn build_assets(
 
         let kind = media_kind(&path);
         if !already_copied {
-        let url = match kind {
-            MediaKind::Image if opts.inline_assets => data_uri(&path)?,
-            MediaKind::Image => copy_file(&path, &mut assets_dir_ready, &mut copied)?,
-            // Videos and originals-behind-cards are always real files.
-            _ => copy_file(&path, &mut assets_dir_ready, &mut copied)?,
-        };
-        map.urls.insert(key.clone(), url);
+            let url = match kind {
+                MediaKind::Image if opts.inline_assets => data_uri(&path)?,
+                MediaKind::Image => copy_file(&path, &mut assets_dir_ready, &mut copied)?,
+                // Videos and originals-behind-cards are always real files.
+                _ => copy_file(&path, &mut assets_dir_ready, &mut copied)?,
+            };
+            map.urls.insert(key.clone(), url);
         }
 
         // Everything that isn't an inline <img> or a playing <video> renders

@@ -129,26 +129,33 @@ mod tests {
 
     #[test]
     fn media_export_keeps_distinct_posters_for_two_pages_of_one_deck() {
-        let dir=unique_temp_dir("slate-media-export");
-        let source=dir.join("deck.pptx");fs::write(&source,b"original deck").unwrap();
-        let mut doc=SlateDoc::default();
-        let mut options=ExportOptions::default();
-        let mut ids=Vec::new();
+        let dir = unique_temp_dir("slate-media-export");
+        let source = dir.join("deck.pptx");
+        fs::write(&source, b"original deck").unwrap();
+        let mut doc = SlateDoc::default();
+        let mut options = ExportOptions::default();
+        let mut ids = Vec::new();
         for page in 0..2u16 {
-            let id=doc.add_item_page(source.clone(),"Deck",13,0,format!("page-{page}"),page);
+            let id = doc.add_item_page(source.clone(), "Deck", 13, 0, format!("page-{page}"), page);
             ids.push(id);
-            let node=doc.scene.build_node(WorldRect::new(page as f32*400.0,0.0,320.0,180.0),NodeKind::Image(ImageNode::new(id)));
-            let index=doc.scene.nodes.len();doc.scene.apply(&SceneCmd::Add {index,node});
-            let poster=dir.join(format!("page-{page}.png"));fs::write(&poster,[page as u8]).unwrap();
-            options.thumbs.insert(id,poster);
+            let node = doc.scene.build_node(
+                WorldRect::new(page as f32 * 400.0, 0.0, 320.0, 180.0),
+                NodeKind::Image(ImageNode::new(id)),
+            );
+            let index = doc.scene.nodes.len();
+            doc.scene.apply(&SceneCmd::Add { index, node });
+            let poster = dir.join(format!("page-{page}.png"));
+            fs::write(&poster, [page as u8]).unwrap();
+            options.thumbs.insert(id, poster);
         }
-        let report=assets::build_assets(&doc,&dir.join("out"),&options).unwrap();
-        assert_eq!(report.copied,3,"one original plus two page posters");
-        let first=report.map.item_thumb(ids[0],&source).unwrap();
-        let second=report.map.item_thumb(ids[1],&source).unwrap();
-        assert_ne!(first,second);
-        let html=render_html(&doc,&report.map);
-        assert!(html.contains(first));assert!(html.contains(second));
+        let report = assets::build_assets(&doc, &dir.join("out"), &options).unwrap();
+        assert_eq!(report.copied, 3, "one original plus two page posters");
+        let first = report.map.item_thumb(ids[0], &source).unwrap();
+        let second = report.map.item_thumb(ids[1], &source).unwrap();
+        assert_ne!(first, second);
+        let html = render_html(&doc, &report.map);
+        assert!(html.contains(first));
+        assert!(html.contains(second));
         fs::remove_dir_all(dir).unwrap();
     }
 

@@ -39,7 +39,8 @@ impl Preview {
                         let (x, y) = (p % 512, p / 512);
                         if mask {
                             let card = x > 85 && x < 427 && y > 145 && y < 367;
-                            let edge = card && (x < 90 || x > 422 || y < 150 || y > 362);
+                            let edge =
+                                card && (!(90..=422).contains(&x) || !(150..=362).contains(&y));
                             Color32::from_white_alpha(if edge {
                                 85
                             } else if card {

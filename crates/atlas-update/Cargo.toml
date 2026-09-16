@@ -1,0 +1,12 @@
+[package]
+name = "atlas-update"
+version.workspace = true
+edition.workspace = true
+description = "Renderer-independent Windows installation and update lifecycle for Atlas and Slate"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+velopack = { workspace = true }

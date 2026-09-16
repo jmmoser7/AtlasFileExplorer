@@ -28,6 +28,11 @@ use super::{PickerMsg, SlateApp};
 /// Persisted MRU of folders the human bound to an agent portal.
 const AGENT_RECENTS_KEY: &str = "slate-agent-projects";
 
+type CachedImages = (
+    (u64, u64),
+    std::sync::Arc<Vec<atlas_ai::agent::ImageOutput>>,
+);
+
 #[derive(Default)]
 pub struct AgentRuntime {
     links: HashMap<NodeId, AgentLink>,
@@ -40,15 +45,7 @@ pub struct AgentRuntime {
     programs_rx: Option<Receiver<Vec<atlas_ai::agent::AgentProvider>>>,
     programs_started: bool,
     output_epoch: u64,
-    image_cache: std::cell::RefCell<
-        HashMap<
-            NodeId,
-            (
-                (u64, u64),
-                std::sync::Arc<Vec<atlas_ai::agent::ImageOutput>>,
-            ),
-        >,
-    >,
+    image_cache: std::cell::RefCell<HashMap<NodeId, CachedImages>>,
 
     sessions: HashMap<NodeId, AgentSession>,
     prompts: HashMap<NodeId, String>,
@@ -488,6 +485,7 @@ impl SlateApp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
     fn paint_agent_images(
         &mut self,
         ui: &egui::Ui,
@@ -942,7 +940,6 @@ impl SlateApp {
         #[cfg(test)]
         {
             let _ = (portal, ws);
-            return;
         }
         #[cfg(not(test))]
         {
@@ -1728,6 +1725,7 @@ impl SlateApp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
     fn paint_agent_pick_list(
         &mut self,
         ui: &egui::Ui,
@@ -1842,6 +1840,7 @@ impl SlateApp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
     fn paint_agent_bound(
         &mut self,
         ui: &egui::Ui,
@@ -2130,7 +2129,7 @@ impl SlateApp {
                     painter,
                     transcript.center(),
                     Align2::CENTER_CENTER,
-                    if interactive { "" } else { "" },
+                    "",
                     FontId::proportional(meta_px),
                     Color32::from_rgb(140, 150, 168),
                 );

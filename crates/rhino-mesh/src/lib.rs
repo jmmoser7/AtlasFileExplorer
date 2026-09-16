@@ -325,7 +325,7 @@ fn normalize_all(mut normals: Vec<[f32; 3]>) -> Vec<[f32; 3]> {
 /// cross products weights by area for free).
 fn computed_normals(positions: &[[f32; 3]], indices: &[u32]) -> Vec<[f32; 3]> {
     let mut acc = vec![[0.0f32; 3]; positions.len()];
-    for tri in indices.chunks_exact(3) {
+    for tri in indices.as_chunks::<3>().0 {
         let (a, b, c) = (
             positions[tri[0] as usize],
             positions[tri[1] as usize],

@@ -235,7 +235,7 @@ impl FileAgentLink {
         self.send_request_in(&agent_dir(ai_workspace, session), req)
     }
     fn send_request_in(&mut self, dir: &Path, req: &AgentRequest) -> std::io::Result<()> {
-        std::fs::create_dir_all(&dir)?;
+        std::fs::create_dir_all(dir)?;
         atomic_write_json(&dir.join("request.json"), req)?;
         self.write_readme_if_needed(&dir.to_string_lossy(), dir);
         Ok(())
@@ -257,7 +257,7 @@ impl FileAgentLink {
         }
         self.last_read_attempt = Some(Instant::now());
 
-        let metadata = std::fs::metadata(&path).ok()?;
+        let metadata = std::fs::metadata(path).ok()?;
         let mtime = metadata.modified().ok()?;
         if self.last_session_mtime == Some(mtime) {
             return None;
@@ -266,7 +266,7 @@ impl FileAgentLink {
             self.last_session_mtime = Some(mtime);
             return Some(AgentSession{request:String::new(),provider:String::new(),turns:vec![],updated_at:0,bundle:Default::default(),status:AgentStatus::Error("The sidecar session exceeds 16 MB. Archive its older turns in the source program.".into())});
         }
-        let text = std::fs::read_to_string(&path).ok()?;
+        let text = std::fs::read_to_string(path).ok()?;
         let session = serde_json::from_str::<AgentSession>(&text).ok()?;
         self.last_session_mtime = Some(mtime);
         Some(session)

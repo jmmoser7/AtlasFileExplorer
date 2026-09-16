@@ -60,6 +60,10 @@ const fn ctrl_shift(key: Key) -> Chord {
 /// on category changes), documentation rows first within their historical
 /// order, dispatchable additions after.
 pub static SPECS: &[CommandSpec] = &[
+    spec("app.updates.check", "Application", "Check for updates", "Advanced → Software updates", None, Repeat::Never, GLOBAL, &["version", "update"]),
+    spec("app.updates.download", "Application", "Download update", "Update prompt → Download update", None, Repeat::Never, GLOBAL, &[]),
+    spec("app.updates.install", "Application", "Update and restart", "Update prompt → Update and restart (save all workbooks first)", None, Repeat::Never, GLOBAL, &[]),
+    spec("app.updates.later", "Application", "Dismiss update prompt", "Update prompt → Later", None, Repeat::Never, GLOBAL, &[]),
     spec("board.media.image", "Board", "Media: Image", "Media > Image: choose images, PDFs, PowerPoint, or print documents", None, Repeat::Repeatable, BOARD, &["image", "picture", "pdf", "powerpoint", "ppt", "print media"]),
     spec("board.media.model", "Board", "Media: 3D", "Media > 3D: choose a Rhino .3dm model", None, Repeat::Repeatable, BOARD, &["3d", "rhino", "model", "3dm"]),
     spec("board.media.video", "Board", "Media: Video", "Media > Video: choose a video file", None, Repeat::Repeatable, BOARD, &["video", "movie", "mp4"]),

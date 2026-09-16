@@ -170,6 +170,7 @@ pub fn hit_test_resize_bands(screen: Pos2, geom: &SelectionGeom) -> Option<Resiz
     best.map(|(h, _)| h)
 }
 
+#[cfg(test)]
 pub fn hit_test_selection(screen: Pos2, geom: &SelectionGeom) -> Option<BoardHitTarget> {
     hit_test_chrome(screen, geom, true)
 }

@@ -183,8 +183,8 @@ pub fn sidebar_icon_row(
         theme,
     );
     let label_x = rect.left() + diameter + 8.0;
-    let galley =
-        ui.fonts(|f| f.layout_no_wrap(label.to_owned(), FontId::proportional(font_size), theme.ink));
+    let galley = ui
+        .fonts(|f| f.layout_no_wrap(label.to_owned(), FontId::proportional(font_size), theme.ink));
     if let Some(key) = hotkey {
         let kg =
             ui.fonts(|f| f.layout_no_wrap(key.to_owned(), FontId::proportional(11.0), theme.sub));

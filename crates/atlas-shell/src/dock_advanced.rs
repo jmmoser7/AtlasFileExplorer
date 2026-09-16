@@ -256,10 +256,10 @@ pub(crate) fn show(ui: &mut Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str
     };
 
     let painter = ui.painter_at(viewport);
-    paint_paper(&painter, viewport, &tokens, &theme, &view);
-    paint_portals(&painter, &layout, &tokens, &theme, &view, viewport);
+    paint_paper(&painter, viewport, &tokens, theme, &view);
+    paint_portals(&painter, &layout, &tokens, theme, &view, viewport);
     paint_cards(
-        ui, &painter, items, &layout, &tokens, &theme, &view, viewport, palette,
+        ui, &painter, items, &layout, &tokens, theme, &view, viewport, palette,
     );
     if let Some(AdvDrag::Marquee { start_world }) = view.drag {
         if let Some(p) = pointer.filter(|p| viewport.contains(*p)) {
@@ -296,7 +296,7 @@ pub(crate) fn show(ui: &mut Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str
         linger_delay,
     );
     paint_chrome(
-        ui, &painter, viewport, items, palette, &theme, dark, close_rect,
+        ui, &painter, viewport, items, palette, theme, dark, close_rect,
     );
 
     if view.drag.as_ref().is_some_and(|d| d.is_catalog()) {
@@ -623,9 +623,7 @@ fn interact_cards(
     }
 
     let pointer = ui.input(|i| i.pointer.hover_pos());
-    let Some(screen) = pointer else {
-        return None;
-    };
+    let screen = pointer?;
     let world = screen_to_world(screen, viewport, view);
     let hit = layout
         .cards
@@ -849,6 +847,7 @@ fn paint_portals(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Shared catalog paint adapter.
 fn paint_cards(
     ui: &Ui,
     painter: &egui::Painter,
@@ -1025,6 +1024,7 @@ fn context_menu(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Shared catalog interaction adapter.
 fn linger_menu(
     ui: &mut Ui,
     items: &[FlyoutItem<'_>],
@@ -1035,7 +1035,7 @@ fn linger_menu(
     dark: bool,
     delay: f32,
 ) {
-    if view.ctx_menu_open || matches!(view.drag, Some(_)) {
+    if view.ctx_menu_open || view.drag.is_some() {
         view.linger_id = None;
         view.linger_menu_rect = None;
         return;
@@ -1160,6 +1160,7 @@ fn close_hit_rect(viewport: Rect) -> Rect {
     )
 }
 
+#[allow(clippy::too_many_arguments)] // Shared catalog paint adapter.
 fn paint_chrome(
     ui: &mut Ui,
     painter: &egui::Painter,

@@ -990,6 +990,7 @@ impl SlateApp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
     fn paint_portal_empty(
         &mut self,
         painter: &egui::Painter,

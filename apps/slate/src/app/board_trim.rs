@@ -228,10 +228,8 @@ impl SlateApp {
                 if session.mode == SliceMode::Split {
                     return self.split_try_part(world);
                 }
-                if shift {
-                    if self.trim_try_extend(world) {
-                        return true;
-                    }
+                if shift && self.trim_try_extend(world) {
+                    return true;
                 }
                 self.trim_try_part(world)
             }
@@ -454,10 +452,8 @@ impl SlateApp {
                 Some(pieces) if !pieces.is_empty() => {
                     return Some(TrimHover::ClosedRegion { target: n.id });
                 }
-                Some(pieces) if pieces.is_empty() => {
-                    if delete_fallback.is_none() {
-                        delete_fallback = Some(n.id);
-                    }
+                Some(pieces) if pieces.is_empty() && delete_fallback.is_none() => {
+                    delete_fallback = Some(n.id);
                 }
                 _ => {}
             }

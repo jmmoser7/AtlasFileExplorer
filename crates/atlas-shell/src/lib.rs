@@ -61,4 +61,5 @@ pub mod theme;
 pub mod timeline;
 pub mod tokens;
 pub mod tuning;
+pub mod updates;
 pub mod widgets;

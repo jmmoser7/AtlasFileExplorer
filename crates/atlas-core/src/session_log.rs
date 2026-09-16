@@ -46,7 +46,7 @@ thread_local! {
 
 /// Cheap counters the apps refresh once per frame. All `&'static` / `Copy`
 /// so a snapshot cannot allocate on the frame loop.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Snapshot {
     pub entries: u32,
     pub nodes: u32,
@@ -56,21 +56,6 @@ pub struct Snapshot {
     pub scan_active: bool,
     pub view: &'static str,
     pub tool: &'static str,
-}
-
-impl Default for Snapshot {
-    fn default() -> Self {
-        Self {
-            entries: 0,
-            nodes: 0,
-            selected: 0,
-            thumbs_pending: 0,
-            extra: 0,
-            scan_active: false,
-            view: "",
-            tool: "",
-        }
-    }
 }
 
 /// One recorded stall, for the Advanced readout and `*-latest.json`.

@@ -1329,6 +1329,7 @@ fn grid_drop_rects(sizes: &[(f32, f32)], at: Pos2) -> Vec<WorldRect> {
 
 /// The fixed point of a group resize: the opposite corner/edge of the group
 /// box for the dragged handle, or the group center with Ctrl held.
+#[cfg(test)]
 fn group_scale_anchor(gb: WorldRect, handle: u8, from_center: bool) -> (f32, f32) {
     board_snap::resize_anchor(gb, handle, from_center)
 }
@@ -2185,7 +2186,8 @@ impl SlateApp {
         // the board. Its chrome strip and a thin border band stay Slate targets,
         // so the frame can always be grabbed and released.
         self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
-        let web_capture = self.document_picker_contains(pointer) || self.web_input_frame(ui, &xf, pointer)
+        let web_capture = self.document_picker_contains(pointer)
+            || self.web_input_frame(ui, &xf, pointer)
             || self.agent_shelf_captures(&xf, pointer)
             || self.atlas_input_frame(ui, &xf, pointer);
         let _ = self.dock_embed_frame(
@@ -2369,23 +2371,23 @@ impl SlateApp {
                     }
                 }
             }
-            if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
-                if matches!(self.board_drag, Some(BoardDrag::Draw { .. })) {
-                    if let Some(w) = wp {
-                        let mods = ui.input(|i| i.modifiers);
-                        self.update_gesture(w, mods);
-                    }
+            if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary))
+                && matches!(self.board_drag, Some(BoardDrag::Draw { .. }))
+            {
+                if let Some(w) = wp {
+                    let mods = ui.input(|i| i.modifiers);
+                    self.update_gesture(w, mods);
                 }
             }
-            if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
-                if matches!(self.board_drag, Some(BoardDrag::Draw { .. })) {
-                    let w = wp.unwrap_or_else(|| match &self.board_drag {
-                        Some(BoardDrag::Draw { start_world, .. }) => *start_world,
-                        _ => Pos2::ZERO,
-                    });
-                    let mods = ui.input(|i| i.modifiers);
-                    self.end_gesture(w, pointer, mods);
-                }
+            if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
+                && matches!(self.board_drag, Some(BoardDrag::Draw { .. }))
+            {
+                let w = wp.unwrap_or(match &self.board_drag {
+                    Some(BoardDrag::Draw { start_world, .. }) => *start_world,
+                    _ => Pos2::ZERO,
+                });
+                let mods = ui.input(|i| i.modifiers);
+                self.end_gesture(w, pointer, mods);
             }
         }
 
@@ -4930,6 +4932,7 @@ impl SlateApp {
         );
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_draw(&mut self, a: Pos2, b: Pos2, tool: BoardTool, mods: egui::Modifiers) {
         let r = self.draw_world_rect(a, b, tool, mods.shift);
         self.commit_draw_rect(r, tool);
