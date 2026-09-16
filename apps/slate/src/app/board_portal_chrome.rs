@@ -799,6 +799,9 @@ mod tests {
             });
             result
         };
+        // egui's first pointer event establishes a position with zero delta.
+        // Seed it so the following frame represents real pointer movement.
+        let _ = run(0.0, pos2(90.0, 100.0), true);
         let shown = run(1.0, pos2(100.0, 100.0), true);
         assert!(shown.bar.is_some());
         let hidden = run(3.0, pos2(100.0, 100.0), false);
