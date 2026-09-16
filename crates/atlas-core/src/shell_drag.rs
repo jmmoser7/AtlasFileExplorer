@@ -282,7 +282,19 @@ mod tests {
         let data = imp::data_object(&paths).expect("shell data object for real files");
         let got = imp::hdrop_paths(&data);
 
-        assert_eq!(got, paths, "CF_HDROP must list exactly the dragged files");
+        // The shell expands 8.3 names (e.g. RUNNER~1) on clean Windows runners.
+        // Compare file identity while retaining order and count in the assertion.
+        let canonical = |items: Vec<PathBuf>| {
+            items
+                .into_iter()
+                .map(|p| p.canonicalize().unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            canonical(got),
+            canonical(paths),
+            "CF_HDROP must list exactly the dragged files"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

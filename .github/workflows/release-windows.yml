@@ -54,12 +54,12 @@ jobs:
           "channel=$channel" >> $env:GITHUB_OUTPUT
           "ATLAS_RELEASE_VERSION=$version" >> $env:GITHUB_ENV
           "ATLAS_RELEASE_CHANNEL=$channel" >> $env:GITHUB_ENV
-      - name: Test workspace on Windows
-        run: cargo test --locked --workspace --no-fail-fast
       - name: Install pinned packaging tool
         run: dotnet tool install --global vpk --version 1.2.0
       - name: Test real installation and coordinated upgrade
         run: ./scripts/test-windows-update.ps1
+      - name: Test workspace on Windows
+        run: cargo test --locked --workspace --no-fail-fast
       - name: Prepare optional publisher certificate
         if: github.event_name != 'pull_request'
         shell: pwsh
