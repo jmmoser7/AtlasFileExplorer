@@ -208,7 +208,8 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
     let mut lanes: HashMap<NodeId, OrthoLane> =
         items.iter().map(|i| (i.id, OrthoLane::default())).collect();
 
-    let mut ports: HashMap<(NodeId, Side), Vec<(NodeId, bool, [f32; 2])>> = HashMap::new();
+    type PortEndpoint = (NodeId, bool, [f32; 2]);
+    let mut ports: HashMap<(NodeId, Side), Vec<PortEndpoint>> = HashMap::new();
     for it in &items {
         for (end, end_b) in [(&it.a, false), (&it.b, true)] {
             let ConnectorEnd::Anchored { node, side, t } = *end else {
@@ -683,6 +684,7 @@ struct PathTier {
 
 /// Ordered families. The first family with a clear member wins — stairs
 /// never compete with a legal 50/50 on cost (they share Manhattan length).
+#[allow(clippy::too_many_arguments)] // Both endpoints supply an anchor, stub and direction.
 fn path_tiers(
     s_anchor: [f32; 2],
     s_stub: [f32; 2],

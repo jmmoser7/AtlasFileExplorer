@@ -40,6 +40,8 @@ enum Event {
     Downloaded,
     #[cfg(windows)]
     Scheduled,
+    #[cfg(windows)]
+    ApplyFailed(String),
     Failed(String),
 }
 
@@ -98,6 +100,11 @@ impl Updater {
             }
             #[cfg(windows)]
             Event::Scheduled => self.state = State::Scheduled,
+            #[cfg(windows)]
+            Event::ApplyFailed(error) => {
+                self.state = State::Failed(error);
+                self.visible = true;
+            }
             // A failed automatic check stays quiet; manual checks show errors.
             Event::Failed(error) => self.state = State::Failed(error),
         }

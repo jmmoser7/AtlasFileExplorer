@@ -503,19 +503,14 @@ impl Default for AtlasPortalQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AtlasSort {
+    #[default]
     Name,
     Mtime,
     Size,
     Kind,
-}
-
-impl Default for AtlasSort {
-    fn default() -> Self {
-        Self::Name
-    }
 }
 
 impl Default for StatusPortalQuery {

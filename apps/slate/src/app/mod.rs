@@ -1732,7 +1732,7 @@ impl SlateApp {
     pub(crate) fn update_close_blocked(&self) -> Option<&'static str> {
         if self.tabs.iter().any(|tab| tab.dirty) {
             Some("Save all open workbooks before restarting.")
-        } else if self.export_rx.is_some() {
+        } else if self.export_rx.is_some() || self.picker_rx.is_some() {
             Some("Wait for the export to finish before restarting.")
         } else {
             self.atlas

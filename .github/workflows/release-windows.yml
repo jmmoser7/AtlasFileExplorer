@@ -2,7 +2,7 @@ name: Windows installer
 
 on:
   push:
-    branches: [main, 'codex/windows-installer-updates']
+    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -30,6 +30,8 @@ jobs:
         with:
           dotnet-version: '9.0.x'
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Select version and channel
         id: version
         shell: pwsh
@@ -56,6 +58,8 @@ jobs:
         run: cargo test --locked --workspace
       - name: Install pinned packaging tool
         run: dotnet tool install --global vpk --version 1.2.0
+      - name: Test real installation and coordinated upgrade
+        run: ./scripts/test-windows-update.ps1
       - name: Prepare optional publisher certificate
         if: github.event_name != 'pull_request'
         shell: pwsh

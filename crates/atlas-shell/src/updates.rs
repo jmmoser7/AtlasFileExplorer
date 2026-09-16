@@ -61,7 +61,7 @@ pub fn window(
             ui.separator();
             ui.horizontal(|ui| {
                 ui.hyperlink_to("Releases and installers", RELEASES_URL);
-                if ui.button("Later").clicked() { action = Some("app.updates.later"); }
+                if !matches!(updater.state, State::Scheduling | State::Scheduled) && ui.button("Later").clicked() { action = Some("app.updates.later"); }
             });
         });
     action

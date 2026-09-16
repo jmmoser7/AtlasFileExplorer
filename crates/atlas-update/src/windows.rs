@@ -89,6 +89,11 @@ fn shortcuts(remove: bool) {
 
 pub(super) fn check() -> Result<Event, String> {
     let root = installed_root().ok_or("This is not an installed copy of Atlas.")?;
+    let previous_error = root.join("atlas-update-error.txt");
+    if let Ok(error) = fs::read_to_string(&previous_error) {
+        let _ = fs::remove_file(previous_error);
+        return Ok(Event::ApplyFailed(error));
+    }
     let config: Distribution = serde_json::from_slice(
         &fs::read(root.join("current/atlas-release.json")).map_err(|e| e.to_string())?,
     )
