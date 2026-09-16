@@ -21,6 +21,23 @@ fn now_nanos() -> u128 {
 }
 
 #[test]
+fn update_restart_checks_inactive_workbooks_and_pending_dialogs() {
+    let mut h = Harness::new("update_restart");
+    h.app.new_tab();
+    h.app.tabs[0].dirty = true;
+    h.app.new_tab();
+    assert_ne!(h.app.active_tab, 0);
+    assert!(h.app.update_close_blocked().is_some());
+    h.app.tabs[0].dirty = false;
+    assert!(h.app.update_close_blocked().is_none());
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    h.app.picker_rx = Some(rx);
+    assert!(h.app.update_close_blocked().is_some());
+    h.app.picker_rx = None;
+    assert!(h.app.update_close_blocked().is_none());
+}
+
+#[test]
 fn media_menu_has_three_registered_families() {
     let mut h = Harness::new("media_menu");
     h.app.ensure_work_tab();

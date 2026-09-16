@@ -16,8 +16,11 @@ try {
     if ($request.restart -notin @('slate.exe', 'native-file-atlas.exe')) { throw 'Invalid restart application.' }
     $package = Join-Path (Join-Path $root 'packages') $request.package
     # Reverify even cached downloads (including SDK downloads skipped as existing).
-    if ((Get-Item -LiteralPath $package).Length -ne $request.size -or
-        (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash -ne $request.sha256) {
+    $stream = [IO.File]::OpenRead($package)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $hash = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
+    finally { $stream.Dispose(); $sha.Dispose() }
+    if ((Get-Item -LiteralPath $package).Length -ne $request.size -or $hash -ne $request.sha256) {
         Remove-Item -LiteralPath $package
         throw 'Update checksum failed. Download the update again.'
     }

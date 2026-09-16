@@ -112,10 +112,19 @@ pub(super) fn check() -> Result<Event, String> {
     .map_err(|e| e.to_string())?;
     let version = manager.get_current_version_as_string();
     let release = match manager.check_for_updates().map_err(|e| e.to_string())? {
-        UpdateCheck::UpdateAvailable(info) => Some(Release {
-            manager,
-            info: *info,
-        }),
+        UpdateCheck::UpdateAvailable(info) => {
+            validate_package(
+                &info.TargetFullRelease.FileName,
+                &info.TargetFullRelease.SHA256,
+            )?;
+            if info.TargetFullRelease.PackageId != manager.get_app_id() {
+                return Err("The release feed belongs to a different application.".into());
+            }
+            Some(Release {
+                manager,
+                info: *info,
+            })
+        }
         _ => None,
     };
     Ok(Event::Checked(version, config.channel, release))

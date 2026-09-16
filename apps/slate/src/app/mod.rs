@@ -1728,12 +1728,12 @@ impl SlateApp {
         ctx.request_repaint_after(Duration::from_millis(if pending { 100 } else { 1000 }));
     }
 
-    /// One full UI frame (split out for testability, mirroring Atlas).
+    /// A restart must account for every workbook, including inactive tabs.
     pub(crate) fn update_close_blocked(&self) -> Option<&'static str> {
         if self.tabs.iter().any(|tab| tab.dirty) {
             Some("Save all open workbooks before restarting.")
         } else if self.export_rx.is_some() || self.picker_rx.is_some() {
-            Some("Wait for the export to finish before restarting.")
+            Some("Finish the open file dialog or export before restarting.")
         } else {
             self.atlas
                 .as_ref()

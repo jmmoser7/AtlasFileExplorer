@@ -20,9 +20,21 @@ Workbooks and settings are preserved during updates. Save your work and close al
 
 # Stable releases are created as drafts and exposed only after every asset lands.
 # The preview release is a rolling opt-in feed. Upload binaries before its feed.
-$existing = gh release view $tag --repo $repository --json id 2>$null
+$existing = gh release view $tag --repo $repository --json 'id,isDraft,targetCommitish' 2>$null
 $exists = $LASTEXITCODE -eq 0
-if ($Channel -eq 'stable' -and $exists) { throw "Release $tag already exists; use a new version." }
+if ($Channel -eq 'stable' -and $exists) {
+    $release = $existing | ConvertFrom-Json
+    if (-not $release.isDraft -or $release.targetCommitish -ne $Commit) { throw "Release $tag already exists; use a new version." }
+}
+if ($Channel -eq 'preview') {
+    $previewRef = gh api "repos/$repository/git/ref/tags/preview" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        gh api --method PATCH "repos/$repository/git/refs/tags/preview" -f "sha=$Commit" -F force=true
+    } else {
+        gh api --method POST "repos/$repository/git/refs" -f 'ref=refs/tags/preview' -f "sha=$Commit"
+    }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not advance the reserved preview tag.' }
+}
 if (-not $exists) {
     $create = @('release', 'create', $tag, '--repo', $repository, '--target', $Commit, '--title', $title, '--notes-file', $notes, '--draft')
     if ($Channel -eq 'preview') { $create += '--prerelease' } else { $create += '--verify-tag' }
@@ -36,9 +48,6 @@ foreach ($asset in @($assets | Where-Object { $_ -notin $feeds }) + $feeds) {
     if ($LASTEXITCODE -ne 0) { throw "Upload failed: $($asset.Name)" }
 }
 if ($Channel -eq 'preview') {
-    # This reserved tag is deliberately movable; stable version tags never move.
-    gh api --method PATCH "repos/$repository/git/refs/tags/preview" -f "sha=$Commit" -F force=true
-    if ($LASTEXITCODE -ne 0) { throw 'Could not advance the preview tag.' }
     gh release edit $tag --repo $repository --draft=false --prerelease --latest=false --title $title --notes-file $notes
 } else {
     gh release edit $tag --repo $repository --draft=false --latest --title $title --notes-file $notes

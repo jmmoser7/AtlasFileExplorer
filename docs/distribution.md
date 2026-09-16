@@ -1,6 +1,6 @@
 # Windows distribution and updates
 
-Download **AtlasSuite-win-Setup.exe** (the asset ending in `Setup.exe`) from
+Download the **Setup.exe** asset from
 [the latest stable release](https://github.com/jmmoser7/AtlasFileExplorer/releases/latest).
 The one-time, per-user installer includes Slate and File Atlas. Both appear in
 Start; Slate also gets a desktop shortcut and registers `.slate` on first use.
@@ -81,6 +81,9 @@ SmartScreen has established reputation for a new release.
 ## Verification
 
 The release job runs `cargo test --locked --workspace` on Windows before building.
+`test-windows-update.ps1` installs a headless fixture with real Velopack Setup,
+holds two fixture processes open, verifies the helper waits for both, then checks
+a real upgrade, restart and preservation of data outside `current`.
 `verify-windows-package.ps1` checks required assets, feed version/channel, full
 package size/hash and Setup.exe. Updater tests exercise offline/manual errors,
 invalid channels, path traversal, checksum requirements and installation locks.
