@@ -2185,7 +2185,8 @@ impl SlateApp {
         // the board. Its chrome strip and a thin border band stay Slate targets,
         // so the frame can always be grabbed and released.
         self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
-        let web_capture = self.document_picker_contains(pointer) || self.web_input_frame(ui, &xf, pointer)
+        let web_capture = self.document_picker_contains(pointer)
+            || self.web_input_frame(ui, &xf, pointer)
             || self.agent_shelf_captures(&xf, pointer)
             || self.atlas_input_frame(ui, &xf, pointer);
         let _ = self.dock_embed_frame(

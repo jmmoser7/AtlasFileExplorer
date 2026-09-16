@@ -15,6 +15,12 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
         .open(&mut open)
         .default_width(340.0)
         .show(ctx, |ui| {
+            if app.session.is_none() {
+                if atlas_shell::updates::section(ui, &app.updater) {
+                    app.dispatch_command(ctx, atlas_commands::CommandId("app.updates.check"));
+                }
+                ui.separator();
+            }
             ui.label(
                 egui::RichText::new(
                     "Pre-warm builds thumbnails for a whole folder at the \

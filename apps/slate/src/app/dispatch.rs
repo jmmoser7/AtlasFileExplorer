@@ -105,6 +105,26 @@ impl SlateApp {
         let board = self.doc().view.active_view == ViewKind::Board;
         let mut detail = detail;
         let ran = match id.0 {
+            "app.updates.check" => {
+                self.updater.check(true);
+                true
+            }
+            "app.updates.download" => {
+                self.updater.download();
+                true
+            }
+            "app.updates.later" => {
+                self.updater.visible = false;
+                true
+            }
+            "app.updates.install" => {
+                if let Some(reason) = self.update_close_blocked() {
+                    self.toast(reason);
+                } else {
+                    self.updater.install();
+                }
+                true
+            }
             // ----- app / workbook -------------------------------------------------
             "app.open" => {
                 self.open_doc_dialog();
@@ -136,11 +156,16 @@ impl SlateApp {
                 true
             }
             "board.media.page" => {
-                if let Some((item, page)) = detail.as_deref().and_then(|s| s.split_once(':'))
-                    .and_then(|(a,b)| Some((a.parse::<u64>().ok()?, b.parse::<u16>().ok()?))) {
+                if let Some((item, page)) = detail
+                    .as_deref()
+                    .and_then(|s| s.split_once(':'))
+                    .and_then(|(a, b)| Some((a.parse::<u64>().ok()?, b.parse::<u16>().ok()?)))
+                {
                     self.set_pdf_poster_page(slate_doc::ItemId(item), page);
                     true
-                } else { false }
+                } else {
+                    false
+                }
             }
             "app.add_files" => {
                 self.add_files_dialog();

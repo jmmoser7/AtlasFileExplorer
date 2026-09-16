@@ -1,0 +1,108 @@
+name: Windows installer
+
+on:
+  push:
+    branches: [main, 'codex/windows-installer-updates']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - uses: Swatinem/rust-cache@v2
+      - name: Select version and channel
+        id: version
+        shell: pwsh
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          $manifest = Get-Content Cargo.toml -Raw
+          $base = [regex]::Match($manifest, '(?m)^version = "(\d+\.\d+\.\d+)"').Groups[1].Value
+          if (-not $base) { throw 'Missing workspace version.' }
+          $channel = 'preview'
+          $version = "$base-preview.$env:RUN_NUMBER"
+          if ($env:REF_TYPE -eq 'tag') {
+            if ($env:REF_NAME -ne "v$base") { throw 'Stable tag must equal the workspace version (vX.Y.Z).' }
+            $channel = 'stable'
+            $version = $base
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "channel=$channel" >> $env:GITHUB_OUTPUT
+          "ATLAS_RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+          "ATLAS_RELEASE_CHANNEL=$channel" >> $env:GITHUB_ENV
+      - name: Test workspace on Windows
+        run: cargo test --locked --workspace
+      - name: Install pinned packaging tool
+        run: dotnet tool install --global vpk --version 1.2.0
+      - name: Prepare optional publisher certificate
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+        run: |
+          if ($env:CERTIFICATE_BASE64) {
+            $certificate = Join-Path $env:RUNNER_TEMP 'atlas-signing.pfx'
+            [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
+            "WINDOWS_SIGN_CERTIFICATE=$certificate" >> $env:GITHUB_ENV
+          }
+      - name: Build, package and verify Windows suite
+        id: package
+        shell: pwsh
+        env:
+          WINDOWS_SIGN_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+        run: ./scripts/package-windows.ps1 -Version $env:ATLAS_RELEASE_VERSION -Channel $env:ATLAS_RELEASE_CHANNEL
+      - name: Preserve installer and update assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ steps.version.outputs.channel }}
+          path: ${{ steps.package.outputs.release_dir }}/*
+          if-no-files-found: error
+      - name: Remove temporary certificate
+        if: always()
+        shell: pwsh
+        run: |
+          $certificate = Join-Path $env:RUNNER_TEMP 'atlas-signing.pfx'
+          if (Test-Path -LiteralPath $certificate) { Remove-Item -LiteralPath $certificate }
+
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-${{ needs.build.outputs.channel }}
+          path: release
+      - name: Publish verified release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_CHANNEL: ${{ needs.build.outputs.channel }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: ./scripts/publish-windows.ps1 -Directory release -Version $env:RELEASE_VERSION -Channel $env:RELEASE_CHANNEL -Commit $env:RELEASE_COMMIT

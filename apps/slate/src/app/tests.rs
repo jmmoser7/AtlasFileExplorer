@@ -22,15 +22,35 @@ fn now_nanos() -> u128 {
 
 #[test]
 fn media_menu_has_three_registered_families() {
-    let mut h=Harness::new("media_menu");
-    h.app.ensure_work_tab(); h.app.leave_home(); h.app.doc_mut().view.active_view=ViewKind::Board;
-    let items=ui::tools::palette_strip_items(&h.app,"tool.media",&[]);
-    assert_eq!(items.iter().map(|i|i.label).collect::<Vec<_>>(),vec!["Image","3D","Video"]);
-    for id in ["board.media.image","board.media.model","board.media.video","board.media.page"] {
-        assert!(h.app.registry.by_id(atlas_commands::CommandId(id)).is_some());
+    let mut h = Harness::new("media_menu");
+    h.app.ensure_work_tab();
+    h.app.leave_home();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let items = ui::tools::palette_strip_items(&h.app, "tool.media", &[]);
+    assert_eq!(
+        items.iter().map(|i| i.label).collect::<Vec<_>>(),
+        vec!["Image", "3D", "Video"]
+    );
+    for id in [
+        "board.media.image",
+        "board.media.model",
+        "board.media.video",
+        "board.media.page",
+    ] {
+        assert!(h
+            .app
+            .registry
+            .by_id(atlas_commands::CommandId(id))
+            .is_some());
     }
-    assert_eq!(slate_doc::media_kind(std::path::Path::new("model.3dm")),slate_doc::MediaKind::Model);
-    assert_eq!(slate_doc::media_kind(std::path::Path::new("clip.mp4")),slate_doc::MediaKind::Video);
+    assert_eq!(
+        slate_doc::media_kind(std::path::Path::new("model.3dm")),
+        slate_doc::MediaKind::Model
+    );
+    assert_eq!(
+        slate_doc::media_kind(std::path::Path::new("clip.mp4")),
+        slate_doc::MediaKind::Video
+    );
     // Keep a picker pending so this routing test never opens a native dialog.
     let (_tx, rx) = crossbeam_channel::unbounded();
     h.app.picker_rx = Some(rx);
@@ -77,7 +97,9 @@ fn link_health_follows_relink_removal_and_tab_switches() {
     );
     let first = h.app.active_tab;
     h.app.new_tab();
-    h.app.doc_mut().add_item(exists.clone(), "exists.txt", 0, 0, "");
+    h.app
+        .doc_mut()
+        .add_item(exists.clone(), "exists.txt", 0, 0, "");
     wait_for(&mut h.app, &exists, slate_doc::LinkStatus::Ok);
     assert_eq!(h.app.tab().link_health.counts().missing, 0);
     h.app.active_tab = first;
@@ -93,68 +115,120 @@ fn link_health_follows_relink_removal_and_tab_switches() {
 
 #[test]
 fn media_picker_places_one_undo_group_and_ignores_late_or_cancelled_results() {
-    let mut h=Harness::new("media_picker");
-    h.app.ensure_work_tab(); h.app.leave_home(); h.app.doc_mut().view.active_view=ViewKind::Board;
-    let tab_id=h.app.tab().id;
-    let path=h.base.join("picture.png");
-    image::RgbaImage::from_pixel(16,16,image::Rgba([80,150,220,255])).save(&path).unwrap();
-    let (tx,rx)=crossbeam_channel::unbounded();
-    h.app.picker_rx=Some(rx);
-    tx.send(PickerMsg::AddMedia {tab_id,at:Pos2::new(80.0,100.0),paths:Some(vec![path.clone()])}).unwrap();
+    let mut h = Harness::new("media_picker");
+    h.app.ensure_work_tab();
+    h.app.leave_home();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let tab_id = h.app.tab().id;
+    let path = h.base.join("picture.png");
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([80, 150, 220, 255]))
+        .save(&path)
+        .unwrap();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    h.app.picker_rx = Some(rx);
+    tx.send(PickerMsg::AddMedia {
+        tab_id,
+        at: Pos2::new(80.0, 100.0),
+        paths: Some(vec![path.clone()]),
+    })
+    .unwrap();
     h.app.drain_pickers();
-    assert_eq!(h.app.doc().scene.nodes.len(),1);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
     h.app.board_undo();
     assert!(h.app.doc().scene.nodes.is_empty());
     h.app.new_tab();
-    let (tx,rx)=crossbeam_channel::unbounded();h.app.picker_rx=Some(rx);
-    tx.send(PickerMsg::AddMedia {tab_id,at:Pos2::ZERO,paths:Some(vec![path])}).unwrap();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    h.app.picker_rx = Some(rx);
+    tx.send(PickerMsg::AddMedia {
+        tab_id,
+        at: Pos2::ZERO,
+        paths: Some(vec![path]),
+    })
+    .unwrap();
     h.app.drain_pickers();
     assert!(h.app.doc().items.is_empty());
-    let (tx,rx)=crossbeam_channel::unbounded();h.app.picker_rx=Some(rx);
-    tx.send(PickerMsg::AddMedia {tab_id:h.app.tab().id,at:Pos2::ZERO,paths:None}).unwrap();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    h.app.picker_rx = Some(rx);
+    tx.send(PickerMsg::AddMedia {
+        tab_id: h.app.tab().id,
+        at: Pos2::ZERO,
+        paths: None,
+    })
+    .unwrap();
     h.app.drain_pickers();
     assert!(h.app.doc().scene.nodes.is_empty());
 }
 
 #[test]
 fn media_powerpoint_page_choice_is_undoable_and_keeps_the_source_link() {
-    let mut h=Harness::new("media_page");
-    h.app.ensure_work_tab(); h.app.leave_home(); h.app.doc_mut().view.active_view=ViewKind::Board;
-    let source=h.base.join("deck.pptx");
-    std::fs::write(&source,b"source remains linked").unwrap();
-    let ids=h.app.add_paths(std::slice::from_ref(&source));
-    h.app.place_items_on_board(&ids,Pos2::new(120.0,100.0));
-    h.app.documents.seed(source.clone(),pdf::documents::DocumentPreview {
-        path:h.base.join("preview.pdf"),revision:"test-deck".into(),pages:3,bytes:120,
-    });
-    let node=h.app.doc().scene.nodes[0].id;
-    assert!(h.app.dispatch(&h.ctx,atlas_commands::CommandId("board.media.page"),Some(format!("{}:2",ids[0].0))));
-    let page_item=match &h.app.doc().scene.node(node).unwrap().kind {slate_doc::NodeKind::Image(i)=>i.item,_=>panic!()};
-    assert_ne!(page_item,ids[0]);
-    assert_eq!(h.app.doc().item(page_item).unwrap().pdf_page,2);
-    assert_eq!(h.app.doc().item(page_item).unwrap().path,source);
+    let mut h = Harness::new("media_page");
+    h.app.ensure_work_tab();
+    h.app.leave_home();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let source = h.base.join("deck.pptx");
+    std::fs::write(&source, b"source remains linked").unwrap();
+    let ids = h.app.add_paths(std::slice::from_ref(&source));
+    h.app.place_items_on_board(&ids, Pos2::new(120.0, 100.0));
+    h.app.documents.seed(
+        source.clone(),
+        pdf::documents::DocumentPreview {
+            path: h.base.join("preview.pdf"),
+            revision: "test-deck".into(),
+            pages: 3,
+            bytes: 120,
+        },
+    );
+    let node = h.app.doc().scene.nodes[0].id;
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.media.page"),
+        Some(format!("{}:2", ids[0].0))
+    ));
+    let page_item = match &h.app.doc().scene.node(node).unwrap().kind {
+        slate_doc::NodeKind::Image(i) => i.item,
+        _ => panic!(),
+    };
+    assert_ne!(page_item, ids[0]);
+    assert_eq!(h.app.doc().item(page_item).unwrap().pdf_page, 2);
+    assert_eq!(h.app.doc().item(page_item).unwrap().path, source);
     h.app.board_undo();
-    assert!(matches!(&h.app.doc().scene.node(node).unwrap().kind,slate_doc::NodeKind::Image(i) if i.item==ids[0]));
+    assert!(
+        matches!(&h.app.doc().scene.node(node).unwrap().kind,slate_doc::NodeKind::Image(i) if i.item==ids[0])
+    );
     h.app.board_redo();
-    assert!(matches!(&h.app.doc().scene.node(node).unwrap().kind,slate_doc::NodeKind::Image(i) if i.item==page_item));
-    assert_eq!(std::fs::read(&source).unwrap(),b"source remains linked");
-    h.app.tab_mut().read_only=true;
-    h.app.set_pdf_poster_page(page_item,0);
-    assert!(matches!(&h.app.doc().scene.node(node).unwrap().kind,slate_doc::NodeKind::Image(i) if i.item==page_item));
+    assert!(
+        matches!(&h.app.doc().scene.node(node).unwrap().kind,slate_doc::NodeKind::Image(i) if i.item==page_item)
+    );
+    assert_eq!(std::fs::read(&source).unwrap(), b"source remains linked");
+    h.app.tab_mut().read_only = true;
+    h.app.set_pdf_poster_page(page_item, 0);
+    assert!(
+        matches!(&h.app.doc().scene.node(node).unwrap().kind,slate_doc::NodeKind::Image(i) if i.item==page_item)
+    );
 }
 
 #[test]
 fn media_picker_hover_bridge_survives_moving_off_the_slide() {
-    let mut h=Harness::new("media_hover");
-    h.app.ensure_work_tab(); h.app.leave_home(); h.app.doc_mut().view.active_view=ViewKind::Board;
-    let source=h.base.join("deck.pptx");std::fs::write(&source,b"deck").unwrap();
-    let ids=h.app.add_paths(&[source]);h.app.place_items_on_board(&ids,Pos2::ZERO);
-    let card=ERect::from_min_size(Pos2::new(20.0,20.0),EVec2::new(100.0,100.0));
-    let popup=ERect::from_min_size(Pos2::new(20.0,128.0),EVec2::new(200.0,90.0));
-    h.app.documents.picker=Some((h.app.tab().id,ids[0],card,popup));
-    let screen=popup.center();
+    let mut h = Harness::new("media_hover");
+    h.app.ensure_work_tab();
+    h.app.leave_home();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let source = h.base.join("deck.pptx");
+    std::fs::write(&source, b"deck").unwrap();
+    let ids = h.app.add_paths(&[source]);
+    h.app.place_items_on_board(&ids, Pos2::ZERO);
+    let card = ERect::from_min_size(Pos2::new(20.0, 20.0), EVec2::new(100.0, 100.0));
+    let popup = ERect::from_min_size(Pos2::new(20.0, 128.0), EVec2::new(200.0, 90.0));
+    h.app.documents.picker = Some((h.app.tab().id, ids[0], card, popup));
+    let screen = popup.center();
     assert!(h.app.document_picker_contains(Some(screen)));
-    assert_eq!(h.app.board_hovered_pdf(h.app.board_xf().s2w(screen)).unwrap().0,ids[0]);
+    assert_eq!(
+        h.app
+            .board_hovered_pdf(h.app.board_xf().s2w(screen))
+            .unwrap()
+            .0,
+        ids[0]
+    );
     h.app.board_undo();
     assert!(!h.app.document_picker_contains(Some(screen)));
 }
@@ -168,12 +242,22 @@ fn media_page_command_preserves_grid_and_venn_item_selection() {
     std::fs::write(&source, b"page fixture").unwrap();
     let ids = h.app.add_paths(std::slice::from_ref(&source));
     h.app.place_items_on_board(&ids, Pos2::ZERO);
-    h.app.documents.seed(source, pdf::documents::DocumentPreview {
-        path: h.base.join("preview.pdf"), revision: "grid-pages".into(), pages: 3, bytes: 120,
-    });
+    h.app.documents.seed(
+        source,
+        pdf::documents::DocumentPreview {
+            path: h.base.join("preview.pdf"),
+            revision: "grid-pages".into(),
+            pages: 3,
+            bytes: 120,
+        },
+    );
     for (view, page) in [(ViewKind::Grid, 1), (ViewKind::Venn, 2)] {
         h.app.doc_mut().view.active_view = view;
-        assert!(h.app.dispatch(&h.ctx, atlas_commands::CommandId("board.media.page"), Some(format!("{}:{page}", ids[0].0))));
+        assert!(h.app.dispatch(
+            &h.ctx,
+            atlas_commands::CommandId("board.media.page"),
+            Some(format!("{}:{page}", ids[0].0))
+        ));
         assert_eq!(h.app.doc().item(ids[0]).unwrap().pdf_page, page);
         assert_eq!(h.app.doc().items.len(), 1);
     }

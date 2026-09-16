@@ -1,4 +1,5 @@
 /target/
+/.codex/tools/
 **/.atlas-cache/
 
 # Local IDE / OS

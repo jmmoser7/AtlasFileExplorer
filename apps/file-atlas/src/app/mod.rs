@@ -682,6 +682,7 @@ pub(crate) enum ViewCmd {
 }
 
 pub struct AtlasApp {
+    pub(crate) updater: atlas_update::Updater,
     db: Db,
     thumbs: ThumbPool,
 
@@ -1209,6 +1210,7 @@ impl AtlasApp {
         );
         let edit_prefs = editprefs::EditPrefs::load();
         let mut app = AtlasApp {
+            updater: atlas_update::Updater::default(),
             db,
             thumbs: ThumbPool::new(),
             root: None,
@@ -4936,8 +4938,28 @@ impl AtlasApp {
         let t0 = Instant::now();
         let delivered = ctx.input(|i| i.unstable_dt);
         self.update_app(ctx);
+        if self.session.is_none() {
+            let blocked = self.update_close_blocked();
+            if let Some(action) = atlas_shell::updates::window(ctx, &mut self.updater, blocked) {
+                self.dispatch_command(ctx, CommandId(action));
+            }
+            if matches!(self.updater.state, atlas_update::State::Scheduled)
+                && self.update_close_blocked().is_none()
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
         self.snapshot_activity();
         self.session_log.end_frame(t0.elapsed(), delivered);
+    }
+
+    /// Also queried by Slate when Atlas is hosted in its process.
+    pub fn update_close_blocked(&self) -> Option<&'static str> {
+        if self.fs_op.is_some() || self.cloud_audit.is_some() || self.export_ui.is_some() {
+            Some("Wait for file operations and exports to finish before restarting.")
+        } else {
+            None
+        }
     }
 
     fn snapshot_activity(&self) {
@@ -5382,6 +5404,16 @@ impl AtlasApp {
     fn dispatch_command(&mut self, ctx: &egui::Context, id: CommandId) {
         let mut detail: Option<String> = None;
         match id.0 {
+            "app.updates.check" => self.updater.check(true),
+            "app.updates.download" => self.updater.download(),
+            "app.updates.later" => self.updater.visible = false,
+            "app.updates.install" => {
+                if let Some(reason) = self.update_close_blocked() {
+                    self.toast(reason);
+                } else {
+                    self.updater.install();
+                }
+            }
             "app.undo" => {
                 self.undo();
                 return;

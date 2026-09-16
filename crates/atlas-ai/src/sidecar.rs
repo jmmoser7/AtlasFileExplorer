@@ -165,6 +165,15 @@ fn path_with_node_dir(node: &Path) -> Option<std::ffi::OsString> {
 fn node_candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
     push_atlas_node(&mut out);
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            push_unique(
+                &mut out,
+                dir.join("runtime")
+                    .join(if cfg!(windows) { "node.exe" } else { "node" }),
+            );
+        }
+    }
 
     #[cfg(windows)]
     {

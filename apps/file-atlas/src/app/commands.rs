@@ -73,6 +73,34 @@ const fn gesture(
 /// Selection, Workflow) — the Advanced reference renders groups in this
 /// declaration order.
 pub const SPECS: &[CommandSpec] = &[
+    gesture(
+        "app.updates.check",
+        "Check for updates",
+        "Application",
+        "Advanced → Software updates",
+        GLOBAL,
+    ),
+    gesture(
+        "app.updates.download",
+        "Download update",
+        "Application",
+        "Update prompt → Download update",
+        GLOBAL,
+    ),
+    gesture(
+        "app.updates.install",
+        "Update and restart",
+        "Application",
+        "Update prompt → Update and restart",
+        GLOBAL,
+    ),
+    gesture(
+        "app.updates.later",
+        "Dismiss update prompt",
+        "Application",
+        "Update prompt → Later",
+        GLOBAL,
+    ),
     // ---- Navigation ----
     gesture(
         "canvas.pan",

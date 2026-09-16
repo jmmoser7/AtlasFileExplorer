@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/atlas-core",
+    "crates/atlas-update",
     "crates/atlas-shell",
     "crates/atlas-session",
     "crates/atlas-ai",
@@ -46,6 +47,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # files, so a second pool inside each decode only oversubscribes.
 jpeg-decoder = { version = "0.3", default-features = false }
 dirs = "6"
+velopack = "=1.2.0"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 pdfium-render = { version = "0.8", features = ["thread_safe"] }
 # SVG → RGBA for atlas thumbnails / zoom previews. Pure Rust; no native DLL.
@@ -59,6 +61,7 @@ gix = { version = "0.86.0", default-features = false, features = ["revision", "s
 
 # Workspace crates.
 atlas-core = { path = "crates/atlas-core" }
+atlas-update = { path = "crates/atlas-update" }
 atlas-shell = { path = "crates/atlas-shell" }
 atlas-session = { path = "crates/atlas-session" }
 atlas-ai = { path = "crates/atlas-ai" }
