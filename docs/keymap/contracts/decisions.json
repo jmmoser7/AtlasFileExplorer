@@ -2378,7 +2378,8 @@
         "P0.*",
         "P1.node",
         "P1.portal",
-        "P2.PortalPlace"
+        "P2.PortalPlace",
+        "P2.PortalHost"
       ],
       "canvas": "portal-atlas-lens-contract.canvas.tsx",
       "decisions": {
@@ -2425,7 +2426,7 @@
           "decided": "2026-08-21"
         },
         "D07": {
-          "behavior": "n/a \u2014 no directional parameter in a rect placement.",
+          "behavior": "n/a — no directional parameter in a rect placement.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2460,11 +2461,11 @@
           "decided": "2026-08-21"
         },
         "D12": {
-          "behavior": "Esc peels one layer per press (P0.1): contents-focus -> drag draft -> armed tool -> selection. A primary click outside the focused body (or on another node) also peels contents-focus; that click then belongs to the board (P1.portal.contents-focus).",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Esc cancels an active file carry first, without placing files or leaving contents focus; otherwise P0.1 / P1.portal.contents-focus applies. A primary click outside the focused body peels focus and belongs to the board.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-22"
+          "decided": "2026-09-17"
         },
         "D13": {
           "behavior": "P1.portal.pick / P1.node.transform. Hover resize. No board grips on contents. Axis-aligned. Maximize square per P1.portal.chrome.",
@@ -2488,18 +2489,18 @@
           "decided": "2026-08-22"
         },
         "D16": {
-          "behavior": "P1.portal.style: No. The frame does not consume BoardLastStyle.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "P1.portal.style: no BoardLastStyle. The live File Atlas surface, cards, and status/empty text follow Slate’s active light/dark palette, including existing portals. Theme switches never mutate the scene.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-21"
+          "decided": "2026-09-17"
         },
         "D17": {
-          "behavior": "P1.portal.pick: frame rect including marquee. Unfocused clicks hit the frame. Contents-focus hits the Atlas canvas via atlas-shell::folder_map; portal.atlas.border_hit_px stays a Slate target. A primary click outside the body peels focus; the click then belongs to the board.",
-          "source": "precedent",
-          "confidence": 80,
+          "behavior": "P1.portal.pick: frame rect including marquee. Unfocused clicks hit the frame. Contents-focus hits the shared Atlas hover/collapse grips; portal_frame.border_hit_px stays a Slate target. A carry begun inside focused contents owns input until release, including outside the portal.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-22"
+          "decided": "2026-09-17"
         },
         "D18": {
           "behavior": "Host (Art. V.3). Slate owns frame + source pointer. Named lens in the Portals flyout; class is host because a live folder map is an inner surface. OQ1.",
@@ -2530,11 +2531,11 @@
           "decided": "2026-08-21"
         },
         "D22": {
-          "behavior": "P1.portal.contents-focus. Click selects the frame. Double-click or Enter enters the Atlas canvas. Esc or a primary click outside the body leaves. In focus: File Atlas FolderCam (wheel/pinch zoom, right/middle pan), collapse grips, select (readout), left-drag a card out via atlas_core::shell_drag (copy/link, never move). After peel the inner camera must not keep the wheel. Double-click a file opens in the OS. Board tools never reach the cards.",
-          "source": "precedent",
-          "confidence": 75,
+          "behavior": "P1.portal.contents-focus. Double-click or Enter enters the Atlas canvas. In focus: shared FolderCam navigation; folder-card clicks collapse/expand and the shared incremental/full grips expand nested folders exactly as standalone Atlas. Click selects a file; Ctrl-click toggles selection. A real left-drag carries the pressed file or its selection onto the primary Slate board, linking and placing through the same metadata-based recipient as detached Atlas (frame tags and one placement undo). Release inside the source portal or over UI cancels. Leaving the window hands off to atlas_core::shell_drag (copy/link, never move). Double-click opens a file in the OS. After blur the board owns navigation.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-22"
+          "decided": "2026-09-17"
         },
         "D23": {
           "behavior": "P0.9: the inner camera is portal-local. Board zoom scales the entire map with the frame; screen scale is inner zoom × board zoom, in and out of contents-focus. Board pan and frame movement carry the map with them. Leaving contents preserves the inner view. LOD uses the composed screen scale; drop type when too small, never clamp to a screen constant.",

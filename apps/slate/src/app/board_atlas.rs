@@ -20,7 +20,7 @@ use atlas_shell::folder_map::{
 };
 use atlas_shell::{canvas_scale, canvas_text};
 use crossbeam_channel::{unbounded, Receiver};
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
+use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Vec2};
 use slate_doc::scene::{
     Node, NodeId, NodeKind, PortalKind, PortalNode, WorldRect, PORTAL_DEFAULT_H, PORTAL_DEFAULT_W,
 };
@@ -31,8 +31,6 @@ use std::time::Instant;
 /// Click-place size (contract D04).
 pub const ATLAS_DEFAULT_W: f32 = PORTAL_DEFAULT_W;
 pub const ATLAS_DEFAULT_H: f32 = PORTAL_DEFAULT_H;
-/// Frame band that stays a Slate target while focused (D17).
-pub const BORDER_HIT_PX: f32 = 6.0;
 /// Max simultaneous live folder scans (D29).
 pub const LIVE_POOL: usize = 2;
 /// Cap when dumping a folder's files onto the board.
@@ -107,12 +105,24 @@ struct AtlasView {
     hover: MapHover,
 }
 
+/// One gesture, owned by the workbook and source that began it. Metadata is
+/// captured before crossing the portal boundary; release never rescans files.
+struct AtlasCarry {
+    tab: u64,
+    portal: NodeId,
+    source: PathBuf,
+    locator: String,
+    generation: u64,
+    files: Vec<atlas_session::SessionFile>,
+}
+
 #[derive(Default)]
 pub struct AtlasRuntime {
     pub focused: Option<NodeId>,
     sessions: HashMap<PathBuf, AtlasSession>,
     views: HashMap<NodeId, AtlasView>,
     pub pending_drops: VecDeque<FolderDropPrompt>,
+    carry: Option<AtlasCarry>,
     /// Left-drag off a card, handed to Windows at end of frame (`DoDragDrop`).
     pending_shell_drag: Option<Vec<PathBuf>>,
     #[cfg(test)]
@@ -188,6 +198,13 @@ pub fn folder_drop_options(path: &Path) -> Vec<FolderDropKind> {
 impl SlateApp {
     pub(crate) fn atlas_pump(&mut self, ctx: &egui::Context) {
         self.atlas_sync_bindings();
+        if self.atlas_lenses.carry.as_ref().is_some_and(|carry| {
+            carry.tab != self.tab().id
+                || self.at_home
+                || self.doc().view.active_view != slate_doc::ViewKind::Board
+        }) {
+            self.atlas_cancel_carry();
+        }
         let keys: Vec<PathBuf> = self.atlas_lenses.sessions.keys().cloned().collect();
         let mut live = 0usize;
         for key in keys {
@@ -456,12 +473,27 @@ impl SlateApp {
             maximized,
             xf.z,
         );
-        let fill = super::board::rgba32(portal.fill);
+        let fill = self.palette().bg;
         self.paint_portal_frame_fill(painter, &layout, fill, Color32::TRANSPARENT, false);
         let clipped = painter.with_clip_rect(layout.body.intersect(painter.clip_rect()));
 
         match &portal.source {
-            None => self.paint_atlas_empty(&clipped, ui, layout.body, node.id, xf.z),
+            None => {
+                if self.paint_portal_empty(
+                    &clipped,
+                    ui,
+                    layout.body,
+                    node.id,
+                    1.0,
+                    super::board_portal_chrome::PortalEmpty {
+                        prompt: "Choose folder…",
+                        ink: self.palette().ink,
+                    },
+                    xf.z,
+                ) {
+                    self.pick_atlas_folder(node.id);
+                }
+            }
             Some(src) => {
                 let workbook = self.tab().path.clone();
                 let root = resolve_source(workbook.as_deref(), &src.locator);
@@ -489,59 +521,6 @@ impl SlateApp {
         );
     }
 
-    fn paint_atlas_empty(
-        &mut self,
-        painter: &egui::Painter,
-        ui: &egui::Ui,
-        body: Rect,
-        portal: NodeId,
-        zoom: f32,
-    ) {
-        let prompt = (15.0 * zoom).max(9.0);
-        if canvas_text::legible(prompt) {
-            canvas_text::text(
-                painter,
-                body.center() - Vec2::new(0.0, 18.0 * zoom),
-                Align2::CENTER_CENTER,
-                "Choose folder…",
-                FontId::proportional(prompt),
-                Color32::from_white_alpha(200),
-            );
-        }
-        let btn = Rect::from_center_size(
-            body.center() + Vec2::new(0.0, 16.0 * zoom),
-            Vec2::new(148.0 * zoom, 28.0 * zoom),
-        );
-        let accent = self.palette().accent;
-        painter.rect_filled(btn, 4.0 * zoom, accent.gamma_multiply(0.35));
-        painter.rect_stroke(
-            btn,
-            4.0 * zoom,
-            Stroke::new(1.0 * zoom, accent),
-            StrokeKind::Inside,
-        );
-        if canvas_text::legible(13.0 * zoom) {
-            canvas_text::text(
-                painter,
-                btn.center(),
-                Align2::CENTER_CENTER,
-                "Browse…",
-                FontId::proportional(13.0 * zoom),
-                Color32::WHITE,
-            );
-        }
-        if self.board_sel.contains(&portal) {
-            let resp = ui.interact(
-                btn,
-                ui.id().with("atlas_browse").with(portal.0),
-                Sense::click(),
-            );
-            if resp.clicked() {
-                self.pick_atlas_folder(portal);
-            }
-        }
-    }
-
     fn paint_atlas_state(&self, painter: &egui::Painter, body: Rect, zoom: f32, msg: &str) {
         let size = canvas_scale::px(13.0, zoom);
         if canvas_text::legible(size) {
@@ -551,7 +530,7 @@ impl SlateApp {
                 Align2::CENTER_CENTER,
                 msg,
                 FontId::proportional(size),
-                Color32::from_rgb(240, 160, 120),
+                self.palette().sub,
             );
         }
     }
@@ -696,7 +675,7 @@ impl SlateApp {
                     Align2::LEFT_TOP,
                     &msg,
                     canvas_scale::font(11.0, zoom),
-                    Color32::from_white_alpha(180),
+                    self.palette().sub,
                 );
             }
         }
@@ -708,6 +687,11 @@ impl SlateApp {
         xf: &BoardXf,
         pointer: Option<Pos2>,
     ) -> bool {
+        // A gesture belongs to its press target, including the frames after
+        // it leaves the portal. Resolve it before any body-boundary return.
+        if self.atlas_lenses.carry.is_some() {
+            return self.atlas_carry_frame(ui, xf, pointer);
+        }
         let Some(id) = self.atlas_lenses.focused else {
             return false;
         };
@@ -728,25 +712,37 @@ impl SlateApp {
             self.portal_is_maximized(id),
             xf.z,
         );
-        let Some(pos) = pointer else {
-            return false;
-        };
-        if layout.pointer_on_chrome(pos) {
-            return false;
-        }
-        let inset = layout.body.shrink(BORDER_HIT_PX);
-        if !inset.contains(pos) {
-            return false;
-        }
-
+        let inset = layout
+            .body
+            .shrink(super::board_portal_chrome::portal_frame_tokens().border_hit_px);
         let surface = FolderCam {
             offset: layout.body.min.to_vec2(),
             z: xf.z,
         };
-        let local_pos = surface.s2w(pos);
         let local_body = Rect::from_min_size(Pos2::ZERO, layout.body.size() / xf.z);
-
         self.atlas_ensure_view_tree(id);
+        let response = ui.interact(
+            inset,
+            ui.id().with("atlas_contents").with(id.0),
+            Sense::click_and_drag(),
+        );
+        if response.drag_started_by(egui::PointerButton::Primary)
+            && !ui.input(|i| i.modifiers.shift)
+        {
+            if let Some(press) = ui.input(|i| i.pointer.press_origin()) {
+                if inset.contains(press) && !layout.pointer_on_chrome(press) {
+                    self.atlas_start_carry(id, press, surface);
+                }
+            }
+        }
+        if self.atlas_lenses.carry.is_some() {
+            return self.atlas_carry_frame(ui, xf, pointer);
+        }
+        let Some(pos) = pointer else { return false };
+        if layout.pointer_on_chrome(pos) || !inset.contains(pos) {
+            return false;
+        }
+        let local_pos = surface.s2w(pos);
 
         let (scroll_y, scroll_x, zoom_delta, shift) = ui.input(|i| {
             (
@@ -779,25 +775,6 @@ impl SlateApp {
             }
         }
 
-        // Hover from the last frame is the press target: by the time egui
-        // decides this is a drag, the pointer has already left the card.
-        let on_card = self
-            .atlas_lenses
-            .views
-            .get(&id)
-            .is_some_and(|v| v.hover.file.is_some() || v.hover.dir.is_some());
-        let drag = ui.interact(
-            inset,
-            ui.id().with("atlas_shell_drag").with(id.0),
-            Sense::drag(),
-        );
-        if drag.drag_started_by(egui::PointerButton::Primary) && on_card && !shift {
-            let paths = self.atlas_shell_drag_paths(id);
-            if !paths.is_empty() {
-                self.atlas_lenses.pending_shell_drag = Some(paths);
-            }
-        }
-
         if let Some(view) = self.atlas_lenses.views.get(&id) {
             if let Some(tree) = &view.tree {
                 let hover = folder_map::hover_at(
@@ -814,13 +791,10 @@ impl SlateApp {
             }
         }
 
-        if ui.input(|i| i.pointer.primary_clicked()) {
-            self.atlas_click_contents(id, pos, local_body, surface);
+        if response.clicked() {
+            self.atlas_click_contents(id, pos, local_body, surface, ui.input(|i| i.modifiers.ctrl));
         }
-        if ui.input(|i| {
-            i.pointer
-                .button_double_clicked(egui::PointerButton::Primary)
-        }) {
+        if response.double_clicked() {
             self.atlas_open_hit(id, pos, surface);
         }
         let on_card = self
@@ -836,6 +810,130 @@ impl SlateApp {
         true
     }
 
+    fn atlas_start_carry(&mut self, id: NodeId, press: Pos2, surface: FolderCam) {
+        let Some(locator) = self.doc().scene.node(id).and_then(|n| match &n.kind {
+            NodeKind::Portal(p) => p.source.as_ref().map(|s| s.locator.clone()),
+            _ => None,
+        }) else {
+            return;
+        };
+        let Some(view) = self.atlas_lenses.views.get_mut(&id) else {
+            return;
+        };
+        let Some(tree) = &view.tree else { return };
+        let Some(session) = self.atlas_lenses.sessions.get(&view.session_key) else {
+            return;
+        };
+        let hover = folder_map::hover_at(
+            tree,
+            view.cam.in_parent(surface),
+            press,
+            Orient::H,
+            false,
+            false,
+        );
+        view.hover = hover;
+        let ids = folder_map::drag_file_ids(hover.file, &view.selection, &session.entries);
+        if ids.is_empty() {
+            // Folder cards keep the existing Explorer-compatible drag path.
+            let paths = folder_map::drag_paths(
+                hover,
+                &view.selection,
+                &session.entries,
+                Some(tree),
+                Some(&session.root),
+            );
+            if !paths.is_empty() {
+                self.atlas_lenses.pending_shell_drag = Some(paths);
+            }
+            return;
+        }
+        let files = ids
+            .into_iter()
+            .map(|id| {
+                let entry = &session.entries[id as usize];
+                atlas_session::SessionFile {
+                    path: entry.path.clone(),
+                    file_name: entry.name.clone(),
+                    size: entry.size,
+                    mtime: entry.mtime,
+                    cache_key: cache_key(&entry.path.to_string_lossy(), entry.size, entry.mtime),
+                }
+            })
+            .collect();
+        self.atlas_lenses.carry = Some(AtlasCarry {
+            tab: self.tab().id,
+            portal: id,
+            source: session.root.clone(),
+            locator,
+            generation: session.generation,
+            files,
+        });
+    }
+
+    fn atlas_carry_frame(&mut self, ui: &egui::Ui, xf: &BoardXf, pointer: Option<Pos2>) -> bool {
+        let Some(carry) = self.atlas_lenses.carry.take() else {
+            return false;
+        };
+        let valid = self.tab().id == carry.tab
+            && self.atlas_lenses.focused == Some(carry.portal)
+            && self
+                .atlas_lenses
+                .views
+                .get(&carry.portal)
+                .is_some_and(|v| v.session_key == carry.source)
+            && self
+                .atlas_lenses
+                .sessions
+                .get(&carry.source)
+                .is_some_and(|s| s.generation == carry.generation);
+        let Some(node) = self
+            .doc()
+            .scene
+            .node(carry.portal)
+            .filter(|n| valid && !n.hidden && matches!(&n.kind, NodeKind::Portal(p)
+                if p.kind == PortalKind::FileAtlas && p.source.as_ref().is_some_and(|s| s.locator == carry.locator)))
+        else {
+            return true;
+        };
+        let source_rect = xf.rect_w2s(node.rect);
+        let on_board = pointer.is_some_and(|p| {
+            ui.clip_rect().contains(p)
+                && !source_rect.contains(p)
+                && ui.ctx().layer_id_at(p) == Some(ui.layer_id())
+        }) && !self.portal_is_maximized(carry.portal);
+        if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+            if on_board {
+                self.contents_blur();
+                self.place_atlas_files(carry.files, pointer.map(|p| xf.s2w(p)));
+            }
+            return true;
+        }
+        if !ui.input(|i| i.pointer.primary_down() && i.focused) {
+            return true;
+        }
+        if pointer.is_none_or(|p| !ui.ctx().screen_rect().contains(p)) {
+            self.atlas_lenses.pending_shell_drag =
+                Some(carry.files.into_iter().map(|f| f.path).collect());
+            return true;
+        }
+        if let Some(pos) = pointer {
+            self.paint_atlas_drag_hint(ui.ctx(), pos, carry.files.len());
+            ui.ctx().set_cursor_icon(if on_board {
+                egui::CursorIcon::Copy
+            } else {
+                egui::CursorIcon::Grabbing
+            });
+        }
+        self.atlas_lenses.carry = Some(carry);
+        ui.ctx().request_repaint();
+        true
+    }
+
+    pub(crate) fn atlas_cancel_carry(&mut self) -> bool {
+        self.atlas_lenses.carry.take().is_some()
+    }
+
     /// Same payload File Atlas hands Windows: the selection when the card is
     /// in it, otherwise just that card; a folder is one shell item.
     fn atlas_shell_drag_paths(&self, id: NodeId) -> Vec<PathBuf> {
@@ -845,29 +943,13 @@ impl SlateApp {
         let Some(session) = self.atlas_lenses.sessions.get(&view.session_key) else {
             return Vec::new();
         };
-        match (view.hover.file, view.hover.dir) {
-            (Some(f), _) => {
-                let mut ids: Vec<u32> = if view.selection.contains(&f) {
-                    view.selection.iter().copied().collect()
-                } else {
-                    vec![f]
-                };
-                ids.sort_unstable();
-                ids.iter()
-                    .filter_map(|&i| session.entries.get(i as usize))
-                    .filter(|e| !e.dead)
-                    .take(atlas_core::shell_drag::MAX_DRAG_PATHS)
-                    .map(|e| e.path.clone())
-                    .collect()
-            }
-            (None, Some(d)) => view
-                .tree
-                .as_ref()
-                .and_then(|t| t.dirs.get(d as usize))
-                .map(|dir| vec![session.root.join(&dir.rel)])
-                .unwrap_or_default(),
-            _ => Vec::new(),
-        }
+        folder_map::drag_paths(
+            view.hover,
+            &view.selection,
+            &session.entries,
+            view.tree.as_ref(),
+            Some(&session.root),
+        )
     }
 
     /// `DoDragDrop` after paint, the same exception File Atlas documents.
@@ -901,7 +983,14 @@ impl SlateApp {
         }
     }
 
-    fn atlas_click_contents(&mut self, id: NodeId, screen: Pos2, body: Rect, surface: FolderCam) {
+    fn atlas_click_contents(
+        &mut self,
+        id: NodeId,
+        screen: Pos2,
+        body: Rect,
+        surface: FolderCam,
+        ctrl: bool,
+    ) {
         self.atlas_ensure_view_tree(id);
         let Some((hover, z, n_files)) = (|| {
             let view = self.atlas_lenses.views.get(&id)?;
@@ -926,8 +1015,12 @@ impl SlateApp {
         };
         if let Some(file) = hover.file {
             if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
-                view.selection.clear();
-                view.selection.insert(file);
+                if !ctrl {
+                    view.selection.clear();
+                }
+                if !ctrl || !view.selection.remove(&file) {
+                    view.selection.insert(file);
+                }
                 view.hover = hover;
             }
             return;
@@ -1010,6 +1103,7 @@ impl SlateApp {
     }
 
     pub(crate) fn atlas_leave_contents(&mut self) -> bool {
+        self.atlas_cancel_carry();
         self.atlas_lenses.focused.take().is_some()
     }
 
@@ -1426,6 +1520,10 @@ mod tests {
     /// A completed in-memory scan keeps camera tests independent of workers,
     /// thumbnail I/O, and the developer's folders.
     fn atlas_camera_board(tag: &str, zoom: f32) -> (Harness, NodeId) {
+        atlas_board_files(tag, zoom, &["card.rs"])
+    }
+
+    fn atlas_board_files(tag: &str, zoom: f32, files: &[&str]) -> (Harness, NodeId) {
         let mut h = Harness::new(tag);
         h.app.leave_home();
         h.app.ensure_work_tab();
@@ -1436,10 +1534,12 @@ mod tests {
             .place_bound_atlas_at(Pos2::new(240.0, -130.0), &h.base);
         let id = h.app.doc().scene.nodes[0].id;
         let root = canonical(&h.base);
-        let entries =
-            vec![
-                FileEntry::from_abs(&root, root.join("card.rs"), 10, 0, 0, String::new()).unwrap(),
-            ];
+        let entries = files
+            .iter()
+            .map(|file| {
+                FileEntry::from_abs(&root, root.join(file), 10, 0, 0, String::new()).unwrap()
+            })
+            .collect();
         let (_tx, rx) = unbounded();
         h.app.atlas_lenses.sessions.insert(
             root.clone(),
@@ -1501,6 +1601,222 @@ mod tests {
             (actual - expected).length() < 0.02,
             "{actual:?} != {expected:?}"
         );
+    }
+
+    fn pointer_button(h: &mut Harness, pos: Pos2, pressed: bool, ctrl: bool) {
+        h.frame_with(|input| {
+            input.modifiers.ctrl = ctrl;
+            input.events.push(egui::Event::PointerMoved(pos));
+            input.events.push(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: input.modifiers,
+            });
+        });
+    }
+
+    fn click(h: &mut Harness, pos: Pos2) {
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(pos)));
+        pointer_button(h, pos, true, false);
+        assert!(
+            h.app.atlas_lenses.last_shell_drag.is_none(),
+            "press is not a file drag"
+        );
+        pointer_button(h, pos, false, false);
+    }
+
+    fn dir_screen(h: &Harness, id: NodeId, rel: &str) -> (u32, Rect, f32) {
+        let view = &h.app.atlas_lenses.views[&id];
+        let tree = view.tree.as_ref().unwrap();
+        let dir = tree
+            .dirs
+            .iter()
+            .position(|d| d.rel.replace('\\', "/") == rel)
+            .unwrap();
+        let xf = h.app.board_xf();
+        let body = xf.rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        let cam = view.cam.in_parent(FolderCam {
+            offset: body.min.to_vec2(),
+            z: xf.z,
+        });
+        (dir as u32, cam.w2s_rect(tree.dirs[dir].rect()), cam.z)
+    }
+
+    #[test]
+    fn atlas_nested_folders_click_expand_both_grips_and_survive_rebuild() {
+        let (mut h, id) = atlas_board_files(
+            "atlas_folder_parity",
+            0.65,
+            &["one/a.rs", "one/two/b.rs", "one/two/three/c.rs"],
+        );
+        h.app.atlas_focus(id);
+        h.frame();
+        let (one, card, _) = dir_screen(&h, id, "one");
+        click(&mut h, card.center());
+        assert!(h.app.atlas_lenses.views[&id].tree.as_ref().unwrap().dirs[one as usize].collapsed);
+        let (_, card, zoom) = dir_screen(&h, id, "one");
+        let (_, full) = folder_map::grip_positions(card, zoom, Orient::H);
+        click(&mut h, full);
+        assert!(
+            h.app.atlas_lenses.views[&id]
+                .tree
+                .as_ref()
+                .unwrap()
+                .dirs
+                .iter()
+                .all(|d| !d.collapsed),
+            "full grip expands descendants"
+        );
+        let (_, card, _) = dir_screen(&h, id, "one");
+        click(&mut h, card.center());
+        let (_, card, zoom) = dir_screen(&h, id, "one");
+        click(&mut h, folder_map::grip_positions(card, zoom, Orient::H).0);
+        let (two, card, zoom) = dir_screen(&h, id, "one/two");
+        assert!(
+            h.app.atlas_lenses.views[&id].tree.as_ref().unwrap().dirs[two as usize].collapsed,
+            "incremental keeps children collapsed"
+        );
+        click(&mut h, folder_map::grip_positions(card, zoom, Orient::H).0);
+        let view = &h.app.atlas_lenses.views[&id];
+        assert!(!view.tree.as_ref().unwrap().dirs[two as usize].collapsed);
+        let recorded = view.dir_collapsed.clone();
+        let key = view.session_key.clone();
+        let session = h.app.atlas_lenses.sessions.get_mut(&key).unwrap();
+        session.entries.push(
+            FileEntry::from_abs(&key, key.join("one/new.rs"), 12, 0, 0, String::new()).unwrap(),
+        );
+        session.tree_dirty = true;
+        h.frame();
+        let tree = h.app.atlas_lenses.views[&id].tree.as_ref().unwrap();
+        assert_eq!(tree.file_pos.len(), 4);
+        for dir in &tree.dirs {
+            if let Some(collapsed) = recorded.get(&dir.rel) {
+                assert_eq!(dir.collapsed, *collapsed, "{} changed on rebuild", dir.rel);
+            }
+        }
+        assert!(h.app.atlas_lenses.last_shell_drag.is_none());
+    }
+
+    fn begin_file_carry(h: &mut Harness, id: NodeId, to: Pos2) -> Pos2 {
+        h.app.atlas_focus(id);
+        let on = atlas_painted_card(h, vec![]).center();
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(on)));
+        pointer_button(h, on, true, false);
+        assert!(h.app.atlas_lenses.carry.is_none());
+        // Cross the entire portal in one frame: the press target must survive.
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(to)));
+        assert!(h.app.atlas_lenses.carry.is_some());
+        assert!(h.app.atlas_lenses.last_shell_drag.is_none());
+        on
+    }
+
+    #[test]
+    fn atlas_carry_places_linked_file_on_scaled_board_with_tags_and_undo() {
+        let (mut h, id) = atlas_camera_board("atlas_carry_board", 0.55);
+        let at = Pos2::new(1250.0, 420.0);
+        let world = h.app.board_xf().s2w(at);
+        let group = h.app.doc_mut().add_group("Drop");
+        let tag = h
+            .app
+            .doc_mut()
+            .add_tag(group, "Frame", [10, 20, 30])
+            .unwrap();
+        let frame = slate_doc::scene::FrameNode {
+            title: "Drop".into(),
+            order: 0,
+            fill: slate_doc::scene::Rgba::opaque(240, 240, 240),
+            assignments: std::collections::BTreeMap::from([(group, tag)]),
+        };
+        let node = h.app.doc_mut().scene.build_node(
+            WorldRect::new(world.x - 250.0, world.y - 200.0, 500.0, 400.0),
+            NodeKind::Frame(frame),
+        );
+        h.app.add_nodes(vec![node]);
+        let before = h.app.doc().scene.nodes.len();
+        begin_file_carry(&mut h, id, at);
+        pointer_button(&mut h, at, false, false);
+        assert_eq!(h.app.doc().scene.nodes.len(), before + 1);
+        let placed = h.app.doc().scene.nodes.last().unwrap();
+        let NodeKind::Image(image) = &placed.kind else {
+            panic!("drop must place an image node")
+        };
+        let item = h.app.doc().item(image.item).unwrap();
+        assert_eq!(item.path.file_name().unwrap(), "card.rs");
+        assert_eq!(item.assignments.get(&group), Some(&tag));
+        let (x, y) = placed.rect.center();
+        assert_near(Vec2::new(x, y), world.to_vec2());
+        assert_eq!(h.app.contents_focused(), None);
+        assert!(h.app.atlas_lenses.carry.is_none());
+        h.app.board_undo();
+        assert_eq!(h.app.doc().scene.nodes.len(), before);
+        h.app.board_redo();
+        assert_eq!(h.app.doc().scene.nodes.len(), before + 1);
+    }
+
+    #[test]
+    fn atlas_carry_cancel_inside_release_and_tab_change_add_nothing() {
+        let (mut h, id) = atlas_camera_board("atlas_carry_cancel", 0.55);
+        let at = Pos2::new(1250.0, 420.0);
+        let on = begin_file_carry(&mut h, id, at);
+        pointer_button(&mut h, on, false, false);
+        assert_eq!(h.app.doc().scene.nodes.len(), 1);
+        assert!(h.app.doc().items.is_empty());
+        begin_file_carry(&mut h, id, at);
+        h.app
+            .dispatch(&h.ctx, atlas_commands::CommandId("app.cancel"), None);
+        assert!(h.app.atlas_lenses.carry.is_none());
+        assert_eq!(h.app.atlas_lenses.focused, Some(id));
+        pointer_button(&mut h, at, false, false);
+        assert!(h.app.doc().items.is_empty());
+        begin_file_carry(&mut h, id, at);
+        h.app.new_tab();
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        pointer_button(&mut h, at, false, false);
+        assert!(h.app.doc().items.is_empty());
+        assert!(h.app.doc().scene.nodes.is_empty());
+        assert!(h.app.atlas_lenses.carry.is_none());
+    }
+
+    #[test]
+    fn atlas_carry_hands_off_to_windows_only_when_leaving_the_window() {
+        let (mut h, id) = atlas_camera_board("atlas_carry_external", 0.55);
+        begin_file_carry(&mut h, id, Pos2::new(1250.0, 420.0));
+        h.frame_with(|i| {
+            i.events
+                .push(egui::Event::PointerMoved(Pos2::new(1500.0, 420.0)))
+        });
+        let paths = h
+            .app
+            .atlas_lenses
+            .last_shell_drag
+            .as_ref()
+            .expect("external handoff");
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].file_name().unwrap(), "card.rs");
+        assert!(h.app.atlas_lenses.carry.is_none());
+        assert!(h.app.doc().items.is_empty());
+    }
+
+    #[test]
+    fn atlas_surface_follows_theme_without_changing_the_document() {
+        let (mut h, id) = atlas_camera_board("atlas_theme", 0.65);
+        let scene = serde_json::to_value(&h.app.doc().scene).unwrap();
+        for dark in [true, false, true] {
+            h.app.dark_mode = dark;
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+                ..Default::default()
+            };
+            let output = h.ctx.run(input, |ctx| h.app.update_app(ctx));
+            let rect = h
+                .app
+                .board_xf()
+                .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+            let palette = h.app.palette();
+            assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rect && r.fill == palette.bg)), "portal background must use active theme");
+            assert_eq!(serde_json::to_value(&h.app.doc().scene).unwrap(), scene);
+        }
     }
 
     #[test]

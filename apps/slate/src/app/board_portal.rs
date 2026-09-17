@@ -6,7 +6,7 @@
 use super::{PickerMsg, SlateApp};
 use atlas_shell::{canvas_scale, canvas_text};
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
+use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
 use repo_graph::{
     extract_repository, layout_graph, RefSelection, RepoError, RepoGraph, RepoLayout, RepoQuery,
     Size, TimeAxis, TimeWindow,
@@ -790,15 +790,20 @@ impl SlateApp {
             }
             PortalKind::RepoLens => match &portal.source {
                 None => {
-                    self.paint_portal_empty(
+                    if self.paint_portal_empty(
                         &clipped,
                         ui,
                         srect,
                         node.id,
                         alpha,
-                        EmptyPrompt::Repo,
+                        super::board_portal_chrome::PortalEmpty {
+                            prompt: "Choose repository…",
+                            ink: Color32::WHITE,
+                        },
                         xf.z,
-                    );
+                    ) {
+                        self.pick_repo_for_portal(node.id);
+                    }
                 }
                 Some(_) => {
                     let status = self
@@ -864,15 +869,20 @@ impl SlateApp {
         let srect = xf.rect_w2s(node.rect);
         match &portal.source {
             None => {
-                self.paint_portal_empty(
+                if self.paint_portal_empty(
                     painter,
                     ui,
                     srect,
                     node.id,
                     alpha,
-                    EmptyPrompt::Status,
+                    super::board_portal_chrome::PortalEmpty {
+                        prompt: "Choose status snapshot…",
+                        ink: Color32::WHITE,
+                    },
                     xf.z,
-                );
+                ) {
+                    self.pick_status_for_portal(node.id);
+                }
             }
             Some(_) => {
                 let status = self
@@ -985,68 +995,6 @@ impl SlateApp {
                             fade(*rgba),
                         );
                     }
-                }
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
-    fn paint_portal_empty(
-        &mut self,
-        painter: &egui::Painter,
-        ui: &egui::Ui,
-        srect: Rect,
-        portal: NodeId,
-        alpha: f32,
-        kind: EmptyPrompt,
-        zoom: f32,
-    ) {
-        let prompt = canvas_scale::px(15.0, zoom);
-        if canvas_text::legible(prompt) {
-            canvas_text::text(
-                painter,
-                srect.center() - Vec2::new(0.0, canvas_scale::px(18.0, zoom)),
-                Align2::CENTER_CENTER,
-                kind.prompt(),
-                FontId::proportional(prompt),
-                Color32::from_white_alpha((200.0 * alpha) as u8),
-            );
-        }
-        let btn = Rect::from_center_size(
-            srect.center() + Vec2::new(0.0, canvas_scale::px(16.0, zoom)),
-            Vec2::new(canvas_scale::px(148.0, zoom), canvas_scale::px(28.0, zoom)),
-        );
-        let accent = self.palette().accent.gamma_multiply(alpha);
-        painter.rect_filled(
-            btn,
-            canvas_scale::px(4.0, zoom),
-            accent.gamma_multiply(0.35),
-        );
-        painter.rect_stroke(
-            btn,
-            canvas_scale::px(4.0, zoom),
-            Stroke::new(canvas_scale::px(1.0, zoom), accent),
-            StrokeKind::Inside,
-        );
-        let browse = canvas_scale::px(13.0, zoom);
-        if canvas_text::legible(browse) {
-            canvas_text::text(
-                painter,
-                btn.center(),
-                Align2::CENTER_CENTER,
-                "Browse…",
-                FontId::proportional(browse),
-                Color32::WHITE.gamma_multiply(alpha),
-            );
-        }
-        // Hit-test only when this portal is selected (avoids stealing board clicks).
-        if self.board_sel.contains(&portal) {
-            let id = ui.id().with("portal_browse").with(portal.0);
-            let resp = ui.interact(btn, id, Sense::click());
-            if resp.clicked() {
-                match kind {
-                    EmptyPrompt::Repo => self.pick_repo_for_portal(portal),
-                    EmptyPrompt::Status => self.pick_status_for_portal(portal),
                 }
             }
         }
@@ -1298,21 +1246,6 @@ impl SlateApp {
             return;
         }
         self.contents_blur();
-    }
-}
-
-#[derive(Clone, Copy)]
-enum EmptyPrompt {
-    Repo,
-    Status,
-}
-
-impl EmptyPrompt {
-    fn prompt(self) -> &'static str {
-        match self {
-            EmptyPrompt::Repo => "Choose repository…",
-            EmptyPrompt::Status => "Choose status snapshot…",
-        }
     }
 }
 

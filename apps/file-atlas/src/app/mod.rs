@@ -6146,11 +6146,7 @@ impl AtlasApp {
                 // Linked session: dragging a thumbnail carries the file(s)
                 // toward the Slate window rather than out to Windows.
                 let f = self.hovered_file.unwrap_or_default();
-                let ids: Vec<u32> = if self.selection.contains(&f) {
-                    self.selection.iter().copied().collect()
-                } else {
-                    vec![f]
-                };
+                let ids = folder_map::drag_file_ids(Some(f), &self.selection, &self.entries);
                 let files = self.session_files_for_ids(&ids);
                 if !files.is_empty() {
                     self.session_drag = Some(files);
@@ -6583,27 +6579,17 @@ impl AtlasApp {
     /// What a drag off the card under the cursor hands to Windows: the whole
     /// selection when the card is part of it, otherwise just that card.
     fn shell_drag_paths(&self) -> Vec<PathBuf> {
-        match (self.hovered_file, self.hovered_dir) {
-            (Some(f), _) => {
-                let mut ids: Vec<u32> = if self.selection.contains(&f) {
-                    self.selection.iter().copied().collect()
-                } else {
-                    vec![f]
-                };
-                ids.sort_unstable();
-                ids.iter()
-                    .filter_map(|&i| self.entries.get(i as usize))
-                    .filter(|e| !e.dead)
-                    .take(atlas_core::shell_drag::MAX_DRAG_PATHS)
-                    .map(|e| e.path.clone())
-                    .collect()
-            }
-            // A folder drags as the folder, the way Explorer does it — one
-            // shell item, so the cost of starting the drag does not scale with
-            // how much is inside it.
-            (None, Some(d)) => self.dir_path(d).map(|p| vec![p]).unwrap_or_default(),
-            _ => Vec::new(),
-        }
+        folder_map::drag_paths(
+            folder_map::MapHover {
+                file: self.hovered_file,
+                dir: self.hovered_dir,
+                grip: self.hovered_dir_grip,
+            },
+            &self.selection,
+            &self.entries,
+            self.tree.as_ref(),
+            self.root.as_deref(),
+        )
     }
 
     fn dir_path(&self, d: u32) -> Option<PathBuf> {

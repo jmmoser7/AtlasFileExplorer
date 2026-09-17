@@ -3,13 +3,58 @@ use super::collapse::{grip_positions, DirGrip};
 use crate::canvas_scale;
 use atlas_core::pack_sheet::{PackedSheet, SheetTile};
 use atlas_core::tree::{Hit, Orient, Tree};
+use atlas_core::types::FileEntry;
 use eframe::egui::Pos2;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MapHover {
     pub file: Option<u32>,
     pub dir: Option<u32>,
     pub grip: Option<DirGrip>,
+}
+
+/// A drag carries the selection only when it starts on a selected file.
+/// Resolve once at press/drag start so moving over another card cannot change it.
+pub fn drag_file_ids(
+    file: Option<u32>,
+    selection: &HashSet<u32>,
+    entries: &[FileEntry],
+) -> Vec<u32> {
+    let Some(file) = file else { return Vec::new() };
+    let mut ids = if selection.contains(&file) {
+        selection.iter().copied().collect::<Vec<_>>()
+    } else {
+        vec![file]
+    };
+    ids.sort_unstable();
+    ids.retain(|&id| entries.get(id as usize).is_some_and(|e| !e.dead));
+    ids.truncate(atlas_core::shell_drag::MAX_DRAG_PATHS);
+    ids
+}
+
+/// Explorer-compatible payload; directories stay one item, never a recursive walk.
+pub fn drag_paths(
+    hover: MapHover,
+    selection: &HashSet<u32>,
+    entries: &[FileEntry],
+    tree: Option<&Tree>,
+    root: Option<&Path>,
+) -> Vec<PathBuf> {
+    if hover.file.is_some() {
+        drag_file_ids(hover.file, selection, entries)
+            .into_iter()
+            .map(|id| entries[id as usize].path.clone())
+            .collect()
+    } else {
+        hover
+            .dir
+            .and_then(|dir| tree?.dirs.get(dir as usize))
+            .zip(root)
+            .map(|(dir, root)| vec![root.join(&dir.rel)])
+            .unwrap_or_default()
+    }
 }
 
 /// Packed-sheet hover: a file tile selects the file; a stack cover is the

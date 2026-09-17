@@ -813,6 +813,9 @@ impl SlateApp {
             self.lens.focus = None;
             return true;
         }
+        if self.atlas_cancel_carry() {
+            return true;
+        }
         // Maximize peels first: Esc returns the portal to the board without
         // dropping page focus (P1.portal.maximize / P0.1).
         if self.portal_chrome.maximized.is_some() {
