@@ -33,7 +33,7 @@ Rules:
 | DV-17 | II | File Atlas `apply_fs_change` calls `scanner::stat_file` on the UI thread (up to `FS_EVENTS_PER_FRAME` metadata calls); on a share this is the documented freeze path | closed | 2026-08-15 (audit №3) | P0.3 | 6cbb863 |
 | DV-18 | XII.1 | Byte-identical workbook-relative locators: `resolve_source` / `source_locator` in `board_portal.rs` and `resolve_web_source` / `web_source_locator` in `board_web.rs`. Art. IX.2 has two masters; only the portal pair is tested | open | 2026-08-22 (DRY audit) | P2.PortalHost.locators | — |
 | DV-19 | XII.1 | File Atlas scan/watcher session copied into `board_atlas.rs` (`FS_EVENTS_PER_FRAME = 32`, rebuild-on-grew/aged). Perf fixes in `apps/file-atlas` will not reach the portal | open | 2026-08-22 (DRY audit) | folder_map session extract | — |
-| DV-20 | XII.4 | Host-portal mechanism twins: empty-state Browse (`paint_atlas_empty` floors type — P0.9), bake-PNG writers, and `web_focus` / `agent_focus` / `atlas_focus` each inlined. Copy-to-emulate, already diverged | open | 2026-08-22 (DRY audit) | P2.PortalHost empty/bake/focus | — |
+| DV-20 | XII.4 | Host-portal mechanism twins: bake-PNG writers remain. Focus and the empty-state Browse painter now use shared owners (Atlas parity, 2026-09-17); the Atlas CTA no longer floors type. Keep open until the remaining bake extraction | open | 2026-08-22 (DRY audit) | P2.PortalHost empty/bake/focus | — |
 
 ## Deviation counts by article (maintained by the metrics tool)
 

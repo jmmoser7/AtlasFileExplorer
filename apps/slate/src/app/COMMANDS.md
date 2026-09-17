@@ -419,9 +419,14 @@ Camera-only — never journaled, never repeatable.
   `portal.atlas.*`). Place from the Portals flyout. Binding is a later
   non-modal step, or a folder drop through the lens chooser (File Atlas is
   the default; Place files on the board dumps images). View-only: no
-  filesystem writes. In contents-focus, left-drag a card to another
-  application the same way File Explorer does (`portal.atlas.drag_out`,
-  `atlas_core::shell_drag` — copy or link, never move). Open in File Atlas
+  filesystem writes. In contents-focus, folder cards and their incremental/full
+  grips expand or collapse through the same implementation as standalone Atlas.
+  Click a file to select it; Ctrl+click toggles selection. Left-drag files onto
+  the primary Slate board to link and place them (including frame tags and undo).
+  Esc cancels the carry; releasing inside the source portal adds nothing.
+  Drag outside the window to another application the same way File Explorer
+  does (`portal.atlas.drag_out`, `atlas_core::shell_drag` — copy/link, never move).
+  The nested map follows Slate’s light/dark theme. Open in File Atlas
   uses the existing Slate-hosted viewport. Bake writes a poster +
   provenance; the portal stays live.
 - **Web portal** is a host portal: a new one starts at

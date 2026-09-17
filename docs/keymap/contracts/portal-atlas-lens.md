@@ -13,7 +13,7 @@ Inherits: P0.* (all), P1.node, **P1.portal**, **P2.PortalPlace**,
 
 Owner: `atlas-shell::folder_map` (paint) + `atlas-core` (scan / thumbs).
 Forbidden forks: a second tree painter; importing `AtlasApp`. Known debt:
-DV-19 (scan session), DV-20 (empty CTA scale).
+DV-19 (scan session), DV-20 (remaining bake helpers; the empty CTA is shared).
 
 ## What it is, and the 10% it implements
 
@@ -44,7 +44,7 @@ window, not a fifth `ViewKind`, and not Edit-mode filesystem writes.
 ## Behavior matrix
 
 Rows keyed to `DIMENSIONS.md` in registry order. Every row is mirrored in
-`decisions.json` as `approved` (canvas accepted 2026-08-21).
+`decisions.json` as `approved` (canvas accepted 2026-08-21; D12/D16/D17/D22 refined by explicit user request 2026-09-17).
 
 | ID | Dimension | Agreed behavior | Source | Conf |
 |----|-----------|-------------------|--------|------|
@@ -59,17 +59,17 @@ Rows keyed to `DIMENSIONS.md` in registry order. Every row is mirrored in
 | D09 | Preview & readouts | During the drag: frame outline in `Palette::portal` + live w×h in the dock readout. Bound and idle: folder name · file count (when known) · scan progress · health (`Ok`/`Unknown`/`Missing`). Dock readout when selected: locator · health · inner zoom · focused/unfocused | precedent | 80 |
 | D10 | Cursor | Crosshair while armed. Over an unfocused portal: arrow. In contents-focus: File Atlas canvas cursors. Over the maximize square and frame chrome: arrow | precedent | 75 |
 | D11 | Commit | One journaled `Add` of a portal node: `{ rect, class: Host, kind: FileAtlas, source: None }`. Frame and source (once bound) are journaled. Scan batches, tree, thumbs, inner camera, collapse, and selection are never journaled. One gesture = one undo. No `BoardLastStyle` consumed (D16) | pattern | 90 |
-| D12 | Cancel | Esc peels one layer per press (P0.1): contents-focus → drag draft → armed tool → selection. A primary click outside the focused body (or on another node) also peels contents-focus; that click then belongs to the board (P1.portal.contents-focus) | pattern | 85 |
+| D12 | Cancel | Esc cancels an active file carry first, without placing files or leaving contents focus; otherwise P0.1 / P1.portal.contents-focus applies. A primary click outside the focused body peels focus and belongs to the board. | stated | 100 |
 | D13 | Selected presentation | P1.portal.pick / P1.node.transform. Windows-style hover resize — no prior selection. Contents expose no board grips. Portals stay axis-aligned: no rotate chrome. Maximize square per P1.portal.chrome (D33/D34) | pattern | 90 |
 | D14 | Post-edit | Rebind and authored query knobs through the Portal inspector or `portal.atlas.*` commands; each is a journaled `Patch`. Inner camera / collapse / selection are re-edited by using the surface | pattern | 80 |
 | D15 | Non-goals | Cut: any File Atlas app feature or chrome path; embedding `AtlasApp` / a second process / File Atlas window chrome inside the frame; a second copy of the folder-map painter; an Atlas-owned tag model; Edit-mode filesystem writes in v1; Cover Flow / Home / Advanced / destination assignment / export tray; a fifth tab-level `ViewKind`; authenticated anything. Not cut: place, bind a local folder, live `atlas-shell::folder_map` + atlas-core scan/thumbs, contents-focus, maximize, refresh, bake, Open in File Atlas (existing Slate second viewport) | stated | 100 |
-| D16 | Create-style inheritance | P1.portal.style: **No.** The frame does not consume `BoardLastStyle` | pattern | 90 |
-| D17 | Hit-testing & pick | P1.portal.pick: the frame picks on its rect, including marquee. Unfocused: every click hits the frame. Contents-focus: hits go to the Atlas canvas (`atlas-shell::folder_map` hover / collapse grips), with a border band (`portal.atlas.border_hit_px`) that stays a Slate target. A primary click outside the body peels focus; the click then belongs to the board | precedent | 80 |
+| D16 | Create-style inheritance | P1.portal.style: no BoardLastStyle. The live File Atlas surface, cards, and status/empty text follow Slate’s active light/dark palette, including existing portals. Theme switches never mutate the scene. | stated | 100 |
+| D17 | Hit-testing & pick | P1.portal.pick: frame rect including marquee. Unfocused clicks hit the frame. Contents-focus hits the shared Atlas hover/collapse grips; portal_frame.border_hit_px stays a Slate target. A carry begun inside focused contents owns input until release, including outside the portal. | stated | 100 |
 | D18 | Portal class & authority | **Host** (Art. V.3 / P1.portal.frame). The folder's journal is the filesystem; Slate owns only the frame + source pointer. Named "lens" in the Portals flyout — class is still host because a live folder map is an inner surface | stated | 100 |
 | D19 | Source binding | One `SourceUri` naming a **local folder**, stored relative-first (Art. IX.2). Bound by `portal.atlas.source`. Health `Ok`/`Missing`/`Unknown`. Refused: files, URLs, cloud accounts, a File Atlas window handle. Rebind is a journaled `Patch` | pattern | 90 |
 | D20 | Query & parameters | v1 journaled query is `AtlasPortalQuery { sort }` only (default Name). Filter/search, if shown, is derived view-state (D31). Collapse, camera, scroll, and selection are never query fields | guess | 55 |
 | D21 | Regeneration & staleness | Scan starts on bind, refresh, and watcher events. Work is generation-tagged; a stale batch is dropped (Art. II.3). Cards stream in while discovery is still running. Last-good tree stays painted across a refresh. Same cloud/dehydrate guards as atlas-core | pattern | 85 |
-| D22 | Contents interaction | P1.portal.contents-focus (host). Click selects the frame. Double-click or Enter enters the Atlas canvas. Esc or a primary click outside the body leaves. In focus: File Atlas camera (wheel / pinch zoom, right/middle pan), collapse/expand via the same grips as the standalone app, select files (readout only), left-drag a card out to Windows (`atlas_core::shell_drag`, same CF_HDROP as File Explorer — copy/link, never move). Double-click a file opens it in the OS viewer. After peel, the inner camera must not keep the wheel. Board drawing tools never reach the cards | precedent | 75 |
+| D22 | Contents interaction | P1.portal.contents-focus. Double-click or Enter enters the Atlas canvas. In focus: shared FolderCam navigation; folder-card clicks collapse/expand and the shared incremental/full grips expand nested folders exactly as standalone Atlas. Click selects a file; Ctrl-click toggles selection. A real left-drag carries the pressed file or its selection onto the primary Slate board, linking and placing through the same metadata-based recipient as detached Atlas (frame tags and one placement undo). Release inside the source portal or over UI cancels. Leaving the window hands off to atlas_core::shell_drag (copy/link, never move). Double-click opens a file in the OS. After blur the board owns navigation. | stated | 100 |
 | D23 | Level of detail | P0.9: the inner camera is portal-local. Board zoom scales the entire map with the frame; screen scale is inner zoom × board zoom, in and out of contents-focus. Board pan and frame movement carry the map with them. Leaving contents preserves the inner view. LOD uses the composed screen scale; drop type when too small, never clamp to a screen constant | stated | 100 |
 | D24 | Export serialization | Host (Art. V.3): `slate-artifact` emits a poster plus a pointer to the folder locator. Unbound/Missing export the state card. Not a regenerated SVG of every thumbnail | pattern | 80 |
 | D25 | Bake | `portal.atlas.bake` emits one journaled `Add` of an authored Image (the current poster) plus a provenance Text node naming the folder. The portal stays live. v1 does not copy file bytes onto the board | guess | 55 |
@@ -115,11 +115,23 @@ Open in File Atlas uses the existing Slate-hosted File Atlas viewport.
   a right-drag moves the map by the pointer's screen delta. Maximize/restore
   preserves the local view and focused maximize routes the same navigation.
 
+- **GP10.** At non-unit board zoom, click a folder card to collapse it. The full
+  grip expands its nested folders; the incremental grip opens one level. Click
+  a child’s grip to descend. Rebuild after new scan entries preserves those
+  decisions. A press/click never starts a Windows drag.
+- **GP11.** Press a file, then drag across the portal boundary in one frame.
+  Release over the board: link at the correct board coordinate, inherit frame
+  tags, undo/redo placement as one group. Release inside the portal or press Esc:
+  add nothing. Switching workbooks/rebinding cancels. Leaving the window hands
+  the same paths to Windows; it never moves source files.
+- **GP12.** Toggle dark → light → dark: the existing portal’s background and
+  cards follow the canvas palette. Its serialized scene does not change.
+
 ## Feel constants (proposed)
 
 | Token | Meaning | Value |
 |-------|---------|-------|
 | `portal.atlas.default_size` | click placement size | 960 × 540 |
-| `portal.atlas.border_hit_px` | frame band that stays a Slate target while focused | 6 |
+| `portal_frame.border_hit_px` | frame band that stays a Slate target while focused | 6 |
 | `portal.atlas.live_pool` | max simultaneous live folder scans | 2 |
 | `portal.atlas.lod_drop_px` | drop inner type below this on-screen size | File Atlas existing LOD |

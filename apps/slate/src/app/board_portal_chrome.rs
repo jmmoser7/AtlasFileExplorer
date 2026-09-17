@@ -8,12 +8,21 @@
 
 use std::collections::HashSet;
 
+use atlas_shell::{canvas_scale, canvas_text};
+use eframe::egui::{Align2, FontId, Vec2};
+
 use atlas_shell::tabs::{self, PortalTabAction, PortalTabModel};
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, StrokeKind};
 use slate_doc::scene::{NodeId, NodeKind, PortalKind, PortalNode, WorldRect};
 
 use super::board::{self, rgba32, BoardXf};
 use super::SlateApp;
+
+/// Kind supplies only its message and foreground; Browse geometry has one owner.
+pub(crate) struct PortalEmpty<'a> {
+    pub prompt: &'a str,
+    pub ink: Color32,
+}
 
 /// Keep controls available briefly after page interaction, without changing its viewport.
 const WEB_CHROME_IDLE_SECS: f64 = 1.2;
@@ -206,7 +215,12 @@ pub fn layout_portal_chrome(
     } else {
         tokens.corner_radius * z
     };
-    let tab_h = (tab_bar_height() * z).min(frame.height());
+    let tab_h = if maximized {
+        atlas_shell::tokens::current().topbar.height
+    } else {
+        tab_bar_height() * z
+    }
+    .min(frame.height());
     let border = if maximized {
         0.0
     } else {
@@ -518,6 +532,65 @@ impl SlateApp {
         ) {
             self.portal_toggle_maximize(id);
         }
+    }
+
+    #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
+    pub(crate) fn paint_portal_empty(
+        &mut self,
+        painter: &egui::Painter,
+        ui: &egui::Ui,
+        srect: Rect,
+        portal: NodeId,
+        alpha: f32,
+        empty: PortalEmpty<'_>,
+        zoom: f32,
+    ) -> bool {
+        let prompt = canvas_scale::px(15.0, zoom);
+        if canvas_text::legible(prompt) {
+            canvas_text::text(
+                painter,
+                srect.center() - Vec2::new(0.0, canvas_scale::px(18.0, zoom)),
+                Align2::CENTER_CENTER,
+                empty.prompt,
+                FontId::proportional(prompt),
+                empty.ink.gamma_multiply(0.8 * alpha),
+            );
+        }
+        let btn = Rect::from_center_size(
+            srect.center() + Vec2::new(0.0, canvas_scale::px(16.0, zoom)),
+            Vec2::new(canvas_scale::px(148.0, zoom), canvas_scale::px(28.0, zoom)),
+        );
+        let accent = self.palette().accent.gamma_multiply(alpha);
+        painter.rect_filled(
+            btn,
+            canvas_scale::px(4.0, zoom),
+            accent.gamma_multiply(0.35),
+        );
+        painter.rect_stroke(
+            btn,
+            canvas_scale::px(4.0, zoom),
+            Stroke::new(canvas_scale::px(1.0, zoom), accent),
+            StrokeKind::Inside,
+        );
+        let browse = canvas_scale::px(13.0, zoom);
+        if canvas_text::legible(browse) {
+            canvas_text::text(
+                painter,
+                btn.center(),
+                Align2::CENTER_CENTER,
+                "Browse…",
+                FontId::proportional(browse),
+                empty.ink.gamma_multiply(alpha),
+            );
+        }
+        self.board_sel.contains(&portal)
+            && ui
+                .interact(
+                    btn,
+                    ui.id().with("portal_browse").with(portal.0),
+                    egui::Sense::click(),
+                )
+                .clicked()
     }
 
     /// Fill + stroke of the portal frame. Contents paint between these two.
