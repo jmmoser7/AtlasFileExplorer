@@ -6,7 +6,7 @@
 use super::{PickerMsg, SlateApp};
 use atlas_shell::{canvas_scale, canvas_text};
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use eframe::egui::{self, Align2, Color32, FontId, Pos2, Stroke, StrokeKind, Vec2};
 use repo_graph::{
     extract_repository, layout_graph, RefSelection, RepoError, RepoGraph, RepoLayout, RepoQuery,
     Size, TimeAxis, TimeWindow,

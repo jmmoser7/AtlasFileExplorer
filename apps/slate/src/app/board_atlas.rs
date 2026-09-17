@@ -936,6 +936,7 @@ impl SlateApp {
 
     /// Same payload File Atlas hands Windows: the selection when the card is
     /// in it, otherwise just that card; a folder is one shell item.
+    #[cfg(test)]
     fn atlas_shell_drag_paths(&self, id: NodeId) -> Vec<PathBuf> {
         let Some(view) = self.atlas_lenses.views.get(&id) else {
             return Vec::new();
