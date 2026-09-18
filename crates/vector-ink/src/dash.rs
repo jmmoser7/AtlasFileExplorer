@@ -1,126 +1,126 @@
 //! Dash splitting along a polyline by arc length.
 
-use crate::geom::{dist, lerp, pt, EPS};
+use crate::geom::{dist, EPS};
 
-/// Split a polyline into contiguous "on" dash runs (deterministic).
+/// Split into on-runs while retaining every interior curve sample. A dash is
+/// a subpath, not a chord between its two endpoints. One forward traversal
+/// keeps work proportional to input vertices plus dash boundaries.
 pub(crate) fn dash_on_runs(points: &[[f32; 2]], pattern: &[f32], phase: f32) -> Vec<Vec<[f32; 2]>> {
-    if points.len() < 2 || pattern.is_empty() {
+    if points.len() < 2 || pattern.is_empty() || !phase.is_finite() {
         return Vec::new();
     }
-    let period: f32 = pattern.iter().copied().sum();
-    if period <= EPS {
+    if pattern.iter().any(|v| !v.is_finite() || *v <= EPS) {
+        return vec![points.to_vec()];
+    }
+    // SVG repeats odd-length patterns before wrapping the on/off state.
+    let count = if pattern.len() % 2 == 0 {
+        pattern.len()
+    } else {
+        pattern.len() * 2
+    };
+    let period: f32 = pattern.iter().sum::<f32>() * (count / pattern.len()) as f32;
+    if !period.is_finite() {
         return Vec::new();
     }
-    for &p in pattern {
-        if p <= 0.0 || !p.is_finite() {
-            return vec![points.to_vec()];
-        }
+    let mut offset = phase.rem_euclid(period);
+    let mut index = 0;
+    while offset >= pattern[index % pattern.len()] {
+        offset -= pattern[index % pattern.len()];
+        index = (index + 1) % count;
     }
-    if !phase.is_finite() {
-        return Vec::new();
-    }
-
-    let total_len = polyline_length(points);
-    if total_len <= EPS {
-        return Vec::new();
-    }
-
+    let mut remaining = pattern[index % pattern.len()] - offset;
     let mut runs = Vec::new();
-    let mut s = 0.0f32;
-    let mut phase_off = phase.rem_euclid(period);
-    let mut pat_i = 0usize;
-    let mut on = true;
-
-    while phase_off >= pattern[pat_i] - EPS {
-        phase_off -= pattern[pat_i];
-        on = !on;
-        pat_i = (pat_i + 1) % pattern.len();
-    }
-    let mut seg_remaining = pattern[pat_i] - phase_off;
-    let mut in_run = on;
-    let mut run_start = s;
-    if !on {
-        s += seg_remaining;
-        pat_i = (pat_i + 1) % pattern.len();
-        seg_remaining = pattern[pat_i];
-        in_run = true;
-        run_start = s;
-    }
-
-    while s < total_len - EPS {
-        let step = seg_remaining.min(total_len - s);
-        let s_next = s + step;
-        if in_run {
-            let a = point_at_length(points, run_start);
-            let b = point_at_length(points, s_next);
-            if dist(a, b) > EPS {
-                runs.push(vec![a, b]);
+    let mut run = Vec::new();
+    for pair in points.windows(2) {
+        let length = dist(pair[0], pair[1]);
+        if length <= EPS {
+            continue;
+        }
+        let mut used = 0.0;
+        while used < length - EPS {
+            let step = remaining.min(length - used);
+            let point = |at: f32| {
+                [
+                    pair[0][0] + (pair[1][0] - pair[0][0]) * (at / length),
+                    pair[0][1] + (pair[1][1] - pair[0][1]) * (at / length),
+                ]
+            };
+            if index % 2 == 0 {
+                if run.is_empty() {
+                    run.push(point(used));
+                }
+                run.push(point(used + step));
+            }
+            used += step;
+            remaining -= step;
+            if remaining <= EPS {
+                if run.len() >= 2 {
+                    runs.push(std::mem::take(&mut run));
+                }
+                index = (index + 1) % count;
+                remaining = pattern[index % pattern.len()];
             }
         }
-        s = s_next;
-        seg_remaining -= step;
-        if seg_remaining <= EPS {
-            in_run = !in_run;
-            if in_run {
-                run_start = s;
-            }
-            pat_i = (pat_i + 1) % pattern.len();
-            seg_remaining = pattern[pat_i];
-        }
     }
-
-    merge_collinear_runs(&mut runs, points);
+    if run.len() >= 2 {
+        runs.push(run);
+    }
+    // A dash crossing a closed contour's seam is one run, with no caps at
+    // the arbitrary MoveTo vertex.
+    if runs.len() > 1
+        && dist(points[0], *points.last().unwrap()) < EPS
+        && dist(runs[0][0], points[0]) < EPS
+        && dist(*runs.last().unwrap().last().unwrap(), points[0]) < EPS
+    {
+        let first = runs.remove(0);
+        runs.last_mut().unwrap().extend_from_slice(&first[1..]);
+    }
     runs
-}
-
-fn polyline_length(points: &[[f32; 2]]) -> f32 {
-    points.windows(2).map(|w| dist(w[0], w[1])).sum()
-}
-
-fn point_at_length(points: &[[f32; 2]], mut s: f32) -> [f32; 2] {
-    if points.is_empty() {
-        return pt(0.0, 0.0);
-    }
-    if s <= 0.0 {
-        return points[0];
-    }
-    for w in points.windows(2) {
-        let seg = dist(w[0], w[1]);
-        if seg <= EPS {
-            continue;
-        }
-        if s <= seg {
-            let t = s / seg;
-            return [lerp(w[0][0], w[1][0], t), lerp(w[0][1], w[1][1], t)];
-        }
-        s -= seg;
-    }
-    *points.last().unwrap()
-}
-
-fn merge_collinear_runs(runs: &mut Vec<Vec<[f32; 2]>>, _points: &[[f32; 2]]) {
-    if runs.len() <= 1 {
-        return;
-    }
-    let mut merged: Vec<Vec<[f32; 2]>> = Vec::with_capacity(runs.len());
-    for run in runs.drain(..) {
-        if run.len() < 2 {
-            continue;
-        }
-        if let Some(last) = merged.last_mut() {
-            if dist(*last.last().unwrap(), run[0]) < EPS {
-                last.extend_from_slice(&run[1..]);
-                continue;
-            }
-        }
-        merged.push(run);
-    }
-    *runs = merged;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geom::pt;
+
+    #[test]
+    fn dash_keeps_every_curve_sample_between_its_boundaries() {
+        let points = vec![
+            [0.0, 0.0],
+            [5.0, 5.0],
+            [10.0, 0.0],
+            [15.0, 5.0],
+            [20.0, 0.0],
+        ];
+        let runs = dash_on_runs(&points, &[40.0, 5.0], 0.0);
+        assert_eq!(runs, vec![points]);
+        let runs = dash_on_runs(&[[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]], &[15.0, 5.0], 0.0);
+        assert_eq!(runs, vec![vec![[0.0, 0.0], [10.0, 0.0], [10.0, 5.0]]]);
+    }
+
+    #[test]
+    fn closed_seam_and_odd_dash_patterns_preserve_continuity() {
+        let points = [
+            [0.0, 0.0],
+            [10.0, 0.0],
+            [10.0, 10.0],
+            [0.0, 10.0],
+            [0.0, 0.0],
+        ];
+        let runs = dash_on_runs(&points, &[15.0, 10.0], 0.0);
+        assert_eq!(runs.len(), 1);
+        assert!(runs[0].contains(&[0.0, 0.0]));
+        assert_eq!(runs[0].first(), Some(&[5.0, 10.0]));
+        assert_eq!(runs[0].last(), Some(&[10.0, 5.0]));
+        let runs = dash_on_runs(&[[0.0, 0.0], [20.0, 0.0]], &[5.0], 5.0);
+        assert_eq!(
+            runs,
+            vec![
+                vec![[5.0, 0.0], [10.0, 0.0]],
+                vec![[15.0, 0.0], [20.0, 0.0]]
+            ]
+        );
+    }
 
     #[test]
     fn hundred_unit_line_dash_10_5() {

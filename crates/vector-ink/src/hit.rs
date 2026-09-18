@@ -2,22 +2,34 @@
 
 use kurbo::BezPath;
 
-use crate::flatten::flatten;
+use crate::flatten::flatten_contours;
 use crate::geom::{cumulative_arclength, dist_to_segment, half_width_at, EPS};
 use crate::stroke::valid_style;
 use crate::StrokeStyle;
 
 /// Hit-test a point against the stroked region (world units).
+///
+/// Each contour is tested on its own. Concatenating subpaths would invent a
+/// segment between the last vertex of one and the first of the next — that
+/// ghost often leaves the node's AABB (classically a line toward the origin).
 pub fn hit_stroke(path: &BezPath, style: &StrokeStyle, point: [f32; 2], slop: f32) -> bool {
     if !valid_style(style) || !point[0].is_finite() || !point[1].is_finite() {
         return false;
     }
     let tol = 0.25f64;
-    let flat = flatten(path, tol);
+    for flat in flatten_contours(path, tol) {
+        if hit_flat_stroke(&flat, style, point, slop) {
+            return true;
+        }
+    }
+    false
+}
+
+fn hit_flat_stroke(flat: &[[f32; 2]], style: &StrokeStyle, point: [f32; 2], slop: f32) -> bool {
     if flat.len() < 2 {
         return false;
     }
-    let arc = cumulative_arclength(&flat);
+    let arc = cumulative_arclength(flat);
     let total = *arc.last().unwrap_or(&0.0);
     if total <= EPS {
         return false;
@@ -93,5 +105,53 @@ mod tests {
         // On the centerline the tapered half-width is still > 0; use lateral offset.
         assert!(hit_stroke(&path, &style, [5.0, 2.0], 0.0));
         assert!(!hit_stroke(&path, &style, [99.0, 2.0], 0.0));
+    }
+
+    fn style() -> StrokeStyle {
+        StrokeStyle {
+            width: 2.0,
+            cap: Cap::Butt,
+            join: Join::Miter,
+            taper: None,
+            dash: None,
+        }
+    }
+
+    #[test]
+    fn closed_triangle_hits_the_seam_not_the_origin() {
+        let mut path = BezPath::new();
+        path.move_to((400.0, 300.0));
+        path.line_to((480.0, 300.0));
+        path.line_to((400.0, 380.0));
+        path.close_path();
+        let s = style();
+        assert!(hit_stroke(&path, &s, [400.0, 340.0], 0.0), "closing seam");
+        assert!(!hit_stroke(&path, &s, [0.0, 0.0], 0.0), "world origin");
+        assert!(
+            !hit_stroke(&path, &s, [200.0, 150.0], 0.0),
+            "along the line from the first vertex toward the origin"
+        );
+        assert!(
+            !hit_stroke(&path, &s, [200.0, 300.0], 0.0),
+            "infinite extension of the base, outside the AABB"
+        );
+    }
+
+    #[test]
+    fn disjoint_contours_do_not_invent_a_joining_segment() {
+        let mut path = BezPath::new();
+        path.move_to((400.0, 300.0));
+        path.line_to((480.0, 300.0));
+        path.close_path();
+        path.move_to((0.0, 0.0));
+        path.line_to((10.0, 0.0));
+        let s = style();
+        // Midpoint of the ghost line from (400,300) to (0,0).
+        assert!(
+            !hit_stroke(&path, &s, [200.0, 150.0], 0.0),
+            "concatenated contours must not hit between subpaths"
+        );
+        assert!(hit_stroke(&path, &s, [440.0, 300.0], 0.0));
+        assert!(hit_stroke(&path, &s, [5.0, 0.0], 0.0));
     }
 }

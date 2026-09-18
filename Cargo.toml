@@ -32,6 +32,7 @@ edition = "2021"
 # Shared third-party deps — always reference these from member crates so the
 # whole ecosystem stays on a single version of egui and friends.
 eframe = "0.31"
+windows = "0.61"
 crossbeam-channel = "0.5"
 rusqlite = { version = "0.32", features = ["bundled"] }
 notify = "8"

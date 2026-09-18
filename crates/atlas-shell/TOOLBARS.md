@@ -3,6 +3,11 @@
 Cross-app contract for File Atlas and Slate palette docks. Implementation lives
 in `dock.rs` + panel bodies; apps must not diverge.
 
+Object-attached selection strips and property editors follow
+[DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) and `selection_tools.rs`. The dock's
+pinning, Minimize/Drop controls, stacked inspector forms, and viewport
+reflow below do not apply to those editors.
+
 ## Interaction model (palette icons)
 
 | Gesture | Result |
@@ -11,7 +16,7 @@ in `dock.rs` + panel bodies; apps must not diverge.
 | **Linger** | After `dashboard_describe_delay`, the chip expands with `DockItem.description` (any kind that sets one). |
 | **Single click** | **Volatile** body — use it, move away, it collapses after `close_delay` (or Escape / outside click). On an already-pinned icon, the same click **collapses** that palette (unpin). |
 | **Double click** | **Pin** — body joins the centered stack and persists until minimize or icon unpin. |
-| **Minimize** | First dot of the group (horizontal ellipsis on stacked captions, top of the four-dot column on the icon strip). Dismisses volatile, or unpins a pinned panel back to its icon. |
+| **Minimize** | First dot of the group (horizontal ellipsis on stacked captions, top of the two-dot column on the icon strip). Dismisses volatile, or unpins a pinned panel back to its icon. |
 
 Hover previews must never reshuffle the pinned stack. Pins persist across
 sessions via `ChromePrefs.pinned_panels` where apps wire that up.
@@ -28,15 +33,13 @@ behind (single-click) or beneath (pinned). Close-delay must not keep a
 name chip up just because the pointer is still "inside" the dock.
 Chip fill uses `HOVER_CHIP_OPACITY` so the canvas stays readable underneath.
 
-**Body layout:** every pinned (and volatile) tool palette shares one dock-wide
-choice — stacked list or free-space icon strip. Minimize, Advanced, and
-Drop sit on every palette; the layout toggle sits only on the last
-palette along the dock. Hover labels appear in one place, centered above
-the dots. Icon-strip mode uses fieldset groups of secondary circular
-icons; each pallet is named in its top border, with no category
-label or underscore beneath the flyout. Tertiary dot toggles
+**Body layout:** palettes are an unlabeled icon strip. Inspectors
+stay stacked forms. Minimize and Drop sit on every
+palette. Hover labels appear in one place, centered above the dots.
+Icon-strip mode uses fieldset groups of secondary circular
+icons with no pallet name on the capsule. Tertiary dot toggles
 stack two-high on the same datum as one icon.
-Advanced fills the screen with a tinted catalog canvas of every tool.
+The Advanced catalog (tuner / screenshot lock) fills the screen with a tinted canvas of every tool.
 The camera is the same as File Atlas / Slate (right-drag pans, wheel
 zooms). Card actions live on right-click and hover-linger (Add / Remove
 from toolbar, Copy to clipboard, Duplicate, Use) — linger yields to an
@@ -60,7 +63,7 @@ layer so they never hide behind a pinned toolbar.
 
 Selection-dependent **Inspector** bodies use the same dock panel chrome but
 keep their editable fields in form layout in either dock mode. They offer
-Minimize / Close only, and do not own the tool palettes' layout-toggle dot.
+Minimize / Close only.
 Keyboard commands open an inspector as a pin through the shared dock API;
 the body stays open while the user moves the pointer to its controls.
 

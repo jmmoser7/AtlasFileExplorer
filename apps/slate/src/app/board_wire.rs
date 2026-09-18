@@ -166,7 +166,13 @@ pub fn hit_connector_routed(
     zoom: f32,
     routing: WireRouting,
 ) -> bool {
-    let Some(path) = connector_route_in_scene(scene, Some(id), &conn.a, &conn.b, routing) else {
+    let Some(path) = connector_route_in_scene(
+        scene,
+        Some(id),
+        &conn.a,
+        &conn.b,
+        conn.effective_routing(routing),
+    ) else {
         return false;
     };
     let kurbo = connector_path_kurbo(&path);
@@ -210,6 +216,33 @@ impl SlateApp {
         self.connector_sync_gen = 0;
     }
 
+    pub(crate) fn set_wire_routing(&mut self, routing: WireRouting) -> bool {
+        let ids: Vec<_> = self
+            .board_sel
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.doc()
+                    .scene
+                    .node(*id)
+                    .is_some_and(|n| matches!(n.kind, NodeKind::Connector(_)))
+            })
+            .collect();
+        if ids.is_empty() {
+            self.board_wire_routing = routing;
+            self.persist_wire_routing();
+            return true;
+        }
+        self.shape_property_command(
+            serde_json::to_string(&super::board_properties::PropertyRequest {
+                ids,
+                edits: vec![super::board_properties::Property::WireRouting(routing)],
+            })
+            .ok()
+            .as_deref(),
+        )
+    }
+
     pub(crate) fn connector_path_visible(
         &self,
         id: NodeId,
@@ -220,7 +253,7 @@ impl SlateApp {
             Some(id),
             &conn.a,
             &conn.b,
-            self.board_wire_routing,
+            conn.effective_routing(self.board_wire_routing),
         )
     }
 
@@ -640,6 +673,7 @@ impl SlateApp {
     pub(crate) fn add_connector(&mut self, a: ConnectorEnd, b: ConnectorEnd) -> Option<NodeId> {
         let stroke = self.default_wire_stroke();
         let mut conn = ConnectorNode {
+            routing: Some(self.board_wire_routing),
             binding: slate_doc::agent_inputs::infer_binding(&self.doc().scene, &a, &b),
             a,
             b,
@@ -823,7 +857,7 @@ impl SlateApp {
             let feather = board_path::FEATHER_PX / xf.z.max(0.05);
             let kurbo = connector_path_kurbo(&path);
             let cached = self.path_mesh_cache.get_or_tessellate(node.id, key, || {
-                vector_ink::stroke_mesh(&kurbo, &style, feather, 0.25)
+                vector_ink::stroke_mesh(&kurbo, &style, feather, board_path::curve_tolerance(xf.z))
             });
             let mesh = board_path::ink_mesh_to_epaint(&cached, xf, base, |c| c);
             painter.add(egui::Shape::mesh(mesh));
@@ -887,6 +921,12 @@ impl SlateApp {
         xf: &BoardXf,
         node: &Node,
     ) {
+        let node = self
+            .shape_properties
+            .preview
+            .iter()
+            .find(|n| n.id == node.id)
+            .unwrap_or(node);
         let NodeKind::Connector(conn) = &node.kind else {
             return;
         };

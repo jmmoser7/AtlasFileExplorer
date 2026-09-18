@@ -99,9 +99,8 @@ impl DockItemKind {
     }
 }
 
-/// Tool/dashboard palettes switch between a stacked list and an icon strip.
-/// Inspector forms retain editable fields in List mode. Advanced is a framed
-/// catalog overlay on top of a palette strip.
+/// Palettes (tools and dashboards) are an icon strip. Inspectors stay as
+/// stacked forms so editable values never hide behind icons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum DockBodyLayout {
     #[default]
@@ -128,8 +127,8 @@ pub struct FlyoutItem<'a> {
     pub hotkey: Option<&'a str>,
     pub icon: DockIcon,
     pub active: bool,
-    /// Fieldset label on the icon strip. Consecutive items with the same
-    /// group share one bordered frame. `None` is an unlabeled frame.
+    /// Fieldset grouping on the icon strip. Consecutive items with the same
+    /// group share one bordered frame. The group name is not painted.
     pub group: Option<&'a str>,
     pub role: FlyoutRole,
 }
@@ -195,7 +194,7 @@ pub struct DockOutcome {
 }
 
 /// Layout the current panel body should use. Set while `floating_dock`
-/// paints a tool flyout; defaults to the stacked list.
+/// paints a body; tools default to the icon strip.
 pub fn current_body_layout(ctx: &egui::Context) -> DockBodyLayout {
     ctx.data(|d| d.get_temp(egui::Id::new(BODY_LAYOUT_ID)))
         .unwrap_or(DockBodyLayout::List)
@@ -260,9 +259,8 @@ struct DockState {
     /// and apps may persist them across sessions via [`seed_pinned`] /
     /// [`pinned_ids`] + `ChromePrefs`.
     pinned: Vec<&'static str>,
-    /// Dock-wide body layout: every pinned (and volatile) palette uses the
-    /// free-space icon strip when true. Toggling any list control, or a
-    /// strip's stacked-view dot, flips this for the whole dock.
+    /// Legacy dock-wide strip flag, kept for prefs restore. Palettes
+    /// are always an icon strip; inspectors stay lists.
     icon_strip: bool,
     /// Palette whose Advanced catalog canvas is open.
     advanced: Option<&'static str>,
@@ -334,6 +332,26 @@ fn associate_shade(color: Color32, dark: bool, tint: f32) -> Color32 {
         Color32::from_rgba_unmultiplied(0, 0, 0, color.a())
     };
     mix_icon_fill(color, toward, tint)
+}
+
+/// Signed luminance shift. Positive matches [`associate_shade`]; negative
+/// flips the direction so a primary plate can sit darker than its host.
+fn signed_shade(color: Color32, dark: bool, offset: f32) -> Color32 {
+    if offset.abs() < 0.0005 {
+        color
+    } else if offset > 0.0 {
+        associate_shade(color, dark, offset)
+    } else {
+        associate_shade(color, !dark, -offset)
+    }
+}
+
+/// Idle fill of a primary dock plate. `primary_fill_mix` blends the
+/// absolute icon token toward the secondary capsule plus its offset.
+fn primary_plate_fill(th: &DockThemeTokens, p: &DockPaletteTokens, dark: bool) -> Color32 {
+    let secondary = th.popover_fill_color().gamma_multiply(p.group_fill);
+    let linked = signed_shade(secondary, dark, p.primary_fill_offset);
+    mix_icon_fill(th.icon_fill_color(), linked, p.primary_fill_mix)
 }
 
 /// Primary-icon outline: pinned is always denser than idle; hover can go further.
@@ -2317,7 +2335,7 @@ pub(crate) fn paint_catalog_ghost(ctx: &egui::Context, item: &FlyoutItem<'_>, po
                 alloc.width() * 0.48,
                 Color32::from_black_alpha(50),
             );
-            paint_secondary_icon(painter, alloc, item, true, th, 1.14);
+            paint_secondary_icon(painter, alloc, item, true, th, &tokens.palette, 1.14);
         });
 }
 
@@ -2352,26 +2370,12 @@ struct StripLayout<'a> {
     groups: Vec<StripGroup<'a>>,
 }
 
-fn tertiary_col_w(
-    ctx: &egui::Context,
-    pair: &[&FlyoutItem<'_>],
-    icon: f32,
-    p: &DockPaletteTokens,
-) -> f32 {
-    let th = tertiary_slot_h(icon, p);
-    let track_w = th * 0.72;
-    let font = FontId::proportional(p.labeled_text_size);
-    let mut label_w = 0.0_f32;
-    for item in pair {
-        let g =
-            ctx.fonts(|f| f.layout_no_wrap(item.label.to_owned(), font.clone(), Color32::WHITE));
-        label_w = label_w.max(g.size().x);
-    }
-    track_w + 4.0 + label_w + 4.0
+fn tertiary_col_w(icon: f32, p: &DockPaletteTokens) -> f32 {
+    tertiary_slot_h(icon, p) * 0.72
 }
 
 fn layout_group_slots<'a>(
-    ctx: &egui::Context,
+    _ctx: &egui::Context,
     items: &[&'a FlyoutItem<'a>],
     icon: f32,
     gap: f32,
@@ -2414,7 +2418,7 @@ fn layout_group_slots<'a>(
                     } else {
                         i += 1;
                     }
-                    let w = tertiary_col_w(ctx, &pair, icon, p);
+                    let w = tertiary_col_w(icon, p);
                     if x > 0.0 && x + w > inner {
                         x = 0.0;
                         y += row_h + gap;
@@ -2457,7 +2461,7 @@ fn layout_group_slots<'a>(
                     } else {
                         i += 1;
                     }
-                    let w = tertiary_col_w(ctx, &pair, icon, p);
+                    let w = tertiary_col_w(icon, p);
                     max_w = max_w.max(w);
                     for (k, item) in pair.into_iter().enumerate() {
                         slots.push(StripSlot {
@@ -2585,21 +2589,15 @@ fn layout_fieldset_strip<'a>(
         row_span = row_span.max(across);
         max_along = max_along.max(cursor - p.group_gap);
     }
-    let title_overhang = p.group_label_size * 0.5 + p.pallet_label_lift.max(0.0) + 1.0;
     let band = category_rule_band(p);
     let cluster = match side {
-        DockSide::BottomCenter => Vec2::new(max_along, cross + row_span + title_overhang + band),
-        DockSide::LeftCenter => Vec2::new(cross + row_span, max_along + title_overhang + band),
+        DockSide::BottomCenter => Vec2::new(max_along, cross + row_span + band),
+        DockSide::LeftCenter => Vec2::new(cross + row_span, max_along + band),
     };
     for group in &mut laid {
-        match side {
-            DockSide::BottomCenter => {
-                // Sit every pallet on the category rule (the basedatum).
-                group.origin.y = title_overhang + (row_span - group.frame.y).max(0.0);
-            }
-            DockSide::LeftCenter => {
-                group.origin.y += title_overhang;
-            }
+        if side == DockSide::BottomCenter {
+            // Sit every pallet on the category rule (the basedatum).
+            group.origin.y = (row_span - group.frame.y).max(0.0);
         }
     }
     StripLayout {
@@ -2611,7 +2609,7 @@ fn layout_fieldset_strip<'a>(
 fn paint_fieldset_frame(
     ui: &egui::Ui,
     frame: Rect,
-    pallet_name: Option<&str>,
+    _pallet_name: Option<&str>,
     th: &DockThemeTokens,
     p: &DockPaletteTokens,
     scale: f32,
@@ -2619,158 +2617,21 @@ fn paint_fieldset_frame(
 ) {
     let t = associate.clamp(0.0, 1.0);
     let radius = p.group_radius * scale;
-    let fill_k = 0.42 + (p.associate_fill - 0.42) * t;
+    let idle = p.group_fill;
+    let fill_k = idle + (p.associate_fill - idle) * t;
     let mut fill = th.popover_fill_color().gamma_multiply(fill_k);
     fill = associate_shade(fill, ui.visuals().dark_mode, p.associate_tint * t);
     ui.painter().rect_filled(frame, radius, fill);
-    let title = layout_border_title(
-        ui,
-        frame,
-        pallet_name,
-        radius,
-        p.group_label_inset * scale,
-        p.group_label_size * scale,
-        p.pallet_label_lift * scale,
-        p.rule_text_gap * scale,
-        th.title_color(),
-    );
     let stroke_w = p.group_stroke * scale * (1.0 + (p.associate_stroke - 1.0) * t);
     if stroke_w > 0.0 {
         let mut stroke_c = th.border_color().gamma_multiply(0.9 + 0.1 * t);
         stroke_c = associate_shade(stroke_c, ui.visuals().dark_mode, p.associate_tint * t);
-        let stroke = Stroke::new(stroke_w.max(0.5), stroke_c);
-        match title.as_ref() {
-            Some(t) if t.gap_r > t.gap_l => {
-                stroke_round_rect_top_gap(ui.painter(), frame, radius, stroke, t.gap_l, t.gap_r);
-            }
-            _ => {
-                ui.painter()
-                    .rect_stroke(frame, radius, stroke, egui::StrokeKind::Inside);
-            }
-        }
-    }
-    if let Some(t) = title {
-        ui.painter().galley(t.pos, t.galley, th.title_color());
-    }
-}
-
-struct BorderTitle {
-    galley: std::sync::Arc<egui::Galley>,
-    pos: Pos2,
-    gap_l: f32,
-    gap_r: f32,
-}
-
-/// Pallet name sitting in a gap in the top stroke of that box.
-#[allow(clippy::too_many_arguments)] // Shared chrome geometry/style inputs.
-fn layout_border_title(
-    ui: &egui::Ui,
-    frame: Rect,
-    label: Option<&str>,
-    radius: f32,
-    inset: f32,
-    font_px: f32,
-    lift: f32,
-    gap: f32,
-    color: Color32,
-) -> Option<BorderTitle> {
-    let label = label.filter(|s| !s.is_empty())?;
-    if font_px < 6.0 {
-        return None;
-    }
-    let galley =
-        ui.fonts(|f| f.layout_no_wrap(label.to_owned(), FontId::proportional(font_px), color));
-    let pos = Pos2::new(
-        frame.left() + radius + inset,
-        frame.top() - galley.size().y * 0.5 - lift,
-    );
-    let gap_l = pos.x - gap;
-    let gap_r = pos.x + galley.size().x + gap;
-    Some(BorderTitle {
-        galley,
-        pos,
-        gap_l,
-        gap_r,
-    })
-}
-
-/// Inside-stroke rounded rect with a break in the top edge for the pallet name.
-fn stroke_round_rect_top_gap(
-    painter: &egui::Painter,
-    frame: Rect,
-    radius: f32,
-    stroke: Stroke,
-    gap_l: f32,
-    gap_r: f32,
-) {
-    let hw = stroke.width * 0.5;
-    let r = frame.shrink(hw);
-    if r.width() <= 0.0 || r.height() <= 0.0 {
-        return;
-    }
-    let rad = (radius - hw)
-        .max(0.0)
-        .min(r.width() * 0.5)
-        .min(r.height() * 0.5);
-    let mut pts = Vec::new();
-    let push_arc = |pts: &mut Vec<Pos2>, c: Pos2, a0: f32, a1: f32| {
-        const N: usize = 6;
-        for i in 0..=N {
-            let t = i as f32 / N as f32;
-            let a = a0 + (a1 - a0) * t;
-            pts.push(c + Vec2::new(rad * a.cos(), rad * a.sin()));
-        }
-    };
-    let tau = std::f32::consts::TAU;
-    // Clockwise from the right side of the title gap, around to the left side.
-    if gap_r < r.right() - rad {
-        pts.push(Pos2::new(gap_r.max(r.left() + rad), r.top()));
-        pts.push(Pos2::new(r.right() - rad, r.top()));
-    } else {
-        pts.push(Pos2::new(r.right() - rad, r.top()));
-    }
-    if rad > 0.5 {
-        push_arc(
-            &mut pts,
-            Pos2::new(r.right() - rad, r.top() + rad),
-            -tau * 0.25,
-            0.0,
+        ui.painter().rect_stroke(
+            frame,
+            radius,
+            Stroke::new(stroke_w.max(0.5), stroke_c),
+            egui::StrokeKind::Inside,
         );
-    }
-    pts.push(Pos2::new(r.right(), r.bottom() - rad));
-    if rad > 0.5 {
-        push_arc(
-            &mut pts,
-            Pos2::new(r.right() - rad, r.bottom() - rad),
-            0.0,
-            tau * 0.25,
-        );
-    }
-    pts.push(Pos2::new(r.left() + rad, r.bottom()));
-    if rad > 0.5 {
-        push_arc(
-            &mut pts,
-            Pos2::new(r.left() + rad, r.bottom() - rad),
-            tau * 0.25,
-            tau * 0.5,
-        );
-    }
-    pts.push(Pos2::new(r.left(), r.top() + rad));
-    if rad > 0.5 {
-        push_arc(
-            &mut pts,
-            Pos2::new(r.left() + rad, r.top() + rad),
-            tau * 0.5,
-            tau * 0.75,
-        );
-    }
-    if gap_l > r.left() + rad {
-        pts.push(Pos2::new(gap_l.min(r.right() - rad), r.top()));
-    } else {
-        pts.push(Pos2::new(r.left() + rad, r.top()));
-    }
-    if pts.len() >= 2 {
-        painter.add(Shape::line(pts, stroke));
     }
 }
 
@@ -2826,7 +2687,7 @@ fn paint_icon_strip_visuals(
                     );
                 }
                 FlyoutRole::Icon => {
-                    paint_secondary_icon(ui.painter(), rect, item, hovered, th, scale);
+                    paint_secondary_icon(ui.painter(), rect, item, hovered, th, p, scale);
                 }
             }
         }
@@ -2839,6 +2700,7 @@ fn paint_secondary_icon(
     item: &FlyoutItem<'_>,
     hovered: bool,
     th: &DockThemeTokens,
+    p: &DockPaletteTokens,
     scale: f32,
 ) {
     let r = (rect.width() * 0.5 - 0.5 * scale).max(1.0);
@@ -2855,6 +2717,12 @@ fn paint_secondary_icon(
         );
     } else if hovered {
         painter.circle_filled(rect.center(), r, th.icon_hover_color().gamma_multiply(0.10));
+    } else if p.well_fill > 0.001 {
+        painter.circle_filled(
+            rect.center(),
+            r,
+            th.popover_fill_color().gamma_multiply(p.well_fill),
+        );
     }
     painter.circle_stroke(
         rect.center(),
@@ -2878,31 +2746,16 @@ fn paint_tertiary_toggle(
     theme: SidebarTheme,
     icon: f32,
     p: &DockPaletteTokens,
-    scale: f32,
+    _scale: f32,
 ) {
     let diameter = tertiary_slot_h(icon, p) * 0.72;
-    let center = Pos2::new(rect.left() + diameter * 0.5, rect.center().y);
+    let center = rect.center();
     let t = ui.ctx().animate_bool_with_time(
         ui.id().with(("strip_slide", item.id)),
         item.active,
         TOGGLE_SLIDE_SECS,
     );
     paint_toggle_dot(ui.painter(), center, diameter * 0.5, hovered, t, theme);
-    let font_px = p.labeled_text_size * scale;
-    if font_px < 6.0 {
-        return;
-    }
-    let font = FontId::proportional(font_px);
-    let color = if item.active { theme.ink } else { theme.sub };
-    let galley = ui.fonts(|f| f.layout_no_wrap(item.label.to_owned(), font, color));
-    ui.painter().galley(
-        Pos2::new(
-            rect.left() + diameter + 4.0 * scale,
-            rect.center().y - galley.size().y * 0.5,
-        ),
-        galley,
-        color,
-    );
 }
 
 #[allow(clippy::too_many_arguments)] // Shared chrome geometry/style inputs.
@@ -3180,7 +3033,7 @@ pub fn floating_dock(
                         tokens.palette.hover_fade,
                     );
                     let dark = ui.visuals().dark_mode;
-                    let base = th.icon_fill_color();
+                    let base = primary_plate_fill(th, &tokens.palette, dark);
                     let fill = if assoc_t > 0.001 {
                         let shaded = associate_shade(
                             base,
@@ -3512,9 +3365,6 @@ pub fn floating_dock(
                     open,
                     canvas,
                     side,
-                    !visible
-                        .iter()
-                        .any(|item| item.kind.is_palette() && state.pinned.contains(&item.id)),
                     None,
                     ctx.animate_bool_with_time(
                         state_id.with(("assoc", preview_id)),
@@ -3532,7 +3382,6 @@ pub fn floating_dock(
                         panel_body(ui, preview_id);
                     },
                 );
-                apply_layout_toggle(&mut state, preview_id, render.toggle_layout);
                 if render.advanced {
                     state.advanced = if state.advanced == Some(preview_id) {
                         None
@@ -3663,20 +3512,6 @@ pub fn floating_dock(
         }
     }
     let origins = layout_panel_origins(side, &open_meta, &tokens, canvas, state.bar_collapsed);
-    // Strip ⇄ stacked switches every palette at once, so exactly one palette
-    // offers it: the last one along the dock (rightmost on a bottom dock,
-    // bottom-most on a left dock). The rest carry three dots.
-    let palettes: Vec<_> = open
-        .iter()
-        .copied()
-        .filter(|id| {
-            visible
-                .iter()
-                .any(|item| item.id == *id && item.kind.is_palette())
-        })
-        .collect();
-    let toggle_owner = toggle_palette(side, &palettes, &origins);
-
     for oid in &open {
         let Some(&origin) = origins.get(oid) else {
             continue;
@@ -3745,7 +3580,6 @@ pub fn floating_dock(
             open_anim,
             canvas,
             side,
-            toggle_owner == Some(*oid),
             strip_budgets.as_ref().and_then(|m| m.get(*oid).copied()),
             ctx.animate_bool_with_time(
                 state_id.with(("assoc", *oid)),
@@ -3763,7 +3597,6 @@ pub fn floating_dock(
                 panel_body(ui, oid);
             },
         );
-        apply_layout_toggle(&mut state, oid, render.toggle_layout);
         if render.advanced {
             state.advanced = if state.advanced == Some(*oid) {
                 None
@@ -3997,7 +3830,7 @@ pub fn floating_dock(
     }
     state.hidden = hidden_from_ctx(ctx);
     state.order = order_from_ctx(ctx);
-    if !state.icon_strip && !crate::tuning::dock_advanced_preview() {
+    if !crate::tuning::dock_advanced_preview() {
         state.advanced = None;
     }
     state.last_union_panels = (union_panels != Rect::NOTHING).then_some(union_panels);
@@ -4051,45 +3884,17 @@ fn panel_body_unsized(ui: &mut egui::Ui, add_body: impl FnOnce(&mut egui::Ui)) -
 /// how tall its content wanted to be.
 struct PanelRender {
     minimize: bool,
-    toggle_layout: bool,
     advanced: bool,
     drop_to_canvas: bool,
     rect: Rect,
     content_h: f32,
 }
 
-/// Which open palette offers the strip ⇄ stacked toggle.
-///
-/// The toggle is dock-wide, so repeating it on every palette is three copies
-/// of one switch. It lives on the last palette along the dock — rightmost on a
-/// bottom dock, bottom-most on a left dock — where the eye finishes reading
-/// the band. `None` when nothing is pinned; the volatile body takes it then.
-fn toggle_palette(
-    side: DockSide,
-    open: &[&'static str],
-    origins: &HashMap<&'static str, Pos2>,
-) -> Option<&'static str> {
-    let along = |p: &Pos2| match side {
-        DockSide::BottomCenter => p.x,
-        DockSide::LeftCenter => p.y,
-    };
-    open.iter()
-        .filter_map(|id| origins.get(id).map(|o| (*id, along(o))))
-        .reduce(|best, next| if next.1 >= best.1 { next } else { best })
-        .map(|(id, _)| id)
-}
-
-fn body_layout_for(state: &DockState, _id: &str, kind: DockItemKind) -> DockBodyLayout {
-    if kind.is_palette() && state.icon_strip {
+fn body_layout_for(_state: &DockState, _id: &str, kind: DockItemKind) -> DockBodyLayout {
+    if kind.is_palette() {
         DockBodyLayout::Icons
     } else {
         DockBodyLayout::List
-    }
-}
-
-fn apply_layout_toggle(state: &mut DockState, _id: &'static str, toggled: bool) {
-    if toggled {
-        state.icon_strip = !state.icon_strip;
     }
 }
 
@@ -4139,7 +3944,6 @@ fn show_dock_body(
     open_anim: f32,
     canvas: Rect,
     side: DockSide,
-    show_strip_toggle: bool,
     icon_budget: Option<f32>,
     associate: f32,
     add_body: impl FnOnce(&mut egui::Ui),
@@ -4150,16 +3954,7 @@ fn show_dock_body(
             ctx,
             icon_budget.unwrap_or_else(|| strip_icon_budget(side, canvas, tokens)),
         );
-        show_free_strip(
-            ctx,
-            area,
-            tokens,
-            th,
-            pinned,
-            open_anim,
-            show_strip_toggle,
-            add_body,
-        )
+        show_free_strip(ctx, area, tokens, th, pinned, open_anim, add_body)
     } else {
         show_panel(
             ctx,
@@ -4168,21 +3963,19 @@ fn show_dock_body(
             th,
             label,
             pinned,
-            "Icon strip",
             width,
             body_max_h,
             last_content_h,
             open_anim,
-            show_strip_toggle && kind.is_palette(),
             kind.is_palette(),
             add_body,
         )
     }
 }
 
-/// Fieldset icon strip: labeled frames of circular secondary icons and
+/// Fieldset icon strip: unlabeled capsules of circular secondary icons and
 /// two-high tertiary toggles. A tight dot column on the right of this
-/// cluster (minimize, Advanced, drop to canvas, then stacked-view).
+/// cluster (minimize, then drop to canvas).
 #[allow(clippy::too_many_arguments)]
 fn show_free_strip(
     ctx: &egui::Context,
@@ -4191,11 +3984,9 @@ fn show_free_strip(
     th: &DockThemeTokens,
     pinned: bool,
     open_anim: f32,
-    show_toggle: bool,
     add_body: impl FnOnce(&mut egui::Ui),
 ) -> PanelRender {
     let mut minimize = false;
-    let mut toggle_layout = false;
     let mut advanced = false;
     let mut drop_to_canvas = false;
     let size = flyout_icon_size(tokens);
@@ -4205,15 +3996,13 @@ fn show_free_strip(
         let body = ui.scope(add_body);
         let cluster = body.response.rect;
         content_h = cluster.height();
-        let clicks = put_strip_dots(ui, cluster, size, th, &tokens.palette, pinned, show_toggle);
+        let clicks = put_strip_dots(ui, cluster, size, th, &tokens.palette, pinned);
         minimize |= clicks.minimize;
-        toggle_layout |= clicks.toggle_layout;
         advanced |= clicks.advanced;
         drop_to_canvas |= clicks.drop_to_canvas;
     });
     PanelRender {
         minimize,
-        toggle_layout,
         advanced,
         drop_to_canvas,
         rect: response.response.rect,
@@ -4228,7 +4017,6 @@ fn strip_primary_center(cluster: Rect, icon_size: f32, p: &DockPaletteTokens) ->
 #[derive(Default)]
 struct StripDotClicks {
     minimize: bool,
-    toggle_layout: bool,
     advanced: bool,
     drop_to_canvas: bool,
 }
@@ -4239,20 +4027,14 @@ enum DotAxis {
     Horizontal,
 }
 
-/// How many dots a palette shows. Minimize, Advanced, and Drop act on *this*
-/// palette, so every one carries them; the layout toggle switches all palettes
-/// at once, so it rides on a single palette (see [`toggle_palette`]).
-fn dot_count(show_toggle: bool) -> usize {
-    if show_toggle {
-        4
-    } else {
-        3
-    }
+/// How many dots a palette shows: Minimize / Close, then Drop to canvas.
+fn dot_count() -> usize {
+    2
 }
 
 /// Extent of the dot run, end dot to end dot.
-fn dot_span(p: &DockPaletteTokens, show_toggle: bool) -> f32 {
-    p.dot_pitch() * (dot_count(show_toggle) as f32 - 1.0)
+fn dot_span(p: &DockPaletteTokens) -> f32 {
+    p.dot_pitch() * (dot_count() as f32 - 1.0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4263,7 +4045,6 @@ fn put_strip_dots(
     th: &DockThemeTokens,
     p: &DockPaletteTokens,
     pinned: bool,
-    show_toggle: bool,
 ) -> StripDotClicks {
     let cx = cluster.right() + p.dot_offset;
     let cy = strip_primary_center(cluster, icon_size, p);
@@ -4273,9 +4054,7 @@ fn put_strip_dots(
         th,
         p,
         pinned,
-        "Stacked view",
         DotAxis::Vertical,
-        show_toggle,
         true,
     )
 }
@@ -4287,29 +4066,20 @@ fn paint_dots(
     th: &DockThemeTokens,
     p: &DockPaletteTokens,
     pinned: bool,
-    toggle_label: &str,
     axis: DotAxis,
-    show_toggle: bool,
     palette: bool,
 ) -> StripDotClicks {
     let pitch = p.dot_pitch();
-    let span = if palette {
-        dot_span(p, show_toggle)
-    } else {
-        0.0
-    };
+    let span = if palette { dot_span(p) } else { 0.0 };
     let cx = group_center.x;
     let cy = group_center.y;
     let top = cy - span * 0.5;
     let left = cx - span * 0.5;
-    // Index into `clicks`, so omitting the toggle cannot shift what the
+    // Index into `clicks`, so dropping a power cannot shift what the
     // remaining dots do.
     let mut dots: Vec<(usize, &str)> = vec![(0, if pinned { "Minimize" } else { "Close" })];
     if palette {
-        dots.extend([(2, "Advanced"), (3, "Drop to canvas")]);
-    }
-    if palette && show_toggle {
-        dots.push((1, toggle_label));
+        dots.push((3, "Drop to canvas"));
     }
     let n = dots.len();
     let mut clicks = [false; 4];
@@ -4338,14 +4108,7 @@ fn paint_dots(
             .allocate_rect(hit, Sense::click())
             .on_hover_cursor(egui::CursorIcon::PointingHand);
         let hovered = resp.hovered();
-        let is_toggle = slot == 1;
-        let fill = if is_toggle {
-            if hovered {
-                th.text_color()
-            } else {
-                th.text_color().gamma_multiply(0.92)
-            }
-        } else if hovered {
+        let fill = if hovered {
             th.text_color()
         } else {
             th.muted_text_color().gamma_multiply(0.85)
@@ -4374,7 +4137,6 @@ fn paint_dots(
     }
     StripDotClicks {
         minimize: clicks[0],
-        toggle_layout: clicks[1],
         advanced: clicks[2],
         drop_to_canvas: clicks[3],
     }
@@ -4395,17 +4157,14 @@ fn show_panel(
     th: &DockThemeTokens,
     label: &str,
     pinned: bool,
-    toggle_label: &str,
     width: f32,
     body_max_h: f32,
     last_content_h: f32,
     open_anim: f32,
-    show_toggle: bool,
     palette: bool,
     add_body: impl FnOnce(&mut egui::Ui),
 ) -> PanelRender {
     let mut minimize = false;
-    let mut toggle_layout = false;
     let mut advanced = false;
     let mut drop_to_canvas = false;
     let mut content_h = 0.0;
@@ -4423,18 +4182,8 @@ fn show_panel(
         }
         frame.show(ui, |ui| {
             ui.set_width((width - tokens.popover_padding * 2.0).max(1.0));
-            let cap = panel_caption(
-                ui,
-                label,
-                pinned,
-                toggle_label,
-                th,
-                &tokens.palette,
-                show_toggle,
-                palette,
-            );
+            let cap = panel_caption(ui, label, pinned, th, &tokens.palette, palette);
             minimize |= cap.minimize;
-            toggle_layout |= cap.toggle_layout;
             advanced |= cap.advanced;
             drop_to_canvas |= cap.drop_to_canvas;
             ui.separator();
@@ -4449,7 +4198,6 @@ fn show_panel(
     });
     PanelRender {
         minimize,
-        toggle_layout,
         advanced,
         drop_to_canvas,
         rect: response.response.rect,
@@ -4500,7 +4248,6 @@ fn show_advanced_overlay(
 
     PanelRender {
         minimize,
-        toggle_layout: false,
         advanced: false,
         drop_to_canvas: false,
         rect: response.response.rect,
@@ -4510,17 +4257,14 @@ fn show_advanced_overlay(
 
 /// Panel title row: label left, optional "pinned", horizontal dot ellipsis
 /// top-right. The right cluster is reserved so "pinned" cannot sit on the
-/// dots. Stacked view carries the same actions as the strip column, Drop to
-/// canvas included — the presentation changes, the palette's powers do not.
+/// dots. Dashboards carry Minimize and Drop — the same powers as the strip.
 #[allow(clippy::too_many_arguments)]
 fn panel_caption(
     ui: &mut egui::Ui,
     label: &str,
     pinned: bool,
-    toggle_label: &str,
     th: &DockThemeTokens,
     p: &DockPaletteTokens,
-    show_toggle: bool,
     palette: bool,
 ) -> StripDotClicks {
     let mut clicks = StripDotClicks::default();
@@ -4539,11 +4283,7 @@ fn panel_caption(
         0.0
     };
     let gap = 12.0;
-    let dots_w = if palette {
-        dot_span(p, show_toggle)
-    } else {
-        0.0
-    } + p.dot_radius * 2.0;
+    let dots_w = if palette { dot_span(p) } else { 0.0 } + p.dot_radius * 2.0;
     let row_h = p.dot_hit_y.max(p.caption_height);
     let right_w = dots_w + if pinned { pinned_w + gap } else { 0.0 };
     ui.allocate_ui_with_layout(
@@ -4587,9 +4327,7 @@ fn panel_caption(
                 th,
                 p,
                 pinned,
-                toggle_label,
                 DotAxis::Horizontal,
-                show_toggle,
                 palette,
             );
         },
@@ -4866,7 +4604,7 @@ mod tests {
         let p = DockPaletteTokens::default();
         assert!(
             p.associate_fill > 0.5 && p.associate_fill < 0.8,
-            "hover fill should read clearly over idle 0.42, got {}",
+            "hover fill should read clearly over idle group_fill, got {}",
             p.associate_fill
         );
         assert!(
@@ -5013,37 +4751,27 @@ mod tests {
     }
 
     #[test]
-    fn dashboards_can_use_the_icon_strip() {
-        let mut state = DockState {
-            icon_strip: true,
+    fn tools_are_icon_strips_and_forms_stay_lists() {
+        let state = DockState {
+            icon_strip: false,
             ..Default::default()
         };
         assert_eq!(
-            body_layout_for(&state, "document.settings", DockItemKind::Dashboard),
-            DockBodyLayout::Icons
-        );
-        assert_eq!(
             body_layout_for(&state, "tool.shapes", DockItemKind::Tool),
             DockBodyLayout::Icons
         );
-        state.icon_strip = false;
         assert_eq!(
-            body_layout_for(&state, "tool.shapes", DockItemKind::Tool),
+            body_layout_for(&state, "document.settings", DockItemKind::Tool),
+            DockBodyLayout::Icons
+        );
+        assert_eq!(
+            body_layout_for(&state, "object.properties", DockItemKind::Dashboard),
+            DockBodyLayout::Icons
+        );
+        assert_eq!(
+            body_layout_for(&state, "selection", DockItemKind::Inspector),
             DockBodyLayout::List
         );
-    }
-
-    #[test]
-    fn layout_toggle_is_dock_wide() {
-        let mut state = DockState::default();
-        apply_layout_toggle(&mut state, "tool.shapes", true);
-        assert!(state.icon_strip);
-        assert_eq!(
-            body_layout_for(&state, "tool.frame", DockItemKind::Tool),
-            DockBodyLayout::Icons
-        );
-        apply_layout_toggle(&mut state, "document.settings", true);
-        assert!(!state.icon_strip);
     }
 
     #[test]
@@ -5116,61 +4844,58 @@ mod tests {
     fn strip_dots_pack_tighter_than_an_icon() {
         let mut p = DockPaletteTokens::default();
         p.normalize();
-        let col_h = dot_span(&p, true) + p.dot_radius * 2.0;
+        let col_h = dot_span(&p) + p.dot_radius * 2.0;
         assert!(
             col_h < 22.0,
-            "four dots must sit inside one flyout icon ({col_h})"
+            "two dots must sit inside one flyout icon ({col_h})"
         );
         assert!(
-            p.dot_hit_x > dot_span(&p, true),
+            p.dot_hit_x > dot_span(&p),
             "X hit must be far wider than the dots so the pointer need not be exact"
         );
     }
 
-    /// Strip and stacked are two presentations of one palette, so they offer
-    /// the same actions. Dropping a copy on the canvas was once strip-only,
-    /// which made the layout toggle a trapdoor: switch view, lose a power.
     #[test]
-    fn both_presentations_can_drop_to_canvas() {
-        for show_toggle in [false, true] {
-            assert_eq!(
-                dot_count(show_toggle),
-                if show_toggle { 4 } else { 3 },
-                "Minimize, Advanced, and Drop are per-palette and never omitted"
-            );
-        }
+    fn palette_dots_are_minimize_and_drop() {
+        assert_eq!(
+            dot_count(),
+            2,
+            "icon-strip palettes carry Minimize and Drop only"
+        );
     }
 
-    /// The layout toggle switches every palette at once, so it appears once —
-    /// on the last palette along the dock.
     #[test]
-    fn only_the_last_palette_offers_the_layout_toggle() {
-        let mut origins = HashMap::new();
-        origins.insert("tool.frame", Pos2::new(100.0, 800.0));
-        origins.insert("tool.shapes", Pos2::new(420.0, 800.0));
-        origins.insert("tool.text", Pos2::new(260.0, 800.0));
-        let open = ["tool.frame", "tool.shapes", "tool.text"];
-        assert_eq!(
-            toggle_palette(DockSide::BottomCenter, &open, &origins),
-            Some("tool.shapes"),
-            "rightmost palette owns the toggle on a bottom dock"
-        );
-
-        let mut origins = HashMap::new();
-        origins.insert("tool.frame", Pos2::new(10.0, 120.0));
-        origins.insert("tool.shapes", Pos2::new(10.0, 640.0));
-        let open = ["tool.frame", "tool.shapes"];
-        assert_eq!(
-            toggle_palette(DockSide::LeftCenter, &open, &origins),
-            Some("tool.shapes"),
-            "bottom-most palette owns the toggle on a left dock"
-        );
-
-        assert_eq!(
-            toggle_palette(DockSide::BottomCenter, &[], &HashMap::new()),
-            None,
-            "nothing pinned — the volatile body carries the toggle instead"
-        );
+    fn fieldset_pad_contains_every_slot() {
+        let ctx = egui::Context::default();
+        let mut tokens = DockTokens::default();
+        tokens.normalize();
+        let pad = tokens.palette.group_pad;
+        let items = [
+            FlyoutItem::new("a", "A", "", None, DockIcon::Grid, false).grouped("portals"),
+            FlyoutItem::new("b", "B", "", None, DockIcon::Grid, false).grouped("portals"),
+            FlyoutItem::new("c", "C", "", None, DockIcon::Grid, false)
+                .grouped("snaps")
+                .toggle(),
+            FlyoutItem::new("d", "D", "", None, DockIcon::Grid, false)
+                .grouped("snaps")
+                .toggle(),
+        ];
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let layout = measure_icon_strip(ctx, &items, &tokens, DockSide::BottomCenter, 800.0);
+            assert!(!layout.groups.is_empty());
+            for group in &layout.groups {
+                let inner = Rect::from_min_size(Pos2::ZERO, group.frame).shrink(pad - 0.01);
+                for slot in &group.slots {
+                    let slot = Rect::from_min_size(Pos2::ZERO + slot.off, slot.size);
+                    assert!(
+                        inner.contains(slot.min) && inner.contains(slot.max - Vec2::splat(0.01)),
+                        "slot {:?} escapes pad {pad} of frame {:?}",
+                        slot,
+                        group.frame
+                    );
+                }
+            }
+        });
     }
 
     #[test]

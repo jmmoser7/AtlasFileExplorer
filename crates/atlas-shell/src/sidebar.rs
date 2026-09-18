@@ -225,30 +225,14 @@ pub fn sidebar_tool_row(
         Pos2::new(rect.left() + icon_d * 0.5, rect.center().y),
         Vec2::splat(icon_d),
     );
-    let r = icon.width() * 0.5 - 0.5;
-    if active {
-        ui.painter()
-            .circle_filled(icon.center(), r, theme.ink.gamma_multiply(0.14));
-    } else if resp.hovered() {
-        ui.painter()
-            .circle_filled(icon.center(), r, theme.border.gamma_multiply(0.35));
-    }
-    ui.painter().circle_stroke(
-        icon.center(),
-        r,
-        Stroke::new(
-            1.0_f32,
-            if active || resp.hovered() {
-                theme.ink
-            } else {
-                theme.sub
-            },
-        ),
-    );
-    paint_icon(
+    paint_circular_tool(
         ui.painter(),
-        icon.shrink((icon.width() * 0.22).max(2.0)),
-        theme.ink,
+        icon,
+        active,
+        resp.hovered(),
+        1.0,
+        theme,
+        paint_icon,
     );
     let label_x = icon.right() + 8.0;
     let galley =
@@ -756,4 +740,35 @@ pub fn sidebar_slider_block(ui: &mut Ui, add_slider: impl FnOnce(&mut Ui)) {
     ui.add_space(2.0);
     add_slider(ui);
     ui.add_space(SidebarTokens::ROW_GAP);
+}
+
+/// Circular secondary tool chrome shared by dock lists and contextual strips.
+pub fn paint_circular_tool(
+    painter: &egui::Painter,
+    icon: Rect,
+    active: bool,
+    hovered: bool,
+    zoom: f32,
+    theme: SidebarTheme,
+    paint_icon: impl FnOnce(&egui::Painter, Rect, Color32),
+) {
+    let r = icon.width() * 0.5 - 0.5 * zoom;
+    if active {
+        painter.circle_filled(icon.center(), r, theme.ink.gamma_multiply(0.14));
+    } else if hovered {
+        painter.circle_filled(icon.center(), r, theme.border.gamma_multiply(0.35));
+    }
+    painter.circle_stroke(
+        icon.center(),
+        r,
+        Stroke::new(
+            zoom,
+            if active || hovered {
+                theme.ink
+            } else {
+                theme.sub
+            },
+        ),
+    );
+    paint_icon(painter, icon.shrink(icon.width() * 0.22), theme.ink);
 }

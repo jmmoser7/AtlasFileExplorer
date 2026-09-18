@@ -588,7 +588,7 @@ pub fn portal_maximize_button(
     resp.clicked()
 }
 
-/// Paint one workbook-style tab on a portal frame, plus the maximize hit.
+/// Paint a plain, centered portal title bar, plus the maximize hit.
 /// `maximize` is the window-control slot on the right of the bar — the
 /// same place the Slate / File Atlas caption maximize sits. `frame_radius`
 /// is the host fillet in screen pixels so the bar follows the frame
@@ -610,80 +610,31 @@ pub fn portal_tab_bar(
     if h < 2.0 {
         return None;
     }
-    // The portal bar is slimmer than the dashboard top bar. Scale type and
-    // padding to the strip we actually have, not to the 0.4 height ratio —
-    // that would produce 5 px type on a 12 px bar.
-    let scale = (h / tokens.topbar.height.max(1.0)).max(0.0);
-    let mut metrics = tokens.topbar.scaled(scale);
-    // Portal-specific proportions: keep the identity blister clear of the
-    // outer fillet and center smaller type within its own painted bounds.
-    const INSET_FRAC: f32 = 0.20;
-    const TEXT_FRAC: f32 = 0.48;
-    const PADDING_FRAC: f32 = 0.35;
-    const RADIUS_FRAC: f32 = 0.22;
-    metrics.tab_top_inset = h * INSET_FRAC;
-    metrics.tab_text_size = h * TEXT_FRAC;
-    metrics.tab_horizontal_padding = h * PADDING_FRAC;
-    let inner_r = h * RADIUS_FRAC;
-    metrics.tab_top_radius = inner_r;
-    metrics.tab_shoulder_radius = inner_r;
-
     paint_vertical_gradient_top_fillet(painter, bar, colors.bar_top, colors.bar, frame_radius);
-
     let pointer = ui.ctx().pointer_latest_pos();
     let over_maximize = pointer.is_some_and(|p| maximize.contains(p));
-
-    let title = crate::widgets::trunc(model.title, metrics.tab_title_chars);
-    let font = FontId::proportional(metrics.tab_text_size);
-    let text_w =
-        crate::canvas_text::layout_no_wrap(painter, title.clone(), font.clone(), Color32::WHITE)
-            .size()
-            .x;
-    let pad = metrics.tab_horizontal_padding;
-    let shoulder = metrics.tab_shoulder_radius;
-    let live_reserve = if model.live { 16.0 * scale } else { 0.0 };
-    let tab_left = bar.left() + frame_radius.max(h * INSET_FRAC);
-    let tab_w = (text_w + pad * 2.0 + shoulder * 2.0 + live_reserve)
-        .clamp(metrics.tab_min_width, metrics.tab_max_width)
-        .min((maximize.left() - tab_left - h * INSET_FRAC).max(0.0));
-    let tab_slot = Rect::from_min_max(
-        Pos2::new(tab_left, bar.top()),
-        Pos2::new(tab_left + tab_w, bar.bottom()),
-    );
-    let paint = tab_paint_rect(tab_slot, &metrics);
-    paint_active_tab(
-        painter,
-        paint,
-        colors.active_top,
-        colors.active,
-        colors,
-        &metrics,
-    );
-    // The painted tab is inset by the shoulder; clip to that interior so
-    // glyphs cannot oversail the teal outline (P1.portal.chrome).
-    let text_left = paint.left() + shoulder + pad;
-    let text_right = (paint.right() - shoulder - pad - live_reserve).max(text_left);
-    let text_clip = Rect::from_min_max(
-        Pos2::new(text_left, paint.top()),
-        Pos2::new(text_right, paint.bottom()),
-    );
+    // Symmetric clearance keeps the title centered on the whole bar, not
+    // centered in whatever space is left of the window control.
+    let inset = (bar.right() - maximize.left())
+        .max(h * 0.5)
+        .min(bar.width() * 0.5);
+    let text_clip = bar.shrink2(Vec2::new(inset, 0.0));
+    let font_size = if model.maximized {
+        tokens.topbar.tab_text_size
+    } else {
+        h * 0.62
+    };
     if text_clip.width() > 1.0 {
         crate::canvas_text::text(
-            &painter.with_clip_rect(text_clip),
-            Pos2::new(text_left, paint.center().y),
-            Align2::LEFT_CENTER,
-            title,
-            font,
+            &painter.with_clip_rect(text_clip.intersect(painter.clip_rect())),
+            bar.center(),
+            Align2::CENTER_CENTER,
+            crate::widgets::trunc(model.title, tokens.topbar.tab_title_chars),
+            FontId::proportional(font_size),
             palette.ink,
         );
     }
-    if model.live {
-        painter.circle_filled(
-            Pos2::new(paint.right() - shoulder - 6.0 * scale, paint.center().y),
-            3.0 * scale,
-            Color32::from_rgb(120, 220, 150),
-        );
-    }
+    let tab_slot = Rect::from_min_max(bar.min, Pos2::new(maximize.left(), bar.bottom()));
 
     paint_maximize_glyph(
         painter,
@@ -711,6 +662,27 @@ pub fn portal_tab_bar(
         return Some(PortalTabAction::Context);
     }
     None
+}
+
+/// Scrollbars and the title bar use the same chrome scale, including fullscreen.
+pub fn portal_scrollbar_width(bar_height: f32) -> f32 {
+    bar_height * 0.4
+}
+
+/// Browser stylesheet owned by shared chrome. Transparent thumbs preserve the
+/// scroll gutter and page layout while idle; scrolling itself stays enabled.
+pub fn web_scrollbar_style(width_css: f32, color: Color32, visible: bool) -> String {
+    let alpha = if visible {
+        color.a() as f32 / 255.0
+    } else {
+        0.0
+    };
+    let width = width_css.max(0.1);
+    format!("*{{scrollbar-width:auto!important;scrollbar-color:auto!important}}\n\
+        *::-webkit-scrollbar{{width:{width:.2}px!important;height:{width:.2}px!important}}\n\
+        *::-webkit-scrollbar-track,*::-webkit-scrollbar-corner{{background:transparent!important}}\n\
+        *::-webkit-scrollbar-thumb{{background:rgba({},{},{},{alpha:.3})!important;border:none!important;border-radius:{width:.2}px!important}}\n\
+        *::-webkit-scrollbar-button{{display:none!important}}", color.r(), color.g(), color.b())
 }
 
 /// Hover affordance at the top interior of a portal whose identity tab is folded.
@@ -742,6 +714,21 @@ pub fn portal_reveal_hint(ui: &Ui, palette: &Palette, strip: Rect, id_salt: u64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn idle_scrollbars_keep_their_gutter_and_share_the_chrome_scale() {
+        let width = portal_scrollbar_width(30.0);
+        assert_eq!(width, 12.0);
+        let shown = web_scrollbar_style(width, Color32::from_rgb(120, 130, 140), true);
+        let hidden = web_scrollbar_style(width, Color32::from_rgb(120, 130, 140), false);
+        assert!(shown.contains("rgba(120,130,140,1.000)"));
+        assert!(hidden.contains("rgba(120,130,140,0.000)"));
+        for style in [shown, hidden] {
+            assert!(style.contains("width:12.00px"));
+            assert!(!style.contains("overflow:hidden"));
+            assert!(!style.contains("scrollbar-width:none"));
+        }
+    }
 
     #[test]
     fn flipped_tab_scanline_mirrors_the_host_edge() {

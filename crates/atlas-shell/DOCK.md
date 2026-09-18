@@ -4,6 +4,11 @@ Both File Atlas and Slate host a **single floating dock** of squircle icons
 over the canvas. Dock chrome lives in `atlas-shell::dock`; apps supply items
 and panel bodies only. Cross-app interaction notes: **`TOOLBARS.md`**.
 
+Selected-object property editors are a separate shared surface governed by
+[DYNAMIC_PANELS.md](DYNAMIC_PANELS.md). They reuse dock squircles and icon
+language, while their placement follows the selected host's canvas transform.
+Do not apply this document's pin stack or stacked-form layout to them.
+
 ## Ownership split
 
 | Concern | Owner |
@@ -35,19 +40,12 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
 | **Action** | Title chip | Fire action | — |
 
 - **Minimize** dismisses a volatile body or unpins a pinned one back
-  to its icon. Icon-strip chrome is a **vertical dot column** on the
-  right of the cluster; stacked captions carry the same dots as a
-  **horizontal ellipsis** at the top-right. Both presentations offer
-  the same actions in the same order — Minimize / Close, [layout
-  toggle], Advanced, Drop to canvas — because they are one palette
-  wearing two faces, and a view switch that silently removes a power
-  is a trapdoor.
-  **Minimize, Advanced, and Drop act on this palette, so every palette
-  carries them (three dots). The layout toggle switches every pinned
-  palette at once, so exactly one palette carries it (four dots): the
-  last one along the dock — rightmost on a bottom dock, bottom-most on
-  a left dock. When nothing is pinned, the volatile body carries it.**
-  Hover text for the group appears in one place, centered above the
+  to its icon. Palettes are an **icon strip** (unlabeled fieldset
+  capsules). Inspectors stay stacked forms. Icon-strip
+  chrome is a **vertical two-dot column** on the right of the cluster
+  (Minimize / Close, Drop to canvas); stacked captions carry the same
+  two actions as a **horizontal ellipsis** at the top-right. Hover
+  text for the group appears in one place, centered above the
   dots. Subsection folds still use ─; collapsing one must **not**
   dismiss the panel.
   Bottom-anchored popovers shrink upward, so hit-testing unions this
@@ -90,14 +88,10 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   keeps a volatile *body* alive, not a leftover name chip. Chips paint on
   the Tooltip layer *after* panels so a primary-icon name sits in front of
   a pinned toolbar, never behind it.
-- Every body (tool or dashboard) shares one dock-wide layout: stacked
-  list or free-space icon strip. The **toggle dot** switches **all**
-  pinned palettes, which is why only one palette shows it.
-  Label is **Icon strip** in the list and **Stacked view** in the strip.
-  Icon-strip mode is **fieldset groups** of secondary circular icons at
-  `flyout_icon_scale` (65% of the dock). Each group's **pallet** name
-  (curves, ink, object snaps) sits in the top border of that frame.
-  Category labels and their underline are omitted beneath the flyout.
+- Tool palettes are **fieldset groups** of secondary circular icons at
+  `flyout_icon_scale` (65% of the dock). Capsules are unlabeled —
+  hover chips name each icon. Category labels and their underline are
+  omitted beneath the flyout.
   When the pinned band no longer fits, icons wrap **inside**
   a pallet as an accordion: a sideways row first, overflow stepping
   up. Every open category stacks one column in the same round so
@@ -105,13 +99,12 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   a common bottom datum. Not a hex zigzag and not a
   fair-share tower of one-icon boxes. Tertiary toggle
   dots stack two-high in the same vertical space as one secondary
-  icon, sharing that datum. Pallet type uses `group_label_size` /
-  `pallet_label_lift` and the `title` fill. The box stroke leaves a gap around the pallet name
-  (`rule_text_gap`).
-  Labeled icons (Object Snaps, grid…) use
-  `labeled_text_size`. Hover chips lift by `hover_chip_gap`. Hover text for the dots appears in **one place**,
+  icon, sharing that datum. `group_pad` keeps the capsule stroke
+  clear of every icon and toggle. Hover chips lift by `hover_chip_gap`. Hover text for the dots appears in **one place**,
   centered above the group — wide in X on the strip column, wide in Y
-  on the caption ellipsis.   Advanced opens a **fullscreen catalog canvas** — the
+  on the caption ellipsis.   Advanced catalog remains a tuner /
+  screenshot lock, not a palette chrome control. The catalog is a
+  **fullscreen canvas** — the
   same camera paradigm as a Slate board (pan, zoom, select), not a
   stacked list. It is window chrome, not a journaled workbook scene:
   a cool color cast and grid fill the screen edge-to-edge (no bezel
@@ -136,9 +129,8 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   drop without closing Advanced. Drop to canvas journals a
   `DockStrip` node — a copy that does not pin, unpin, or replace the
   baseline dock; there is no limit on how many copies exist. A canvas
-  copy is always an icon strip, so **both** presentations record their
-  visible tool ids (`last_strip_tools`); dropping from stacked view
-  must not place an empty node.
+  copy is always an icon strip and records the visible tool ids
+  (`last_strip_tools`).
   A click on a canvas-copy icon **arms** the command (same as the
   baseline dock); click-hold-drag anywhere on the node, including an
   icon, **moves** the copy. Instant actions (join, grid, snaps, color
@@ -162,10 +154,8 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
 ### Inspector forms and keyboard opening
 
 `DockItemKind::Inspector` hosts selection-dependent value editors through the
-same panel renderer. Its fields remain in a stacked form when tool palettes
-switch to icon strips. It offers Minimize / Close; Advanced and Drop describe
-tool catalogs and do not apply to a value editor. Inspectors do not take the
-dock-wide layout-toggle position away from a tool palette.
+same panel renderer. Its fields stay a stacked form. It offers Minimize /
+Close; Drop describes a tool catalog and does not apply to a value editor.
 
 Commands use `dock::panel_is_open` and `dock::set_panel_open` to open or close
 an existing body. Opening pins it so it stays available while the keyboard

@@ -205,6 +205,16 @@ impl Recipe {
         }
     }
 
+    /// Whether a completed create should adopt `BoardLastStyle` (stroke, fill
+    /// where the node can take one, opacity). Portals never inherit.
+    #[must_use]
+    pub fn inherits_create_style(&self) -> bool {
+        match self {
+            Recipe::Shape(s) => s.create_style == CreateStyle::Inherit,
+            Recipe::Portal(_) => false,
+        }
+    }
+
     /// The stroke a curve-producing grammar should draw with, if this recipe
     /// pins one. `None` means "inherit whatever the board would have used".
     #[must_use]
@@ -427,6 +437,19 @@ mod tests {
         let stroke = recipe.pinned_stroke(ctx().accent).expect("pinned stroke");
         assert_eq!(stroke.color, Rgba([0xe8, 0x44, 0x3a, 255]));
         assert_eq!(stroke.cap, slate_doc::scene::StrokeCap::Round);
+    }
+
+    #[test]
+    fn inherit_is_the_default_create_style() {
+        let recipe: Recipe = toml::from_str(
+            r##"
+            kind = "shape"
+            node = "rect"
+            fill = "accent@60"
+            "##,
+        )
+        .unwrap();
+        assert!(recipe.inherits_create_style());
     }
 
     #[test]

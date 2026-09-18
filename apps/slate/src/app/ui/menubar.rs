@@ -3,20 +3,13 @@
 //! applies returned actions.
 
 use super::super::SlateApp;
-use crate::app::chrome::ToolPanel;
 use atlas_shell::dock::DockSide;
 use atlas_shell::menubar::{self, AppIcon, MenuIcon, MenuItem, MenuSpec, UnifiedTopBarModel};
 use atlas_shell::tabs::{TabAction, TabSpec};
 use eframe::egui;
-use slate_doc::ViewKind;
 
 pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
     let palette = app.palette();
-    let view = app
-        .tabs
-        .get(app.active_tab)
-        .map(|t| t.doc.view.active_view)
-        .unwrap_or(ViewKind::Grid);
     let chrome = app.chrome();
 
     let menus = [
@@ -60,18 +53,9 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
             title: "View",
             icon: MenuIcon::View,
             items: vec![
-                MenuItem::new("view.grid", "Grid")
+                MenuItem::new("view.dark", "Dark mode")
                     .icon(MenuIcon::View)
-                    .checked(view == ViewKind::Grid),
-                MenuItem::new("view.venn", "Venn")
-                    .icon(MenuIcon::View)
-                    .checked(view == ViewKind::Venn),
-                MenuItem::new("view.board", "Board")
-                    .icon(MenuIcon::View)
-                    .checked(view == ViewKind::Board),
-                MenuItem::new("view.lens", "Lens")
-                    .icon(MenuIcon::Search)
-                    .checked(view == ViewKind::Lens),
+                    .checked(app.dark_mode),
                 MenuItem::new("view.present", "Present")
                     .icon(MenuIcon::View)
                     .shortcut("F5")
@@ -87,9 +71,6 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
             title: "Preferences",
             icon: MenuIcon::Settings,
             items: vec![
-                MenuItem::new("view.dark", "Dark mode")
-                    .icon(MenuIcon::View)
-                    .checked(app.dark_mode),
                 MenuItem::new("dock.left", "Dock · left edge")
                     .icon(MenuIcon::Settings)
                     .checked(app.dock_side == DockSide::LeftCenter)
@@ -97,31 +78,6 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
                 MenuItem::new("dock.bottom", "Dock · bottom edge")
                     .icon(MenuIcon::Settings)
                     .checked(app.dock_side == DockSide::BottomCenter),
-                MenuItem::new("ai.launch", "Launch Cursor")
-                    .icon(MenuIcon::Cursor)
-                    .separated(),
-                MenuItem::new("ai.workspace", "Set AI workspace…").icon(MenuIcon::Chat),
-                MenuItem::new("tools.tags", "Show Tags dock")
-                    .icon(MenuIcon::Tag)
-                    .checked(chrome.tool(ToolPanel::Tags))
-                    .separated(),
-                MenuItem::new("tools.selection", "Selection inspector")
-                    .icon(MenuIcon::Details)
-                    .shortcut("F3")
-                    .checked(
-                        chrome.tool(ToolPanel::Selection)
-                            && atlas_shell::dock::panel_is_open(
-                                ctx,
-                                super::tools::DOCK_ID,
-                                super::tools::SELECTION_PANEL_ID,
-                            ),
-                    ),
-                MenuItem::new("tools.view", "Show View dock")
-                    .icon(MenuIcon::View)
-                    .checked(chrome.tool(ToolPanel::Display)),
-                MenuItem::new("tools.lens", "Show Lens dock")
-                    .icon(MenuIcon::Search)
-                    .checked(chrome.tool(ToolPanel::Lens)),
                 MenuItem::new("view.advanced", "Advanced settings…")
                     .icon(MenuIcon::Settings)
                     .separated(),
@@ -214,22 +170,6 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
             }
         }
         Some("file.exit") => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-        Some("view.grid") => {
-            app.ensure_work_tab();
-            app.doc_mut().view.active_view = ViewKind::Grid;
-        }
-        Some("view.venn") => {
-            app.ensure_work_tab();
-            app.doc_mut().view.active_view = ViewKind::Venn;
-        }
-        Some("view.board") => {
-            app.ensure_work_tab();
-            app.doc_mut().view.active_view = ViewKind::Board;
-        }
-        Some("view.lens") => {
-            app.ensure_work_tab();
-            app.doc_mut().view.active_view = ViewKind::Lens;
-        }
         Some("view.present") => {
             app.dispatch(ctx, CommandId("app.present"), Some("menu".into()));
         }
@@ -247,23 +187,6 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
         Some("dock.bottom") => {
             app.dock_side = DockSide::BottomCenter;
             app.save_chrome_prefs();
-        }
-        Some("ai.launch") => app.ai.launch_cursor(),
-        Some("ai.workspace") => app.ai.pick_workspace(),
-        Some("tools.tags") => {
-            let on = !app.chrome().tool(ToolPanel::Tags);
-            app.chrome_mut().set_tool(ToolPanel::Tags, on);
-        }
-        Some("tools.selection") => {
-            app.dispatch(ctx, CommandId("app.properties"), Some("menu".into()));
-        }
-        Some("tools.view") => {
-            let on = !app.chrome().tool(ToolPanel::Display);
-            app.chrome_mut().set_tool(ToolPanel::Display, on);
-        }
-        Some("tools.lens") => {
-            let on = !app.chrome().tool(ToolPanel::Lens);
-            app.chrome_mut().set_tool(ToolPanel::Lens, on);
         }
         Some("view.advanced") => {
             app.dispatch(ctx, CommandId("app.preferences"), Some("menu".into()));

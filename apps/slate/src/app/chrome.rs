@@ -6,41 +6,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ToolPanel {
-    /// Hierarchical tag groups editor + tag focus selection.
-    Tags = 0,
-    /// Presentation mode (Board / Grid / Venn / Lens) and light/dark theme.
-    Display = 1,
-    /// Workbook file operations and the File Atlas link.
-    Workbook = 2,
-    /// AI / Cursor integration (shared panel body from `atlas-ai`).
-    Ai = 3,
-    /// Dynamic inspector: properties of the current board selection
-    /// (shape stroke/fill, image crop/adjust, text style, frame settings).
     Selection = 4,
-    /// Code-dependency graph (Lens view): root picker, filters, search.
-    Lens = 5,
-}
-
-impl ToolPanel {
-    pub const ALL: [ToolPanel; 6] = [
-        ToolPanel::Tags,
-        ToolPanel::Display,
-        ToolPanel::Selection,
-        ToolPanel::Workbook,
-        ToolPanel::Ai,
-        ToolPanel::Lens,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ToolPanel::Tags => "Tags",
-            ToolPanel::Display => "Presentation Mode",
-            ToolPanel::Workbook => "Workbook",
-            ToolPanel::Ai => "AI",
-            ToolPanel::Selection => "Selection",
-            ToolPanel::Lens => "Lens",
-        }
-    }
 }
 
 impl From<ToolPanel> for usize {
@@ -78,10 +44,6 @@ impl From<ReadoutPanel> for usize {
 /// Per-tab UI chrome configuration.
 pub type ChromeConfig = atlas_shell::chrome::ChromeConfig<6, 2>;
 
-/// App default: everything visible, the AI panel starts collapsed (it's the
-/// optional assistant toolbar, not part of the core tagging workflow).
 pub fn default_chrome() -> ChromeConfig {
-    let mut c = ChromeConfig::default();
-    c.set_tool_expanded(ToolPanel::Ai, false);
-    c
+    ChromeConfig::default()
 }

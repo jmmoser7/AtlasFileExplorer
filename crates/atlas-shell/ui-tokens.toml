@@ -180,7 +180,7 @@ label_text_size = 11.5
 squircle_exponent = 2.5
 popover_width = 270.0
 popover_max_height = 450.0
-popover_gap = 7.0
+popover_gap = 12.0
 popover_padding = 6.0
 popover_corner_radius = 10.5
 shadow_offset_x = 0.0
@@ -190,8 +190,8 @@ shadow_spread = 1.0
 shadow_opacity = 0.25999999046325684
 close_delay = 0.44999998807907104
 left_margin = 22.0
-bottom_margin = 6.0
-stack_gap = 6.0
+bottom_margin = 7.0
+stack_gap = 7.0
 partition_gap = 8.0
 partition_extend = 120.0
 partition_max_thickness = 0.5
@@ -209,9 +209,13 @@ flyout_icon_scale = 0.699999988079071
 
 [dock.palette]
 group_pad = 5.0
-group_gap = 10.0
+group_gap = 15.0
 group_radius = 24.0
-group_stroke = 2.0999999046325684
+group_stroke = 1.2999999523162842
+group_fill = 1.0
+primary_fill_mix = 0.0
+primary_fill_offset = -0.15000000596046448
+well_fill = 0.0
 associate_fill = 0.0
 associate_stroke = 1.0
 associate_tint = 0.3799999952316284
@@ -221,8 +225,8 @@ icon_hover_fill = 0.0
 icon_hover_opacity = 1.0
 icon_hover_tint = 0.0
 hover_fade = 0.14000000059604645
-blister_width = 200.0
-blister_height = 2.0
+blister_width = 370.0
+blister_height = 5.0
 blister_sink = 5.0
 blister_radius = 15.199999809265137
 blister_shoulder = 7.0
@@ -252,7 +256,7 @@ dot_offset = 8.0
 dot_hit_x = 22.0
 dot_hit_y = 23.0
 dot_hit_end = 10.0
-dot_chip_gap = 17.0
+dot_chip_gap = 2.5
 
 [dock.advanced]
 width_frac = 0.7799999713897705
@@ -543,7 +547,7 @@ popover_fill = [
     18,
     20,
     22,
-    248,
+    255,
 ]
 blister_fill = [
     77,
@@ -598,7 +602,7 @@ red = [
 cover_frac = 0.550000011920929
 cover_min = 350.0
 cover_max = 470.0
-center_y_frac = 0.43
+center_y_frac = 0.4300000071525574
 side_step_frac = 0.33000001311302185
 center_bulge_frac = 0.75
 bulge_width = 0.6000000238418579
@@ -606,9 +610,9 @@ angle_max_deg = -80.0
 angle_width = 1.7000000476837158
 corner_bevel_frac = 0.03500000014901161
 ao_size = 34.0
-ao_strength = 0.32
-reflection_height_frac = 0.26
-reflection_opacity = 0.28
+ao_strength = 0.3199999928474426
+reflection_height_frac = 0.25999999046325684
+reflection_opacity = 0.2800000011920929
 depth_max = 210.0
 depth_width = 2.0
 focal = 1250.0

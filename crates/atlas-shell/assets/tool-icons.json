@@ -1,4 +1,6 @@
 {
+  "Fill": { "path": "M5 10 12 3 20 11 12 19 4 11ZM5 11H20M19 16Q15 21 19 21Q23 21 19 16M9 3 14 8", "filled": false },
+  "Corners": { "path": "M5 19V11Q5 5 11 5H19M13 19H19V13", "filled": false },
   "Select": {
     "path": "M5 3 20 13 13 14 10 21Z",
     "filled": true
@@ -12,7 +14,7 @@
     "filled": false
   },
   "Frame": {
-    "path": "M7 3V21M17 3V21M3 7H21M3 17H21",
+    "path": "M4.27 2H16.23L19.73 5.5V22H4.27ZM16.23 2V5.5H19.73",
     "filled": false
   },
   "Rect": {
@@ -253,6 +255,22 @@
   },
   "Video": {
     "path": "M3 5h18v14H3ZM10 9l6 3-6 3Z",
+    "filled": false
+  },
+  "FrameLetter": {
+    "path": "M4.27 2H16.23L19.73 5.5V22H4.27ZM16.23 2V5.5H19.73",
+    "filled": false
+  },
+  "FrameTabloid": {
+    "path": "M5.53 2H14.97L18.47 5.5V22H5.53ZM14.97 2V5.5H18.47",
+    "filled": false
+  },
+  "FrameWide": {
+    "path": "M2 6.38H18.5L22 9.88V17.62H2ZM18.5 6.38V9.88H22",
+    "filled": false
+  },
+  "FrameCustom": {
+    "path": "M2 2H18.5L22 5.5V22H2ZM18.5 2V5.5H22M12 9.5V14.5M9.5 12H14.5",
     "filled": false
   }
 }

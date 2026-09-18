@@ -570,7 +570,7 @@ mod tests {
         assert_eq!(loaded.format_version, SlateDoc::CURRENT);
         assert_eq!(loaded.groups, doc.groups);
         assert_eq!(loaded.items, doc.items);
-        assert_eq!(loaded.view.active_view, crate::view::ViewKind::Venn);
+        assert_eq!(loaded.view.active_view, crate::view::ViewKind::Board);
         assert!((loaded.view.cam_x - 12.5).abs() < f32::EPSILON);
         assert!((loaded.view.zoom - 2.0).abs() < f32::EPSILON);
 
@@ -662,7 +662,7 @@ mod tests {
         }"#;
         fs::write(&path, json).expect("write");
         let doc = SlateDoc::load_from(&path).expect("load");
-        assert_eq!(doc.view.active_view, crate::view::ViewKind::Grid);
+        assert_eq!(doc.view.active_view, crate::view::ViewKind::Board);
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -698,7 +698,7 @@ mod tests {
         doc.save_to(&path).expect("save");
         let loaded = SlateDoc::load_from(&path).expect("load");
         assert_eq!(loaded.lens_root, Some(PathBuf::from("/workspace")));
-        assert_eq!(loaded.view.active_view, crate::view::ViewKind::Lens);
+        assert_eq!(loaded.view.active_view, crate::view::ViewKind::Board);
 
         let _ = fs::remove_dir_all(dir);
     }

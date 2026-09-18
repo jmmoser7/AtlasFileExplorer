@@ -172,6 +172,7 @@ fn main() -> eframe::Result {
         "Cover Flow renderer check",
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default().with_inner_size([1200.0, height]),
+            multisampling: atlas_shell::NATIVE_MSAA_SAMPLES,
             ..Default::default()
         },
         Box::new(move |cc| Ok(Box::new(Preview::new(&cc.egui_ctx, capture)))),

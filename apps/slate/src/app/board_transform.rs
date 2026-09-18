@@ -30,6 +30,14 @@ impl SlateApp {
         if node.locked && !self.board_sel.contains(&node.id) {
             return false;
         }
+        // Unfilled paths are strokes. Their AABB is not transform chrome —
+        // neither on hover nor once selected. Zoom-scaled edge bands would
+        // otherwise fire well outside the box (P1.curve.pick).
+        if let NodeKind::Shape(s) = &node.kind {
+            if super::board_path::shape_uses_stroke_pick(node, s) {
+                return false;
+            }
+        }
         true
     }
 
@@ -134,8 +142,17 @@ impl SlateApp {
             return None;
         }
         let n = self.doc().scene.node(id)?;
-        if !self.node_offers_bbox_transform(n) || !self.settings.hover_highlight(n.kind.kind_name())
-        {
+        if !self.settings.hover_highlight(n.kind.kind_name()) {
+            return None;
+        }
+        // Stroke-pick paths already passed `board_pick_node`. Area objects
+        // still require bbox-transform eligibility so locked / hidden /
+        // connector chrome stays out.
+        let stroke = match &n.kind {
+            NodeKind::Shape(s) => super::board_path::shape_uses_stroke_pick(n, s),
+            _ => false,
+        };
+        if !stroke && !self.node_offers_bbox_transform(n) {
             return None;
         }
         Some(id)
@@ -195,14 +212,20 @@ impl SlateApp {
                 continue;
             }
             let eased = ease_in_out_cubic(*progress);
+            let stroke = egui::Stroke::new(
+                atlas_shell::canvas_scale::px(tokens.hover_line_weight, xf.z),
+                color.gamma_multiply(tokens.hover_opacity * eased),
+            );
+            if let NodeKind::Shape(s) = &n.kind {
+                if super::board_path::shape_uses_stroke_pick(n, s) {
+                    if let Some(path) = s.path.as_ref() {
+                        super::board_path::paint_path_stroke_outline(painter, xf, n, path, stroke);
+                        continue;
+                    }
+                }
+            }
             let outline = self.node_screen_outline(painter.ctx(), xf, n);
-            painter.add(egui::Shape::closed_line(
-                outline,
-                egui::Stroke::new(
-                    atlas_shell::canvas_scale::px(tokens.hover_line_weight, xf.z),
-                    color.gamma_multiply(tokens.hover_opacity * eased),
-                ),
-            ));
+            painter.add(egui::Shape::closed_line(outline, stroke));
         }
     }
 
@@ -251,6 +274,12 @@ impl SlateApp {
                 })
             }
             (Some(id), board_handles::BoardHitTarget::Resize(h)) => {
+                // Shift/Ctrl on an unselected node is add-to-selection, not
+                // a hover-resize steal (P1.node.select). Shift on a selected
+                // node still means free-aspect resize.
+                if (self.shift_down || self.ctrl_down) && !self.board_sel.contains(&id) {
+                    return None;
+                }
                 let n = self.doc().scene.node(id).cloned()?;
                 if !self.board_sel.contains(&id) {
                     self.board_sel.clear();
@@ -265,6 +294,9 @@ impl SlateApp {
             (Some(id), board_handles::BoardHitTarget::Rotate(_)) => {
                 let n = self.doc().scene.node(id).cloned()?;
                 if !Self::node_allows_rotation(&n) {
+                    return None;
+                }
+                if (self.shift_down || self.ctrl_down) && !self.board_sel.contains(&id) {
                     return None;
                 }
                 if !self.board_sel.contains(&id) {
@@ -291,4 +323,20 @@ fn ease_in_out_cubic(t: f32) -> f32 {
     } else {
         1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
     }
+}
+
+/// Numeric sizing uses the same rectangle mapping as group/handle scaling.
+/// `bounds` may be tighter than a path's normalization rectangle. Preserve its
+/// world-space center when rotation makes the two centers differ.
+pub(crate) fn resize_measured_node(
+    node: &mut Node,
+    bounds: slate_doc::scene::WorldRect,
+    sx: f32,
+    sy: f32,
+) {
+    let old_center = node.rect.center();
+    let target = super::board_snap::orbit_point(old_center, bounds.center(), node.rotation_deg);
+    let rect = super::board_snap::remap_group_scale(node.rect, sx, sy, bounds.center());
+    let actual = super::board_snap::orbit_point(rect.center(), bounds.center(), node.rotation_deg);
+    node.rect = rect.translated(target.0 - actual.0, target.1 - actual.1);
 }

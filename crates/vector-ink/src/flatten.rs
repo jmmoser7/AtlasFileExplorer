@@ -15,6 +15,12 @@ pub fn flatten(path: &BezPath, tolerance: f64) -> Vec<[f32; 2]> {
 }
 
 /// Flatten a path, splitting on `MoveTo` so each contour stays separate.
+///
+/// `ClosePath` closes the current contour (appends the start point when the
+/// seam is missing). Kurbo's flattener does not emit that seam as a `LineTo`,
+/// and ignoring it left a hole in stroke hits — or, if a later contour was
+/// concatenated, a ghost segment from the last vertex toward the next
+/// `MoveTo` (often the world origin).
 pub fn flatten_contours(path: &BezPath, tolerance: f64) -> Vec<Vec<[f32; 2]>> {
     if tolerance <= 0.0 || !tolerance.is_finite() {
         return Vec::new();
@@ -23,20 +29,29 @@ pub fn flatten_contours(path: &BezPath, tolerance: f64) -> Vec<Vec<[f32; 2]>> {
     let mut cur = Vec::new();
     kurbo_flatten(path.elements().iter().copied(), tolerance, |el| match el {
         PathEl::MoveTo(p) => {
-            if cur.len() >= 2 {
-                contours.push(std::mem::take(&mut cur));
-            } else {
-                cur.clear();
-            }
+            finish_contour(&mut contours, &mut cur, false);
             push_pt(&mut cur, from_kurbo(p));
         }
         PathEl::LineTo(p) => push_pt(&mut cur, from_kurbo(p)),
+        PathEl::ClosePath => finish_contour(&mut contours, &mut cur, true),
         _ => {}
     });
-    if cur.len() >= 2 {
-        contours.push(cur);
-    }
+    finish_contour(&mut contours, &mut cur, false);
     contours
+}
+
+fn finish_contour(contours: &mut Vec<Vec<[f32; 2]>>, cur: &mut Vec<[f32; 2]>, closed: bool) {
+    if closed && cur.len() >= 2 {
+        let first = cur[0];
+        if dist2(*cur.last().unwrap(), first) >= crate::geom::EPS * crate::geom::EPS {
+            cur.push(first);
+        }
+    }
+    if cur.len() >= 2 {
+        contours.push(std::mem::take(cur));
+    } else {
+        cur.clear();
+    }
 }
 
 fn push_pt(out: &mut Vec<[f32; 2]>, p: [f32; 2]) {
@@ -74,5 +89,44 @@ mod tests {
             let d = (p[0] * p[0] + p[1] * p[1]).sqrt();
             assert!((d - r).abs() <= 0.5 + 0.01, "point {:?} radius {d}", p);
         }
+    }
+
+    #[test]
+    fn closed_triangle_far_from_origin_has_no_phantom_vertex() {
+        let mut path = BezPath::new();
+        path.move_to((400.0, 300.0));
+        path.line_to((480.0, 300.0));
+        path.line_to((400.0, 380.0));
+        path.close_path();
+        let contours = flatten_contours(&path, 0.25);
+        assert_eq!(contours.len(), 1);
+        let pts = &contours[0];
+        assert!(
+            pts.len() >= 4,
+            "ClosePath must emit the closing seam, got {pts:?}"
+        );
+        let first = pts[0];
+        let last = *pts.last().unwrap();
+        assert!((first[0] - last[0]).abs() < 0.01 && (first[1] - last[1]).abs() < 0.01);
+        for p in pts {
+            assert!(
+                p[0] >= 399.0 && p[0] <= 481.0 && p[1] >= 299.0 && p[1] <= 381.0,
+                "flatten invented a point outside the triangle AABB: {p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn two_contours_stay_separate() {
+        let mut path = BezPath::new();
+        path.move_to((400.0, 300.0));
+        path.line_to((480.0, 300.0));
+        path.close_path();
+        path.move_to((0.0, 0.0));
+        path.line_to((10.0, 0.0));
+        let contours = flatten_contours(&path, 0.25);
+        assert_eq!(contours.len(), 2, "ClosePath + MoveTo must not concatenate");
+        assert!(contours[0].iter().all(|p| p[0] >= 399.0));
+        assert!(contours[1].iter().all(|p| p[0] <= 11.0));
     }
 }

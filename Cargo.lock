@@ -497,6 +497,7 @@ dependencies = [
  "serde_json",
  "toml 0.8.23",
  "vector-ink",
+ "windows 0.61.3",
 ]
 
 [[package]]
@@ -4738,9 +4739,7 @@ dependencies = [
  "atlas-session",
  "atlas-shell",
  "atlas-update",
- "circle-pack",
  "clipboard-win",
- "code-lens",
  "crossbeam-channel",
  "eframe",
  "image",

@@ -21,10 +21,13 @@ Hard rules:
    `ui-tokens.toml`, not scattered constants. Follow
    `docs/ui-tuning-workflow.md` when adding tunable UI areas. Read
    `crates/atlas-shell/DOCK.md` and `TOOLBARS.md` before changing floating
- canvas docks / palette interaction, and `crates/atlas-shell/PAINT.md`
- before adding soft AA strokes (partition ribbons, etc.) **or any textured
- mesh whose vertices are projected** — `epaint` interpolates UVs affinely,
- with no perspective correction, so such a mesh must be subdivided.
+   canvas docks / palette interaction. Object-attached property editors and
+   stringers instead follow `crates/atlas-shell/DYNAMIC_PANELS.md` and reuse
+   `selection_tools.rs`. Read `crates/atlas-shell/PAINT.md` before adding
+   soft AA strokes, custom triangle meshes, or native renderer setup. Raw
+   meshes require the shared native coverage-AA policy. Projected textured
+   meshes also need subdivision: `epaint` interpolates UVs affinely, with no
+   perspective correction.
 2. Never hardcode chrome colors or repaint tab/sidebar shapes inside an app
    crate. If a new chrome capability is needed, extend `atlas-shell` so both
    apps inherit it.

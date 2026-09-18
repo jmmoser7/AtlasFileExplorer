@@ -16,7 +16,8 @@ use atlas_shell::sidebar::{
 use atlas_shell::widgets::{thin_sidebar_slider, thin_sidebar_slider_i32};
 use eframe::egui::{self, Color32, Id, RichText};
 use slate_doc::scene::{
-    AgentContextScope, Corner, Dash, FontChoice, Node, NodeKind, PortalKind, Rgba, TextAlign,
+    corner_of, set_corner, set_stroke, stroke_of, AgentContextScope, Corner, Dash, FontChoice,
+    Node, NodeKind, PortalKind, Rgba, TextAlign,
 };
 use slate_doc::{NodeId, ViewKind};
 
@@ -89,10 +90,7 @@ fn body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
 
     match &primary.kind {
         NodeKind::Shape(s) => {
-            let is_line = matches!(
-                s.shape,
-                slate_doc::scene::ShapeKind::Line | slate_doc::scene::ShapeKind::Path
-            );
+            let is_line = !super::super::board_properties::supports_fill(&primary);
             if !is_line {
                 sidebar_collapsible_region(ui, tool_group, Id::new("fill"), "Fill", theme, |ui| {
                     fill_controls(app, ui, theme, &ids, &primary)
@@ -270,38 +268,6 @@ fn opacity_controls(
     });
 }
 
-fn stroke_of(node: &Node) -> Option<slate_doc::scene::Stroke> {
-    match &node.kind {
-        NodeKind::Shape(s) => Some(s.stroke),
-        NodeKind::Image(i) => Some(i.stroke),
-        _ => None,
-    }
-}
-
-fn set_stroke(node: &mut Node, stroke: slate_doc::scene::Stroke) {
-    match &mut node.kind {
-        NodeKind::Shape(s) => s.stroke = stroke,
-        NodeKind::Image(i) => i.stroke = stroke,
-        _ => {}
-    }
-}
-
-fn corner_of(node: &Node) -> Option<Corner> {
-    match &node.kind {
-        NodeKind::Shape(s) => Some(s.corner),
-        NodeKind::Image(i) => Some(i.corner),
-        _ => None,
-    }
-}
-
-fn set_corner(node: &mut Node, corner: Corner) {
-    match &mut node.kind {
-        NodeKind::Shape(s) => s.corner = corner,
-        NodeKind::Image(i) => i.corner = corner,
-        _ => {}
-    }
-}
-
 fn fill_controls(
     app: &mut SlateApp,
     ui: &mut egui::Ui,
@@ -342,6 +308,9 @@ fn fill_controls(
                 });
             }
         }
+        if ui.small_button("Pick desktop color").clicked() {
+            app.start_node_desktop_sample(ids, super::super::board_properties::Panel::Fill);
+        }
     });
 }
 
@@ -378,6 +347,9 @@ fn stroke_controls(
             s.color = to_rgba(col);
             app.patch_nodes(ids, move |n| set_stroke(n, s));
         }
+        if ui.small_button("Pick desktop color").clicked() {
+            app.start_node_desktop_sample(ids, super::super::board_properties::Panel::Stroke);
+        }
         let mut dash = stroke.dash;
         egui::ComboBox::from_id_salt(("stroke_dash", ids[0].0))
             .selected_text(match dash {
@@ -408,63 +380,43 @@ fn corner_controls(
     let Some(corner) = corner_of(primary) else {
         return;
     };
-    let (mode, amount) = match corner {
-        Corner::Square => (0usize, 0.0),
-        Corner::Rounded { radius } => (1, radius),
-        Corner::Chamfer { cut } => (2, cut),
-    };
-    let mut new_mode = mode;
+    let (mut chamfer, mut percent, mut amount) = corner.parameters();
+    let before = (chamfer, percent, amount);
     ui.horizontal(|ui| {
-        for (i, label, hint) in [
-            (0usize, "Square", "Plain corners"),
-            (1, "Round", "border-radius"),
-            (2, "Chamfer", "Cut (jammed) corners"),
-        ] {
-            if ui
-                .selectable_label(new_mode == i, RichText::new(label).small())
-                .on_hover_text(hint)
-                .clicked()
-            {
-                new_mode = i;
-            }
-        }
+        ui.selectable_value(&mut chamfer, false, "Fillet");
+        ui.selectable_value(&mut chamfer, true, "Chamfer");
     });
-    let mut new_amount = amount;
-    if new_mode != 0 {
-        sidebar_slider_block(ui, |ui| {
-            let mut a = amount.round() as usize;
-            if thin_sidebar_slider(
-                ui,
-                &mut a,
-                0..=120,
-                if new_mode == 1 { "Radius" } else { "Cut" },
-                "px",
-                "Corner size in world units",
-                theme.sub,
-            ) {
-                new_amount = a as f32;
-            }
-        });
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut percent, false, "Board units");
+        ui.selectable_value(&mut percent, true, "Percent");
+    });
+    if percent != before.1 {
+        amount = corner
+            .with_mode(percent, primary.rect.w, primary.rect.h)
+            .parameters()
+            .2;
     }
-    if new_mode != mode || new_amount != amount {
-        let c = match new_mode {
-            1 => Corner::Rounded {
-                radius: if new_mode != mode && new_amount == 0.0 {
-                    12.0
-                } else {
-                    new_amount
-                },
-            },
-            2 => Corner::Chamfer {
-                cut: if new_mode != mode && new_amount == 0.0 {
-                    12.0
-                } else {
-                    new_amount
-                },
-            },
-            _ => Corner::Square,
-        };
-        app.patch_nodes(ids, move |n| set_corner(n, c));
+    let max = if percent {
+        100.0
+    } else {
+        primary.rect.w.min(primary.rect.h) * 0.5
+    };
+    ui.add(
+        egui::Slider::new(&mut amount, 0.0..=max)
+            .text(if chamfer { "Cut" } else { "Radius" })
+            .suffix(if percent { "%" } else { " u" }),
+    );
+    let _ = theme;
+    if (chamfer, percent, amount) != before {
+        app.patch_nodes(ids, |n| {
+            let c = corner_of(n).unwrap_or_default();
+            let value = if percent != before.1 {
+                c.with_mode(percent, n.rect.w, n.rect.h).parameters().2
+            } else {
+                amount
+            };
+            set_corner(n, Corner::from_parameters(chamfer, percent, value));
+        });
     }
 }
 
@@ -718,13 +670,13 @@ pub(crate) fn adjust_controls(
         }
     });
     ui.horizontal(|ui| {
-        let mut inv = a.invert;
+        let mut inv = a.invert != 0.0;
         if ui
             .checkbox(&mut inv, RichText::new("Invert").small())
             .on_hover_text("CSS invert(1) — also on Ctrl+I")
             .changed()
         {
-            a.invert = inv;
+            a.invert = if inv { 1.0 } else { 0.0 };
             changed = true;
         }
     });

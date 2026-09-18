@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-08-22",
+  "updated": "2026-09-18",
   "tools": {
     "media": {
       "status": "agreed",
@@ -154,21 +154,21 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box \u00b7 (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T \u2192 Text box, N \u2192 Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7).",
+          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box · (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T → Text box, N → Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7).",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
           "decided": null
         },
         "D02": {
-          "behavior": "Text box: one-shot \u2014 after place+edit-blur (or Esc commit), return to Select. Sticky: stays armed after commit; Tab / Shift+Tab while editing spawns an adjacent sticky and keeps the tool armed. Esc while armed (no edit) disarms to Select.",
+          "behavior": "Text box: one-shot — after place+edit-blur (or Esc commit), return to Select. Sticky: stays armed after commit; Tab / Shift+Tab while editing spawns an adjacent sticky and keeps the tool armed. Esc while armed (no edit) disarms to Select.",
           "source": "research",
           "confidence": 70,
           "verdict": "proposed",
           "decided": null
         },
         "D03": {
-          "behavior": "Armed \u2192 GhostFollow (default-size ghost locked to cursor) \u2192 Press \u2192 (ClickPlace | DragScale) \u2192 Commit \u2192 enter inline edit. Click-release places at default world size. Press-drag-release places and scales. Replaces P2.PlaceOnce for text/sticky (new L2: GhostPlace).",
+          "behavior": "Armed → GhostFollow (default-size ghost locked to cursor) → Press → (ClickPlace | DragScale) → Commit → enter inline edit. Click-release places at default world size. Press-drag-release places and scales. Replaces P2.PlaceOnce for text/sticky (new L2: GhostPlace).",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -182,7 +182,7 @@
           "decided": null
         },
         "D05": {
-          "behavior": "Held Shift during DragScale locks aspect: Sticky \u2192 square; Text box \u2192 lock to default aspect (280\u00d748). No Alt/Ctrl create modifiers in v1.",
+          "behavior": "Held Shift during DragScale locks aspect: Sticky → square; Text box → lock to default aspect (280×48). No Alt/Ctrl create modifiers in v1.",
           "source": "research",
           "confidence": 65,
           "verdict": "proposed",
@@ -210,7 +210,7 @@
           "decided": null
         },
         "D09": {
-          "behavior": "While Armed: ghosted Text box or sticky preview locked to the cursor at the default world size (text: 280\u00d748 + sample Text; sticky: STICKY_SIZE + yellow fill), alpha from place.ghost_alpha. During DragScale: live sized ghost. Paint always uses world metrics \u00d7 camera zoom (font = size\u00d7z, wrap = rect.w\u00d7z) with no screen-constant / auto-fit path and no relative-scale floor.",
+          "behavior": "While Armed: ghosted Text box or sticky preview locked to the cursor at the default world size (text: 280×48 + sample Text; sticky: STICKY_SIZE + yellow fill), alpha from place.ghost_alpha. During DragScale: live sized ghost. Paint always uses world metrics × camera zoom (font = size×z, wrap = rect.w×z) with no screen-constant / auto-fit path and no relative-scale floor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -224,14 +224,14 @@
           "decided": null
         },
         "D11": {
-          "behavior": "Text box \u2192 TextNode (fill=None, default text Text, size 24 world). Sticky \u2192 TextNode with STICKY_FILL + STICKY_INK, empty text, size 24 world. Journal cmds board.tool.text / board.tool.sticky; one gesture = one undo. Immediately open inline edit. Creation DragScale sets rect from drag and scales font by mean scale vs default rect. Subsequent bbox resize of an existing node changes the frame only \u2014 authored font size stays put and text reflows.",
+          "behavior": "Text box → TextNode (fill=None, default text Text, size 24 world). Sticky → TextNode with STICKY_FILL + STICKY_INK, empty text, size 24 world. Journal cmds board.tool.text / board.tool.sticky; one gesture = one undo. Immediately open inline edit. Creation DragScale sets rect from drag and scales font by mean scale vs default rect. Subsequent bbox resize of an existing node changes the frame only — authored font size stays put and text reflows.",
           "source": "stated",
           "confidence": 90,
           "verdict": "proposed",
           "decided": null
         },
         "D12": {
-          "behavior": "Esc while GhostFollow / mid-DragScale \u2192 disarm to Select, no node (P0.1). Esc while inline-editing \u2192 commit text + peel edit (sticky stays armed per D02; text returns to Select).",
+          "behavior": "Esc while GhostFollow / mid-DragScale → disarm to Select, no node (P0.1). Esc while inline-editing → commit text + peel edit (sticky stays armed per D02; text returns to Select).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "proposed",
@@ -309,11 +309,11 @@
           "decided": "2026-07-23"
         },
         "D04": {
-          "behavior": "Cursor travel > draft.drag_threshold (4 px) before release = drag grammar; otherwise click grammar.",
-          "source": "research",
-          "confidence": 75,
+          "behavior": "First point: raw press-to-release screen travel above draft.drag_threshold (4 px) selects drag grammar. Second-point mode: commit the resolved primary press position exactly once; later motion/release cannot relocate it. See line-refinement.md.",
+          "source": "precedent",
+          "confidence": 90,
           "verdict": "approved",
-          "decided": "2026-07-23"
+          "decided": "2026-09-17"
         },
         "D05": {
           "behavior": "Held Shift inverts the F8 ortho state for the pending segment, 45-degree steps (P2.RhinoDraft.ortho).",
@@ -337,11 +337,11 @@
           "decided": "2026-07-23"
         },
         "D08": {
-          "behavior": "After the first point, typed digits set length; Enter or the committing click places the end point at that distance along the current cursor direction. Backspace edits (P2.RhinoDraft.numeric).",
-          "source": "stated",
-          "confidence": 100,
+          "behavior": "Actual endpoint length L uses an external editable stringer, scales about the midpoint, and preserves direction. Existing numeric entry during drafting remains available.",
+          "source": "precedent",
+          "confidence": 90,
           "verdict": "approved",
-          "decided": "2026-07-23"
+          "decided": "2026-09-17"
         },
         "D09": {
           "behavior": "Rubber band from first point (constraint-resolved); dock readout shows live length + angle; numeric entry echoes next to the readout.",
@@ -393,7 +393,7 @@
           "decided": "2026-07-23"
         },
         "D16": {
-          "behavior": "Yes \u2014 last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Yes — last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -419,7 +419,7 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Document Settings \u2192 Object snaps fold (tools-dock grid icon) + command palette. Master board.osnap; per-kind board.osnap.*; Snap to grid is board.snap_grid (F9) inside the same fold.",
+          "behavior": "Document Settings → Object snaps fold (tools-dock grid icon) + command palette. Master board.osnap; per-kind board.osnap.*; Snap to grid is board.snap_grid (F9) inside the same fold.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -440,7 +440,7 @@
           "decided": "2026-08-15"
         },
         "D04": {
-          "behavior": "n/a \u2014 no click/drag grammar of its own.",
+          "behavior": "n/a — no click/drag grammar of its own.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -482,21 +482,21 @@
           "decided": "2026-08-15"
         },
         "D10": {
-          "behavior": "n/a \u2014 does not change the tool cursor. The marker is the feedback.",
+          "behavior": "n/a — does not change the tool cursor. The marker is the feedback.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D11": {
-          "behavior": "n/a \u2014 snaps resolve a point; they do not create or patch nodes. Not journaled.",
+          "behavior": "n/a — snaps resolve a point; they do not create or patch nodes. Not journaled.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D12": {
-          "behavior": "n/a \u2014 Esc does not clear snap kinds. Alt is the suspend.",
+          "behavior": "n/a — Esc does not clear snap kinds. Alt is the suspend.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -510,7 +510,7 @@
           "decided": "2026-08-15"
         },
         "D14": {
-          "behavior": "Line grips, path clicks, GhostFollow hover, both DragScale corners (live rect edges via `resolve_draw_rect`), free wire ends, bbox moves, and corner-scale handles use the same ObjectSnapSet. Create-tool corners and the armed pointer emit smart-guide forcefield pulses when they align to a nearby object. Preview and commit consume the resolved point \u2014 never the raw cursor while a snap is live.",
+          "behavior": "Line grips, path clicks, GhostFollow hover, both DragScale corners (live rect edges via `resolve_draw_rect`), free wire ends, bbox moves, and corner-scale handles use the same ObjectSnapSet. Create-tool corners and the armed pointer emit smart-guide forcefield pulses when they align to a nearby object. Preview and commit consume the resolved point — never the raw cursor while a snap is live.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -531,7 +531,7 @@
           "decided": "2026-08-15"
         },
         "D17": {
-          "behavior": "n/a \u2014 snap picking is not selection hit-testing.",
+          "behavior": "n/a — snap picking is not selection hit-testing.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -637,7 +637,7 @@
           "decided": "2026-08-01"
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) \u2014 no prior selection. Contents expose no grips and are not selectable. Resize re-lays-out rather than scaling. Portals stay axis-aligned: no rotate chrome.",
+          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Contents expose no grips and are not selectable. Resize re-lays-out rather than scaling. Portals stay axis-aligned: no rotate chrome.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1102,7 +1102,7 @@
           "decided": "2026-08-07"
         },
         "D06": {
-          "behavior": "No grid, ortho, or object snap applies to filesystem placement. The target is the deepest folder whose bounds contain the cursor, so a folder's whole rectangle accepts a drop \u2014 including over the files it already holds.",
+          "behavior": "No grid, ortho, or object snap applies to filesystem placement. The target is the deepest folder whose bounds contain the cursor, so a folder's whole rectangle accepts a drop — including over the files it already holds.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1137,7 +1137,7 @@
           "decided": "2026-08-07"
         },
         "D11": {
-          "behavior": "Release on valid folder dispatches a background FsOp. A copy is first accounted for cloud placeholders on a worker thread \u2014 files and whole folder subtrees, directory entries only \u2014 and confirms before downloading anything. Completed changes are journaled as FsRename, FsMove, FsCopy, or FsDelete and applied to the current index/tree.",
+          "behavior": "Release on valid folder dispatches a background FsOp. A copy is first accounted for cloud placeholders on a worker thread — files and whole folder subtrees, directory entries only — and confirms before downloading anything. Completed changes are journaled as FsRename, FsMove, FsCopy, or FsDelete and applied to the current index/tree.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1165,7 +1165,7 @@
           "decided": "2026-08-07"
         },
         "D15": {
-          "behavior": "No cut/paste file operations, no agent-initiated writes, and no Delete command outside Edit mode. Delete acts on the selection, or on the item under the cursor when nothing is selected \u2014 the only way to delete a folder from the keyboard, since folders are never part of a selection.",
+          "behavior": "No cut/paste file operations, no agent-initiated writes, and no Delete command outside Edit mode. Delete acts on the selection, or on the item under the cursor when nothing is selected — the only way to delete a folder from the keyboard, since folders are never part of a selection.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1284,7 +1284,7 @@
           "decided": "2026-08-15"
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) \u2014 no prior selection. Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Portals stay axis-aligned: no rotate chrome, including in a mixed group rotate.",
+          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Portals stay axis-aligned: no rotate chrome, including in a mixed group rotate.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
@@ -1354,9 +1354,9 @@
           "decided": "2026-08-16"
         },
         "D23": {
-          "behavior": "New portals below 160 physical pixels high use their poster; on-screen portals at or above 160 are eligible for the bounded live pool. Input focus overrides the initial size gate. Once admitted, a portal keeps its browser session while visible, even when zoomed smaller; off-screen or capacity eviction still releases it. Below 96 pixels, fresh readback pauses and the last poster remains. Camera zoom scales the existing texture, never browser bounds. Captures use the CSS viewport, proportionally capped at a 1920-pixel longest edge and 2,073,600 pixels, preserving aspect ratio. Maximize may change viewport aspect without replacing the browser. Once a valid frame exists, low-resource/off-screen states, host recreation, viewport changes, and explicit recapture retain it at full authored opacity until a new valid frame arrives. Fully transparent or uniform black/white compositor clears cannot replace it. A different source clears the old poster; a genuinely missing source may dim it.",
-          "source": "pattern",
-          "confidence": 75,
+          "behavior": "New portals below 160 physical pixels high use their poster; on-screen portals at or above 160 are eligible for the bounded live pool. Input focus overrides the initial size gate. Once admitted, a portal keeps its browser session while visible, even when zoomed smaller; off-screen or capacity eviction still releases it. Below 96 pixels, fresh readback pauses and the last poster remains. Captures use physical displayed pixels, including monitor DPI, with upward power-of-two quality tiers and a monitor-sized ceiling. Maximized and interaction-focused portals retain full displayed resolution; an already-sharp tier is retained while zooming out until eviction. CSS layout stays fixed through quality changes; only the raster scale changes. Safety limits are 8192 pixels per edge and 33,177,600 pixels (8K display support). The previous valid frame remains while a new tier becomes ready. Maximize may change viewport aspect without replacing the browser. Once a valid frame exists, low-resource/off-screen states, host recreation, viewport changes, and explicit recapture retain it at full authored opacity until a new valid frame arrives. Fully transparent or uniform black/white compositor clears cannot replace it. A different source clears the old poster; a genuinely missing source may dim it.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-15"
         },
@@ -1424,7 +1424,7 @@
           "decided": "2026-08-16"
         },
         "D33": {
-          "behavior": "**P1.portal.chrome.** A slim, inset Slate identity blister shows the locator with smaller centered type. The top bar overlays the full-bleed page; it never reserves browser viewport space. It retracts after 1.2 seconds without pointer, wheel, or keyboard activity and hides when the pointer leaves. Page interaction or hovering the top bar area reveals it again. Idle portals paint no tab, reveal hint, or maximize glyph. Revealing/folding chrome does not resize, reload, or move the page. Maximize remains at the far right when revealed; Escape restores a maximized portal even with hidden chrome. Explicit Hide/Show tab remains available from the portal context menu and portal.chrome.toggle; a manually folded tab uses its top-interior reveal strip.",
+          "behavior": "**P1.portal.chrome.** One plain full-width bar shows the page name or URL centered on the whole bar; web viewers have no blister or live-dot tab. The bar overlays the full-bleed page and retracts after 1.2 seconds without activity or when the pointer leaves. Page interaction or hovering its top edge reveals it. Native page scrollbars share that visibility and a proportional thickness; transparent idle thumbs preserve their gutter so hiding never reflows the page or disables wheel scrolling. Maximized bars use the Slate index top-bar height and typography, and scrollbars use the same scale. Canvas bars retain node-local scaling. Maximize remains at the far right; Escape restores even while controls are hidden. Explicit Hide/Show tab remains available; manually folded chrome uses the existing top-interior reveal strip.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1544,7 +1544,7 @@
           "decided": "2026-08-16"
         },
         "D13": {
-          "behavior": "P1.portal.pick / P1.node.transform. Windows-style hover resize \u2014 no prior selection. Contents expose no grips. Resize re-lays-out (LOD keys on frame height). Portals stay axis-aligned: no rotate chrome.",
+          "behavior": "P1.portal.pick / P1.node.transform. Windows-style hover resize — no prior selection. Contents expose no grips. Resize re-lays-out (LOD keys on frame height). Portals stay axis-aligned: no rotate chrome.",
           "source": "pattern",
           "confidence": 90,
           "verdict": "approved",
@@ -1593,7 +1593,7 @@
           "decided": "2026-08-16"
         },
         "D20": {
-          "behavior": "StatusPortalQuery { show_overview, show_phases, show_waves, show_deviations, show_next } \u2014 all true by default. Each flag is a journaled section shutter, not a live filter over a changing corpus.",
+          "behavior": "StatusPortalQuery { show_overview, show_phases, show_waves, show_deviations, show_next } — all true by default. Each flag is a journaled section shutter, not a live filter over a changing corpus.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1720,7 +1720,7 @@
       "canvas": "tool-arming-preview-contract",
       "decisions": {
         "D01": {
-          "behavior": "Menu, palette (typed name + aliases), dock icon, and hotkey all dispatch the same CommandId (P0.7). The instant the tool is armed \u2014 before any click \u2014 GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live.",
+          "behavior": "Menu, palette (typed name + aliases), flyout / nested dock icon, and hotkey all dispatch the same CommandId (P0.7). A family primary (Frame, Shapes, Portals, Text, Media, Actions) opens the flyout only. The instant the tool is armed — before any click — GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1734,7 +1734,7 @@
           "decided": "2026-08-15"
         },
         "D03": {
-          "behavior": "Armed \u2192 GhostFollow (small cursor-locked silhouette) \u2192 Press \u2192 (ClickPlace | DragScale) \u2192 Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not drag_started / drag_stopped). Shared board_place::place_rect computes the DragScale rect for both the live rubber-band and the journaled commit.",
+          "behavior": "Armed → GhostFollow (small cursor-locked silhouette) → Press → (ClickPlace | DragScale) → Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not drag_started / drag_stopped). Shared board_place::place_rect computes the DragScale rect for both the live rubber-band and the journaled commit.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1755,7 +1755,7 @@
           "decided": "2026-08-15"
         },
         "D06": {
-          "behavior": "GhostFollow glyph stays screen-space (P0.9) but sits on the snapped world point: osnap + smart-guide forcefield, same `resolve_point_snap` as every other live board point. DragScale snaps both corners \u2014 press resolves the start; every frame and commit snap the live rect's moving edges (`resolve_draw_rect`, same forcefield as a resize). F8 ortho does not apply to area placement. Alt suspends. Shift is aspect only, never ortho.",
+          "behavior": "GhostFollow glyph stays screen-space (P0.9) but sits on the snapped world point: osnap + smart-guide forcefield, same `resolve_point_snap` as every other live board point. DragScale snaps both corners — press resolves the start; every frame and commit snap the live rect's moving edges (`resolve_draw_rect`, same forcefield as a resize). F8 ortho does not apply to area placement. Alt suspends. Shift is aspect only, never ortho.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1804,14 +1804,14 @@
           "decided": "2026-08-15"
         },
         "D13": {
-          "behavior": "n/a \u2014 this contract does not change post-commit handles (P1.node bbox / P1.curve.grips).",
+          "behavior": "n/a — this contract does not change post-commit handles (P1.node bbox / P1.curve.grips).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D14": {
-          "behavior": "n/a \u2014 existing bbox / inspector / portal bind paths unchanged.",
+          "behavior": "n/a — existing bbox / inspector / portal bind paths unchanged.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1825,14 +1825,14 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "Unchanged. Shapes still consume BoardLastStyle; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style \u2014 the silhouette is chrome.",
+          "behavior": "Unchanged. Shapes still consume BoardLastStyle; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D17": {
-          "behavior": "n/a \u2014 the ghost is not hittable. Existing node pick unchanged.",
+          "behavior": "n/a — the ghost is not hittable. Existing node pick unchanged.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1859,14 +1859,14 @@
           "decided": "2026-08-15"
         },
         "D02": {
-          "behavior": "Persistent while the selection qualifies. Repeat-last is Never \u2014 a second fire is idempotent.",
+          "behavior": "Persistent while the selection qualifies. Repeat-last is Never — a second fire is idempotent.",
           "source": "research",
           "confidence": 80,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D03": {
-          "behavior": "Idle \u2192 HoverIcon \u2192 Press \u2192 Commit. No drag grammar. Icons only on the bottom and left sides \u2014 top and right duplicate the same actions and are not drawn.",
+          "behavior": "Idle → HoverIcon → Press → Commit. No drag grammar. Icons only on the bottom and left sides — top and right duplicate the same actions and are not drawn.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1887,7 +1887,7 @@
           "decided": "2026-08-15"
         },
         "D06": {
-          "behavior": "n/a \u2014 the action writes rect.x / rect.y against the selection union. Grid / ortho / object snaps are not consulted.",
+          "behavior": "n/a — the action writes rect.x / rect.y against the selection union. Grid / ortho / object snaps are not consulted.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1908,11 +1908,11 @@
           "decided": "2026-08-15"
         },
         "D09": {
-          "behavior": "No second frame \u2014 the existing group-box outline is the selection indicator. Icons sit align.frame_outset (20 px) outside that box. Hover: icon invert + action name outside the cluster. No ghost outlines, no axis guide (they flicker). No numeric readout.",
+          "behavior": "No second frame — each selected shape keeps its own silhouette. Icons sit align.frame_outset (20 px) outside the union box on the left; the bottom cluster also clears the width stringer (STRINGER_GAP × zoom). Hover: icon invert + action name outside the cluster. No ghost outlines, no axis guide (they flicker). No numeric readout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-09-17"
         },
         "D10": {
           "behavior": "PointingHand over an enabled icon. Transform resize/rotate cursors yield.",
@@ -1936,11 +1936,11 @@
           "decided": "2026-08-15"
         },
         "D13": {
-          "behavior": "Selection chrome is a silhouette outline (no corner or midspan squares) that follows painted geometry. The group box is that outline around the union. Resize and rotate remain hover-hit on the box. Two clusters only: bottom = left / center-h / right / distribute-h; left = top / center-v / bottom / distribute-v. Icons sit outside the box so they miss the edge-handle hit.",
+          "behavior": "Selection chrome is a per-shape silhouette (no corner or midspan squares, no painted union box). Resize and rotate remain hover-hit on the union box. Two clusters only: bottom = left / center-h / right / distribute-h; left = top / center-v / bottom / distribute-v. Icons sit outside the box (and past the width stringer on the bottom) so they miss the edge-handle hit.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-09-17"
         },
         "D14": {
           "behavior": "Re-select 2+ and the widget returns. No dedicated re-edit grips.",
@@ -1957,7 +1957,7 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "n/a \u2014 does not create nodes.",
+          "behavior": "n/a — does not create nodes.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1998,7 +1998,7 @@
           "decided": "2026-08-16"
         },
         "D03": {
-          "behavior": "Armed \u2192 PickCutters \u2192 Enter \u2192 TrimParts \u2192 click*. Preselect skips to TrimParts with mutual cutters.",
+          "behavior": "Armed → PickCutters → Enter → TrimParts → click*. Preselect skips to TrimParts with mutual cutters.",
           "source": "research",
           "confidence": 80,
           "verdict": "approved",
@@ -2033,18 +2033,18 @@
           "decided": "2026-08-16"
         },
         "D08": {
-          "behavior": "n/a \u2014 no typed options in v1.",
+          "behavior": "n/a — no typed options in v1.",
           "source": "guess",
           "confidence": 60,
           "verdict": "approved",
           "decided": "2026-08-16"
         },
         "D09": {
-          "behavior": "Cutter outlines + dying-region preview at trim.preview_alpha.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Cutters outlined in accent along their actual geometry, including corner treatment and rotation. Hovered dying span/face fills at `trim.preview_alpha`. Extend hover = ring on the end. No dock readout.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-09-17"
         },
         "D10": {
           "behavior": "Crosshair while armed.",
@@ -2054,14 +2054,14 @@
           "decided": "2026-08-16"
         },
         "D11": {
-          "behavior": "Each click one journal group. Open spans rewrite; closed shapes become Path (even-odd holes); text/image set Node.clip. Line cutters infinite.",
+          "behavior": "Each click is one journal group (P0.2/P0.3). Cutters and targets use their true geometric boundaries, including fillets, chamfers, percentage corners, ellipses and rotation. Curve sampling uses a fixed board-space tolerance, independent of zoom. Open path: remaining spans (0 = delete, 1 = patch, 2+ = patch + adds). Closed shape: rewrite to Path (holes = extra contours, even-odd); world-space results bake rotation once. Text/image: `Node.clip` = remaining region in host-local coordinates. Line cutters extend infinitely (`ExtendCuttingLines` on).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-09-17"
         },
         "D12": {
-          "behavior": "Esc TrimParts\u2192PickCutters\u2192Select. Committed clicks stay.",
+          "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2089,11 +2089,11 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a \u2014 does not consume fg/bg. Split-off spans copy source style.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Preserve the source fill and complete stroke style on every remaining piece. Uniform strokes retain their width along existing edges, new cut boundaries and holes.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-16"
+          "decided": "2026-09-17"
         },
         "D17": {
           "behavior": "Open: closest span within trim.span_slop. Closed/text/image: point-in-polygon. Prefer the topmost filled target whose remaining region is non-empty so a filled cutter over a hole does not swallow the punch. Frames/portals never targets.",
@@ -2130,14 +2130,14 @@
           "decided": "2026-08-16"
         },
         "D03": {
-          "behavior": "No live gesture. Preselect \u2192 Join. A-tool both-endpoints case merges/closes that path.",
+          "behavior": "No live gesture. Preselect → Join. A-tool both-endpoints case merges/closes that path.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-16"
         },
         "D04": {
-          "behavior": "n/a \u2014 not a pointer tool.",
+          "behavior": "n/a — not a pointer tool.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2179,7 +2179,7 @@
           "decided": "2026-08-16"
         },
         "D10": {
-          "behavior": "Unchanged \u2014 command, not an armed tool.",
+          "behavior": "Unchanged — command, not an armed tool.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
@@ -2221,7 +2221,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a \u2014 copies first operand style, does not consume fg/bg.",
+          "behavior": "n/a — copies first operand style, does not consume fg/bg.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2326,7 +2326,7 @@
           "decided": "2026-08-16"
         },
         "D12": {
-          "behavior": "Esc TrimParts\u2192PickCutters\u2192Select. Committed clicks stay.",
+          "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",
           "source": "precedent",
           "confidence": 90,
           "verdict": "approved",
@@ -2354,7 +2354,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a \u2014 pieces copy source stroke/fill.",
+          "behavior": "n/a — pieces copy source stroke/fill.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2425,7 +2425,7 @@
           "decided": "2026-08-21"
         },
         "D07": {
-          "behavior": "n/a \u2014 no directional parameter in a rect placement.",
+          "behavior": "n/a — no directional parameter in a rect placement.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2657,7 +2657,7 @@
           "decided": null
         },
         "D03": {
-          "behavior": "P1.portal.place: Armed -> Dragging(rect) -> Committed(unbound). Release paints Choose save journal\u2026. Binding is a separate non-modal step. A folder-drop that picks this lens skips to Committed(bound).",
+          "behavior": "P1.portal.place: Armed -> Dragging(rect) -> Committed(unbound). Release paints Choose save journal…. Binding is a separate non-modal step. A folder-drop that picks this lens skips to Committed(bound).",
           "source": "pattern",
           "confidence": 90,
           "verdict": "proposed",
@@ -2685,7 +2685,7 @@
           "decided": null
         },
         "D07": {
-          "behavior": "n/a \u2014 no directional parameter in a rect placement.",
+          "behavior": "n/a — no directional parameter in a rect placement.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "proposed",
@@ -2769,7 +2769,7 @@
           "decided": null
         },
         "D19": {
-          "behavior": "One SourceUri LocalFs naming a save journal file (saves.db or .jsonl) or a folder containing exactly one, relative-first. Empty state: Choose save journal\u2026. Bound by portal.activity.source or folder-drop when a journal is present. Refused: 127.0.0.1:8787, hosted APIs, accounts, watch $HOME, File Atlas window, a directory of watch roots.",
+          "behavior": "One SourceUri LocalFs naming a save journal file (saves.db or .jsonl) or a folder containing exactly one, relative-first. Empty state: Choose save journal…. Bound by portal.activity.source or folder-drop when a journal is present. Refused: 127.0.0.1:8787, hosted APIs, accounts, watch $HOME, File Atlas window, a directory of watch roots.",
           "source": "guess",
           "confidence": 55,
           "verdict": "proposed",
@@ -2825,7 +2825,7 @@
           "decided": null
         },
         "D27": {
-          "behavior": "board.portal.save_activity and portal.activity.* are registry SPECs. Agent frame/source/query mutations stage for acceptance. An agent may never insert, edit, or delete save events. Beacon: locator, window, family set, project set, one focused path \u2014 never every path. Overlay deferred.",
+          "behavior": "board.portal.save_activity and portal.activity.* are registry SPECs. Agent frame/source/query mutations stage for acceptance. An agent may never insert, edit, or delete save events. Beacon: locator, window, family set, project set, one focused path — never every path. Overlay deferred.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -2846,7 +2846,7 @@
           "decided": null
         },
         "D30": {
-          "behavior": "Unbound Choose save journal\u2026; Unknown names locator; Analyzing last-good + progress; Ready; Missing names locator; NotAJournal says why; Unreadable no partial graph as complete; Truncated visible N older not shown. URL/webview refused.",
+          "behavior": "Unbound Choose save journal…; Unknown names locator; Analyzing last-good + progress; Ready; Missing names locator; NotAJournal says why; Unreadable no partial graph as complete; Truncated visible N older not shown. URL/webview refused.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "proposed",
@@ -2884,6 +2884,1308 @@
           "behavior": "P1.portal.local-ui. Bind, window, family/project shutters, path_prefix, max_events, as_of, refresh, and the ActivityTimeline controller live on this portal inspector. They do not appear on Document Settings.",
           "source": "pattern",
           "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        }
+      }
+    },
+    "shape-selection-toolbar": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Implementation authorized by user 2026-09-17; rectangle palette and circle/diamond endpoints confirmed.",
+      "inherits": [
+        "P0.*, P1.node, P1.shape, P1.curve"
+      ],
+      "canvas": "shapes-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Selecting one or more board objects that expose fill, stroke, corners, wire, or photo-filter controls opens a hovering toolbar directly above the selection. Frame-only actions join the same strip.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-18"
+        },
+        "D02": {
+          "behavior": "Keep the strip visible while selection is idle and throughout camera pan/zoom. Hide during shape manipulation or drawing; return on release. Clicking a control preserves selection. Icons expand on selection. A single click on empty canvas commits any preview, fully collapses the strip, and deselects.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-18"
+        },
+        "D03": {
+          "behavior": "Select -> inspect -> open property popover -> preview -> commit/cancel. Pointer capture belongs to the popover while editing.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D04": {
+          "behavior": "Toolbar pointer events never place vertices, move shapes, or start a marquee. Scrubbing a field is one continuous adjustment.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D05": {
+          "behavior": "P1.node.select: Shift-click and Ctrl-click add or toggle members, including wires. Shift/Ctrl marquee adds crossing hits. Modifiers typed in a property field cannot trigger drawing commands.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D06": {
+          "behavior": "The strip, upward editor, stringers, text and hit regions share the host camera transform. No screen-position cache, viewport relocation or size clamp. Width goes below and height beside the local rectangle axes. See shape-property-editing.md.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D07": {
+          "behavior": "Common applicable controls for mixed shapes and wires. Shapes-only groups use world-XY union dimensions and uniform centroid scaling. Selections containing anchored wires expose stroke controls without box-dimension resizing.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D08": {
+          "behavior": "Edit numeric values directly where displayed, without separate windows. Rectangle stringers follow local axes and scale about the centroid; lines measure actual length; paths use tight bounds. If a label does not fit between the stringer ticks, keep the baseline and extend the editable label beyond its end. RGB percentages use restrained underlined values.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D09": {
+          "behavior": "P1.shape.properties: live property preview; opening an adjustment icon fades selection decoration out, keeps it hidden across editor switches, and restores it on close/cancel. Selection and property controls/stringers remain intact. Buffer metrics appear beside the active cursor only while adjusting and vanish on release. Recent-color dots are document-local, deduplicated and most-recent-first.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-18"
+        },
+        "D10": {
+          "behavior": "Tooltips name each property; numeric fields own typing and Enter commits a dimension. Other controls retain normal egui keyboard focus behavior.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D11": {
+          "behavior": "P1.shape.properties: palette changes preview until icon change or outside click commits one journal group for the selection. A press on empty canvas also clears the selection. No-op edits add no undo history. Recent colors record successful RGB commits only.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-18"
+        },
+        "D12": {
+          "behavior": "P1.shape.properties: Esc discards the pending palette transaction; tool/tab/selection changes discard stale previews. Enter or an outside click applies a valid inline dimension; invalid input stays editable.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D13": {
+          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel; Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule reuses that height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose colored filter radios plus an intensity slider. Frame-only actions reuse the same strip. Shared light/dark theme tokens apply throughout.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-18"
+        },
+        "D14": {
+          "behavior": "Every eyedropper in the project must sample anywhere on the desktop, including outside Slate. The existing standalone and temporary Brush paths and new property editors share the desktop-color-sampling.md requirement.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D15": {
+          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D16": {
+          "behavior": "Preserve existing creation-style behavior. Property commands do not replace tool defaults from a mixed selection.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D17": {
+          "behavior": "Locked/read-only selections remain inspectable with editing disabled. Never silently edit only an unlocked subset. Wires pick on their routed stroke; marquee selects a wire when its actual route crosses the box, without requiring its entire bounding box to fit.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        }
+      }
+    },
+    "rectangle": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Implementation authorized by user 2026-09-17; rectangle palette and circle/diamond endpoints confirmed.",
+      "inherits": [
+        "P0.*, P1.node, P1.shape, P2.DragShape, P2.GhostFollow"
+      ],
+      "canvas": "shapes-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Use the existing tool command through P0.7; no new shortcut in this proposal.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D02": {
+          "behavior": "One-shot creation; return to Select. Repeat follows P0.4.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D03": {
+          "behavior": "P2.DragShape: click places the kit's default rectangle; press-drag-release sizes it.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D04": {
+          "behavior": "P2.DragShape: use raw press-to-release travel in screen pixels, independent of snap displacement.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D05": {
+          "behavior": "P1.shape.aspect for creation; P1.node.transform for later resize.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D06": {
+          "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D07": {
+          "behavior": "Percentage corner intent persists through resize; absolute values retain the authored distance and clamp only their effective value. Mode conversion is per host and preserves the visible amount.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D08": {
+          "behavior": "Local width and height stringers aligned with the rectangle axes; clicking a value edits its dimension about the centroid. No dimensions in the toolbar.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D09": {
+          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D10": {
+          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D11": {
+          "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D12": {
+          "behavior": "P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D13": {
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D14": {
+          "behavior": "Fill, Stroke, Corners: three circular icons matching the primary toolbar. Fill opens opacity then RGB/eyedropper upward; Corners opens Fillet/Chamfer and Board units/Percent. Confirmed percent amount = p/100 × min(W,H)/2; 100% makes a square a circle/diamond. See shape-property-editing.md.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D15": {
+          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D16": {
+          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D17": {
+          "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        }
+      }
+    },
+    "ellipse": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Implementation authorized by user 2026-09-17; rectangle palette and circle/diamond endpoints confirmed.",
+      "inherits": [
+        "P0.*, P1.node, P1.shape, P2.DragShape, P2.GhostFollow"
+      ],
+      "canvas": "shapes-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Use the existing tool command through P0.7; no new shortcut in this proposal.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D02": {
+          "behavior": "One-shot creation; return to Select. Repeat follows P0.4.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D03": {
+          "behavior": "P2.DragShape: click default ellipse/circle; drag sizes freely; Shift constrains a circle.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D04": {
+          "behavior": "P2.DragShape; snap movement never changes click-vs-drag classification.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D05": {
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D06": {
+          "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D07": {
+          "behavior": "No new lock binding. Preserve existing locks; numeric property editing is separate from drawing.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D08": {
+          "behavior": "one diameter stringer for a circle; two local-axis diameters for an ellipse. Edits stay centered; a circle stays circular. Alternative: radius/radii labels instead of diameter. No size fields in the toolbar.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D09": {
+          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D10": {
+          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D11": {
+          "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D12": {
+          "behavior": "P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D13": {
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D14": {
+          "behavior": "Circular Fill and Stroke buttons; no corner button. Color editors open outward and use the shared desktop eyedropper. Dimension alternatives are in shape-property-editing.md.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D15": {
+          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D16": {
+          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D17": {
+          "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        }
+      }
+    },
+    "line-refinement": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Implementation authorized by user 2026-09-17; rectangle palette and circle/diamond endpoints confirmed.",
+      "inherits": [
+        "line.md (shipped baseline), P0.*, P1.node, P1.curve, P2.RhinoDraft"
+      ],
+      "canvas": "shapes-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Use the existing tool command through P0.7; no new shortcut in this proposal.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D02": {
+          "behavior": "One-shot creation; return to Select. Repeat follows P0.4.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D03": {
+          "behavior": "Every intentional endpoint pick must be recorded even while the pointer is moving.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D04": {
+          "behavior": "Use ordered pointer events. First-press drag classification uses raw press-to-release travel at the shipped four-screen-pixel threshold. In second-point mode, commit the resolved press position once; later motion/release cannot relocate the endpoint.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D05": {
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D06": {
+          "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D07": {
+          "behavior": "Inherit shipped line.md D07: Tab direction lock.",
+          "source": "precedent",
+          "confidence": 95,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D08": {
+          "behavior": "One actual endpoint-to-endpoint length L stringer. Editing scales uniformly about the midpoint, preserving direction.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D09": {
+          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D10": {
+          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D11": {
+          "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D12": {
+          "behavior": "P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D13": {
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D14": {
+          "behavior": "Circular Stroke button, with RGB/alpha/width and caps/dash/taper in its outward editor. Desktop eyedropper uses the shared sampler. Numeric length belongs on the stringer; no fill or rectangle corner button.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D15": {
+          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D16": {
+          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D17": {
+          "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        }
+      }
+    },
+    "polyline": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Implementation authorized by user 2026-09-17; rectangle palette and circle/diamond endpoints confirmed.",
+      "inherits": [
+        "P0.*, P1.node, P1.curve, P1.curve.pick; selected shared clauses of P2.RhinoDraft"
+      ],
+      "canvas": "shapes-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Arm through board.tool.polyline or the Shapes flyout; no new default shortcut.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D02": {
+          "behavior": "One-shot creation; return to Select. Repeat follows P0.4.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D03": {
+          "behavior": "Moving clicks must place vertices, and a live polyline must be able to snap to its own previously drawn geometry before it is committed.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D04": {
+          "behavior": "Each primary press places exactly one resolved vertex at that event's position. Movement before release never cancels it; release adds nothing. Enter finishes open. Double-click finishes with the final vertex once, with no coincident duplicate.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D05": {
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D06": {
+          "behavior": "The shared object-snap resolver includes draft endpoints and completed segments for enabled End, Mid, Near and Perpendicular snaps. The rubber-band is excluded; existing scene intersections remain available.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D07": {
+          "behavior": "Deviates P2.RhinoDraft.tab: no new Tab direction lock in this first refinement; consider parity after reliable point capture.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D08": {
+          "behavior": "Bounding-box W/H stringers in a stable local frame (initially XY); no dimension fields in the palette. scaling vertices about the box center. Alternative: per-segment lengths in Direct Selection, or total L with uniform scaling.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D09": {
+          "behavior": "Preview and commit consume the same snap result and existing snap marker. Snapping to another earlier segment places a vertex without inferring trimming or loop extraction.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D10": {
+          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D11": {
+          "behavior": "After at least three vertices, returning to the first vertex closes one PathData without a duplicated start anchor. Fill remains unset until chosen. Enter commits an open path. A moving primary press places one vertex; release adds none.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D12": {
+          "behavior": "Retain the existing creation cancel/undo grammar; palette cancellation follows P1.shape.properties.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D13": {
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D14": {
+          "behavior": "Open path: circular Stroke button. Closed path: Fill and Stroke. Do not expose Corners until true path filleting/chamfer semantics are supported; stroke joins remain in Stroke. Desktop color sampling is shared. See shape-property-editing.md.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D15": {
+          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D16": {
+          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D17": {
+          "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        }
+      }
+    },
+    "arc": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Implementation authorized by user 2026-09-17; rectangle palette and circle/diamond endpoints confirmed.",
+      "inherits": [
+        "P0.*, P1.node, P1.curve, P1.curve.pick"
+      ],
+      "canvas": "shapes-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Arm through board.tool.arc or the Shapes flyout; no new default shortcut.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D02": {
+          "behavior": "One-shot creation; return to Select. Repeat follows P0.4.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D03": {
+          "behavior": "Three point picks: start, end, then middle (through-point). Moving the third pick changes bulge only; the two endpoints stay fixed. Every pick is captured even while moving.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D04": {
+          "behavior": "Reuse the polyline point-capture rule for press positions and release deduplication; third valid pick commits. Do not fork a second click recognizer.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D05": {
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D06": {
+          "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D07": {
+          "behavior": "No new lock binding. Preserve existing locks; numeric property editing is separate from drawing.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D08": {
+          "behavior": "Current arcs are cubic PathData and expose tight local W/H stringers. Exact R/sweep editing is reserved for a future durable circular-arc model; never infer exact radius from arbitrary cubics.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D09": {
+          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D10": {
+          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D11": {
+          "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D12": {
+          "behavior": "P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D13": {
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D14": {
+          "behavior": "Circular Stroke button with applicable stroke details; shared desktop sampling. Dimensional fields remain on stringers. Exact R/sweep requires durable arc parameters; current generic paths use honest path measurements.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D15": {
+          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D16": {
+          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D17": {
+          "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        }
+      }
+    },
+    "bezier-span": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Implementation authorized by user 2026-09-17; rectangle palette and circle/diamond endpoints confirmed.",
+      "inherits": [
+        "P0.*, P1.node, P1.curve, P1.curve.pick"
+      ],
+      "canvas": "shapes-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Arm through board.tool.bezier or the Shapes flyout; no new default shortcut.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D02": {
+          "behavior": "One-shot creation; return to Select. Repeat follows P0.4.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D03": {
+          "behavior": "Retain the existing anchor/handle creation grammar. This refinement adds capability-aware property editing and tight-bounds dimensions to the committed curve.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D04": {
+          "behavior": "Existing Bezier handle drag recognition is unchanged; the moving-click fix in this revision applies to Line, Polyline and Arc.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D05": {
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D06": {
+          "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D07": {
+          "behavior": "No new lock binding. Preserve existing locks; numeric property editing is separate from drawing.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D08": {
+          "behavior": "tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds. Scale anchors and handles together about bounds center. Alternative: actual curve length L with uniform scaling, not endpoint chord length.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D09": {
+          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D10": {
+          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D11": {
+          "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D12": {
+          "behavior": "P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D13": {
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D14": {
+          "behavior": "Circular Stroke and, only for a closed path, Fill. Handle editing remains on-canvas. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D15": {
+          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D16": {
+          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D17": {
+          "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        }
+      }
+    },
+    "pen": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Implementation authorized by user 2026-09-17; rectangle palette and circle/diamond endpoints confirmed.",
+      "inherits": [
+        "P0.*, P1.node, P1.curve, P1.curve.pick"
+      ],
+      "canvas": "shapes-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Use the existing tool command through P0.7; no new shortcut in this proposal.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D02": {
+          "behavior": "One-shot creation; return to Select. Repeat follows P0.4.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D03": {
+          "behavior": "Capture ordered freehand input events and fit a smooth committed curve with the shared vector-ink fitter.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D04": {
+          "behavior": "Capture the press and final release points plus all available ordered pointer moves. Use screen-space sample spacing measured at capture, provisionally 0.5px. Do not drop event samples solely because the UI paints once per frame.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D05": {
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D06": {
+          "behavior": "No point snapping along the freehand stroke; it would quantize the sketch. Existing point snapping remains available when editing committed anchors.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D07": {
+          "behavior": "n/a: no direction/value lock while sketching.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D08": {
+          "behavior": "tight local W/H stringers; change dimensions by scaling the committed path around bounds center without re-fitting the stroke. Alternative: one curve-length L stringer for uniform scaling. No dimensions in the toolbar.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D09": {
+          "behavior": "Keep press/release endpoints and all intermediate events separated by at least 0.5 screen px. Fitter simplification tolerance is 0.5 screen px at capture zoom; this is a tuning parameter, not a proof of a global error bound.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D10": {
+          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D11": {
+          "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D12": {
+          "behavior": "P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D13": {
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D14": {
+          "behavior": "Circular Stroke with width, RGB, alpha, dash and appropriate caps/joins; Fill only on a closed path. Preserve authored profile; no unsupported smoothing or rectangle Corners control.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D15": {
+          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D16": {
+          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D17": {
+          "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        }
+      }
+    },
+    "brush": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Implementation authorized by user 2026-09-17; rectangle palette and circle/diamond endpoints confirmed.",
+      "inherits": [
+        "P0.*, P1.node, P1.curve, P1.curve.pick, P2.StickyInk"
+      ],
+      "canvas": "shapes-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Use the existing tool command through P0.7; no new shortcut in this proposal.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D02": {
+          "behavior": "P2.StickyInk: remain armed; each stroke is one undo step.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D03": {
+          "behavior": "Retain existing freehand Brush behavior; investigate its shared sampling path alongside Pen without changing expressive defaults.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D04": {
+          "behavior": "Share ordered freehand sampling and final endpoint preservation with Pen; keep the existing width profile, Shift straight-chain and temporary Alt desktop sampler.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D05": {
+          "behavior": "P2.StickyInk: width keys and Alt eyedropper; preserve the current Shift straight-segment chain.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D06": {
+          "behavior": "No point snapping along a freehand brush stroke. Preserve the current Shift straight-segment and Alt eyedropper semantics; committed path grips still use P1.node.osnap.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D07": {
+          "behavior": "No new lock binding. Preserve existing locks; numeric property editing is separate from drawing.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D08": {
+          "behavior": "centerline W/H stringers; scale the centerline about bounds center while retaining stroke width/taper. An ink-envelope measurement or linked Scale ink is a distinct alternative, not an automatic consequence.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D09": {
+          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D10": {
+          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D11": {
+          "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D12": {
+          "behavior": "P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D13": {
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D14": {
+          "behavior": "Circular Stroke and, if explicitly closed, Fill; preserve the current brush profile. All eyedroppers, including temporary Alt while Brush is armed, must sample across the desktop via the shared owner.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D15": {
+          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D16": {
+          "behavior": "Deviates P1.curve.create-style: preserve the existing brush foreground color, brush width, round caps/joins and taper defaults. Batch style edits do not change the brush settings.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        },
+        "D17": {
+          "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-17"
+        }
+      }
+    },
+    "shape-content": {
+      "status": "draft",
+      "family": "tool",
+      "reference": "User request, 2026-09-18; existing Slate Text, crop and dynamic panels",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.shape.properties"
+      ],
+      "canvas": "shape-content-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Double-click the filled region of any unlocked closed shape to enter text editing in place. A Text squircle joins its property strip while text exists or is being edited. Right-click exposes Place image, Replace image, Edit crop and Remove image as applicable.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-18"
+        },
+        "D02": {
+          "behavior": "P1.shape.properties: the property strip stays attached to selection. Text editing is a session on the existing shape, not a sticky drawing tool; finishing returns to ordinary Select.",
+          "source": "precedent",
+          "confidence": 95,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D03": {
+          "behavior": "Rectangle text starts at an inset upper-left caret. Proposed for ellipses, stars and irregular shapes: center a wrapped text block in a safe rectangular interior region; do not put text in star tips or holes. The same shape may retain text above an image fill.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D04": {
+          "behavior": "P1.node.select/move remain unchanged. A double-click enters typing; dragging selected text selects characters. Property controls own their pointer gestures and never start a shape move.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D05": {
+          "behavior": "Text fields own typing, clipboard and text-selection keys. Enter inserts a paragraph. Outside text editing, retain the existing selection, transform and Alt plain-drop behavior.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D06": {
+          "behavior": "P0.9: text, caret, palette, clipping and hit regions follow the host through zoom, pan and rotation. Host movement/resizing keeps P1.node.transform and snapping. Cache derived interior and clip geometry on change.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D07": {
+          "behavior": "No direction lock for typing. Proposed overflow rule: keep the authored shape and font size fixed, wrap inside the text area, and show an overflow indication while editing/selected; retain all text for editing. Never silently enlarge the shape or shrink the type.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D08": {
+          "behavior": "Typeface, text color, inline editable font size, Bold, Underline and paragraph alignment are available in the compact Text editor. Numeric values are edited directly; text color reuses the existing RGB/recent-colors/desktop-eyedropper panel.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-18"
+        },
+        "D09": {
+          "behavior": "Dragging one image over an eligible shape shows its actual silhouette and a clipped crop preview when the image is ready. On leave or cancel, the preview vanishes without mutation. P1.shape.properties selection fading applies while the Text adjustment panel is open.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-18"
+        },
+        "D10": {
+          "behavior": "A blinking insertion caret appears inside the text area, without a separate text window. Text hover uses the I-beam; an eligible image-drop target indicates acceptance.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-18"
+        },
+        "D11": {
+          "behavior": "P0.2/P0.3: text sessions, formatting changes and image attachments each use invertible SceneCmd groups. Preserve the host id, geometry, stroke, transforms and links. Images remain linked items and use centered cover fitting without distortion. Empty/no-op text sessions add no undo step.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D12": {
+          "behavior": "Match existing text behavior: Escape or click outside finishes and commits typing; Ctrl+Z undoes the session. Escape cancels an uncommitted property/crop/drop preview. Canceling an image picker changes nothing; late results never attach to another workbook or deleted/locked host.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D13": {
+          "behavior": "Follow DYNAMIC_PANELS.md: squircle Text icon; one restrained, theme-aware editor above the strip; font selector, underlined size, color access, B/U and alignment controls. Reuse the shared color editor. No permanent Apply/Cancel footer or secondary numeric dialog.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-18"
+        },
+        "D14": {
+          "behavior": "Double-click to resume typing. Shape-image crop is entered through the image action/context menu so double-click keeps its text meaning. Reposition the image inside a fixed true silhouette; replacing/removing the image preserves text, outline and host identity.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D15": {
+          "behavior": "Proposed first scope: one typography style and paragraph alignment for the whole shape text block, matching current Text nodes; no mixed-font spans, text-on-path, linked text frames or new drawing tool. If selected-word formatting is needed, decide it before changing the durable text model.",
+          "source": "guess",
+          "confidence": 50,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D16": {
+          "behavior": "Reuse the Text tool font/color defaults when first creating text; preserve existing values on re-entry. Image fill does not replace the host stroke or corner settings. Do not seed unrelated drawing defaults from a mixed selection.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D17": {
+          "behavior": "Only true closed regions can host content: rectangle/ellipse and closed paths, including stars, concave trims and compound paths. Open curves, holes, hidden or locked targets reject attachment. Interior text/drop picking works on unfilled closed shapes. Multiple-file drops keep the existing board placement behavior.",
+          "source": "pattern",
+          "confidence": 90,
           "verdict": "proposed",
           "decided": null
         }

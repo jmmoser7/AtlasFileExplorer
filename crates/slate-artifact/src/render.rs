@@ -684,7 +684,7 @@ fn render_image(
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
     append_clip(&mut style, node, rel);
-    append_corner(&mut style, img.corner);
+    append_corner(&mut style, img.corner, rel.w, rel.h);
     append_stroke(&mut style, &img.stroke);
     style.push_str("overflow:hidden;");
 
@@ -926,7 +926,7 @@ fn render_rect_shape(
     if ellipse {
         style.push_str("border-radius:50%;");
     } else {
-        append_corner(&mut style, shape.corner);
+        append_corner(&mut style, shape.corner, rel.w, rel.h);
     }
 
     if let Some(fill) = shape.fill {
@@ -1336,8 +1336,13 @@ fn render_connector(
     // Geometry is derived from the *current* rects of anchored nodes.
     // Hidden anchor nodes resolve to nothing: the wire is skipped until the
     // node is shown again (simplest per the scene-flags spec).
-    let Some(path) = connector_route_in_scene(scene, Some(node.id), &conn.a, &conn.b, routing)
-    else {
+    let Some(path) = connector_route_in_scene(
+        scene,
+        Some(node.id),
+        &conn.a,
+        &conn.b,
+        conn.effective_routing(routing),
+    ) else {
         return;
     };
 
@@ -1567,21 +1572,17 @@ fn append_opacity(style: &mut String, opacity: f32) {
     }
 }
 
-fn append_corner(style: &mut String, corner: Corner) {
-    match corner {
-        Corner::Square => {}
-        Corner::Rounded { radius } => {
-            use std::fmt::Write;
-            let _ = write!(style, "border-radius:{:.1}px;", radius);
-        }
-        Corner::Chamfer { cut } => {
-            use std::fmt::Write;
-            let c = fmt_px(cut);
-            let _ = write!(
-                style,
-                "clip-path:polygon({c}px 0,calc(100% - {c}px) 0,100% {c}px,100% calc(100% - {c}px),calc(100% - {c}px) 100%,{c}px 100%,0 calc(100% - {c}px),0 {c}px);",
-            );
-        }
+fn append_corner(style: &mut String, corner: Corner, width: f32, height: f32) {
+    use std::fmt::Write;
+    let (chamfer, amount) = corner.effective(width, height);
+    if amount <= 0.0 {
+        return;
+    }
+    if chamfer {
+        let c = amount.to_string();
+        let _ = write!(style, "clip-path:polygon({c}px 0,calc(100% - {c}px) 0,100% {c}px,100% calc(100% - {c}px),calc(100% - {c}px) 100%,{c}px 100%,0 calc(100% - {c}px),0 {c}px);");
+    } else {
+        let _ = write!(style, "border-radius:{amount}px;");
     }
 }
 
@@ -1713,5 +1714,32 @@ mod tests {
         });
         assert!(s.contains("width:200.0000%"));
         assert!(s.contains("left:-50.0000%"));
+    }
+}
+
+#[cfg(test)]
+mod percentage_corner_export_tests {
+    use super::*;
+    #[test]
+    fn exact_percentage_geometry_matches_board_space_in_css() {
+        let mut css = String::new();
+        append_corner(&mut css, Corner::RoundedPercent { percent: 50.0 }, 1.0, 1.0);
+        assert_eq!(css, "border-radius:0.25px;");
+        css.clear();
+        append_corner(
+            &mut css,
+            Corner::RoundedPercent { percent: 100.0 },
+            4.0,
+            2.0,
+        );
+        assert_eq!(css, "border-radius:1px;");
+        css.clear();
+        append_corner(
+            &mut css,
+            Corner::ChamferPercent { percent: 100.0 },
+            1.0,
+            1.0,
+        );
+        assert!(css.contains("polygon(0.5px 0,calc(100% - 0.5px) 0"));
     }
 }

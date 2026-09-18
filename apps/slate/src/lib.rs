@@ -22,6 +22,7 @@ pub fn run() -> eframe::Result {
             // (icon + menus + window buttons — see atlas_shell::menubar).
             .with_decorations(false),
         vsync: true,
+        multisampling: atlas_shell::NATIVE_MSAA_SAMPLES,
         ..Default::default()
     };
     eframe::run_native(

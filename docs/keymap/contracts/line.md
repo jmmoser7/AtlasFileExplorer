@@ -33,11 +33,11 @@ below is approved in `decisions.json` and is precedent for future tools.
 | D01 | Initiation & arming | **L**; palette: type "line" + Enter; tools-rail icon; Space/Enter re-arms when Line was the last command (P0.4/P0.7) | stated | 100 |
 | D02 | Stickiness & repeat | One-shot: commit returns to Select (P2.RhinoDraft.oneshot) | stated | 100 |
 | D03 | Gesture grammar | `Armed → FirstPoint → SecondPoint → Commit`. Both grammars: click-move-click **and** press-drag-release (P2.RhinoDraft.gesture) | stated | 100 |
-| D04 | Click vs drag rule | Cursor travel > `draft.drag_threshold` before release = drag grammar; otherwise click grammar | research | 75 |
+| D04 | Click vs drag rule | First point: raw press-to-release screen travel above draft.drag_threshold (4 px) selects drag grammar. Second-point mode: commit the resolved primary press position exactly once; later motion/release cannot relocate it. See line-refinement.md. | precedent | 90 |
 | D05 | Modifiers | Held Shift inverts F8 ortho for the pending segment, 45° steps (P2.RhinoDraft.ortho) | stated | 100 |
 | D06 | Constraints & snapping | F8 ortho + F9 grid snap apply to both endpoints. Object snaps follow **P1.node.osnap** (`ObjectSnapSet`, `draft.osnap_radius` / `osnap.radius`). Defaults End+Mid+Center match the previous hardcoded edge/anchor snap. | pattern | 85 |
 | D07 | Direction / value locks | Tab locks the segment direction at its current angle; movement only changes length; Tab again unlocks; Shift/ortho ignored while locked | stated | 100 |
-| D08 | Numeric / manual entry | After the first point, typed digits set length; Enter or the committing click places the end point at that distance along the current cursor direction. Backspace edits (P2.RhinoDraft.numeric) | stated | 100 |
+| D08 | Numeric / manual entry | Actual endpoint length L uses an external editable stringer, scales about the midpoint, and preserves direction. Existing numeric entry during drafting remains available. | precedent | 90 |
 | D09 | Preview & readouts | Rubber band from first point (constraint-resolved); dock readout shows live length + angle; numeric entry echoes next to the readout | guess | 50 |
 | D10 | Cursor | Crosshair while armed; small lock glyph appended while Tab-locked | guess | 60 |
 | D11 | Commit | A parametric 2-point line node; stroke from **P1.curve.create-style** when the last single-node edit exists, else `default_curve_stroke(fg)` — **Square** end caps, Miter joins, 2 px width; opacity from last edit or `1.0`; journal cmd `board.tool.line`; one gesture = one undo (P0.2/P0.3) | pattern | 85 |
@@ -101,3 +101,8 @@ each case):
    a non-goal (D15, Art. III).
 4. Legacy bbox lines → **convert to parametric on load** (see the migration
    note in the header).
+
+
+### 2026-09-17 input refinement
+
+`line-refinement.md` supersedes second-point release positioning: the second primary press commits its resolved event position once, so movement during release cannot drop or relocate the endpoint. First-point drag classification retains the four-screen-pixel threshold measured from the raw press, independent of snapping. Selected lines expose midpoint-centered actual-length sizing through P1.shape.properties.

@@ -102,6 +102,10 @@ fn clamp01(v: f32) -> f32 {
     v.clamp(0.0, 1.0)
 }
 
+fn lerp_channel(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
 fn to_u8(v: f32) -> u8 {
     (clamp01(v) * 255.0).round() as u8
 }
@@ -146,10 +150,11 @@ pub fn adjusted(src: &ColorImage, adjust: &ImageAdjust) -> ColorImage {
 
         // CSS filters apply in list order and `css_filter()` appends
         // invert(1) last, after the hue/sat/brightness pipeline.
-        if adjust.invert {
-            r = 1.0 - clamp01(r);
-            g = 1.0 - clamp01(g);
-            b = 1.0 - clamp01(b);
+        if adjust.invert != 0.0 {
+            let inv = adjust.invert.clamp(0.0, 1.0);
+            r = lerp_channel(clamp01(r), 1.0 - clamp01(r), inv);
+            g = lerp_channel(clamp01(g), 1.0 - clamp01(g), inv);
+            b = lerp_channel(clamp01(b), 1.0 - clamp01(b), inv);
         }
 
         if let Some((oc_r, oc_g, oc_b, oa, inv_oa)) = overlay {
@@ -293,7 +298,7 @@ mod tests {
             grayscale: 0.3,
             sepia: 0.4,
             hue_deg: 45.0,
-            invert: true,
+            invert: 1.0,
             overlay: Some(Rgba([10, 20, 30, 64])),
         };
         let [_, _, _, a] = pixel(&adjusted(&src, &adjust));
@@ -301,10 +306,23 @@ mod tests {
     }
 
     #[test]
+    fn invert_amount_blends_towards_full_invert() {
+        let src = solid([40, 100, 220, 255]);
+        let half = ImageAdjust {
+            invert: 0.5,
+            ..ImageAdjust::default()
+        };
+        let [r, g, b, _] = pixel(&adjusted(&src, &half));
+        approx_eq(r, 128, 1);
+        approx_eq(g, 128, 1);
+        approx_eq(b, 128, 1);
+    }
+
+    #[test]
     fn invert_flips_channels() {
         let src = solid([40, 100, 220, 255]);
         let adjust = ImageAdjust {
-            invert: true,
+            invert: 1.0,
             ..ImageAdjust::default()
         };
         let [r, g, b, a] = pixel(&adjusted(&src, &adjust));
@@ -322,7 +340,7 @@ mod tests {
         let src = solid([100, 100, 100, 255]);
         let adjust = ImageAdjust {
             brightness: 2.0,
-            invert: true,
+            invert: 1.0,
             ..ImageAdjust::default()
         };
         let [r, g, b, _] = pixel(&adjusted(&src, &adjust));

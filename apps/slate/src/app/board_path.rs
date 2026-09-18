@@ -1,6 +1,6 @@
 //! Board vector paths: world ↔ `PathData`, tessellation cache, hit-testing.
 
-use eframe::egui::{self, Color32, Pos2, Shape, Vec2};
+use eframe::egui::{self, Color32, Pos2, Shape, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
     Dash, PathData, PathSeg, Rgba, ShapeKind, ShapeNode, Stroke, StrokeCap, StrokeJoin,
     WidthProfile, WorldRect,
@@ -11,9 +11,11 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc as Shared;
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
-use vector_ink::{flatten, hit_stroke, stroke_mesh, Cap, InkMesh, Join, StrokeStyle};
+use vector_ink::{
+    flatten, flatten_contours, hit_stroke, stroke_mesh, Cap, InkMesh, Join, StrokeStyle,
+};
 
-use super::board::{rgba32, to_rgba, BoardXf};
+use super::board::{rgba32, BoardXf};
 use super::SlateApp;
 
 pub(crate) const FEATHER_PX: f32 = 1.25;
@@ -193,6 +195,15 @@ impl PathMeshCache {
 
 pub fn zoom_bucket(z: f32) -> i64 {
     (z * 8.0).round() as i64
+}
+
+/// Bound visible curve error at the upper edge of the mesh's zoom bucket.
+/// Both fill and stroke must refine when zooming; a fixed world tolerance
+/// becomes a many-pixel facet at close range.
+pub(crate) fn curve_tolerance(zoom: f32) -> f64 {
+    const CURVE_ERROR_PX: f64 = 0.15;
+    let upper_zoom = ((zoom_bucket(zoom) as f64 + 0.5) / 8.0).max(0.05);
+    CURVE_ERROR_PX / upper_zoom
 }
 
 fn to_k(p: Pos2) -> Point {
@@ -550,7 +561,7 @@ fn path_content_hash(
     h.finish()
 }
 
-fn path_fill_hash(path: &PathData, rect: WorldRect, rotation_deg: f32) -> u64 {
+fn path_fill_hash(path: &PathData, rect: WorldRect, rotation_deg: f32, bucket: i64) -> u64 {
     let mut h = DefaultHasher::new();
     hash_path_data(&mut h, path);
     hash_f32(&mut h, rect.x);
@@ -558,6 +569,7 @@ fn path_fill_hash(path: &PathData, rect: WorldRect, rotation_deg: f32) -> u64 {
     hash_f32(&mut h, rect.w);
     hash_f32(&mut h, rect.h);
     hash_f32(&mut h, rotation_deg);
+    bucket.hash(&mut h);
     h.finish()
 }
 
@@ -581,23 +593,6 @@ pub(crate) fn ink_mesh_to_epaint(
     }
     mesh.indices = cached.indices.clone();
     mesh
-}
-
-fn point_in_polygon(x: f32, y: f32, poly: &[[f32; 2]]) -> bool {
-    if poly.len() < 3 {
-        return false;
-    }
-    let mut inside = false;
-    let mut j = poly.len() - 1;
-    for i in 0..poly.len() {
-        let (xi, yi) = (poly[i][0], poly[i][1]);
-        let (xj, yj) = (poly[j][0], poly[j][1]);
-        if ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi).max(1e-12) + xi) {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
 }
 
 /// Screen-consistent pick slop in world units (~4 px at the current zoom).
@@ -631,15 +626,19 @@ pub fn open_curve_endpoints(node: &Node, shape: &ShapeNode) -> Option<(Pos2, Pos
     ))
 }
 
-/// Open curves (simple lines, legacy lines, open paths) pick on the stroke
-/// only — never on the node AABB (P1.curve.pick).
+fn shape_has_fill(shape: &ShapeNode) -> bool {
+    shape.fill.is_some_and(|f| f.0[3] > 0)
+}
+
+/// Open curves and unfilled paths pick on the stroke only — never on the
+/// node AABB (P1.curve.pick). A closed path with a real fill is an area.
 pub fn shape_uses_stroke_pick(node: &Node, shape: &ShapeNode) -> bool {
     if open_curve_endpoints(node, shape).is_some() {
         return true;
     }
     if shape.shape == ShapeKind::Path {
         if let Some(path) = &shape.path {
-            return !path.closed && !path.is_empty();
+            return !path.is_empty() && !shape_has_fill(shape);
         }
     }
     false
@@ -694,14 +693,48 @@ pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32
     if path.closed {
         if let Some(fill) = shape.fill {
             if fill.0[3] > 0 {
-                let flat = flatten(&bez, 0.25);
-                if flat.len() >= 3 && point_in_polygon(wx, wy, &flat) {
+                let contours = flatten_contours(&bez, 0.25);
+                if vector_ink::point_in_polygon(&contours, [wx, wy]) {
                     return true;
                 }
             }
         }
     }
     false
+}
+
+/// Flattened world polylines for a path node, one vec per contour.
+/// Closed contours include the closing seam (last ≈ first).
+pub fn path_world_contours(node: &Node, path: &PathData, zoom: f32) -> Vec<Vec<Pos2>> {
+    if path.is_empty() && !path.closed {
+        return Vec::new();
+    }
+    let bez = path_data_to_world_bez(path, node.rect, node.rotation_deg);
+    flatten_contours(&bez, curve_tolerance(zoom))
+        .into_iter()
+        .map(|c| c.into_iter().map(|p| Pos2::new(p[0], p[1])).collect())
+        .collect()
+}
+
+/// Selection / hover ring on the path itself — never the node AABB.
+pub fn paint_path_stroke_outline(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    node: &Node,
+    path: &PathData,
+    stroke: EStroke,
+) {
+    for contour in path_world_contours(node, path, xf.z) {
+        if contour.len() < 2 {
+            continue;
+        }
+        let pts: Vec<Pos2> = contour.iter().map(|p| xf.w2s(*p)).collect();
+        if path.closed {
+            painter.add(Shape::closed_line(pts, stroke));
+        } else {
+            painter.add(Shape::line(pts, stroke));
+        }
+    }
 }
 
 fn segment_intersects_rect(a: Pos2, b: Pos2, r: WorldRect) -> bool {
@@ -721,13 +754,39 @@ fn segment_intersects_rect(a: Pos2, b: Pos2, r: WorldRect) -> bool {
 
 /// Marquee selection for board nodes. Open curves intersect on stroke
 /// geometry (centerline vs rect), never the node AABB alone (P1.curve.pick).
-pub fn marquee_hits_node(node: &Node, marquee: WorldRect, zoom: f32) -> bool {
+pub fn marquee_hits_node(
+    node: &Node,
+    marquee: WorldRect,
+    zoom: f32,
+    scene: &slate_doc::scene::Scene,
+    routing: slate_doc::WireRouting,
+) -> bool {
     match &node.kind {
-        NodeKind::Connector(_) => {
-            node.rect.x >= marquee.x
-                && node.rect.y >= marquee.y
-                && node.rect.x + node.rect.w <= marquee.x + marquee.w
-                && node.rect.y + node.rect.h <= marquee.y + marquee.h
+        NodeKind::Connector(c) => {
+            let Some(path) = slate_doc::connector_route_in_scene(
+                scene,
+                Some(node.id),
+                &c.a,
+                &c.b,
+                c.effective_routing(routing),
+            ) else {
+                return false;
+            };
+            let bez = super::board_wire::connector_path_kurbo(&path);
+            let half = c.stroke.width.max(0.0) * 0.5;
+            let region = WorldRect::new(
+                marquee.x - half,
+                marquee.y - half,
+                marquee.w + half * 2.0,
+                marquee.h + half * 2.0,
+            );
+            flatten(&bez, 0.25).windows(2).any(|p| {
+                segment_intersects_rect(
+                    Pos2::new(p[0][0], p[0][1]),
+                    Pos2::new(p[1][0], p[1][1]),
+                    region,
+                )
+            })
         }
         NodeKind::Shape(s) => {
             if shape_uses_stroke_pick(node, s) {
@@ -737,12 +796,13 @@ pub fn marquee_hits_node(node: &Node, marquee: WorldRect, zoom: f32) -> bool {
                     }
                 }
                 if let Some(bez) = bez_from_open_curve(node, s) {
-                    let flat = flatten(&bez, 0.25);
-                    for w in flat.windows(2) {
-                        let a = Pos2::new(w[0][0], w[0][1]);
-                        let b = Pos2::new(w[1][0], w[1][1]);
-                        if segment_intersects_rect(a, b, marquee) {
-                            return true;
+                    for contour in flatten_contours(&bez, 0.25) {
+                        for w in contour.windows(2) {
+                            let a = Pos2::new(w[0][0], w[0][1]);
+                            let b = Pos2::new(w[1][0], w[1][1]);
+                            if segment_intersects_rect(a, b, marquee) {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -750,14 +810,31 @@ pub fn marquee_hits_node(node: &Node, marquee: WorldRect, zoom: f32) -> bool {
                 let cy = marquee.y + marquee.h * 0.5;
                 return hit_shape_stroke(node, s, cx, cy, zoom);
             }
-            if hit_path_node(
-                node,
-                s,
-                marquee.x + marquee.w * 0.5,
-                marquee.y + marquee.h * 0.5,
-                zoom,
-            ) {
-                return true;
+            if s.shape == ShapeKind::Path {
+                if hit_path_node(
+                    node,
+                    s,
+                    marquee.x + marquee.w * 0.5,
+                    marquee.y + marquee.h * 0.5,
+                    zoom,
+                ) {
+                    return true;
+                }
+                if let Some(path) = s.path.as_ref() {
+                    if !path.is_empty() {
+                        let bez = path_data_to_world_bez(path, node.rect, node.rotation_deg);
+                        for contour in flatten_contours(&bez, 0.25) {
+                            for w in contour.windows(2) {
+                                let a = Pos2::new(w[0][0], w[0][1]);
+                                let b = Pos2::new(w[1][0], w[1][1]);
+                                if segment_intersects_rect(a, b, marquee) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                return false;
             }
             super::board_snap::marquee_intersects_rotated(marquee, node.rect, node.rotation_deg)
         }
@@ -962,11 +1039,11 @@ pub fn paint_path_shape(
         // egui PathShape fills with a triangle fan from vertex 0 — convex
         // only (emilk/egui#513). Join/Trim boolean results are concave, so
         // every closed path fill goes through cached earcut.
-        let fill_key = path_fill_hash(path, node.rect, node.rotation_deg);
+        let fill_key = path_fill_hash(path, node.rect, node.rotation_deg, zoom_bucket(xf.z));
         let triangles = app.path_mesh_cache.get_or_fill_tris(node.id, fill_key, || {
             let bez = bez
                 .get_or_insert_with(|| path_data_to_world_bez(path, node.rect, node.rotation_deg));
-            let contours = vector_ink::flatten_contours(bez, 0.25);
+            let contours = vector_ink::flatten_contours(bez, curve_tolerance(xf.z));
             vector_ink::fill_triangles(&contours)
         });
         let (verts, idx) = triangles.as_ref();
@@ -997,7 +1074,7 @@ pub fn paint_path_shape(
             bez.get_or_insert_with(|| path_data_to_world_bez(path, node.rect, node.rotation_deg));
         let style = stroke_style_world(&shape.stroke, xf.z);
         let feather = FEATHER_PX / xf.z.max(0.05);
-        stroke_mesh(bez, &style, feather, 0.25)
+        stroke_mesh(bez, &style, feather, curve_tolerance(xf.z))
     });
     let base = fade(rgba32(shape.stroke.color));
     let mesh = ink_mesh_to_epaint(&cached, xf, base, fade);
@@ -1013,7 +1090,7 @@ pub fn paint_path_preview(painter: &egui::Painter, xf: &BoardXf, color: Color32,
         dash: None,
     };
     let feather = FEATHER_PX / xf.z.max(0.05);
-    let ink = stroke_mesh(bez, &style, feather, 0.25);
+    let ink = stroke_mesh(bez, &style, feather, curve_tolerance(xf.z));
     use egui::epaint::{Vertex, WHITE_UV};
     let mut mesh = egui::Mesh::default();
     for v in &ink.vertices {
@@ -1077,17 +1154,20 @@ pub fn paint_path_draft(
             if let Some(c) = cursor {
                 pts.push(c);
             }
-            if pts.len() >= 2 {
-                let mut bez = BezPath::new();
-                bez.move_to(to_k(pts[0]));
-                for p in &pts[1..] {
-                    bez.line_to(to_k(*p));
+            // Click order is start → end → middle. The through-point is the
+            // last pick so dragging it changes bulge only (endpoints stay).
+            match pts.as_slice() {
+                [start, end] => {
+                    let mut bez = BezPath::new();
+                    bez.move_to(to_k(*start));
+                    bez.line_to(to_k(*end));
+                    paint_path_preview(painter, xf, color, &bez);
                 }
-                paint_path_preview(painter, xf, color, &bez);
-            }
-            if pts.len() >= 3 {
-                let bez = arc_through_three_points(pts[0], pts[1], pts[2]);
-                paint_path_preview(painter, xf, color, &bez);
+                [start, end, mid, ..] => {
+                    let bez = arc_through_three_points(*start, *mid, *end);
+                    paint_path_preview(painter, xf, color, &bez);
+                }
+                _ => {}
             }
         }
         BoardPathDraft::Bezier { anchors, placing } => {
@@ -1110,6 +1190,15 @@ pub fn paint_path_draft(
     }
 }
 
+/// Capture and fit tolerances are screen-space, independent of board zoom.
+pub const FREEHAND_SAMPLE_SPACING_PX: f32 = 0.5;
+pub const FREEHAND_FIT_ERROR_PX: f32 = 0.5;
+pub(crate) fn append_freehand_endpoint(points: &mut Vec<Pos2>, end: Pos2) {
+    if points.last().copied() != Some(end) {
+        points.push(end);
+    }
+}
+
 impl SlateApp {
     pub(crate) fn cancel_path_draft(&mut self) {
         self.board_path_draft = None;
@@ -1119,17 +1208,17 @@ impl SlateApp {
         let Some(draft) = self.board_path_draft.take() else {
             return false;
         };
-        let accent = {
-            let p = self.palette();
-            to_rgba(p.accent)
-        };
         let (rect, path_data, closed) = match draft {
-            BoardPathDraft::Polyline { points } => {
+            BoardPathDraft::Polyline { mut points } => {
                 if points.len() < 2 {
                     return false;
                 }
-                let (r, d) = points_to_path_data(&points, false);
-                (r, d, false)
+                let closed = points.len() >= 4 && points.first() == points.last();
+                if closed {
+                    points.pop();
+                }
+                let (r, d) = points_to_path_data(&points, closed);
+                (r, d, closed)
             }
             BoardPathDraft::Bezier {
                 anchors,
@@ -1147,30 +1236,33 @@ impl SlateApp {
         if path_data.is_empty() {
             return false;
         }
-        self.commit_path_node(rect, path_data, closed, accent);
+        self.commit_path_node(rect, path_data, closed);
         true
     }
 
-    pub(crate) fn commit_path_node(
-        &mut self,
-        rect: WorldRect,
-        path_data: PathData,
-        closed: bool,
-        accent: Rgba,
-    ) {
+    pub(crate) fn commit_path_node(&mut self, rect: WorldRect, path_data: PathData, closed: bool) {
         let mut path_data = path_data;
         path_data.closed = closed;
-        let node = self.doc_mut().scene.build_node(
+        let stroke = self.stroke_for_new_curve();
+        let fill = if closed {
+            self.fill_for_new_shape()
+        } else {
+            None
+        };
+        let opacity = self.opacity_for_new_node();
+        let mut node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Path,
-                fill: None,
-                stroke: default_draw_stroke(accent),
+                fill,
+                stroke,
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
                 path: Some(path_data),
             }),
         );
+        node.opacity = opacity;
+        self.note_last_style(&node);
         let ids = self.add_nodes(vec![node]);
         self.board_sel = ids.into_iter().collect();
         self.board_tool = super::board::BoardTool::Select;
@@ -1189,7 +1281,12 @@ impl SlateApp {
         match self.board_tool {
             super::board::BoardTool::Polyline => {
                 if let Some(BoardPathDraft::Polyline { points }) = &mut self.board_path_draft {
-                    points.push(world);
+                    if points.last().copied() != Some(world) {
+                        points.push(world);
+                    }
+                    if points.len() >= 4 && points.first() == points.last() {
+                        self.finish_path_draft();
+                    }
                 } else {
                     self.board_path_draft = Some(BoardPathDraft::Polyline {
                         points: vec![world],
@@ -1203,10 +1300,10 @@ impl SlateApp {
                 };
                 pts.push(world);
                 if pts.len() >= 3 {
-                    let bez = arc_through_three_points(pts[0], pts[1], pts[2]);
+                    // start, end, middle → through-point is the last pick
+                    let bez = arc_through_three_points(pts[0], pts[2], pts[1]);
                     let (rect, data) = bezpath_to_path_data(&bez, false);
-                    let accent = to_rgba(self.palette().accent);
-                    self.commit_path_node(rect, data, false, accent);
+                    self.commit_path_node(rect, data, false);
                     return;
                 }
                 self.board_path_draft = Some(BoardPathDraft::Arc { points: pts });
@@ -1255,15 +1352,14 @@ impl SlateApp {
         if points.len() < 2 {
             return;
         }
-        let tol = 1.0 / self.tab().cam.z.max(0.05);
+        let tol = FREEHAND_FIT_ERROR_PX / self.tab().cam.z.max(f32::EPSILON);
         let flat: Vec<[f32; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
         let bez = vector_ink::fit_polyline(&flat, tol);
         let (rect, data) = bezpath_to_path_data(&bez, false);
         if data.is_empty() {
             return;
         }
-        let accent = to_rgba(self.palette().accent);
-        self.commit_path_node(rect, data, false, accent);
+        self.commit_path_node(rect, data, false);
     }
 
     pub(crate) fn path_tool_try_finish(&mut self) -> bool {
@@ -1282,6 +1378,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn curve_error_stays_subpixel_and_fill_cache_refines_with_zoom() {
+        for zoom in [0.05, 0.25, 1.0, 8.0, 64.0] {
+            assert!(curve_tolerance(zoom) * zoom as f64 <= 0.15);
+        }
+        let (rect, path) = points_to_path_data(&[Pos2::ZERO, Pos2::new(30.0, 40.0)], true);
+        assert_ne!(
+            path_fill_hash(&path, rect, 0.0, zoom_bucket(1.0)),
+            path_fill_hash(&path, rect, 0.0, zoom_bucket(8.0))
+        );
+    }
+
+    #[test]
     fn round_trip_world_points() {
         let pts = vec![
             Pos2::new(10.0, 20.0),
@@ -1296,6 +1404,27 @@ mod tests {
         let last = flat.last().unwrap();
         assert!((last[0] - pts.last().unwrap().x).abs() < 0.01);
         assert!((last[1] - pts.last().unwrap().y).abs() < 0.01);
+    }
+
+    #[test]
+    fn start_end_middle_arc_keeps_the_endpoints() {
+        let start = Pos2::new(0.0, 0.0);
+        let end = Pos2::new(100.0, 0.0);
+        let mid = Pos2::new(50.0, 40.0);
+        let bez = arc_through_three_points(start, mid, end);
+        let flat = flatten(&bez, 0.05);
+        let first = flat.first().copied().unwrap();
+        let last = flat.last().copied().unwrap();
+        assert!((first[0] - start.x).abs() < 0.5);
+        assert!((first[1] - start.y).abs() < 0.5);
+        assert!((last[0] - end.x).abs() < 0.5);
+        assert!((last[1] - end.y).abs() < 0.5);
+        let swapped = arc_through_three_points(start, end, mid);
+        let swapped_end = flatten(&swapped, 0.05).last().copied().unwrap();
+        assert!(
+            (swapped_end[0] - mid.x).abs() < 1.5,
+            "the old start-end-as-through mapping must not be used"
+        );
     }
 
     #[test]
@@ -1377,11 +1506,143 @@ mod tests {
         assert!(!node.rect.contains(50.0, 10.0) || !hit_path_node(&node, shape, 50.0, 10.0, 1.0));
         let marquee = WorldRect::new(40.0, 5.0, 20.0, 10.0);
         assert!(
-            !marquee_hits_node(&node, marquee, 1.0),
+            !marquee_hits_node(
+                &node,
+                marquee,
+                1.0,
+                &slate_doc::scene::Scene::default(),
+                slate_doc::WireRouting::Bezier
+            ),
             "marquee wholly off stroke must not select"
         );
         let stroke_marquee = WorldRect::new(45.0, 45.0, 10.0, 10.0);
-        assert!(marquee_hits_node(&node, stroke_marquee, 1.0));
+        assert!(marquee_hits_node(
+            &node,
+            stroke_marquee,
+            1.0,
+            &slate_doc::scene::Scene::default(),
+            slate_doc::WireRouting::Bezier
+        ));
+    }
+
+    #[test]
+    fn closed_polyline_picks_stroke_not_bbox_or_interior() {
+        let pts = vec![
+            Pos2::new(0.0, 0.0),
+            Pos2::new(80.0, 0.0),
+            Pos2::new(0.0, 80.0),
+        ];
+        let (rect, data) = points_to_path_data(&pts, true);
+        let node = Node {
+            id: NodeId(4),
+            rect,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            kind: NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke: default_curve_stroke(Rgba::BLACK),
+                corner: slate_doc::scene::Corner::Square,
+                flip: false,
+                path: Some(data),
+            }),
+        };
+        let shape = match &node.kind {
+            NodeKind::Shape(s) => s,
+            _ => unreachable!(),
+        };
+        assert!(shape_uses_stroke_pick(&node, shape));
+        assert!(hit_path_node(&node, shape, 40.0, 0.0, 1.0), "on the base");
+        assert!(
+            hit_path_node(&node, shape, 40.0, 40.0, 1.0),
+            "on the closing seam"
+        );
+        assert!(
+            !hit_path_node(&node, shape, 20.0, 20.0, 1.0),
+            "unfilled interior must not hit"
+        );
+        assert!(
+            !hit_path_node(&node, shape, 80.0, 80.0, 1.0),
+            "AABB corner off the stroke must not hit"
+        );
+        let ghost = WorldRect::new(70.0, 70.0, 12.0, 12.0);
+        assert!(
+            !marquee_hits_node(
+                &node,
+                ghost,
+                1.0,
+                &slate_doc::scene::Scene::default(),
+                slate_doc::WireRouting::Bezier
+            ),
+            "marquee in empty AABB space must not select a closed polyline"
+        );
+    }
+
+    #[test]
+    fn closed_polyline_does_not_hit_outside_its_bbox() {
+        // Triangle far from the world origin. A ClosePath→(0,0) ghost, a
+        // concatenated extra contour, or an unclamped infinite-line test
+        // would all fire out here.
+        let pts = vec![
+            Pos2::new(400.0, 300.0),
+            Pos2::new(480.0, 300.0),
+            Pos2::new(400.0, 380.0),
+        ];
+        let (rect, data) = points_to_path_data(&pts, true);
+        assert!(rect.x > 300.0 && rect.y > 200.0);
+        let bez = path_data_to_world_bez(&data, rect, 0.0);
+        for contour in flatten_contours(&bez, 0.25) {
+            for p in contour {
+                assert!(
+                    rect.contains(p[0], p[1]),
+                    "flatten point {p:?} left node.rect {rect:?}"
+                );
+            }
+        }
+        let node = Node {
+            id: NodeId(5),
+            rect,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            kind: NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke: default_curve_stroke(Rgba::BLACK),
+                corner: slate_doc::scene::Corner::Square,
+                flip: false,
+                path: Some(data),
+            }),
+        };
+        let shape = match &node.kind {
+            NodeKind::Shape(s) => s,
+            _ => unreachable!(),
+        };
+        assert!(hit_path_node(&node, shape, 440.0, 300.0, 1.0), "base");
+        assert!(
+            hit_path_node(&node, shape, 400.0, 340.0, 1.0),
+            "closing seam"
+        );
+        assert!(!hit_path_node(&node, shape, 0.0, 0.0, 1.0), "world origin");
+        assert!(
+            !hit_path_node(&node, shape, 200.0, 150.0, 1.0),
+            "along the line from the first vertex toward the origin"
+        );
+        assert!(
+            !hit_path_node(&node, shape, 200.0, 300.0, 1.0),
+            "infinite extension of the base, outside the AABB"
+        );
+        assert!(
+            !hit_path_node(&node, shape, 500.0, 400.0, 1.0),
+            "far corner outside the AABB"
+        );
     }
 
     #[test]

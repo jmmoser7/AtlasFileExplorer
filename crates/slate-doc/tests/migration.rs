@@ -154,7 +154,9 @@ fn v1_fixture_upgrades_to_current() {
         BTreeMap::from([(GroupId(1), TagId(2))])
     );
 
-    assert_eq!(doc.view.active_view, ViewKind::Venn);
+    // The fixture was saved in Venn. Board is the only canvas now, so every
+    // retired view normalizes on load; the camera it was saved with survives.
+    assert_eq!(doc.view.active_view, ViewKind::Board);
     assert_eq!(doc.view.cam_x, -120.0);
     assert_eq!(doc.view.cam_y, 48.0);
     assert_eq!(doc.view.zoom, 1.5);
@@ -544,6 +546,7 @@ fn v2_document() -> SlateDoc {
     }
 
     let connector = ConnectorNode {
+        routing: None,
         binding: None,
         a: ConnectorEnd::Anchored {
             node: image_id,

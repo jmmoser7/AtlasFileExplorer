@@ -20,6 +20,7 @@ pub struct ConnectorNode {
     pub a: ConnectorEnd,
     pub b: ConnectorEnd,
     pub stroke: Stroke,               // existing SVG-ceiling stroke type
+    pub routing: Option<WireRouting>, // authored per wire; None = legacy fallback
     pub arrow_a: bool, pub arrow_b: bool,  // default: none (moodboard), 
     pub label: Option<String>,        // optional text at path midpoint
     pub display: WireDisplay,         // Default | Faint  (Hidden deferred)
@@ -35,8 +36,9 @@ Rules:
 - **Geometry is derived, never stored.** The curve between endpoints is
   computed at paint/export time from the current [`WireHost`] pose of
   anchored nodes (local features, not the world AABB — **P1.wire.ports**).
-  Document Settings → Wires chooses the session display (`WireRouting`, not
-  journaled — same class as the grid and object snaps):
+  The selected wire's popup palette chooses its journaled `WireRouting`.
+  New wires capture the creation default; legacy wires with no routing field
+  retain the session fallback until explicitly edited:
   - **Bezier** (default): a cubic leaving each anchored end along the
     host's outward (rotated local-edge normal, or the stroke tangent at
     start/end / left-normal at mid). Handle length
@@ -102,10 +104,29 @@ on `Mid`).
 | **Ctrl+Shift+drag from a grip** | **Move all**: every connector end on that grip follows; release on target grip re-anchors all of them (one journal group of `Patch`es). Release on empty cancels. |
 | **Drag a connector endpoint dot** (connector selected) | Same as Ctrl+drag detach — the discoverable path (FigJam style). |
 | **Click a connector** | Selects it (stroke hit-test: 8 px pick width + existing `vector-ink::hit_stroke`). Delete/Backspace removes. Right-click → arrowheads, faint/default, label, delete. |
+| **Shift/Ctrl-click a connector** | Adds it to the selection or toggles it off. The property palette applies edits to the full selected set. |
+| **Drag selection box** | Selects wires whose routed strokes cross the box; an empty part of a wire's AABB does not count. Shift/Ctrl adds hits to the existing selection. |
 | **Double-click a connector** | Edit its label (text entry at midpoint). |
 
 One gesture = one undo step (existing board convention): live drags mutate,
 release journals net Add/Patch/Remove via `record`.
+
+## Selected wire palette
+
+The shape property owner also serves wires (`board.wire.edit`). Stroke opens
+the shared color/opacity/weight panel. Wire opens a 17-unit capsule with
+Bezier/Square, a capsule stroke-weight slider, Solid/Dashed and None/Arrows.
+The capsule widgets are shared with Fillet/Chamfer; values appear only at the
+cursor while scrubbing. Mixed toggles have neither side highlighted. Arrows
+adds a destination (B) arrow when none exists; existing endpoint choices are
+preserved, and None clears both. All controls use the active light/dark theme
+and follow the selected wire's board transform.
+
+Palette edits preview on cloned nodes, then commit one reversible journal
+group on outside click or palette change. Esc cancels. Locked/read-only
+selections are inspectable with mutation disabled. Routing choices are no
+longer in Document Settings. The existing routing commands edit selected
+wires; with no wire selected they set the creation/legacy default.
 
 ## Painting (`apps/slate/src/app/board.rs`)
 

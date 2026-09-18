@@ -100,7 +100,7 @@ are node data:
    (plain/Shift/Ctrl/Ctrl+Shift drag on grips) compile to Add/Patch/Remove
    of connector nodes. Connectors are semantic relations the `atlas-ai`
    context beacon can carry (Art. VIII).
-3. **`ImageAdjust` gains `invert: bool`** (CSS `invert()`); `Ctrl+U` opens
+3. **`ImageAdjust` gains `invert`** (CSS `invert()` amount; legacy bool still loads); `Ctrl+U` opens
    the existing adjust controls as a popover. Both land in the egui painter
    and `slate-artifact` in the same change (Art. IV) — `imagefx.rs` mirrors
    the pixel math.

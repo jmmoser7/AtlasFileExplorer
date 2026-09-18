@@ -16,8 +16,9 @@ The design preview reads the same JSON. Never hand-copy glyphs into an app.
   silhouettes. Select is solid; Direct select is hollow.
 - Keep internal gaps at least 2 units where possible. Simplify secondary detail
   at small sizes before reducing stroke weight. Judge optical centering and weight.
-- Use one metaphor. Frame uses extending rails; Rectangle is a closed shape;
-  Arc is smooth; Polyline has corners; Bezier shows control handles.
+- Use one metaphor. Frame is a page silhouette with one dog-ear, at the
+  proposed size's true aspect; Rectangle is a closed square; Arc is smooth;
+  Polyline has corners; Bezier shows control handles.
 - Primary icons represent the family or panel. They keep their identity when a
   child tool changes. Actions is a wrench; Document settings is a page with sliders;
   Object properties is a subdivided object; Selection is a bounded object.
@@ -30,6 +31,15 @@ Media uses stacked sheets as a stable primary family icon. Image uses a landscap
 frame for flat/print media, Model uses a cube for the existing Rhino viewer, and
 Video uses a play frame. All four share the 24-unit catalog and 1.5-unit outline;
 there are no optical exceptions or per-app copies.
+
+## Frame sizes
+
+The Frame family icon is the same page-and-dog-ear sheet as the nested
+sizes. Letter (8.5×11), Tabloid (11×17), Wide (16:9), and Custom (1:1
+with a plus) share one path language at that preset's true aspect. The
+dock primary shows the current proposed size. They map from `frame.letter`
+/ `frame.tabloid` / `frame.wide` / `frame.custom`. Do not reuse Document
+settings (page + sliders) for a size.
 
 ## State and sizing
 
@@ -66,3 +76,5 @@ it does not control production rendering.
 Implementation deliberately preserves existing dock layouts. Shared docking
 behavior remains governed by DOCK.md and TOOLBARS.md. Further metaphor or stroke
 changes require actual-size visual review, not just enlarged artwork.
+
+The shape-selection strip uses the catalog Fill bucket, Ellipse stroke ring, Corners outline, and Filters funnel. These share the same path stroke and squircle chrome as the primary dock; applications do not paint private substitute glyphs. [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) owns the surrounding panel composition and distinguishes squircle icon buttons from circular color swatches, filter radios, and rail handles.

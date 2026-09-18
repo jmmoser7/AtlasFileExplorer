@@ -16,6 +16,33 @@ Feather width is passed explicitly (callers divide desired pixel feather by zoom
 The solid core spans inward from `half_width - feather/2` (clamped); the fringe
 extends to `half_width + feather/2`.
 
+Caps and joins use two explicit boundary rails. A round cap advances from its
+tip to the endpoint (or back), and a join holds the inner offset intersection
+fixed while sweeping only its outer edge. Rotating full cross-sections at a
+single point is prohibited: it makes overlapping bow-tie triangles and visible
+alpha buildup. Round detail is derived from the supplied geometric tolerance,
+not a fixed facet count. Taper changes width at the existing curve samples; it
+must not replace them with a coarse station limit.
+
+Dash splitting retains all interior samples of each on-run and merges runs
+across a closed contour's arbitrary seam. Odd dash arrays repeat according to
+SVG semantics. The export outline consumes the same boundary rails as the
+mesh, including dash, cap and join geometry.
+
+Slate bounds curve error in screen space (0.15 logical px at the upper edge of
+the current zoom bucket). Both fill and stroke caches include that bucket so
+zooming in refines curves rather than enlarging fixed world-space facets.
+
+## Filled regions and renderer coverage
+
+`fill_triangles` triangulates region geometry, including holes and disconnected
+islands. Its vertices and indices do not encode antialias coverage. A renderer
+must antialias the outer and hole boundaries; it must not feather internal
+triangle edges or layer a stroke over the fill as a substitute. Native consumers
+use the shared MSAA policy in [atlas-shell's paint contract](../atlas-shell/PAINT.md).
+SVG consumers serialize the geometry and leave coverage to the browser. Curve
+flattening tolerance controls geometric error, independently of raster coverage.
+
 ## Edit module (Direct Selection / Join geometry)
 
 `edit.rs` is the pure-geometry home for Slate's Direct Selection tool (A) and

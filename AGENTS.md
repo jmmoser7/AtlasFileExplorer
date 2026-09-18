@@ -51,6 +51,9 @@ Read `apps/file-atlas/src/app/ARCHITECTURE.md` and
 
 See `.cursor/rules/shared-chrome.mdc` and `crates/atlas-shell/TOPBAR.md`.
 Apps pass data; shell paints. Do not restate those rules here.
+Before changing dynamic object-property panels or dimension stringers, read
+[the shared style guide](crates/atlas-shell/DYNAMIC_PANELS.md), enforced by
+`.cursor/rules/dynamic-panels.mdc`.
 
 ## One owner of knowledge (Art. XII)
 

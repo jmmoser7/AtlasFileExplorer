@@ -15,7 +15,10 @@ Inherits: P0.* (all), P1.node, **P2.RhinoTrim** — deviations flagged below.
 > rewrite to remaining spans; closed shapes rewrite to a compound
 > `PathData` (even-odd holes). Text and images keep their node and store
 > the remaining region in `Node.clip` (SVG `clip-path`). Portals and
-> frames are never targets. Golden paths: `trim_gp1`–`trim_gp6` in
+> frames are never targets. Primitive outlines are owned by `slate-doc::scene`
+> and shared with painting: rectangle fillets/chamfers (absolute or percentage)
+> and adaptively sampled ellipses. World-space results bake rotation once.
+> Golden paths: `trim_gp1`–`trim_gp9` in
 > `apps/slate/src/app/tests.rs`.
 
 ## Behavior matrix
@@ -30,14 +33,14 @@ Inherits: P0.* (all), P1.node, **P2.RhinoTrim** — deviations flagged below.
 | D06 | Constraints & snapping | Object snap does not move the click; the click is a region/span pick, not a point place. F8/F9 unused during Trim. | guess | 50 |
 | D07 | Direction / value locks | n/a | pattern | 85 |
 | D08 | Numeric / manual entry | n/a (Art. III). No typed options in v1. | guess | 60 |
-| D09 | Preview & readouts | Cutters outlined in accent. Hovered dying span/face fills at `trim.preview_alpha`. Extend hover = ring on the end. No dock readout. | guess | 55 |
+| D09 | Preview & readouts | Cutters outlined in accent along their actual geometry, including corner treatment and rotation. Hovered dying span/face fills at `trim.preview_alpha`. Extend hover = ring on the end. No dock readout. | stated | 100 |
 | D10 | Cursor | Crosshair while armed. | guess | 60 |
-| D11 | Commit | Each click is one journal group (P0.2/P0.3). Open path: remaining spans (0 = delete, 1 = patch, 2+ = patch + adds). Closed shape: rewrite to Path (holes = extra contours, even-odd). Text/image: `Node.clip` = remaining region. Line cutters extend infinitely (`ExtendCuttingLines` on). | stated | 100 |
+| D11 | Commit | Each click is one journal group (P0.2/P0.3). Cutters and targets use their true geometric boundaries, including fillets, chamfers, percentage corners, ellipses and rotation. Curve sampling uses a fixed board-space tolerance, independent of zoom. Open path: remaining spans (0 = delete, 1 = patch, 2+ = patch + adds). Closed shape: rewrite to Path (holes = extra contours, even-odd); world-space results bake rotation once. Text/image: `Node.clip` = remaining region in host-local coordinates. Line cutters extend infinitely (`ExtendCuttingLines` on). | stated | 100 |
 | D12 | Cancel | Esc in TrimParts → PickCutters (Draft). Esc in PickCutters → Select (Mode). Already-committed clicks stay (undo them with Ctrl+Z). | pattern | 85 |
 | D13 | Selected presentation | Unchanged: remaining shapes use path grips; clipped text/images keep their bbox. | pattern | 80 |
 | D14 | Post-edit | Direct Selection on rewritten paths. No Untrim command. | stated | 100 |
 | D15 | Non-goals | Untrim / UntrimAll / ReplaceEdge; ApparentIntersections; temporary Line cutter option; trimming portals or frames; 3D. Split is `board.tool.split`. | stated | 100 |
-| D16 | Create-style inheritance | n/a — does not create from fg/bg. Split-off spans copy the source node's stroke/fill. | pattern | 85 |
+| D16 | Create-style inheritance | Preserve the source fill and complete stroke style on every remaining piece. Uniform strokes retain their width along existing edges, new cut boundaries and holes. | stated | 100 |
 | D17 | Hit-testing & pick | Open: closest remaining span within `trim.span_slop` (10 screen px). Closed/text/image: point-in-polygon on the filled region (or current clip). When several filled objects contain the click, pick the topmost whose remaining region after the cut is non-empty — a filled cutter over a hole does not swallow the punch. Frames/portals never pick as targets. | research | 75 |
 
 ## Feel constants
@@ -47,6 +50,7 @@ Inherits: P0.* (all), P1.node, **P2.RhinoTrim** — deviations flagged below.
 | `trim.span_slop` | open-span pick radius (screen px) | 10.0 |
 | `trim.end_slop` | Shift+extend end pick radius (screen px) | 14.0 |
 | `trim.preview_alpha` | dying-region fill opacity | 0.38 |
+| `trim.geometry_tolerance` | maximum input curve chord error, board units | 0.05 |
 
 Pinned as `board_trim::trim_tokens` (P0.6).
 
@@ -58,6 +62,9 @@ Pinned as `board_trim::trim_tokens` (P0.6).
 4. **GP4 (Ctrl+N new tab):** Ctrl+T arms Trim; Ctrl+N still opens a workbook tab.
 5. **GP5 (per-click undo):** two successive open-path trims · Ctrl+Z undoes only the last click.
 6. **GP6 (Esc stack):** arm with no selection · click a cutter · Enter · Esc → PickCutters · Esc → Select.
+7. **GP7 (stroke preservation):** select a rectangular cutter overlapping another rectangle's corner · Ctrl+T · click the overlap → the target becomes a notched path with the original fill, stroke color and uniform width around every edge. One undo restores the original rectangle. Geometry coverage also checks holes, all join styles and both contour directions.
+8. **GP8 (true outlines):** overlapping rounded rectangles → trim the overlap → untouched target corners stay rounded, and the notch follows the cutter's curved corner. Repeat for chamfers, percentage corner amounts and a rotated arrangement. The cutter stays unchanged, the result survives serialization, and one undo restores the original target.
+9. **GP9 (rotated line):** a legacy line rotated 45° crosses a vertical cutter → click its lower-coordinate half → remaining endpoints lie on the painted diagonal, with no second rotation. One undo restores the original line.
 
 ## Open questions
 

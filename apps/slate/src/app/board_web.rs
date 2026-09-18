@@ -50,10 +50,9 @@ pub(crate) fn web_url_text(text: &str) -> Option<&str> {
 /// Below this on-screen height (physical pixels), a portal is not worth a
 /// live webview. The last poster still paints — a blank fill is D30.
 pub const LOD_STRIP_PX: f32 = 96.0;
-/// Cap on a live capture in physical pixels so a zoomed-in portal cannot
-/// allocate a 8K readback (Art. II).
-pub const RASTER_MAX_PX: f32 = 1920.0;
-pub const RASTER_MAX_PIXELS: f32 = 2_073_600.0;
+/// Safety ceiling beyond the monitor-sized quality tiers (supports 8K displays).
+pub const RASTER_MAX_PX: f32 = 8192.0;
+pub const RASTER_MAX_PIXELS: f32 = 33_177_600.0;
 /// On-screen height at which a portal becomes eligible for the live pool.
 ///
 /// This is not a taste threshold, it is a cost one, so it sits low enough that a
@@ -228,7 +227,7 @@ pub struct WebRequest {
 impl WebRequest {
     pub fn rasterization_scale(&self) -> f64 {
         let css = self.width_css.max(1) as f64;
-        (self.raster_w.max(1) as f64 / css).clamp(0.25, 4.0)
+        (self.raster_w.max(1) as f64 / css).max(0.01)
     }
 }
 
@@ -294,13 +293,15 @@ pub trait WebHost {
     /// The newest frame, if one arrived since the last call.
     fn take_frame(&mut self, id: NodeId) -> Option<egui::ColorImage>;
     /// A one-off capture for the poster cache (D21). Must not be called from
-    /// `web_pump` on demotion — that path uses [`WebHost::last_frame`].
+    /// `web_pump` on demotion — that path retains the accepted poster texture.
     fn capture_poster(&mut self, id: NodeId) -> Option<egui::ColorImage>;
     /// Last uploaded/captured frame, no GPU readback.
     fn last_frame(&self, _id: NodeId) -> Option<egui::ColorImage> {
         None
     }
     fn send_input(&mut self, id: NodeId, input: WebInput);
+    /// Page scrollbars follow the same derived visibility as Slate's overlay.
+    fn set_scrollbars(&mut self, _id: NodeId, _visible: bool, _width_css: f32, _color: Color32) {}
     /// The cursor the page is asking for, while it holds input focus (D10).
     fn cursor(&self, id: NodeId) -> Option<egui::CursorIcon>;
     /// Whether the page reported a load failure.
@@ -782,7 +783,9 @@ impl SlateApp {
                 // ready would otherwise leave the portal stuck on Loading with
                 // `live` already true and no further admit.
                 let layout_rect = self.web_layout_world(*id, *rect, ctx);
-                if let Some(req) = self.web_request(*id, portal, workbook.as_deref(), layout_rect) {
+                if let Some(req) =
+                    self.web_request(ctx, *id, portal, workbook.as_deref(), layout_rect)
+                {
                     self.web.host.admit(*id, &req);
                     if let Some(v) = self.web.views.get_mut(id) {
                         v.live = true;
@@ -1045,6 +1048,7 @@ impl SlateApp {
 
     fn web_request(
         &self,
+        ctx: &egui::Context,
         id: NodeId,
         portal: &PortalNode,
         workbook: Option<&Path>,
@@ -1067,13 +1071,14 @@ impl SlateApp {
         };
         let target = self.resume_target(id, &authored);
         let (width_css, height_css) = css_size(&web, rect);
+        let display = ctx.screen_rect().size() * ctx.pixels_per_point();
         let (raster_w, raster_h) = self
             .web
             .views
             .get(&id)
             .filter(|v| v.width_px > 2.0 && v.height_px > 2.0)
-            .map(|v| raster_for(width_css, height_css, v.width_px, v.height_px))
-            .unwrap_or_else(|| raster_for(width_css, height_css, 0.0, 0.0));
+            .map(|v| raster_for(width_css, height_css, v.width_px, v.height_px, display))
+            .unwrap_or_else(|| raster_for(width_css, height_css, 0.0, 0.0, display));
         Some(WebRequest {
             target,
             kind,
@@ -1942,8 +1947,18 @@ impl SlateApp {
         layout: &PortalChromeLayout,
         pointer: Option<Pos2>,
     ) -> bool {
-        let page = layout.page;
-        let inside = pointer.is_some_and(|p| page.contains(p));
+        // UVs follow the painted body, not the inset frame hit band. Keep
+        // native scrollbar tracks reachable where they overlap that band.
+        let page = layout.body;
+        let scrollbar_width = atlas_shell::tabs::portal_scrollbar_width(
+            layout.bar.or(layout.reveal).map_or(0.0, |r| r.height()),
+        );
+        let inside = pointer.is_some_and(|p| {
+            layout.page.contains(p)
+                || (page.contains(p)
+                    && (p.x >= page.right() - scrollbar_width
+                        || p.y >= page.bottom() - scrollbar_width))
+        });
         let dragging = self.web.pointer_down != 0;
         if !inside && !dragging {
             if ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {
@@ -2105,6 +2120,23 @@ impl SlateApp {
         let fade = |c: Color32| c.gamma_multiply(alpha);
         let state = self.web.state(node.id);
         let focused = self.web.focused == Some(node.id);
+        let css_rect = self.web_layout_world(node.id, node.rect, ui.ctx());
+        let (css_width, _) = css_size(&portal.web_ref(), css_rect);
+        let chrome_height = if self.portal_is_maximized(node.id) {
+            atlas_shell::tokens::current().topbar.height
+        } else {
+            super::board_portal_chrome::tab_bar_height() * zoom
+        };
+        let scrollbar_css = atlas_shell::tabs::portal_scrollbar_width(chrome_height)
+            * css_width as f32
+            / layout.body.width().max(1.0);
+        let scrollbar_color = self.palette().sub;
+        self.web.host.set_scrollbars(
+            node.id,
+            layout.bar.is_some() || layout.reveal.is_some(),
+            scrollbar_css,
+            scrollbar_color,
+        );
         self.note_web_geometry(
             node.id,
             layout.frame,
@@ -2379,12 +2411,24 @@ fn page_input_is_interactive(event: &WebInput) -> bool {
     }
 }
 
-/// Stable capture size for a live page, bounded independently of camera zoom.
-pub fn raster_for(css_w: u32, css_h: u32, _screen_w: f32, _screen_h: f32) -> (u32, u32) {
-    // Camera zoom must not resize the browser or recreate capture buffers.
-    // Preserve page aspect while bounding both edge length and total pixels.
+/// Physical-pixel quality tiers, bounded by the display rather than deep zoom.
+pub fn raster_for(
+    css_w: u32,
+    css_h: u32,
+    screen_w: f32,
+    screen_h: f32,
+    display: egui::Vec2,
+) -> (u32, u32) {
+    // Coarse upward tiers keep text sharp without resizing on every wheel tick.
+    // Beyond a screenful, retain monitor quality rather than allocating an
+    // unbounded canvas-sized surface. Old pixels remain until replacement.
     let (w, h) = (css_w.max(1) as f32, css_h.max(1) as f32);
-    let scale = 1.0_f32
+    let ceiling = (display.x.max(1.0) / w)
+        .max(display.y.max(1.0) / h)
+        .max(1.0);
+    let demand = (screen_w / w).max(screen_h / h).max(1.0).min(ceiling);
+    let tier = 2.0_f32.powf(demand.log2().ceil()).min(ceiling);
+    let scale = tier
         .min(RASTER_MAX_PX / w.max(h))
         .min((RASTER_MAX_PIXELS / (w * h)).sqrt());
     (
@@ -2398,19 +2442,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn camera_zoom_does_not_resize_or_unbound_the_capture() {
-        let normal = raster_for(1280, 720, 1280.0, 720.0);
-        for size in [0.0, 20.0, 4096.0, 1.0e20, f32::INFINITY] {
-            assert_eq!(raster_for(1280, 720, size, size), normal);
+    fn capture_tiers_match_high_dpi_displays_and_bound_deep_zoom() {
+        let display = egui::vec2(3840.0, 2160.0);
+        assert_eq!(raster_for(1280, 720, 3840.0, 2160.0, display), (3840, 2160));
+        assert_eq!(raster_for(1280, 720, 1500.0, 844.0, display), (2560, 1440));
+        assert_eq!(raster_for(1280, 720, 1700.0, 956.0, display), (2560, 1440));
+        for size in [4096.0, 1.0e20, f32::INFINITY] {
+            assert_eq!(raster_for(1280, 720, size, size, display), (3840, 2160));
         }
+        let eight_k = egui::vec2(7680.0, 4320.0);
+        assert_eq!(raster_for(1280, 720, 7680.0, 4320.0, eight_k), (7680, 4320));
         for (w, h) in [(u32::MAX, u32::MAX), (9000, 3000), (1, u32::MAX)] {
-            let (rw, rh) = raster_for(w, h, 0.0, 0.0);
+            let (rw, rh) = raster_for(w, h, 1.0e20, 1.0e20, eight_k);
             assert!(rw >= 1 && rh >= 1);
             assert!(rw.max(rh) <= RASTER_MAX_PX as u32);
             assert!((rw as u64) * (rh as u64) <= RASTER_MAX_PIXELS as u64);
         }
-        let (w, h) = raster_for(7680, 4320, 1.0e10, 1.0e10);
-        assert!((w as f32 / h as f32 - 16.0 / 9.0).abs() < 0.002);
     }
 
     #[test]
@@ -2650,14 +2697,14 @@ mod tests {
             "Auto makes the frame the viewport"
         );
         assert_eq!(
-            raster_for(1280, 640, 1920.0, 1080.0),
-            (1280, 640),
-            "Fit captures its CSS viewport independently of camera zoom"
+            raster_for(1280, 640, 1920.0, 1080.0, egui::vec2(1920.0, 1080.0)),
+            (2160, 1080),
+            "Fit preserves its CSS layout while capturing enough physical pixels"
         );
         assert_eq!(
-            raster_for(1280, 640, 40.0, 22.0),
+            raster_for(1280, 640, 40.0, 22.0, egui::vec2(1920.0, 1080.0)),
             (1280, 640),
-            "zooming out must not resize capture buffers"
+            "small portals need no high-DPI upgrade"
         );
     }
 }

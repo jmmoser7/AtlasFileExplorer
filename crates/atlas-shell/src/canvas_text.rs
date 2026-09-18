@@ -215,6 +215,28 @@ pub struct Scaled {
 }
 
 impl Scaled {
+    /// Use native text-edit layout with the same final canvas transform.
+    pub fn from_galley(galley: Arc<Galley>, scale: f32) -> Self {
+        Self { galley, scale }
+    }
+
+    pub fn galley(&self) -> Arc<Galley> {
+        Arc::clone(&self.galley)
+    }
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// Rotate about the label center, preserving exact board-space scale.
+    pub fn paint_rotated(self, painter: &Painter, center: Pos2, angle: f32, color: Color32) {
+        let origin = center - egui::emath::Rot2::from_angle(angle) * (self.size() * 0.5);
+        let mut text = TextShape::new(Pos2::ZERO, self.galley, color).with_angle(angle);
+        text.override_text_color = Some(color);
+        let mut shape = Shape::Text(text);
+        shape.transform(TSTransform::new(origin.to_vec2(), self.scale));
+        painter.add(shape);
+    }
+
     /// On-screen size of the text as it will paint — already scaled.
     #[inline]
     pub fn size(&self) -> Vec2 {

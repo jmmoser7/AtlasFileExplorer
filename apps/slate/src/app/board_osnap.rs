@@ -82,7 +82,11 @@ impl SlateApp {
         }
         let set = self.board_osnap;
         let radius = self.osnap_radius_world();
-        if let Some(hit) = pick(
+        let draft = match &self.board_path_draft {
+            Some(board_path::BoardPathDraft::Polyline { points }) => points.as_slice(),
+            _ => &[],
+        };
+        if let Some(hit) = pick_with_draft(
             &self.doc().scene,
             world,
             radius,
@@ -90,6 +94,7 @@ impl SlateApp {
             exclude,
             from,
             self.board_wire_routing,
+            draft,
         ) {
             self.board_osnap_hit = Some(hit);
             return hit.point;
@@ -141,6 +146,20 @@ pub fn pick(
     from: Option<Pos2>,
     routing: WireRouting,
 ) -> Option<OsnapHit> {
+    pick_with_draft(scene, cursor, radius, set, exclude, from, routing, &[])
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pick_with_draft(
+    scene: &Scene,
+    cursor: Pos2,
+    radius: f32,
+    set: ObjectSnapSet,
+    exclude: &[NodeId],
+    from: Option<Pos2>,
+    routing: WireRouting,
+    draft: &[Pos2],
+) -> Option<OsnapHit> {
     if !set.any_kind_on() {
         return None;
     }
@@ -178,6 +197,33 @@ pub fn pick(
         }
     };
 
+    // Draft segments participate in the same ranking and tolerance as scene
+    // geometry. The last vertex cannot snap the new endpoint back onto itself.
+    for point in draft.iter().take(draft.len().saturating_sub(1)) {
+        consider(SnapKind::End, [point.x, point.y], None);
+    }
+    for edge in draft.windows(2) {
+        let a = [edge[0].x, edge[0].y];
+        let b = [edge[1].x, edge[1].y];
+        consider(
+            SnapKind::Mid,
+            [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5],
+            None,
+        );
+        consider(
+            SnapKind::Near,
+            slate_doc::osnap::nearest_on_segment(a, b, [cursor.x, cursor.y]),
+            None,
+        );
+        if let Some(origin) = from {
+            consider(
+                SnapKind::Perpendicular,
+                slate_doc::osnap::nearest_on_segment(a, b, [origin.x, origin.y]),
+                None,
+            );
+        }
+    }
+
     let mut int_segs: Vec<([f32; 2], [f32; 2], NodeId)> = Vec::new();
 
     for id in ids {
@@ -202,7 +248,9 @@ pub fn pick(
                     }
                 }
             }
-            if let Some(path) = connector_route_in_scene(scene, Some(id), &c.a, &c.b, routing) {
+            if let Some(path) =
+                connector_route_in_scene(scene, Some(id), &c.a, &c.b, c.effective_routing(routing))
+            {
                 consider(SnapKind::Mid, path.midpoint(), Some(id));
                 if set.is_on(SnapKind::Near) {
                     if let Some(p) = nearest_on_path(&path, [cursor.x, cursor.y]) {

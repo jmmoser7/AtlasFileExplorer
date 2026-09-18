@@ -42,12 +42,11 @@ Floating canvas docks follow the same workflow:
 | `[dock.palette]` in `ui-tokens.toml` | The palette body: fieldset pad/gap/radius/stroke, independent pallet / category / icon-label type and lifts, one category underscore, caption height, and the dot cluster |
 | `[dock.advanced]` in `ui-tokens.toml` | Advanced catalog canvas: card/portal geometry, cool color cast, grid |
 
-The palette is what a dock icon opens, and it is the first section in the
-tuner — *Menu palette · Type, icons, frame & dots*. It gathers the dials in
-the order you reach for them (type, icon size and buffering, the group frame's
-stroke and fillet, the caption, the dot cluster, then placement) even though
-they live in two token tables. Lock the popover open before dragging anything,
-or the palette closes the moment the pointer leaves the canvas.
+The secondary icon menu is the first section in the tuner —
+*Secondary icon menu*. Capsule pad, fillet, fill density, well fill, and
+the primary-from-secondary fill mix / offset sit at the top. Lock the
+popover open before dragging anything, or the palette closes the moment
+the pointer leaves the canvas.
 
 Dropdowns and right-click menus (both apps, including the icon-portal flyout):
 

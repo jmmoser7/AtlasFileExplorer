@@ -50,7 +50,12 @@ impl PortalChromeLayout {
                 .hover_pos()
                 .is_some_and(|p| self.frame.contains(p));
             let top = i.pointer.hover_pos().is_some_and(|p| {
-                self.bar.or(self.reveal).is_some_and(|r| r.contains(p)) || self.maximize.contains(p)
+                let scrollbar_width = atlas_shell::tabs::portal_scrollbar_width(
+                    self.bar.map_or(tab_bar_height(), |bar| bar.height()),
+                );
+                self.bar.or(self.reveal).is_some_and(|r| r.contains(p))
+                    || self.maximize.contains(p)
+                    || (self.frame.contains(p) && p.x >= self.frame.right() - scrollbar_width)
             });
             let active = over
                 && (i.pointer.delta() != egui::Vec2::ZERO
@@ -859,6 +864,7 @@ mod tests {
         let layout = layout_portal_chrome(frame, false, true, 1.0);
         assert_eq!(layout.radius, 0.0);
         assert_eq!(layout.frame, frame);
+        assert_eq!(layout.bar.unwrap().height(), tab_bar_height());
     }
 
     #[test]

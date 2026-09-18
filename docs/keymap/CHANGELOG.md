@@ -1,5 +1,119 @@
 # Canvas command project — change log
 
+## 2026-09-18 — Image photo-filter capsule
+
+- Image selections gain a Filters squircle on the shared property strip.
+- The editor is the fillet-height capsule: colored radios (B&W, Invert,
+  Clarendon, Juno, Lark) and one intensity slider. Hover previews; click
+  or scrub journals `ImageAdjust` through `board.shape.edit`.
+- Recipes live on `slate-doc::scene::PhotoFilter` and compile to the
+  existing CSS-filter model. `invert` is now an amount (legacy bool
+  documents still load). 3D model viewports omit the control.
+
+## 2026-09-18 — Shared property strip beyond shapes
+
+- Fill, Stroke and Corners follow scene capabilities, so the same strip
+  serves frames, text sticky-note fills, portals, images and wires.
+- The forked frame popup is gone. Deck order, tags, add-images and present
+  use the geometry-node squircles.
+- Selecting expands the icons; one empty-canvas click commits, collapses
+  and deselects (no second click).
+- The fillet capsule is 30% taller than the 17-unit wire capsule
+  (`CORNER_HEIGHT` / `CAPSULE_HEIGHT`).
+
+## 2026-09-18 — Dock family primaries open the flyout only
+
+- Clicking Frame, Shapes, Portals, Text, Media, or Actions on the dock
+  opens that palette. It does not arm a subtype. Nested flyout icons
+  still arm or run the chosen command.
+- Frame primary and size glyphs share one page-and-dog-ear sheet at
+  the proposed size's true aspect (Letter 8.5×11, Tabloid 11×17,
+  16:9, Custom 1:1).
+
+## 2026-09-18 — Selection yields to property previews
+
+- Opening a Fill, Stroke, Corners or Wire adjustment fades selection/hover
+  decoration out over 120 ms. Switching editors keeps it hidden; closing or
+  cancelling restores it. Property controls and stringers remain visible.
+- The shared shell selection painter handles silhouettes, path highlights and
+  endpoint grips without changing authored paint, selection, or undo history.
+- GP14 covers native board paint output for rectangles and wires in both themes.
+
+## 2026-09-17 — Curved dashes and stroke mesh quality
+
+- Dashes retain every intervening curve sample instead of becoming straight endpoint chords, including runs crossing a closed path's seam.
+- Round caps advance along noncrossing boundary rails; round and bevel joins hold their inner intersection fixed. This removes internal triangle overlap and translucent buildup. Cap and join detail is tolerance-driven.
+- Tapered strokes retain adaptive curve samples instead of resampling to a maximum of 64 stations. SVG stroke outlines use the same cap/join/dash boundary owner as the native mesh.
+- Path fills, path strokes and wires refine with zoom to keep curve error below 0.15 logical px. Meshes stay cached by zoom bucket.
+- Regression targets cover dash curvature, closed seams, odd dash arrays, capsule/join area, tapered samples, export outlines and zoom-dependent fill caching.
+
+## 2026-09-17 — Trim follows authored outlines
+
+- Trim uses the actual fillet/chamfer boundary of both rectangles, including percentage corners, instead of substituting square boxes. The board painter and trim share the pure outline owner in `slate-doc::scene`.
+- Ellipse and curve sampling use bounded geometric error rather than a fixed 48-sided ellipse. Cutter highlights follow their actual outlines.
+- Trim/Split results bake world-space rotation once; legacy rotated line endpoints and rotated text/image clips now use the correct coordinate space.
+- Added rounded/chamfered overlap, rotation, serialization and undo regressions. Slate, slate-doc and slate-artifact test targets compile; Windows denied execution of the slate-doc regression executable (`os error 5`), so test execution is not claimed.
+
+## 2026-09-17 — Document settings palette
+
+- Document settings is a toggle palette (icon strip) like the other board
+  tools — grid, snaps, reach, and kinds stay on the strip instead of a
+  stacked form that ignored palette mode.
+
+## 2026-09-17 — Wire property palettes and short stringers
+
+- Dimension labels that cannot fit between their ticks move beyond the stringer end and remain editable in place.
+- Wires share the shape property palette, with capsule routing, weight, dash and arrow controls. Routing is authored per wire and exported faithfully; legacy wires retain their default until edited.
+- Shift/Ctrl selection and crossing marquee support wire batches. Marquee checks the actual route, avoiding both full-AABB containment and empty-box false hits.
+
+## 2026-09-17 — Selection, arc bulge, last style, stringer clearance
+
+- Shift+click (and Shift+marquee) add to the selection; rectangles no longer
+  lose the set because hover-resize stole the press. Empty Shift+click keeps
+  the current set. `P1.node.select`.
+- Selection chrome is a per-shape silhouette (faint fill + outline, or the
+  path itself) instead of a painted union bounding box.
+- Arc grammar is start → end → middle. The last pick is the through-point, so
+  dragging it changes curvature only; endpoints stay put. `arc` D03.
+- Inherit-style creates (`CreateStyle::Inherit`, the kit default) take the
+  last single-node stroke and fill. Stroke-only creates do not wipe fill
+  memory. `P1.shape.style` / `P1.curve.create-style`.
+- The align widget's bottom cluster sits past the width stringer
+  (`STRINGER_GAP × zoom`) so the two do not overlap at some zoom levels.
+
+## 2026-09-17 — Trim stroke and slimmer corner slider
+
+- Miter stroke cross-sections follow the corner bisector; bevels and miter-limit fallbacks preserve both edge normals. Trimmed paths retain uniform-width edges instead of triangular slivers. Shared geometry fix; authored stroke settings and native SVG export stay unchanged.
+- Fillet/Chamfer capsule height is halved to 17 board units. Its slider now has the reference's enclosing capsule and outlined pill thumb in both themes; metrics remain transient at the pointer.
+
+## 2026-09-17 — Closed polyline hits the stroke
+
+- Unfilled closed paths pick, marquee, Near-snap, wire ports, and
+  smart guides on the path itself (including the closing seam), not the
+  AABB. Stroke hit-testing walks each contour separately and honors
+  `ClosePath`, so a phantom segment cannot fire outside the box (the
+  classic close-to-origin ghost). Bounding-box resize chrome stays off
+  for unfilled paths even after select. `P1.curve.pick` / `P1.wire.ports`.
+
+## 2026-09-17 — Approved compact shape palettes
+
+- Fill/Stroke share a low-profile picker with full-width buffers, transient cursor metrics, inline RGB percentages and document-local recent colors.
+- Squircle selection controls and a single-row Fillet/Chamfer strip use shared light/dark theme slots.
+- Exterior stringers edit at their rotated labels. The entire assembly follows board pan/zoom without screen-position caching or viewport relocation.
+- Recent-color usage metadata records successful committed RGB changes and persists separately from scene undo/export.
+
+## 2026-09-17 — Sharp web viewers and unified idle chrome
+
+- Monitor/DPI-sized capture tiers restore legible text on enlarged and
+  maximized web viewers while retaining valid stills during upgrades.
+- Mouse coordinates track the physical capture scale.
+- Plain centered title bar; native scrollbars hide with it without reflow.
+  Fullscreen chrome uses the Slate index top-bar dimensions.
+- Windows denied the File Atlas dependency build script and contract checker
+  (OS error 5). Slate compilation, runtime tests, and a new executable remain
+  blocked; these source changes have not been visually verified.
+
+
 ## 2026-09-16 — File Atlas portal follows board scale
 
 - Keep the inner folder camera in portal-local units and compose it with
@@ -453,3 +567,8 @@ shared fg/bg chrome primitive, connector relations in the AI beacon.
 ## 2026-09-15 — Agent portal refinement
 
 Approved minimal icon picker, hover chrome, semantic input wires, in-node image albums and journaled Unbundle. Added `portal.agent.unbundle` and `portal.agent.stop`. No new shortcuts. See `contracts/portal-agent-link.md`.
+
+
+## 2026-09-17 — native shape property implementation
+
+Implemented geometry-gated circular selection palettes; transaction previews; desktop RGB sampling; centered dimension stringers; persistent percent/absolute fillet/chamfer geometry with export parity. Ordered input preserves moving line/polyline/arc picks and all freehand event samples; draft polyline endpoints/segments participate in snapping and start closure. Added command registry entries and regression coverage. Shared ownership passed Article XII review. See the shape contracts and desktop sampler acceptance notes.

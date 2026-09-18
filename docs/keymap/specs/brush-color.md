@@ -59,6 +59,8 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 
 ## Eyedropper (I)
 
+> 2026-09-17 refinement: the user requires every eyedropper to sample across the desktop. [Shared desktop color sampling](desktop-color-sampling.md) supersedes the node-style-only target below for the next implementation. The following P1 rules describe the currently shipped implementation, not the approved future sampling scope.
+
 - `BoardTool::Eyedropper` + **spring-loaded Alt** while Brush is active
   (mandatory per research §3).
 - P1 sampling source: **node styles**, not pixels — topmost node under the

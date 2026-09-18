@@ -83,8 +83,9 @@ is searchable.
 
 - **P1.node.flags** lock / hide / group semantics (Ctrl+L/H/G family);
   locked nodes still feed smart guides.
-- **P1.node.select** click select, Shift+click add/toggle, marquee;
-  group click selects the group, Ctrl+Shift+click a member.
+- **P1.node.select** click select, Shift+click add/toggle, Shift+marquee
+  adds; hover-resize on an unselected node yields to Shift/Ctrl pick.
+  Group click selects the group, Ctrl+Shift+click a member.
 - **P1.node.move** drag with smart guides; ortho (F8, Shift inverts),
   grid snap (F9), and the persistent object-snap set (**P1.node.osnap**)
   apply; arrows nudge. Smart guides (InDesign / tldraw / Keynote) only
@@ -145,20 +146,31 @@ is searchable.
   dock strips, and simple lines stay axis-aligned. A press on a wire-grip midpoint
   starts a connector and suppresses edge resize at that point (hit-test
   the press origin, not the live pointer). The rest of the edge is
-  resize. Selection chrome is a silhouette outline that follows the
-  painted geometry (fillet, ellipse, AABB) — no corner or midspan
-  squares on a single node or a 2+ group box. Resize hover-hit on that
-  outline includes the corners (same 45° cursor as a single node).
+  resize.   Selection chrome is a silhouette of each selected shape (fillet,
+  ellipse, path stroke) — a faint fill plus outline, never a painted
+  union bounding box. Resize hover-hit still uses the group AABB
+  (corners included, same 45° cursor as a single node). Shift+click on
+  an unselected node's hover-resize band adds it to the selection
+  instead of starting a resize.
 - **P1.node.zorder / clipboard** PageUp/PageDown/Ctrl+B; Ctrl+C/X/V,
   Ctrl+Shift+V in place.
 
 ### P1.shape — closed shapes (rect, ellipse, frame)
 
-- **P1.shape.style** fill + stroke; new shapes consume the current style
-  defaults; color applies via fg/bg state and inspector.
+- **P1.shape.style** fill + stroke; new shapes consume the last single-node
+  fill and stroke (`BoardLastStyle`) when the kit recipe is inherit.
+  Color applies via fg/bg state and inspector. A stroke-only create does
+  not wipe the remembered fill.
 - **P1.shape.aspect** Shift during creation locks aspect (square/circle).
 
 ### P1.curve — open curves (line, arc, polyline, bezier span, pen, brush ink)
+
+- **P1.curve.render** dashes follow the complete source curve between dash
+  boundaries. Round caps/joins have no overlapping internal facets; tapered
+  strokes retain the source's adaptive samples. Curve detail refines with zoom
+  in both fills and strokes; changing view scale does not change authored data.
+  Shared ownership: `vector-ink` dash/mesh/outline, with screen-error budgets and
+  cached tessellation in `board_path` (also consumed by wires).
 
 - **P1.curve.style** stroke only, no fill; stroke width/cap/dash editable
   after the fact; Ctrl+J joins endpoints.
@@ -167,7 +179,8 @@ is searchable.
   create (draft curves: Line, arc, polyline, …). When nothing was edited yet,
   draft curves use `default_curve_stroke` at the current fg color — **Square**
   end caps, Miter joins (distinct from expressive ink's round caps). Brush/Pen
-  ink keeps its own round defaults (`P2.StickyInk`). Implementation:
+  ink keeps its own round defaults (`P2.StickyInk`). Stroke-only nodes do
+  not replace the remembered fill. Implementation:
   `board_style::BoardLastStyle`, updated from `patch_nodes` (single target) and
   grip commits.
 - **P1.curve.grips** selected open curves expose their defining points as
@@ -178,22 +191,26 @@ is searchable.
   segments.
 - **P1.curve.pick** click and marquee selection hit the **stroke** (via
   `vector_ink::hit_stroke` + `pick.slop` ≈ 4 screen px), never the node's
-  axis-aligned rect alone. Legacy `ShapeKind::Line` included. Marquee: the
-  stroke centerline intersects the marquee, or a stroke hit at the marquee
-  center. Implementation: `board_path::hit_shape_stroke`,
-  `board_path::marquee_hits_node`.
+  axis-aligned rect alone. Closed unfilled paths included — each contour
+  is tested on its own (no ghost segment between `ClosePath` and the next
+  `MoveTo`, and no infinite-line extension past a vertex). Legacy
+  `ShapeKind::Line` included. Marquee: the stroke centerline intersects
+  the marquee, or a stroke hit at the marquee center. Unfilled paths do
+  not grow bounding-box resize chrome. Implementation:
+  `board_path::hit_shape_stroke`, `board_path::marquee_hits_node`.
 
 ### P1.wire — connector ports (spawn handles)
 
 - **P1.wire.ports** wire spawn handles sit on **consistent object
   features**, never the world AABB of a rotated host. Area objects
-  (rect, ellipse, text, image, frame, portal, dock strip, closed path)
+  (rect, ellipse, text, image, frame, portal, dock strip)
   expose the four local-edge midpoints of `node.rect`, then rotate
   those points about the node center — so a rotated rectangle's ports
   travel with the rectangle, and an ellipse's ports are the local-axis
-  extrema (which lie on the ellipse). Open strokes (line, arc,
-  polyline, bezier, pen) expose arclength `t = 0`, `0.5`, `1` on the
-  stroke itself. Connectors have no ports. New geometry declares a
+  extrema (which lie on the ellipse). Strokes (line, arc, open or
+  closed polyline, bezier, pen) expose arclength `t = 0`, `0.5`, `1`
+  on the path itself, including a closed path's closing seam — never
+  the path's AABB. Connectors have no ports. New geometry declares a
   class on `slate_doc::WireHost` (oriented box, open stroke, or a
   future silhouette / vertex facet) — it does not special-case a file
   format. Geometry is derived at resolve time (Art. VI.3); the journal
@@ -330,21 +347,16 @@ duplication. New portal contracts reference these and add only deviations.
   Web portal pixels are visually full-bleed to the frame/body outline; the
   invisible focused-page border hit band is input-only, never a bezel.
   **Deviates** a square `clip_rect` / `painter.image` of the AABB.
-- **P1.portal.chrome** Identity tab is **web-only**. Its bar overlays the full-bleed page and retracts after 1.2 seconds of inactivity or pointer departure. Interaction or the top-edge area reveals it; viewport bounds never change. Idle chrome has no painted controls. The inset identity blister uses smaller centered type. Painted by
-  `atlas-shell::tabs::portal_tab_bar` (the workbook tab language: one
-  active tab, no `+`). The tab shows the locator. The strip is slimmer
-  than the Slate / File Atlas top bar (`portal_frame.tab_height_scale`,
-  40%). Bounded text clips to the tab content rect; truncation is allowed,
-  oversail is not. Maximize is the only chrome button on that strip —
-  hover brightens the glyph, not a fill. Folding is a context-menu /
-  command action (`portal.chrome.toggle`), not a second toolbar icon; a
-  folded tab is recovered from a reveal strip on the top interior
-  (`portal_reveal_hint`). Right-click on the tab or the frame opens
-  portal-specific actions (plus Maximize / Hide tab). On the canvas the
-  tab is a node-local object (**P0.9**). Maximized, it is window chrome
-  and may stay screen-sized. This is Slate chrome, not browser chrome —
-  D15's cut of a browser tab strip still holds. Other portal kinds have
-  no tab.
+- **P1.portal.chrome** Identity chrome is **web-only**, owned by
+  `atlas-shell::tabs::portal_tab_bar`: a plain bar with centered page name/URL,
+  no blister. It overlays the full-bleed page and retracts after 1.2 seconds
+  idle or pointer departure; interaction or its top edge reveals it. Native
+  page scrollbars share that visibility, retaining transparent gutters to
+  prevent reflow. Maximized bars use the Slate index top-bar height and type;
+  scrollbar thickness follows that same scale. Canvas chrome follows P0.9.
+  Maximize is the only bar button. Explicit folding remains a context-menu /
+  `portal.chrome.toggle` action, recovered from the top-interior reveal strip.
+  Other portal kinds have no identity bar.
 - **P1.portal.maximize** Every portal carries the four-corner maximize
   square (`atlas-shell::tabs::paint_maximize_glyph`), the same graphic
   as the Slate / File Atlas caption control. On a web portal it sits in
@@ -359,7 +371,7 @@ duplication. New portal contracts reference these and add only deviations.
 - **P1.portal.local-ui** Source-specific controls live on that portal —
   Selection inspector, portal chrome, or a Set portal command — never on
   Document Settings or any other board-wide panel.   Document Settings is
-  canvas-scoped (grid visibility, board object snaps, wire routing, …). A sophisticated
+  canvas-scoped (grid visibility, board object snaps, …). A sophisticated
   host (Rhino view, web embed, repo lens query, …) that needs a unique
   interface adds it to its own contract and inspector. Board-wide chrome
   must not grow a row per portal kind or node kind. Exception only when
@@ -390,9 +402,8 @@ has no board, so it ignores Drop to canvas.
   `paint_icon_strip_card` / the flyout strip. Fieldset groups of
   secondary circular icons; tertiary toggles stack two-high on that
   icon datum. No second card around a canvas copy — it is the same
-  strip the dock paints. Window-chrome dots (Minimize, Advanced,
-  Drop, then layout-toggle last) stay on the docked popover only; the
-  layout dot uses a denser fill, same radius as the others. Canvas copies are a poster:
+  strip the dock paints. Window-chrome dots (Minimize, Drop) stay on
+  the docked popover only. Canvas copies are a poster:
   measure the docked intrinsic size, then **contain-scale** into the
   node rect — extra bounds are margin, never a reflow (P0.9).   When the pinned band no longer fits the canvas, icons wrap into
   extra rows **inside** each palette — groups stay in one row.
@@ -402,10 +413,8 @@ has no board, so it ignores Drop to canvas.
   single row. Pallets sit on the category rule (the basedatum).
   Never hex-stagger, never fair-share every box to a one-icon tower.
   Stacked captions on the dock use a horizontal ellipsis; the strip
-  uses a vertical dot column. Hover labels appear in one place,
-  centered above the dots. The last-dot label is **Icon strip** in
-  the list and **Stacked view** in the strip; either click is
-  dock-wide.
+  uses a vertical two-dot column. Hover labels appear in one place,
+  centered above the dots.
 - **P1.dock-strip.select** selection and hover rings use
   `node_screen_outline` → `rounded_rect_outline` of the painted card
   at `icon_strip_card_radius` (the same fillet paint uses) and
@@ -583,3 +592,16 @@ Same phase machine, Esc, Enter, infinite line cutters, and preselect as
 
 Only in `contracts/<tool>.md`. If you're about to write the same L3 rule in
 a second contract — stop and promote it.
+
+
+### P1.shape.properties — selection properties and dimensions
+
+Scene capabilities select one shared squircle strip above the selection: Stroke for shapes, images and wires; Fill for closed shapes, text sticky-note backgrounds, frames and portals; Corners for rectangles and images; photo filters for images (not 3D model viewports); routing/weight/dash/arrows for wire-only selections. Frame-only actions (deck order, add images, tags, present) join that same strip. Mixed selections expose common controls. Width/height/length belong to separate exterior dimension stringers. Rectangle axes follow rotation; straight lines measure endpoint length; circles use diameter; general paths use tight local bounds. Groups without wires use union XY dimensions and uniform centroid scaling. Wire-containing selections omit box-dimension edits because attached endpoints follow their hosts. Portal source UI stays on the portal.
+
+The strip icons expand on selection and collapse when it clears. Palette edits are transient previews until icon change or outside click commits one journal group. A press on empty canvas also deselects. Esc, tool changes, and target changes discard pending previews. Numeric dimensions commit on Enter/focus loss, scale about the measured center, preserve stroke width, and reject invalid values. Locked/read-only selections cannot be mutated. Chrome takes precedence over canvas gestures and follows P0.9. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule reuses that taller height. Heights live in `selection_tools`.
+
+Opening an adjustment icon fades selection tint, outlines and endpoint grips out while keeping the objects selected and property controls/stringers visible. Switching editors keeps the decoration hidden; closing or cancelling restores it. Hover decoration yields too, so it cannot obscure the authored color or stroke. The shared dynamic-panel style guide owns the transition; this is presentation state, never a document-opacity mutation.
+
+RGB and opacity are independent edits. One shared desktop sampler serves every eyedropper; a result is tied to the captured workbook, selection and property and preserves alpha. Percentage corners retain relative intent; absolute corners retain authored distance with an effective clamp. The model owns both modes; board and export interpret them identically. See specs/shape-property-editing.md and specs/desktop-color-sampling.md.
+
+[Dynamic object-property panels](../../../crates/atlas-shell/DYNAMIC_PANELS.md) owns the approved visual composition, inline RGB treatment, transient cursor metrics, short-stringer layout, and light/dark styling. Implement through `atlas-shell::selection_tools`; the whole assembly follows P0.9. Recent colors are bounded, deduplicated ViewState usage metadata, updated at successful journal boundaries; previews/cancel and geometry-only commits do not add colors. History is seeded once for legacy files, persists per document and is not authored scene data or part of undo/export.

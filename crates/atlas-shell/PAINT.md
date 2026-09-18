@@ -3,6 +3,40 @@
 Soft, anti-aliased strokes that must look identical in File Atlas and Slate
 live in `atlas-shell`, never in an app crate.
 
+[DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) owns the approved selection-editor
+composition and light/dark styling. [vector-ink's design](../vector-ink/DESIGN.md)
+owns smooth curve flattening, curved dash runs, caps, joins, and mesh quality;
+panel-specific paint must reuse those owners.
+
+## Native coverage antialiasing
+
+Every native app and visual fixture sets `NativeOptions::multisampling` to
+`atlas_shell::NATIVE_MSAA_SAMPLES` (4 samples). Keep egui's software feathering
+enabled too: it handles ordinary paths and fine strokes; multisampling supplies
+coverage at the boundaries of raw `Shape::Mesh` triangles. egui does **not** add
+feathering to a supplied mesh, and linear texture filtering only filters its
+interior. Neither extra curve vertices nor a smoother texture fixes a hard
+one-sample silhouette.
+
+This covers boolean/trim fills, holes, clip masks represented by meshes, textured
+polygons, and filled icon paths in both Slate and File Atlas. Keep shared edges
+coincident and interior triangle coverage opaque; do not feather each triangle
+or overlay a translucent outline to hide aliasing. Those approaches introduce
+seams or change the authored stroke. Existing boundary-only feather meshes remain
+valid. CPU geometry caches and SVG serialization are unchanged by native MSAA.
+
+Curve sampling and pixel coverage are separate requirements. Retain vector-ink's
+screen-space curve tolerance; antialiasing cannot recover a curve already baked
+into coarse straight segments. Four samples provide coverage without adding
+per-frame CPU tessellation. Changes to sample count or the rendering backend must
+check frame-time cost as well as edges (Constitution Article II).
+
+The native `shape_palettes --fill-quality --capture <prefix>` fixture exercises
+opaque and translucent boolean cuts, a curved hole, small subpixel curves,
+gradient meshes and shared icons in both themes. Its diagnostic `--no-msaa` flag
+reproduces the old hard edges. The [September 18 captures and pixel checks](../../design/render-quality-2026-09-18/README.md)
+record the regression; headless egui tessellation alone cannot verify GPU coverage.
+
 ## Tapered ribbon (`taper::paint_tapered_ribbon`)
 
 **Use for:** dock partition lines and any future soft separators that need a

@@ -31,7 +31,7 @@ P2.PortalPlace — deviations flagged below.
 
 | ID | Dimension | Agreed behavior | Source | Conf |
 |----|-----------|-----------------|--------|------|
-| D01 | Initiation & arming | Menu, palette (typed name + aliases), dock icon, and hotkey all dispatch the same CommandId (P0.7). The instant the tool is armed — before any click — GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live. | stated | 100 |
+| D01 | Initiation & arming | Menu, palette (typed name + aliases), flyout / nested dock icon, and hotkey all dispatch the same CommandId (P0.7). A family primary (Frame, Shapes, Portals, Text, Media, Actions) opens the flyout only. The instant the tool is armed — before any click — GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live. | stated | 100 |
 | D02 | Stickiness & repeat | Unchanged. DragRect tools stay one-shot (P2.DragShape.oneshot / P2.PortalPlace.oneshot). Space/Enter re-arms (P0.4). This contract does not change stickiness. | pattern | 88 |
 | D03 | Gesture grammar | Armed → GhostFollow (small cursor-locked silhouette) → Press → (ClickPlace \| DragScale) → Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not `drag_started` / `drag_stopped`). Shared `board_place::place_rect` computes the DragScale rect for both the live rubber-band and the journaled commit. | stated | 100 |
 | D04 | Click vs drag rule | Cursor travel > `draft.drag_threshold` (4 **screen** px) before release = DragScale; otherwise ClickPlace at the tool's default size (rect / ellipse from the kit recipe, frame from the live preset, portals from `<kind>.default_size`). Travel is the pointer's screen delta from the press, not a world-space length (zoom must not flip the split). A DragScale release under `MIN_DRAW` still discards. | stated | 100 |
@@ -66,7 +66,7 @@ Pinned as the named-constants block `board_place::place_tokens` (P0.6).
 
 ## Golden paths
 
-1. GP1: Board view · type "frame" in the palette (or F, or dock Frame) → pointer tints, 22 px rounded-rect follows the cursor. No node yet.
+1. GP1: Board view · type "frame" in the palette (or F, or a Frame flyout size) → pointer tints, 22 px rounded-rect follows the cursor. No node yet. The dock Frame primary opens the flyout only.
 2. GP2: Arm Web portal · move · click-release under threshold → 960×540 unbound portal centred on the click, tool = Select, ghost gone.
 3. GP3: Arm Rect · press · drag past threshold · hold Shift → live rubber-band is square via `PlaceConstraint` · release → Rect node matches that rect, tool = Select.
 4. GP4: Arm Ellipse · press-drag-release → ellipse sized to the constraint-resolved drag rect; ghost replaced by the rubber-band for the whole drag.

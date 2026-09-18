@@ -4,8 +4,8 @@ use kurbo::{BezPath, PathEl};
 
 use crate::dash::dash_on_runs;
 use crate::flatten::{flatten, flatten_contours};
-use crate::geom::{from_kurbo, half_width_at, is_finite_pt, to_kurbo, EPS};
-use crate::mesh::tessellate_run;
+use crate::geom::{from_kurbo, is_finite_pt, to_kurbo, EPS};
+use crate::mesh::{run_outline, tessellate_run};
 use crate::trim::Polygon;
 use crate::{InkMesh, StrokeStyle};
 
@@ -15,7 +15,11 @@ pub(crate) fn valid_style(style: &StrokeStyle) -> bool {
 
 /// Tessellate a stroked path into a feathered AA mesh.
 pub fn stroke_mesh(path: &BezPath, style: &StrokeStyle, feather: f32, tolerance: f64) -> InkMesh {
-    if !valid_style(style) || !feather.is_finite() || feather < 0.0 || tolerance <= 0.0 {
+    if !valid_style(style)
+        || !feather.is_finite()
+        || feather < 0.0
+        || (tolerance <= 0.0 || !tolerance.is_finite())
+    {
         return InkMesh::default();
     }
     let mut mesh = InkMesh::default();
@@ -23,44 +27,8 @@ pub fn stroke_mesh(path: &BezPath, style: &StrokeStyle, feather: f32, tolerance:
     mesh.indices.reserve(512);
 
     for sub in subpaths(path, tolerance) {
-        if sub.points.len() < 2 {
-            continue;
-        }
-
-        if sub.closed && style.dash.is_none() {
-            tessellate_run(
-                &mut mesh,
-                &sub.points,
-                style,
-                feather,
-                true,
-                style.cap,
-                style.cap,
-            );
-            continue;
-        }
-
-        let poly = if sub.closed {
-            let mut pts = sub.points.clone();
-            if pts.len() >= 2 {
-                pts.push(pts[0]);
-            }
-            pts
-        } else {
-            sub.points.clone()
-        };
-
-        let runs: Vec<Vec<[f32; 2]>> = if let Some((ref pattern, phase)) = style.dash {
-            dash_on_runs(&poly, pattern, phase)
-        } else {
-            vec![poly]
-        };
-
-        for run in runs {
-            if run.len() < 2 {
-                continue;
-            }
-            tessellate_run(&mut mesh, &run, style, feather, false, style.cap, style.cap);
+        for (points, closed) in stroke_runs(sub, style) {
+            tessellate_run(&mut mesh, &points, style, feather, closed, tolerance);
         }
     }
 
@@ -70,6 +38,30 @@ pub fn stroke_mesh(path: &BezPath, style: &StrokeStyle, feather: f32, tolerance:
 struct SubPath {
     points: Vec<[f32; 2]>,
     closed: bool,
+}
+
+fn stroke_runs(mut sub: SubPath, style: &StrokeStyle) -> Vec<(Vec<[f32; 2]>, bool)> {
+    if sub.points.len() < 2 {
+        return Vec::new();
+    }
+    let Some((pattern, phase)) = &style.dash else {
+        return vec![(sub.points, sub.closed)];
+    };
+    if sub.closed {
+        sub.points.push(sub.points[0]);
+    }
+    dash_on_runs(&sub.points, pattern, *phase)
+        .into_iter()
+        .map(|mut points| {
+            let closed = sub.closed
+                && points.len() > 2
+                && dist2(points[0], *points.last().unwrap()) < EPS * EPS;
+            if closed {
+                points.pop();
+            }
+            (points, closed)
+        })
+        .collect()
 }
 
 fn subpaths(path: &BezPath, tolerance: f64) -> Vec<SubPath> {
@@ -125,16 +117,22 @@ fn dist2(a: [f32; 2], b: [f32; 2]) -> f32 {
 
 /// The stroked region as a closed outline path (for SVG export).
 pub fn stroke_outline(path: &BezPath, style: &StrokeStyle, tolerance: f64) -> BezPath {
-    if !valid_style(style) || tolerance <= 0.0 {
+    if !valid_style(style) || (tolerance <= 0.0 || !tolerance.is_finite()) {
         return BezPath::new();
     }
     let mut outline = BezPath::new();
     for sub in subpaths(path, tolerance) {
-        if sub.points.len() < 2 {
-            continue;
+        for (points, closed) in stroke_runs(sub, style) {
+            for ring in run_outline(&points, style, closed, tolerance) {
+                outline.move_to(to_kurbo(ring[0]));
+                for p in &ring[1..] {
+                    outline.line_to(to_kurbo(*p));
+                }
+                outline.close_path();
+            }
         }
-        append_run_outline(&mut outline, &sub.points, style, sub.closed);
     }
+
     outline
 }
 
@@ -157,69 +155,6 @@ pub fn stroke_ribbon(pts: &[[f32; 2]], style: &StrokeStyle) -> Option<Polygon> {
     } else {
         Some(contours)
     }
-}
-
-fn append_run_outline(out: &mut BezPath, points: &[[f32; 2]], style: &StrokeStyle, closed: bool) {
-    use crate::geom::{add, cumulative_arclength, normalize, perp_left, scale, sub};
-
-    let arc = cumulative_arclength(points);
-    let total = *arc.last().unwrap_or(&0.0);
-    if total <= EPS {
-        return;
-    }
-
-    let mut left = Vec::new();
-    let mut right = Vec::new();
-    let n = points.len();
-
-    let emit_at = |i: usize, left: &mut Vec<[f32; 2]>, right: &mut Vec<[f32; 2]>| {
-        let t_frac = arc[i] / total;
-        let half = half_width_at(style, t_frac);
-        let (t_in, t_out) = if closed {
-            let prev = points[(i + n - 1) % n];
-            let next = points[(i + 1) % n];
-            (
-                normalize(sub(points[i], prev)).unwrap_or([1.0, 0.0]),
-                normalize(sub(next, points[i])).unwrap_or([1.0, 0.0]),
-            )
-        } else if i == 0 {
-            (
-                normalize(sub(points[1], points[0])).unwrap_or([1.0, 0.0]),
-                normalize(sub(points[1], points[0])).unwrap_or([1.0, 0.0]),
-            )
-        } else if i == n - 1 {
-            (
-                normalize(sub(points[n - 1], points[n - 2])).unwrap_or([1.0, 0.0]),
-                normalize(sub(points[n - 1], points[n - 2])).unwrap_or([1.0, 0.0]),
-            )
-        } else {
-            (
-                normalize(sub(points[i], points[i - 1])).unwrap_or([1.0, 0.0]),
-                normalize(sub(points[i + 1], points[i])).unwrap_or([1.0, 0.0]),
-            )
-        };
-        let n_avg = normalize(add(perp_left(t_in), perp_left(t_out))).unwrap_or(perp_left(t_out));
-        let p = points[i];
-        left.push(add(p, scale(n_avg, half)));
-        right.push(add(p, scale(n_avg, -half)));
-    };
-
-    for i in 0..n {
-        emit_at(i, &mut left, &mut right);
-    }
-
-    if left.is_empty() {
-        return;
-    }
-
-    out.move_to(to_kurbo(left[0]));
-    for p in &left[1..] {
-        out.line_to(to_kurbo(*p));
-    }
-    for p in right.iter().rev() {
-        out.line_to(to_kurbo(*p));
-    }
-    out.close_path();
 }
 
 /// Bounding box of the stroked path including width and feather.
@@ -407,6 +342,32 @@ mod tests {
         let m_butt = stroke_mesh(&path, &butt, 1.0, 0.01);
         let m_round = stroke_mesh(&path, &round, 1.0, 0.01);
         assert!(m_round.vertices.len() > m_butt.vertices.len());
+    }
+
+    #[test]
+    fn exported_outline_uses_round_caps_and_curved_dash_runs() {
+        let path = BezPath::from_svg("M0 0Q50 100 100 0").unwrap();
+        let style = StrokeStyle {
+            width: 8.0,
+            cap: Cap::Round,
+            join: Join::Round,
+            taper: Some((1.0, 0.5)),
+            dash: Some((vec![200.0, 10.0], 0.0)),
+        };
+        let outline = stroke_outline(&path, &style, 0.02);
+        let contours = flatten_contours(&outline, 0.02);
+        assert!(
+            crate::point_in_polygon(&contours, [50.0, 50.0]),
+            "dash follows the curve"
+        );
+        assert!(
+            !crate::point_in_polygon(&contours, [50.0, 0.0]),
+            "no endpoint chord"
+        );
+        assert!(
+            contours[0].iter().any(|p| p[0] < 0.0),
+            "round start cap extends beyond the start"
+        );
     }
 
     #[test]

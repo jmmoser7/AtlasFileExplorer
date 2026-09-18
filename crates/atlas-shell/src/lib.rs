@@ -35,6 +35,11 @@
 //! rendering of chrome (colors, spacing, tab shapes, section cards) lives
 //! here and only here. See `AGENTS.md` at the repo root.
 
+/// Coverage AA for custom triangle meshes (boolean fills, clips, icons and textures).
+/// egui's software feathering does not process `Shape::Mesh`; keep both enabled.
+/// Shared by native apps and visual fixtures so screenshots exercise production AA.
+pub const NATIVE_MSAA_SAMPLES: u16 = 4;
+
 pub mod canvas_scale;
 pub mod canvas_text;
 pub mod chrome;
@@ -63,3 +68,7 @@ pub mod tokens;
 pub mod tuning;
 pub mod updates;
 pub mod widgets;
+
+pub mod selection_tools;
+
+pub mod desktop_color;

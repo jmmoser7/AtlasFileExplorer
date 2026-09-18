@@ -53,13 +53,7 @@ impl SlateApp {
     /// The availability context for this frame: active view + GLOBAL +
     /// NEEDS_SELECTION while the view's selection is non-empty.
     pub(crate) fn command_ctx(&self) -> Availability {
-        let view = match self.doc().view.active_view {
-            ViewKind::Board => Availability::BOARD_VIEW,
-            ViewKind::Lens => Availability::LENS,
-            // Grid, Venn, and the legacy/unknown kinds all present the
-            // item-canvas surface.
-            _ => Availability::GRID_VENN,
-        };
+        let view = Availability::BOARD_VIEW;
         let has_selection = if self.doc().view.active_view == ViewKind::Board {
             !self.board_sel.is_empty()
         } else {
@@ -105,6 +99,15 @@ impl SlateApp {
         let board = self.doc().view.active_view == ViewKind::Board;
         let mut detail = detail;
         let ran = match id.0 {
+            "board.shape.edit" | "board.wire.edit" => {
+                self.shape_property_command(detail.as_deref())
+            }
+            "board.shape.dimension" => self.shape_dimension_command(detail.as_deref()),
+            "board.color.desktop" => {
+                self.start_tool_desktop_sample(detail.as_deref() == Some("background"), false);
+                true
+            }
+
             "app.updates.check" => {
                 self.updater.check(true);
                 true
@@ -324,6 +327,18 @@ impl SlateApp {
             }
             "board.tool.pen" => {
                 self.set_board_tool(board::BoardTool::Pen);
+                true
+            }
+            "board.tool.polyline" => {
+                self.set_board_tool(board::BoardTool::Polyline);
+                true
+            }
+            "board.tool.arc" => {
+                self.set_board_tool(board::BoardTool::Arc);
+                true
+            }
+            "board.tool.bezier" => {
+                self.set_board_tool(board::BoardTool::BezierSpan);
                 true
             }
             "board.tool.text" => {
@@ -568,8 +583,8 @@ impl SlateApp {
                 true
             }
             "board.dock.advanced" => {
-                // The Advanced overlay is toggled from the strip's third
-                // dot; this row keeps the command surface complete.
+                // Retired from palette chrome; the id stays on the command
+                // surface so Advanced → Commands does not go stale.
                 true
             }
             "dock.bar.toggle" => {
@@ -648,22 +663,27 @@ impl SlateApp {
                 true
             }
             "board.wire.routing" => {
-                self.board_wire_routing = self.board_wire_routing.toggle();
-                self.persist_wire_routing();
-                detail = detail.or(Some(self.board_wire_routing.label().to_ascii_lowercase()));
-                true
+                let routing = self
+                    .board_sel
+                    .iter()
+                    .find_map(|id| match &self.doc().scene.node(*id)?.kind {
+                        slate_doc::scene::NodeKind::Connector(c) => {
+                            Some(c.effective_routing(self.board_wire_routing))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(self.board_wire_routing)
+                    .toggle();
+                detail = detail.or(Some(routing.label().to_ascii_lowercase()));
+                self.set_wire_routing(routing)
             }
             "board.wire.bezier" => {
-                self.board_wire_routing = slate_doc::WireRouting::Bezier;
-                self.persist_wire_routing();
                 detail = detail.or(Some("bezier".into()));
-                true
+                self.set_wire_routing(slate_doc::WireRouting::Bezier)
             }
             "board.wire.orthogonal" => {
-                self.board_wire_routing = slate_doc::WireRouting::Orthogonal;
-                self.persist_wire_routing();
                 detail = detail.or(Some("orthogonal".into()));
-                true
+                self.set_wire_routing(slate_doc::WireRouting::Orthogonal)
             }
             "board.ortho" => {
                 self.board_ortho = !self.board_ortho;
@@ -700,7 +720,7 @@ impl SlateApp {
                 if images.is_empty() {
                     false
                 } else {
-                    let target = !self
+                    let current = self
                         .doc()
                         .scene
                         .node(images[0])
@@ -708,7 +728,8 @@ impl SlateApp {
                             NodeKind::Image(img) => Some(img.adjust.invert),
                             _ => None,
                         })
-                        .unwrap_or(false);
+                        .unwrap_or(0.0);
+                    let target = if current > 0.0 { 0.0 } else { 1.0 };
                     self.patch_nodes(&images, move |n| {
                         if let NodeKind::Image(img) = &mut n.kind {
                             img.adjust.invert = target;
@@ -718,7 +739,7 @@ impl SlateApp {
                     detail = detail.or(Some(format!(
                         "{} → {}",
                         images.len(),
-                        if target { "on" } else { "off" }
+                        if target > 0.0 { "on" } else { "off" }
                     )));
                     true
                 }
@@ -788,31 +809,16 @@ impl SlateApp {
     }
 
     /// Fit the active view (used by the palette's `canvas.fit`). Board uses
-    /// its own `board.fit`; Lens keeps `F` local to the laid-out graph.
     fn fit_active_view(&mut self) {
-        match self.doc().view.active_view {
-            ViewKind::Board => self.fit_board(),
-            ViewKind::Lens => {}
-            _ => {
-                if let Some(bounds) = self.layout_bounds_now() {
-                    self.fit_view(bounds);
-                }
-            }
-        }
+        self.fit_board();
     }
 
     // ---------- the Esc cancel stack ----------
 
     /// Build the live cancel layers and pop exactly one
-    /// (`atlas_commands::cancel_target`). The Lens focus clear stays first,
-    /// exactly as the pre-registry cascade did. Text editing is *not* a
+    /// (`atlas_commands::cancel_target`). Text editing is *not* a
     /// layer here: the edit overlay owns Esc (commit) itself.
     fn cancel_pop(&mut self) -> bool {
-        // Lens focus: today's first Escape target, kept ahead of the stack.
-        if self.doc().view.active_view == ViewKind::Lens && self.lens.focus.is_some() {
-            self.lens.focus = None;
-            return true;
-        }
         // Maximize peels first: Esc returns the portal to the board without
         // dropping page focus (P1.portal.maximize / P0.1).
         if self.portal_chrome.maximized.is_some() {
@@ -881,8 +887,7 @@ impl SlateApp {
         // Chrome: open context menus, the adjust popover, and the inline
         // new-tag editor. The palette and the search strip own their Esc
         // (focused text fields); the minimap is pinned chrome — excluded.
-        if self.menu.is_some()
-            || self.board_menu.is_some()
+        if self.board_menu.is_some()
             || self.board_empty_menu.is_some()
             || self.adjust_popover_open
             || self.new_tag_edit.is_some()
@@ -943,7 +948,6 @@ impl SlateApp {
                 true
             }
             Some(CancelLayer::Chrome) => {
-                self.menu = None;
                 self.board_menu = None;
                 self.board_empty_menu = None;
                 self.adjust_popover_open = false;

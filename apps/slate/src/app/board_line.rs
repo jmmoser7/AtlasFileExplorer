@@ -40,6 +40,8 @@ pub mod draft_tokens {
 pub struct LineDraft {
     /// First endpoint (world, constraint-resolved at placement).
     pub start: Pos2,
+    /// Unsnapped press origin: snap displacement is never pointer travel.
+    pub raw_start: Pos2,
     /// Last constraint-resolved cursor position (rubber-band end, readout
     /// source, and the direction Enter commits along).
     pub cursor: Option<Pos2>,
@@ -53,6 +55,7 @@ impl LineDraft {
     fn new(start: Pos2) -> Self {
         LineDraft {
             start,
+            raw_start: start,
             cursor: None,
             dir_lock: None,
             entry: String::new(),
@@ -67,6 +70,15 @@ pub(crate) fn line_endpoints(node: &Node) -> Option<(Pos2, Pos2)> {
     let NodeKind::Shape(s) = &node.kind else {
         return None;
     };
+    if s.shape == ShapeKind::Line {
+        let corners = node.rect.corners_rotated(node.rotation_deg);
+        let (a, b) = if s.flip {
+            (corners[3], corners[1])
+        } else {
+            (corners[0], corners[2])
+        };
+        return Some((Pos2::new(a.0, a.1), Pos2::new(b.0, b.1)));
+    }
     if s.shape != ShapeKind::Path {
         return None;
     }
@@ -127,7 +139,9 @@ impl SlateApp {
             return false;
         }
         let p = self.line_resolve_first(world);
-        self.line_draft = Some(LineDraft::new(p));
+        let mut draft = LineDraft::new(p);
+        draft.raw_start = world;
+        self.line_draft = Some(draft);
         true
     }
 
@@ -152,7 +166,7 @@ impl SlateApp {
             return;
         };
         if started {
-            let travel_px = (world - d.start).length() * self.tab().cam.z.max(0.05);
+            let travel_px = (world - d.raw_start).length() * self.tab().cam.z.max(f32::EPSILON);
             if travel_px <= draft_tokens::DRAG_THRESHOLD {
                 self.line_hover(world, shift);
                 return;

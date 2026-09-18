@@ -26,10 +26,9 @@ hidden on home. Opening is the shelf; **New** starts a blank workbook.
 
 | Region | Module | Role |
 |--------|--------|------|
-| Floating tools dock | `ui/tools.rs` + `atlas-shell::dock` | The **single** bottom-centered toolbar: board creation tools (Select/Pan, Frame, Shapes, Curve, Text — Board view only), Grid/Snap/Align, plus **Tags**, **Selection**, **View**, and **Lens** (Lens view only). Flyouts and panels open upward, anchored to their icon. Workbook, AI, Present, Export, and Advanced live in the app-icon portal. See `crates/atlas-shell/DOCK.md`. |
-| Canvas | `canvas.rs` | Grid + Venn presentations, selection, right-click tag assignment |
-| Lens | `lens.rs` | Code-dependency graph canvas: worker pump, painting, focus/expand gestures |
-| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock). A **dropped toolbar** is a journaled `DockStrip` node (`board_dock_embed.rs`, `P1.dock-strip`): the same `atlas-shell::dock` fieldset strip as the docked flyout (title in the border, contain-scaled — no second painter); click an icon to arm, click-hold-drag anywhere on the node to move it; selection chrome follows the painted card fillet. Armed create-tool chrome (tinted pointer + 22 px ghost) lives in `board_place.rs`. **Trim** (`board_trim.rs`, Ctrl+T) picks cutters then clicks the dying piece — open paths rewrite spans, closed shapes become compound even-odd paths, text/images store `Node.clip`. **Split** (same session, Ctrl+Shift+T) keeps every piece as its own Path. **Join** (`board_join.rs`, Ctrl+J) merges open paths at nearest ends, or boolean-unions connected closed regions (open operands become stroke-weight ribbons; disjoint operands stay put). Object snaps (`board_osnap.rs`, syntax in `slate-doc::osnap`) and wire routing (`slate-doc::wire`, bezier / orthogonal) are a Document Settings palette — session aid, not journaled. Wire ports follow object features (`P1.wire.ports`), not the world AABB. Wires paint under host nodes. A Grasshopper-style align widget (`board_align.rs`) appears around a 2+ selection. Canvas objects follow **P0.9** (scale with zoom). Agent portals have no identity tab; an unbound portal embeds `atlas-shell::home::cover_flow_home` (`HomeModel.interactive` only in contents-focus) and journals the chosen folder on `PortalNode.source`. Bound posters split Cursor IDE status from file-link sidecar status. |
+| Floating tools dock | `ui/tools.rs` + `atlas-shell::dock` | Board tools, Media, Document settings, Object properties (colors and tags), and Selection. Agent workspace and Cursor actions belong to Agent portals. View owns appearance, presentation, and readout visibility. Preferences owns dock placement and advanced settings. |
+| Canvas | `canvas.rs` | Board entry point, shared camera helpers, and Home |
+| Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock). A **dropped toolbar** is a journaled `DockStrip` node (`board_dock_embed.rs`, `P1.dock-strip`): the same `atlas-shell::dock` fieldset strip as the docked flyout (unlabeled capsules, contain-scaled — no second painter); click an icon to arm, click-hold-drag anywhere on the node to move it; selection chrome follows the painted card fillet. Armed create-tool chrome (tinted pointer + 22 px ghost) lives in `board_place.rs`. **Trim** (`board_trim.rs`, Ctrl+T) picks cutters then clicks the dying piece — open paths rewrite spans, closed shapes become compound even-odd paths, text/images store `Node.clip`. **Split** (same session, Ctrl+Shift+T) keeps every piece as its own Path. **Join** (`board_join.rs`, Ctrl+J) merges open paths at nearest ends, or boolean-unions connected closed regions (open operands become stroke-weight ribbons; disjoint operands stay put). Object snaps (`board_osnap.rs`, syntax in `slate-doc::osnap`) live in Document Settings as session aids. Wire routing (`slate-doc::wire`, Bezier / Square) is authored per connector from the object-local property palette, alongside weight, dash and arrows; `None` preserves the legacy session fallback. Wire ports follow object features (`P1.wire.ports`), not the world AABB. Wires paint under host nodes. A Grasshopper-style align widget (`board_align.rs`) appears around a 2+ selection. Canvas objects follow **P0.9** (scale with zoom). Agent portals have no identity tab; an unbound portal embeds `atlas-shell::home::cover_flow_home` (`HomeModel.interactive` only in contents-focus) and journals the chosen folder on `PortalNode.source`. Bound posters split Cursor IDE status from file-link sidecar status. |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
 | Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
 | 3D viewports | `model3d.rs` | Rhino `.3dm` viewport lifecycle: off-thread mesh parse (`crates/rhino-mesh`), offscreen glow render, lock/unlock + poster cache |
@@ -45,28 +44,15 @@ hidden on home. Opening is the shelf; **New** starts a blank workbook.
   mutually exclusive on a file (Big/Medium/Small); tags **across** groups
   combine freely (Big + Red). `SlateItem.assignments: BTreeMap<GroupId, TagId>`
   enforces this structurally.
-- Items with no assignments are **uncategorized**: they render in a separate
-  tray and never appear inside Venn circles.
-- `SlateDoc::combination_buckets` drives both presentations: grid sections are
-  tag-combination buckets; Venn regions are subsets of focused tags.
+- Items with no assignments are **uncategorized**. Tags remain workbook metadata
+  available through Object properties and linked File Atlas sessions.
 
 ## Presentations
 
-- **Grid** (`canvas.rs::grid_layout`) — sections per tag combination,
-  uncategorized last.
-- **Venn** (`canvas.rs::venn_layout_now`) — literal circles per focused tag
-  (`crates/circle-pack::venn_layout`); thumbnails render as circle-cropped
-  textured meshes packed inside their set circles, shared files sit in the
-  lens overlaps. Tag focus is toggled from the Tags panel.
-- **Lens** (`lens.rs`) — interactive code-dependency graph over a workbook's
-  `lens_root`. Deterministic analysis and layout come from `code-lens`; Slate
-  paints containers/chips/wires on the shared camera, runs analysis on a
-  background thread, auto-fits the camera on first successful analysis, and
-  writes `graph.json` / reads `overlay.json` through `code_lens::LensBeacon`
-  when an AI workspace is configured.
-- New presentations should follow the same pattern: pure geometry in a crate,
-  a `*_layout` builder producing `Placed` items, painting + hit-testing on the
-  shared camera.
+Board is the only workbook canvas. Grid, Venn, and standalone Lens are retired.
+Legacy saved view values normalize to Board on load; linked items, tag assignments,
+and legacy `lens_root` metadata remain readable. Repository Lens remains a portal
+using `repo-graph`; it does not depend on the retired `code-lens` runtime.
 
 ## Lazy full-resolution previews (`preview.rs`)
 
@@ -246,14 +232,16 @@ point-to-point works now; curve/surface/volume modes need brep/NURBS metadata.
 
 ### Web portals (`board_web.rs`, `board_web_win.rs`)
 
-Live captures have stable CSS-derived dimensions, capped proportionally at
-1920 pixels on the longest edge and 2,073,600 total pixels. Camera zoom only
-scales the existing texture. Visible admitted pages retain their sessions
-through zoom; off-screen pages still release bounded pool slots. Native
-readback pipelines two staging textures and polls with `DO_NOT_WAIT`, keeping
-the previous image while a GPU copy is unfinished. Uploads update an existing
-egui texture. Native WebView2 Escape is forwarded to the one command cancel
-stack, which restores maximize before releasing contents focus.
+Live capture tiers follow physical displayed pixels, including monitor DPI,
+up to a monitor-sized ceiling (8192 per edge / 33,177,600 pixels safety cap).
+CSS layout stays fixed during quality upgrades; an already-sharp tier is kept
+while zooming out until eviction. Nonblocking staging readback and retained
+valid posters cover resolution transitions. Composition mouse coordinates use
+that same physical/CSS scale. Plain centered title bars and page scrollbars
+share idle visibility; fullscreen chrome uses the Slate index top-bar scale.
+Scrollbar CSS is owned by atlas-shell and applied by the native host only on
+appearance changes or navigation. It preserves gutters so hiding never reflows
+content. Native Escape continues through the shared cancel stack.
 
 Incoming Windows URL/link and file drops are adapted by `external_drop.rs`.
 The root viewport disables winit's file-only target and installs one OLE
@@ -348,7 +336,8 @@ document must reset `link_health_revision`.
 
 1. `tabs` is never empty; `active_tab` always in bounds.
 2. Every document mutation goes through `SlateApp::doc_mut()` (sets `dirty`).
-3. Dirty tabs refuse to close (toast, no data loss).
+3. Dirty tabs ask before close (Save / Don't save / Cancel). Discard is
+   explicit; nothing is written unless Save succeeds.
 4. `selection` only holds live `ItemId`s; tag/group removal strips
    assignments inside `slate-doc`, and dead ids are dropped on use.
 5. Saves are atomic (temp file + rename in `slate-doc`).
@@ -394,3 +383,8 @@ can use an exported PDF without Office. The existing thumbnail/preview pools ren
 the prepared PDF; `pdf.rs` owns page browsing. Board page selection patches the
 linked page item through the scene journal, so undo/redo works. HTML export stores
 posters per item rather than collapsing distinct selected pages of the same source.
+
+
+### Shape selection editing
+
+`board_properties` adapts selected scene capabilities into the shared `atlas-shell::selection_tools` chrome. It caches measurements by scene generation/selection, renders transient node copies for previews, and dispatches `board.shape.edit` / `board.shape.dimension` once on acceptance. `slate-doc::scene` owns style accessors, photo-filter recipes (`PhotoFilter` → `ImageAdjust`), and absolute/percentage corner resolution; board and HTML interpreters use that same resolver. Dimension changes reuse `board_snap` transform arithmetic. `atlas-shell::desktop_color` owns the worker-thread Windows capture and native input overlay for every Slate eyedropper; `board_color` retains requesting-tab/property identity and updates tool state or journaled scene state.

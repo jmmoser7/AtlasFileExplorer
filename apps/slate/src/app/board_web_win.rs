@@ -53,8 +53,8 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     CreateCoreWebView2EnvironmentWithOptions, GetAvailableCoreWebView2BrowserVersionString,
     ICoreWebView2, ICoreWebView2CompositionController, ICoreWebView2Controller,
     ICoreWebView2Controller2, ICoreWebView2Controller3, ICoreWebView2Environment,
-    ICoreWebView2Environment3, ICoreWebView2_4, COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS,
-    COREWEBVIEW2_COLOR, COREWEBVIEW2_MOUSE_EVENT_KIND,
+    ICoreWebView2Environment3, ICoreWebView2ExecuteScriptCompletedHandler, ICoreWebView2_4,
+    COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS, COREWEBVIEW2_COLOR, COREWEBVIEW2_MOUSE_EVENT_KIND,
     COREWEBVIEW2_MOUSE_EVENT_KIND_HORIZONTAL_WHEEL, COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE,
     COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN, COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP,
     COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN,
@@ -77,6 +77,14 @@ use super::board_web::{WebHost, WebInput, WebRequest};
 /// Wide, NUL-terminated, kept alive for the duration of the call.
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// Composition-controller mouse coordinates use its raw-pixel bounds.
+fn capture_point(x: f32, y: f32, scale: f64) -> POINT {
+    POINT {
+        x: (x as f64 * scale).round() as i32,
+        y: (y as f64 * scale).round() as i32,
+    }
 }
 
 /// `Navigate` takes a URI, not a path: a bare `C:\dir\page.html` is rejected
@@ -124,6 +132,7 @@ struct Pending {
     /// Set once the visual tree has been handed to the controller.
     attached: bool,
     cancelled: bool,
+    document_generation: u64,
 }
 
 struct View {
@@ -141,6 +150,7 @@ struct View {
     target: String,
     /// The most recent readback, kept so a demoted portal still has a poster.
     last: Option<egui::ColorImage>,
+    scrollbar_style: Option<(u64, bool, u32, egui::Color32)>,
     shared: Rc<RefCell<Pending>>,
 }
 
@@ -322,6 +332,7 @@ impl Webview2Host {
                 size: (w, h),
                 target: req.target.clone(),
                 last: None,
+                scrollbar_style: None,
                 shared,
             },
         );
@@ -374,6 +385,13 @@ impl Webview2Host {
             return;
         }
         let (w, h) = (req.raster_w.max(1), req.raster_h.max(1));
+        // Retain an already-sharp tier while zooming out. Only a changed CSS
+        // viewport or a quality upgrade should recreate capture buffers.
+        let same_layout = (view.size.0 as f64 / view.scale - req.width_css as f64).abs() <= 1.0
+            && (view.size.1 as f64 / view.scale - req.height_css as f64).abs() <= 1.0;
+        if same_layout && w <= view.size.0 && h <= view.size.1 {
+            return;
+        }
         if view.size == (w, h) && view.scale == req.rasterization_scale() {
             return;
         }
@@ -520,6 +538,36 @@ impl Webview2Host {
 }
 
 impl WebHost for Webview2Host {
+    fn set_scrollbars(&mut self, id: NodeId, visible: bool, width_css: f32, color: egui::Color32) {
+        let Some(view) = self.views.get_mut(&id) else {
+            return;
+        };
+        let pending = view.shared.borrow();
+        let Some(webview) = pending.webview.as_ref() else {
+            return;
+        };
+        let width = (width_css.max(0.1) * 100.0).round() as u32;
+        let key = (pending.document_generation, visible, width, color);
+        if view.scrollbar_style == Some(key) {
+            return;
+        }
+        let css = atlas_shell::tabs::web_scrollbar_style(width as f32 / 100.0, color, visible);
+        // Fixed host chrome only; no URL interpolation, DOM extraction, or
+        // message bridge. Reinstall after navigation replaces the document.
+        let script = format!("(()=>{{let s=document.getElementById('slate-web-scrollbar-chrome');if(!s){{s=document.createElement('style');s.id='slate-web-scrollbar-chrome';(document.head||document.documentElement).appendChild(s);}}s.textContent={};}})()", serde_json::to_string(&css).unwrap());
+        let script = wide(&script);
+        if unsafe {
+            webview.ExecuteScript(
+                PCWSTR(script.as_ptr()),
+                None::<&ICoreWebView2ExecuteScriptCompletedHandler>,
+            )
+        }
+        .is_ok()
+        {
+            view.scrollbar_style = Some(key);
+        }
+    }
+
     fn take_escape(&mut self) -> bool {
         self.escape.replace(false)
     }
@@ -588,10 +636,8 @@ impl WebHost for Webview2Host {
         else {
             return;
         };
-        let point = |x: f32, y: f32| POINT {
-            x: x.round() as i32,
-            y: y.round() as i32,
-        };
+        let scale = self.views.get(&id).map_or(1.0, |v| v.scale);
+        let point = |x: f32, y: f32| capture_point(x, y, scale);
         let none = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE;
         let mouse = |kind: COREWEBVIEW2_MOUSE_EVENT_KIND,
                      data: u32,
@@ -859,6 +905,7 @@ fn attach(
             let mut ok = windows::core::BOOL(0);
             let _ = unsafe { args.IsSuccess(&mut ok) };
             let mut pending = errors.borrow_mut();
+            pending.document_generation = pending.document_generation.wrapping_add(1);
             pending.error = if ok.as_bool() {
                 None
             } else {
@@ -1119,6 +1166,13 @@ pub(crate) mod probe {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pointer_tracks_physical_capture_resolution() {
+        let point = super::capture_point(320.0, 180.0, 3.0);
+        assert_eq!((point.x, point.y), (960, 540));
+        let point = super::capture_point(320.0, 180.0, 6.0);
+        assert_eq!((point.x, point.y), (1920, 1080));
+    }
     use super::probe::{host, pump};
     use super::*;
     use slate_doc::scene::WebSourceKind;

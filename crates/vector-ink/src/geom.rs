@@ -1,10 +1,10 @@
 //! Small 2D vector helpers (f32).
 
 pub(crate) const MITER_LIMIT: f32 = 4.0;
-pub(crate) const ROUND_SEGMENTS: usize = 8;
 pub(crate) const EPS: f32 = 1e-6;
 
 #[inline]
+#[cfg(test)]
 pub(crate) fn pt(x: f32, y: f32) -> [f32; 2] {
     [x, y]
 }

@@ -28,6 +28,11 @@ defect (`paint_atlas_empty` vs `paint_portal_empty`).
 A tab on a portal frame is a canvas object, not window chrome. Maximized,
 that same tab may stay screen-sized because it has become window chrome.
 
+Object-attached property strips, upward editors, and dimension stringers
+are canvas objects too. See `crates/atlas-shell/DYNAMIC_PANELS.md` for their
+shared layout and viewport-edge behavior; a floating appearance is not a
+screen-chrome exception.
+
 Linear size (fillets, strokes, insets, handle squares, tab radii) goes
 through `atlas-shell::canvas_scale::px` — one definition, no floor, no
 ceiling. Type goes through `atlas-shell::canvas_text` (`text` / `layout`),

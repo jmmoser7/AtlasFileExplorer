@@ -44,6 +44,35 @@ impl WorldRect {
         (self.x + self.w * 0.5, self.y + self.h * 0.5)
     }
 
+    /// Rotate a point about this rectangle's center, in the board's y-down axes.
+    pub fn rotate_point(&self, point: [f32; 2], rotation_deg: f32) -> [f32; 2] {
+        if rotation_deg == 0.0 {
+            return point;
+        }
+        let (cx, cy) = self.center();
+        let (sin, cos) = rotation_deg.to_radians().sin_cos();
+        let [dx, dy] = [point[0] - cx, point[1] - cy];
+        [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos]
+    }
+
+    /// Clockwise ellipse boundary, without a repeated closing vertex. Sampling
+    /// bounds chord error in the caller's coordinate space, independent of zoom.
+    pub fn ellipse_outline(&self, tolerance: f32) -> Vec<[f32; 2]> {
+        let rect = self.normalized();
+        let (cx, cy) = rect.center();
+        let (rx, ry) = (rect.w * 0.5, rect.h * 0.5);
+        let count = quarter_arc_steps(rx.max(ry), tolerance) * 4;
+        (0..count)
+            .map(|i| {
+                let angle = i as f64 / count as f64 * std::f64::consts::TAU;
+                [
+                    (cx as f64 + angle.cos() * rx as f64) as f32,
+                    (cy as f64 + angle.sin() * ry as f64) as f32,
+                ]
+            })
+            .collect()
+    }
+
     pub fn contains(&self, px: f32, py: f32) -> bool {
         px >= self.x && px <= self.x + self.w && py >= self.y && py <= self.y + self.h
     }
@@ -93,6 +122,22 @@ impl WorldRect {
             let dy = y - cy;
             (cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
         })
+    }
+
+    /// Axis-aligned bounds after rotation about the center.
+    pub fn rotated_bounds(&self, rotation_deg: f32) -> Self {
+        let corners = self.corners_rotated(rotation_deg);
+        let x = corners.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
+        let y = corners.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
+        let right = corners
+            .iter()
+            .map(|p| p.0)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let bottom = corners
+            .iter()
+            .map(|p| p.1)
+            .fold(f32::NEG_INFINITY, f32::max);
+        Self::new(x, y, right - x, bottom - y)
     }
 
     /// Returns a copy with non-negative width/height (flips min corner).
@@ -218,6 +263,142 @@ pub enum Corner {
     Chamfer {
         cut: f32,
     },
+    /// Percentage of half the shorter local side; remains relative on resize.
+    RoundedPercent {
+        percent: f32,
+    },
+    ChamferPercent {
+        percent: f32,
+    },
+}
+
+impl Corner {
+    /// The geometric rectangle boundary used by painting and boolean editing.
+    /// Radius/cut interpretation stays in `effective`; tolerance controls only
+    /// curve sampling, never the authored shape. No repeated closing vertex.
+    pub fn outline(self, rect: WorldRect, tolerance: f32) -> Vec<[f32; 2]> {
+        let rect = rect.normalized();
+        let (chamfer, radius) = self.effective(rect.w, rect.h);
+        if radius == 0.0 {
+            return rect.corners_rotated(0.0).map(|(x, y)| [x, y]).to_vec();
+        }
+        let (x, y, right, bottom) = (rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+        let ends = [
+            [right - radius, y],
+            [right, y + radius],
+            [right, bottom - radius],
+            [right - radius, bottom],
+            [x + radius, bottom],
+            [x, bottom - radius],
+            [x, y + radius],
+            [x + radius, y],
+        ];
+        let mut points = Vec::new();
+        if chamfer {
+            points.extend(ends);
+        } else {
+            let steps = quarter_arc_steps(radius, tolerance);
+            let centers = [
+                [right - radius, y + radius],
+                [right - radius, bottom - radius],
+                [x + radius, bottom - radius],
+                [x + radius, y + radius],
+            ];
+            for (quadrant, center) in centers.iter().enumerate() {
+                points.push(ends[quadrant * 2]);
+                for step in 1..steps {
+                    let angle = (quadrant as f64 - 1.0 + step as f64 / steps as f64)
+                        * std::f64::consts::FRAC_PI_2;
+                    points.push([
+                        (center[0] as f64 + radius as f64 * angle.cos()) as f32,
+                        (center[1] as f64 + radius as f64 * angle.sin()) as f32,
+                    ]);
+                }
+                points.push(ends[quadrant * 2 + 1]);
+            }
+        }
+        points.dedup();
+        if points.first() == points.last() {
+            points.pop();
+        }
+        points
+    }
+
+    /// (is_chamfer, is_percent, authored_amount). Zero fillet is square.
+    pub fn parameters(self) -> (bool, bool, f32) {
+        match self {
+            Self::Square => (false, false, 0.0),
+            Self::Rounded { radius } => (false, false, radius),
+            Self::Chamfer { cut } => (true, false, cut),
+            Self::RoundedPercent { percent } => (false, true, percent),
+            Self::ChamferPercent { percent } => (true, true, percent),
+        }
+    }
+    pub fn from_parameters(chamfer: bool, percent: bool, amount: f32) -> Self {
+        let amount = if amount.is_finite() {
+            amount.max(0.0)
+        } else {
+            0.0
+        };
+        match (chamfer, percent) {
+            (false, false) => Self::Rounded { radius: amount },
+            (true, false) => Self::Chamfer { cut: amount },
+            (false, true) => Self::RoundedPercent {
+                percent: amount.min(100.0),
+            },
+            (true, true) => Self::ChamferPercent {
+                percent: amount.min(100.0),
+            },
+        }
+    }
+    /// The only percentage/clamp interpretation; renderers consume board units.
+    pub fn effective(self, width: f32, height: f32) -> (bool, f32) {
+        let (chamfer, percent, value) = self.parameters();
+        let limit = width.min(height).max(0.0) * 0.5;
+        let value = if value.is_finite() {
+            value.max(0.0)
+        } else {
+            0.0
+        };
+        (
+            chamfer,
+            if percent {
+                value.min(100.0) * 0.01 * limit
+            } else {
+                value.min(limit)
+            },
+        )
+    }
+    pub fn with_mode(self, percent: bool, width: f32, height: f32) -> Self {
+        let (chamfer, amount) = self.effective(width, height);
+        let limit = width.min(height).max(0.0) * 0.5;
+        Self::from_parameters(
+            chamfer,
+            percent,
+            if percent && limit > 0.0 {
+                amount / limit * 100.0
+            } else {
+                amount
+            },
+        )
+    }
+}
+
+/// Sagitta-bounded sampling, shared by circular fillets and ellipses (whose
+/// largest semiaxis bounds the error). f64 avoids cancellation for small errors.
+fn quarter_arc_steps(radius: f32, tolerance: f32) -> usize {
+    if !radius.is_finite() || radius <= 0.0 {
+        return 1;
+    }
+    let tolerance = if tolerance.is_finite() && tolerance > 0.0 {
+        tolerance
+    } else {
+        0.05
+    };
+    let angle = 2.0 * (1.0 - (tolerance as f64 / radius as f64).min(1.0)).acos();
+    (std::f64::consts::FRAC_PI_2 / angle.max(0.0001))
+        .ceil()
+        .max(1.0) as usize
 }
 
 /// Non-destructive image adjustments, constrained to the CSS `filter`
@@ -238,9 +419,15 @@ pub struct ImageAdjust {
     pub sepia: f32,
     /// CSS `hue-rotate()`, degrees.
     pub hue_deg: f32,
-    /// CSS `invert(1)`, appended after the other filters.
-    #[serde(skip_serializing_if = "is_false")]
-    pub invert: bool,
+    /// CSS `invert()` amount; 0.0 = unchanged, 1.0 = full invert.
+    /// Legacy documents stored this as a bool (`true` = 1.0).
+    #[serde(
+        default,
+        deserialize_with = "deserialize_invert_amount",
+        serialize_with = "serialize_invert_amount",
+        skip_serializing_if = "is_zero_invert"
+    )]
+    pub invert: f32,
     /// Flat color overlay layer (color + alpha), drawn over the image.
     pub overlay: Option<Rgba>,
 }
@@ -254,7 +441,7 @@ impl Default for ImageAdjust {
             grayscale: 0.0,
             sepia: 0.0,
             hue_deg: 0.0,
-            invert: false,
+            invert: 0.0,
             overlay: None,
         }
     }
@@ -275,7 +462,7 @@ impl ImageAdjust {
         self.grayscale.to_bits().hash(&mut h);
         self.sepia.to_bits().hash(&mut h);
         self.hue_deg.to_bits().hash(&mut h);
-        self.invert.hash(&mut h);
+        self.invert.to_bits().hash(&mut h);
         self.overlay.map(|c| c.0).hash(&mut h);
         h.finish()
     }
@@ -304,10 +491,244 @@ impl ImageAdjust {
         }
         // Invert goes last: CSS filters apply in list order, and the pixel
         // mirror in the app applies invert after the color-matrix pipeline.
-        if self.invert {
+        if self.invert == 1.0 {
             parts.push("invert(1)".to_string());
+        } else if self.invert != 0.0 {
+            parts.push(format!("invert({:.3})", self.invert));
         }
         parts.join(" ")
+    }
+
+    /// Linear blend of two adjustments. `t = 0` keeps `self`; `t = 1` is `other`.
+    pub fn mix(self, other: Self, t: f32) -> Self {
+        let t = t.clamp(0.0, 1.0);
+        if t == 0.0 {
+            return self;
+        }
+        if t == 1.0 {
+            return other;
+        }
+        Self {
+            brightness: lerp_f32(self.brightness, other.brightness, t),
+            contrast: lerp_f32(self.contrast, other.contrast, t),
+            saturate: lerp_f32(self.saturate, other.saturate, t),
+            grayscale: lerp_f32(self.grayscale, other.grayscale, t),
+            sepia: lerp_f32(self.sepia, other.sepia, t),
+            hue_deg: lerp_f32(self.hue_deg, other.hue_deg, t),
+            invert: lerp_f32(self.invert, other.invert, t),
+            overlay: mix_overlay(self.overlay, other.overlay, t),
+        }
+    }
+}
+
+/// Named photo-filter recipes. They compile to [`ImageAdjust`] so the board
+/// painter and the HTML artifact stay on one CSS-filter model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhotoFilter {
+    Mono,
+    Invert,
+    Clarendon,
+    Juno,
+    Lark,
+}
+
+impl PhotoFilter {
+    pub const ALL: [Self; 5] = [
+        Self::Mono,
+        Self::Invert,
+        Self::Clarendon,
+        Self::Juno,
+        Self::Lark,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mono => "B&W",
+            Self::Invert => "Invert",
+            Self::Clarendon => "Clarendon",
+            Self::Juno => "Juno",
+            Self::Lark => "Lark",
+        }
+    }
+
+    /// Authored swatch that suggests the look. A second color splits Invert.
+    pub fn swatch(self) -> ([u8; 3], Option<[u8; 3]>) {
+        match self {
+            Self::Mono => ([148, 148, 148], None),
+            Self::Invert => ([244, 244, 244], Some([28, 28, 28])),
+            Self::Clarendon => ([46, 122, 168], None),
+            Self::Juno => ([232, 148, 86], None),
+            Self::Lark => ([214, 198, 92], None),
+        }
+    }
+
+    /// Full-strength CSS recipe (intensity 100%).
+    pub fn recipe(self) -> ImageAdjust {
+        match self {
+            Self::Mono => ImageAdjust {
+                grayscale: 1.0,
+                ..ImageAdjust::default()
+            },
+            Self::Invert => ImageAdjust {
+                invert: 1.0,
+                ..ImageAdjust::default()
+            },
+            Self::Clarendon => ImageAdjust {
+                brightness: 1.05,
+                contrast: 1.25,
+                saturate: 1.35,
+                ..ImageAdjust::default()
+            },
+            Self::Juno => ImageAdjust {
+                brightness: 1.08,
+                contrast: 1.15,
+                saturate: 1.40,
+                sepia: 0.22,
+                hue_deg: -12.0,
+                ..ImageAdjust::default()
+            },
+            Self::Lark => ImageAdjust {
+                brightness: 1.22,
+                contrast: 0.92,
+                saturate: 1.12,
+                hue_deg: 15.0,
+                ..ImageAdjust::default()
+            },
+        }
+    }
+
+    pub fn at(self, amount: f32) -> ImageAdjust {
+        ImageAdjust::default().mix(self.recipe(), amount)
+    }
+
+    /// Recover `(filter, intensity)` when `adjust` is a scaled recipe.
+    pub fn recognize(adjust: &ImageAdjust) -> Option<(Self, f32)> {
+        if adjust.is_identity() {
+            return None;
+        }
+        for kind in Self::ALL {
+            if let Some(amount) = kind.matching_amount(adjust) {
+                return Some((kind, amount));
+            }
+        }
+        None
+    }
+
+    fn matching_amount(self, adjust: &ImageAdjust) -> Option<f32> {
+        let full = self.recipe();
+        let identity = ImageAdjust::default();
+        let mut amount = None;
+        for (cur, ident, target) in [
+            (adjust.brightness, identity.brightness, full.brightness),
+            (adjust.contrast, identity.contrast, full.contrast),
+            (adjust.saturate, identity.saturate, full.saturate),
+            (adjust.grayscale, identity.grayscale, full.grayscale),
+            (adjust.sepia, identity.sepia, full.sepia),
+            (adjust.hue_deg, identity.hue_deg, full.hue_deg),
+            (adjust.invert, identity.invert, full.invert),
+        ] {
+            match channel_amount(cur, ident, target) {
+                ChannelMatch::Unconstrained => {}
+                ChannelMatch::Amount(t) => match amount {
+                    None => amount = Some(t),
+                    Some(prev) if (prev - t).abs() <= 0.02 => {}
+                    Some(_) => return None,
+                },
+                ChannelMatch::Mismatch => return None,
+            }
+        }
+        if adjust.overlay != full.overlay && adjust.overlay != identity.overlay {
+            return None;
+        }
+        amount.filter(|t| *t > 0.0)
+    }
+}
+
+enum ChannelMatch {
+    Unconstrained,
+    Amount(f32),
+    Mismatch,
+}
+
+fn channel_amount(current: f32, identity: f32, target: f32) -> ChannelMatch {
+    let span = target - identity;
+    if span.abs() <= 1e-4 {
+        if (current - identity).abs() <= 1e-3 {
+            ChannelMatch::Unconstrained
+        } else {
+            ChannelMatch::Mismatch
+        }
+    } else {
+        let t = (current - identity) / span;
+        if t < -0.02 || t > 1.02 {
+            ChannelMatch::Mismatch
+        } else {
+            ChannelMatch::Amount(t.clamp(0.0, 1.0))
+        }
+    }
+}
+
+fn lerp_f32(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+fn mix_overlay(a: Option<Rgba>, b: Option<Rgba>, t: f32) -> Option<Rgba> {
+    match (a, b) {
+        (None, None) => None,
+        (None, Some(c)) => {
+            let mut out = c;
+            out.0[3] = (c.0[3] as f32 * t).round() as u8;
+            (out.0[3] > 0).then_some(out)
+        }
+        (Some(c), None) => mix_overlay(None, Some(c), 1.0 - t),
+        (Some(a), Some(b)) => Some(Rgba([
+            lerp_u8(a.0[0], b.0[0], t),
+            lerp_u8(a.0[1], b.0[1], t),
+            lerp_u8(a.0[2], b.0[2], t),
+            lerp_u8(a.0[3], b.0[3], t),
+        ])),
+    }
+}
+
+fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
+    (lerp_f32(a as f32, b as f32, t)).round().clamp(0.0, 255.0) as u8
+}
+
+fn is_zero_invert(v: &f32) -> bool {
+    *v == 0.0
+}
+
+fn deserialize_invert_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+    struct InvertVisitor;
+    impl<'de> serde::de::Visitor<'de> for InvertVisitor {
+        type Value = f32;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a boolean or CSS invert() amount")
+        }
+        fn visit_bool<E: serde::de::Error>(self, v: bool) -> Result<f32, E> {
+            Ok(if v { 1.0 } else { 0.0 })
+        }
+        fn visit_f32<E: serde::de::Error>(self, v: f32) -> Result<f32, E> {
+            Ok(v)
+        }
+        fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<f32, E> {
+            Ok(v as f32)
+        }
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<f32, E> {
+            Ok(v as f32)
+        }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<f32, E> {
+            Ok(v as f32)
+        }
+    }
+    d.deserialize_any(InvertVisitor)
+}
+
+fn serialize_invert_amount<S: serde::Serializer>(v: &f32, s: S) -> Result<S::Ok, S::Error> {
+    if (*v - 1.0).abs() <= f32::EPSILON {
+        s.serialize_bool(true)
+    } else {
+        s.serialize_f32(*v)
     }
 }
 
@@ -1280,6 +1701,9 @@ pub struct ConnectorNode {
     pub a: ConnectorEnd,
     pub b: ConnectorEnd,
     pub stroke: Stroke,
+    /// Authored routing; legacy wires without this field use the caller's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing: Option<crate::wire::WireRouting>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub arrow_a: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -1292,6 +1716,15 @@ pub struct ConnectorNode {
     /// None is a decorative wire. Bound wires use these existing A/B endpoints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<crate::agent_inputs::WireBinding>,
+}
+
+impl ConnectorNode {
+    pub fn effective_routing(
+        &self,
+        fallback: crate::wire::WireRouting,
+    ) -> crate::wire::WireRouting {
+        self.routing.unwrap_or(fallback)
+    }
 }
 
 // ---------- derived connector geometry ----------
@@ -2586,17 +3019,35 @@ mod tests {
     }
 
     #[test]
+    fn photo_filter_recipes_round_trip_through_intensity() {
+        for kind in PhotoFilter::ALL {
+            let full = kind.at(1.0);
+            assert_eq!(PhotoFilter::recognize(&full), Some((kind, 1.0)));
+            let half = kind.at(0.5);
+            let (got, amount) = PhotoFilter::recognize(&half).expect("half strength");
+            assert_eq!(got, kind);
+            assert!((amount - 0.5).abs() < 0.02);
+            assert_eq!(PhotoFilter::recognize(&ImageAdjust::default()), None);
+        }
+        let custom = ImageAdjust {
+            brightness: 1.4,
+            grayscale: 0.3,
+            ..ImageAdjust::default()
+        };
+        assert_eq!(PhotoFilter::recognize(&custom), None);
+    }
+
     fn css_filter_appends_invert_last() {
         let adj = ImageAdjust {
             brightness: 1.5,
-            invert: true,
+            invert: 1.0,
             ..ImageAdjust::default()
         };
         assert_eq!(adj.css_filter(), "brightness(1.500) invert(1)");
         assert!(!adj.is_identity());
 
         let only_invert = ImageAdjust {
-            invert: true,
+            invert: 1.0,
             ..ImageAdjust::default()
         };
         assert_eq!(only_invert.css_filter(), "invert(1)");
@@ -2817,7 +3268,9 @@ mod tests {
         }
 
         let adj: ImageAdjust = serde_json::from_str("{}").unwrap();
-        assert!(!adj.invert);
+        assert_eq!(adj.invert, 0.0);
+        let legacy: ImageAdjust = serde_json::from_str(r#"{"invert":true}"#).unwrap();
+        assert_eq!(legacy.invert, 1.0);
 
         // Default-valued flags stay out of the serialized form.
         let out = serde_json::to_string(&node).unwrap();
@@ -3007,6 +3460,7 @@ mod tests {
 
     fn test_connector(a: ConnectorEnd, b: ConnectorEnd) -> ConnectorNode {
         ConnectorNode {
+            routing: None,
             binding: None,
             a,
             b,
@@ -3021,6 +3475,30 @@ mod tests {
             label: Some("relates".into()),
             display: WireDisplay::Faint,
         }
+    }
+
+    #[test]
+    fn connector_routing_is_authored_and_legacy_wires_use_the_fallback() {
+        let mut connector = test_connector(
+            ConnectorEnd::Free { point: [0.0, 0.0] },
+            ConnectorEnd::Free {
+                point: [100.0, 60.0],
+            },
+        );
+        let legacy = serde_json::to_string(&connector).unwrap();
+        assert!(!legacy.contains("routing"));
+        let restored: ConnectorNode = serde_json::from_str(&legacy).unwrap();
+        assert_eq!(
+            restored.effective_routing(crate::WireRouting::Orthogonal),
+            crate::WireRouting::Orthogonal
+        );
+        connector.routing = Some(crate::WireRouting::Bezier);
+        let restored: ConnectorNode =
+            serde_json::from_str(&serde_json::to_string(&connector).unwrap()).unwrap();
+        assert_eq!(
+            restored.effective_routing(crate::WireRouting::Orthogonal),
+            crate::WireRouting::Bezier
+        );
     }
 
     #[test]
@@ -3293,5 +3771,248 @@ mod tests {
                 panic!("expected line seg");
             }
         }
+    }
+}
+
+// Shared scene style access, used by every property-edit surface.
+pub fn stroke_of(node: &Node) -> Option<Stroke> {
+    match &node.kind {
+        NodeKind::Shape(s) => Some(s.stroke),
+        NodeKind::Image(i) => Some(i.stroke),
+        NodeKind::Connector(c) => Some(c.stroke),
+        _ => None,
+    }
+}
+
+/// Stroke editor applies to shapes, images, and wires — the kinds [`stroke_of`] reads.
+pub fn supports_stroke(node: &Node) -> bool {
+    stroke_of(node).is_some()
+}
+
+pub fn set_stroke(node: &mut Node, stroke: Stroke) {
+    match &mut node.kind {
+        NodeKind::Shape(s) => s.stroke = stroke,
+        NodeKind::Image(i) => i.stroke = stroke,
+        NodeKind::Connector(c) => c.stroke = stroke,
+        _ => {}
+    }
+}
+
+pub fn corner_of(node: &Node) -> Option<Corner> {
+    match &node.kind {
+        NodeKind::Shape(s) => Some(s.corner),
+        NodeKind::Image(i) => Some(i.corner),
+        _ => None,
+    }
+}
+
+pub fn set_corner(node: &mut Node, corner: Corner) {
+    match &mut node.kind {
+        NodeKind::Shape(s) => s.corner = corner,
+        NodeKind::Image(i) => i.corner = corner,
+        _ => {}
+    }
+}
+
+/// Fillet/chamfer applies to rectangles and images. Other shapes store a
+/// corner field that is not a user-facing treatment.
+pub fn supports_corners(node: &Node) -> bool {
+    match &node.kind {
+        NodeKind::Shape(s) => s.shape == ShapeKind::Rect,
+        NodeKind::Image(_) => true,
+        _ => false,
+    }
+}
+
+pub fn adjust_of(node: &Node) -> Option<ImageAdjust> {
+    match &node.kind {
+        NodeKind::Image(i) => Some(i.adjust),
+        _ => None,
+    }
+}
+
+pub fn set_adjust(node: &mut Node, adjust: ImageAdjust) {
+    if let NodeKind::Image(i) = &mut node.kind {
+        i.adjust = adjust;
+    }
+}
+
+/// Photo-filter / ImageAdjust editors apply to placed images (and video
+/// posters). 3D model viewports skip pixel filters in both interpreters.
+pub fn supports_image_adjust(node: &Node) -> bool {
+    matches!(node.kind, NodeKind::Image(_))
+}
+
+pub fn fill_of(node: &Node) -> Option<Rgba> {
+    match &node.kind {
+        NodeKind::Shape(s) => s.fill,
+        NodeKind::Text(t) => t.fill,
+        NodeKind::Frame(f) => Some(f.fill),
+        NodeKind::Portal(p) => Some(p.fill),
+        _ => None,
+    }
+}
+pub fn set_fill(node: &mut Node, fill: Option<Rgba>) {
+    match &mut node.kind {
+        NodeKind::Shape(s) => s.fill = fill,
+        NodeKind::Text(t) => t.fill = fill,
+        NodeKind::Frame(f) => {
+            if let Some(c) = fill {
+                f.fill = c;
+            }
+        }
+        NodeKind::Portal(p) => {
+            if let Some(c) = fill {
+                p.fill = c;
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Fill editor authors closed-shape paint, text sticky-note background, and
+/// frame/portal frame color. Text ink stays on `TextNode.color`.
+pub fn supports_fill(node: &Node) -> bool {
+    match &node.kind {
+        NodeKind::Shape(s) => {
+            s.shape != ShapeKind::Line
+                && (s.shape != ShapeKind::Path || s.path.as_ref().is_some_and(|p| p.closed))
+        }
+        NodeKind::Text(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => true,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod corner_percentage_tests {
+    use super::*;
+    #[test]
+    fn geometric_outlines_preserve_corner_modes_and_bound_curve_error() {
+        let rect = WorldRect::new(0.0, 0.0, 200.0, 100.0);
+        for chamfer in [false, true] {
+            let absolute = Corner::from_parameters(chamfer, false, 15.0).outline(rect, 0.05);
+            let percent = Corner::from_parameters(chamfer, true, 30.0).outline(rect, 0.05);
+            assert_eq!(absolute.len(), percent.len());
+            assert!(absolute
+                .iter()
+                .zip(&percent)
+                .all(|(a, b)| (a[0] - b[0]).abs() < 0.0001 && (a[1] - b[1]).abs() < 0.0001));
+            assert!(!absolute.contains(&[0.0, 0.0]));
+            assert!(absolute.contains(&[15.0, 0.0]));
+            assert!(absolute.contains(&[0.0, 15.0]));
+        }
+        let square = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let diamond = Corner::ChamferPercent { percent: 100.0 }.outline(square, 0.05);
+        assert_eq!(diamond.len(), 4);
+        let circle = Corner::RoundedPercent { percent: 100.0 }.outline(square, 0.05);
+        assert_ne!(circle.first(), circle.last());
+        assert!(circle.windows(2).all(|pair| pair[0] != pair[1]));
+        for radius in [0.5, 50.0, 5000.0] {
+            let points =
+                WorldRect::new(-radius, -radius, radius * 2.0, radius * 2.0).ellipse_outline(0.05);
+            for i in 0..points.len() {
+                let a = points[i];
+                let b = points[(i + 1) % points.len()];
+                let mid = [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5];
+                let error = radius - mid[0].hypot(mid[1]);
+                assert!(error <= 0.051, "radius {radius}, chord error {error}");
+            }
+        }
+    }
+
+    #[test]
+    fn percentage_corners_roundtrip_and_scale_while_old_absolute_values_survive() {
+        let old: Corner = serde_json::from_str(r#"{"rounded":{"radius":12.0}}"#).unwrap();
+        assert_eq!(old, Corner::Rounded { radius: 12.0 });
+        for chamfer in [false, true] {
+            for (percent, expected) in [(0.0, 0.0), (50.0, 0.25), (100.0, 0.5)] {
+                let c = Corner::from_parameters(chamfer, true, percent);
+                let restored: Corner =
+                    serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+                assert_eq!(restored.effective(1.0, 1.0), (chamfer, expected));
+                assert_eq!(restored.effective(2.0, 2.0), (chamfer, expected * 2.0));
+            }
+        }
+        assert_eq!(old.effective(4.0, 2.0), (false, 1.0));
+        assert_eq!(old.effective(100.0, 100.0), (false, 12.0));
+    }
+
+    #[test]
+    fn style_capabilities_follow_the_scene_helpers() {
+        let rect = WorldRect::new(0.0, 0.0, 40.0, 20.0);
+        let node = |kind| Node {
+            id: NodeId(1),
+            rect,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            kind,
+        };
+        let frame = node(NodeKind::Frame(FrameNode {
+            title: "Slide".into(),
+            order: 0,
+            fill: Rgba::WHITE,
+            assignments: Default::default(),
+        }));
+        let image = node(NodeKind::Image(ImageNode::new(crate::ItemId(1))));
+        let text = node(NodeKind::Text(TextNode {
+            text: "Note".into(),
+            family: FontChoice::default(),
+            size: 16.0,
+            color: Rgba([0, 0, 0, 255]),
+            align: TextAlign::default(),
+            fill: None,
+        }));
+        let portal = node(NodeKind::Portal(PortalNode::unbound_web("Page")));
+        let shape = node(NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Rect,
+            fill: Some(Rgba::WHITE),
+            stroke: Stroke::default(),
+            corner: Corner::Square,
+            flip: false,
+            path: None,
+        }));
+        let line = node(NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Line,
+            fill: None,
+            stroke: Stroke::default(),
+            corner: Corner::Square,
+            flip: false,
+            path: None,
+        }));
+        assert!(supports_fill(&frame) && !supports_stroke(&frame) && !supports_corners(&frame));
+        assert!(
+            !supports_fill(&image)
+                && supports_stroke(&image)
+                && supports_corners(&image)
+                && supports_image_adjust(&image)
+        );
+        assert!(
+            supports_fill(&text)
+                && !supports_stroke(&text)
+                && !supports_corners(&text)
+                && !supports_image_adjust(&text)
+        );
+        assert!(
+            supports_fill(&portal)
+                && !supports_stroke(&portal)
+                && !supports_corners(&portal)
+                && !supports_image_adjust(&portal)
+        );
+        assert!(
+            supports_fill(&shape)
+                && supports_stroke(&shape)
+                && supports_corners(&shape)
+                && !supports_image_adjust(&shape)
+        );
+        assert!(
+            !supports_fill(&line)
+                && supports_stroke(&line)
+                && !supports_corners(&line)
+                && !supports_image_adjust(&line)
+        );
     }
 }

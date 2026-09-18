@@ -1186,9 +1186,9 @@ impl DockTokens {
 
 /// The palette body — what a dock icon opens.
 ///
-/// Two presentations of one thing: an **icon strip** of fieldset groups, or a
-/// **stacked list** under a caption. Both carry the dot cluster, so its
-/// geometry is tuned once here rather than per presentation.
+/// Palettes are an **icon strip** of unlabeled fieldset groups.
+/// Inspectors stay a **stacked list** under a caption. Both carry the
+/// same two-dot cluster, so its geometry is tuned once here.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DockPaletteTokens {
@@ -1199,8 +1199,22 @@ pub struct DockPaletteTokens {
     pub group_radius: f32,
     /// Fieldset boundary stroke. Zero paints no frame.
     pub group_stroke: f32,
+    /// Idle fill multiply on a secondary capsule (`popover_fill * this`).
+    #[serde(default = "group_fill_default")]
+    pub group_fill: f32,
+    /// How strongly the primary plates take the secondary capsule color
+    /// (0 = keep [`DockThemeTokens::icon_fill`], 1 = fully linked).
+    #[serde(default = "primary_fill_mix_default")]
+    pub primary_fill_mix: f32,
+    /// Signed luminance offset of those linked primary plates from the
+    /// secondary capsule. Positive lightens in dark mode / darkens in light.
+    #[serde(default = "primary_fill_offset_default")]
+    pub primary_fill_offset: f32,
+    /// Idle fill multiply inside a secondary icon well. Zero is hollow.
+    #[serde(default = "well_fill_default")]
+    pub well_fill: f32,
     /// Fill multiply on a hosted palette while its primary icon (or the
-    /// palette itself) is hovered. Idle fieldsets use 0.42.
+    /// palette itself) is hovered. Idle fieldsets use [`Self::group_fill`].
     #[serde(default = "associate_fill_default")]
     pub associate_fill: f32,
     /// Stroke-width scale for that same hover. 1 = unchanged.
@@ -1259,7 +1273,7 @@ pub struct DockPaletteTokens {
     /// Hover hit band beside / below the primary icon bar that collapses it.
     #[serde(default = "collapse_zone_default")]
     pub collapse_zone: f32,
-    /// Pallet name in the box's top stroke (curves, ink, object snaps).
+    /// Reserved type size for a pallet name; icon-strip capsules stay unlabeled.
     pub group_label_size: f32,
     /// Pallet title's inset past the corner fillet.
     pub group_label_inset: f32,
@@ -1277,7 +1291,7 @@ pub struct DockPaletteTokens {
     pub rule_extent: f32,
     /// Gap the rule leaves around the embedded title.
     pub rule_text_gap: f32,
-    /// Type on labeled strip icons (Object Snaps, grid, snap, …).
+    /// Type on stacked-list labeled rows (Object Snaps, grid, snap, …).
     pub labeled_text_size: f32,
     /// Gap between the two tertiary toggles sharing one icon's height.
     pub tertiary_stack_gap: f32,
@@ -1304,10 +1318,14 @@ pub struct DockPaletteTokens {
 impl Default for DockPaletteTokens {
     fn default() -> Self {
         Self {
-            group_pad: 7.0,
+            group_pad: 10.0,
             group_gap: 10.0,
             group_radius: 6.0,
             group_stroke: 1.0,
+            group_fill: 0.42,
+            primary_fill_mix: 0.0,
+            primary_fill_offset: 0.0,
+            well_fill: 0.0,
             associate_fill: 0.64,
             associate_stroke: 1.28,
             associate_tint: 0.28,
@@ -1364,6 +1382,10 @@ impl DockPaletteTokens {
         self.group_gap = self.group_gap.clamp(0.0, 48.0);
         self.group_radius = self.group_radius.clamp(0.0, 24.0);
         self.group_stroke = self.group_stroke.clamp(0.0, 6.0);
+        self.group_fill = self.group_fill.clamp(0.0, 1.0);
+        self.primary_fill_mix = self.primary_fill_mix.clamp(0.0, 1.0);
+        self.primary_fill_offset = self.primary_fill_offset.clamp(-0.6, 0.6);
+        self.well_fill = self.well_fill.clamp(0.0, 1.0);
         self.associate_fill = self.associate_fill.clamp(0.0, 0.85);
         self.associate_stroke = self.associate_stroke.clamp(1.0, 1.8);
         self.associate_tint = self.associate_tint.clamp(0.0, 0.7);
@@ -1415,6 +1437,10 @@ impl DockPaletteTokens {
             &mut self.group_gap,
             &mut self.group_radius,
             &mut self.group_stroke,
+            &mut self.group_fill,
+            &mut self.primary_fill_mix,
+            &mut self.primary_fill_offset,
+            &mut self.well_fill,
             &mut self.associate_fill,
             &mut self.associate_stroke,
             &mut self.associate_tint,
@@ -1460,6 +1486,22 @@ impl DockPaletteTokens {
             *value = (*value * 1_000.0).round() / 1_000.0;
         }
     }
+}
+
+fn group_fill_default() -> f32 {
+    0.42
+}
+
+fn primary_fill_mix_default() -> f32 {
+    0.0
+}
+
+fn primary_fill_offset_default() -> f32 {
+    0.0
+}
+
+fn well_fill_default() -> f32 {
+    0.0
 }
 
 fn associate_fill_default() -> f32 {

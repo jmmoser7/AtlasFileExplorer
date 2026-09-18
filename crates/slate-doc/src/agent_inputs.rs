@@ -451,6 +451,7 @@ mod tests {
         add(
             doc,
             NodeKind::Connector(ConnectorNode {
+                routing: None,
                 a,
                 b,
                 binding,

@@ -43,6 +43,27 @@ const THIN_SLIDER_LABEL_GAP: f32 = 1.0;
 /// the previous slider's label row.
 const THIN_SLIDER_TOP_GAP: f32 = 5.0;
 
+/// Pointer semantics shared by sidebar sliders and canvas property buffers.
+pub fn rail_interaction(
+    ui: &mut Ui,
+    id: Id,
+    hit: Rect,
+    travel: egui::emath::Rangef,
+    fraction: &mut f32,
+) -> egui::Response {
+    let mut response = ui.interact(hit, id, Sense::click_and_drag());
+    if (response.is_pointer_button_down_on() || response.dragged()) && ui.is_enabled() {
+        if let Some(pos) = response.interact_pointer_pos() {
+            let value = ((pos.x - travel.min) / (travel.max - travel.min)).clamp(0.0, 1.0);
+            if value != *fraction {
+                *fraction = value;
+                response.mark_changed();
+            }
+        }
+    }
+    response
+}
+
 /// Shared rail + grip painting and pointer handling for thin sliders.
 /// `frac` is the normalized handle position in `0..=1`.
 fn thin_slider_rail(ui: &mut Ui, frac: &mut f32, hover: &str) -> bool {
@@ -50,30 +71,22 @@ fn thin_slider_rail(ui: &mut Ui, frac: &mut f32, hover: &str) -> bool {
     let width = ui.available_width();
     let (rect, alloc) =
         ui.allocate_exact_size(Vec2::new(width, THIN_SLIDER_HEIGHT), Sense::hover());
-    let resp = ui
-        .interact(
-            rect.expand2(Vec2::new(0.0, THIN_SLIDER_HIT_SLOP)),
-            alloc.id.with("thin_slider"),
-            Sense::click_and_drag(),
-        )
-        .on_hover_text(hover);
-
     let x0 = rect.left() + THIN_SLIDER_HANDLE_RADIUS;
     let x1 = (rect.right() - THIN_SLIDER_HANDLE_RADIUS).max(x0 + 1.0);
-    let mut changed = false;
+    let resp = rail_interaction(
+        ui,
+        alloc.id.with("thin_slider"),
+        rect.expand2(Vec2::new(0.0, THIN_SLIDER_HIT_SLOP)),
+        (x0..=x1).into(),
+        frac,
+    )
+    .on_hover_text(hover);
+    let changed = resp.changed();
     if resp.is_pointer_button_down_on() || resp.dragged() {
-        // Don't let a parent ScrollArea bury the thin grip.
         ui.input_mut(|i| {
             i.smooth_scroll_delta = Vec2::ZERO;
             i.raw_scroll_delta = Vec2::ZERO;
         });
-        if let Some(pos) = resp.interact_pointer_pos() {
-            let t = ((pos.x - x0) / (x1 - x0)).clamp(0.0, 1.0);
-            if t != *frac {
-                *frac = t;
-                changed = true;
-            }
-        }
     }
 
     let painter = ui.painter();
@@ -331,4 +344,55 @@ fn paint_readout_chevron(
     let s = Stroke::new(stroke, color);
     painter.line_segment([left, tip], s);
     painter.line_segment([tip, right], s);
+}
+
+/// Choice from [`confirm_window`]. Primary is the default (Save); secondary
+/// is the discard path (Don't save).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ConfirmChoice {
+    Primary,
+    Secondary,
+    Cancel,
+}
+
+/// Centered warning with three actions. Escape and the window close box
+/// are Cancel. Chrome-only — apps decide what the buttons do.
+pub fn confirm_window(
+    ctx: &egui::Context,
+    title: &str,
+    body: &str,
+    primary: &str,
+    secondary: &str,
+) -> Option<ConfirmChoice> {
+    let mut choice = None;
+    let mut open = true;
+    egui::Window::new(title)
+        .id(egui::Id::new("atlas-confirm"))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.set_max_width(360.0);
+            ui.label(body);
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui.button(primary).clicked() {
+                    choice = Some(ConfirmChoice::Primary);
+                }
+                if ui.button(secondary).clicked() {
+                    choice = Some(ConfirmChoice::Secondary);
+                }
+                if ui.button("Cancel").clicked() {
+                    choice = Some(ConfirmChoice::Cancel);
+                }
+            });
+        });
+    if !open {
+        choice = Some(ConfirmChoice::Cancel);
+    }
+    if choice.is_none() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        choice = Some(ConfirmChoice::Cancel);
+    }
+    choice
 }

@@ -24,6 +24,8 @@ pub mod trim_tokens {
     pub const SPAN_SLOP: f32 = 10.0;
     pub const END_SLOP: f32 = 14.0;
     pub const PREVIEW_ALPHA: f32 = 0.38;
+    /// Board-unit chord error for boolean inputs; never depends on camera zoom.
+    pub const GEOMETRY_TOLERANCE: f32 = 0.05;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -521,7 +523,10 @@ impl SlateApp {
                             [n.rect.x + n.rect.w, n.rect.y + n.rect.h],
                         )
                     };
-                    Some(vec![a, b])
+                    Some(vec![
+                        n.rect.rotate_point(a, n.rotation_deg),
+                        n.rect.rotate_point(b, n.rotation_deg),
+                    ])
                 }
                 ShapeKind::Path => {
                     let path = s.path.as_ref()?;
@@ -529,7 +534,7 @@ impl SlateApp {
                         return None;
                     }
                     let bez = path_data_to_world_bez(path, n.rect, n.rotation_deg);
-                    let contours = flatten_contours(&bez, 0.35);
+                    let contours = flatten_contours(&bez, trim_tokens::GEOMETRY_TOLERANCE as f64);
                     contours.into_iter().next().filter(|c| c.len() >= 2)
                 }
                 _ => None,
@@ -541,7 +546,7 @@ impl SlateApp {
     pub(crate) fn node_closed_poly(&self, n: &Node) -> Option<Polygon> {
         if let Some(clip) = &n.clip {
             let bez = path_data_to_world_bez(clip, n.rect, n.rotation_deg);
-            let contours = flatten_contours(&bez, 0.35);
+            let contours = flatten_contours(&bez, trim_tokens::GEOMETRY_TOLERANCE as f64);
             if contours.is_empty() {
                 return None;
             }
@@ -549,15 +554,24 @@ impl SlateApp {
         }
         match &n.kind {
             NodeKind::Shape(s) => match s.shape {
-                ShapeKind::Rect => Some(vec![rect_ring(n.rect, n.rotation_deg)]),
-                ShapeKind::Ellipse => Some(vec![ellipse_ring(n.rect, n.rotation_deg, 48)]),
+                ShapeKind::Rect | ShapeKind::Ellipse => {
+                    let outline = if s.shape == ShapeKind::Rect {
+                        s.corner.outline(n.rect, trim_tokens::GEOMETRY_TOLERANCE)
+                    } else {
+                        n.rect.ellipse_outline(trim_tokens::GEOMETRY_TOLERANCE)
+                    };
+                    Some(vec![outline
+                        .into_iter()
+                        .map(|p| n.rect.rotate_point(p, n.rotation_deg))
+                        .collect()])
+                }
                 ShapeKind::Path => {
                     let path = s.path.as_ref()?;
                     if !path.closed {
                         return None;
                     }
                     let bez = path_data_to_world_bez(path, n.rect, n.rotation_deg);
-                    let contours = flatten_contours(&bez, 0.35);
+                    let contours = flatten_contours(&bez, trim_tokens::GEOMETRY_TOLERANCE as f64);
                     if contours.is_empty() {
                         None
                     } else {
@@ -625,6 +639,10 @@ impl SlateApp {
             );
             let mut after = before.clone();
             after.rect = rect0;
+            // The result is already in world space; retaining the old transform
+            // rotates it a second time about a different bounding-box center.
+            after.rotation_deg = 0.0;
+            after.clip = None;
             after.kind = NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Path,
                 path: Some(path0),
@@ -694,6 +712,8 @@ impl SlateApp {
             let (rect0, path0) = polygon_to_path_data(&pieces[0]);
             let mut after = before.clone();
             after.rect = rect0;
+            after.rotation_deg = 0.0;
+            after.clip = None;
             after.kind = NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Path,
                 path: Some(path0),
@@ -733,7 +753,20 @@ impl SlateApp {
                 node: before.clone(),
             }]);
         } else {
-            polygons_to_clip(&pieces, before.rect)
+            let local_pieces: Vec<Polygon> = pieces
+                .iter()
+                .map(|piece| {
+                    piece
+                        .iter()
+                        .map(|ring| {
+                            ring.iter()
+                                .map(|p| before.rect.rotate_point(*p, -before.rotation_deg))
+                                .collect()
+                        })
+                        .collect()
+                })
+                .collect();
+            polygons_to_clip(&local_pieces, before.rect)
         };
         let mut after = before.clone();
         after.clip = Some(clip);
@@ -752,25 +785,13 @@ impl SlateApp {
         // Cutter outlines stay visible for the whole command.
         for id in &session.cutters {
             if let Some(n) = self.doc().scene.node(*id) {
-                let outline: Vec<Pos2> = n
-                    .rect
-                    .corners_rotated(n.rotation_deg)
-                    .into_iter()
-                    .map(|(x, y)| xf.w2s(Pos2::new(x, y)))
-                    .collect();
-                painter.add(Shape::closed_line(outline, EStroke::new(1.5_f32, accent)));
+                self.paint_trim_cutter(painter, xf, n, EStroke::new(1.5_f32, accent));
             }
         }
         match &session.hover {
             Some(TrimHover::Cutter(id)) => {
                 if let Some(n) = self.doc().scene.node(*id) {
-                    let outline: Vec<Pos2> = n
-                        .rect
-                        .corners_rotated(n.rotation_deg)
-                        .into_iter()
-                        .map(|(x, y)| xf.w2s(Pos2::new(x, y)))
-                        .collect();
-                    painter.add(Shape::convex_polygon(outline, fill, EStroke::NONE));
+                    self.paint_trim_cutter(painter, xf, n, EStroke::new(3.0_f32, accent));
                 }
             }
             Some(TrimHover::ClosedRegion { target }) => {
@@ -855,6 +876,33 @@ impl SlateApp {
             None => {}
         }
     }
+
+    fn paint_trim_cutter(
+        &self,
+        painter: &eframe::egui::Painter,
+        xf: &BoardXf,
+        n: &Node,
+        stroke: EStroke,
+    ) {
+        let open = self.node_open_polyline(n);
+        let closed = open.is_none();
+        if let Some(contours) = open
+            .map(|points| vec![points])
+            .or_else(|| self.node_closed_poly(n))
+        {
+            for ring in contours {
+                let points = ring
+                    .into_iter()
+                    .map(|p| xf.w2s(Pos2::new(p[0], p[1])))
+                    .collect();
+                painter.add(if closed {
+                    Shape::closed_line(points, stroke)
+                } else {
+                    Shape::line(points, stroke)
+                });
+            }
+        }
+    }
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
@@ -867,22 +915,6 @@ fn rect_ring(rect: WorldRect, rot: f32) -> Vec<[f32; 2]> {
     rect.corners_rotated(rot)
         .into_iter()
         .map(|(x, y)| [x, y])
-        .collect()
-}
-
-fn ellipse_ring(rect: WorldRect, rot: f32, n: usize) -> Vec<[f32; 2]> {
-    let (cx, cy) = rect.center();
-    let rx = rect.w * 0.5;
-    let ry = rect.h * 0.5;
-    let rad = rot.to_radians();
-    let (sin, cos) = rad.sin_cos();
-    (0..n)
-        .map(|i| {
-            let a = i as f32 / n as f32 * std::f32::consts::TAU;
-            let lx = a.cos() * rx;
-            let ly = a.sin() * ry;
-            [cx + lx * cos - ly * sin, cy + lx * sin + ly * cos]
-        })
         .collect()
 }
 

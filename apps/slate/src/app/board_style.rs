@@ -2,7 +2,7 @@
 //! P1.shape.create-style). The last single-node edit seeds stroke, fill,
 //! and opacity for the next compatible create commit.
 
-use slate_doc::scene::{Node, NodeKind, Rgba, Stroke};
+use slate_doc::scene::{Node, NodeKind, Rgba, ShapeKind, ShapeNode, Stroke};
 
 use super::board_line;
 use super::board_path;
@@ -53,8 +53,30 @@ impl BoardLastStyle {
 
 impl SlateApp {
     /// Remember the style of a node after a single-node edit or create.
+    /// Stroke-only nodes (lines, open paths) update stroke/opacity and leave
+    /// the last fill alone so the next rectangle still gets that color.
     pub(crate) fn note_last_style(&mut self, node: &Node) {
-        self.board_last_style = BoardLastStyle::from_node(node);
+        let next = BoardLastStyle::from_node(node);
+        if next.opacity.is_some() {
+            self.board_last_style.opacity = next.opacity;
+        }
+        if next.stroke.is_some() {
+            self.board_last_style.stroke = next.stroke;
+        }
+        if Self::node_records_fill(node) {
+            self.board_last_style.fill = next.fill;
+        }
+    }
+
+    fn node_records_fill(node: &Node) -> bool {
+        match &node.kind {
+            NodeKind::Shape(s) => {
+                matches!(s.shape, ShapeKind::Rect | ShapeKind::Ellipse)
+                    || (s.shape == ShapeKind::Path && s.fill.is_some())
+            }
+            NodeKind::Frame(_) | NodeKind::Portal(_) => true,
+            _ => false,
+        }
     }
 
     /// Stroke for a new open curve (Line, arc, polyline span, …).
@@ -65,6 +87,53 @@ impl SlateApp {
             return s;
         }
         board_path::default_curve_stroke(self.board_colors.fg)
+    }
+
+    /// Fill for a new closed shape. `None` leaves the kit recipe fill.
+    pub(crate) fn fill_for_new_shape(&self) -> Option<Rgba> {
+        self.board_last_style.fill
+    }
+
+    /// Replay last stroke / fill / opacity onto a just-instantiated node
+    /// (`CreateStyle::Inherit`). Missing last-style fields stay as the recipe
+    /// built them.
+    pub(crate) fn apply_inherited_style(&self, node: &mut Node) {
+        if let Some(op) = self.board_last_style.opacity {
+            node.opacity = op;
+        }
+        match &mut node.kind {
+            NodeKind::Shape(s) => {
+                if let Some(stroke) = self.board_last_style.stroke {
+                    s.stroke = stroke;
+                }
+                if Self::shape_takes_fill(s) {
+                    if let Some(fill) = self.board_last_style.fill {
+                        s.fill = Some(fill);
+                    }
+                }
+            }
+            NodeKind::Frame(f) => {
+                if let Some(fill) = self.board_last_style.fill {
+                    f.fill = fill;
+                }
+            }
+            NodeKind::Image(i) => {
+                if let Some(stroke) = self.board_last_style.stroke {
+                    i.stroke = stroke;
+                }
+            }
+            NodeKind::Connector(c) => {
+                if let Some(stroke) = self.board_last_style.stroke {
+                    c.stroke = stroke;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn shape_takes_fill(s: &ShapeNode) -> bool {
+        matches!(s.shape, ShapeKind::Rect | ShapeKind::Ellipse)
+            || (s.shape == ShapeKind::Path && s.path.as_ref().is_some_and(|p| p.closed))
     }
 
     /// Opacity for a newly created node (`1.0` when nothing was edited yet).

@@ -66,10 +66,11 @@ pub fn effective_ortho(c: &BoardConstraints, shift_down: bool) -> bool {
   Slider scrubs coalesce via `amend_last_patch` (existing 1.5 s window).
   Ranges match PS muscle memory: hue −180…+180, sat/lightness −100…+100
   (mapped onto the existing model's ranges).
-- **Ctrl+I** `board.image.invert`: toggle a new `invert: bool` on
-  `ImageAdjust`. Must land in **three** places in one change: egui painter
-  (`imagefx.rs` pixel math), `slate-artifact` CSS (`filter: invert(1)`),
-  and the inspector checkbox (Art. IV).
+- **Ctrl+I** `board.image.invert`: toggle `ImageAdjust.invert` between 0
+  and 1 (CSS `invert()`). Must land in **three** places in one change: egui
+  painter (`imagefx.rs` pixel math), `slate-artifact` CSS, and the inspector
+  checkbox (Art. IV). The selection-strip Filters capsule also authors this
+  field through `PhotoFilter` recipes.
 - **C** `board.crop`: with one croppable image selected, enter the existing
   crop mode (same path as double-click). No-op otherwise.
 

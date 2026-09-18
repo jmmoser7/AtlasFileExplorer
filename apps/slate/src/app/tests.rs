@@ -2,7 +2,6 @@
 //! `egui::Context` (no eframe window) with the real thumbnail pool, exercising
 //! the tag model, both presentations, tabs, and workbook save/load.
 
-use super::lens::LensStatus;
 use super::{board_align, board_handles, board_place, board_wire, *};
 use eframe::egui::{Pos2, Rect as ERect, Vec2 as EVec2};
 use slate_doc::{NodeId, ViewKind};
@@ -467,21 +466,6 @@ fn model_nodes_survive_headless_frames() {
 }
 
 #[test]
-fn grid_and_venn_views_render_seeded_doc() {
-    let mut h = Harness::new("views");
-    h.seed();
-    for _ in 0..5 {
-        h.frame();
-    }
-    h.app.doc_mut().view.active_view = ViewKind::Venn;
-    for _ in 0..5 {
-        h.frame();
-    }
-    // One uncategorized item stays out of the Venn circles.
-    assert_eq!(h.app.doc().uncategorized_items().len(), 1);
-}
-
-#[test]
 fn mutual_exclusion_within_group() {
     let mut h = Harness::new("exclusive");
     let (big, small, red) = h.seed();
@@ -518,12 +502,21 @@ fn tab_lifecycle_is_safe() {
     assert_eq!(h.app.tabs.len(), 2);
     h.app.switch_tab(0);
     h.frame();
-    // The seeded tab is dirty: closing must be refused.
+    // The seeded tab is dirty: closing asks, and does not drop the tab yet.
     h.app.close_tab(0);
     assert_eq!(h.app.tabs.len(), 2);
-    // The blank tab closes fine.
-    h.app.close_tab(1);
+    assert!(h.app.unsaved_close.is_some());
+    h.app
+        .apply_unsaved_choice(&h.ctx, atlas_shell::widgets::ConfirmChoice::Cancel);
+    assert_eq!(h.app.tabs.len(), 2);
+    h.app.close_tab(0);
+    h.app
+        .apply_unsaved_choice(&h.ctx, atlas_shell::widgets::ConfirmChoice::Secondary);
     assert_eq!(h.app.tabs.len(), 1);
+    assert!(h.app.unsaved_close.is_none());
+    // The remaining blank tab closes without a prompt.
+    h.app.close_tab(0);
+    assert!(h.app.tabs.is_empty() || h.app.tabs.iter().all(|t| !t.dirty));
     h.frame();
 }
 
@@ -942,51 +935,6 @@ fn remove_group_strips_assignments_via_menu_path() {
     h.frame();
 }
 
-/// Lens view: empty state, then analysis on a minimal Cargo workspace.
-#[test]
-fn lens_view_pumps_without_panic() {
-    let mut h = Harness::new("lens");
-    h.app.doc_mut().view.active_view = ViewKind::Lens;
-
-    for _ in 0..5 {
-        h.frame();
-    }
-    assert_eq!(h.app.lens.status, LensStatus::Idle);
-
-    let root = h.base.join("mini-crate");
-    std::fs::create_dir_all(root.join("src")).unwrap();
-    std::fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = \"mini\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .unwrap();
-    std::fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").unwrap();
-
-    h.app.doc_mut().lens_root = Some(root);
-    h.app.lens_rescan();
-
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        h.frame();
-        match &h.app.lens.status {
-            LensStatus::Ready => break,
-            LensStatus::Error(msg) => panic!("lens analysis failed: {msg}"),
-            LensStatus::Analyzing | LensStatus::Idle => {
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "lens analysis timed out"
-                );
-                std::thread::sleep(std::time::Duration::from_millis(25));
-            }
-        }
-    }
-
-    assert!(h.app.lens.graph.is_some());
-    for _ in 0..3 {
-        h.frame();
-    }
-}
-
 #[test]
 fn path_node_add_undo_via_journal() {
     use slate_doc::scene::{PathData, PathSeg, ShapeKind, ShapeNode};
@@ -1256,6 +1204,188 @@ fn assert_endpoints(app: &SlateApp, a: Pos2, b: Pos2) -> NodeId {
     node.id
 }
 
+#[test]
+fn shape_drawing_moving_polyline_presses_are_placed_once_at_event_positions() {
+    let mut h = line_board("moving_polyline");
+    h.app.set_board_tool(board::BoardTool::Polyline);
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    h.frame();
+    h.frame();
+    let xf = h.app.board_xf();
+    for w in [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(120.0, 30.0),
+        Pos2::new(50.0, 120.0),
+    ] {
+        let p = xf.w2s(w);
+        let after = p + EVec2::new(25.0, 12.0);
+        h.frame_with(|i| i.events.push(egui::Event::PointerMoved(p)));
+        h.frame_with(|i| {
+            i.events = vec![
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerMoved(after),
+                egui::Event::PointerButton {
+                    pos: after,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        });
+    }
+    let Some(board_path::BoardPathDraft::Polyline { points }) = &h.app.board_path_draft else {
+        panic!("polyline draft survives moving clicks")
+    };
+    assert_eq!(points.len(), 3);
+    for (got, want) in points.iter().zip([
+        Pos2::new(0.0, 0.0),
+        Pos2::new(120.0, 30.0),
+        Pos2::new(50.0, 120.0),
+    ]) {
+        assert!((*got - want).length() < 0.01, "{got:?} != {want:?}");
+    }
+}
+
+#[test]
+fn shape_drawing_polyline_snaps_to_draft_and_commits_closed_without_duplicate_vertex() {
+    let mut h = line_board("closed_draft");
+    h.app.set_board_tool(board::BoardTool::Polyline);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.board_osnap = Default::default();
+    h.app.board_osnap.near = true;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    for p in [Pos2::ZERO, Pos2::new(100.0, 0.0), Pos2::new(100.0, 100.0)] {
+        h.app.path_tool_click(p);
+    }
+    let near = h.app.resolve_point_snap(
+        Pos2::new(70.0, 3.0),
+        &[],
+        Some(Pos2::new(100.0, 100.0)),
+        false,
+        true,
+    );
+    assert!((near - Pos2::new(70.0, 0.0)).length() < 0.01);
+    h.app.path_tool_click(Pos2::new(2.0, 1.0));
+    assert!(h.app.board_path_draft.is_none());
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    let NodeKind::Shape(s) = &h.app.doc().scene.nodes[0].kind else {
+        panic!()
+    };
+    let path = s.path.as_ref().unwrap();
+    assert!(path.closed);
+    assert_eq!(path.segs.len(), 2);
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty());
+}
+
+#[test]
+fn shape_drawing_stationary_line_click_is_not_a_drag_when_first_point_snaps() {
+    let mut h = line_board("line_raw_press");
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.board_snap_grid = true;
+    let p = Pos2::new(7.0, 0.0);
+    assert!(h.app.line_begin(p, false));
+    assert_eq!(h.app.line_draft.as_ref().unwrap().start, Pos2::ZERO);
+    h.app.line_release(p, true, false);
+    assert!(h.app.line_draft.is_some());
+    assert!(h.app.doc().scene.nodes.is_empty());
+}
+
+#[test]
+fn shape_drawing_line_second_endpoint_is_latched_on_press_not_later_motion() {
+    let mut h = line_board("line_press_endpoint");
+    h.app.board_osnap.enabled = false;
+    h.app.board_smart_guides = false;
+    h.frame();
+    h.frame();
+    let xf = h.app.board_xf();
+    let a = xf.w2s(Pos2::ZERO);
+    let b = xf.w2s(Pos2::new(120.0, 0.0));
+    h.frame_with(|i| i.events.push(egui::Event::PointerMoved(a)));
+    for (p, moved) in [(a, a), (b, b + EVec2::new(35.0, 25.0))] {
+        h.frame_with(|i| {
+            i.events = vec![
+                egui::Event::PointerMoved(p),
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerMoved(moved),
+                egui::Event::PointerButton {
+                    pos: moved,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        });
+    }
+    assert_endpoints(&h.app, Pos2::ZERO, Pos2::new(120.0, 0.0));
+}
+
+#[test]
+fn shape_drawing_pen_keeps_all_frame_motion_samples_and_final_release() {
+    let mut h = line_board("pen_ordered");
+    h.app.set_board_tool(board::BoardTool::Pen);
+    h.app.tab_mut().cam.z = 1.0;
+    h.frame();
+    h.frame();
+    let xf = h.app.board_xf();
+    let a = xf.w2s(Pos2::ZERO);
+    let points = [
+        Pos2::new(20.0, 20.0),
+        Pos2::new(40.0, 0.0),
+        Pos2::new(60.0, 20.0),
+    ];
+    h.frame_with(|i| i.events.push(egui::Event::PointerMoved(a)));
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerButton {
+            pos: a,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        for p in points {
+            i.events.push(egui::Event::PointerMoved(xf.w2s(p)));
+        }
+    });
+    let Some(board::BoardDrag::FreehandPen { points, .. }) = &h.app.board_drag else {
+        panic!("pen owns the press")
+    };
+    assert_eq!(points.len(), 4);
+    let end = Pos2::new(61.0, 21.0);
+    h.frame_with(|i| {
+        i.events.push(egui::Event::PointerButton {
+            pos: xf.w2s(end),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        })
+    });
+    let node = &h.app.doc().scene.nodes[0];
+    let NodeKind::Shape(s) = &node.kind else {
+        panic!()
+    };
+    let bez =
+        board_path::path_data_to_world_bez(s.path.as_ref().unwrap(), node.rect, node.rotation_deg);
+    let last = bez.elements().last().unwrap();
+    let point = match last {
+        vector_ink::kurbo::PathEl::CurveTo(_, _, p) | vector_ink::kurbo::PathEl::LineTo(p) => p,
+        _ => panic!("expected endpoint"),
+    };
+    assert!((point.x - 61.0).abs() < 0.01 && (point.y - 21.0).abs() < 0.01);
+}
+
 /// GP1 — click grammar: L · click (100,100) · move · click (200,100) →
 /// one parametric line in the fg color, tool back to Select, one undo.
 #[test]
@@ -1502,6 +1632,132 @@ fn line_pick_stroke_not_bbox() {
         board_path::board_pick_node(scene, 50.0, 10.0, 1.0).is_none(),
         "interior bbox point off the diagonal must not select"
     );
+    h.frame();
+}
+
+/// Closed unfilled polylines pick on the stroke, not the AABB or interior.
+#[test]
+fn closed_polyline_pick_and_near_ignore_empty_bbox() {
+    let mut h = line_board("closed_pick");
+    h.app.tab_mut().cam.z = 1.0;
+    let pts = [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(80.0, 0.0),
+        Pos2::new(0.0, 80.0),
+    ];
+    let (rect, data) = board_path::points_to_path_data(&pts, true);
+    let node = h.app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
+            shape: slate_doc::scene::ShapeKind::Path,
+            fill: None,
+            stroke: board_path::default_curve_stroke(slate_doc::scene::Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: Some(data),
+        }),
+    );
+    let id = h.app.add_nodes(vec![node])[0];
+    let scene = &h.app.doc().scene;
+    assert_eq!(
+        board_path::board_pick_node(scene, 40.0, 0.0, 1.0),
+        Some(id),
+        "base stroke"
+    );
+    assert!(
+        board_path::board_pick_node(scene, 20.0, 20.0, 1.0).is_none(),
+        "unfilled interior must not hover-select"
+    );
+    assert!(
+        board_path::board_pick_node(scene, 80.0, 80.0, 1.0).is_none(),
+        "empty AABB corner must not hover-select"
+    );
+    h.app.board_osnap = Default::default();
+    h.app.board_osnap.near = true;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    let ghost = Pos2::new(80.0, 80.0);
+    assert!(
+        board_osnap::pick(
+            &h.app.doc().scene,
+            ghost,
+            8.0,
+            h.app.board_osnap,
+            &[],
+            None,
+            slate_doc::WireRouting::Bezier,
+        )
+        .is_none(),
+        "Near must not fire on empty AABB space of a closed polyline"
+    );
+    h.frame();
+}
+
+#[test]
+fn closed_polyline_pick_and_near_ignore_points_outside_the_bbox() {
+    let mut h = line_board("closed_outside");
+    h.app.tab_mut().cam.z = 1.0;
+    let pts = [
+        Pos2::new(400.0, 300.0),
+        Pos2::new(480.0, 300.0),
+        Pos2::new(400.0, 380.0),
+    ];
+    let (rect, data) = board_path::points_to_path_data(&pts, true);
+    let node = h.app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
+            shape: slate_doc::scene::ShapeKind::Path,
+            fill: None,
+            stroke: board_path::default_curve_stroke(slate_doc::scene::Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: Some(data),
+        }),
+    );
+    let id = h.app.add_nodes(vec![node])[0];
+    let scene = &h.app.doc().scene;
+    assert_eq!(
+        board_path::board_pick_node(scene, 440.0, 300.0, 1.0),
+        Some(id)
+    );
+    for (x, y, why) in [
+        (0.0, 0.0, "world origin"),
+        (200.0, 150.0, "line toward origin"),
+        (200.0, 300.0, "infinite base extension"),
+        (500.0, 400.0, "outside AABB"),
+    ] {
+        assert!(
+            board_path::board_pick_node(scene, x, y, 1.0).is_none(),
+            "pick at ({x},{y}) {why}"
+        );
+    }
+    h.app.board_osnap = Default::default();
+    h.app.board_osnap.end = true;
+    h.app.board_osnap.mid = true;
+    h.app.board_osnap.center = true;
+    h.app.board_osnap.near = true;
+    h.app.board_smart_guides = false;
+    h.app.board_snap_grid = false;
+    for ghost in [
+        Pos2::new(0.0, 0.0),
+        Pos2::new(200.0, 150.0),
+        Pos2::new(200.0, 300.0),
+        Pos2::new(500.0, 400.0),
+    ] {
+        assert!(
+            board_osnap::pick(
+                &h.app.doc().scene,
+                ghost,
+                8.0,
+                h.app.board_osnap,
+                &[],
+                None,
+                slate_doc::WireRouting::Bezier,
+            )
+            .is_none(),
+            "snap at {ghost:?} must not bind to a far-away polyline"
+        );
+    }
     h.frame();
 }
 
@@ -1836,6 +2092,55 @@ fn a_drawn_rectangle_takes_its_style_from_the_kit_recipe() {
     h.frame();
 }
 
+/// P1.shape.style — a single-node fill/stroke edit seeds the next inherit create.
+#[test]
+fn a_drawn_rectangle_inherits_last_fill_and_stroke() {
+    let mut h = kit_board("kit_rect_last_style", board::BoardTool::RectShape);
+    drag(
+        &mut h,
+        board::BoardTool::RectShape,
+        Pos2::new(0.0, 0.0),
+        Pos2::new(200.0, 120.0),
+    );
+    let id = h.app.doc().scene.nodes[0].id;
+    let fill = slate_doc::scene::Rgba([10, 20, 30, 200]);
+    let stroke = slate_doc::scene::Stroke {
+        width: 5.0,
+        color: slate_doc::scene::Rgba([200, 40, 40, 255]),
+        dash: slate_doc::scene::Dash::Solid,
+        cap: slate_doc::scene::StrokeCap::Butt,
+        join: slate_doc::scene::StrokeJoin::Miter,
+        profile: slate_doc::scene::WidthProfile::Uniform,
+    };
+    h.app.patch_nodes(&[id], |n| {
+        if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
+            s.fill = Some(fill);
+            s.stroke = stroke;
+        }
+    });
+    h.app.set_board_tool(board::BoardTool::RectShape);
+    drag(
+        &mut h,
+        board::BoardTool::RectShape,
+        Pos2::new(0.0, 200.0),
+        Pos2::new(80.0, 260.0),
+    );
+    let second = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .find(|n| n.id != id)
+        .expect("second rectangle");
+    let slate_doc::scene::NodeKind::Shape(s) = &second.kind else {
+        panic!("expected a shape node");
+    };
+    assert_eq!(s.fill, Some(fill));
+    assert_eq!(s.stroke, stroke);
+    h.frame();
+}
+
 /// A user kit that reuses a built-in tool's id replaces what that tool
 /// produces — no rebuild, no change to the shipped kit. This is the whole
 /// point of the split.
@@ -1890,7 +2195,10 @@ fn a_user_kit_overrides_what_a_builtin_tool_produces() {
     assert_eq!(s.stroke.join, slate_doc::scene::StrokeJoin::Round);
     assert_eq!(s.corner, slate_doc::scene::Corner::Rounded { radius: 12.0 });
 
-    // Tools the user did not override are untouched.
+    // Tools the user did not override are untouched. Stroke and fill cannot
+    // show that: create-style inheritance (P1.shape.style) carries the
+    // rectangle's stroke onto the next shape whatever recipe produced it.
+    // Corner is recipe-owned, so it is what distinguishes the two.
     drag(
         &mut h,
         board::BoardTool::Ellipse,
@@ -1901,7 +2209,7 @@ fn a_user_kit_overrides_what_a_builtin_tool_produces() {
         panic!("expected a shape node");
     };
     assert_eq!(e.shape, slate_doc::scene::ShapeKind::Ellipse);
-    assert_eq!(e.stroke.width, 2.0);
+    assert_eq!(e.corner, slate_doc::scene::Corner::Square);
     h.frame();
 }
 
@@ -4091,21 +4399,6 @@ fn workbook_camera_round_trips_through_save() {
 }
 
 #[test]
-fn grid_layout_is_cached_across_unchanged_paints() {
-    let mut h = Harness::new("layout_cache");
-    h.seed();
-    h.app.doc_mut().view.active_view = ViewKind::Grid;
-    h.app.layout_cache = None;
-    h.app.layout_builds = 0;
-    h.frame();
-    h.frame();
-    assert_eq!(
-        h.app.layout_builds, 1,
-        "an unchanged doc + size must not rebuild Grid/Venn layout"
-    );
-}
-
-#[test]
 fn board_paint_culls_offscreen_nodes() {
     let mut h = Harness::new("board_cull");
     h.seed();
@@ -4644,7 +4937,7 @@ fn align_gp5_widget_hit_misses_the_box() {
     let cluster = 4.0 * board_align::ICON_PX + 3.0 * board_align::ICON_GAP_PX;
     let icon = Pos2::new(
         bbox.center().x - cluster * 0.5 + board_align::ICON_PX * 0.5,
-        bbox.bottom() + board_align::FRAME_OUTSET_PX,
+        bbox.bottom() + board_align::bottom_outset_px(xf.z),
     );
     assert_eq!(
         h.app.align_action_at(icon),
@@ -4655,6 +4948,52 @@ fn align_gp5_widget_hit_misses_the_box() {
         bbox.top() - board_align::FRAME_OUTSET_PX,
     );
     assert_eq!(h.app.align_action_at(old_top), None, "top cluster is gone");
+}
+
+/// P1.node.select — Shift+click adds a rectangle instead of replacing.
+#[test]
+fn shift_click_adds_rectangles_to_the_selection() {
+    let mut h = align_board("shift_select_rects");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 120.0, 0.0);
+    h.app
+        .board_click_for_test(Pos2::new(40.0, 30.0), egui::Modifiers::NONE);
+    assert_eq!(h.app.board_sel.len(), 1);
+    assert!(h.app.board_sel.contains(&a));
+    let mut shift = egui::Modifiers::NONE;
+    shift.shift = true;
+    h.app.board_click_for_test(Pos2::new(160.0, 30.0), shift);
+    assert!(h.app.board_sel.contains(&a), "first rect stays");
+    assert!(h.app.board_sel.contains(&b), "second rect is added");
+}
+
+/// Hover-resize on an unselected rectangle must not steal Shift+select.
+#[test]
+fn shift_press_on_unselected_rect_edge_adds_instead_of_resize() {
+    let mut h = align_board("shift_rect_edge");
+    let a = add_rect(&mut h.app, 0.0, 0.0);
+    let b = add_rect(&mut h.app, 200.0, 0.0);
+    h.app.board_sel = [a].into_iter().collect();
+    h.frame();
+    h.app.shift_down = true;
+    let xf = h.app.board_xf();
+    let n = h.app.doc().scene.node(b).unwrap().clone();
+    let edge = xf.w2s(Pos2::new(n.rect.x + n.rect.w, n.rect.y + 12.0));
+    let edge_world = xf.s2w(edge);
+    assert!(
+        h.app.begin_transform_drag(edge, edge_world).is_none(),
+        "shift on an unselected rect must not start resize"
+    );
+    let mut mods = egui::Modifiers::NONE;
+    mods.shift = true;
+    let body = Pos2::new(n.rect.x + 40.0, n.rect.y + 30.0);
+    let drag = h.app.begin_gesture_for_test(xf.w2s(body), body, mods);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Move { .. })),
+        "shift+press on the next rect moves the additive set"
+    );
+    assert!(h.app.board_sel.contains(&a));
+    assert!(h.app.board_sel.contains(&b));
 }
 
 /// Ctrl+Alt+Shift on a group edge: members keep size and only translate.
@@ -5049,6 +5388,161 @@ fn trim_gp3_hole_punch() {
     h.frame();
 }
 
+/// GP7 — a closed cutter removes a corner without changing the source stroke.
+#[test]
+fn trim_gp7_notch_preserves_stroke_and_undo() {
+    use slate_doc::scene::{NodeKind, Rgba, ShapeKind, StrokeJoin};
+    let mut h = trim_board("trim_gp7");
+    let rect = add_filled_rect(&mut h.app, 40.0, 30.0, 920.0, 380.0);
+    h.app.patch_nodes(&[rect], |node| {
+        if let NodeKind::Shape(shape) = &mut node.kind {
+            shape.stroke.width = 8.0;
+            shape.stroke.color = Rgba([45, 212, 191, 255]);
+            shape.stroke.join = StrokeJoin::Miter;
+        }
+    });
+    let before = h.app.doc().scene.node(rect).unwrap().clone();
+    let cutter = add_filled_rect(&mut h.app, 835.0, 0.0, 165.0, 200.0);
+    select_trim(&mut h.app, &[cutter]);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert!(h.app.trim_click(Pos2::new(900.0, 100.0), false));
+    let after = h.app.doc().scene.node(rect).unwrap();
+    let (NodeKind::Shape(original), NodeKind::Shape(trimmed)) = (&before.kind, &after.kind) else {
+        panic!("trim must preserve a shape");
+    };
+    assert_eq!(trimmed.shape, ShapeKind::Path);
+    assert_eq!(trimmed.stroke, original.stroke);
+    assert_eq!(trimmed.fill, original.fill);
+    let bez = board_path::path_data_to_world_bez(
+        trimmed.path.as_ref().unwrap(),
+        after.rect,
+        after.rotation_deg,
+    );
+    let mesh = vector_ink::stroke_mesh(
+        &bez,
+        &board_path::stroke_style_world(&trimmed.stroke, 1.0),
+        0.0,
+        0.02,
+    );
+    let vertices: Vec<_> = mesh.vertices.iter().map(|v| v.pos).collect();
+    for p in [
+        [750.0, 26.2],
+        [831.2, 100.0],
+        [900.0, 196.2],
+        [963.8, 350.0],
+        [100.0, 413.8],
+        [36.2, 100.0],
+    ] {
+        assert!(
+            vector_ink::point_in_mesh(&vertices, &mesh.indices, p),
+            "stroke missing at {p:?}"
+        );
+    }
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.node(rect).unwrap(), &before);
+}
+
+/// GP8 — both source and cutter keep their true corners, including after rotation.
+#[test]
+fn trim_gp8_true_corners_and_rotation() {
+    use slate_doc::scene::{Corner, NodeKind, ShapeKind, WorldRect};
+    for corner in [
+        Corner::Rounded { radius: 15.0 },
+        Corner::RoundedPercent { percent: 30.0 },
+        Corner::Chamfer { cut: 15.0 },
+        Corner::ChamferPercent { percent: 30.0 },
+    ] {
+        for angle in [0.0, 33.0, 90.0] {
+            let mut h = trim_board("trim_gp8");
+            let target_rect = WorldRect::new(0.0, 0.0, 200.0, 100.0);
+            let target = add_filled_rect(&mut h.app, 0.0, 0.0, 200.0, 100.0);
+            // Rotate the arrangement as a whole; each node still uses its own center.
+            let cutter_center = target_rect.rotate_point([180.0, 10.0], angle);
+            let cutter = add_filled_rect(
+                &mut h.app,
+                cutter_center[0] - 60.0,
+                cutter_center[1] - 50.0,
+                120.0,
+                100.0,
+            );
+            h.app.patch_nodes(&[target, cutter], |node| {
+                node.rotation_deg = angle;
+                if let NodeKind::Shape(shape) = &mut node.kind {
+                    shape.corner = corner;
+                }
+            });
+            let before = h.app.doc().scene.node(target).unwrap().clone();
+            let cutter_before = h.app.doc().scene.node(cutter).unwrap().clone();
+            select_trim(&mut h.app, &[cutter]);
+            h.app.set_board_tool(board::BoardTool::Trim);
+            let click = target_rect.rotate_point([160.0, 30.0], angle);
+            assert!(h.app.trim_click(Pos2::new(click[0], click[1]), false));
+            let after = h.app.doc().scene.node(target).unwrap().clone();
+            assert_eq!(
+                after.rotation_deg, 0.0,
+                "world-space result must not rotate twice"
+            );
+            let NodeKind::Shape(shape) = &after.kind else {
+                panic!("shape");
+            };
+            assert_eq!(shape.shape, ShapeKind::Path);
+            let result = h.app.node_closed_poly(&after).unwrap();
+            for (point, inside) in [
+                ([1.0, 1.0], false),    // untouched upper-left corner stays rounded/chamfered
+                ([199.0, 99.0], false), // untouched lower-right corner
+                ([15.0, 10.0], true),
+                ([121.0, 59.0], true), // material outside the cutter's rounded/chamfered corner
+                ([135.0, 55.0], false), // removed overlap
+                ([160.0, 30.0], false),
+                ([180.0, 80.0], true),
+            ] {
+                let world = target_rect.rotate_point(point, angle);
+                assert_eq!(
+                    vector_ink::point_in_polygon(&result, world),
+                    inside,
+                    "{corner:?}, rotation {angle}, local point {point:?}"
+                );
+            }
+            assert_eq!(h.app.doc().scene.node(cutter).unwrap(), &cutter_before);
+            let saved = serde_json::to_string(&after).unwrap();
+            assert_eq!(
+                serde_json::from_str::<slate_doc::Node>(&saved).unwrap(),
+                after
+            );
+            h.app.board_undo();
+            assert_eq!(h.app.doc().scene.node(target).unwrap(), &before);
+        }
+    }
+}
+
+/// GP9 — rotated legacy lines use their painted endpoints and bake rotation once.
+#[test]
+fn trim_gp9_rotated_line_endpoints() {
+    use slate_doc::scene::{NodeKind, ShapeKind};
+    let mut h = trim_board("trim_gp9");
+    let target = add_filled_rect(&mut h.app, 0.0, 50.0, 100.0, 0.0);
+    h.app.patch_nodes(&[target], |node| {
+        node.rotation_deg = 45.0;
+        if let NodeKind::Shape(shape) = &mut node.kind {
+            shape.shape = ShapeKind::Line;
+            shape.fill = None;
+        }
+    });
+    let before = h.app.doc().scene.node(target).unwrap().clone();
+    let cutter = add_seg(&mut h.app, Pos2::new(50.0, -20.0), Pos2::new(50.0, 120.0));
+    select_trim(&mut h.app, &[cutter]);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert!(h.app.trim_click(Pos2::new(30.0, 30.0), false));
+    let after = h.app.doc().scene.node(target).unwrap();
+    let points = h.app.node_open_polyline(after).unwrap();
+    assert_eq!(after.rotation_deg, 0.0);
+    assert!((points[0][0] - 50.0).abs() < 0.01 && (points[0][1] - 50.0).abs() < 0.01);
+    let last = points.last().unwrap();
+    assert!((last[0] - 85.35534).abs() < 0.01 && (last[1] - 85.35534).abs() < 0.01);
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.node(target).unwrap(), &before);
+}
+
 /// GP4 — Ctrl+T arms Trim; Ctrl+N still opens a tab.
 #[test]
 fn trim_gp4_ctrl_n_still_new_tab() {
@@ -5142,6 +5636,24 @@ fn trim_text_clip_punches_a_hole() {
     assert!(vector_ink::point_in_polygon(&contours, [5.0, 20.0]));
     assert!(!vector_ink::point_in_polygon(&contours, [50.0, 20.0]));
     h.frame();
+
+    // Re-run the punch with a rotated host: clip coordinates stay host-local.
+    h.app.board_undo();
+    h.app.patch_nodes(&[text], |node| node.rotation_deg = 37.0);
+    let before = h.app.doc().scene.node(text).unwrap().clone();
+    select_trim(&mut h.app, &[circle]);
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.set_board_tool(board::BoardTool::Trim);
+    assert!(h.app.trim_click(Pos2::new(50.0, 20.0), false));
+    let n = h.app.doc().scene.node(text).unwrap();
+    assert_eq!(n.rotation_deg, 37.0);
+    assert_eq!(n.rect, before.rect);
+    let contours = h.app.node_closed_poly(n).unwrap();
+    let kept = n.rect.rotate_point([5.0, 20.0], n.rotation_deg);
+    assert!(vector_ink::point_in_polygon(&contours, kept));
+    assert!(!vector_ink::point_in_polygon(&contours, [50.0, 20.0]));
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.node(text).unwrap(), &before);
 }
 
 // ---------- Join golden paths (contracts/join.md GP1–GP6) ----------

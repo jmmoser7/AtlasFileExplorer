@@ -23,8 +23,17 @@ pub const ICON_PX: f32 = 14.0;
 pub const ICON_GAP_PX: f32 = 2.0;
 /// How far outside the group box the icon clusters sit.
 /// Must clear the edge-handle hit (`HANDLE_PX` + pad) so a click never
-/// starts a resize.
+/// starts a resize. The bottom cluster also clears the width stringer
+/// (`STRINGER_GAP × zoom`) so the two do not overlap at some zooms.
 pub const FRAME_OUTSET_PX: f32 = 20.0;
+
+/// Bottom-cluster outset: keep the 20 px handle clearance and sit past the
+/// width stringer (world gap × zoom) plus the icon half-height.
+pub fn bottom_outset_px(zoom: f32) -> f32 {
+    let z = zoom.max(0.05);
+    let stringer = atlas_shell::selection_tools::STRINGER_GAP * z;
+    FRAME_OUTSET_PX.max(stringer + ICON_PX * 0.5 + 10.0 * z)
+}
 /// Extra hit slop around each icon (screen px).
 pub const HIT_PAD_PX: f32 = 2.0;
 /// Disabled (distribute with fewer than 3) icon alpha.
@@ -221,8 +230,13 @@ fn icon_center(cluster_origin: Pos2, along: Vec2, index: usize) -> Pos2 {
     cluster_origin + along * (index as f32 * (ICON_PX + ICON_GAP_PX) + ICON_PX * 0.5)
 }
 
-fn layout_for(screen_bbox: Rect, alignable: usize) -> AlignLayout {
-    let frame = screen_bbox.expand(FRAME_OUTSET_PX);
+fn layout_for(screen_bbox: Rect, alignable: usize, zoom: f32) -> AlignLayout {
+    let side = FRAME_OUTSET_PX;
+    let bottom = bottom_outset_px(zoom);
+    let frame = Rect::from_min_max(
+        Pos2::new(screen_bbox.left() - side, screen_bbox.top() - side),
+        Pos2::new(screen_bbox.right() + side, screen_bbox.bottom() + bottom),
+    );
     let dist_on = alignable >= MIN_DISTRIBUTE;
     let h_actions = [
         AlignAction::Align(BoardAlign::Left),
@@ -311,7 +325,7 @@ impl SlateApp {
         }
         let members = self.alignable_selection();
         let bounds = self.board_group_bounds()?;
-        Some(layout_for(xf.rect_w2s(bounds), members.len()))
+        Some(layout_for(xf.rect_w2s(bounds), members.len(), xf.z))
     }
 
     /// Screen hit on an enabled icon. `None` when the widget is hidden.
@@ -612,8 +626,8 @@ mod tests {
     #[test]
     fn bottom_and_left_clusters_sit_outside_the_group_box() {
         let bbox = Rect::from_min_max(Pos2::new(100.0, 80.0), Pos2::new(300.0, 200.0));
-        let layout = layout_for(bbox, 3);
-        let bottom_y = bbox.bottom() + FRAME_OUTSET_PX;
+        let layout = layout_for(bbox, 3, 1.0);
+        let bottom_y = bbox.bottom() + bottom_outset_px(1.0);
         let left_x = bbox.left() - FRAME_OUTSET_PX;
         let bottom: Vec<_> = layout
             .hits
@@ -649,7 +663,7 @@ mod tests {
     #[test]
     fn distribute_icon_disabled_for_two() {
         let bbox = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(80.0, 80.0));
-        let layout = layout_for(bbox, 2);
+        let layout = layout_for(bbox, 2, 1.0);
         let dist = layout
             .hits
             .iter()
@@ -664,7 +678,7 @@ mod tests {
     #[test]
     fn icon_hit_does_not_overlap_the_inner_bbox() {
         let bbox = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(200.0, 100.0));
-        let layout = layout_for(bbox, 3);
+        let layout = layout_for(bbox, 3, 1.0);
         for h in &layout.hits {
             assert!(
                 !bbox.contains(h.rect.center()),
@@ -674,5 +688,25 @@ mod tests {
         }
         // Mid-top of the inner box is the N resize handle — must miss the widget.
         assert_eq!(hit_test(Pos2::new(100.0, 0.0), &layout), None);
+    }
+
+    #[test]
+    fn bottom_cluster_clears_the_width_stringer() {
+        for z in [0.5_f32, 0.83, 1.0, 2.0] {
+            let bbox = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(200.0, 100.0));
+            let layout = layout_for(bbox, 2, z);
+            let stringer_y = bbox.bottom() + atlas_shell::selection_tools::STRINGER_GAP * z;
+            let min_icon_top = layout
+                .hits
+                .iter()
+                .filter(|h| (h.rect.center().x - bbox.center().x).abs() < cluster_len())
+                .filter(|h| h.rect.center().y > bbox.bottom())
+                .map(|h| h.rect.min.y)
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                min_icon_top > stringer_y + 1.0,
+                "zoom {z}: icon top {min_icon_top} overlaps stringer {stringer_y}"
+            );
+        }
     }
 }

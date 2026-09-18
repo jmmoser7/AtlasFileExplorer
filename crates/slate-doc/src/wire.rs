@@ -3,7 +3,7 @@
 //!
 //! Geometry is never stored — both interpreters (the egui board painter and
 //! the artifact writer) call [`connector_route`] with the current [`WireHost`]
-//! pose of each anchored node and the session [`WireRouting`]. Orthogonal
+//! pose of each anchored node and its effective [`WireRouting`]. Orthogonal
 //! paths take a 50/50 three-leg jive when that corridor is clear, then an
 //! L, then a wrap; stairs and the Hanan fallback only run when a host
 //! actually blocks the simple path. Equal-length ties prefer the
@@ -18,8 +18,8 @@ use crate::NodeId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// How board wires are drawn. Session preference (Document Settings), not a
-/// journaled scene property — same class as the grid and object snaps.
+/// Authored connector routing. The session preference is only the creation
+/// default and a fallback for legacy connectors without an explicit route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WireRouting {
@@ -196,7 +196,7 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
         .iter()
         .filter(|n| !n.hidden)
         .filter_map(|n| match &n.kind {
-            NodeKind::Connector(c) => Some(Item {
+            NodeKind::Connector(c) if c.routing != Some(WireRouting::Bezier) => Some(Item {
                 id: n.id,
                 a: c.a,
                 b: c.b,
@@ -407,7 +407,15 @@ pub fn connector_aabb_routed(
     obstacles: &[WireObstacle],
     lane: OrthoLane,
 ) -> Option<WorldRect> {
-    connector_route(&conn.a, &conn.b, host_of, routing, obstacles, lane).map(|p| p.aabb())
+    connector_route(
+        &conn.a,
+        &conn.b,
+        host_of,
+        conn.effective_routing(routing),
+        obstacles,
+        lane,
+    )
+    .map(|p| p.aabb())
 }
 
 /// Orthogonal path that leaves each end along the host outward (true
@@ -1636,6 +1644,7 @@ mod tests {
             group: None,
             clip: None,
             kind: NodeKind::Connector(ConnectorNode {
+                routing: None,
                 binding: None,
                 a,
                 b,

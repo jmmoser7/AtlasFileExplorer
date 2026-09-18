@@ -5,7 +5,7 @@
 //! - `ui/tools` — left tools rail (Tags / Display / Workbook panels)
 //! - `ui/readouts` — bottom metrics bar
 //! - `ui/advanced` — floating advanced settings
-//! - `canvas` — grid + Venn presentations
+//! - `canvas` — board entry point and camera helpers
 //! - `session` — linked File Atlas viewport (in-process)
 
 use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
@@ -41,6 +41,7 @@ mod board_path;
 mod board_place;
 mod board_portal;
 mod board_portal_chrome;
+mod board_properties;
 mod board_snap;
 mod board_style;
 mod board_transform;
@@ -57,7 +58,6 @@ mod dispatch;
 mod external_drop;
 pub mod imagefx;
 pub mod kits;
-pub mod lens;
 pub mod model3d;
 mod overlays;
 pub mod pdf;
@@ -123,8 +123,6 @@ pub struct SlateTab {
     pub cam: Camera,
     pub grid_fade: atlas_shell::grid_fade::GridFade,
     pub grid_fade_armed: bool,
-    /// Tags currently focused for the Venn presentation (empty = all).
-    pub venn_focus: HashSet<TagId>,
     /// Board undo/redo history (session-local, not saved with the doc).
     pub journal: SceneJournal,
 }
@@ -146,7 +144,6 @@ impl SlateTab {
             cam: Camera::default(),
             grid_fade: atlas_shell::grid_fade::GridFade::default(),
             grid_fade_armed: false,
-            venn_focus: HashSet::new(),
             journal: SceneJournal::default(),
         }
     }
@@ -174,6 +171,13 @@ impl SlateTab {
     }
 }
 
+/// Pending Save / Don't save / Cancel after a close that would lose edits.
+#[derive(Clone, Copy, Debug)]
+enum UnsavedClose {
+    Tab(usize),
+    Exit,
+}
+
 /// Async results from native file dialogs (spawned threads, like Atlas).
 pub enum PickerMsg {
     OpenDoc(Option<PathBuf>),
@@ -196,7 +200,6 @@ pub enum PickerMsg {
     /// Folder picked for "Export artifact…".
     ExportArtifact(Option<PathBuf>),
     /// Folder picked as the Lens code root.
-    LensRoot(Option<PathBuf>),
     /// Folder picked as a Repository Lens portal source.
     RepoPortalSource {
         portal: NodeId,
@@ -264,19 +267,11 @@ pub struct SlateApp {
     #[cfg(windows)]
     drop_registration: Option<external_drop::win::Registration>,
     pub turbo_pan: commands::TurboPanState,
-    /// Grid cell size in world units (Display panel slider).
-    pub cell: f32,
-    /// Open right-click action menu: (clicked item, screen position).
-    pub menu: Option<(ItemId, egui::Pos2)>,
 
     /// Texture cache keyed by thumbnail cache key.
     pub textures: HashMap<String, ThumbState>,
     /// Last paint frame that needed each thumb key (LRU with `textures`).
     pub(crate) thumb_used: HashMap<String, u64>,
-    /// Cached Grid/Venn layout; invalidated by a content fingerprint.
-    pub(crate) layout_cache: Option<(u64, canvas::Layout)>,
-    #[cfg(test)]
-    pub(crate) layout_builds: u32,
     /// Round-trip mapping for the thumb pool's u32 ids.
     thumb_slots: HashMap<u32, String>,
     next_thumb_slot: u32,
@@ -300,6 +295,7 @@ pub struct SlateApp {
 
     pub picker_rx: Option<Receiver<PickerMsg>>,
     export_rx: Option<Receiver<(PathBuf, Result<slate_artifact::ExportReport, String>)>>,
+    unsaved_close: Option<UnsavedClose>,
     pub toasts: Vec<(String, Instant)>,
     /// Rate-limit for the read-only edit refusal toast (one per second).
     last_read_only_toast: Option<Instant>,
@@ -314,10 +310,6 @@ pub struct SlateApp {
     /// AI / Cursor integration: workspace link, launcher, context beacon
     /// (shared plumbing and panel body from `atlas-ai`).
     pub ai: atlas_ai::AiPanel,
-
-    /// Lens view state (code-dependency graph). App-wide for now; could
-    /// become per-tab later.
-    pub lens: lens::LensState,
 
     /// Repository Lens portal runtime (derived extract/layout cache).
     pub portals: board_portal::PortalRuntime,
@@ -479,6 +471,9 @@ pub struct SlateApp {
     // ----- board tools (keymap wave 2b) -----
     /// Shared fg/bg color pair (Brush strokes, wires, eyedropper targets).
     /// Persisted in `SlateSettings`; `D` resets to theme defaults, `X` swaps.
+    pub shape_properties: board_properties::ShapeProperties,
+    pub desktop_sample: Option<board_color::DesktopSample>,
+    pub desktop_alt_latched: bool,
     pub board_colors: board_color::BoardColors,
     /// Last single-node style edit — seeds the next compatible create
     /// (P1.curve.create-style / P1.shape.create-style).
@@ -602,13 +597,8 @@ impl SlateApp {
             #[cfg(windows)]
             drop_registration: None,
             turbo_pan: commands::TurboPanState::default(),
-            cell: 132.0,
-            menu: None,
             textures: HashMap::new(),
             thumb_used: HashMap::new(),
-            layout_cache: None,
-            #[cfg(test)]
-            layout_builds: 0,
             thumb_slots: HashMap::new(),
             next_thumb_slot: 0,
             previews: atlas_core::preview::PreviewPool::new(),
@@ -621,13 +611,13 @@ impl SlateApp {
             settings: settings::SlateSettings::load(),
             picker_rx: None,
             export_rx: None,
+            unsaved_close: None,
             toasts: Vec::new(),
             last_read_only_toast: None,
             new_tag_edit: None,
             tag_color_cursor: 0,
             atlas: None,
             ai: atlas_ai::AiPanel::new(),
-            lens: lens::LensState::default(),
             portals: board_portal::PortalRuntime::default(),
             agents: board_agent::AgentRuntime::default(),
             web: board_web::WebRuntime::default(),
@@ -700,6 +690,9 @@ impl SlateApp {
             pending_paste_text: None,
             board_paste_count: 0,
             scene_gen: 0,
+            shape_properties: board_properties::ShapeProperties::default(),
+            desktop_sample: None,
+            desktop_alt_latched: false,
             board_colors: board_color::BoardColors::theme_default(true),
             board_last_style: board_style::BoardLastStyle::default(),
             brush_width: settings::BRUSH_WIDTH_DEFAULT,
@@ -990,7 +983,14 @@ impl SlateApp {
             self.lock_all_models();
         }
         if self.tabs[i].dirty {
-            self.toast("Workbook has unsaved changes — save or Save As first");
+            self.unsaved_close = Some(UnsavedClose::Tab(i));
+            return;
+        }
+        self.force_close_tab(i);
+    }
+
+    fn force_close_tab(&mut self, i: usize) {
+        if i >= self.tabs.len() {
             return;
         }
         if let Some(lease) = self.tabs[i].lease.take() {
@@ -1002,9 +1002,145 @@ impl SlateApp {
             self.active_tab = 0;
         } else if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
+        } else if self.active_tab > i {
+            self.active_tab -= 1;
         }
         self.selection.clear();
         self.publish_session_tags();
+    }
+
+    fn discard_dirty_tabs(&mut self) {
+        for tab in &mut self.tabs {
+            tab.dirty = false;
+        }
+    }
+
+    fn save_tab_for_close(&mut self, i: usize) -> bool {
+        if i >= self.tabs.len() {
+            return true;
+        }
+        if !self.tabs[i].dirty {
+            return true;
+        }
+        self.switch_tab(i);
+        self.save_doc();
+        i < self.tabs.len() && !self.tabs[i].dirty
+    }
+
+    fn resume_unsaved_close_if_ready(&mut self, ctx: &egui::Context) {
+        let Some(kind) = self.unsaved_close else {
+            return;
+        };
+        match kind {
+            UnsavedClose::Tab(i) if i < self.tabs.len() && !self.tabs[i].dirty => {
+                self.continue_unsaved_close(ctx);
+            }
+            UnsavedClose::Exit if !self.tabs.iter().any(|t| t.dirty) => {
+                self.continue_unsaved_close(ctx);
+            }
+            _ => {}
+        }
+    }
+
+    fn continue_unsaved_close(&mut self, ctx: &egui::Context) {
+        let Some(kind) = self.unsaved_close else {
+            return;
+        };
+        match kind {
+            UnsavedClose::Tab(i) => {
+                if i < self.tabs.len() && !self.tabs[i].dirty {
+                    self.unsaved_close = None;
+                    self.force_close_tab(i);
+                }
+            }
+            UnsavedClose::Exit => {
+                if let Some(i) = self.tabs.iter().position(|t| t.dirty) {
+                    if !self.save_tab_for_close(i) {
+                        return;
+                    }
+                    self.continue_unsaved_close(ctx);
+                } else {
+                    self.unsaved_close = None;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn apply_unsaved_choice(
+        &mut self,
+        ctx: &egui::Context,
+        choice: atlas_shell::widgets::ConfirmChoice,
+    ) {
+        use atlas_shell::widgets::ConfirmChoice;
+        let Some(kind) = self.unsaved_close else {
+            return;
+        };
+        match choice {
+            ConfirmChoice::Cancel => self.unsaved_close = None,
+            ConfirmChoice::Secondary => match kind {
+                UnsavedClose::Tab(i) => {
+                    self.unsaved_close = None;
+                    if i < self.tabs.len() {
+                        self.tabs[i].dirty = false;
+                        self.force_close_tab(i);
+                    }
+                }
+                UnsavedClose::Exit => {
+                    self.discard_dirty_tabs();
+                    self.unsaved_close = None;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            },
+            ConfirmChoice::Primary => match kind {
+                UnsavedClose::Tab(i) => {
+                    if self.save_tab_for_close(i) {
+                        self.continue_unsaved_close(ctx);
+                    }
+                }
+                UnsavedClose::Exit => self.continue_unsaved_close(ctx),
+            },
+        }
+    }
+
+    fn unsaved_prompt_frame(&mut self, ctx: &egui::Context) {
+        let Some(kind) = self.unsaved_close else {
+            return;
+        };
+        let i = match kind {
+            UnsavedClose::Tab(i) => i,
+            UnsavedClose::Exit => match self.tabs.iter().position(|t| t.dirty) {
+                Some(i) => i,
+                None => {
+                    self.unsaved_close = None;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    return;
+                }
+            },
+        };
+        if i >= self.tabs.len() {
+            self.unsaved_close = None;
+            return;
+        }
+        let name = self.tabs[i].doc.name.clone();
+        let many =
+            matches!(kind, UnsavedClose::Exit) && self.tabs.iter().filter(|t| t.dirty).count() > 1;
+        let body = if many {
+            format!(
+                "“{name}” and other workbooks have unsaved changes. Save this one, discard all, or cancel."
+            )
+        } else {
+            format!("“{name}” has unsaved changes. Save it, or close without saving.")
+        };
+        if let Some(choice) = atlas_shell::widgets::confirm_window(
+            ctx,
+            "Unsaved changes",
+            &body,
+            "Save",
+            "Don't save",
+        ) {
+            self.apply_unsaved_choice(ctx, choice);
+        }
     }
 
     /// Drop every tab's write lease (app exit). Best-effort; `Lease::Drop` is
@@ -1639,10 +1775,6 @@ impl SlateApp {
                         self.place_items_in_frame(frame, &items);
                     }
                     PickerMsg::ExportArtifact(Some(dir)) => self.do_export(dir),
-                    PickerMsg::LensRoot(Some(path)) => {
-                        self.doc_mut().lens_root = Some(path);
-                        self.lens_rescan();
-                    }
                     PickerMsg::RepoPortalSource {
                         portal,
                         path: Some(path),
@@ -1751,6 +1883,7 @@ impl SlateApp {
         self.ctrl_down = ctx.input(|i| i.modifiers.command);
         self.frame_time = ctx.input(|i| i.time);
         self.drain_pickers();
+        self.resume_unsaved_close_if_ready(ctx);
         self.documents.poll(ctx);
         self.poll_artifact_export(ctx);
         self.heartbeat_active_lease();
@@ -1766,7 +1899,6 @@ impl SlateApp {
         self.note_engine_failure();
         self.session_pump(ctx);
         self.ai.poll();
-        self.lens_pump(ctx);
         self.portal_pump(ctx);
         self.agent_pump(ctx);
         self.web_pump(ctx);
@@ -1826,7 +1958,10 @@ impl SlateApp {
         // Dropped/added .slate files open as tabs, after placement above.
         self.drain_pending_workbooks();
 
-        self.hotkeys(ctx);
+        self.desktop_sample_frame(ctx);
+        if !self.shape_property_keys(ctx) && self.desktop_sample.is_none() {
+            self.hotkeys(ctx);
+        }
         self.drop_stale_portal_chrome();
         self.link_health_frame(ctx);
 
@@ -1883,6 +2018,7 @@ impl SlateApp {
         if self.presenting.is_none() {
             self.history_frame(ctx);
         }
+        self.unsaved_prompt_frame(ctx);
         self.draw_toasts(ctx);
         // Presentation overlay paints above everything, last.
         self.present_frame(ctx);
@@ -1897,7 +2033,12 @@ impl SlateApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         if ctx.input(|i| i.viewport().close_requested()) {
-            if let Some(reason) = self.update_close_blocked() {
+            if self.tabs.iter().any(|tab| tab.dirty) || self.unsaved_close.is_some() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                if self.unsaved_close.is_none() {
+                    self.unsaved_close = Some(UnsavedClose::Exit);
+                }
+            } else if let Some(reason) = self.update_close_blocked() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 self.toast(reason);
             }

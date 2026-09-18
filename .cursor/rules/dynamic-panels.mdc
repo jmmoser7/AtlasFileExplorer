@@ -1,0 +1,22 @@
+---
+description: Approved object-attached property panels, capsules, color controls, and dimension stringers
+globs: crates/atlas-shell/src/selection_tools.rs,crates/atlas-shell/examples/shape_palettes.rs,crates/atlas-shell/DYNAMIC_PANELS.md,apps/*/src/app/board_properties.rs,docs/keymap/specs/shape-property-editing.md,docs/keymap/contracts/shape-selection-toolbar.md,design/shape-palettes-2026-09-17/**
+alwaysApply: false
+---
+
+# Dynamic object-property panels
+
+Read [DYNAMIC_PANELS.md](../../crates/atlas-shell/DYNAMIC_PANELS.md) before
+changing selection strips, color/stroke editors, corner/wire capsules, or
+dimension stringers. It is the approved visual owner, including the later
+slender-capsule and short-stringer refinements; old A/B/C concepts are rejected.
+
+Call or extend `atlas_shell::selection_tools`. Apps provide selection values
+and journal actions; they do not paint substitute controls. For example,
+Stroke uses the shared color editor with its extra width rail, not a copied
+color form. Do not import dock pinning/stacked-inspector conventions into
+object-attached editors.
+
+Keep behavior in P1.shape.properties and the selection contract. Use the
+guide's native light/dark review procedure before claiming visual parity;
+generated references and successful compilation are not runtime verification.

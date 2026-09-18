@@ -25,8 +25,6 @@ pub enum SearchHit {
     /// Board view: a scene node (text content, frame title, or image whose
     /// linked item name / tag names match).
     Node(NodeId),
-    /// Grid/Venn views: a pool item (name or tag names match).
-    Item(ItemId),
 }
 
 /// Ctrl+F overlay state. Matching is a transient paint-time set — the scene
@@ -42,7 +40,6 @@ pub struct SearchState {
     cursor: usize,
     /// Fast membership sets for paint-time dimming.
     node_hits: HashSet<NodeId>,
-    item_hits: HashSet<ItemId>,
     /// (query, scene generation, view) the caches were computed for.
     computed_for: Option<(String, u64, ViewKind)>,
 }
@@ -350,7 +347,6 @@ impl SlateApp {
         let q = self.search.query.trim().to_lowercase();
         let mut hits = Vec::new();
         let mut node_hits = HashSet::new();
-        let mut item_hits = HashSet::new();
         if !q.is_empty() {
             let doc = self.doc();
             let item_matches = |id: ItemId| -> bool {
@@ -365,7 +361,7 @@ impl SlateApp {
                         .is_some_and(|(_, tag)| tag.name.to_lowercase().contains(&q))
                 })
             };
-            if view == ViewKind::Board {
+            {
                 for n in &doc.scene.nodes {
                     if n.hidden {
                         continue;
@@ -387,18 +383,10 @@ impl SlateApp {
                         node_hits.insert(n.id);
                     }
                 }
-            } else {
-                for it in &doc.items {
-                    if item_matches(it.id) {
-                        hits.push(SearchHit::Item(it.id));
-                        item_hits.insert(it.id);
-                    }
-                }
             }
         }
         self.search.hits = hits;
         self.search.node_hits = node_hits;
-        self.search.item_hits = item_hits;
         self.search.cursor = 0;
         self.search.computed_for = Some(key);
     }
@@ -408,13 +396,6 @@ impl SlateApp {
     pub(crate) fn search_node_matches(&self) -> Option<&HashSet<NodeId>> {
         (self.search.dimming_active() && self.doc().view.active_view == ViewKind::Board)
             .then_some(&self.search.node_hits)
-    }
-
-    /// Paint-time dim set for Grid/Venn thumbnails.
-    pub(crate) fn search_item_matches(&self) -> Option<&HashSet<ItemId>> {
-        let view = self.doc().view.active_view;
-        (self.search.dimming_active() && matches!(view, ViewKind::Grid | ViewKind::Venn))
-            .then_some(&self.search.item_hits)
     }
 
     /// The hit the camera last flew to (outlined on the board).
@@ -438,7 +419,6 @@ impl SlateApp {
             SearchHit::Node(id) => self.doc().scene.node(id).map(|n| {
                 Rect::from_min_size(Pos2::new(n.rect.x, n.rect.y), Vec2::new(n.rect.w, n.rect.h))
             }),
-            SearchHit::Item(id) => self.layout_rect_of_item(id),
         };
         if let Some(r) = target {
             self.fly_to_world_rect(r);
@@ -540,12 +520,7 @@ impl SlateApp {
     /// Tab / Shift+Tab: cycle objects in reading order, select, and nudge
     /// the camera minimally so the object is in view.
     pub(crate) fn cycle_objects(&mut self, dir: i64) {
-        match self.doc().view.active_view {
-            ViewKind::Board => self.cycle_board_nodes(dir),
-            // Lens focus cycling is not in P1 (graph traversal ≠ reading order).
-            ViewKind::Lens => {}
-            _ => self.cycle_items(dir),
-        }
+        self.cycle_board_nodes(dir);
     }
 
     fn cycle_board_nodes(&mut self, dir: i64) {
@@ -591,33 +566,6 @@ impl SlateApp {
         if let Some(n) = self.doc().scene.node(id) {
             let r =
                 Rect::from_min_size(Pos2::new(n.rect.x, n.rect.y), Vec2::new(n.rect.w, n.rect.h));
-            self.nudge_camera_to_world_rect(r);
-        }
-    }
-
-    fn cycle_items(&mut self, dir: i64) {
-        let order = self.layout_item_order();
-        if order.is_empty() {
-            return;
-        }
-        let current = (self.selection.len() == 1)
-            .then(|| self.selection.iter().next().copied())
-            .flatten()
-            .and_then(|id| order.iter().position(|o| *o == id));
-        let next = match current {
-            Some(i) => (i as i64 + dir).rem_euclid(order.len() as i64) as usize,
-            None => {
-                if dir >= 0 {
-                    0
-                } else {
-                    order.len() - 1
-                }
-            }
-        };
-        let id = order[next];
-        self.selection.clear();
-        self.selection.insert(id);
-        if let Some(r) = self.layout_rect_of_item(id) {
             self.nudge_camera_to_world_rect(r);
         }
     }

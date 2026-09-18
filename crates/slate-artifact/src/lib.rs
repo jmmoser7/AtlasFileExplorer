@@ -46,7 +46,7 @@ pub struct ExportOptions {
     /// Captured posters per web portal node, used for the poster + pointer
     /// export a remote page gets (Art. V.3).
     pub web_posters: BTreeMap<slate_doc::NodeId, PathBuf>,
-    /// Session wire display — the artifact must match the board (Art. IV).
+    /// Routing fallback for legacy wires; authored per-wire choices take precedence.
     pub wire_routing: WireRouting,
 }
 
@@ -303,7 +303,7 @@ mod tests {
         );
 
         let html = render_html(&doc, &AssetMap::default());
-        assert!(html.contains("border-radius:12.0px"));
+        assert!(html.contains("border-radius:12px"));
         assert!(html.contains("border:2.0px dashed"));
 
         let mut doc2 = SlateDoc::new("Chamfer");
@@ -319,7 +319,7 @@ mod tests {
             ImageAdjust::default(),
         );
         let html2 = render_html(&doc2, &AssetMap::default());
-        assert!(html2.contains("clip-path:polygon(8.0px 0,calc(100% - 8.0px) 0"));
+        assert!(html2.contains("clip-path:polygon(8px 0,calc(100% - 8px) 0"));
     }
 
     #[test]
@@ -506,7 +506,7 @@ mod tests {
             Stroke::none(),
             ImageAdjust {
                 brightness: 1.2,
-                invert: true,
+                invert: 1.0,
                 ..ImageAdjust::default()
             },
         );
@@ -548,6 +548,7 @@ mod tests {
 
     fn wire(a: ConnectorEnd, b: ConnectorEnd, display: WireDisplay) -> NodeKind {
         NodeKind::Connector(ConnectorNode {
+            routing: None,
             binding: None,
             a,
             b,
@@ -645,6 +646,56 @@ mod tests {
         assert!(
             html.contains("opacity:0.400"),
             "faint = 0.4 opacity:\n{html}"
+        );
+    }
+
+    #[test]
+    fn wire_properties_export_the_authored_route_weight_dash_and_arrows() {
+        let mut doc = SlateDoc::new("Wire properties");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        let mut kind = wire(
+            ConnectorEnd::Free {
+                point: [50.0, 50.0],
+            },
+            ConnectorEnd::Free {
+                point: [400.0, 250.0],
+            },
+            WireDisplay::Default,
+        );
+        let NodeKind::Connector(c) = &mut kind else {
+            unreachable!()
+        };
+        c.routing = Some(WireRouting::Orthogonal);
+        c.stroke.width = 7.0;
+        c.stroke.dash = slate_doc::scene::Dash::Dashed;
+        c.arrow_b = true;
+        let node = doc
+            .scene
+            .build_node(WorldRect::new(0.0, 0.0, 1.0, 1.0), kind);
+        let id = node.id;
+        doc.scene.apply(&SceneCmd::Add {
+            index: doc.scene.nodes.len(),
+            node,
+        });
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(
+            html.contains(" L "),
+            "authored square route must override the default Bezier route"
+        );
+        assert!(html.contains("stroke-width=\"7.0\""));
+        assert!(html.contains("stroke-dasharray="));
+        assert!(html.contains(" Z\" fill="), "arrowhead must be exported");
+        let NodeKind::Connector(c) = &mut doc.scene.node_mut(id).unwrap().kind else {
+            unreachable!()
+        };
+        c.routing = Some(WireRouting::Bezier);
+        c.arrow_a = false;
+        c.arrow_b = false;
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(html.contains(" C "));
+        assert!(
+            !html.contains(" Z\" fill="),
+            "no-arrows must remove the arrowhead"
         );
     }
 

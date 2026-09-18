@@ -30,14 +30,12 @@ drag the address-bar URL or a page link instead.
    `Availability` flags, and palette `aliases`.
 2. **Implement it** as a `dispatch` arm (`app/dispatch.rs`) — key input,
    the canvas palette, menus, and dock buttons all route through
-   `SlateApp::dispatch`, which pushes the F2 history entry. View-local keys
-   that need a freshly computed layout (`F` fit, `+`/`−` zoom in Grid/Venn/
-   Lens) stay in `canvas.rs`/`lens.rs` with `chord: None` doc rows.
+   `SlateApp::dispatch`, which pushes the F2 history entry. Board-local gestures remain documented with `chord: None` rows.
 3. **Do not** duplicate shortcut lists elsewhere — the Advanced window
    renders `SPECS` via `commands::shortcuts_reference_ui`, and
    `Registry::validate()` runs in a unit test (chord collisions fail CI).
 4. **Keep categories stable:** Navigation, Files, Selection, Workbook, Board,
-   Presentation, Lens, plus **Commands** (repeat / history / palette meta).
+   Presentation, plus **Commands** (repeat / history / palette meta).
 
 ## Module map
 
@@ -48,11 +46,10 @@ drag the address-bar URL or a page link instead.
 | Overlays: minimap model, palette, history window, search, Tab cycling | `overlays.rs` |
 | Board clipboard (copy/cut/paste, connector remap) | `clipboard.rs` |
 | Advanced settings panel | `ui/advanced.rs` |
-| Canvas mouse (pan, turbo pan, clicks, tag menu) | `canvas.rs` |
+| Canvas entry and camera helpers | `canvas.rs` |
 | Board gestures (tools, move/resize, Alt-drag duplicate, marquee) | `board.rs` |
 | 3D viewport gestures (orbit / pan / zoom, padlock) | `board.rs` routes into `model3d.rs` |
 | Presentation navigation | `present.rs` |
-| Lens graph (pan, focus, expand, open source) | `lens.rs` |
 
 ## Keymap wave 2a bindings (registry, overlays, small commands)
 
@@ -94,30 +91,30 @@ drag the address-bar URL or a page link instead.
 - **Ctrl+C / X / V** board clipboard (JSON on the OS clipboard too;
   connectors ride along when both ends are copied, outside anchors degrade
   to Free) · **Ctrl+Shift+V** paste in place · repeated pastes step +24,+24.
+- **Select** — click replaces the selection; **Shift+click** or **Ctrl+click**
+  adds (a second Shift/Ctrl+click on the same object toggles it off).
+  Shift+click empty canvas keeps the set. Shift+marquee adds. Rectangles
+  honor this even when the press lands on the hover-resize band.
+  Selection chrome is a subtle highlight of each shape (not a union box).
 - **Align widget** (Grasshopper): with the Select tool and 2+ nodes selected,
   two icon clusters sit outside the group box (bottom and left). Bottom:
-  align left / center / right / distribute horizontally. Left: align top /
-  middle / bottom / distribute vertically. Press commits `board.align.*` /
-  `board.distribute.*` as one undo step. Distribute icons stay inert until
-  3+ are selected. The same commands are in the palette. Selection chrome
-  is a silhouette outline (no corner or midspan squares) that follows the
-  painted geometry.
+  align left / center / right / distribute horizontally; the row sits past
+  the width stringer so the two do not overlap as zoom changes. Left: align
+  top / middle / bottom / distribute vertically. Press commits
+  `board.align.*` / `board.distribute.*` as one undo step. Distribute icons
+  stay inert until 3+ are selected. The same commands are in the palette.
 - **Group reposition** (Ctrl+Alt+Shift): while dragging a group-box edge or
   corner with all three modifiers, members keep their size and only
   translate. The opposite union handle stays put on every corner and
   edge — the same origin rule as a scale. Without that chord, group
   resize still scales (and can squash) each member. See P1.node.transform.
-- **Four-dot column** (stacked caption and icon strip, per palette):
-  Minimize, layout toggle (dock-wide: Icon strip / Stacked view),
-  Advanced (fullscreen catalog canvas of the palette's tools — same
-  camera as the board; drag a card onto the home strip to add or
-  reorder it; right-click or linger for toolbar / clipboard /
-  Duplicate / Use; linger yields to an open context menu), Drop to canvas (`board.dock.drop` — journals
+- **Two-dot column** (stacked caption and icon strip, per palette):
+  Minimize, Drop to canvas (`board.dock.drop` — journals
   a `DockStrip` node; unlimited copies; baseline dock stays independent).
   Hover labels share one chip centered above the dots. A click on a
   canvas-copy icon **arms** the command; click-hold-drag anywhere on
-  that node **moves** the copy. The copy is the same fieldset strip as
-  the docked flyout (title in the border, contain-scaled). Instant
+  that node **moves** the copy. The copy is the same unlabeled fieldset
+  strip as the docked flyout (contain-scaled). Instant
   actions (join, grid, snaps, color swap) still fire on click. See
   `P1.dock-strip`.
 - **F8** ortho toggle · **F9** snap-to-grid · **G / F7** board grid — dock
@@ -131,9 +128,11 @@ drag the address-bar URL or a page link instead.
   for the current pick. Tan and Perp stay inert until a gesture has a
   prior point. 3D / NURBS snaps are portal-local (a Rhino view), not
   listed here.
-  **Wires** (bezier / orthogonal) are the same Document Settings palette
-  (`board.wire.bezier`, `board.wire.orthogonal`, `board.wire.routing`);
-  orthogonal wraps host geometry and ties go right, then down.
+  **Wires** use their selection popup (`board.wire.edit`): Bezier/Square,
+  stroke weight, Solid/Dashed and None/Arrows. Shift-click and crossing
+  marquee select multiple wires. `board.wire.bezier`, `.orthogonal` and
+  `.routing` edit selected wires, or set the creation default if none are
+  selected. Square routing wraps host geometry and ties go right, then down.
 - **Arrows with nothing selected** pan the board canvas (Shift = faster);
   nudge with a selection is unchanged.
 - **Agent portal** commands are registered alongside Repository Lens:
@@ -347,19 +346,18 @@ Camera-only — never journaled, never repeatable.
 - **Create toolbar flyouts**: Frame, Portals, Shapes, Text, and Actions
   open a volatile body on single click and pin on double click. A
   single click on an already-pinned icon collapses that palette.
+  Media, Frame, Portals, Shapes, Text, and Actions do not arm a
+  subtype on that primary click — pick one from the flyout.
   Hover is bidirectional: the host icon lights its palettes and a
   hovered palette lights its host icon. Hover beside or below the
   icon bar and click to collapse it into a blister on the readout;
   pinned palettes stay. Object
-  properties and Document settings use the same model. Hover name chips
+  properties and Document settings use the same unlabeled icon-strip
+  capsules. Hover name chips
   on the primary dock appear only while the pointer is on that icon;
   moving onto the flyout (pinned or volatile) clears them immediately,
-  and the chip paints in front of any pinned toolbar. List mode keeps
-  the framed popover; a caption control (three squircles) on any list
-  switches **all** pinned palettes to a free-space icon strip (65%
-  squircles, hex-packed, primary-icon order, dividers between
-  categories). One stacked-list glyph sits at the far right of the
-  band. Pins and the chosen layout persist in chrome prefs.
+  and the chip paints in front of any pinned toolbar. Pins persist in
+  chrome prefs.
 - **Alt + drag** duplicates the grabbed selection (Figma convention);
   `Ctrl + D` duplicates in place with a 24px offset.
 - One gesture = one undo step: live drags journal their net effect on
@@ -375,8 +373,9 @@ Camera-only — never journaled, never repeatable.
   scale proportionally by default; holding `Shift` frees the aspect
   (distortion scaling). Edge drags are single-axis, with `Shift` locking the
   aspect instead. `Ctrl` resizes about the center.
-- **Multi-selection group transforms**: with 2+ objects selected the group
-  bounding box is an outline (no grip squares) plus rotate zones on hover.
+- **Multi-selection group transforms**: with 2+ objects selected each shape
+  keeps its own silhouette; the union box is hover-resize only (no painted
+  frame, no grip squares) plus rotate zones on hover.
   Corner/edge drag scales every member about the opposite corner/edge
   (aspect convention above); outside-corner drag rotates every member
   about the group center. Journaled as one undo step.
@@ -440,28 +439,10 @@ Camera-only — never journaled, never repeatable.
   the screen aspect and covers Slate chrome. Esc restores. Same for every
   portal kind.
 
-## Lens gestures (reference)
-
-- **Pan / zoom** reuse the Grid/Venn camera: left- or right-drag to pan,
-  scroll to zoom at the pointer, Shift+scroll for horizontal pan, Ctrl+right-drag
-  for turbo pan, `F` to fit the laid-out graph, `+`/`−` for stepped zoom.
-  The camera auto-fits once when analysis first completes.
-- **Focus** a node (click its chip or container header); neighbors stay at full
-  opacity, everything else dims to ~25%. Click empty canvas or press Escape to
-  clear focus.
-- **Expand / collapse** an expandable container (workspace, package, module)
-  with a double-click on its header.
-- **Open source** by double-clicking a file or item leaf (opens via the OS).
-- **Code root** is chosen in the Lens sidebar (or the empty-state button);
-  Rescan re-runs `code_lens::analyze_workspace` on the current root.
-- Edge-kind filters and name search live in the Lens sidebar; depth quick
-  buttons set how many hierarchy levels are expanded.
-
 ## Tagging gestures (reference)
 
-- **Right-click a thumbnail** (or a selection) → tag menu: one click per tag,
-  radio behavior within a group, menu stays open so several tags can be
-  assigned in a single right-click instance.
+- **Object properties → Tags** edits tag groups and assigns tags to selected media.
+  Frame tag controls remain attached to frames. Tags have no separate dock toggle.
 - **In linked Atlas**: the same right-click menu appears on Atlas files under
   "Slate tags"; click-hold-drag carries thumbnails into the Slate window
   (arriving uncategorized).
@@ -487,3 +468,6 @@ cloud-only files are not downloaded. Hover a PDF or deck to browse pages. Clicki
 a page dispatches `board.media.page` and journals the board page change. Large
 decks show 32 pages per picker window. Without PowerPoint, place an exported PDF.
 See `docs/keymap/contracts/media.md`.
+
+
+Selection strip: squircle Fill/Stroke/Corners/Filters (and wire) controls dispatch `board.shape.edit` / `board.wire.edit` for any node those scene helpers support — shapes, frames, text fills, portals, images and wires. Image Filters is the fillet-height photo-filter capsule (hover preview, intensity slider). Frame deck/tags/images/present actions share that strip. External dimension stringers dispatch `board.shape.dimension`. Palette previews commit on icon change/outside click; an empty-canvas click also deselects. Esc cancels. Numeric dimensions edit directly in their rotated stringers and commit on Enter/outside click. RGB percentages also edit in place; slider metrics appear only during adjustment. All eyedroppers use `board.color.desktop` / the shared desktop sampler (RGB only; existing alpha preserved). Polyline, Arc and Bezier are also discoverable as `board.tool.polyline`, `board.tool.arc`, and `board.tool.bezier`, without new default shortcuts.

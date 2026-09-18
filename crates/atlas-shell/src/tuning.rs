@@ -182,16 +182,104 @@ mod enabled {
         ui.separator();
     }
 
-    /// Everything that dimensions the palette a dock icon opens, in the order
-    /// you reach for it: type, icons and their breathing room, the group
-    /// frame, the caption, then the dot cluster. Split across `[dock]` and
-    /// `[dock.palette]` in the token file, but one thing on screen.
+    /// Secondary icon menu first — the unlabeled capsules a dock icon opens.
     fn dock_palette_editor(ui: &mut egui::Ui, dock: &mut DockTokens) {
-        egui::CollapsingHeader::new("Menu palette · Type, icons, frame & dots")
+        egui::CollapsingHeader::new("Secondary icon menu")
             .default_open(true)
             .show(ui, |ui| {
                 dock_preview_controls(ui);
 
+                ui.label(RichText::new("Capsule").strong());
+                ui.label(
+                    RichText::new(
+                        "The secondary strip: pad around the wells, fillet, \
+                         stroke, and how dense the capsule sits on the canvas.",
+                    )
+                    .small(),
+                );
+                scalar(
+                    ui,
+                    "Icon buffer (inside frame)",
+                    &mut dock.palette.group_pad,
+                    0.0..=32.0,
+                );
+                scalar(
+                    ui,
+                    "Gap between groups",
+                    &mut dock.palette.group_gap,
+                    0.0..=48.0,
+                );
+                scalar(
+                    ui,
+                    "Corner radius",
+                    &mut dock.palette.group_radius,
+                    0.0..=24.0,
+                );
+                scalar(
+                    ui,
+                    "Boundary stroke",
+                    &mut dock.palette.group_stroke,
+                    0.0..=6.0,
+                );
+                scalar(
+                    ui,
+                    "Capsule fill density",
+                    &mut dock.palette.group_fill,
+                    0.0..=1.0,
+                );
+                scalar(
+                    ui,
+                    "Well fill density",
+                    &mut dock.palette.well_fill,
+                    0.0..=1.0,
+                );
+                rgba(ui, "Capsule fill · dark", &mut dock.dark.popover_fill);
+                rgba(ui, "Capsule fill · light", &mut dock.light.popover_fill);
+
+                ui.separator();
+                ui.label(RichText::new("Primary ↔ secondary fill").strong());
+                ui.label(
+                    RichText::new(
+                        "Link the primary dock plates to the secondary \
+                         capsule, then offset them. Mix 0 keeps the absolute \
+                         primary fill; 1 derives it from the capsule. \
+                         Offset: positive lightens in dark / darkens in light.",
+                    )
+                    .small(),
+                );
+                scalar(
+                    ui,
+                    "Primary from secondary",
+                    &mut dock.palette.primary_fill_mix,
+                    0.0..=1.0,
+                );
+                scalar(
+                    ui,
+                    "Primary fill offset",
+                    &mut dock.palette.primary_fill_offset,
+                    -0.6..=0.6,
+                );
+                rgba(ui, "Primary fill · dark", &mut dock.dark.icon_fill);
+                rgba(ui, "Primary fill · light", &mut dock.light.icon_fill);
+
+                ui.separator();
+                ui.label(RichText::new("Icons").strong());
+                scalar(ui, "Dock icon size", &mut dock.icon_size, 20.0..=64.0);
+                scalar(
+                    ui,
+                    "Palette icon scale",
+                    &mut dock.flyout_icon_scale,
+                    0.4..=1.0,
+                );
+                scalar(ui, "Icon gap", &mut dock.icon_gap, 0.0..=28.0);
+                scalar(
+                    ui,
+                    "Toggle pair gap",
+                    &mut dock.palette.tertiary_stack_gap,
+                    0.0..=16.0,
+                );
+
+                ui.separator();
                 ui.label(RichText::new("Placement").strong());
                 ui.label(
                     RichText::new(
@@ -421,29 +509,6 @@ mod enabled {
                 scalar(ui, "Hover chip lift", &mut dock.hover_chip_gap, 0.0..=48.0);
 
                 ui.separator();
-                ui.label(RichText::new("Icons").strong());
-                scalar(ui, "Dock icon size", &mut dock.icon_size, 20.0..=64.0);
-                scalar(
-                    ui,
-                    "Palette icon scale",
-                    &mut dock.flyout_icon_scale,
-                    0.4..=1.0,
-                );
-                scalar(ui, "Icon gap", &mut dock.icon_gap, 0.0..=28.0);
-                scalar(
-                    ui,
-                    "Icon buffer (inside frame)",
-                    &mut dock.palette.group_pad,
-                    0.0..=32.0,
-                );
-                scalar(
-                    ui,
-                    "Toggle pair gap",
-                    &mut dock.palette.tertiary_stack_gap,
-                    0.0..=16.0,
-                );
-
-                ui.separator();
                 ui.label(RichText::new("Category rule (one underscore)").strong());
                 ui.label(
                     RichText::new(
@@ -482,34 +547,13 @@ mod enabled {
                 );
 
                 ui.separator();
-                ui.label(RichText::new("Group frame (icon strip)").strong());
-                scalar(
-                    ui,
-                    "Boundary stroke",
-                    &mut dock.palette.group_stroke,
-                    0.0..=6.0,
-                );
-                scalar(
-                    ui,
-                    "Corner radius",
-                    &mut dock.palette.group_radius,
-                    0.0..=24.0,
-                );
-                scalar(
-                    ui,
-                    "Gap between groups",
-                    &mut dock.palette.group_gap,
-                    0.0..=48.0,
-                );
+                ui.label(RichText::new("Caption & popover (stacked view)").strong());
                 scalar(
                     ui,
                     "Reserved dot column",
                     &mut dock.palette.controls_width,
                     8.0..=64.0,
                 );
-
-                ui.separator();
-                ui.label(RichText::new("Caption & popover (stacked view)").strong());
                 scalar(
                     ui,
                     "Caption row height",
@@ -527,13 +571,7 @@ mod enabled {
 
                 ui.separator();
                 ui.label(RichText::new("Dot cluster").strong());
-                ui.label(
-                    RichText::new(
-                        "Minimize / Advanced / Drop on every palette; the last \
-                         palette along the dock adds the layout toggle.",
-                    )
-                    .small(),
-                );
+                ui.label(RichText::new("Minimize and Drop on every palette.").small());
                 scalar(ui, "Dot radius", &mut dock.palette.dot_radius, 0.5..=8.0);
                 scalar(ui, "Dot gap", &mut dock.palette.dot_gap, 0.0..=16.0);
                 scalar(
@@ -600,7 +638,7 @@ mod enabled {
 
     fn dock_advanced_editor(ui: &mut egui::Ui, adv: &mut DockAdvancedTokens) {
         egui::CollapsingHeader::new("Dock · Advanced catalog canvas")
-            .default_open(true)
+            .default_open(false)
             .show(ui, |ui| {
                 dock_advanced_preview_controls(ui);
                 egui::CollapsingHeader::new("Geometry")

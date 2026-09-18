@@ -18,12 +18,89 @@ macro_rules! catalog {
         }
     };
 }
-catalog! { Media, Image, Model, Video, Select, DirectSelect, Pan, Frame, Rect, Ellipse, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, WebPortal, Tags, Filters, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, Brush, Eraser, Eyedropper, Sticky, Colors, RepoLens, StatusBoard, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit }
+catalog! { Media, Image, Model, Video, Select, DirectSelect, Pan, Frame, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, WebPortal, Tags, Filters, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, Brush, Eraser, Eyedropper, Sticky, Colors, RepoLens, StatusBoard, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners }
 
 #[derive(serde::Deserialize)]
 struct Definition {
     path: String,
     filled: bool,
+}
+
+/// Letter 8.5×11, Tabloid 11×17, 16:9, Custom 1:1. Width / height.
+const FRAME_LETTER_ASPECT: f64 = 8.5 / 11.0;
+const FRAME_TABLOID_ASPECT: f64 = 11.0 / 17.0;
+const FRAME_WIDE_ASPECT: f64 = 16.0 / 9.0;
+const FRAME_CUSTOM_ASPECT: f64 = 1.0;
+
+/// One page + dog-ear (and optional plus) fitted to `aspect` (w/h) in the
+/// 20×20 optical box. Frame family and every size preset share this path.
+fn frame_sheet_svg(aspect: f64, plus: bool) -> String {
+    const MASTER: f64 = 24.0;
+    const OPTICAL: f64 = 20.0;
+    const DOG: f64 = 3.5;
+    const PLUS: f64 = 2.5;
+    let aspect = aspect.max(0.2);
+    let (w, h) = if aspect >= 1.0 {
+        (OPTICAL, OPTICAL / aspect)
+    } else {
+        (OPTICAL * aspect, OPTICAL)
+    };
+    let left = (MASTER - w) * 0.5;
+    let top = (MASTER - h) * 0.5;
+    let right = left + w;
+    let bottom = top + h;
+    let dog = DOG.min(w * 0.35).min(h * 0.35);
+    let fold_x = right - dog;
+    let fold_y = top + dog;
+    let mut path = format!(
+        "M{} {}H{}L{} {}V{}H{}ZM{} {}V{}H{}",
+        svg_num(left),
+        svg_num(top),
+        svg_num(fold_x),
+        svg_num(right),
+        svg_num(fold_y),
+        svg_num(bottom),
+        svg_num(left),
+        svg_num(fold_x),
+        svg_num(top),
+        svg_num(fold_y),
+        svg_num(right),
+    );
+    if plus {
+        let cx = (left + right) * 0.5;
+        let cy = (top + bottom) * 0.5;
+        path.push_str(&format!(
+            "M{} {}V{}M{} {}H{}",
+            svg_num(cx),
+            svg_num(cy - PLUS),
+            svg_num(cy + PLUS),
+            svg_num(cx - PLUS),
+            svg_num(cy),
+            svg_num(cx + PLUS),
+        ));
+    }
+    path
+}
+
+fn svg_num(v: f64) -> String {
+    let s = format!("{v:.2}");
+    if let Some(trimmed) = s.strip_suffix('0') {
+        if let Some(trimmed) = trimmed.strip_suffix('0') {
+            return trimmed.trim_end_matches('.').to_string();
+        }
+        return trimmed.to_string();
+    }
+    s
+}
+
+fn frame_sheet_for(icon: Icon) -> Option<String> {
+    match icon {
+        Icon::Frame | Icon::FrameLetter => Some(frame_sheet_svg(FRAME_LETTER_ASPECT, false)),
+        Icon::FrameTabloid => Some(frame_sheet_svg(FRAME_TABLOID_ASPECT, false)),
+        Icon::FrameWide => Some(frame_sheet_svg(FRAME_WIDE_ASPECT, false)),
+        Icon::FrameCustom => Some(frame_sheet_svg(FRAME_CUSTOM_ASPECT, true)),
+        _ => None,
+    }
 }
 
 fn meshes() -> &'static BTreeMap<&'static str, InkMesh> {
@@ -36,7 +113,9 @@ fn meshes() -> &'static BTreeMap<&'static str, InkMesh> {
             .iter()
             .map(|&icon| {
                 let def = &defs[icon.name()];
-                let path = BezPath::from_svg(&def.path).expect("valid icon path");
+                let generated = frame_sheet_for(icon);
+                let path_svg = generated.as_deref().unwrap_or(def.path.as_str());
+                let path = BezPath::from_svg(path_svg).expect("valid icon path");
                 let mut mesh = InkMesh::default();
                 if def.filled {
                     let (verts, indices) =
@@ -177,5 +256,40 @@ mod tests {
         );
         assert!(defs["Select"].filled);
         assert!(!defs["DirectSelect"].filled);
+    }
+
+    #[test]
+    fn frame_sheets_use_true_preset_aspects_and_one_path_language() {
+        let defs: BTreeMap<String, Definition> =
+            serde_json::from_str(include_str!("../assets/tool-icons.json")).unwrap();
+        let cases = [
+            (Icon::Frame, FRAME_LETTER_ASPECT, false),
+            (Icon::FrameLetter, FRAME_LETTER_ASPECT, false),
+            (Icon::FrameTabloid, FRAME_TABLOID_ASPECT, false),
+            (Icon::FrameWide, FRAME_WIDE_ASPECT, false),
+            (Icon::FrameCustom, FRAME_CUSTOM_ASPECT, true),
+        ];
+        for (icon, aspect, plus) in cases {
+            let built = frame_sheet_svg(aspect, plus);
+            assert_eq!(
+                defs[icon.name()].path,
+                built,
+                "{} catalog path must match the shared sheet builder",
+                icon.name()
+            );
+            let path = BezPath::from_svg(&built).unwrap();
+            let bb = vector_ink::kurbo::Shape::bounding_box(&path);
+            let got = bb.width() / bb.height();
+            assert!(
+                (got - aspect).abs() < 0.01,
+                "{} sheet aspect {got} should be {aspect}",
+                icon.name()
+            );
+        }
+        assert_eq!(
+            frame_sheet_for(Icon::Frame),
+            frame_sheet_for(Icon::FrameLetter),
+            "primary Frame uses the same Letter sheet as the nested size"
+        );
     }
 }

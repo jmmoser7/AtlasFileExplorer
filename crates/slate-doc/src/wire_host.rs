@@ -12,7 +12,7 @@
 //! |------|-------|-------|
 //! | Rect, text, sticky, image, frame, portal, dock strip | Oriented box | Midpoints of the **local** edges, then rotated about the node center |
 //! | Ellipse | Oriented box | Same four local-axis extrema — those points lie on the ellipse |
-//! | Closed path / compound | Oriented box | Local-edge mids of `node.rect` (silhouette hits are a future facet) |
+//! | Closed path / compound | Open stroke (closed loop) | The path itself, including the closing seam — never `node.rect` |
 //! | Line, arc, polyline, bezier, open path | Open stroke | Arclength `t = 0`, `0.5`, `1` (start / mid / end) |
 //! | Connector | — | No ports (filtered by the interaction layer) |
 //!
@@ -257,7 +257,7 @@ fn open_stroke(node: &Node) -> Option<OpenStroke> {
     }
     if shape.shape == ShapeKind::Path {
         if let Some(path) = &shape.path {
-            if !path.closed && !path.is_empty() {
+            if !path.is_empty() {
                 return Some(sample_path(path, node.rect, node.rotation_deg));
             }
         }
@@ -306,6 +306,13 @@ fn sample_path(path: &PathData, rect: WorldRect, rotation_deg: f32) -> OpenStrok
                     pts.push(eval_cubic(cur, p1, p2, end, t));
                 }
                 cur = end;
+            }
+        }
+    }
+    if path.closed {
+        if let Some(&first) = pts.first() {
+            if pts.last().is_none_or(|p| dist(*p, first) > EPS) {
+                pts.push(first);
             }
         }
     }
@@ -695,5 +702,39 @@ mod tests {
         let n = WireHost::from_node(&node).outward(Side::Mid, 0.5);
         // Tangent +x; left in screen axes is −y.
         assert!(n[0].abs() < 1e-4 && (n[1] + 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn closed_polyline_snaps_to_the_stroke_not_the_aabb() {
+        // Right triangle (0,0)-(80,0)-(0,80). The AABB top-mid is (40, 0) on
+        // the base; the AABB right-mid (80, 40) sits in empty space.
+        let rect = WorldRect::new(0.0, 0.0, 80.0, 80.0);
+        let path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [0.0, 1.0] },
+            ],
+            closed: true,
+            ..PathData::default()
+        };
+        let node = shape_node(ShapeKind::Path, rect, 0.0, Some(path));
+        let host = WireHost::from_node(&node);
+        assert!(
+            host.is_open(),
+            "closed polylines must not use the AABB host"
+        );
+        let ghost = [80.0, 40.0];
+        let snap = host.snap(ghost);
+        let on_hypotenuse = (snap.point[0] + snap.point[1] - 80.0).abs() < 1.0;
+        assert!(
+            on_hypotenuse,
+            "snap from the AABB edge must land on the closing seam, got {:?}",
+            snap.point
+        );
+        assert!(
+            dist(snap.point, ghost) > 15.0,
+            "the AABB edge itself is not a closed-polyline feature"
+        );
     }
 }
