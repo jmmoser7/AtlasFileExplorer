@@ -13,8 +13,10 @@ mod input;
 mod paint;
 
 pub use cam::FolderCam;
-pub use collapse::{apply_collapse, record_collapse, toggle_dir, DirGrip, ToggleOutcome};
-pub use input::{hover_at, hover_sheet, MapHover};
+pub use collapse::{
+    apply_collapse, grip_positions, record_collapse, toggle_dir, DirGrip, ToggleOutcome,
+};
+pub use input::{drag_file_ids, drag_paths, hover_at, hover_sheet, MapHover};
 pub use paint::{
     folder_heat_color, lod_for, paint_sheet, paint_tree, LeaderStyle, MapMedia, MapStyle,
     PaintArgs, LOD_DETAIL, LOD_FULL, LOD_MID,

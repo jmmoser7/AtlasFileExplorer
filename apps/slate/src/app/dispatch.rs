@@ -819,6 +819,9 @@ impl SlateApp {
     /// (`atlas_commands::cancel_target`). Text editing is *not* a
     /// layer here: the edit overlay owns Esc (commit) itself.
     fn cancel_pop(&mut self) -> bool {
+        if self.atlas_cancel_carry() {
+            return true;
+        }
         // Maximize peels first: Esc returns the portal to the board without
         // dropping page focus (P1.portal.maximize / P0.1).
         if self.portal_chrome.maximized.is_some() {

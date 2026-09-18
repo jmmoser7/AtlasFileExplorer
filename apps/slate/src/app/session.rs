@@ -8,7 +8,9 @@
 //!    resolves any released cross-window drag.
 
 use super::SlateApp;
-use atlas_session::{new_session, SessionTag, SessionTagGroup, SharedSession, TagAssignment};
+use atlas_session::{
+    new_session, SessionFile, SessionTag, SessionTagGroup, SharedSession, TagAssignment,
+};
 use eframe::egui;
 use slate_doc::TagId;
 use std::path::PathBuf;
@@ -156,39 +158,39 @@ impl SlateApp {
 
         if let Some((files, inside, screen_pos)) = drag_done {
             if inside {
-                let n = files.len();
-                let mut ids = Vec::new();
-                for f in files {
-                    // Workbooks dragged over from Atlas open as tabs — they
-                    // never become items (no workbook-in-workbook).
-                    if slate_doc::media_kind(&f.path) == slate_doc::MediaKind::Workbook {
-                        self.pending_workbooks.push(f.path);
-                        continue;
-                    }
-                    // Dropped without tags: lands in the Uncategorized tray
-                    // (unless it hits a tagged frame on the board, below).
-                    ids.push(self.doc_mut().add_item(
-                        f.path,
-                        f.file_name,
-                        f.size,
-                        f.mtime,
-                        f.cache_key,
-                    ));
-                }
-                // On the board, also place the drop where it landed.
-                if self.doc().view.active_view == slate_doc::ViewKind::Board {
-                    let origin = sess_window_origin(&shared);
-                    let world = screen_pos
-                        .map(|(x, y)| {
-                            let local = egui::Pos2::new(x - origin.0, y - origin.1);
-                            self.board_xf().s2w(local)
-                        })
-                        .unwrap_or_else(|| self.tabs[self.active_tab].cam.offset.to_pos2());
-                    self.place_items_on_board(&ids, world);
-                }
-                self.toast(format!("{n} file(s) dropped from File Atlas"));
+                let origin = sess_window_origin(&shared);
+                let world = screen_pos.map(|(x, y)| {
+                    self.board_xf()
+                        .s2w(egui::Pos2::new(x - origin.0, y - origin.1))
+                });
+                self.place_atlas_files(files, world);
             }
         }
+    }
+
+    /// Both linked Atlas windows and in-board portals deliver already-scanned
+    /// metadata. No filesystem reads are needed to link and place the files.
+    pub(crate) fn place_atlas_files(&mut self, files: Vec<SessionFile>, at: Option<egui::Pos2>) {
+        if self.refuse_read_only_edit() {
+            return;
+        }
+        let n = files.len();
+        let mut ids = Vec::new();
+        for f in files {
+            if slate_doc::media_kind(&f.path) == slate_doc::MediaKind::Workbook {
+                self.pending_workbooks.push(f.path);
+                continue;
+            }
+            ids.push(
+                self.doc_mut()
+                    .add_item(f.path, f.file_name, f.size, f.mtime, f.cache_key),
+            );
+        }
+        if self.doc().view.active_view == slate_doc::ViewKind::Board && !ids.is_empty() {
+            let world = at.unwrap_or_else(|| self.tab().cam.offset.to_pos2());
+            self.place_items_on_board(&ids, world);
+        }
+        self.toast(format!("{n} file(s) dropped from File Atlas"));
     }
 
     /// Render the linked Atlas viewport and sync theme changes back to Slate.
@@ -256,6 +258,15 @@ impl SlateApp {
             .map(|(x0, y0, _, _)| (x0, y0))
             .unwrap_or((0.0, 0.0));
         let local = egui::Pos2::new(x - origin.0, y - origin.1);
+        self.paint_atlas_drag_hint(ctx, local, drag.files.len());
+    }
+
+    pub(crate) fn paint_atlas_drag_hint(
+        &self,
+        ctx: &egui::Context,
+        local: egui::Pos2,
+        count: usize,
+    ) {
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
             egui::Id::new("slate_drag_hint"),
@@ -265,7 +276,7 @@ impl SlateApp {
         painter.text(
             local,
             egui::Align2::CENTER_CENTER,
-            format!("{}", drag.files.len()),
+            count.to_string(),
             egui::FontId::proportional(12.0),
             palette.bg,
         );
