@@ -1,0 +1,27 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  Props[Object properties] --> Colors[Colors fold]
+  Props --> Tags[Tags fold]
+  Colors --> Ink[Ink / Paper pickers]
+  Colors --> Swap[Swap - X]
+  Colors --> Reset[Reset - D]
+  Tags --> AddG[Add tag group]
+  Tags --> AddT[Add tag]
+  Tags --> ClickT[Click tag - focus in Venn]
+  Tags --> GMenu[Right-click group]
+  Tags --> TMenu[Right-click tag]
+  GMenu --> DelG[Delete group]
+  TMenu --> DelT[Remove tag]

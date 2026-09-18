@@ -1,0 +1,34 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  User((You)) --> Top[Top bar icon portal]
+  User --> Dock[Floating tools dock]
+  User --> Board[Board canvas]
+  User --> Grid[Grid / Venn]
+  User --> Read[Readout gear]
+  Top --> File[File]
+  Top --> Edit[Edit - empty]
+  Top --> View[View]
+  Top --> Prefs[Preferences]
+  Dock --> Fly[Palette flyouts]
+  Dock --> Dots[Dot cluster]
+  Dock --> Adv[Advanced catalog]
+  Dots --> Adv
+  Board --> ObjRC[Object right-click]
+  Board --> EmptyRC[Empty-canvas right-click]
+  Board --> FrameBar[Frame toolbar]
+  Grid --> ThumbRC[Thumbnail right-click]
+  Adv --> CardMenu[Card linger / right-click]
+  Read --> Gear[Visible readouts]

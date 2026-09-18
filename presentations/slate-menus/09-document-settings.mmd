@@ -1,0 +1,26 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  Doc[Document settings] --> Grid[Show grid - G]
+  Doc --> Wires[Wire routing]
+  Wires --> Bez[bezier]
+  Wires --> Ortho[orthogonal]
+  Doc --> Osnap[Object snaps]
+  Osnap --> Master[Enable object snaps]
+  Osnap --> SnapG[Snap to grid - F9]
+  Osnap --> Guides[Smart guides]
+  Osnap --> Reach[tight / nearby / wide]
+  Osnap --> Kinds[End Mid Center Near]
+  Osnap --> Kinds2[Intersection Quadrant Perp Tangent]

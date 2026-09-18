@@ -1,0 +1,37 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  Icon[Slate icon] --> File
+  Icon --> View
+  subgraph File[File]
+    Home[Home]
+    New[New workbook - Ctrl+N]
+    Open[Open workbook - Ctrl+O]
+    Save[Save - Ctrl+S]
+    SaveAs[Save as - Ctrl+Shift+S]
+    Export[Export HTML artifact - Ctrl+E]
+    Add[Add files]
+    Close[Close tab]
+    Exit[Exit]
+  end
+  subgraph View[View]
+    Grid[Grid]
+    Venn[Venn]
+    Board[Board]
+    Lens[Lens]
+    Present[Present - F5]
+    Hide[Hide readout bar - F11]
+  end
+  Icon -.-> Edit[Edit - no rows]

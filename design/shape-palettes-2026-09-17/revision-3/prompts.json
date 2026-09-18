@@ -1,0 +1,51 @@
+{
+  "mode": "Built-in image_gen",
+  "status": "Visual confirmation only; not implemented",
+  "images": [
+    {
+      "section": "fill",
+      "file": "fill.png",
+      "source": "C:\\Users\\jmoser\\.codex\\generated_images\\01a0afca-4a7e-7481-9ed7-ccc492069de5\\exec-3caab9d3-55e2-4e8c-9515-ca049aa83b33.png"
+    },
+    {
+      "section": "stroke",
+      "file": "stroke.png",
+      "source": "C:\\Users\\jmoser\\.codex\\generated_images\\01a0afca-4a7e-7481-9ed7-ccc492069de5\\exec-2d988ddb-a289-462c-a4f9-89004adfead7.png"
+    },
+    {
+      "section": "corners",
+      "file": "corners.png",
+      "source": "C:\\Users\\jmoser\\.codex\\generated_images\\01a0afca-4a7e-7481-9ed7-ccc492069de5\\exec-834de1e9-fc62-44a6-8774-1e6d3340cc06.png"
+    },
+    {
+      "section": "stringers",
+      "file": "stringers.png",
+      "source": "C:/Users/jmoser/AppData/Local/Temp/codex-clipboard-e2922c3a-f36b-446c-b28b-fdb3e03a6865.png"
+    }
+  ],
+  "fill_and_corners": [
+    {
+      "key": "fill",
+      "refs": [
+        "C:/Users/jmoser/AppData/Local/Temp/codex-clipboard-60f3455e-8bca-46e8-b6d7-751de3ecd5d8.png",
+        "C:/Users/jmoser/AppData/Local/Temp/codex-clipboard-b4725810-168a-4715-b393-81565f88f6fe.png"
+      ],
+      "prompt": "Use case: precise UI mockup edit. Image1 is the APPROVED light-mode fill picker. Image2 is the APPROVED numeric tag style. Create ONE image of ONE Fill picker panel only, closely preserving image1, with these specific changes. This is not an alternative concept or redesign.\n\nKEEP: the light gray-white background and slim rounded panel outline; wide shallow teal saturation/value field at the top; exactly THREE thin full-width rails underneath in this order: checkerboard opacity, neutral brightness, rainbow hue; white tiny outlined round thumbs; bottom row of a thin desktop-eyedropper glyph, SIX distinct recent-document color dots (teal, coral, ochre, lavender, slate-blue, charcoal), subtle vertical divider, then RGB values. Preserve compact spacing and low profile. One panel, tightly cropped with a modest light margin. No object, canvas toolbar, title, extra panels or diagrams.\n\nREMOVE permanently placed '100%', '83%', and '173°' labels from the RIGHT of the sliders. ELIMINATE their gutter: all three rails now extend to the SAME right edge as the color field. There must be NO numeric labels or units beside rail endpoints.\n\nRGB tags: match image2, translated to dark text for light mode: small muted letters R G B, numeric text '18%' '83%' '75%' with a delicate thin underline under EACH numeric value. NO colored pills, no input-box border, no large selection rectangle. These persistent text values are directly editable in place, and are the ONLY fixed metrics in this color picker.\n\nShow one small realistic mouse cursor at the middle brightness rail's thumb. Immediately above and slightly to the right of that CURSOR, show a tiny restrained temporary readout '83%' on a small light tooltip background. It belongs next to the moving cursor, well INSIDE the panel, NOT at the rail's far-right endpoint. It is visible ONLY during the depicted slider drag and vanishes when the drag ends. No permanent row heading for it. Other rails have no readouts. One transient bubble total.\n\nFlat crisp native UI, quiet borders, no shadows or glow. Do not add any more controls, fixed rail values, RGB duplicates, legends or text."
+    },
+    {
+      "key": "corners",
+      "refs": [
+        "C:/Users/jmoser/AppData/Local/Temp/codex-clipboard-9bb6699d-c47f-4c51-851b-5216417e8cc1.png"
+      ],
+      "prompt": "Use case: precise UI mockup edit. Create ONE image of ONE compact horizontal Fillet/Chamfer strip very close to the supplied reference. Preserve its SINGLE-ROW three-part composition and dark Slate styling: left binary Fillet / Chamfer, center long continuous slider, right binary % / board-units. Do not use the rejected rectangular stacked form panels. No second row, no headings, no Apply/Cancel, no large editor window.\n\nLayout: one very shallow dark capsule, ratio about10:1, restrained single subtle blue-gray outside border, black-gray interior, no bevels or glossy multi-ring frame. Left two-choice segmented control takes about27% of width: 'Fillet' selected with softly rounded cyan-teal fill and dark text, 'Chamfer' unselected muted offwhite. Center slider takes about53% of width with one thin dark track and a compact rounded teal thumb at50%; no permanent number beside it and no number inside the thumb. Right two-choice segmented control takes about20% of width: '%' selected teal, 'u' unselected. Use exactly 'u' for board units, NOT px. Consistent spacing and shared baseline, clean system sans.\n\nShow a small mouse cursor at the center slider thumb and ONE tiny temporary tooltip reading '50%' immediately above and slightly right of the cursor. Add only enough external margin above the strip for this tooltip, so the strip itself remains one shallow row. This tooltip is a drag-time metric that follows the cursor and disappears on release. No permanent numeric field, no persistent value label, and no other tooltip.\n\nBackground outside strip is plain very light gray like the reference so the dark capsule silhouette is easy to inspect. No title, no additional controls, no surrounding canvas objects, no explanatory paragraph, no alternate states. Sharp vector-like UI rendered as a raster mockup, quiet outline and flat fills."
+    }
+  ],
+  "stroke_prompt": "Use case: precise UI edit. This reference is the APPROVED Fill picker. Create its STROKE version by reusing this EXACT panel with ONE additional slider. Produce one image of one panel only, same light theme, same proportions and typography, same color field, same existing three rails, same eyedropper, same six recent document color dots, and same directly editable underlined R18% G83% B75% tags.\n\nAdd exactly ONE extra thin full-width stroke-WIDTH slider between the rainbow hue rail and the bottom row of eyedropper/colors/RGB. It uses the SAME restrained buffer-slider style: slim neutral gray rail with a tiny circular white thumb with dark outline, aligned left and right exactly with the other three rails. You may use a very subtle thin-to-thicker gray line inside the rail to suggest stroke width. Grow the panel downward only enough for this ONE extra slider and the existing regular rail spacing. Do not add a Width heading row, Solid dropdown, numeric field, stroke-style controls, secondary panel or anything else.\n\nThere must now be exactly FOUR parallel rails in this order: checkerboard opacity, neutral brightness, rainbow hue, neutral stroke width. Every rail extends full width; no permanent metrics or reserved value gutter at their right ends. The three original slider values are hidden.\n\nREMOVE the reference image's mouse cursor and its '83%' tooltip beside the brightness rail. Instead place ONE small mouse cursor on the new WIDTH slider's thumb and show ONE small temporary '2 u' value bubble immediately above and slightly right of that cursor. The bubble sits near the moving thumb, not at an endpoint. This readout appears only during width adjustment and vanishes on release. No other tooltip anywhere. Keep the RGB underlined numeric tags permanently visible and directly editable in place exactly as in the reference.\n\nFlat crisp UI, no new headings, no explanatory labels, no title, no shadows, no alternative states, no additional objects. Closely preserve the original image; only add the fourth slider and move the cursor/value bubble to it.",
+  "stringers": "User-approved attachment copied byte-for-byte without regeneration.",
+  "references": [
+    "C:/Users/jmoser/AppData/Local/Temp/codex-clipboard-b4725810-168a-4715-b393-81565f88f6fe.png",
+    "C:/Users/jmoser/AppData/Local/Temp/codex-clipboard-e2922c3a-f36b-446c-b28b-fdb3e03a6865.png",
+    "C:/Users/jmoser/AppData/Local/Temp/codex-clipboard-60f3455e-8bca-46e8-b6d7-751de3ecd5d8.png",
+    "C:/Users/jmoser/AppData/Local/Temp/codex-clipboard-9bb6699d-c47f-4c51-851b-5216417e8cc1.png"
+  ]
+}

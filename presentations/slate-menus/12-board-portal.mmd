@@ -1,0 +1,37 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  Portal[Clicked node is a portal] --> Max[Maximize / Restore]
+  Max --> Web
+  Max --> Atlas
+  Max --> Agent
+  Max --> Other[Repo Lens / Status Board - chrome only]
+  subgraph Web[Web]
+    HideTab[Hide tab / Show tab]
+    CopyUrl[Copy URL]
+    PasteUrl[Paste URL]
+  end
+  subgraph Atlas[File Atlas]
+    OpenA[Open in File Atlas]
+    Refresh[Refresh]
+    Bake[Bake poster]
+    EnterA[Enter / Leave contents]
+  end
+  subgraph Agent[Agent]
+    OpenC[Open in Cursor]
+    Switch[Switch agent]
+    Unbundle[Unbundle images]
+    EnterG[Enter / Leave contents]
+  end

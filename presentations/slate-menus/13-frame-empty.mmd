@@ -1,0 +1,32 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  subgraph FrameBar[One selected frame]
+    Title[Title field]
+    Prev[Previous slide]
+    Next[Next slide]
+    AddImg[Add images]
+    Tags[Tags submenu]
+    Present[Present from here]
+    Trash[Delete frame]
+  end
+  Tags --> NoteEmpty[No tags yet]
+  Tags --> Inherit[Images inherit these tags]
+  Tags --> Swatches[Per-group swatches]
+  subgraph Empty[Right-click empty board]
+    ShowH[Show all hidden - Ctrl+Shift+H]
+    Unlock[Unlock all - Ctrl+Shift+L]
+  end
+  Empty -.-> OnlyIf[Only if hidden or locked count > 0]

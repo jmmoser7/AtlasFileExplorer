@@ -1,0 +1,40 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  subgraph Shapes[Shapes]
+    Rect[Rectangle - O]
+    Ellipse[Ellipse]
+    Fold[Curves and ink]
+  end
+  Fold --> Line[Line - L]
+  Fold --> Pen[Pen - P]
+  Fold --> Brush[Brush - B]
+  Fold --> Eraser[Eraser - E]
+  Fold --> Arc[Arc]
+  Fold --> Poly[Polyline]
+  Fold --> Bezier[Bezier]
+  Fold --> KitS[Kit-derived shapes]
+  subgraph Text[Text]
+    Type[Text - T]
+    Sticky[Sticky note - N]
+  end
+  subgraph Actions[Actions]
+    Trim[Trim - Ctrl+T]
+    Split[Split - Ctrl+Shift+T]
+    Join[Join - Ctrl+J]
+  end
+  Trim --> Arm[Arm tool]
+  Split --> Arm
+  Join --> Instant[Instant command]

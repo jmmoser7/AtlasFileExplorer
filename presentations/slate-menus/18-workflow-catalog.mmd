@@ -1,0 +1,25 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  Open[Open a palette] --> Adv[Advanced dot]
+  Adv --> Catalog[Catalog of every tool]
+  Catalog --> Lift[Press a card and drag]
+  Lift --> Fade[Home strip highlights]
+  Fade --> Slide[Icons slide aside]
+  Slide --> Drop[Drop into a slot]
+  Drop --> Persist[Order saved in chrome prefs]
+  Lift --> Esc[Escape or drop outside]
+  Esc --> Cancel[No change]
+  Menu[Linger Add to toolbar] --> Append[Appends at end]

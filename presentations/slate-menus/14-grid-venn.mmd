@@ -1,0 +1,24 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  Thumb[Right-click thumbnail] --> Head["N file(s)"]
+  Head --> Tags[Tag swatches per group]
+  Tags --> Empty[No tags yet - create groups in Tags]
+  Head --> Explode[Explode PDF into pages]
+  Head --> Place[Place on board]
+  Head --> Remove[Remove from workbook]
+  Place --> Board[Switches to Board view]
+  Lens[Lens canvas] -.-> None[No right-click menu]
+  Home[Cover Flow home] -.-> None

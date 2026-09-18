@@ -1,0 +1,43 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  subgraph Icons[Primary squircles]
+    Media[Media]
+    Frame[Frame]
+    Portals[Portals]
+    Shapes[Shapes]
+    Text[Text]
+    Actions[Actions]
+    Props[Object properties]
+    Doc[Document settings]
+    Selection[Selection]
+  end
+  subgraph Dots[Dot cluster on each tool palette]
+    Min[Minimize / Close]
+    Layout[Stacked view / Icon strip]
+    Advanced[Advanced]
+    Drop[Drop to canvas]
+  end
+  Media --> BoardOnly[Board view only]
+  Frame --> BoardOnly
+  Portals --> BoardOnly
+  Shapes --> BoardOnly
+  Text --> BoardOnly
+  Actions --> BoardOnly
+  Doc --> BoardOnly
+  Props --> BoardOrTags[Board or Tags pref]
+  Selection --> SelPref[Selection pref]
+  Selection -.-> NoDots[No Advanced / no Drop]
+  Layout -.-> LastOnly[Only the last palette along the dock]

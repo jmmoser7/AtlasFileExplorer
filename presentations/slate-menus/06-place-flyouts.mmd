@@ -1,0 +1,44 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  subgraph Media[Media]
+    Image[Image - picker]
+    Model[3D - Rhino .3dm]
+    Video[Video - poster]
+  end
+  subgraph Frame[Frame presets]
+    Letter[8.5 x 11]
+    Tabloid[11 x 17]
+    Wide[16:9]
+    Custom[Custom]
+  end
+  subgraph Portals[Portals]
+    Repo[Repository Lens]
+    Status[Status Board]
+    Agent[Agent portal]
+    Web[Web portal]
+    Atlas[File Atlas]
+    Kits[Kit-derived portals]
+  end
+  Letter --> ArmF[Arm Frame tool]
+  Tabloid --> ArmF
+  Wide --> ArmF
+  Custom --> ArmF
+  Repo --> ArmP[Arm portal tool]
+  Status --> ArmP
+  Agent --> ArmP
+  Web --> ArmP
+  Atlas --> ArmP
+  Kits --> ArmP

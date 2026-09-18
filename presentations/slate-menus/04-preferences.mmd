@@ -1,0 +1,27 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  Prefs[Preferences] --> Dark[Dark mode]
+  Prefs --> DockL[Dock - left edge]
+  Prefs --> DockB[Dock - bottom edge]
+  Prefs --> Cursor[Launch Cursor]
+  Prefs --> AiWs[Set AI workspace]
+  Prefs --> Tags[Show Tags dock]
+  Prefs --> Sel[Selection inspector - F3]
+  Prefs --> ViewDock[Show View dock]
+  Prefs --> LensDock[Show Lens dock]
+  Prefs --> Adv[Advanced settings]
+  ViewDock -.-> Unwired[Panel UI unwired]
+  LensDock -.-> Unwired

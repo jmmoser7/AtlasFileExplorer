@@ -1,0 +1,24 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart LR
+  Add[File - Add files] --> Grid[Grid or Venn]
+  Grid --> Tag[Right-click - assign tags]
+  Grid --> Place[Place on board]
+  Place --> Board[Board view]
+  Board --> Img[Image / PDF / video / 3D node]
+  Board --> RC[Right-click object menu]
+  RC --> Open[Open file]
+  RC --> Crop[Crop image]
+  RC --> Explode[Explode PDF]

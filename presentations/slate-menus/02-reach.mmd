@@ -1,0 +1,34 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart LR
+  subgraph Chrome[Window chrome]
+    HoverIcon[Hover Slate icon] --> Portal[File / View / Preferences]
+    ClickIcon[Click Slate icon] --> PinPortal[Pin portal open]
+    GearClick[Readout gear] --> GearMenu[Metrics / Link health]
+    F1[F1 or Ctrl+Shift+P] --> AdvWin[Advanced window]
+  end
+  subgraph Dock[Dock]
+    ClickSquircle[Click palette] --> Volatile[Volatile flyout]
+    DblClick[Double-click palette] --> Pinned[Pinned flyout]
+    HoverDot[Hover dots] --> DotChip[Minimize / layout / Advanced / Drop]
+    AdvDot[Advanced dot] --> Catalog[Fullscreen catalog]
+    LingerCard[Linger or right-click card] --> CardActs[Add / Remove / Copy / Duplicate / Use]
+  end
+  subgraph Canvas[Canvas]
+    RClickNode[Right-click node] --> ObjMenu[Board object menu]
+    RClickEmpty[Right-click empty] --> HiddenMenu[Show hidden / Unlock]
+    RClickThumb[Right-click Grid/Venn] --> FileMenu[File tags + place]
+    OneFrame[One selected frame] --> FrameTools[Title / order / tags / present]
+  end

@@ -1,0 +1,31 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  subgraph Gear[Readout gear]
+    Metrics[Metrics]
+    Health[Link health]
+  end
+  subgraph BoardChips[Board readout clicks]
+    Hidden[N hidden - Show all]
+    Locked[N locked - Unlock all]
+  end
+  subgraph Adv[Advanced window]
+    Updates[Updates]
+    Previews[Canvas previews]
+    Hover[Board hover highlights]
+    Session[Session log]
+    Cmds[Commands reference]
+  end
+  F1[F1 / Ctrl+Shift+P] --> Adv

@@ -1,0 +1,33 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#d7e2ee",
+    "primaryTextColor": "#121823",
+    "primaryBorderColor": "#3d4a5c",
+    "lineColor": "#3d4a5c",
+    "secondaryColor": "#eadfc8",
+    "tertiaryColor": "#f6f7f4",
+    "fontFamily": "Segoe UI, sans-serif",
+    "fontSize": "16px"
+  },
+  "flowchart": { "curve": "basis", "htmlLabels": false, "wrappingWidth": 220 }
+}}%%
+flowchart TB
+  RC[Right-click node] --> Head["N object(s)"]
+  Head --> Common
+  subgraph Common[Always]
+    Dup[Duplicate - Ctrl+D]
+    Front[Bring to front]
+    Back[Send to back]
+    Lock[Lock - Ctrl+L]
+    Hide[Hide - Ctrl+H]
+    Del[Delete]
+  end
+  Head --> Group[Group - Ctrl+G]
+  Head --> Ungroup[Ungroup - Ctrl+Shift+G]
+  Group -.-> Need2[Needs 2+ targets]
+  Ungroup -.-> IfGrouped[If any target grouped]
+  Head --> Img[Crop image / Open file]
+  Head --> Pdf[Explode PDF into pages]
+  Head --> Tags[Tags swatches]
+  Head --> Wire[Wire: arrows / Faint / Edit label]
