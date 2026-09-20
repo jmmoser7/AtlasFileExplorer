@@ -374,6 +374,9 @@ impl SlateApp {
         }
         let ids = self.add_nodes(nodes);
         self.board_sel = ids.iter().copied().collect();
+        for item in items {
+            self.request_thumb(*item);
+        }
 
         // Frame tag inheritance.
         if let Some(frame_id) = self.doc().scene.frame_at(at.x, at.y) {
@@ -395,24 +398,35 @@ impl SlateApp {
         let pad = 24.0f32;
         let cols = (items.len() as f32).sqrt().ceil().max(1.0) as usize;
         let cell_w = ((rect.w - pad * 2.0) / cols as f32).clamp(60.0, IMAGE_W);
-        let cell_h = cell_w * (IMAGE_H / IMAGE_W);
+        let cell_h = cell_w; // square slots; each image fits inside preserving aspect
+        let sizes: Vec<(f32, f32)> = items
+            .iter()
+            .map(|item| self.image_natural_size(*item))
+            .collect();
         let mut nodes = Vec::new();
         {
             let scene = &mut self.doc_mut().scene;
             for (i, item) in items.iter().enumerate() {
                 let col = (i % cols) as f32;
                 let row = (i / cols) as f32;
+                let (iw, ih) = sizes[i];
+                let (w, h) = fit_size_in_box(iw, ih, cell_w, cell_h);
+                let cell_x = rect.x + pad + col * (cell_w + 8.0);
+                let cell_y = rect.y + pad + row * (cell_h + 8.0);
                 let r = WorldRect::new(
-                    rect.x + pad + col * (cell_w + 8.0),
-                    rect.y + pad + row * (cell_h + 8.0),
-                    cell_w,
-                    cell_h,
+                    cell_x + (cell_w - w) * 0.5,
+                    cell_y + (cell_h - h) * 0.5,
+                    w,
+                    h,
                 );
                 nodes.push(scene.build_node(r, NodeKind::Image(ImageNode::new(*item))));
             }
         }
         let ids = self.add_nodes(nodes);
         self.board_sel = ids.iter().copied().collect();
+        for item in items {
+            self.request_thumb(*item);
+        }
         self.apply_frame_tags(frame, items);
     }
 
@@ -492,22 +506,24 @@ impl SlateApp {
 
     /// Natural pixel dimensions for an item, scaled to a sensible board size.
     fn image_natural_size(&self, item: ItemId) -> (f32, f32) {
-        let (mut w, mut h) = if let Some(key) = self.doc().item(item).map(|it| it.cache_key.clone())
-        {
-            self.thumb_pixels
-                .get(&key)
-                .map(|img| (img.width() as f32, img.height() as f32))
-                .unwrap_or((IMAGE_W, IMAGE_H))
-        } else {
-            (IMAGE_W, IMAGE_H)
+        let Some(doc_item) = self.doc().item(item) else {
+            return (IMAGE_W, IMAGE_H);
         };
-        if w <= 0.0 || h <= 0.0 {
-            w = IMAGE_W;
-            h = IMAGE_H;
-        }
-        let max_dim = 320.0;
-        let scale = (max_dim / w.max(h)).min(1.0);
-        (w * scale, h * scale)
+        let (w, h) = self
+            .thumb_pixels
+            .get(&doc_item.cache_key)
+            .map(|img| (img.width() as f32, img.height() as f32))
+            .or_else(|| {
+                if slate_doc::media_kind(&doc_item.path) == slate_doc::MediaKind::Image {
+                    image::image_dimensions(&doc_item.path)
+                        .ok()
+                        .map(|(pw, ph)| (pw as f32, ph as f32))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((IMAGE_W, IMAGE_H));
+        scale_image_to_board(w, h, 320.0)
     }
 
     fn paint_board_grid(
@@ -616,6 +632,43 @@ impl SlateApp {
                 }
             }
         }
+    }
+}
+
+/// Scale `(w, h)` down so the longest side is at most `max_dim`, preserving aspect.
+pub(crate) fn scale_image_to_board(w: f32, h: f32, max_dim: f32) -> (f32, f32) {
+    if w <= 0.0 || h <= 0.0 {
+        return (IMAGE_W, IMAGE_H);
+    }
+    let scale = (max_dim / w.max(h)).min(1.0);
+    (w * scale, h * scale)
+}
+
+/// Fit `(iw, ih)` inside a box without cropping (contain).
+pub(crate) fn fit_size_in_box(iw: f32, ih: f32, box_w: f32, box_h: f32) -> (f32, f32) {
+    if iw <= 0.0 || ih <= 0.0 {
+        return (box_w, box_h);
+    }
+    let s = (box_w / iw).min(box_h / ih);
+    (iw * s, ih * s)
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::{fit_size_in_box, scale_image_to_board};
+
+    #[test]
+    fn scale_preserves_aspect() {
+        let (w, h) = scale_image_to_board(4000.0, 2000.0, 320.0);
+        assert!((w / h - 2.0).abs() < 0.01);
+        assert!(w <= 320.0 + 0.01);
+    }
+
+    #[test]
+    fn fit_in_box_preserves_aspect() {
+        let (w, h) = fit_size_in_box(1600.0, 900.0, 100.0, 100.0);
+        assert!((w - 100.0).abs() < 0.01);
+        assert!((h - 56.25).abs() < 0.01);
     }
 }
 
