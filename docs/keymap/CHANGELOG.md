@@ -1,5 +1,15 @@
 # Canvas command project — change log
 
+## 2026-09-20 — PDF Pages album and unbundle
+
+- A selected multi-page PDF or PowerPoint gains a Pages squircle on the
+  shared property strip. The same control browses pages and unbundles.
+- Page browse is a thin `image_album` pallet hovering over the document,
+  not a hover grid or a second Cover Flow painter.
+- `board.media.unbundle` keeps the original node id, lays the full deck
+  on the board as a selected grid, and journals one undo group.
+- Hover page-picker chrome and the old explode path are removed.
+
 ## 2026-09-18 — Image photo-filter capsule
 
 - Image selections gain a Filters squircle on the shared property strip.

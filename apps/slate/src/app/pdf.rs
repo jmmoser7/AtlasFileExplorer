@@ -1,13 +1,11 @@
-//! PDF page picker (hover) and explode-into-pages actions.
+//! Paged-document poster page and unbundle. Album motion is `image_album`.
 
 pub(crate) mod documents;
 
 use super::{SlateApp, ThumbState};
 use atlas_core::thumbs::{cache_key_page, ThumbRequest};
-use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2,
-};
-use slate_doc::{ItemId, MediaKind};
+use eframe::egui::{self, Pos2, Rect, Stroke, Vec2};
+use slate_doc::ItemId;
 use std::path::{Path, PathBuf};
 
 use super::THUMB_GENERATION;
@@ -155,325 +153,318 @@ impl SlateApp {
                 i.item = new_item;
             }
         });
-        if let Some((_, shown, _, _)) = self.documents.picker.as_mut() {
-            if *shown == item_id {
-                *shown = new_item;
-            }
-        }
         self.request_thumb(new_item);
     }
 
-    /// Replace one PDF item with one item per page, preserving tags on each.
-    pub fn explode_pdf(&mut self, item_id: ItemId) {
-        let Some(item) = self.doc().item(item_id).cloned() else {
-            return;
+    /// Spread every page of a selected PDF/PowerPoint onto the board as a grid.
+    /// The focused page keeps the original node id (wires and style survive).
+    pub fn unbundle_paged_media(&mut self, node_id: slate_doc::NodeId, focus: Option<u16>) -> bool {
+        if self.tab().read_only {
+            return false;
+        }
+        let Some(node) = self.doc().scene.node(node_id).cloned() else {
+            return false;
         };
-        if slate_doc::media_kind(&item.path) != MediaKind::Pdf {
-            return;
+        if node.locked {
+            return false;
+        }
+        let slate_doc::NodeKind::Image(img) = &node.kind else {
+            return false;
+        };
+        let Some(item) = self.doc().item(img.item).cloned() else {
+            return false;
+        };
+        if !slate_doc::media::has_pages(&item.path) {
+            return false;
         }
         let count = self.pdf_page_count(&item.path);
         if count == 0 {
-            self.toast("Document pages are still loading. Try again shortly.");
-            return;
+            self.toast(
+                self.documents
+                    .error(&item.path)
+                    .unwrap_or("Document pages are still loading. Try again shortly.")
+                    .to_string(),
+            );
+            return false;
         }
         if count <= 1 {
-            self.toast("PDF has only one page");
-            return;
+            self.toast("Document has only one page");
+            return false;
         }
+        let style = img.clone();
+        let active = focus.unwrap_or(item.pdf_page).min(count - 1);
         let assignments = item.assignments.clone();
         let stem = Path::new(&item.file_name)
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| item.file_name.clone());
-        let path = item.path.clone();
-        let size = item.size;
-        let mtime = item.mtime;
-
-        self.doc_mut().remove_item(item_id);
-        self.selection.remove(&item_id);
-
-        let mut new_ids: Vec<ItemId> = Vec::new();
+        let mut page_items = Vec::with_capacity(count as usize);
         for page in 0..count {
-            let key = cache_key_page(&path.to_string_lossy(), size, mtime, Some(page));
+            let key = cache_key_page(
+                &item.path.to_string_lossy(),
+                item.size,
+                item.mtime,
+                Some(page),
+            );
             let name = format!("{stem} — page {}", page + 1);
-            let id = self
-                .doc_mut()
-                .add_item_page(path.clone(), name, size, mtime, key, page);
-            new_ids.push(id);
+            let id = self.doc_mut().add_item_page(
+                item.path.clone(),
+                name,
+                item.size,
+                item.mtime,
+                key,
+                page,
+            );
             for tag in assignments.values() {
                 self.doc_mut().assign(id, *tag);
             }
+            page_items.push(id);
         }
-
-        if let Some(replacement) = new_ids.first().copied() {
-            for node in &mut self.doc_mut().scene.nodes {
-                if let slate_doc::scene::NodeKind::Image(img) = &mut node.kind {
-                    if img.item == item_id {
-                        img.item = replacement;
-                    }
-                }
+        let sizes = vec![(node.rect.w, node.rect.h); count as usize];
+        let center = eframe::egui::Pos2::new(
+            node.rect.x + node.rect.w * 0.5,
+            node.rect.y + node.rect.h * 0.5,
+        );
+        let rects = super::board::grid_drop_rects(&sizes, center);
+        let mut cmds = Vec::new();
+        let mut after = node.clone();
+        after.rect = rects[active as usize];
+        if let slate_doc::NodeKind::Image(image) = &mut after.kind {
+            image.item = page_items[active as usize];
+        }
+        cmds.push(slate_doc::scene::SceneCmd::Patch {
+            before: Box::new(node.clone()),
+            after: Box::new(after),
+        });
+        let mut ids = vec![node_id];
+        let mut insertion = self.doc().scene.nodes.len();
+        for page in 0..count {
+            if page == active {
+                continue;
+            }
+            let kind = slate_doc::NodeKind::Image(slate_doc::scene::ImageNode {
+                item: page_items[page as usize],
+                ..style.clone()
+            });
+            let mut child = self.doc_mut().scene.build_node(rects[page as usize], kind);
+            child.rotation_deg = node.rotation_deg;
+            child.opacity = node.opacity;
+            child.clip = node.clip.clone();
+            ids.push(child.id);
+            cmds.push(slate_doc::scene::SceneCmd::Add {
+                index: insertion,
+                node: child,
+            });
+            insertion += 1;
+        }
+        if !self.commit_scene(cmds) {
+            return false;
+        }
+        self.board_sel = ids.iter().copied().collect();
+        for item_id in &page_items {
+            self.request_thumb(*item_id);
+        }
+        let mut per_frame: std::collections::BTreeMap<slate_doc::NodeId, Vec<ItemId>> =
+            std::collections::BTreeMap::new();
+        for (i, item_id) in page_items.iter().enumerate() {
+            let (cx, cy) = rects[i].center();
+            if let Some(frame_id) = self.doc().scene.frame_at(cx, cy) {
+                per_frame.entry(frame_id).or_default().push(*item_id);
             }
         }
-
-        self.toast(format!("Exploded PDF into {} page item(s)", new_ids.len()));
+        for (frame_id, tagged) in per_frame {
+            self.apply_frame_tags(frame_id, &tagged);
+        }
+        true
     }
 
-    /// Hover overlay: fan out page thumbnails for multi-page PDFs.
-    pub(crate) fn paint_pdf_page_picker(
-        &mut self,
-        ui: &mut egui::Ui,
-        item_id: ItemId,
-        card_rect: Rect,
-        palette: &atlas_shell::theme::Palette,
-    ) {
-        let Some(item) = self.doc().item(item_id).cloned() else {
-            return;
-        };
-        if !slate_doc::media::has_pages(&item.path) {
-            return;
-        }
-        let page_count = self.pdf_page_count(&item.path);
-        if page_count == 0 {
-            let message = self
-                .documents
-                .error(&item.path)
-                .unwrap_or("Loading document pages…");
-            let r = Rect::from_center_size(
-                card_rect.center_bottom() + Vec2::new(0.0, 14.0),
-                Vec2::new(480.0, 24.0),
-            );
-            ui.painter().text(
-                r.center(),
-                Align2::CENTER_CENTER,
-                atlas_shell::widgets::trunc(message, 85),
-                FontId::proportional(11.0),
-                palette.sub,
-            );
-            ui.interact(
-                r,
-                ui.id().with(("document-status", item_id)),
-                egui::Sense::hover(),
-            )
-            .on_hover_text(message);
-            return;
-        }
-        if page_count <= 1 && item.pdf_page == 0 {
-            return;
-        }
-
-        const WINDOW: u16 = 32;
-        let window_id = ui
-            .id()
-            .with(("document-pages", self.tab().id, item.path.clone()));
-        let start = ui
-            .data(|d| d.get_temp::<u16>(window_id))
-            .unwrap_or((item.pdf_page / WINDOW) * WINDOW)
-            .min(((page_count - 1) / WINDOW) * WINDOW);
-        let end = start.saturating_add(WINDOW).min(page_count);
-        let visible = end - start;
-        let thumb_px = 56.0;
-        let gap = 6.0;
-        let pad = 8.0;
-        let cols = visible.min(8) as f32;
-        let rows = ((visible as f32) / cols).ceil();
-        let strip_w = cols * thumb_px + (cols - 1.0).max(0.0) * gap + pad * 2.0;
-        let strip_h = rows * thumb_px + (rows - 1.0).max(0.0) * gap + pad * 2.0 + 18.0;
-
-        let mut origin = card_rect.center_bottom() + Vec2::new(0.0, 8.0);
-        origin.x -= strip_w * 0.5;
-        // Keep on screen within the canvas.
-        let canvas = self.canvas_rect;
-        if origin.x + strip_w > canvas.right() - 4.0 {
-            origin.x = canvas.right() - strip_w - 4.0;
-        }
-        if origin.x < canvas.left() + 4.0 {
-            origin.x = canvas.left() + 4.0;
-        }
-        if origin.y + strip_h > canvas.bottom() - 4.0 {
-            origin = card_rect.center_top() - Vec2::new(strip_w * 0.5, strip_h + 8.0);
-        }
-
-        let strip_rect = Rect::from_min_size(origin, Vec2::new(strip_w, strip_h));
-        self.documents.picker = Some((self.tab().id, item_id, card_rect, strip_rect));
-        let painter = ui.painter_at(strip_rect);
-        painter.rect_filled(strip_rect, CornerRadius::same(6), palette.card);
-        painter.rect_stroke(
-            strip_rect,
-            CornerRadius::same(6),
-            Stroke::new(1.0_f32, palette.border_strong),
-            StrokeKind::Inside,
-        );
-        painter.text(
-            Pos2::new(strip_rect.min.x + pad, strip_rect.min.y + 4.0),
-            Align2::LEFT_TOP,
-            format!(
-                "{} · {}–{} / {}",
-                if slate_doc::media::is_powerpoint(&item.path) {
-                    "Slides"
-                } else {
-                    "Pages"
-                },
-                start + 1,
-                end,
-                page_count
-            ),
-            FontId::proportional(10.5),
-            palette.sub,
-        );
-
-        if page_count > WINDOW {
-            let y = strip_rect.top() + 2.0;
-            let prev = Rect::from_min_size(
-                Pos2::new(strip_rect.right() - 48.0, y),
-                Vec2::new(20.0, 16.0),
-            );
-            let next = prev.translate(Vec2::new(22.0, 0.0));
-            if ui
-                .put(prev, egui::Button::new("‹"))
-                .on_hover_text("Previous pages")
-                .clicked()
-            {
-                ui.data_mut(|d| d.insert_temp(window_id, start.saturating_sub(WINDOW)));
-            }
-            if ui
-                .put(next, egui::Button::new("›"))
-                .on_hover_text("Next pages")
-                .clicked()
-                && end < page_count
-            {
-                ui.data_mut(|d| d.insert_temp(window_id, end));
-            }
-        }
-        let mut selected_page: Option<u16> = None;
-        let path = item.path.clone();
-        let size = item.size;
-        let mtime = item.mtime;
-        let current_page = item.pdf_page;
-        for page in start..end {
-            let col = ((page - start) as f32) % cols;
-            let row = ((page - start) as f32 / cols).floor();
-            let x = strip_rect.min.x + pad + col * (thumb_px + gap);
-            let y = strip_rect.min.y + 18.0 + row * (thumb_px + gap);
-            let cell = Rect::from_min_size(Pos2::new(x, y), Vec2::splat(thumb_px));
-
-            let page_key = self
-                .documents
-                .ready(&path)
-                .map(|p| p.key(page))
-                .unwrap_or_else(|| {
-                    cache_key_page(&path.to_string_lossy(), size, mtime, Some(page))
-                });
-            if !self.textures.contains_key(&page_key) {
-                self.request_pdf_page_thumb(path.clone(), size, mtime, page);
-            }
-
-            let is_current = current_page == page;
-            let fill = if is_current {
-                palette.select.gamma_multiply(0.25)
-            } else {
-                palette.thumb_bg
-            };
-            painter.rect_filled(cell, CornerRadius::same(3), fill);
-            if let Some(ThumbState::Ready(tex)) = self.textures.get(&page_key) {
-                painter.image(
-                    tex.id(),
-                    Rect::from_center_size(
-                        cell.center(),
-                        tex.size_vec2()
-                            * (cell.width() / tex.size_vec2().x)
-                                .min(cell.height() / tex.size_vec2().y),
-                    ),
-                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                    Color32::WHITE,
-                );
-            } else {
-                painter.text(
-                    cell.center(),
-                    Align2::CENTER_CENTER,
-                    format!("{}", page + 1),
-                    FontId::proportional(11.0),
-                    palette.sub,
-                );
-            }
-            if is_current {
-                painter.rect_stroke(
-                    cell,
-                    CornerRadius::same(3),
-                    Stroke::new(2.0_f32, palette.select),
-                    StrokeKind::Inside,
-                );
-            } else {
-                painter.rect_stroke(
-                    cell,
-                    CornerRadius::same(3),
-                    Stroke::new(1.0_f32, palette.border),
-                    StrokeKind::Inside,
-                );
-            }
-
-            let resp = ui.interact(cell, window_id.with(page), egui::Sense::click());
-            if resp.clicked() {
-                selected_page = Some(page);
-            }
-        }
-
-        if let Some(page) = selected_page {
-            self.dispatch(
-                ui.ctx(),
-                atlas_commands::CommandId("board.media.page"),
-                Some(format!("{}:{page}", item_id.0)),
-            );
-        }
-
-        if self
-            .textures
-            .values()
-            .any(|t| matches!(t, ThumbState::Pending))
-        {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(120));
-        }
+    pub(crate) fn selected_paged_node(&self) -> Option<slate_doc::NodeId> {
+        self.board_sel
+            .iter()
+            .copied()
+            .find(|&id| self.node_has_pages(id))
     }
 
-    pub(crate) fn document_picker_contains(&self, pointer: Option<Pos2>) -> bool {
-        self.documents.picker.is_some_and(|(tab, item, _, popup)| {
-            tab == self.tab().id
-                && pointer.is_some_and(|p| popup.contains(p))
-                && self
-                    .doc()
-                    .scene
-                    .nodes
-                    .iter()
-                    .any(|n| matches!(&n.kind,slate_doc::NodeKind::Image(i) if i.item==item))
+    pub(crate) fn node_has_pages(&self, id: slate_doc::NodeId) -> bool {
+        self.doc().scene.node(id).is_some_and(|n| match &n.kind {
+            slate_doc::NodeKind::Image(img) => self
+                .doc()
+                .item(img.item)
+                .is_some_and(|item| slate_doc::media::has_pages(&item.path)),
+            _ => false,
         })
     }
 
-    /// Topmost PDF image node under a board world point, if any.
-    pub(crate) fn board_hovered_pdf(&self, world: Pos2) -> Option<(ItemId, Rect)> {
-        let screen = self.board_xf().w2s(world);
-        if let Some((tab, item, card, popup)) = self.documents.picker {
-            if tab == self.tab().id
-                && card.union(popup).contains(screen)
-                && self
-                    .doc()
-                    .scene
-                    .nodes
-                    .iter()
-                    .any(|n| matches!(&n.kind,slate_doc::NodeKind::Image(i) if i.item==item))
-            {
-                return Some((item, card));
-            }
+    pub(crate) fn node_pdf_item(&self, id: slate_doc::NodeId) -> Option<slate_doc::SlateItem> {
+        match &self.doc().scene.node(id)?.kind {
+            slate_doc::NodeKind::Image(img) => self.doc().item(img.item).cloned(),
+            _ => None,
         }
-        let id = self.doc().scene.node_at(world.x, world.y)?;
-        let n = self.doc().scene.node(id)?;
-        let slate_doc::scene::NodeKind::Image(img) = &n.kind else {
-            return None;
+    }
+
+    /// Thin album pallet over a selected paged document. Reuses Cover Flow motion.
+    pub(crate) fn paint_pages_album(
+        &mut self,
+        ui: &mut egui::Ui,
+        node_id: slate_doc::NodeId,
+        host: Rect,
+        zoom: f32,
+        theme: atlas_shell::theme::Palette,
+        focus: u16,
+    ) -> PagesAlbumOutcome {
+        let Some(item) = self.node_pdf_item(node_id) else {
+            return PagesAlbumOutcome::default();
         };
-        let item = self.doc().item(img.item)?;
         if !slate_doc::media::has_pages(&item.path) {
-            return None;
+            return PagesAlbumOutcome::default();
         }
-        let srect = self.board_xf().rect_w2s(n.rect);
-        Some((img.item, srect))
+        let count = self.pdf_page_count(&item.path);
+        if count == 0 {
+            return PagesAlbumOutcome::default();
+        }
+        let focus = focus.min(count.saturating_sub(1));
+        let layout = pages_album_layout(host, zoom);
+        let mut images = Vec::with_capacity(count as usize);
+        let path = item.path.clone();
+        let size = item.size;
+        let mtime = item.mtime;
+        for page in 0..count {
+            let distance = page.abs_diff(focus);
+            let visible = distance <= 3 || count.saturating_sub(distance) <= 3;
+            let (tex_id, tex_size) = if visible {
+                let key = self
+                    .documents
+                    .ready(&path)
+                    .map(|p| p.key(page))
+                    .unwrap_or_else(|| {
+                        cache_key_page(&path.to_string_lossy(), size, mtime, Some(page))
+                    });
+                if !self.textures.contains_key(&key) {
+                    self.request_pdf_page_thumb(path.clone(), size, mtime, page);
+                }
+                match self.textures.get(&key) {
+                    Some(ThumbState::Ready(tex)) => (Some(tex.id()), tex.size_vec2()),
+                    _ => (None, Vec2::splat(1.0)),
+                }
+            } else {
+                (None, Vec2::splat(1.0))
+            };
+            images.push(atlas_shell::home::AlbumImage {
+                texture: tex_id,
+                size: tex_size,
+            });
+        }
+        let writable = !self.tab().read_only;
+        let canvas = self.canvas_rect;
+        let mut next = focus;
+        let mut unbundle = false;
+        let mut hover = false;
+        egui::Area::new(egui::Id::new(("pages_album", node_id.0)))
+            .order(egui::Order::Foreground)
+            .fixed_pos(layout.pallet.min)
+            .constrain(false)
+            .movable(false)
+            .fade_in(false)
+            .show(ui.ctx(), |ui| {
+                ui.set_clip_rect(canvas);
+                ui.set_min_size(layout.pallet.size());
+                atlas_shell::dock::paint_squircle(
+                    ui.painter(),
+                    layout.pallet,
+                    theme.card,
+                    Stroke::new(0.8 * zoom, theme.border_strong),
+                    atlas_shell::tokens::current().dock.squircle_exponent,
+                );
+                next = atlas_shell::home::image_album(
+                    ui,
+                    egui::Id::new(("pdf-album", node_id.0)),
+                    layout.album,
+                    &images,
+                    focus as usize,
+                    count > 1,
+                ) as u16;
+                unbundle = atlas_shell::selection_tools::button(
+                    ui,
+                    layout.unbundle,
+                    egui::Id::new(("pdf-unbundle", node_id.0)),
+                    "Unbundle pages onto the board",
+                    atlas_shell::icons::Icon::Pages,
+                    false,
+                    zoom,
+                    theme,
+                    1.0,
+                    writable && count > 1,
+                )
+                .clicked();
+                hover = ui
+                    .ctx()
+                    .pointer_latest_pos()
+                    .is_some_and(|p| layout.pallet.contains(p));
+            });
+        let idle = ui.input(|i| !i.pointer.any_down() && i.smooth_scroll_delta.y.abs() < 0.1);
+        PagesAlbumOutcome {
+            focus: next,
+            commit_page: idle && next != item.pdf_page,
+            unbundle,
+            hover,
+        }
+    }
+}
+
+/// Low-profile tool pallet along the bottom of a selected paged image.
+pub(crate) fn pages_album_layout(host: Rect, zoom: f32) -> PagesAlbumLayout {
+    let pad = 8.0 * zoom;
+    let btn = atlas_shell::selection_tools::BUTTON_SIZE * zoom;
+    let inner = 5.0 * zoom;
+    let height = btn + inner * 2.0;
+    let pallet = Rect::from_min_max(
+        Pos2::new(host.left() + pad, host.bottom() - height - pad),
+        Pos2::new(host.right() - pad, host.bottom() - pad),
+    );
+    let unbundle = Rect::from_center_size(
+        Pos2::new(pallet.right() - inner - btn * 0.5, pallet.center().y),
+        Vec2::splat(btn),
+    );
+    let album = Rect::from_min_max(
+        Pos2::new(pallet.left() + inner, pallet.top() + inner),
+        Pos2::new(
+            (unbundle.left() - inner).max(pallet.left() + inner + 8.0 * zoom),
+            pallet.bottom() - inner,
+        ),
+    );
+    PagesAlbumLayout {
+        pallet,
+        album,
+        unbundle,
+    }
+}
+
+pub(crate) struct PagesAlbumLayout {
+    pub pallet: Rect,
+    pub album: Rect,
+    pub unbundle: Rect,
+}
+
+#[derive(Default)]
+pub(crate) struct PagesAlbumOutcome {
+    pub focus: u16,
+    pub commit_page: bool,
+    pub unbundle: bool,
+    pub hover: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pages_album_is_a_thin_pallet_over_the_host() {
+        let host = Rect::from_min_size(Pos2::new(40.0, 20.0), Vec2::new(320.0, 240.0));
+        let layout = pages_album_layout(host, 1.0);
+        assert!(layout.pallet.height() <= 48.0);
+        assert!(layout.pallet.bottom() <= host.bottom());
+        assert!(layout.album.width() > layout.unbundle.width());
+        assert!(layout.pallet.contains(layout.album.center()));
+        assert!(layout.pallet.contains(layout.unbundle.center()));
     }
 }

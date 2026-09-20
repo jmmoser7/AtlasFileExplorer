@@ -77,4 +77,8 @@ Implementation deliberately preserves existing dock layouts. Shared docking
 behavior remains governed by DOCK.md and TOOLBARS.md. Further metaphor or stroke
 changes require actual-size visual review, not just enlarged artwork.
 
-The shape-selection strip uses the catalog Fill bucket, Ellipse stroke ring, Corners outline, and Filters funnel. These share the same path stroke and squircle chrome as the primary dock; applications do not paint private substitute glyphs. [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) owns the surrounding panel composition and distinguishes squircle icon buttons from circular color swatches, filter radios, and rail handles.
+The shape-selection strip uses the catalog Fill bucket, Ellipse stroke ring, Corners outline, Filters funnel, and Pages grid. These share the same path stroke and squircle chrome as the primary dock; applications do not paint private substitute glyphs. [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) owns the surrounding panel composition and distinguishes squircle icon buttons from circular color swatches, filter radios, and rail handles.
+
+## Pages
+
+`Pages` is a 2×2 grid of sheets: the poster-page album and `board.media.unbundle` (spread a PDF/PowerPoint deck onto the board). It is not Media (stacked family sheets), Image (landscape frame), or Frame (dog-eared page). Command mapping: selection-strip squircle → album browse (`board.media.page`) and Unbundle (`board.media.unbundle`).

@@ -24,6 +24,7 @@ pub enum Panel {
     Corners,
     Wire,
     Filter,
+    Pages,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,6 +168,7 @@ pub struct ShapeProperties {
     dimensions: Vec<Dimension>,
     bounds: Option<WorldRect>,
     pub panel: Option<Panel>,
+    pub(super) pages_focus: u16,
     pub preview: Vec<Node>,
     edits: Vec<Property>,
     number: Option<NumberEdit>,
@@ -229,10 +231,22 @@ fn image_is_model(app: &SlateApp, n: &Node) -> bool {
         .is_some_and(|item| slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Model)
 }
 
+fn image_has_pages(app: &SlateApp, n: &Node) -> bool {
+    let NodeKind::Image(img) = &n.kind else {
+        return false;
+    };
+    app.doc()
+        .item(img.item)
+        .is_some_and(|item| slate_doc::media::has_pages(&item.path))
+}
+
 fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
     let mut items = property_strip_items(nodes);
     if nodes.iter().any(|n| image_is_model(app, n)) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
+    }
+    if nodes.len() == 1 && image_has_pages(app, &nodes[0]) {
+        items.push(StripItem::Panel(Panel::Pages));
     }
     items
 }
@@ -665,6 +679,11 @@ impl SlateApp {
                     Icon::Filters,
                     self.shape_properties.panel == Some(Panel::Filter),
                 ),
+                StripItem::Panel(Panel::Pages) => (
+                    "Pages: browse the deck or unbundle onto the board",
+                    Icon::Pages,
+                    self.shape_properties.panel == Some(Panel::Pages),
+                ),
                 StripItem::Frame(FrameAction::Prev) => {
                     ("Move earlier in the deck", Icon::ChevronLeft, false)
                 }
@@ -713,6 +732,16 @@ impl SlateApp {
             self.shape_properties.frame_menu = None;
             if was != Some(panel) {
                 self.shape_properties.panel = Some(panel);
+                if panel == Panel::Pages {
+                    if let Some(item) = self
+                        .shape_properties
+                        .ids
+                        .first()
+                        .and_then(|id| self.node_pdf_item(*id))
+                    {
+                        self.shape_properties.pages_focus = item.pdf_page;
+                    }
+                }
             }
         }
         if let Some(action) = requested_frame {
@@ -782,34 +811,75 @@ impl SlateApp {
         }
         if live {
             if let Some(panel) = self.shape_properties.panel {
-                let height = match panel {
-                    Panel::Fill => chrome::FILL_HEIGHT,
-                    Panel::Stroke => chrome::STROKE_HEIGHT,
-                    Panel::Corners => chrome::CORNER_HEIGHT,
-                    Panel::Wire => chrome::WIRE_HEIGHT,
-                    Panel::Filter => chrome::FILTER_HEIGHT,
-                };
-                let rect = chrome::editor_rect(strip, height, z);
-                let mut sample = false;
-                let canvas = self.canvas_rect;
-                egui::Area::new(Id::new("shape_property_editor"))
-                    .order(egui::Order::Foreground)
-                    .fixed_pos(rect.min)
-                    .constrain(false)
-                    .movable(false)
-                    .fade_in(false)
-                    .show(&ctx, |ui| {
-                        ui.set_clip_rect(canvas);
-                        ui.set_min_size(rect.size());
-                        ui.add_enabled_ui(enabled, |ui| {
-                            sample = self.shape_property_body(ui, rect, panel, z);
+                if panel == Panel::Pages {
+                    if let Some(node_id) = self.shape_properties.ids.first().copied() {
+                        if let Some(node) = self.doc().scene.node(node_id).cloned() {
+                            if let Some(path) =
+                                self.node_pdf_item(node_id).map(|item| item.path.clone())
+                            {
+                                self.documents
+                                    .request(&path, slate_doc::media::is_powerpoint(&path));
+                            }
+                            let host = xf.rect_w2s(node.rect);
+                            let album = self.paint_pages_album(
+                                ui,
+                                node_id,
+                                host,
+                                z,
+                                theme,
+                                self.shape_properties.pages_focus,
+                            );
+                            self.shape_properties.pages_focus = album.focus;
+                            captures |= album.hover;
+                            if album.commit_page {
+                                if let Some(item) = self.node_pdf_item(node_id) {
+                                    self.dispatch(
+                                        &ctx,
+                                        CommandId("board.media.page"),
+                                        Some(format!("{}:{}", item.id.0, album.focus)),
+                                    );
+                                }
+                            }
+                            if album.unbundle {
+                                self.dispatch(
+                                    &ctx,
+                                    CommandId("board.media.unbundle"),
+                                    Some(format!("{}:{}", node_id.0, album.focus)),
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    let height = match panel {
+                        Panel::Fill => chrome::FILL_HEIGHT,
+                        Panel::Stroke => chrome::STROKE_HEIGHT,
+                        Panel::Corners => chrome::CORNER_HEIGHT,
+                        Panel::Wire => chrome::WIRE_HEIGHT,
+                        Panel::Filter => chrome::FILTER_HEIGHT,
+                        Panel::Pages => 0.0,
+                    };
+                    let rect = chrome::editor_rect(strip, height, z);
+                    let mut sample = false;
+                    let canvas = self.canvas_rect;
+                    egui::Area::new(Id::new("shape_property_editor"))
+                        .order(egui::Order::Foreground)
+                        .fixed_pos(rect.min)
+                        .constrain(false)
+                        .movable(false)
+                        .fade_in(false)
+                        .show(&ctx, |ui| {
+                            ui.set_clip_rect(canvas);
+                            ui.set_min_size(rect.size());
+                            ui.add_enabled_ui(enabled, |ui| {
+                                sample = self.shape_property_body(ui, rect, panel, z);
+                            });
                         });
-                    });
-                captures |= ctx
-                    .pointer_latest_pos()
-                    .is_some_and(|p| rect.contains(p) && canvas.contains(p));
-                if sample {
-                    self.start_property_desktop_sample(panel);
+                    captures |= ctx
+                        .pointer_latest_pos()
+                        .is_some_and(|p| rect.contains(p) && canvas.contains(p));
+                    if sample {
+                        self.start_property_desktop_sample(panel);
+                    }
                 }
             }
             if self.shape_properties.frame_menu == Some(FrameAction::Tags) {
@@ -1689,6 +1759,7 @@ mod tests {
                 StripItem::Panel(Panel::Corners) => "corners",
                 StripItem::Panel(Panel::Wire) => "wire",
                 StripItem::Panel(Panel::Filter) => "filter",
+                StripItem::Panel(Panel::Pages) => "pages",
                 StripItem::Frame(FrameAction::Prev) => "prev",
                 StripItem::Frame(FrameAction::Next) => "next",
                 StripItem::Frame(FrameAction::Images) => "images",
@@ -1729,6 +1800,44 @@ mod tests {
         assert_eq!(
             item_kinds(&property_strip_items(&[node(image), node(shape)])),
             ["stroke", "corners"]
+        );
+    }
+
+    fn pdf_node(h: &mut Harness, rect: WorldRect) -> NodeId {
+        let path = h.base.join("deck.pdf");
+        std::fs::write(&path, b"pdf").unwrap();
+        let item = h.app.doc_mut().add_item(path, "deck.pdf", 1, 0, "pdf");
+        let node = h
+            .app
+            .doc_mut()
+            .scene
+            .build_node(rect, NodeKind::Image(scene::ImageNode::new(item)));
+        let id = h.app.add_nodes(vec![node])[0];
+        h.app.board_sel.insert(id);
+        id
+    }
+
+    #[test]
+    fn live_strip_shows_pages_for_a_single_pdf() {
+        let mut h = board();
+        let rect = WorldRect::new(0.0, 0.0, 120.0, 80.0);
+        let pdf = pdf_node(&mut h, rect);
+        let image = image_node(&mut h, rect);
+        let node = |id| h.app.doc().scene.node(id).unwrap().clone();
+        assert_eq!(
+            item_kinds(&live_property_strip_items(&h.app, &[node(pdf)])),
+            ["stroke", "corners", "filter", "pages"]
+        );
+        assert_eq!(
+            item_kinds(&live_property_strip_items(&h.app, &[node(image)])),
+            ["stroke", "corners", "filter"]
+        );
+        assert_eq!(
+            item_kinds(&live_property_strip_items(
+                &h.app,
+                &[node(pdf), node(image)]
+            )),
+            ["stroke", "corners", "filter"]
         );
     }
 

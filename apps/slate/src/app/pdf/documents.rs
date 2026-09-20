@@ -46,13 +46,6 @@ struct Entry {
 pub(crate) struct Documents {
     entries: HashMap<PathBuf, Entry>,
     wake: eframe::egui::Context,
-    /// Transient page-picker hover bridge, never saved with the workbook.
-    pub picker: Option<(
-        u64,
-        slate_doc::ItemId,
-        eframe::egui::Rect,
-        eframe::egui::Rect,
-    )>,
 }
 
 impl Documents {

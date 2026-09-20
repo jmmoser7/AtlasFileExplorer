@@ -257,6 +257,10 @@
     "path": "M3 5h18v14H3ZM10 9l6 3-6 3Z",
     "filled": false
   },
+  "Pages": {
+    "path": "M3 3h8v8H3ZM13 3h8v8H13ZM3 13h8v8H3ZM13 13h8v8H13Z",
+    "filled": false
+  },
   "FrameLetter": {
     "path": "M4.27 2H16.23L19.73 5.5V22H4.27ZM16.23 2V5.5H19.73",
     "filled": false

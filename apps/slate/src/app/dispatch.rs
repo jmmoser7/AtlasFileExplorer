@@ -170,6 +170,20 @@ impl SlateApp {
                     false
                 }
             }
+            "board.media.unbundle" => {
+                let (node, focus) = if let Some(detail) = detail.as_deref() {
+                    let mut parts = detail.split(':');
+                    let node = parts
+                        .next()
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .map(slate_doc::NodeId);
+                    let focus = parts.next().and_then(|s| s.parse::<u16>().ok());
+                    (node, focus)
+                } else {
+                    (self.selected_paged_node(), None)
+                };
+                node.is_some_and(|id| self.unbundle_paged_media(id, focus))
+            }
             "app.add_files" => {
                 self.add_files_dialog();
                 true

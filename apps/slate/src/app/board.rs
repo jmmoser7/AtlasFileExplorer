@@ -990,7 +990,7 @@ impl SlateApp {
     }
 
     /// Natural pixel dimensions for an item, scaled to a sensible board size.
-    fn image_natural_size(&self, item: ItemId) -> (f32, f32) {
+    pub(crate) fn image_natural_size(&self, item: ItemId) -> (f32, f32) {
         let (mut w, mut h) = if let Some(key) = self.doc().item(item).map(|it| it.cache_key.clone())
         {
             self.thumb_pixels
@@ -1312,7 +1312,7 @@ fn rotate_points(pts: &[Pos2], center: Pos2, deg: f32) -> Vec<Pos2> {
 /// (previous behavior); 2+ items form a grid capped at 10 columns, cell
 /// pitch = the batch's max natural size + a 16px gap, the whole grid
 /// centered on the drop point, filled left-to-right then top-to-bottom.
-fn grid_drop_rects(sizes: &[(f32, f32)], at: Pos2) -> Vec<WorldRect> {
+pub(crate) fn grid_drop_rects(sizes: &[(f32, f32)], at: Pos2) -> Vec<WorldRect> {
     if sizes.len() <= 1 {
         return sizes
             .iter()
@@ -2189,8 +2189,7 @@ impl SlateApp {
         // the board. Its chrome strip and a thin border band stay Slate targets,
         // so the frame can always be grabbed and released.
         self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
-        let web_capture = self.document_picker_contains(pointer)
-            || self.web_input_frame(ui, &xf, pointer)
+        let web_capture = self.web_input_frame(ui, &xf, pointer)
             || self.agent_shelf_captures(&xf, pointer)
             || self.atlas_input_frame(ui, &xf, pointer);
         let _ = self.dock_embed_frame(
@@ -2255,7 +2254,6 @@ impl SlateApp {
             canvas_nav = true;
         }
         if canvas_nav {
-            self.documents.picker = None;
             self.bump_grid_fade(now);
         }
 
@@ -3080,17 +3078,6 @@ impl SlateApp {
 
         // In-viewport measurement overlays (live only).
         self.paint_model_measurements(&painter, &xf);
-
-        // PDF page picker on hover (multi-page documents only).
-        if self.board_menu.is_none() && !editing_text && self.board_drag.is_none() && !panning {
-            if let (Some(p), Some(w)) = (pointer, wp) {
-                if rect.contains(p) {
-                    if let Some((item_id, srect)) = self.board_hovered_pdf(w) {
-                        self.paint_pdf_page_picker(ui, item_id, srect, &palette);
-                    }
-                }
-            }
-        }
 
         // Empty-board hint.
         if self.doc().scene.is_empty() {
@@ -5917,20 +5904,17 @@ impl SlateApp {
                             }
                         }
                     }
-                    let pdf_items: std::collections::HashSet<ItemId> = image_items
-                        .iter()
-                        .copied()
-                        .filter(|id| {
-                            self.doc().item(*id).is_some_and(|it| {
-                                slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Pdf
-                            })
-                        })
-                        .collect();
-                    if pdf_items.len() == 1
-                        && menu::item(ui, MenuIcon::File, "Explode PDF into pages…", dark).clicked()
+                    if let Some(paged) = targets.iter().copied().find(|id| self.node_has_pages(*id))
                     {
-                        self.explode_pdf(*pdf_items.iter().next().unwrap());
-                        close = true;
+                        if menu::item(ui, MenuIcon::Duplicate, "Unbundle pages", dark).clicked() {
+                            self.board_sel = std::iter::once(paged).collect();
+                            self.dispatch(
+                                ui.ctx(),
+                                atlas_commands::CommandId("board.media.unbundle"),
+                                Some(paged.0.to_string()),
+                            );
+                            close = true;
+                        }
                     }
                     menu::separator(ui, dark);
                     if menu::row(
