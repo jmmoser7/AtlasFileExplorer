@@ -852,18 +852,7 @@ impl SlateApp {
         }
         let ids = self.add_nodes(nodes);
         self.board_sel = ids.iter().copied().collect();
-
-        // Frame tag inheritance: each item checks its own landing center.
-        let mut per_frame: BTreeMap<NodeId, Vec<ItemId>> = BTreeMap::new();
-        for (i, item) in items.iter().enumerate() {
-            let (cx, cy) = rects[i].center();
-            if let Some(frame_id) = self.doc().scene.frame_at(cx, cy) {
-                per_frame.entry(frame_id).or_default().push(*item);
-            }
-        }
-        for (frame_id, tagged) in per_frame {
-            self.apply_frame_tags(frame_id, &tagged);
-        }
+        self.inherit_frame_tags_after_move(&ids);
     }
 
     /// Place pool items as image nodes arranged inside a frame, inheriting
@@ -4670,7 +4659,7 @@ impl SlateApp {
     }
 
     /// Images that ended a move inside a tagged frame inherit its tags.
-    fn inherit_frame_tags_after_move(&mut self, ids: &[NodeId]) {
+    pub(crate) fn inherit_frame_tags_after_move(&mut self, ids: &[NodeId]) {
         let mut per_frame: BTreeMap<NodeId, Vec<ItemId>> = BTreeMap::new();
         for id in ids {
             let Some(n) = self.doc().scene.node(*id) else {

@@ -264,17 +264,7 @@ impl SlateApp {
         for item_id in &page_items {
             self.request_thumb(*item_id);
         }
-        let mut per_frame: std::collections::BTreeMap<slate_doc::NodeId, Vec<ItemId>> =
-            std::collections::BTreeMap::new();
-        for (i, item_id) in page_items.iter().enumerate() {
-            let (cx, cy) = rects[i].center();
-            if let Some(frame_id) = self.doc().scene.frame_at(cx, cy) {
-                per_frame.entry(frame_id).or_default().push(*item_id);
-            }
-        }
-        for (frame_id, tagged) in per_frame {
-            self.apply_frame_tags(frame_id, &tagged);
-        }
+        self.inherit_frame_tags_after_move(&ids);
         true
     }
 
