@@ -374,7 +374,7 @@ fn ten_plus_tabs_switch_and_close_stress() {
     for t in 1..12usize {
         h.app.new_tab();
         h.frame();
-        if t % 2 == 0 {
+        if t.is_multiple_of(2) {
             h.app.set_root(roots[t % roots.len()].clone());
             h.pump_until_idle();
         }

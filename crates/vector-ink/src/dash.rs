@@ -13,7 +13,7 @@ pub(crate) fn dash_on_runs(points: &[[f32; 2]], pattern: &[f32], phase: f32) -> 
         return vec![points.to_vec()];
     }
     // SVG repeats odd-length patterns before wrapping the on/off state.
-    let count = if pattern.len() % 2 == 0 {
+    let count = if pattern.len().is_multiple_of(2) {
         pattern.len()
     } else {
         pattern.len() * 2
@@ -45,7 +45,7 @@ pub(crate) fn dash_on_runs(points: &[[f32; 2]], pattern: &[f32], phase: f32) -> 
                     pair[0][1] + (pair[1][1] - pair[0][1]) * (at / length),
                 ]
             };
-            if index % 2 == 0 {
+            if index.is_multiple_of(2) {
                 if run.is_empty() {
                     run.push(point(used));
                 }

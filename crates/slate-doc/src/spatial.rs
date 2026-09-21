@@ -225,7 +225,7 @@ mod tests {
                 let w = 10.0 + (next() % 120) as f32;
                 let h = 10.0 + (next() % 120) as f32;
                 let id = push_image(&mut scene, WorldRect::new(x, y, w, h));
-                if next() % 5 == 0 {
+                if next().is_multiple_of(5) {
                     let before = scene.node(id).unwrap().clone();
                     let mut after = before.clone();
                     after.rotation_deg = (next() % 180) as f32;

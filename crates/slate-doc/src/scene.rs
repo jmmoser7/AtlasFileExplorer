@@ -3037,6 +3037,7 @@ mod tests {
         assert_eq!(PhotoFilter::recognize(&custom), None);
     }
 
+    #[test]
     fn css_filter_appends_invert_last() {
         let adj = ImageAdjust {
             brightness: 1.5,

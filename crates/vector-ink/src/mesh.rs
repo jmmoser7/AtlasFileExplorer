@@ -287,7 +287,9 @@ mod tests {
 
     fn mesh_area(mesh: &crate::InkMesh) -> f32 {
         mesh.indices
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|t| {
                 let a = mesh.vertices[t[0] as usize].pos;
                 let b = mesh.vertices[t[1] as usize].pos;
