@@ -391,6 +391,7 @@ impl SlateApp {
             "portal.atlas.bake" => self.atlas_bake_selected(),
             "portal.atlas.focus" => self.atlas_toggle_focus(),
             "portal.atlas.open" => self.atlas_open_in_file_atlas(ctx, None),
+            "portal.atlas.fit" => self.atlas_fit_selected(),
             "board.tool.trim" => {
                 self.set_board_tool(board::BoardTool::Trim);
                 true

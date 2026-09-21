@@ -24,6 +24,7 @@ pub enum Panel {
     Corners,
     Wire,
     Filter,
+    AtlasFormat,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,9 +80,16 @@ impl Property {
                 }
             }
             Self::FillRgb(_) | Self::FillAlpha(_) | Self::Filled(_) => {
+                let theme_relative =
+                    matches!(&node.kind, NodeKind::Portal(p) if p.fill_follows_theme());
                 let mut c = scene::fill_of(node).unwrap_or(Rgba([128, 128, 128, 255]));
                 match *self {
-                    Self::FillRgb(rgb) => c.0[..3].copy_from_slice(&rgb),
+                    Self::FillRgb(rgb) => {
+                        c.0[..3].copy_from_slice(&rgb);
+                        if theme_relative {
+                            c.0[3] = 255;
+                        }
+                    }
                     Self::FillAlpha(a) => c.0[3] = a,
                     Self::Filled(false) => {
                         scene::set_fill(node, None);
@@ -207,6 +215,14 @@ fn property_strip_items(nodes: &[Node]) -> Vec<StripItem> {
     }
     if nodes.iter().all(scene::supports_image_adjust) {
         items.push(StripItem::Panel(Panel::Filter));
+    }
+    if nodes.len() == 1
+        && matches!(
+            &nodes[0].kind,
+            NodeKind::Portal(p) if p.kind == slate_doc::PortalKind::FileAtlas
+        )
+    {
+        items.push(StripItem::Panel(Panel::AtlasFormat));
     }
     if nodes.len() == 1 && matches!(nodes[0].kind, NodeKind::Frame(_)) {
         items.extend([
@@ -665,6 +681,11 @@ impl SlateApp {
                     Icon::Filters,
                     self.shape_properties.panel == Some(Panel::Filter),
                 ),
+                StripItem::Panel(Panel::AtlasFormat) => (
+                    "Formatting: filters and zoom to fit",
+                    Icon::Display,
+                    self.shape_properties.panel == Some(Panel::AtlasFormat),
+                ),
                 StripItem::Frame(FrameAction::Prev) => {
                     ("Move earlier in the deck", Icon::ChevronLeft, false)
                 }
@@ -788,6 +809,7 @@ impl SlateApp {
                     Panel::Corners => chrome::CORNER_HEIGHT,
                     Panel::Wire => chrome::WIRE_HEIGHT,
                     Panel::Filter => chrome::FILTER_HEIGHT,
+                    Panel::AtlasFormat => chrome::ATLAS_FORMAT_HEIGHT,
                 };
                 let rect = chrome::editor_rect(strip, height, z);
                 let mut sample = false;
@@ -915,6 +937,13 @@ impl SlateApp {
             &self.shape_properties.preview
         };
         let first = &nodes[0];
+        if panel == Panel::AtlasFormat {
+            let Some(id) = self.shape_properties.ids.first().copied() else {
+                return false;
+            };
+            self.atlas_format_body(ui, rect, id, z, theme);
+            return false;
+        }
         if panel == Panel::Filter {
             let Some(current) = scene::adjust_of(first) else {
                 return false;
@@ -1032,6 +1061,11 @@ impl SlateApp {
         }
         let get_color = |n: &Node| {
             if panel == Panel::Fill {
+                if let NodeKind::Portal(p) = &n.kind {
+                    if p.fill_follows_theme() {
+                        return super::board::to_rgba(theme.card);
+                    }
+                }
                 scene::fill_of(n).unwrap_or(Rgba([128, 128, 128, 0]))
             } else {
                 scene::stroke_of(n).unwrap().color
@@ -1060,11 +1094,18 @@ impl SlateApp {
             });
         }
         if let Some(alpha) = edit.alpha {
-            self.preview_shape_property(if panel == Panel::Fill {
-                Property::FillAlpha(alpha)
+            if panel == Panel::Fill {
+                if matches!(&first.kind, NodeKind::Portal(p) if p.fill_follows_theme())
+                    && edit.rgb.is_none()
+                {
+                    self.preview_shape_property(Property::FillRgb([
+                        color.0[0], color.0[1], color.0[2],
+                    ]));
+                }
+                self.preview_shape_property(Property::FillAlpha(alpha));
             } else {
-                Property::StrokeAlpha(alpha)
-            });
+                self.preview_shape_property(Property::StrokeAlpha(alpha));
+            }
         }
         if let Some(width) = edit.width {
             self.preview_shape_property(Property::StrokeWidth(width));
@@ -1689,6 +1730,7 @@ mod tests {
                 StripItem::Panel(Panel::Corners) => "corners",
                 StripItem::Panel(Panel::Wire) => "wire",
                 StripItem::Panel(Panel::Filter) => "filter",
+                StripItem::Panel(Panel::AtlasFormat) => "format",
                 StripItem::Frame(FrameAction::Prev) => "prev",
                 StripItem::Frame(FrameAction::Next) => "next",
                 StripItem::Frame(FrameAction::Images) => "images",
@@ -1706,6 +1748,15 @@ mod tests {
         let image = image_node(&mut h, rect);
         let text = text_node(&mut h, rect);
         let portal = portal_node(&mut h, rect);
+        let atlas = {
+            let node = h.app.doc_mut().scene.build_node(
+                rect,
+                NodeKind::Portal(scene::PortalNode::unbound_file_atlas("Folder")),
+            );
+            let id = h.app.add_nodes(vec![node])[0];
+            h.app.board_sel.insert(id);
+            id
+        };
         let shape = rectangle(&mut h, rect, 0.0);
         let node = |id| h.app.doc().scene.node(id).unwrap().clone();
         assert_eq!(
@@ -1717,7 +1768,14 @@ mod tests {
             ["stroke", "corners", "filter"]
         );
         assert_eq!(item_kinds(&property_strip_items(&[node(text)])), ["fill"]);
-        assert_eq!(item_kinds(&property_strip_items(&[node(portal)])), ["fill"]);
+        assert_eq!(
+            item_kinds(&property_strip_items(&[node(portal)])),
+            ["fill", "stroke"]
+        );
+        assert_eq!(
+            item_kinds(&property_strip_items(&[node(atlas)])),
+            ["fill", "stroke", "format"]
+        );
         assert_eq!(
             item_kinds(&property_strip_items(&[node(shape)])),
             ["fill", "stroke", "corners"]
@@ -1730,6 +1788,37 @@ mod tests {
             item_kinds(&property_strip_items(&[node(image), node(shape)])),
             ["stroke", "corners"]
         );
+    }
+
+    #[test]
+    fn file_atlas_fill_picker_authors_an_opaque_window() {
+        let mut h = board();
+        let id = {
+            let node = h.app.doc_mut().scene.build_node(
+                WorldRect::new(0.0, 0.0, 200.0, 120.0),
+                NodeKind::Portal(scene::PortalNode::unbound_file_atlas("Folder")),
+            );
+            h.app.add_nodes(vec![node])[0]
+        };
+        apply(&mut h, vec![id], vec![Property::FillRgb([40, 90, 140])]);
+        let NodeKind::Portal(portal) = &h.app.doc().scene.node(id).unwrap().kind else {
+            panic!("expected a File Atlas portal");
+        };
+        assert_eq!(portal.fill, Rgba([40, 90, 140, 255]));
+        assert!(!portal.fill_follows_theme());
+        apply(
+            &mut h,
+            vec![id],
+            vec![
+                Property::StrokeRgb([200, 40, 40]),
+                Property::StrokeWidth(3.0),
+            ],
+        );
+        let NodeKind::Portal(portal) = &h.app.doc().scene.node(id).unwrap().kind else {
+            panic!("expected a File Atlas portal");
+        };
+        assert_eq!(portal.stroke.color.0[..3], [200, 40, 40]);
+        assert_eq!(portal.stroke.width, 3.0);
     }
 
     #[test]

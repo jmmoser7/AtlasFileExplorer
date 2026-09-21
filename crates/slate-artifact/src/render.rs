@@ -323,6 +323,7 @@ fn render_portal(
     style.push_str("background:");
     style.push_str(&portal.fill.css());
     style.push_str(";overflow:hidden;");
+    append_stroke(&mut style, &portal.stroke);
     html.push_str("<div class=\"node portal\" style=\"");
     html.push_str(&style);
     html.push_str("\">");

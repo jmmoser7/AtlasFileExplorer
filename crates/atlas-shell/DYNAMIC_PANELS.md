@@ -94,9 +94,10 @@ Slate; see [desktop sampling](../../docs/keymap/specs/desktop-color-sampling.md)
 The corner editor is **one slender capsule**. The wire capsule stays at the
 17-unit baseline (`WIRE_HEIGHT` / `CAPSULE_HEIGHT`). The fillet capsule is
 30% taller (`CORNER_HEIGHT` = 22.1). The photo-filter capsule reuses that
-same taller height (`FILTER_HEIGHT`). `EDITOR_WIDTH` and those heights in
-the shared implementation are the live numeric owners. Do not recover the
-old 34-unit thickness from the earlier concept image.
+same taller height (`FILTER_HEIGHT`). File Atlas Formatting is a taller
+search-and-radio editor (`ATLAS_FORMAT_HEIGHT`). `EDITOR_WIDTH` and those
+heights in the shared implementation are the live numeric owners. Do not
+recover the old 34-unit thickness from the earlier concept image.
 
 Read left to right: Fillet/Chamfer segmented toggle; a **separately outlined
 slider capsule** containing a thin rail and outlined pill thumb; percent/`u`

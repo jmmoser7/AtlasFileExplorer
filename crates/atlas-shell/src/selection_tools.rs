@@ -20,6 +20,8 @@ pub const CORNER_HEIGHT: f32 = CAPSULE_HEIGHT * 1.3;
 pub const WIRE_HEIGHT: f32 = CAPSULE_HEIGHT;
 /// Photo-filter capsule reuses the fillet height so the two menus sit alike.
 pub const FILTER_HEIGHT: f32 = CORNER_HEIGHT;
+/// File Atlas portal formatting: search, type radios, ghost/hide, fit.
+pub const ATLAS_FORMAT_HEIGHT: f32 = 118.0;
 pub const SELECTION_FADE_SECONDS: f32 = 0.12;
 /// Collapse scale of the icon strip before it expands on selection.
 const STRIP_COLLAPSE: f32 = 0.72;
@@ -1133,6 +1135,183 @@ fn paint_filter_radio(
     );
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct AtlasFormatEdit {
+    pub family: Option<usize>,
+    pub hide: Option<bool>,
+    pub zoom_matches: Option<bool>,
+    pub zoom_fit: bool,
+}
+
+/// Compact File Atlas filter + fit editor. Search is edited in place via `search`.
+#[allow(clippy::too_many_arguments)]
+pub fn atlas_format_editor(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    search: &mut String,
+    families: &[FilterRadio],
+    family_on: &[bool],
+    hide: bool,
+    zoom_matches: bool,
+    zoom: f32,
+    theme: Palette,
+) -> AtlasFormatEdit {
+    panel(ui, rect, zoom, theme);
+    let mut out = AtlasFormatEdit::default();
+    let search_rect = Rect::from_min_size(
+        rect.min + Vec2::splat(12.0 * zoom),
+        Vec2::new(396.0, 22.0) * zoom,
+    );
+    ui.painter().rect(
+        search_rect,
+        4.0 * zoom,
+        theme.extreme_bg,
+        Stroke::new(0.8 * zoom, theme.border),
+        egui::StrokeKind::Inside,
+    );
+    let mut search_ui = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(search_rect.shrink(4.0 * zoom))
+            .id_salt("atlas_format_search"),
+    );
+    search_ui.spacing_mut().item_spacing = Vec2::ZERO;
+    let font = canvas_scale::font(12.0, zoom);
+    let resp = search_ui.add(
+        egui::TextEdit::singleline(search)
+            .font(font)
+            .hint_text("Search names…")
+            .text_color(theme.ink)
+            .frame(false)
+            .desired_width(search_rect.width()),
+    );
+    resp.changed();
+
+    let radio_row = Rect::from_min_size(
+        rect.min + Vec2::new(12.0, 42.0) * zoom,
+        Vec2::new(396.0, 22.0) * zoom,
+    );
+    let count = families.len().max(1) as f32;
+    let pitch = (radio_row.width() / count).min(28.0 * zoom);
+    for (i, radio) in families.iter().enumerate() {
+        let center = Pos2::new(
+            radio_row.left() + (i as f32 + 0.5) * pitch,
+            radio_row.center().y,
+        );
+        let hit = Rect::from_center_size(center, Vec2::splat(20.0 * zoom));
+        let response = ui
+            .interact(hit, ui.id().with(("atlas_family", i)), Sense::click())
+            .on_hover_text(radio.label);
+        let on = family_on.get(i).copied().unwrap_or(true);
+        paint_filter_radio(
+            ui.painter(),
+            center,
+            6.0 * zoom,
+            radio,
+            on,
+            response.hovered(),
+            zoom,
+            theme,
+        );
+        if response.clicked() {
+            out.family = Some(i);
+        }
+    }
+
+    let mode = Rect::from_min_size(
+        rect.min + Vec2::new(12.0, 74.0) * zoom,
+        Vec2::new(126.0, 22.0) * zoom,
+    );
+    let next_hide = segments(
+        ui,
+        mode,
+        ui.id().with("atlas_filter_mode"),
+        ["Ghost", "Hide"],
+        hide as usize,
+        zoom,
+        theme,
+    ) == 1;
+    if next_hide != hide {
+        out.hide = Some(next_hide);
+    }
+
+    let matches_rect = Rect::from_min_size(
+        rect.min + Vec2::new(148.0, 74.0) * zoom,
+        Vec2::new(118.0, 22.0) * zoom,
+    );
+    if chip(
+        ui,
+        matches_rect,
+        ui.id().with("atlas_zoom_matches"),
+        "Zoom to matches",
+        zoom_matches,
+        zoom,
+        theme,
+    ) {
+        out.zoom_matches = Some(!zoom_matches);
+    }
+    let fit_rect = Rect::from_min_size(
+        rect.min + Vec2::new(276.0, 74.0) * zoom,
+        Vec2::new(132.0, 22.0) * zoom,
+    );
+    if chip(
+        ui,
+        fit_rect,
+        ui.id().with("atlas_zoom_fit"),
+        "Zoom to fit",
+        false,
+        zoom,
+        theme,
+    ) {
+        out.zoom_fit = true;
+    }
+    out
+}
+
+fn chip(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    id: Id,
+    label: &str,
+    active: bool,
+    zoom: f32,
+    theme: Palette,
+) -> bool {
+    let response = ui.interact(rect, id, Sense::click()).on_hover_text(label);
+    ui.painter().rect(
+        rect,
+        rect.height() * 0.5,
+        if active {
+            theme.select_fill
+        } else if response.hovered() {
+            theme.card_hover
+        } else {
+            theme.card
+        },
+        Stroke::new(
+            0.8 * zoom,
+            if active {
+                theme.select
+            } else {
+                theme.border_strong
+            },
+        ),
+        egui::StrokeKind::Inside,
+    );
+    canvas_text::text(
+        ui.painter(),
+        rect.center(),
+        Align2::CENTER_CENTER,
+        label,
+        canvas_scale::font(9.0, zoom),
+        if active {
+            theme.select_stroke
+        } else {
+            theme.ink
+        },
+    );
+    response.clicked()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1180,6 +1359,63 @@ mod tests {
             });
         }
         assert_eq!(hovered, Some(0));
+    }
+
+    #[test]
+    fn atlas_format_editor_reports_zoom_to_fit() {
+        let ctx = egui::Context::default();
+        let radios = [FilterRadio {
+            label: "Code",
+            fill: [144, 164, 174],
+            fill_b: None,
+        }];
+        let rect = Rect::from_min_size(
+            Pos2::new(40.0, 40.0),
+            Vec2::new(EDITOR_WIDTH, ATLAS_FORMAT_HEIGHT),
+        );
+        let fit = Rect::from_min_size(rect.min + Vec2::new(276.0, 74.0), Vec2::new(132.0, 22.0));
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 200.0))),
+            events: vec![
+                egui::Event::PointerMoved(fit.center()),
+                egui::Event::PointerButton {
+                    pos: fit.center(),
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: fit.center(),
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        };
+        let mut search = String::new();
+        let mut zoom_fit = false;
+        for _ in 0..3 {
+            let _ = ctx.run(input.clone(), |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        zoom_fit = atlas_format_editor(
+                            ui,
+                            rect,
+                            &mut search,
+                            &radios,
+                            &[true],
+                            false,
+                            false,
+                            1.0,
+                            Palette::dark(),
+                        )
+                        .zoom_fit;
+                    });
+            });
+        }
+        assert!(zoom_fit);
     }
 
     #[test]

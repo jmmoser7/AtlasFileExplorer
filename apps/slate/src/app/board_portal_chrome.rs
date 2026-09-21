@@ -598,6 +598,16 @@ impl SlateApp {
                 .clicked()
     }
 
+    /// Fill colour the host shell paints. File Atlas without an authored fill
+    /// uses the card slot so the window sits slightly above the board.
+    pub(crate) fn portal_frame_fill_color(&self, portal: &PortalNode) -> Color32 {
+        if portal.fill_follows_theme() {
+            self.palette().card
+        } else {
+            rgba32(portal.fill)
+        }
+    }
+
     /// Fill + stroke of the portal frame. Contents paint between these two.
     pub(crate) fn paint_portal_frame_fill(
         &self,
@@ -646,18 +656,29 @@ impl SlateApp {
     ) {
         self.paint_portal_fillet_punch(painter, layout);
         self.paint_portal_identity_chrome(ui, layout, id, portal, visiting);
-        self.paint_portal_frame_stroke(painter, layout, border, focused, zoom);
+        self.paint_portal_frame_stroke(painter, layout, portal, border, focused, zoom);
     }
 
     pub(crate) fn paint_portal_frame_stroke(
         &self,
         painter: &egui::Painter,
         layout: &PortalChromeLayout,
+        portal: &PortalNode,
         border: Color32,
         focused: bool,
         zoom: f32,
     ) {
         let z = zoom.max(0.01);
+        if !portal.stroke.is_none() {
+            let width = canvas_scale::px(portal.stroke.width, z);
+            painter.rect_stroke(
+                layout.frame,
+                layout.radius,
+                Stroke::new(width, rgba32(portal.stroke.color)),
+                StrokeKind::Outside,
+            );
+            return;
+        }
         let hit = portal_frame_tokens().border_hit_px * z;
         let edge_hover = painter.ctx().pointer_latest_pos().is_some_and(|p| {
             layout.frame.expand(hit).contains(p) && !layout.frame.shrink(hit).contains(p)
@@ -703,7 +724,7 @@ impl SlateApp {
         }
         let painter = ui.painter_at(screen);
         let palette = self.palette();
-        let fill = rgba32(portal.fill);
+        let fill = self.portal_frame_fill_color(&portal);
         painter.rect_filled(screen, 0.0, fill);
 
         match portal.kind {
@@ -731,8 +752,9 @@ impl SlateApp {
         self.paint_portal_frame_stroke(
             &painter,
             &layout,
+            &portal,
             palette.border_strong,
-            self.web.focused == Some(id),
+            self.web.focused == Some(id) || self.atlas_lenses.focused == Some(id),
             1.0,
         );
 

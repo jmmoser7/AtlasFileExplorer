@@ -10,6 +10,7 @@ pub mod cloud;
 pub mod dirmeta;
 pub mod display;
 pub mod export;
+pub mod filter;
 pub mod folder_heat;
 pub mod fsops;
 pub mod index;

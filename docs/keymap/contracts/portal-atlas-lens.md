@@ -63,13 +63,13 @@ Rows keyed to `DIMENSIONS.md` in registry order. Every row is mirrored in
 | D13 | Selected presentation | P1.portal.pick / P1.node.transform. Windows-style hover resize — no prior selection. Contents expose no board grips. Portals stay axis-aligned: no rotate chrome. Maximize square per P1.portal.chrome (D33/D34) | pattern | 90 |
 | D14 | Post-edit | Rebind and authored query knobs through the Portal inspector or `portal.atlas.*` commands; each is a journaled `Patch`. Inner camera / collapse / selection are re-edited by using the surface | pattern | 80 |
 | D15 | Non-goals | Cut: any File Atlas app feature or chrome path; embedding `AtlasApp` / a second process / File Atlas window chrome inside the frame; a second copy of the folder-map painter; an Atlas-owned tag model; Edit-mode filesystem writes in v1; Cover Flow / Home / Advanced / destination assignment / export tray; a fifth tab-level `ViewKind`; authenticated anything. Not cut: place, bind a local folder, live `atlas-shell::folder_map` + atlas-core scan/thumbs, contents-focus, maximize, refresh, bake, Open in File Atlas (existing Slate second viewport) | stated | 100 |
-| D16 | Create-style inheritance | P1.portal.style: no BoardLastStyle. The live File Atlas surface, cards, and status/empty text follow Slate’s active light/dark palette, including existing portals. Theme switches never mutate the scene. | stated | 100 |
+| D16 | Create-style inheritance | P1.portal.style: no BoardLastStyle. Unauthored File Atlas fill follows `Palette::card` (slightly lighter than the board) so the window outline is visible; theme switches never mutate the scene. The Fill squircle authors `portal.fill`; the Stroke squircle authors `portal.stroke` (width 0 = none). Cards and empty/status text still follow the active palette | stated | 100 |
 | D17 | Hit-testing & pick | P1.portal.pick: frame rect including marquee. Unfocused clicks hit the frame. Contents-focus hits the shared Atlas hover/collapse grips; portal_frame.border_hit_px stays a Slate target. A carry begun inside focused contents owns input until release, including outside the portal. | stated | 100 |
 | D18 | Portal class & authority | **Host** (Art. V.3 / P1.portal.frame). The folder's journal is the filesystem; Slate owns only the frame + source pointer. Named "lens" in the Portals flyout — class is still host because a live folder map is an inner surface | stated | 100 |
 | D19 | Source binding | One `SourceUri` naming a **local folder**, stored relative-first (Art. IX.2). Bound by `portal.atlas.source`. Health `Ok`/`Missing`/`Unknown`. Refused: files, URLs, cloud accounts, a File Atlas window handle. Rebind is a journaled `Patch` | pattern | 90 |
 | D20 | Query & parameters | v1 journaled query is `AtlasPortalQuery { sort }` only (default Name). Filter/search, if shown, is derived view-state (D31). Collapse, camera, scroll, and selection are never query fields | guess | 55 |
 | D21 | Regeneration & staleness | Scan starts on bind, refresh, and watcher events. Work is generation-tagged; a stale batch is dropped (Art. II.3). Cards stream in while discovery is still running. Last-good tree stays painted across a refresh. Same cloud/dehydrate guards as atlas-core | pattern | 85 |
-| D22 | Contents interaction | P1.portal.contents-focus. Double-click or Enter enters the Atlas canvas. In focus: shared FolderCam navigation; folder-card clicks collapse/expand and the shared incremental/full grips expand nested folders exactly as standalone Atlas. Click selects a file; Ctrl-click toggles selection. A real left-drag carries the pressed file or its selection onto the primary Slate board, linking and placing through the same metadata-based recipient as detached Atlas (frame tags and one placement undo). Release inside the source portal or over UI cancels. Leaving the window hands off to atlas_core::shell_drag (copy/link, never move). Double-click opens a file in the OS. After blur the board owns navigation. | stated | 100 |
+| D22 | Contents interaction | P1.portal.contents-focus. Double-click or Enter enters the Atlas canvas. In focus: shared FolderCam navigation; folder-card clicks collapse/expand and the shared incremental/full grips expand nested folders exactly as standalone Atlas. Click selects a file; Ctrl-click toggles selection. Left-drag on empty canvas, or Shift-drag, marquees files (`Tree::files_in_rect`; Ctrl additive). A real left-drag on a file carries the pressed file or its selection onto the primary Slate board, linking and placing through the same metadata-based recipient as detached Atlas (frame tags and one placement undo). Release inside the source portal or over UI cancels. Leaving the window hands off to atlas_core::shell_drag (copy/link, never move). Double-click opens a file in the OS. After blur the board owns navigation. | stated | 100 |
 | D23 | Level of detail | P0.9: the inner camera is portal-local. Board zoom scales the entire map with the frame; screen scale is inner zoom × board zoom, in and out of contents-focus. Board pan and frame movement carry the map with them. Leaving contents preserves the inner view. LOD uses the composed screen scale; drop type when too small, never clamp to a screen constant | stated | 100 |
 | D24 | Export serialization | Host (Art. V.3): `slate-artifact` emits a poster plus a pointer to the folder locator. Unbound/Missing export the state card. Not a regenerated SVG of every thumbnail | pattern | 80 |
 | D25 | Bake | `portal.atlas.bake` emits one journaled `Add` of an authored Image (the current poster) plus a provenance Text node naming the folder. The portal stays live. v1 does not copy file bytes onto the board | guess | 55 |
@@ -80,9 +80,9 @@ Rows keyed to `DIMENSIONS.md` in registry order. Every row is mirrored in
 | D30 | Failure & honesty states | Unbound: "Choose folder…". Missing: names the locator. Unknown: names the locator. Wrong kind (a file was bound): refuse and keep unbound. Empty folder: honest empty map. Partial scan: cards that have arrived, plus scan progress. Dehydrated cloud files: type icons, never a bulk hydrate | pattern | 85 |
 | D31 | View-state ownership | Journaled authored intent: `rect`, `source`, `sort` (D20). Derived per-peer, never journaled: inner camera, collapse, selection, hover, filter/search, scan progress, thumb textures, scroll | pattern | 80 |
 | D32 | Trust, sandbox & consent | Local folder only. No account, no host API, no webview. Same atlas-core cloud/dehydrate rules as File Atlas. Binding a folder the workbook can already see needs no extra prompt. No File Atlas process is spawned inside the frame | pattern | 85 |
-| D33 | Portal chrome | P1.portal.chrome: no identity tab (web-only). Maximize square on the frame. Right-click: Maximize, Enter/Leave contents, Rebind folder, Refresh, Bake, Open in File Atlas (existing Slate second viewport — OQ4). No File Atlas top bar, tools dock, or readouts inside the frame (Art. X) | precedent | 80 |
+| D33 | Portal chrome | P1.portal.chrome: no identity tab (web-only). Maximize square on the frame. Right-click: Maximize, Enter/Leave contents, Rebind folder, Refresh, Bake, Open in File Atlas (existing Slate second viewport — OQ4). No File Atlas top bar, tools dock, or readouts inside the frame (Art. X). Fill/Stroke/Formatting squircles live on the object property strip, not inside the window | stated | 100 |
 | D34 | Portal maximize | P1.portal.maximize. Maximize fills the Slate canvas pane; Esc / the square restores. Inner camera is unchanged across maximize. This is Slate chrome, not a File Atlas window | pattern | 85 |
-| D35 | Portal-local UI | P1.portal.local-ui. Root folder, sort, refresh, rebind, and (if shown) filter live on this portal's inspector / empty state. They do not appear on Document Settings or any board-wide panel | pattern | 90 |
+| D35 | Portal-local UI | P1.portal.local-ui. Root folder, sort, refresh, and rebind stay on this portal. Formatting (search, file-type radios, Ghost/Hide, Zoom to matches, Zoom to fit) is the object-strip `AtlasFormat` editor in `selection_tools` (`portal.atlas.fit`). Filter/search/camera remain derived view-state (D31). They do not appear on Document Settings or any board-wide panel | stated | 100 |
 
 ## Open questions
 
@@ -124,8 +124,19 @@ Open in File Atlas uses the existing Slate-hosted File Atlas viewport.
   tags, undo/redo placement as one group. Release inside the portal or press Esc:
   add nothing. Switching workbooks/rebinding cancels. Leaving the window hands
   the same paths to Windows; it never moves source files.
-- **GP12.** Toggle dark → light → dark: the existing portal’s background and
-  cards follow the canvas palette. Its serialized scene does not change.
+- **GP12.** Toggle dark → light → dark: an unauthored File Atlas window follows
+  `Palette::card` (slightly lighter than the board) so its outline is visible;
+  cards and empty/status text follow the palette. An authored fill or stroke
+  stays put. The serialized scene does not change.
+- **GP13.** Select the portal: Fill, Stroke, and Formatting squircles appear on
+  the object strip. Fill authors `portal.fill`. Stroke authors `portal.stroke`
+  (width 0 = none) and paints the window border. Formatting is the File Atlas
+  filter menu (search, type radios, Ghost/Hide, Zoom to matches) plus Zoom to
+  fit (`portal.atlas.fit`). Filter/search/camera stay derived view-state.
+- **GP14.** Enter contents-focus. Drag a box on empty canvas, or Shift-drag,
+  to marquee multiple files (`Tree::files_in_rect`; Ctrl additive). A real
+  left-drag on a file still carries the pressed file or its selection onto
+  the board.
 
 ## Feel constants (proposed)
 

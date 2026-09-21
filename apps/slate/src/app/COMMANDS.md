@@ -420,14 +420,18 @@ Camera-only — never journaled, never repeatable.
   the default; Place files on the board dumps images). View-only: no
   filesystem writes. In contents-focus, folder cards and their incremental/full
   grips expand or collapse through the same implementation as standalone Atlas.
-  Click a file to select it; Ctrl+click toggles selection. Left-drag files onto
-  the primary Slate board to link and place them (including frame tags and undo).
-  Esc cancels the carry; releasing inside the source portal adds nothing.
-  Drag outside the window to another application the same way File Explorer
-  does (`portal.atlas.drag_out`, `atlas_core::shell_drag` — copy/link, never move).
-  The nested map follows Slate’s light/dark theme. Open in File Atlas
-  uses the existing Slate-hosted viewport. Bake writes a poster +
-  provenance; the portal stays live.
+  Click a file to select it; Ctrl+click toggles selection. Drag a box on empty
+  canvas (or Shift-drag) to marquee multiple files; Ctrl keeps the current
+  set. Left-drag files onto the primary Slate board to link and place them
+  (including frame tags and undo). Esc cancels the carry; releasing inside
+  the source portal adds nothing. Drag outside the window to another
+  application the same way File Explorer does (`portal.atlas.drag_out`,
+  `atlas_core::shell_drag` — copy/link, never move). Unauthored fill follows
+  the card slot (slightly lighter than the board); Fill/Stroke squircles
+  author the window fill and border. Formatting (Display icon) is the filter
+  menu plus Zoom to fit (`portal.atlas.fit`). Open in File Atlas uses the
+  existing Slate-hosted viewport. Bake writes a poster + provenance; the
+  portal stays live.
 - **Web portal** is a host portal: a new one starts at
   `https://www.google.com/` so the page itself can be used as a search
   surface. Rebind it to a URL, an `.html` file, or a folder with an entry
@@ -475,4 +479,4 @@ decks show 32 pages per picker window. Without PowerPoint, place an exported PDF
 See `docs/keymap/contracts/media.md`.
 
 
-Selection strip: squircle Fill/Stroke/Corners/Filters (and wire) controls dispatch `board.shape.edit` / `board.wire.edit` for any node those scene helpers support — shapes, frames, text fills, portals, images and wires. Image Filters is the fillet-height photo-filter capsule (hover preview, intensity slider). Frame deck/tags/images/present actions share that strip. External dimension stringers dispatch `board.shape.dimension`. Palette previews commit on icon change/outside click; an empty-canvas click also deselects. Esc cancels. Numeric dimensions edit directly in their rotated stringers and commit on Enter/outside click. RGB percentages also edit in place; slider metrics appear only during adjustment. All eyedroppers use `board.color.desktop` / the shared desktop sampler (RGB only; existing alpha preserved). Polyline, Arc and Bezier are also discoverable as `board.tool.polyline`, `board.tool.arc`, and `board.tool.bezier`, without new default shortcuts.
+Selection strip: squircle Fill/Stroke/Corners/Filters/Formatting (and wire) controls dispatch `board.shape.edit` / `board.wire.edit` / `portal.atlas.fit` for any node those scene helpers support — shapes, frames, text fills, portals, images and wires. File Atlas Formatting is the Display squircle and the filter+fit editor in `selection_tools`. Image Filters is the fillet-height photo-filter capsule (hover preview, intensity slider). Frame deck/tags/images/present actions share that strip. External dimension stringers dispatch `board.shape.dimension`. Palette previews commit on icon change/outside click; an empty-canvas click also deselects. Esc cancels. Numeric dimensions edit directly in their rotated stringers and commit on Enter/outside click. RGB percentages also edit in place; slider metrics appear only during adjustment. All eyedroppers use `board.color.desktop` / the shared desktop sampler (RGB only; existing alpha preserved). Polyline, Arc and Bezier are also discoverable as `board.tool.polyline`, `board.tool.arc`, and `board.tool.bezier`, without new default shortcuts.
