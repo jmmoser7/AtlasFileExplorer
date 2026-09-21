@@ -1173,8 +1173,10 @@ pub struct PortalNode {
     /// field until a future format-version card replaces `query` with a
     /// `PortalQuery { Repo(..), Agent(..) }` enum; adding that enum now would
     /// force a migration for no user-visible behaviour.
+    /// Boxed because the chat view carries the conversation's presentation
+    /// state: inline, it made every `NodeKind` the size of a portal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<AgentPortalRef>,
+    pub agent: Option<Box<AgentPortalRef>>,
     /// Web portal parameters; see the note on `agent` for why the subtypes sit
     /// side by side rather than in a `PortalQuery` enum.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1234,7 +1236,7 @@ impl PortalNode {
             kind: PortalKind::Agent,
             title: title.into(),
             source: None,
-            agent: Some(AgentPortalRef {
+            agent: Some(Box::new(AgentPortalRef {
                 session: new_agent_session_id(),
                 provider,
                 context: AgentContextScope::Selection,
@@ -1244,7 +1246,7 @@ impl PortalNode {
                 seed: None,
                 view: atlas_agent::PortalView::Chat,
                 chat: Default::default(),
-            }),
+            })),
             web: None,
             atlas: AtlasPortalQuery::default(),
             fill: Rgba([16, 22, 34, 255]),

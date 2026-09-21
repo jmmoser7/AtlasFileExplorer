@@ -504,7 +504,11 @@ mod tests {
             "@cursor/sdk must be installed under {}",
             dir.display()
         );
-        let node = resolve_node().expect("node is present if node_modules was installed");
+        // `node_modules` can outlive the Node that installed it — it is checked
+        // in on one machine and cloned onto another.
+        let Ok(node) = resolve_node() else {
+            return;
+        };
         ensure_sidecar_deps(&node, dir).expect("second prepare is a no-op");
     }
 

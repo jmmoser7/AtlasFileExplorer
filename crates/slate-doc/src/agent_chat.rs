@@ -110,7 +110,7 @@ pub fn segments(scene: &Scene, id: NodeId) -> Vec<Vec<NodeId>> {
 
 pub fn agent(node: &Node) -> Option<&AgentPortalRef> {
     match &node.kind {
-        NodeKind::Portal(p) => p.agent.as_ref(),
+        NodeKind::Portal(p) => p.agent.as_deref(),
         _ => None,
     }
 }
