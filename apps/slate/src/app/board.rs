@@ -964,14 +964,24 @@ impl SlateApp {
 
     /// Natural pixel dimensions for an item, scaled to a sensible board size.
     pub(crate) fn image_natural_size(&self, item: ItemId) -> (f32, f32) {
-        let (mut w, mut h) = if let Some(key) = self.doc().item(item).map(|it| it.cache_key.clone())
-        {
-            self.thumb_pixels
-                .get(&key)
+        let (mut w, mut h) = match self.doc().item(item) {
+            Some(it) => self
+                .thumb_pixels
+                .get(&it.cache_key)
                 .map(|img| (img.width() as f32, img.height() as f32))
-                .unwrap_or((IMAGE_W, IMAGE_H))
-        } else {
-            (IMAGE_W, IMAGE_H)
+                // A drop lands before its thumbnail does, so read the header
+                // rather than boxing the image at the default aspect. Never on
+                // a placeholder: one header byte hydrates the whole file.
+                .or_else(|| {
+                    let path = &it.path;
+                    (slate_doc::media_kind(path) == slate_doc::MediaKind::Image
+                        && !atlas_core::cloud::is_dehydrated(path))
+                    .then(|| image::image_dimensions(path).ok())
+                    .flatten()
+                    .map(|(pw, ph)| (pw as f32, ph as f32))
+                })
+                .unwrap_or((IMAGE_W, IMAGE_H)),
+            None => (IMAGE_W, IMAGE_H),
         };
         if w <= 0.0 || h <= 0.0 {
             w = IMAGE_W;
