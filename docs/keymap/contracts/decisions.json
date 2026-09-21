@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-09-18",
+  "updated": "2026-09-21",
   "tools": {
     "media": {
       "status": "agreed",
@@ -154,21 +154,21 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box · (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T → Text box, N → Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7).",
+          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box \u00b7 (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T \u2192 Text box, N \u2192 Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7).",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
           "decided": null
         },
         "D02": {
-          "behavior": "Text box: one-shot — after place+edit-blur (or Esc commit), return to Select. Sticky: stays armed after commit; Tab / Shift+Tab while editing spawns an adjacent sticky and keeps the tool armed. Esc while armed (no edit) disarms to Select.",
+          "behavior": "Text box: one-shot \u2014 after place+edit-blur (or Esc commit), return to Select. Sticky: stays armed after commit; Tab / Shift+Tab while editing spawns an adjacent sticky and keeps the tool armed. Esc while armed (no edit) disarms to Select.",
           "source": "research",
           "confidence": 70,
           "verdict": "proposed",
           "decided": null
         },
         "D03": {
-          "behavior": "Armed → GhostFollow (default-size ghost locked to cursor) → Press → (ClickPlace | DragScale) → Commit → enter inline edit. Click-release places at default world size. Press-drag-release places and scales. Replaces P2.PlaceOnce for text/sticky (new L2: GhostPlace).",
+          "behavior": "Armed \u2192 GhostFollow (default-size ghost locked to cursor) \u2192 Press \u2192 (ClickPlace | DragScale) \u2192 Commit \u2192 enter inline edit. Click-release places at default world size. Press-drag-release places and scales. Replaces P2.PlaceOnce for text/sticky (new L2: GhostPlace).",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -182,7 +182,7 @@
           "decided": null
         },
         "D05": {
-          "behavior": "Held Shift during DragScale locks aspect: Sticky → square; Text box → lock to default aspect (280×48). No Alt/Ctrl create modifiers in v1.",
+          "behavior": "Held Shift during DragScale locks aspect: Sticky \u2192 square; Text box \u2192 lock to default aspect (280\u00d748). No Alt/Ctrl create modifiers in v1.",
           "source": "research",
           "confidence": 65,
           "verdict": "proposed",
@@ -210,7 +210,7 @@
           "decided": null
         },
         "D09": {
-          "behavior": "While Armed: ghosted Text box or sticky preview locked to the cursor at the default world size (text: 280×48 + sample Text; sticky: STICKY_SIZE + yellow fill), alpha from place.ghost_alpha. During DragScale: live sized ghost. Paint always uses world metrics × camera zoom (font = size×z, wrap = rect.w×z) with no screen-constant / auto-fit path and no relative-scale floor.",
+          "behavior": "While Armed: ghosted Text box or sticky preview locked to the cursor at the default world size (text: 280\u00d748 + sample Text; sticky: STICKY_SIZE + yellow fill), alpha from place.ghost_alpha. During DragScale: live sized ghost. Paint always uses world metrics \u00d7 camera zoom (font = size\u00d7z, wrap = rect.w\u00d7z) with no screen-constant / auto-fit path and no relative-scale floor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -224,14 +224,14 @@
           "decided": null
         },
         "D11": {
-          "behavior": "Text box → TextNode (fill=None, default text Text, size 24 world). Sticky → TextNode with STICKY_FILL + STICKY_INK, empty text, size 24 world. Journal cmds board.tool.text / board.tool.sticky; one gesture = one undo. Immediately open inline edit. Creation DragScale sets rect from drag and scales font by mean scale vs default rect. Subsequent bbox resize of an existing node changes the frame only — authored font size stays put and text reflows.",
+          "behavior": "Text box \u2192 TextNode (fill=None, default text Text, size 24 world). Sticky \u2192 TextNode with STICKY_FILL + STICKY_INK, empty text, size 24 world. Journal cmds board.tool.text / board.tool.sticky; one gesture = one undo. Immediately open inline edit. Creation DragScale sets rect from drag and scales font by mean scale vs default rect. Subsequent bbox resize of an existing node changes the frame only \u2014 authored font size stays put and text reflows.",
           "source": "stated",
           "confidence": 90,
           "verdict": "proposed",
           "decided": null
         },
         "D12": {
-          "behavior": "Esc while GhostFollow / mid-DragScale → disarm to Select, no node (P0.1). Esc while inline-editing → commit text + peel edit (sticky stays armed per D02; text returns to Select).",
+          "behavior": "Esc while GhostFollow / mid-DragScale \u2192 disarm to Select, no node (P0.1). Esc while inline-editing \u2192 commit text + peel edit (sticky stays armed per D02; text returns to Select).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "proposed",
@@ -393,7 +393,7 @@
           "decided": "2026-07-23"
         },
         "D16": {
-          "behavior": "Yes — last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Yes \u2014 last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -419,7 +419,7 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Document Settings → Object snaps fold (tools-dock grid icon) + command palette. Master board.osnap; per-kind board.osnap.*; Snap to grid is board.snap_grid (F9) inside the same fold.",
+          "behavior": "Document Settings \u2192 Object snaps fold (tools-dock grid icon) + command palette. Master board.osnap; per-kind board.osnap.*; Snap to grid is board.snap_grid (F9) inside the same fold.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -440,7 +440,7 @@
           "decided": "2026-08-15"
         },
         "D04": {
-          "behavior": "n/a — no click/drag grammar of its own.",
+          "behavior": "n/a \u2014 no click/drag grammar of its own.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -482,21 +482,21 @@
           "decided": "2026-08-15"
         },
         "D10": {
-          "behavior": "n/a — does not change the tool cursor. The marker is the feedback.",
+          "behavior": "n/a \u2014 does not change the tool cursor. The marker is the feedback.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D11": {
-          "behavior": "n/a — snaps resolve a point; they do not create or patch nodes. Not journaled.",
+          "behavior": "n/a \u2014 snaps resolve a point; they do not create or patch nodes. Not journaled.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D12": {
-          "behavior": "n/a — Esc does not clear snap kinds. Alt is the suspend.",
+          "behavior": "n/a \u2014 Esc does not clear snap kinds. Alt is the suspend.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -510,7 +510,7 @@
           "decided": "2026-08-15"
         },
         "D14": {
-          "behavior": "Line grips, path clicks, GhostFollow hover, both DragScale corners (live rect edges via `resolve_draw_rect`), free wire ends, bbox moves, and corner-scale handles use the same ObjectSnapSet. Create-tool corners and the armed pointer emit smart-guide forcefield pulses when they align to a nearby object. Preview and commit consume the resolved point — never the raw cursor while a snap is live.",
+          "behavior": "Line grips, path clicks, GhostFollow hover, both DragScale corners (live rect edges via `resolve_draw_rect`), free wire ends, bbox moves, and corner-scale handles use the same ObjectSnapSet. Create-tool corners and the armed pointer emit smart-guide forcefield pulses when they align to a nearby object. Preview and commit consume the resolved point \u2014 never the raw cursor while a snap is live.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -531,7 +531,7 @@
           "decided": "2026-08-15"
         },
         "D17": {
-          "behavior": "n/a — snap picking is not selection hit-testing.",
+          "behavior": "n/a \u2014 snap picking is not selection hit-testing.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -637,7 +637,7 @@
           "decided": "2026-08-01"
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Contents expose no grips and are not selectable. Resize re-lays-out rather than scaling. Portals stay axis-aligned: no rotate chrome.",
+          "behavior": "Windows-style hover resize on the frame (P1.node.transform) \u2014 no prior selection. Contents expose no grips and are not selectable. Resize re-lays-out rather than scaling. Portals stay axis-aligned: no rotate chrome.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -824,11 +824,11 @@
           "decided": "2026-09-15"
         },
         "D03": {
-          "behavior": "P2.DragShape. Place the frame, then choose a program in its icon grid. The program choice configures that same portal.",
+          "behavior": "P2.DragShape. Place the frame and choose a provider. Coding providers then show projects, followed by resumable conversations and New conversation. Discovery and history reads run off-thread.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-21"
         },
         "D04": {
           "behavior": "Travel > 4 px defines the frame; below it places a 960x540 default portal centered on the click.",
@@ -852,11 +852,11 @@
           "decided": "2026-09-15"
         },
         "D07": {
-          "behavior": "Default source output is on the right; destination input is on the left. Wire direction follows semantic A/B binding and survives moving nodes.",
+          "behavior": "History wires use width 4.5 and opacity 0.42 in dark mode / 0.14 in light mode. Only immediate fork outputs stack downward from the primary top datum; upstream links stay single. Large forks compress strand spacing to remain within the parent height. Geometry updates during drag.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D08": {
           "behavior": "n/a in v1; dimensions are edited by resizing the frame.",
@@ -873,46 +873,46 @@
           "decided": "2026-09-15"
         },
         "D10": {
-          "behavior": "P1.portal.contents-focus. Hover gives feedback without taking the board wheel. Contents focus enables chat input and album gestures.",
+          "behavior": "Output-grip proximity suppresses body resize hit targets and resize cursors. The grip owns continuation/fork presses; surrounding body edges retain their existing resize behavior.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D11": {
-          "behavior": "One journaled `Add` of `PortalNode { class: Host, kind: Agent, agent: Some(..) }`. Session/status/turns are derived.",
+          "behavior": "Portal presentation, message ranges, bundle membership and branch-view pruning use SceneCmd. Transcript bytes remain linked source data. Sending from a historical checkpoint starts an independent provider session with an explicit prefix replay; undo never reruns inference.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D12": {
-          "behavior": "Esc peels one layer per press (P0.1): maximize → contents focus → drag draft → armed tool → selection. Releasing contents focus leaves the shelf / poster intact. Agent sidecar work is out-of-process and is not cancelled by board Esc.",
+          "behavior": "Esc peels one layer per press (P0.1): maximize \u2192 contents focus \u2192 drag draft \u2192 armed tool \u2192 selection. Releasing contents focus leaves the shelf / poster intact. Agent sidecar work is out-of-process and is not cancelled by board Esc.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
           "decided": "2026-09-15"
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Portals do not rotate. Agent transcript/proposals are inspector controls, not canvas grips.",
+          "behavior": "Double-click the title to edit the name across its maximal linear branch segment, including hidden members. Codex titles combine the custom conversation name with a model dropdown populated by the installed provider; the menu also offers Rename. Model choice is journaled per card and inherited by new continuations. Renaming a fork does not rename its siblings or upstream prefix.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-21"
         },
         "D14": {
-          "behavior": "Choose program, source folder, context scope, prompt, Open in program, Stop and Unbundle are portal-local controls. Program changes journal a fresh session.",
+          "behavior": "Switch presentation only through the contextual menu. Single chat window converts each maximal linear segment, keeps the current viewport height as its ceiling and shrinks shorter content. Chat train restores message views and forks. Single windows only show full conversation, and never offer Unbundle.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D15": {
-          "behavior": "Minimal sidecars for real programs. No embedded IDE, dashboard, or claim to attach to the desktop task. Ollama and ComfyUI adapters are future work.",
+          "behavior": "Codex and Cursor expose only conversations supported by their installed interfaces. Legacy Cursor desktop chats are not claimed as SDK agents. No hidden provider-history deletion. Ollama remains local text chat; direct OpenAI chat and local tool execution remain later increments.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-21"
         },
         "D16": {
           "behavior": "No. Host portals use portal styling and do not consume shape/text style state.",
@@ -922,67 +922,67 @@
           "decided": "2026-09-15"
         },
         "D17": {
-          "behavior": "The frame picks on its rect. Turn text and proposal badges painted inside the portal are not independently selectable.",
-          "source": "pattern",
-          "confidence": 75,
+          "behavior": "The header and border pick or move the card. Transcript text supports native drag selection and Copy through the shared scaled-text owner, retaining glyph layout while zooming. Text selection does not move the card. Program tiles and project/conversation rows accept the first click throughout their visible hover target; contents focus is not a prerequisite. Conversation-title text renames on a single click; the separate model-name text opens the model dropdown across its complete visible area.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-21"
         },
         "D18": {
-          "behavior": "**Host.** The foreign local agent owns its own runtime; Slate owns no mutations inside the portal. Agent board edits stage for acceptance.",
+          "behavior": "Host. Provider histories remain outside .slate. Branch deletion prunes this view and retains its source; one Undo restores view references without inference. Agents cannot mutate transcript ownership through the host.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D19": {
-          "behavior": "SourceUri remains the relative-first project locator. AgentPortalRef stores provider, independent session, optional bundle locator and optional immutable seed image. Unknown provider ids survive load.",
+          "behavior": "SourceUri remains the relative-first project locator. AgentPortalRef stores provider, cache session, optional provider conversation id and model, bundle locator and immutable seed image. Coding train cards share one provider conversation. Unknown provider ids survive load.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-21"
         },
         "D20": {
-          "behavior": "Journaled binding: provider, session, scope, opaque channel, view kind and seed output provenance. Existing ConnectorNode A/B endpoints carry typed Text or Images semantics, optional output pin, All-images mode and stable ordering tokens. No parallel graph.",
+          "behavior": "Journaled binding includes provider/session/source plus ChatView ranges, immutable history ancestry, detail, draft status and hidden bundle members. Arbitrary reparenting is forbidden; validated subdivision may insert views of a contiguous range without changing its ancestry or checkpoint. Context connectors remain independently editable.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D21": {
-          "behavior": "Context updates are throttled to one second and snapshot inputs at Send/Generate. Editing connected text changes the next run input; it does not execute a program. Missing upstream results prevent a run with an explicit message.",
+          "behavior": "Only explicit wires into the message card midpoint input supply additional context at Send. Selection, viewport, revision ids and ambient canvas data are not appended to messages. Editing connected text changes the next input without running an agent. Background history refresh preserves the visible answer, including on refresh failure. Auto-sizing invalidates on picker exit, workbook change, geometry change, typing and streamed output. Undo pauses sizing until new content arrives. Project and conversation pickers size to their visible rows with a bounded list height and a separate header.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-21"
         },
         "D22": {
-          "behavior": "P1.portal.contents-focus. Double-click/Enter enables composer or image album. Send/Ctrl+Enter captures context and runs once. Multiple image references retain wire order. Album motion uses the shared home owner and settles to full bleed. Esc leaves focus; explicit Stop interrupts the portal Codex turn.",
+          "behavior": "Codex and Cursor have one linear stream, with continuation at the tail by clicking or dragging the dedicated top output circle; historical handles cannot fork coding agents. Permanent midpoint left/right circles show referenced/changed artifacts on hover. Clicking lists artifacts; choosing one opens an existing Web or filtered Atlas portal with a provenance wire. Midpoint context wiring stays editable and separate from immutable top history rails. Local providers retain checkpoint forks. Enter sends; Shift+Enter inserts a newline; the placeholder appears only on selected cards. Ollama has exactly one home tile; installed local models are chosen through the same title dropdown as Codex, without replacing the conversation. Focusing an agent does not suppress canvas wheel zoom. Provider tiles use Codex, Cursor and Ollama marks; model labels omit GPT version prefixes for Astra, Sol, Terra and Luna.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-21"
         },
         "D23": {
-          "behavior": "P0.9. Icons, type and controls scale with the canvas. Small type is omitted. Image previews are lazy, budgeted and use the shared preview pool; only nearby album entries request textures.",
+          "behavior": "Cards display complete text; Name only and Summary choices are removed from menus and inspector. Full conversation offers inline input and response. Transcript text uses shared canvas text scaling, fixed wrap bounds and world-scaled scroll offsets during zoom. No blue selection outline or dimensions.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D24": {
-          "behavior": "HTML exports completed images as a full-bleed scroll-snap bundle, active image first. Chat remains an honest host poster. No execution controls are exported.",
+          "behavior": "Chat exports remain honest host posters and source identity; derived history rails serialize with the same cubic geometry. No live controls, credentials or inference are exported. Existing image-bundle export remains unchanged.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D25": {
-          "behavior": "Unbundle creates a generator portal for every completed image in one undo group. The active image retains the original NodeId; children retain settings, prompt provenance and incoming wires, with fresh independent session ids. Redo reuses those identities; image files and histories are retained.",
+          "behavior": "Bundles may contain other bundles to arbitrary depth. Unbundle restores one presentation level, preserves inner bundles and lays visible cards side-by-side in train order. Bundle/Unbundle remain contextual squircle actions; single chat windows never offer Unbundle.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D26": {
           "behavior": "Frame and binding sync as document data. Runtime history, hover and album focus remain local view state. Linked assets are references.",
@@ -992,53 +992,53 @@
           "decided": "2026-09-15"
         },
         "D27": {
-          "behavior": "Adapters consume immutable snapshots. Proposed board edits continue through staged SceneCmd acceptance; the new Codex thread enforces a read-only filesystem sandbox.",
+          "behavior": "Adapters consume immutable snapshots. Proposed board edits retain staged SceneCmd acceptance. Coding tools operate under the provider configuration; Slate does not substitute a read-only persona or silently grant requested approvals.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-21"
         },
         "D28": {
-          "behavior": "Request ids combine process, clock and monotonic sequence. Sidecars persist submitted request identities before execution; restart never silently replays a paid request. Image ids and provenance remain stable through unbundle.",
+          "behavior": "History checkpoints are exact exclusive transcript bounds; partially loaded prefixes are refused. Forks replay quoted ancestor text into a fresh source, not a claimed native provider fork. Shared source snapshots are immutable Arc values.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D29": {
-          "behavior": "No protocol or file polling on the frame loop. Bounded worker queues, one-second context/read cadence, bounded preview requests, shared texture LRU. Program discovery runs in the background.",
+          "behavior": "One atlas-ai AgentSources worker/cache per source path shared by its cards. Source reads and protocol work stay off-thread. Summary layout caches by source/scene revision and zoom resolution. Completed train runtimes are released; large-history frame-time validation remains pending.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D30": {
-          "behavior": "Application presence is separate from agent readiness. No session means Not connected; a historical idle session means Ready, never proof that the application is live. Failure names the cause and setup action. Codex uses its own installed sign-in; Cursor retains key setup.",
+          "behavior": "Installed program, healthy server and installed model are separate states. Ollama never downloads a model or silently falls back to cloud. Failures name unsupported image inputs, context budget, model absence, transport errors and cancellation.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D31": {
-          "behavior": "Journaled: binding, connector semantics, split command group and immutable child seeds. Derived: draft prompt, completed session outputs, hover, album focus and running status.",
+          "behavior": "Journaled: bindings, ranges, parent view references, detail, bundle membership and placement. Derived: source transcript snapshots, streaming text, readiness and hover. Pruning removes view references, not foreign provider records.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D32": {
-          "behavior": "Codex adapter is a separate renderer-free leaf crate; installed Codex owns ChatGPT authentication. Portal-owned conversations start/resume read-only with approvals disabled; unsupported tool approval requests are rejected. Existing Cursor sidecar policy remains separate.",
+          "behavior": "The renderer-free Codex adapter uses installed authentication and provider permissions. Supported command/file approvals appear on-card with Allow once and Deny; unsupported requests fail explicitly. Cursor loads installed settings and enables SDK auto-review. Opening a referenced Web or Atlas portal uses its existing consent and source owners.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-21"
         },
         "D33": {
-          "behavior": "No identity tab. Shared Maximize and portal actions reveal on hover/focus. Image pixels fill the node at rest. Program grid has neither header nor footer.",
+          "behavior": "Minimal theme-aware cards have faint shadows and no bevel. Wires have no bevel. Selection retains Fill and Stroke squircles; default stroke weight is zero. Authored card colors and strokes persist and export. Compact title, ellipsis and maximize remain at the top.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-18"
         },
         "D34": {
           "behavior": "**P1.portal.maximize.** Fills the window at the screen aspect; Esc restores.",
@@ -1048,11 +1048,11 @@
           "decided": "2026-09-15"
         },
         "D35": {
-          "behavior": "P1.portal.local-ui. Provider, scope, sidecar setup and bundle commands stay on the portal/inspector. The board-wide panel gains no provider-specific settings.",
+          "behavior": "P1.portal.local-ui. Provider, model, explicit input wiring, sidecar setup and bundle commands stay on the portal/inspector. The board-wide panel gains no provider-specific settings.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-21"
         }
       }
     },
@@ -1102,7 +1102,7 @@
           "decided": "2026-08-07"
         },
         "D06": {
-          "behavior": "No grid, ortho, or object snap applies to filesystem placement. The target is the deepest folder whose bounds contain the cursor, so a folder's whole rectangle accepts a drop — including over the files it already holds.",
+          "behavior": "No grid, ortho, or object snap applies to filesystem placement. The target is the deepest folder whose bounds contain the cursor, so a folder's whole rectangle accepts a drop \u2014 including over the files it already holds.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1137,7 +1137,7 @@
           "decided": "2026-08-07"
         },
         "D11": {
-          "behavior": "Release on valid folder dispatches a background FsOp. A copy is first accounted for cloud placeholders on a worker thread — files and whole folder subtrees, directory entries only — and confirms before downloading anything. Completed changes are journaled as FsRename, FsMove, FsCopy, or FsDelete and applied to the current index/tree.",
+          "behavior": "Release on valid folder dispatches a background FsOp. A copy is first accounted for cloud placeholders on a worker thread \u2014 files and whole folder subtrees, directory entries only \u2014 and confirms before downloading anything. Completed changes are journaled as FsRename, FsMove, FsCopy, or FsDelete and applied to the current index/tree.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1165,7 +1165,7 @@
           "decided": "2026-08-07"
         },
         "D15": {
-          "behavior": "No cut/paste file operations, no agent-initiated writes, and no Delete command outside Edit mode. Delete acts on the selection, or on the item under the cursor when nothing is selected — the only way to delete a folder from the keyboard, since folders are never part of a selection.",
+          "behavior": "No cut/paste file operations, no agent-initiated writes, and no Delete command outside Edit mode. Delete acts on the selection, or on the item under the cursor when nothing is selected \u2014 the only way to delete a folder from the keyboard, since folders are never part of a selection.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1284,7 +1284,7 @@
           "decided": "2026-08-15"
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Portals stay axis-aligned: no rotate chrome, including in a mixed group rotate.",
+          "behavior": "Windows-style hover resize on the frame (P1.node.transform) \u2014 no prior selection. Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Portals stay axis-aligned: no rotate chrome, including in a mixed group rotate.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
@@ -1340,7 +1340,7 @@
           "decided": "2026-08-08"
         },
         "D21": {
-          "behavior": "Poster recapture triggers: bind/rebind, viewport change, explicit `portal.web.recapture`, pool eviction (D29), and — for local file/folder sources only — an mtime change found by a worker-thread poll no more often than `portal.web.poll_secs` (1.0). Remote URLs never auto-recapture: a network fetch is never implicit. GPU capture/copy is asynchronous and readback is polled without waiting, generation-tagged; a stale capture is discarded, never painted (Art. II.3). While capturing, the last valid poster stays at full authored opacity until a valid replacement arrives; recapture never clears it. Source gone: `Missing`, last poster retained and dimmed, locator named (P1.portal.health).",
+          "behavior": "Poster recapture triggers: bind/rebind, viewport change, explicit `portal.web.recapture`, pool eviction (D29), and \u2014 for local file/folder sources only \u2014 an mtime change found by a worker-thread poll no more often than `portal.web.poll_secs` (1.0). Remote URLs never auto-recapture: a network fetch is never implicit. GPU capture/copy is asynchronous and readback is polled without waiting, generation-tagged; a stale capture is discarded, never painted (Art. II.3). While capturing, the last valid poster stays at full authored opacity until a valid replacement arrives; recapture never clears it. Source gone: `Missing`, last poster retained and dimmed, locator named (P1.portal.health).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1544,7 +1544,7 @@
           "decided": "2026-08-16"
         },
         "D13": {
-          "behavior": "P1.portal.pick / P1.node.transform. Windows-style hover resize — no prior selection. Contents expose no grips. Resize re-lays-out (LOD keys on frame height). Portals stay axis-aligned: no rotate chrome.",
+          "behavior": "P1.portal.pick / P1.node.transform. Windows-style hover resize \u2014 no prior selection. Contents expose no grips. Resize re-lays-out (LOD keys on frame height). Portals stay axis-aligned: no rotate chrome.",
           "source": "pattern",
           "confidence": 90,
           "verdict": "approved",
@@ -1593,7 +1593,7 @@
           "decided": "2026-08-16"
         },
         "D20": {
-          "behavior": "StatusPortalQuery { show_overview, show_phases, show_waves, show_deviations, show_next } — all true by default. Each flag is a journaled section shutter, not a live filter over a changing corpus.",
+          "behavior": "StatusPortalQuery { show_overview, show_phases, show_waves, show_deviations, show_next } \u2014 all true by default. Each flag is a journaled section shutter, not a live filter over a changing corpus.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1720,7 +1720,7 @@
       "canvas": "tool-arming-preview-contract",
       "decisions": {
         "D01": {
-          "behavior": "Menu, palette (typed name + aliases), flyout / nested dock icon, and hotkey all dispatch the same CommandId (P0.7). A family primary (Frame, Shapes, Portals, Text, Media, Actions) opens the flyout only. The instant the tool is armed — before any click — GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live.",
+          "behavior": "Menu, palette (typed name + aliases), flyout / nested dock icon, and hotkey all dispatch the same CommandId (P0.7). A family primary (Frame, Shapes, Portals, Text, Media, Actions) opens the flyout only. The instant the tool is armed \u2014 before any click \u2014 GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1734,7 +1734,7 @@
           "decided": "2026-08-15"
         },
         "D03": {
-          "behavior": "Armed → GhostFollow (small cursor-locked silhouette) → Press → (ClickPlace | DragScale) → Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not drag_started / drag_stopped). Shared board_place::place_rect computes the DragScale rect for both the live rubber-band and the journaled commit.",
+          "behavior": "Armed \u2192 GhostFollow (small cursor-locked silhouette) \u2192 Press \u2192 (ClickPlace | DragScale) \u2192 Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not drag_started / drag_stopped). Shared board_place::place_rect computes the DragScale rect for both the live rubber-band and the journaled commit.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1755,7 +1755,7 @@
           "decided": "2026-08-15"
         },
         "D06": {
-          "behavior": "GhostFollow glyph stays screen-space (P0.9) but sits on the snapped world point: osnap + smart-guide forcefield, same `resolve_point_snap` as every other live board point. DragScale snaps both corners — press resolves the start; every frame and commit snap the live rect's moving edges (`resolve_draw_rect`, same forcefield as a resize). F8 ortho does not apply to area placement. Alt suspends. Shift is aspect only, never ortho.",
+          "behavior": "GhostFollow glyph stays screen-space (P0.9) but sits on the snapped world point: osnap + smart-guide forcefield, same `resolve_point_snap` as every other live board point. DragScale snaps both corners \u2014 press resolves the start; every frame and commit snap the live rect's moving edges (`resolve_draw_rect`, same forcefield as a resize). F8 ortho does not apply to area placement. Alt suspends. Shift is aspect only, never ortho.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1804,14 +1804,14 @@
           "decided": "2026-08-15"
         },
         "D13": {
-          "behavior": "n/a — this contract does not change post-commit handles (P1.node bbox / P1.curve.grips).",
+          "behavior": "n/a \u2014 this contract does not change post-commit handles (P1.node bbox / P1.curve.grips).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D14": {
-          "behavior": "n/a — existing bbox / inspector / portal bind paths unchanged.",
+          "behavior": "n/a \u2014 existing bbox / inspector / portal bind paths unchanged.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1825,14 +1825,14 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "Unchanged. Shapes still consume BoardLastStyle; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome.",
+          "behavior": "Unchanged. Shapes still consume BoardLastStyle; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style \u2014 the silhouette is chrome.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D17": {
-          "behavior": "n/a — the ghost is not hittable. Existing node pick unchanged.",
+          "behavior": "n/a \u2014 the ghost is not hittable. Existing node pick unchanged.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1859,14 +1859,14 @@
           "decided": "2026-08-15"
         },
         "D02": {
-          "behavior": "Persistent while the selection qualifies. Repeat-last is Never — a second fire is idempotent.",
+          "behavior": "Persistent while the selection qualifies. Repeat-last is Never \u2014 a second fire is idempotent.",
           "source": "research",
           "confidence": 80,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D03": {
-          "behavior": "Idle → HoverIcon → Press → Commit. No drag grammar. Icons only on the bottom and left sides — top and right duplicate the same actions and are not drawn.",
+          "behavior": "Idle \u2192 HoverIcon \u2192 Press \u2192 Commit. No drag grammar. Icons only on the bottom and left sides \u2014 top and right duplicate the same actions and are not drawn.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1887,7 +1887,7 @@
           "decided": "2026-08-15"
         },
         "D06": {
-          "behavior": "n/a — the action writes rect.x / rect.y against the selection union. Grid / ortho / object snaps are not consulted.",
+          "behavior": "n/a \u2014 the action writes rect.x / rect.y against the selection union. Grid / ortho / object snaps are not consulted.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1908,7 +1908,7 @@
           "decided": "2026-08-15"
         },
         "D09": {
-          "behavior": "No second frame — each selected shape keeps its own silhouette. Icons sit align.frame_outset (20 px) outside the union box on the left; the bottom cluster also clears the width stringer (STRINGER_GAP × zoom). Hover: icon invert + action name outside the cluster. No ghost outlines, no axis guide (they flicker). No numeric readout.",
+          "behavior": "No second frame \u2014 each selected shape keeps its own silhouette. Icons sit align.frame_outset (20 px) outside the union box on the left; the bottom cluster also clears the width stringer (STRINGER_GAP \u00d7 zoom). Hover: icon invert + action name outside the cluster. No ghost outlines, no axis guide (they flicker). No numeric readout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1957,7 +1957,7 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "n/a — does not create nodes.",
+          "behavior": "n/a \u2014 does not create nodes.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1998,7 +1998,7 @@
           "decided": "2026-08-16"
         },
         "D03": {
-          "behavior": "Armed → PickCutters → Enter → TrimParts → click*. Preselect skips to TrimParts with mutual cutters.",
+          "behavior": "Armed \u2192 PickCutters \u2192 Enter \u2192 TrimParts \u2192 click*. Preselect skips to TrimParts with mutual cutters.",
           "source": "research",
           "confidence": 80,
           "verdict": "approved",
@@ -2033,7 +2033,7 @@
           "decided": "2026-08-16"
         },
         "D08": {
-          "behavior": "n/a — no typed options in v1.",
+          "behavior": "n/a \u2014 no typed options in v1.",
           "source": "guess",
           "confidence": 60,
           "verdict": "approved",
@@ -2061,7 +2061,7 @@
           "decided": "2026-09-17"
         },
         "D12": {
-          "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",
+          "behavior": "Esc TrimParts\u2192PickCutters\u2192Select. Committed clicks stay.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2130,14 +2130,14 @@
           "decided": "2026-08-16"
         },
         "D03": {
-          "behavior": "No live gesture. Preselect → Join. A-tool both-endpoints case merges/closes that path.",
+          "behavior": "No live gesture. Preselect \u2192 Join. A-tool both-endpoints case merges/closes that path.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-16"
         },
         "D04": {
-          "behavior": "n/a — not a pointer tool.",
+          "behavior": "n/a \u2014 not a pointer tool.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2179,7 +2179,7 @@
           "decided": "2026-08-16"
         },
         "D10": {
-          "behavior": "Unchanged — command, not an armed tool.",
+          "behavior": "Unchanged \u2014 command, not an armed tool.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
@@ -2221,7 +2221,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a — copies first operand style, does not consume fg/bg.",
+          "behavior": "n/a \u2014 copies first operand style, does not consume fg/bg.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2326,7 +2326,7 @@
           "decided": "2026-08-16"
         },
         "D12": {
-          "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",
+          "behavior": "Esc TrimParts\u2192PickCutters\u2192Select. Committed clicks stay.",
           "source": "precedent",
           "confidence": 90,
           "verdict": "approved",
@@ -2354,7 +2354,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a — pieces copy source stroke/fill.",
+          "behavior": "n/a \u2014 pieces copy source stroke/fill.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2426,7 +2426,7 @@
           "decided": "2026-08-21"
         },
         "D07": {
-          "behavior": "n/a — no directional parameter in a rect placement.",
+          "behavior": "n/a \u2014 no directional parameter in a rect placement.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2489,7 +2489,7 @@
           "decided": "2026-08-22"
         },
         "D16": {
-          "behavior": "P1.portal.style: no BoardLastStyle. The live File Atlas surface, cards, and status/empty text follow Slate’s active light/dark palette, including existing portals. Theme switches never mutate the scene.",
+          "behavior": "P1.portal.style: no BoardLastStyle. The live File Atlas surface, cards, and status/empty text follow Slate\u2019s active light/dark palette, including existing portals. Theme switches never mutate the scene.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2538,7 +2538,7 @@
           "decided": "2026-09-17"
         },
         "D23": {
-          "behavior": "P0.9: the inner camera is portal-local. Board zoom scales the entire map with the frame; screen scale is inner zoom × board zoom, in and out of contents-focus. Board pan and frame movement carry the map with them. Leaving contents preserves the inner view. LOD uses the composed screen scale; drop type when too small, never clamp to a screen constant.",
+          "behavior": "P0.9: the inner camera is portal-local. Board zoom scales the entire map with the frame; screen scale is inner zoom \u00d7 board zoom, in and out of contents-focus. Board pan and frame movement carry the map with them. Leaving contents preserves the inner view. LOD uses the composed screen scale; drop type when too small, never clamp to a screen constant.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2658,7 +2658,7 @@
           "decided": null
         },
         "D03": {
-          "behavior": "P1.portal.place: Armed -> Dragging(rect) -> Committed(unbound). Release paints Choose save journal…. Binding is a separate non-modal step. A folder-drop that picks this lens skips to Committed(bound).",
+          "behavior": "P1.portal.place: Armed -> Dragging(rect) -> Committed(unbound). Release paints Choose save journal\u2026. Binding is a separate non-modal step. A folder-drop that picks this lens skips to Committed(bound).",
           "source": "pattern",
           "confidence": 90,
           "verdict": "proposed",
@@ -2686,7 +2686,7 @@
           "decided": null
         },
         "D07": {
-          "behavior": "n/a — no directional parameter in a rect placement.",
+          "behavior": "n/a \u2014 no directional parameter in a rect placement.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "proposed",
@@ -2770,7 +2770,7 @@
           "decided": null
         },
         "D19": {
-          "behavior": "One SourceUri LocalFs naming a save journal file (saves.db or .jsonl) or a folder containing exactly one, relative-first. Empty state: Choose save journal…. Bound by portal.activity.source or folder-drop when a journal is present. Refused: 127.0.0.1:8787, hosted APIs, accounts, watch $HOME, File Atlas window, a directory of watch roots.",
+          "behavior": "One SourceUri LocalFs naming a save journal file (saves.db or .jsonl) or a folder containing exactly one, relative-first. Empty state: Choose save journal\u2026. Bound by portal.activity.source or folder-drop when a journal is present. Refused: 127.0.0.1:8787, hosted APIs, accounts, watch $HOME, File Atlas window, a directory of watch roots.",
           "source": "guess",
           "confidence": 55,
           "verdict": "proposed",
@@ -2826,7 +2826,7 @@
           "decided": null
         },
         "D27": {
-          "behavior": "board.portal.save_activity and portal.activity.* are registry SPECs. Agent frame/source/query mutations stage for acceptance. An agent may never insert, edit, or delete save events. Beacon: locator, window, family set, project set, one focused path — never every path. Overlay deferred.",
+          "behavior": "board.portal.save_activity and portal.activity.* are registry SPECs. Agent frame/source/query mutations stage for acceptance. An agent may never insert, edit, or delete save events. Beacon: locator, window, family set, project set, one focused path \u2014 never every path. Overlay deferred.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -2847,7 +2847,7 @@
           "decided": null
         },
         "D30": {
-          "behavior": "Unbound Choose save journal…; Unknown names locator; Analyzing last-good + progress; Ready; Missing names locator; NotAJournal says why; Unreadable no partial graph as complete; Truncated visible N older not shown. URL/webview refused.",
+          "behavior": "Unbound Choose save journal\u2026; Unknown names locator; Analyzing last-good + progress; Ready; Missing names locator; NotAJournal says why; Unreadable no partial graph as complete; Truncated visible N older not shown. URL/webview refused.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "proposed",
@@ -3121,7 +3121,7 @@
           "decided": "2026-09-17"
         },
         "D14": {
-          "behavior": "Fill, Stroke, Corners: three circular icons matching the primary toolbar. Fill opens opacity then RGB/eyedropper upward; Corners opens Fillet/Chamfer and Board units/Percent. Confirmed percent amount = p/100 × min(W,H)/2; 100% makes a square a circle/diamond. See shape-property-editing.md.",
+          "behavior": "Fill, Stroke, Corners: three circular icons matching the primary toolbar. Fill opens opacity then RGB/eyedropper upward; Corners opens Fillet/Chamfer and Board units/Percent. Confirmed percent amount = p/100 \u00d7 min(W,H)/2; 100% makes a square a circle/diamond. See shape-property-editing.md.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

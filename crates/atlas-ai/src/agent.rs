@@ -14,6 +14,7 @@ use crate::config::LINK_DIR;
 
 const WRITE_INTERVAL: Duration = Duration::from_secs(1);
 const READ_INTERVAL: Duration = Duration::from_secs(1);
+const STREAM_READ_INTERVAL: Duration = Duration::from_millis(100);
 
 const README: &str = "\
 Slate writes `context.json` and prompt `request.json` here for this agent portal. \
@@ -48,7 +49,8 @@ pub fn providers() -> Vec<AgentProvider> {
 pub fn provider_by_id(id: &str) -> AgentProvider {
     let (name, launch) = match id {
         "cursor" => ("Cursor", LaunchKind::Cursor),
-        "codex" => ("Codex · ChatGPT", LaunchKind::Codex),
+        "codex" => ("Codex", LaunchKind::Codex),
+        "ollama" => ("Ollama", LaunchKind::None),
         "local" => ("Local agent", LaunchKind::None),
         "image-link" => ("Image link", LaunchKind::None),
         _ => (id, LaunchKind::None),
@@ -84,12 +86,48 @@ enum LinkWork {
     Read(PathBuf),
 }
 
+/// One worker and shared immutable snapshot per linked source, regardless of how
+/// many cards project it. The caller's NodeIds never become runtime identities.
+#[derive(Default)]
+pub struct AgentSources {
+    links: std::collections::HashMap<PathBuf, AgentLink>,
+    snapshots: std::collections::HashMap<PathBuf, std::sync::Arc<AgentSession>>,
+}
+impl AgentSources {
+    pub fn retain(&mut self, dirs: &std::collections::HashSet<PathBuf>) {
+        self.links.retain(|dir, _| dirs.contains(dir));
+        self.snapshots.retain(|dir, _| dirs.contains(dir));
+    }
+    pub fn send(&mut self, dir: &Path, request: &AgentRequest) -> std::io::Result<()> {
+        self.links
+            .entry(dir.into())
+            .or_default()
+            .send_request_in(dir, request)
+    }
+    pub fn poll(
+        &mut self,
+        dir: &Path,
+        context: Option<&AgentContext>,
+    ) -> Option<std::sync::Arc<AgentSession>> {
+        let link = self.links.entry(dir.into()).or_default();
+        if let Some(context) = context {
+            link.tick_write_context_in(dir, context);
+        }
+        if let Some(session) = link.tick_read_session_file(&dir.join("session.json")) {
+            self.snapshots
+                .insert(dir.into(), std::sync::Arc::new(session));
+        }
+        self.snapshots.get(dir).cloned()
+    }
+}
+
 /// The UI only exchanges small messages. All filesystem work stays on a worker.
 pub struct AgentLink {
     tx: crossbeam_channel::Sender<LinkWork>,
     latest: std::sync::Arc<std::sync::Mutex<Option<AgentSession>>>,
     next_read: Option<Instant>,
     next_write: Option<Instant>,
+    streaming: bool,
 }
 impl Default for AgentLink {
     fn default() -> Self {
@@ -113,6 +151,9 @@ impl AgentLink {
                         link.send_request_in(&dir, &req)
                             .err()
                             .map(|e| AgentSession {
+                                approval: None,
+                                conversation: String::new(),
+                                artifacts: Vec::new(),
                                 request: req.id.clone(),
                                 status: AgentStatus::Error(format!(
                                     "Could not write agent request: {e}"
@@ -137,6 +178,7 @@ impl AgentLink {
             latest,
             next_read: None,
             next_write: None,
+            streaming: false,
         }
     }
     pub fn tick_write_context(&mut self, ws: &Path, id: &str, ctx: &AgentContext) -> bool {
@@ -158,6 +200,8 @@ impl AgentLink {
         self.send_request_in(&agent_dir(ws, id), req)
     }
     pub fn send_request_in(&mut self, dir: &Path, req: &AgentRequest) -> std::io::Result<()> {
+        self.streaming = true;
+        self.next_read = None;
         self.tx
             .try_send(LinkWork::Request(dir.into(), req.clone()))
             .map_err(|_| {
@@ -171,11 +215,20 @@ impl AgentLink {
         self.tick_read_session_file(&agent_dir(ws, id).join("session.json"))
     }
     pub fn tick_read_session_file(&mut self, path: &Path) -> Option<AgentSession> {
-        if self.next_read.is_none_or(|t| t.elapsed() >= READ_INTERVAL) {
+        let interval = if self.streaming {
+            STREAM_READ_INTERVAL
+        } else {
+            READ_INTERVAL
+        };
+        if self.next_read.is_none_or(|t| t.elapsed() >= interval) {
             self.next_read = Some(Instant::now());
             let _ = self.tx.try_send(LinkWork::Read(path.into()));
         }
-        self.latest.try_lock().ok()?.take()
+        let update = self.latest.try_lock().ok()?.take();
+        if let Some(session) = &update {
+            self.streaming = matches!(session.status, AgentStatus::Thinking);
+        }
+        update
     }
 }
 
@@ -251,7 +304,7 @@ impl FileAgentLink {
     }
     fn tick_read_session_file(&mut self, path: &Path) -> Option<AgentSession> {
         if let Some(t) = self.last_read_attempt {
-            if t.elapsed() < READ_INTERVAL {
+            if t.elapsed() < STREAM_READ_INTERVAL {
                 return None;
             }
         }
@@ -264,7 +317,7 @@ impl FileAgentLink {
         }
         if metadata.len() > 16 * 1024 * 1024 {
             self.last_session_mtime = Some(mtime);
-            return Some(AgentSession{request:String::new(),provider:String::new(),turns:vec![],updated_at:0,bundle:Default::default(),status:AgentStatus::Error("The sidecar session exceeds 16 MB. Archive its older turns in the source program.".into())});
+            return Some(AgentSession { approval:None, conversation: String::new(), artifacts: Vec::new(),request:String::new(),provider:String::new(),turns:vec![],updated_at:0,bundle:Default::default(),status:AgentStatus::Error("The sidecar session exceeds 16 MB. Archive its older turns in the source program.".into())});
         }
         let text = std::fs::read_to_string(path).ok()?;
         let session = serde_json::from_str::<AgentSession>(&text).ok()?;
@@ -294,7 +347,7 @@ pub fn agent_dir(ai_workspace: &Path, session: &str) -> PathBuf {
     ai_workspace.join(LINK_DIR).join("agent").join(session)
 }
 
-pub(crate) fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
+pub fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(value)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let tmp = path.with_extension("json.tmp");
@@ -342,6 +395,56 @@ mod tests {
     }
 
     #[test]
+    fn streaming_snapshots_arrive_before_completion_without_fast_idle_polling() {
+        let (tx, rx) = crossbeam_channel::bounded(8);
+        let session = AgentSession {
+            approval: None,
+            conversation: String::new(),
+            artifacts: Vec::new(),
+            status: AgentStatus::Thinking,
+            provider: "test".into(),
+            turns: vec![AgentTurn {
+                role: "assistant".into(),
+                text: "partial".into(),
+                at: 1,
+            }],
+            updated_at: 1,
+            bundle: Default::default(),
+            request: "r1".into(),
+        };
+        let latest = std::sync::Arc::new(std::sync::Mutex::new(Some(session.clone())));
+        let mut link = AgentLink {
+            tx,
+            latest: latest.clone(),
+            next_read: Some(Instant::now()),
+            next_write: None,
+            streaming: false,
+        };
+        let path = Path::new("unused-session.json");
+        assert_eq!(
+            link.tick_read_session_file(path).unwrap().turns[0].text,
+            "partial"
+        );
+        link.next_read = Some(Instant::now() - Duration::from_millis(150));
+        link.tick_read_session_file(path);
+        assert!(matches!(rx.try_recv(), Ok(LinkWork::Read(_))));
+        *latest.lock().unwrap() = Some(AgentSession {
+            approval: None,
+            conversation: String::new(),
+            artifacts: Vec::new(),
+            status: AgentStatus::Idle,
+            ..session
+        });
+        link.tick_read_session_file(path);
+        link.next_read = Some(Instant::now() - Duration::from_millis(150));
+        link.tick_read_session_file(path);
+        assert!(
+            rx.try_recv().is_err(),
+            "idle sources must retain their slower poll cadence"
+        );
+    }
+
+    #[test]
     fn context_write_is_fingerprint_gated() {
         let ws = temp_workspace("write");
         let mut link = FileAgentLink::new();
@@ -361,6 +464,8 @@ mod tests {
         let mut link = FileAgentLink::new();
         assert!(link.tick_write_context_in(&dir, &context()));
         let request = AgentRequest {
+            model: None,
+            history: vec![],
             id: "saved-run".into(),
             prompt: "Continue".into(),
             at: 1,
@@ -368,6 +473,9 @@ mod tests {
         };
         link.send_request_in(&dir, &request).unwrap();
         let state = AgentSession {
+            approval: None,
+            conversation: String::new(),
+            artifacts: Vec::new(),
             request: request.id,
             status: AgentStatus::Idle,
             provider: "codex".into(),
@@ -390,6 +498,8 @@ mod tests {
         let ws = temp_workspace("session");
         let mut link = FileAgentLink::new();
         let req = AgentRequest {
+            model: None,
+            history: vec![],
             inputs: Default::default(),
             id: "r1".into(),
             prompt: "Summarize".into(),
@@ -400,6 +510,9 @@ mod tests {
         assert!(text.contains("Summarize"));
 
         let session = AgentSession {
+            approval: None,
+            conversation: String::new(),
+            artifacts: Vec::new(),
             request: String::new(),
             bundle: Default::default(),
             status: AgentStatus::Thinking,
@@ -424,5 +537,36 @@ mod tests {
         link.force_elapsed();
         assert_eq!(link.tick_read_session(&ws, "s1"), Some(changed));
         let _ = std::fs::remove_dir_all(ws);
+    }
+}
+
+/// Friendly display names never change the provider model ID sent on the wire.
+pub fn model_label(name: &str) -> &str {
+    for (suffix, label) in [
+        ("astra", "Astra"),
+        ("sol", "Sol"),
+        ("terra", "Terra"),
+        ("luna", "Luna"),
+    ] {
+        if name.to_ascii_lowercase().split(['-', ' ']).last() == Some(suffix) {
+            return label;
+        }
+    }
+    name
+}
+
+#[cfg(test)]
+mod model_label_tests {
+    #[test]
+    fn friendly_names_preserve_unknown_model_identity() {
+        for (id, expected) in [
+            ("gpt-6-astra", "Astra"),
+            ("GPT-5.6 Sol", "Sol"),
+            ("gpt-5.6-terra", "Terra"),
+            ("gpt-5.6-luna", "Luna"),
+            ("llama3.1:8b", "llama3.1:8b"),
+        ] {
+            assert_eq!(super::model_label(id), expected);
+        }
     }
 }

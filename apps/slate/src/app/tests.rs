@@ -6084,12 +6084,64 @@ fn agent_program_choice_is_journaled_and_undo_restores_picker() {
         panic!()
     };
     assert_eq!(p.agent.as_ref().unwrap().provider, "codex");
+    assert_eq!(
+        h.app.doc().scene.node(id).unwrap().rect.w,
+        slate_doc::agent_chat::CARD_WIDTH
+    );
+    assert_eq!(
+        p.agent.as_ref().unwrap().chat.detail,
+        slate_doc::agent_chat::Detail::Full
+    );
     assert_eq!(h.app.contents_focused(), Some(id));
     h.app.board_undo();
     let NodeKind::Portal(p) = &h.app.doc().scene.node(id).unwrap().kind else {
         panic!()
     };
     assert!(p.agent.as_ref().unwrap().provider.is_empty());
+}
+
+#[test]
+fn agent_presentation_is_menu_only_and_window_is_not_a_bundle() {
+    let mut h = agent_board("agent_mode_menu");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.set_agent_program(id, "codex");
+    h.app.patch_nodes(&[id], |n| {
+        if let NodeKind::Portal(p) = &mut n.kind {
+            p.agent.as_mut().unwrap().bundle = None;
+        }
+    });
+    h.frame();
+    h.app.board_sel.clear();
+    h.app.board_sel.insert(id);
+    assert!(!h.app.agent_expand_bundle());
+    h.app
+        .agent_set_detail(slate_doc::agent_chat::Detail::Identity);
+    assert_eq!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+            .unwrap()
+            .chat
+            .detail,
+        slate_doc::agent_chat::Detail::Full
+    );
+    h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("portal.agent.train"),
+        None,
+    );
+    assert!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+            .unwrap()
+            .chat
+            .train
+    );
+    h.app.board_undo();
+    assert!(
+        !slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+            .unwrap()
+            .chat
+            .train
+    );
 }
 
 #[test]
@@ -6113,4 +6165,181 @@ fn host_focus_has_one_owner_when_switching_between_agent_and_web() {
     assert_eq!(h.app.contents_focused(), Some(agent));
     h.app.contents_blur();
     assert_eq!(h.app.contents_focused(), None);
+}
+
+#[test]
+fn agent_conversation_projection_rename_and_undo_preserve_forks() {
+    let mut h = agent_board("train_projection");
+    let mut ids = Vec::new();
+    for (i, parent) in [None, Some(0), Some(1), Some(2), Some(1), Some(4)]
+        .into_iter()
+        .enumerate()
+    {
+        let mut p = slate_doc::PortalNode::unbound_agent("Courtyard", "codex");
+        let a = p.agent.as_mut().unwrap();
+        a.session = "projection-test".into();
+        a.chat = slate_doc::agent_chat::ChatView {
+            train: true,
+            parent: parent.map(|j| ids[j]),
+            start: i,
+            end: Some(i + 1),
+            ..Default::default()
+        };
+        let n = h.app.doc_mut().scene.build_node(
+            WorldRect::new(i as f32 * 416.0, 0.0, 320.0, 200.0),
+            NodeKind::Portal(p),
+        );
+        ids.push(n.id);
+        h.app.add_nodes(vec![n]);
+    }
+    h.app.board_sel.clear();
+    h.app.board_sel.insert(ids[3]);
+    assert!(h.app.agent_rename("Garden study"));
+    for id in &ids {
+        let NodeKind::Portal(p) = &h.app.doc().scene.node(*id).unwrap().kind else {
+            panic!()
+        };
+        assert_eq!(
+            p.title,
+            if [ids[2], ids[3]].contains(id) {
+                "Garden study"
+            } else {
+                "Courtyard"
+            }
+        );
+    }
+    assert!(h.app.agent_show_chat());
+    assert!(
+        !h.app.agent_expand_bundle(),
+        "collapsed windows are not bundles"
+    );
+    let visible: Vec<_> = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .filter(|n| !n.hidden)
+        .map(|n| n.id)
+        .collect();
+    assert_eq!(visible, vec![ids[1], ids[3], ids[5]]);
+    let upper = h.app.doc().scene.node(ids[3]).unwrap();
+    let lower = h.app.doc().scene.node(ids[5]).unwrap();
+    assert!(lower.rect.y - upper.rect.y >= upper.rect.h);
+    assert_eq!(
+        slate_doc::agent_chat::visible_parent(&h.app.doc().scene, upper),
+        Some(ids[1])
+    );
+    h.app.agent_show_train();
+    assert_eq!(h.app.doc().scene.nodes.len(), 6);
+    assert!(h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .all(|n| !n.hidden && slate_doc::agent_chat::agent(n).unwrap().chat.train));
+    assert_eq!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(ids[4]).unwrap())
+            .unwrap()
+            .chat
+            .parent,
+        Some(ids[1])
+    );
+    h.app.board_undo();
+    assert_eq!(
+        h.app.doc().scene.nodes.iter().filter(|n| !n.hidden).count(),
+        3
+    );
+}
+
+#[test]
+fn agent_expanding_window_retains_existing_branch_checkpoint() {
+    let mut h = agent_board("window_subdivision");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let root = h.app.doc().scene.nodes[0].id;
+    h.app.set_agent_program(root, "codex");
+    h.app.patch_nodes(&[root], |n| {
+        if let NodeKind::Portal(p) = &mut n.kind {
+            let a = p.agent.as_mut().unwrap();
+            a.chat.end = Some(3);
+            a.bundle = None;
+        }
+    });
+    let original = h.app.doc().scene.node(root).unwrap().clone();
+    let mut child = h.app.doc_mut().scene.build_duplicate(&original, 416.0, 0.0);
+    let child_id = child.id;
+    if let NodeKind::Portal(p) = &mut child.kind {
+        let a = p.agent.as_mut().unwrap();
+        a.chat.parent = Some(root);
+        a.chat.start = 3;
+        a.chat.end = Some(5);
+    }
+    h.app.add_nodes(vec![child]);
+    h.app.board_sel.clear();
+    h.app.board_sel.insert(child_id);
+    h.app.agent_show_train();
+    assert_eq!(h.app.doc().scene.nodes.len(), 5);
+    assert_eq!(
+        slate_doc::agent_chat::conversation(&h.app.doc().scene, child_id).len(),
+        5
+    );
+    let branch = slate_doc::agent_chat::agent(h.app.doc().scene.node(child_id).unwrap()).unwrap();
+    assert_eq!(branch.chat.start, 4);
+    assert_eq!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(branch.chat.parent.unwrap()).unwrap())
+            .unwrap()
+            .chat
+            .parent,
+        Some(root)
+    );
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 2);
+}
+
+#[test]
+fn agent_output_draft_is_consumed_without_an_extra_empty_car() {
+    let mut h = agent_board("agent_draft");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let root = h.app.doc().scene.nodes[0].id;
+    h.app.set_agent_program(root, "local");
+    h.app.patch_nodes(&[root], |n| {
+        if let NodeKind::Portal(p) = &mut n.kind {
+            let a = p.agent.as_mut().unwrap();
+            a.chat.train = true;
+            a.chat.detail = slate_doc::agent_chat::Detail::Summary;
+            a.bundle = None;
+        }
+    });
+    h.app.board_sel.clear();
+    h.app.board_sel.insert(root);
+    h.app.agent_spawn_command(Some("[480,120]"));
+    let draft = *h.app.board_sel.iter().next().unwrap();
+    assert_ne!(draft, root);
+    assert_eq!(h.app.doc().scene.nodes.len(), 2);
+    let (reply, history) = h
+        .app
+        .prepare_agent_train_send(draft, &std::env::temp_dir())
+        .unwrap();
+    assert!(history.is_empty());
+    assert_eq!(h.app.doc().scene.nodes.len(), 3);
+    let user = h.app.doc().scene.node(draft).unwrap();
+    assert_eq!([user.rect.x, user.rect.y], [480.0, 120.0]);
+    let a = slate_doc::agent_chat::agent(user).unwrap();
+    assert!(!a.chat.draft);
+    assert_eq!(a.chat.parent, Some(root));
+    assert_eq!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(reply).unwrap())
+            .unwrap()
+            .chat
+            .parent,
+        Some(draft)
+    );
+    h.app.board_undo();
+    assert!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(draft).unwrap())
+            .unwrap()
+            .chat
+            .draft
+    );
 }

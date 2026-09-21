@@ -102,6 +102,7 @@ struct AtlasView {
     selection: HashSet<u32>,
     tree: Option<Tree>,
     tree_n: usize,
+    file_filter: Vec<String>,
     hover: MapHover,
 }
 
@@ -280,6 +281,7 @@ impl SlateApp {
                         selection: HashSet::new(),
                         tree: None,
                         tree_n: 0,
+                        file_filter: Vec::new(),
                         hover: MapHover::default(),
                     },
                 );
@@ -540,6 +542,16 @@ impl SlateApp {
             return;
         };
         let key = view.session_key.clone();
+        let files = self
+            .doc()
+            .scene
+            .node(id)
+            .and_then(|n| match &n.kind {
+                NodeKind::Portal(p) => Some(p.atlas.files.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let filter_changed = files != view.file_filter;
         let tree_n = view.tree_n;
         let has_tree = view.tree.is_some();
         let collapsed = view.dir_collapsed.clone();
@@ -549,7 +561,7 @@ impl SlateApp {
         if session.tree.is_none() {
             return;
         }
-        if has_tree && tree_n == session.last_tree_n {
+        if has_tree && tree_n == session.last_tree_n && !filter_changed {
             return;
         }
         let n = session.last_tree_n;
@@ -560,11 +572,22 @@ impl SlateApp {
             &HashMap::new(),
         );
         folder_map::apply_collapse(&mut tree, &collapsed);
-        let matches = vec![true; session.entries.len()];
-        tree.layout_filtered(Orient::H, false, &matches, false);
+        let matches: Vec<_> = session
+            .entries
+            .iter()
+            .map(|e| {
+                files.is_empty()
+                    || files.iter().any(|f| {
+                        f.replace('\\', "/")
+                            .eq_ignore_ascii_case(&e.rel.replace('\\', "/"))
+                    })
+            })
+            .collect();
+        tree.layout_filtered(Orient::H, !files.is_empty(), &matches, false);
         if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
             view.tree = Some(tree);
             view.tree_n = n;
+            view.file_filter = files;
         }
     }
 
@@ -1427,23 +1450,32 @@ impl SlateApp {
         })
     }
 
-    fn place_bound_atlas_at(&mut self, at: Pos2, path: &Path) {
-        let workbook = self.tab().path.clone();
-        let locator = source_locator(workbook.as_deref(), path);
+    pub(crate) fn build_bound_atlas(
+        &mut self,
+        rect: WorldRect,
+        path: &Path,
+        files: Vec<String>,
+    ) -> Node {
+        let locator = source_locator(self.tab().path.as_deref(), path);
         let title = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("File Atlas");
+        let mut portal = PortalNode::bound_file_atlas(title, locator);
+        portal.atlas.files = files;
+        self.doc_mut()
+            .scene
+            .build_node(rect, NodeKind::Portal(portal))
+    }
+
+    fn place_bound_atlas_at(&mut self, at: Pos2, path: &Path) {
         let rect = WorldRect::new(
             at.x - ATLAS_DEFAULT_W * 0.5,
             at.y - ATLAS_DEFAULT_H * 0.5,
             ATLAS_DEFAULT_W,
             ATLAS_DEFAULT_H,
         );
-        let node = self.doc_mut().scene.build_node(
-            rect,
-            NodeKind::Portal(PortalNode::bound_file_atlas(title, locator)),
-        );
+        let node = self.build_bound_atlas(rect, path, Vec::new());
         let id = node.id;
         self.add_nodes(vec![node]);
         self.board_sel = std::iter::once(id).collect();
@@ -1564,6 +1596,28 @@ mod tests {
         );
         h.frame();
         (h, id)
+    }
+
+    #[test]
+    fn artifact_query_hides_other_files_and_updates_without_a_new_scan() {
+        let (mut h, id) = atlas_board_files("artifact_subset", 1.0, &["main.rs", "README.md"]);
+        for (name, visible) in [("main.rs", 0), ("README.md", 1)] {
+            h.app.patch_nodes(&[id], |n| {
+                if let NodeKind::Portal(p) = &mut n.kind {
+                    p.atlas.files = vec![name.into()];
+                }
+            });
+            h.app.atlas_ensure_view_tree(id);
+            let tree = h.app.atlas_lenses.views[&id].tree.as_ref().unwrap();
+            assert_ne!(
+                tree.file_pos[visible].place,
+                atlas_core::tree::FilePlace::Hidden
+            );
+            assert_eq!(
+                tree.file_pos[1 - visible].place,
+                atlas_core::tree::FilePlace::Hidden
+            );
+        }
     }
 
     /// Inspect actual shared-painter output, not a second camera formula.

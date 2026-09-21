@@ -179,3 +179,7 @@ changes also follow the vector-ink review requirements.
 For a future approved style change, update this guide and its native
 references together, retaining the decision's provenance in the design index.
 Do not create a competing style master in an app, proposal, or rule file.
+
+## Contextual action visibility (18 September 2026)
+
+Show only actions meaningful for the current object and selection. Hide actions whose preconditions are absent rather than teaching the user through disabled or irrelevant entries. Prefer direct graphical affordances for continuation/forking and the shared selection squircle strip for bundle/unbundle. Agent windows omit ordinary selection outlines and dimension stringers; their card skin follows the active theme. This refinement was explicitly requested by the user.

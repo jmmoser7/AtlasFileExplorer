@@ -16,6 +16,48 @@ pub const GRID_WORLD: f32 = 20.0;
 /// Mild rotation snap threshold in degrees (45° and 90° multiples).
 pub const ROTATION_SNAP_DEG: f32 = 4.0;
 
+/// Agent cards privilege their common top datum and regular train spacing.
+/// Kept in the board snap owner so movement and continuation previews agree.
+pub fn agent_datum(
+    rect: WorldRect,
+    exclude: &[NodeId],
+    scene: &slate_doc::Scene,
+    zoom: f32,
+) -> WorldRect {
+    let threshold = 14.0 / zoom.max(0.01);
+    let mut result = rect;
+    let mut dx = threshold;
+    let mut dy = threshold;
+    for node in &scene.nodes {
+        if node.hidden || exclude.contains(&node.id) || slate_doc::agent_chat::agent(node).is_none()
+        {
+            continue;
+        }
+        if (node.rect.x - rect.x).abs() > 1400.0 {
+            continue;
+        }
+        let y = node.rect.y - rect.y;
+        if y.abs() < dy {
+            dy = y.abs();
+            result.y = node.rect.y;
+        }
+        if (node.rect.y - rect.y).abs() > 600.0 {
+            continue;
+        }
+        for x in [
+            node.rect.x,
+            node.rect.x + node.rect.w + slate_doc::agent_chat::CARD_GAP,
+            node.rect.x - rect.w - slate_doc::agent_chat::CARD_GAP,
+        ] {
+            if (x - rect.x).abs() < dx {
+                dx = (x - rect.x).abs();
+                result.x = x;
+            }
+        }
+    }
+    result
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GuideAxis {
     Vertical,

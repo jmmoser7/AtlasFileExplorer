@@ -13,12 +13,7 @@ use serde_json::Value;
 use crate::cursor_recents::{cursor_user_dir, file_uri_to_path};
 
 /// One saved composer / chat Cursor stored for a workspace.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CursorChat {
-    pub id: String,
-    pub title: String,
-    pub updated_at: u64,
-}
+pub use atlas_agent::Conversation as CursorChat;
 
 /// Agents this folder already has: IDE transcripts under `.cursor/projects`,
 /// plus composer rows in Cursor's workspace DB.

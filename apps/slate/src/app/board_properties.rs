@@ -39,6 +39,7 @@ enum FrameAction {
 enum StripItem {
     Panel(Panel),
     Frame(FrameAction),
+    Agent(bool),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -230,6 +231,31 @@ fn image_is_model(app: &SlateApp, n: &Node) -> bool {
 }
 
 fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+    if nodes
+        .iter()
+        .all(|n| slate_doc::agent_chat::agent(n).is_some())
+    {
+        let mut items = vec![
+            StripItem::Panel(Panel::Fill),
+            StripItem::Panel(Panel::Stroke),
+        ];
+        let ids: Vec<_> = nodes.iter().map(|n| n.id).collect();
+        if slate_doc::agent_chat::bundle_run(&app.doc().scene, &ids).is_some() {
+            items.push(StripItem::Agent(false));
+            return items;
+        }
+        if nodes.len() == 1
+            && slate_doc::agent_chat::agent(&nodes[0])
+                .is_some_and(|a| a.chat.train && !a.chat.bundled.is_empty())
+        {
+            items.push(StripItem::Agent(true));
+            return items;
+        }
+        return items;
+    }
     let mut items = property_strip_items(nodes);
     if nodes.iter().any(|n| image_is_model(app, n)) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
@@ -271,6 +297,15 @@ pub(crate) fn measured_bounds(n: &Node) -> WorldRect {
 fn dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
     if nodes.is_empty() {
         return (None, vec![]);
+    }
+    if nodes
+        .iter()
+        .any(|n| slate_doc::agent_chat::agent(n).is_some())
+    {
+        return (
+            board_snap::union_rect(&nodes.iter().map(|n| n.rect).collect::<Vec<_>>()),
+            vec![],
+        );
     }
     if nodes
         .iter()
@@ -635,11 +670,14 @@ impl SlateApp {
         };
         let mut requested_panel = None;
         let mut requested_frame = None;
+        let mut requested_agent = None;
         let mut captures = false;
         let mut tags_rect = None;
         for (index, item) in items.iter().enumerate() {
             let r = chrome::strip_button_rect(strip, index, z);
             let (label, icon, active) = match item {
+                StripItem::Agent(false) => ("Bundle selected messages", Icon::ChatBundle, false),
+                StripItem::Agent(true) => ("Unbundle messages", Icon::ChatUnbundle, false),
                 StripItem::Panel(Panel::Fill) => (
                     "Fill",
                     Icon::Fill,
@@ -702,9 +740,21 @@ impl SlateApp {
                 match item {
                     StripItem::Panel(panel) => requested_panel = Some(*panel),
                     StripItem::Frame(action) => requested_frame = Some(*action),
+                    StripItem::Agent(expand) => requested_agent = Some(*expand),
                 }
             }
             captures |= ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
+        }
+        if let Some(expand) = requested_agent {
+            self.dispatch(
+                &ctx,
+                CommandId(if expand {
+                    "portal.agent.expand_chat"
+                } else {
+                    "portal.agent.bundle_chat"
+                }),
+                None,
+            );
         }
         if let Some(panel) = requested_panel {
             let was = self.shape_properties.panel;
@@ -1094,6 +1144,37 @@ mod tests {
                 scene::ConnectorEnd::Free { point: [300.0, y] },
             )
             .unwrap()
+    }
+
+    #[test]
+    fn agent_cards_offer_fill_and_zero_default_stroke() {
+        let mut h = board();
+        h.app.place_agent_portal_at(egui::Pos2::ZERO);
+        let n = h.app.doc().scene.nodes[0].clone();
+        let items = live_property_strip_items(&h.app, &[n.clone()]);
+        assert!(items.contains(&StripItem::Panel(Panel::Fill)));
+        assert!(items.contains(&StripItem::Panel(Panel::Stroke)));
+        assert_eq!(scene::stroke_of(&n).unwrap().width, 0.0);
+        let mut edited = n.clone();
+        scene::set_fill(&mut edited, Some(Rgba([20, 70, 100, 255])));
+        scene::set_stroke(
+            &mut edited,
+            scene::Stroke {
+                width: 2.0,
+                color: Rgba([90, 120, 150, 255]),
+                ..Default::default()
+            },
+        );
+        assert!(
+            slate_doc::agent_chat::agent(&edited)
+                .unwrap()
+                .chat
+                .custom_fill
+        );
+        let saved = serde_json::to_string(&edited).unwrap();
+        let restored: Node = serde_json::from_str(&saved).unwrap();
+        assert_eq!(scene::fill_of(&restored), Some(Rgba([20, 70, 100, 255])));
+        assert_eq!(scene::stroke_of(&restored).unwrap().width, 2.0);
     }
 
     #[test]
@@ -1694,6 +1775,8 @@ mod tests {
                 StripItem::Frame(FrameAction::Images) => "images",
                 StripItem::Frame(FrameAction::Tags) => "tags",
                 StripItem::Frame(FrameAction::Present) => "present",
+                StripItem::Agent(true) => "unbundle",
+                StripItem::Agent(false) => "bundle",
             })
             .collect()
     }

@@ -223,9 +223,23 @@ Codex supervision uses the same directory. A first Send records a missing locato
 without it, Slate gives a direct instruction to open Codex from Windows. The
 adapter itself only needs `CODEX_BIN` or the discovered installed CLI.
 
-Wire inputs are authoritative for Selection scope: ambient selection is omitted
-when semantic incoming wires exist. For unconnected chat, an explicitly selected
-group is captured when entering its agent portal; Frame and Board scopes resolve
-current document contents at submission. Only completed text outputs are wired.
+As ratified in Article VIII.1 on 21 September 2026, only user-authored wires
+into the message card's left midpoint input provide additional canvas context.
+`inputs.context` remains readable for older adapters but new chat requests leave
+it empty. Revision ids remain transport metadata. No context.json payload or
+Slate persona is appended to an unwired user message. The provider retains its
+own project instructions. Only completed agent text outputs are wired.
 Stopped responses remain incomplete. Codex checks connected/scoped image files
 for local availability before submission; it does not hydrate cloud placeholders.
+
+`AgentRequest.model` is an optional opaque provider model id. Codex enumerates
+available models through model/list and forwards the chosen id to turn/start.
+The selected value is journaled on the card and inherited by its continuation.
+Model catalog and conversation refresh run off the UI thread. Refresh never
+replaces an already displayed transcript with an initial loading placeholder.
+
+The portal context beacon now carries routing metadata only (scope is wired;
+selection and viewport are empty and board_summary is blank). It is not
+concatenated into model prompts. Ordinary left midpoint connectors can explicitly
+reference text, completed agent outputs, images, or portal source locators.
+

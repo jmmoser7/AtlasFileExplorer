@@ -128,6 +128,34 @@ mod tests {
     }
 
     #[test]
+    fn agent_card_colors_and_stroke_export() {
+        let mut doc = SlateDoc::default();
+        let mut node = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 320.0, 200.0),
+            NodeKind::Portal(slate_doc::PortalNode::unbound_agent(
+                "Colored chat",
+                "codex",
+            )),
+        );
+        slate_doc::scene::set_fill(&mut node, Some(Rgba([20, 70, 100, 255])));
+        slate_doc::scene::set_stroke(
+            &mut node,
+            Stroke {
+                width: 2.0,
+                color: Rgba([90, 120, 150, 255]),
+                ..Default::default()
+            },
+        );
+        doc.scene.apply(&SceneCmd::Add { index: 0, node });
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(html.contains(&format!("background:{}", Rgba([20, 70, 100, 255]).css())));
+        assert!(html.contains(&format!(
+            "border:2px solid {}",
+            Rgba([90, 120, 150, 255]).css()
+        )));
+    }
+
+    #[test]
     fn media_export_keeps_distinct_posters_for_two_pages_of_one_deck() {
         let dir = unique_temp_dir("slate-media-export");
         let source = dir.join("deck.pptx");

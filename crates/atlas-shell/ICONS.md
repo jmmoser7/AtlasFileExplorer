@@ -78,3 +78,18 @@ behavior remains governed by DOCK.md and TOOLBARS.md. Further metaphor or stroke
 changes require actual-size visual review, not just enlarged artwork.
 
 The shape-selection strip uses the catalog Fill bucket, Ellipse stroke ring, Corners outline, and Filters funnel. These share the same path stroke and squircle chrome as the primary dock; applications do not paint private substitute glyphs. [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) owns the surrounding panel composition and distinguishes squircle icon buttons from circular color swatches, filter radios, and rail handles.
+
+## Conversation presentation glyphs
+
+ChatTrain uses two separated linked cards; ChatWindow uses a single tall transcript with alternating lines. ChatBundle encloses miniature cards in one container, matching the supplied bundle reference. ChatUnbundle separates those cards with outward arrows. Bundle/Unbundle map to the agent selection strip; Train/Window accompany the contextual presentation menu. These use the shared 24-unit outline catalog and avoid reusing the unrelated geometric Join/Split tools.
+
+## Agent provider identity (21 September 2026)
+
+The user-approved agent workflow uses vendor marks for Codex (OpenAI blossom),
+Cursor and Ollama. This is an exception to the generic tool-glyph rule, confined
+to provider selection. The same cached vector catalog owns these paths; original
+view boxes are fitted without distortion and no outline is added to filled marks.
+Sources: https://cursor.com/brand (2D cube),
+https://github.com/ollama/ollama/blob/main/docs/ollama-logo.svg,
+https://github.com/simple-icons/simple-icons/blob/14.0.0/icons/openai.svg (CC0
+vector of the OpenAI blossom). Trademarks remain with their respective owners.

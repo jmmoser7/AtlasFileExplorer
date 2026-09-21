@@ -129,7 +129,7 @@ doc = "A host portal onto a local Cursor agent session."
   kind = "portal"
   portal = "agent"
   title = "Agent portal"
-  default_size = [960.0, 540.0]
+  default_size = [384.0, 168.0]
 
 # The dock's own grouping stays in the app for now; a `[[bar]]` here would be a
 # second, competing description of the same rail. Kits gain bars once the dock

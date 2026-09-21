@@ -96,6 +96,7 @@ pub fn remap_for_paste(
         .map(|src| {
             let mut n = src.clone();
             n.id = id_map[&src.id];
+            slate_doc::agent_chat::remap_view(&mut n, |id| id_map.get(&id).copied());
             n.rect = n.rect.translated(dx, dy);
             if let Some(g) = n.group {
                 n.group = Some(*group_map.entry(g).or_insert_with(&mut next_group));

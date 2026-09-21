@@ -7,6 +7,7 @@ description = "AI / Cursor integration shared by File Atlas and Slate: workspace
 [dependencies]
 atlas-agent.workspace = true
 atlas-codex.workspace = true
+atlas-ollama.workspace = true
 atlas-core = { workspace = true }
 atlas-shell = { workspace = true }
 eframe = { workspace = true }

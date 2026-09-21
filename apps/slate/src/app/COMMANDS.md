@@ -11,6 +11,15 @@ it is `docs/keymap/ARCHITECTURE.md`, and per-feature specs live in
 
 ## Rule for every change
 
+Agent portal presentation changes live in the card's ellipsis menu and the
+Selection inspector. Name-only and summary controls are removed. Full-conversation
+cards support inline replies, with the Message placeholder shown only when selected.
+Compact train grips create a continuation; full-conversation and single-window grips
+create two sibling fork drafts. Fill, Stroke, Bundle and Unbundle use the shared
+selection squircles. Unbundle expands one nested layer and restores horizontal train
+layout. History rails cannot be disconnected; deletion prunes the downstream view
+and Undo restores references without rerunning inference.
+
 `board.hover_highlight` opens the hover preferences. With a primary node
 kind as its detail (`frame`, `image`, `shape`, `text`, `connector`, `portal`,
 `dock_strip`), it toggles that kind's passive hover outline. The checkboxes
@@ -476,3 +485,21 @@ See `docs/keymap/contracts/media.md`.
 
 
 Selection strip: squircle Fill/Stroke/Corners/Filters (and wire) controls dispatch `board.shape.edit` / `board.wire.edit` for any node those scene helpers support — shapes, frames, text fills, portals, images and wires. Image Filters is the fillet-height photo-filter capsule (hover preview, intensity slider). Frame deck/tags/images/present actions share that strip. External dimension stringers dispatch `board.shape.dimension`. Palette previews commit on icon change/outside click; an empty-canvas click also deselects. Esc cancels. Numeric dimensions edit directly in their rotated stringers and commit on Enter/outside click. RGB percentages also edit in place; slider metrics appear only during adjustment. All eyedroppers use `board.color.desktop` / the shared desktop sampler (RGB only; existing alpha preserved). Polyline, Arc and Bezier are also discoverable as `board.tool.polyline`, `board.tool.arc`, and `board.tool.bezier`, without new default shortcuts.
+
+Agent chat titles support double-click editing (`portal.agent.rename`) across the current linear branch segment. The output handle invokes `portal.agent.continue` by click or drag; Escape cancels placement. `portal.agent.chat` presents the complete train as a single chat window per fork segment; `portal.agent.train` restores exchange cards. Bundle/expand actions appear in the shared selection toolbar only when applicable.
+
+Agent composer: Enter sends the message; Shift+Enter inserts a newline. Newly placed continuations focus this field automatically. Presentation changes live only in the ellipsis menu; single chat windows have no summary/identity or Unbundle action.
+
+Agent coding sidecars: `portal.agent.artifacts` opens the reference/change list; `portal.agent.open_artifact` explicitly creates the linked portal; `portal.agent.approval` answers a pending provider request once. Coding conversations are linear; `portal.agent.continue` remains a local-agent gesture.
+
+Agent cards: `portal.agent.model` chooses the next Codex or Ollama response model from the
+installed provider catalog. The title menu also exposes conversation rename.
+`portal.agent.continue` accepts click or drag on the terminal top output handle
+for coding agents; it cannot fork historical coding messages. Midpoint ports
+remain ordinary context/artifact ports. Drag-select transcript text and Copy to
+copy it without moving the card. Additional context requires an explicit wire.
+
+Agent headers have two single-click targets: conversation name renames the branch;
+model name opens its picker. Agent contents focus does not capture canvas wheel
+zoom. Provider/project/conversation choices activate on one click over the complete
+visible tile or row.

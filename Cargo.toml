@@ -8,6 +8,7 @@ members = [
     "crates/atlas-ai",
     "crates/atlas-agent",
     "crates/atlas-codex",
+    "crates/atlas-ollama",
     "crates/atlas-commands",
     "crates/slate-doc",
     "crates/slate-kit",
@@ -68,6 +69,7 @@ atlas-session = { path = "crates/atlas-session" }
 atlas-ai = { path = "crates/atlas-ai" }
 atlas-agent = { path = "crates/atlas-agent" }
 atlas-codex = { path = "crates/atlas-codex" }
+atlas-ollama = { path = "crates/atlas-ollama" }
 atlas-commands = { path = "crates/atlas-commands" }
 slate-doc = { path = "crates/slate-doc" }
 slate-kit = { path = "crates/slate-kit" }

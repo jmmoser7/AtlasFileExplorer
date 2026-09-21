@@ -670,7 +670,7 @@ impl SlateApp {
     }
 
     /// Journaled connector Add (stroke = fg default, no arrows).
-    pub(crate) fn add_connector(&mut self, a: ConnectorEnd, b: ConnectorEnd) -> Option<NodeId> {
+    pub(crate) fn build_connector(&mut self, a: ConnectorEnd, b: ConnectorEnd) -> slate_doc::Node {
         let stroke = self.default_wire_stroke();
         let mut conn = ConnectorNode {
             routing: Some(self.board_wire_routing),
@@ -700,10 +700,13 @@ impl SlateApp {
             OrthoLane::default(),
         )
         .unwrap_or(WorldRect::new(0.0, 0.0, 1.0, 1.0));
-        let node = self
-            .doc_mut()
+        self.doc_mut()
             .scene
-            .build_node(rect, NodeKind::Connector(conn));
+            .build_node(rect, NodeKind::Connector(conn))
+    }
+
+    pub(crate) fn add_connector(&mut self, a: ConnectorEnd, b: ConnectorEnd) -> Option<NodeId> {
+        let node = self.build_connector(a, b);
         let id = node.id;
         let ids = self.add_nodes(vec![node]);
         if ids.is_empty() {

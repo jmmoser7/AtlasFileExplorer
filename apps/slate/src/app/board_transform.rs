@@ -57,6 +57,11 @@ impl SlateApp {
         screen: Pos2,
     ) -> Option<(Option<NodeId>, board_handles::BoardHitTarget)> {
         let xf = self.board_xf();
+        if self.agent_output_at(screen, &xf).is_some()
+            || self.agent_artifact_at(screen, &xf).is_some()
+        {
+            return None;
+        }
         if self.board_sel.len() >= 2 && !self.selection_all_simple_lines() {
             if let Some(gb) = self.board_group_bounds() {
                 let geom = board_handles::selection_geom(&xf, gb, 0.0);
@@ -208,6 +213,9 @@ impl SlateApp {
             let Some(n) = self.doc().scene.node(*id) else {
                 continue;
             };
+            if slate_doc::agent_chat::agent(n).is_some() {
+                continue;
+            }
             if !self.settings.hover_highlight(n.kind.kind_name()) {
                 continue;
             }

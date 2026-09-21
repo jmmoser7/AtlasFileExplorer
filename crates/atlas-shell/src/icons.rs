@@ -18,12 +18,16 @@ macro_rules! catalog {
         }
     };
 }
-catalog! { Media, Image, Model, Video, Select, DirectSelect, Pan, Frame, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, WebPortal, Tags, Filters, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, Brush, Eraser, Eyedropper, Sticky, Colors, RepoLens, StatusBoard, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners }
+catalog! { Media, Image, Model, Video, Select, DirectSelect, Pan, Frame, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, WebPortal, Tags, Filters, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, Brush, Eraser, Eyedropper, Sticky, Colors, RepoLens, StatusBoard, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners, ChatBundle, ChatUnbundle, ChatTrain, ChatWindow, ProviderCursor, ProviderCodex, ProviderOllama }
 
 #[derive(serde::Deserialize)]
 struct Definition {
     path: String,
     filled: bool,
+    #[serde(default)]
+    view_box: Option<[f64; 4]>,
+    #[serde(default)]
+    stroke_width: Option<f32>,
 }
 
 /// Letter 8.5×11, Tabloid 11×17, 16:9, Custom 1:1. Width / height.
@@ -115,7 +119,16 @@ fn meshes() -> &'static BTreeMap<&'static str, InkMesh> {
                 let def = &defs[icon.name()];
                 let generated = frame_sheet_for(icon);
                 let path_svg = generated.as_deref().unwrap_or(def.path.as_str());
-                let path = BezPath::from_svg(path_svg).expect("valid icon path");
+                let mut path = BezPath::from_svg(path_svg).expect("valid icon path");
+                if let Some([x, y, w, h]) = def.view_box {
+                    let scale = 20.0 / w.max(h);
+                    path = vector_ink::kurbo::Affine::translate((
+                        (24.0 - w * scale) * 0.5,
+                        (24.0 - h * scale) * 0.5,
+                    )) * vector_ink::kurbo::Affine::scale(scale)
+                        * vector_ink::kurbo::Affine::translate((-x, -y))
+                        * path;
+                }
                 let mut mesh = InkMesh::default();
                 if def.filled {
                     let (verts, indices) =
@@ -129,7 +142,7 @@ fn meshes() -> &'static BTreeMap<&'static str, InkMesh> {
                 let stroke = vector_ink::stroke_mesh(
                     &path,
                     &StrokeStyle {
-                        width: 1.5,
+                        width: def.stroke_width.unwrap_or(1.5),
                         cap: Cap::Round,
                         join: Join::Round,
                         taper: None,

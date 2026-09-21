@@ -154,7 +154,15 @@ pub fn layout_for_portal(
     if uses_identity_tab(kind) {
         layout_portal_chrome(frame, collapsed, maximized, zoom)
     } else {
-        layout_portal_frame(frame, maximized, zoom)
+        let mut layout = layout_portal_frame(frame, maximized, zoom);
+        if kind == PortalKind::Agent {
+            let z = if maximized { 1.0 } else { zoom };
+            layout.maximize = Rect::from_min_size(
+                Pos2::new(frame.right() - 36.0 * z, frame.top() + 2.0 * z),
+                egui::vec2(20.0, 20.0) * z,
+            );
+        }
+        layout
     }
 }
 
@@ -646,7 +654,9 @@ impl SlateApp {
     ) {
         self.paint_portal_fillet_punch(painter, layout);
         self.paint_portal_identity_chrome(ui, layout, id, portal, visiting);
-        self.paint_portal_frame_stroke(painter, layout, border, focused, zoom);
+        if portal.kind != PortalKind::Agent {
+            self.paint_portal_frame_stroke(painter, layout, border, focused, zoom);
+        }
     }
 
     pub(crate) fn paint_portal_frame_stroke(
@@ -904,6 +914,14 @@ mod tests {
         assert!(layout.bar.is_none());
         assert!(layout.reveal.is_none());
         assert_eq!(layout.body, frame);
+        let output = Rect::from_center_size(
+            pos2(
+                frame.right() - slate_doc::agent_chat::PORT_INSET,
+                frame.top() + slate_doc::agent_chat::RAIL_INSET,
+            ),
+            egui::vec2(12.0, 12.0),
+        );
+        assert!(!layout.maximize.intersects(output));
     }
 
     #[test]

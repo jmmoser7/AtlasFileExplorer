@@ -693,7 +693,9 @@ impl SlateApp {
         if self.refuse_read_only_edit() {
             return;
         }
-        let deleted: std::collections::HashSet<NodeId> = ids.iter().copied().collect();
+        let deleted = slate_doc::agent_chat::subtree(&self.doc().scene, ids);
+        let ids: Vec<_> = deleted.iter().copied().collect();
+        self.stop_pruned_agent_runs(&ids);
         // Surviving connectors anchored to a deleted node degrade to `Free`
         // at their last world position — same command group, so undo
         // restores the anchor (connectors spec).
@@ -749,7 +751,7 @@ impl SlateApp {
                 .map(|(index, node)| SceneCmd::Remove { index, node }),
         );
         self.commit_scene(cmds);
-        for id in ids {
+        for id in &ids {
             self.board_sel.remove(id);
         }
     }
@@ -1065,6 +1067,9 @@ impl SlateApp {
         outline_w: f32,
         rotate_hover: bool,
     ) {
+        if slate_doc::agent_chat::agent(n).is_some() {
+            return;
+        }
         if matches!(n.kind, NodeKind::Connector(_)) {
             self.paint_connector_selection(painter, xf, n);
             return;
@@ -2157,6 +2162,7 @@ impl SlateApp {
     // ----- main board entry -----------------------------------------------------
 
     pub fn board_canvas(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        self.fit_agent_cards(ui.ctx());
         let _span = atlas_core::session_log::span("slate.board.paint");
         self.path_mesh_cache.tess_misses = 0;
         self.board_snap_guides.clear();
@@ -2177,8 +2183,10 @@ impl SlateApp {
         let editing_text = self.text_edit.is_some();
 
         // Live viewport tool strip (before gestures so it can capture clicks).
-        let model_toolbar_captures =
+        let agent_controls_capture = self.agent_spawn_input(ui, &xf);
+        let other_toolbar_captures =
             self.shape_properties_ui(ui, &xf) || self.model_viewport_toolbar(ui.ctx(), &xf);
+        let model_toolbar_captures = agent_controls_capture || other_toolbar_captures;
 
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
@@ -2189,10 +2197,11 @@ impl SlateApp {
         // the board. Its chrome strip and a thin border band stay Slate targets,
         // so the frame can always be grabbed and released.
         self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
-        let web_capture = self.document_picker_contains(pointer)
+        let agent_capture = self.agent_shelf_captures(&xf, pointer);
+        let external_capture = self.document_picker_contains(pointer)
             || self.web_input_frame(ui, &xf, pointer)
-            || self.agent_shelf_captures(&xf, pointer)
             || self.atlas_input_frame(ui, &xf, pointer);
+        let web_capture = external_capture || agent_capture;
         let _ = self.dock_embed_frame(
             ui.ctx(),
             &xf,
@@ -2202,7 +2211,12 @@ impl SlateApp {
         let over_dock_strip = wp.is_some_and(|w| self.dock_embed_node_at(w.x, w.y).is_some());
 
         // --- camera ---
-        if resp.hovered() && !web_capture && !model_toolbar_captures {
+        if (resp.hovered()
+            || ((agent_capture || agent_controls_capture)
+                && pointer.is_some_and(|p| rect.contains(p))))
+            && !external_capture
+            && !other_toolbar_captures
+        {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.raw_scroll_delta.y);
             if scroll.abs() > 0.0 {
                 // Scroll over an unlocked 3D viewport zooms the model, not
@@ -2727,6 +2741,7 @@ impl SlateApp {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
         self.paint_wire_grips(&selection_painter, &xf);
+        self.paint_agent_history_rails(&painter, &xf);
         for n in nodes
             .iter()
             .filter(|n| !n.is_frame() && !matches!(n.kind, NodeKind::Connector(_)))
@@ -2814,6 +2829,7 @@ impl SlateApp {
                 }
             }
         }
+        self.paint_agent_spawn_preview(&painter, &xf);
         self.paint_trim_preview(&painter, &xf);
         self.paint_align_widget(&painter, &xf, &palette, select_tint);
         if self.board_crop.is_none() {
@@ -4193,6 +4209,26 @@ impl SlateApp {
                     }
                 }
 
+                if !snap_off
+                    && !ortho
+                    && before
+                        .iter()
+                        .all(|n| slate_doc::agent_chat::agent(n).is_some())
+                {
+                    if let Some((_, first)) = pairs.first() {
+                        let snapped = board_snap::agent_datum(
+                            *first,
+                            &ids,
+                            &self.doc().scene,
+                            self.board_xf().z,
+                        );
+                        let delta = Vec2::new(snapped.x - first.x, snapped.y - first.y);
+                        for (_, rect) in &mut pairs {
+                            rect.x += delta.x;
+                            rect.y += delta.y;
+                        }
+                    }
+                }
                 let scene = &mut self.doc_mut().scene;
                 for ((id, r), b) in pairs.into_iter().zip(before.iter()) {
                     if let Some(n) = scene.node_mut(id) {
@@ -4853,19 +4889,10 @@ impl SlateApp {
     /// Click-to-place default Agent portal (host-class local agent link).
     pub(crate) fn place_agent_portal_at(&mut self, center: Pos2) {
         if self.armed_kit_id.is_some() {
-            self.place_from_recipe(
-                BoardTool::AgentPortal,
-                center,
-                (REPO_PORTAL_DEFAULT_W, REPO_PORTAL_DEFAULT_H),
-            );
+            self.place_from_recipe(BoardTool::AgentPortal, center, (384.0, 168.0));
             return;
         }
-        let rect = WorldRect::new(
-            center.x - REPO_PORTAL_DEFAULT_W * 0.5,
-            center.y - REPO_PORTAL_DEFAULT_H * 0.5,
-            REPO_PORTAL_DEFAULT_W,
-            REPO_PORTAL_DEFAULT_H,
-        );
+        let rect = WorldRect::new(center.x - 384.0 * 0.5, center.y - 168.0 * 0.5, 384.0, 168.0);
         self.add_agent_portal(rect, "placed");
     }
 
@@ -5086,16 +5113,12 @@ impl SlateApp {
         self.add_web_portal_with_entry(rect, locator, None, detail)
     }
 
-    /// Like [`Self::add_web_portal`], with an explicit directory entry file
-    /// (`index.html` / `index.htm`) so a dropped dashboard folder binds to the
-    /// file it actually holds.
-    pub(crate) fn add_web_portal_with_entry(
+    pub(crate) fn build_web_portal(
         &mut self,
         rect: WorldRect,
         locator: Option<String>,
         entry: Option<String>,
-        detail: &'static str,
-    ) -> NodeId {
+    ) -> Node {
         let mut portal = match &locator {
             Some(locator) => {
                 let title = slate_doc::scene::web_display_locator(locator);
@@ -5113,10 +5136,22 @@ impl SlateApp {
         if let Some(locator) = &locator {
             self.grant_web_consent(locator);
         }
-        let node = self
-            .doc_mut()
+        self.doc_mut()
             .scene
-            .build_node(rect, NodeKind::Portal(portal));
+            .build_node(rect, NodeKind::Portal(portal))
+    }
+
+    /// Like [`Self::add_web_portal`], with an explicit directory entry file
+    /// (`index.html` / `index.htm`) so a dropped dashboard folder binds to the
+    /// file it actually holds.
+    pub(crate) fn add_web_portal_with_entry(
+        &mut self,
+        rect: WorldRect,
+        locator: Option<String>,
+        entry: Option<String>,
+        detail: &'static str,
+    ) -> NodeId {
+        let node = self.build_web_portal(rect, locator, entry);
         let id = node.id;
         self.add_nodes(vec![node]);
         self.board_sel.clear();

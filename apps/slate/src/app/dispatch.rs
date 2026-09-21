@@ -425,6 +425,25 @@ impl SlateApp {
             "portal.agent.wire_output" => self.toggle_agent_wire_output(),
             "portal.agent.unbundle" => self.unbundle_selected_agent(),
             "portal.agent.stop" => self.stop_selected_agent(),
+            "portal.agent.train" => self.agent_show_train(),
+            "portal.agent.model" => self.agent_set_model(detail.as_deref().unwrap_or("")),
+            "portal.agent.rename" => self.agent_rename(detail.as_deref().unwrap_or("")),
+            "portal.agent.continue" => self.agent_spawn_command(detail.as_deref()),
+            "portal.agent.approval" => {
+                self.answer_agent_approval(detail.as_deref());
+                true
+            }
+            "portal.agent.artifacts" => self.toggle_agent_artifacts(detail.as_deref()),
+            "portal.agent.open_artifact" => self.open_agent_artifact(detail.as_deref()),
+            "portal.agent.chat" => self.agent_show_chat(),
+            "portal.agent.bundle_chat" => self.agent_bundle_selection(),
+            "portal.agent.expand_chat" => self.agent_expand_bundle(),
+            "portal.agent.fork" => self.agent_fork_selected(),
+            "portal.agent.identity" => {
+                self.agent_set_detail(slate_doc::agent_chat::Detail::Identity)
+            }
+            "portal.agent.summary" => self.agent_set_detail(slate_doc::agent_chat::Detail::Summary),
+            "portal.agent.full" => self.agent_set_detail(slate_doc::agent_chat::Detail::Full),
             "portal.agent.provider" => self.toggle_selected_agent_provider(),
             "portal.agent.reveal" => self.reveal_selected_agent_link(),
             "portal.agent.launch" => self.launch_selected_agent_provider(),

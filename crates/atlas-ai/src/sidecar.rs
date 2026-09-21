@@ -7,6 +7,7 @@
 //! worker thread, never the frame loop (Art. II).
 
 use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
@@ -73,6 +74,62 @@ pub fn setup_doc() -> Option<PathBuf> {
     let script = sidecar_script()?;
     let doc = script.parent()?.join("SETUP.md");
     doc.is_file().then_some(doc)
+}
+
+/// SDK catalog/history access on a worker; never scrape IDE databases to imply attach.
+pub fn query_cursor(cwd: &Path, channel: Option<&str>) -> Result<serde_json::Value, String> {
+    let script = sidecar_script().ok_or("Cursor sidecar is unavailable")?;
+    let node = resolve_node()?;
+    ensure_sidecar_deps(&node, script.parent().unwrap())?;
+    let mut cmd = Command::new(&node);
+    cmd.arg(&script)
+        .arg(if channel.is_some() {
+            "--read"
+        } else {
+            "--list"
+        })
+        .arg(cwd);
+    if let Some(id) = channel {
+        cmd.arg(id);
+    }
+    if let Some(key) = crate::cursor_key::resolve() {
+        cmd.env("CURSOR_API_KEY", key);
+    }
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let reader = |mut pipe: Box<dyn std::io::Read + Send>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = pipe.by_ref().take(16 * 1024 * 1024).read_to_end(&mut bytes);
+            bytes
+        })
+    };
+    let out = reader(Box::new(stdout));
+    let err = reader(Box::new(stderr));
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            let bytes = out.join().unwrap_or_default();
+            let error = err.join().unwrap_or_default();
+            if !status.success() {
+                return Err(String::from_utf8_lossy(&error).chars().take(500).collect());
+            }
+            return serde_json::from_slice(&bytes).map_err(|e| format!("Cursor catalog: {e}"));
+        }
+        if start.elapsed() > std::time::Duration::from_secs(30) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Cursor catalog timed out".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
 }
 
 /// Last lines of the sidecar log — named failure, never a blank.

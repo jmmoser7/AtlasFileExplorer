@@ -3,6 +3,7 @@
 //! A Slate workbook stores links to source files (not copies), a hierarchical
 //! faceted tag system, and persisted view state.
 
+pub mod agent_chat;
 pub mod agent_inputs;
 mod doc;
 mod error;

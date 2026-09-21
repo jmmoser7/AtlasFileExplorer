@@ -914,12 +914,15 @@ pub struct StatusPortalQuery {
 #[serde(default)]
 pub struct AtlasPortalQuery {
     pub sort: AtlasSort,
+    /// Exact root-relative files. Empty means the whole folder.
+    pub files: Vec<String>,
 }
 
 impl Default for AtlasPortalQuery {
     fn default() -> Self {
         Self {
             sort: AtlasSort::Name,
+            files: Vec::new(),
         }
     }
 }
@@ -958,16 +961,18 @@ pub enum AgentContextScope {
 
 /// Journaled agent-portal binding. The provider is resolved by name from user
 /// settings so durable scene data never depends on a vendor protocol (Art. I.2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentPortalRef {
     pub provider: String,
     pub session: String,
     #[serde(default)]
     pub context: AgentContextScope,
-    /// Opaque id of a saved Cursor composer chat for this folder. Not a live
-    /// IDE-thread attach — the portal cannot become that window (Art. I.2).
+    /// Opaque provider conversation id. The adapter resumes supported saved
+    /// conversations; the provider retains history and execution ownership.
     #[serde(default)]
     pub channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// Image output manifest, resolved by the shared SourceUri owner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bundle: Option<SourceUri>,
@@ -976,6 +981,9 @@ pub struct AgentPortalRef {
     pub seed: Option<atlas_agent::ImageOutput>,
     #[serde(default)]
     pub view: atlas_agent::PortalView,
+    /// Authored presentation of linked history. Transcript bytes stay in the source.
+    #[serde(default)]
+    pub chat: crate::agent_chat::ChatView,
 }
 
 /// How a web portal's rendered page is fitted into its frame (D20).
@@ -1324,9 +1332,11 @@ impl PortalNode {
                 provider,
                 context: AgentContextScope::Selection,
                 channel: None,
+                model: None,
                 bundle: None,
                 seed: None,
                 view: atlas_agent::PortalView::Chat,
+                chat: Default::default(),
             }),
             web: None,
             atlas: AtlasPortalQuery::default(),
@@ -2185,6 +2195,7 @@ impl Scene {
         let mut copy = node.clone();
         copy.id = self.alloc_id();
         copy.rect = copy.rect.translated(dx, dy);
+        crate::agent_chat::remap_view(&mut copy, |_| None);
         copy
     }
 
@@ -2424,7 +2435,7 @@ impl SceneJournal {
 
     /// Like [`Self::commit`], with an explicit author.
     pub fn commit_as(&mut self, scene: &mut Scene, cmds: Vec<SceneCmd>, author: CmdAuthor) -> bool {
-        if cmds.is_empty() {
+        if cmds.is_empty() || !crate::agent_chat::valid_commands(scene, &cmds) {
             return false;
         }
         if !scene.apply_all(&cmds) {
@@ -3780,6 +3791,12 @@ pub fn stroke_of(node: &Node) -> Option<Stroke> {
         NodeKind::Shape(s) => Some(s.stroke),
         NodeKind::Image(i) => Some(i.stroke),
         NodeKind::Connector(c) => Some(c.stroke),
+        NodeKind::Portal(p) if p.agent.is_some() => {
+            Some(p.agent.as_ref().unwrap().chat.stroke.unwrap_or(Stroke {
+                width: 0.0,
+                ..Stroke::default()
+            }))
+        }
         _ => None,
     }
 }
@@ -3794,6 +3811,9 @@ pub fn set_stroke(node: &mut Node, stroke: Stroke) {
         NodeKind::Shape(s) => s.stroke = stroke,
         NodeKind::Image(i) => i.stroke = stroke,
         NodeKind::Connector(c) => c.stroke = stroke,
+        NodeKind::Portal(p) if p.agent.is_some() => {
+            p.agent.as_mut().unwrap().chat.stroke = Some(stroke)
+        }
         _ => {}
     }
 }
@@ -3864,6 +3884,9 @@ pub fn set_fill(node: &mut Node, fill: Option<Rgba>) {
         NodeKind::Portal(p) => {
             if let Some(c) = fill {
                 p.fill = c;
+                if let Some(a) = &mut p.agent {
+                    a.chat.custom_fill = true;
+                }
             }
         }
         _ => {}

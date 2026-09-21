@@ -44,6 +44,10 @@ fn directional_binding(
     target: &ConnectorEnd,
     input_b: bool,
 ) -> Option<WireBinding> {
+    if !matches!(target, ConnectorEnd::Anchored { side: Side::Left, t, .. } if (*t - 0.5).abs() < 0.001)
+    {
+        return None;
+    }
     let source = scene.node(endpoint_node(source)?)?;
     let target = scene.node(endpoint_node(target)?)?;
     if !matches!(&target.kind,NodeKind::Portal(p) if p.kind==PortalKind::Agent) {
@@ -59,6 +63,7 @@ fn directional_binding(
                 InputKind::Text
             }
         }
+        NodeKind::Portal(p) if p.source.is_some() => InputKind::Text,
         _ => return None,
     };
     Some(WireBinding {
@@ -141,6 +146,13 @@ pub fn snapshot(
                 node: id.0,
                 text: String::new(),
                 images: vec![doc.item(i.item)?.path.to_string_lossy().into_owned()],
+                outputs: Default::default(),
+                active: None,
+            },
+            NodeKind::Portal(p) if p.kind != PortalKind::Agent => ContextItem {
+                node: id.0,
+                text: p.source.as_ref()?.locator.clone(),
+                images: vec![],
                 outputs: Default::default(),
                 active: None,
             },
@@ -415,6 +427,49 @@ pub fn unbundle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn context_uses_midpoint_input_and_portal_locators_only_when_wired() {
+        let mut doc = SlateDoc::new("midpoint");
+        let mut web = PortalNode::unbound_agent("reference", "");
+        web.kind = PortalKind::Web;
+        web.agent = None;
+        web.source = Some(SourceUri {
+            locator: "https://example.com/research".into(),
+        });
+        let source = add(&mut doc, NodeKind::Portal(web), 0.0);
+        let target = add(
+            &mut doc,
+            NodeKind::Portal(PortalNode::unbound_agent("chat", "codex")),
+            200.0,
+        );
+        let output = ConnectorEnd::Anchored {
+            node: source,
+            side: Side::Right,
+            t: 0.5,
+        };
+        assert!(infer_binding(
+            &doc.scene,
+            &output,
+            &ConnectorEnd::Anchored {
+                node: target,
+                side: Side::Left,
+                t: 0.05
+            }
+        )
+        .is_none());
+        connect(&mut doc, source, target);
+        let input = snapshot(
+            &doc,
+            target,
+            AgentContextScope::Selection,
+            &[],
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(input.context.is_empty());
+        assert_eq!(input.wired[0].text, "https://example.com/research");
+    }
+
     fn add(doc: &mut SlateDoc, kind: NodeKind, x: f32) -> NodeId {
         let node = doc
             .scene

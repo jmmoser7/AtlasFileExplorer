@@ -16,8 +16,8 @@ use atlas_shell::sidebar::{
 use atlas_shell::widgets::{thin_sidebar_slider, thin_sidebar_slider_i32};
 use eframe::egui::{self, Color32, Id, RichText};
 use slate_doc::scene::{
-    corner_of, set_corner, set_stroke, stroke_of, AgentContextScope, Corner, Dash, FontChoice,
-    Node, NodeKind, PortalKind, Rgba, TextAlign,
+    corner_of, set_corner, set_stroke, stroke_of, Corner, Dash, FontChoice, Node, NodeKind,
+    PortalKind, Rgba, TextAlign,
 };
 use slate_doc::{NodeId, ViewKind};
 
@@ -1381,7 +1381,7 @@ fn agent_portal_controls(
     app: &mut SlateApp,
     ui: &mut egui::Ui,
     theme: SidebarTheme,
-    ids: &[NodeId],
+    _ids: &[NodeId],
     primary: &Node,
 ) {
     let NodeKind::Portal(p) = &primary.kind else {
@@ -1415,9 +1415,14 @@ fn agent_portal_controls(
             None,
         );
     }
-    if agent.provider == "cursor"
+    if atlas_ai::runtime::linear_provider(&agent.provider)
+        && agent.channel.is_none()
+        && agent.chat.parent.is_none()
+        && agent.chat.end.is_none()
         && source.is_some()
-        && ui.button(RichText::new("Switch agent").small()).clicked()
+        && ui
+            .button(RichText::new("Choose conversation").small())
+            .clicked()
     {
         app.dispatch(
             ui.ctx(),
@@ -1452,34 +1457,42 @@ fn agent_portal_controls(
             None,
         );
     }
-    if agent.provider == "codex" && ui.button("Stop response").clicked() {
+    if agent.view == atlas_ai::agent::PortalView::Chat {
+        let (label, command) = if agent.chat.train {
+            ("Single chat window", "portal.agent.chat")
+        } else {
+            ("Chat train", "portal.agent.train")
+        };
+        if ui.button(label).clicked() {
+            app.dispatch(ui.ctx(), atlas_commands::CommandId(command), None);
+        }
+        if agent.chat.train && !agent.chat.draft {
+            ui.horizontal_wrapped(|ui| {
+                for (label, command) in [("Full", "portal.agent.full")] {
+                    if ui.button(label).clicked() {
+                        app.dispatch(ui.ctx(), atlas_commands::CommandId(command), None);
+                    }
+                }
+            });
+        }
+        if agent.chat.train {
+            ui.label(RichText::new("Send starts an independent session from this checkpoint. History rails cannot be disconnected.").small().color(theme.sub));
+        }
+    }
+    if (agent.provider == "codex" || agent.provider.starts_with("ollama"))
+        && ui.button("Stop response").clicked()
+    {
         app.dispatch(
             ui.ctx(),
             atlas_commands::CommandId("portal.agent.stop"),
             None,
         );
     }
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Context").small().color(theme.sub));
-        for (scope, label) in [
-            (AgentContextScope::Selection, "Selection"),
-            (AgentContextScope::Frame, "Frame"),
-            (AgentContextScope::Board, "Board"),
-        ] {
-            if ui
-                .selectable_label(agent.context == scope, RichText::new(label).small())
-                .clicked()
-            {
-                app.patch_nodes(ids, move |n| {
-                    if let NodeKind::Portal(p) = &mut n.kind {
-                        if let Some(agent) = &mut p.agent {
-                            agent.context = scope;
-                        }
-                    }
-                });
-            }
-        }
-    });
+    ui.label(
+        RichText::new("Context: explicitly wired inputs only")
+            .small()
+            .color(theme.sub),
+    );
 
     ui.horizontal(|ui| {
         if ui.button(RichText::new("Launch").small()).clicked() {

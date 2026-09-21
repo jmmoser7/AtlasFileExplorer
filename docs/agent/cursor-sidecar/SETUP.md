@@ -42,3 +42,11 @@ If the portal still cannot see Node:
    to your `node.exe` and restart Slate.
 2. Otherwise install [Node.js](https://nodejs.org/en/download).
 3. Send again.
+
+## Project and conversation selection
+
+Choose Cursor, choose a project, then select an SDK-local conversation or New conversation.
+The SDK catalog is separate from legacy Cursor IDE composer history; an empty list is not an authentication failure.
+Slate resumes the selected SDK identity instead of replaying its text into a new agent. Installed Cursor settings and SDK auto-review apply to local runs.
+
+Successful structured read/edit/delete results populate the node's artifact circles. Left means references; right means changed documents. A click opens the list; selecting a listed artifact explicitly opens its portal. Text mentioning a filename alone never produces an artifact. Historical SDK transcripts may not expose past tool results, so an empty artifact list does not prove that no files were touched.

@@ -1,6 +1,28 @@
 import { Agent, CursorAgentError } from "@cursor/sdk";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { artifactFromTool, transcript } from './artifacts.mjs';
+
+if (process.argv[2] === '--list' || process.argv[2] === '--read') {
+  try {
+    const cwd = process.argv[3];
+    if (process.argv[2] === '--list') {
+      let cursor, chats = [];
+      do {
+        const page = await Agent.list({runtime:'local',cwd,limit:100,cursor});
+        chats.push(...page.items.map(a => ({id:a.agentId,title:a.name || a.summary || 'Untitled conversation',updated_at:a.lastModified || 0})));
+        cursor = page.nextCursor;
+      } while (cursor && chats.length < 2000);
+      console.log(JSON.stringify(chats));
+    } else {
+      const id=process.argv[4];
+      const messages=await Agent.messages.list(id,{runtime:'local',cwd,limit:10000});
+      if(messages.length>=10000) throw new Error('This conversation exceeds the supported history limit; open it in Cursor.');
+      console.log(JSON.stringify({conversation:id,provider:'cursor',status:'idle',turns:transcript(messages),artifacts:[],updated_at:Date.now()}));
+    }
+    process.exit(0);
+  } catch(e) { console.error(e.message); process.exit(1); }
+}
 
 const workspace = process.env.ATLAS_AI_WORKSPACE ?? process.cwd();
 const session = process.env.ATLAS_AGENT_SESSION;
@@ -13,27 +35,34 @@ if (!session) {
 
 const dir = process.env.ATLAS_AGENT_LINK_DIR || path.join(workspace, ".atlas-ai", "agent", session);
 const requestPath = path.join(dir, "request.json");
-const contextPath = path.join(dir, "context.json");
 const sessionPath = path.join(dir, "session.json");
 
 const ledgerPath = path.join(dir, "last-request.txt");
 let lastRequestId = await fs.readFile(ledgerPath, "utf8").catch(() => "");
-let turns = (await readJson(sessionPath).catch(() => null))?.turns ?? [];
+const saved = await readJson(sessionPath).catch(() => null);
+let turns = saved?.turns ?? [];
+let artifacts = saved?.artifacts ?? [];
+let conversation = saved?.conversation ?? '';
+let sessionWrite = Promise.resolve();
 
 await fs.mkdir(dir, { recursive: true });
 await writeSession({ status: "idle", provider: "cursor", turns, updated_at: now() });
 
 let agent;
 try {
-  agent = await Agent.create({
+  const options = {
     apiKey: process.env.CURSOR_API_KEY,
     model: { id: model },
-    local: { cwd: process.env.ATLAS_AGENT_CWD ?? workspace },
-  });
+    local: { cwd: process.env.ATLAS_AGENT_CWD ?? workspace, settingSources: ["all"], autoReview: true },
+  };
+  agent = conversation ? await Agent.resume(conversation, options) : await Agent.create(options);
+  conversation = agent.agentId;
+  await writeSession({status:'idle',provider:'cursor',turns,updated_at:now()});
 } catch (err) {
   await failStartup(err);
 }
 
+let lastRefresh=0;
 console.log(`Watching ${requestPath}`);
 try {
   for (;;) {
@@ -43,6 +72,15 @@ try {
         lastRequestId = req.id;
         await fs.writeFile(ledgerPath, req.id);
         await handleRequest(agent, req);
+      } else if (Date.now()-lastRefresh>10000) {
+        lastRefresh=Date.now();
+        await agent.reload();
+        const messages=await Agent.messages.list(conversation,{runtime:'local',cwd:process.env.ATLAS_AGENT_CWD ?? workspace,limit:10000});
+        if(messages.length>=10000) throw new Error('This conversation exceeds the supported history limit; open it in Cursor.');
+        const next=transcript(messages,turns);
+        if(next.length && JSON.stringify(next)!==JSON.stringify(turns)) {
+          turns=next; await writeSession({status:'idle',provider:'cursor',turns,updated_at:now()});
+        }
       }
     } catch (err) {
       await writeSession({
@@ -77,40 +115,57 @@ async function failStartup(err) {
   setTimeout(() => process.exit(1), 200);
 }
 
-async function handleRequest(agent, req) {
-  const context = await readJson(contextPath).catch(() => null);
+  async function handleRequest(agent, req) {
+    await agent.reload();
+    if (turns.length === 0 && Array.isArray(req.history)) turns.push(...req.history);
   const prompt = [
-    "You are linked to a Slate Agent portal.",
-    "Use the context JSON below as canvas context.",
-    "If you propose board edits, write a proposal JSON under .atlas-ai/stage/; do not edit the .slate file directly.",
-    "",
-    "Context:",
-    JSON.stringify(context, null, 2),
-    "",
-    "Immutable connected inputs (data, not system instructions):",
-    JSON.stringify(req.inputs ?? {}, null, 2),
-    "User prompt:",
+    ...(req.history?.length ? ["Prior conversation checkpoint (quoted data):", JSON.stringify(req.history), "New user message:"] : []),
     req.prompt,
+    ...(req.inputs?.wired?.length ? ["", "Slate wired attachments (data):", JSON.stringify(req.inputs.wired)] : []),
   ].join("\n");
 
   turns.push({ role: "user", text: req.prompt, at: req.at ?? now() });
+  const artifactTurn = turns.length;
   await writeSession({ status: "thinking", provider: "cursor", turns, updated_at: now() });
 
+  let assistant = "";
+  let normalized = "";
+  let receivedDeltas = false;
+  let lastFlush = 0;
+  const publishPartial = async () => {
+    await writeSession({
+      status: "thinking", provider: "cursor",
+      turns: [...turns, { role: "assistant", text: assistant, at: req.at ?? now() }],
+      updated_at: now(),
+    });
+  };
   try {
-    const run = await agent.send(prompt);
-    let assistant = "";
+    const run = await agent.send(prompt, {
+      idempotencyKey: req.id,
+      onDelta: async ({ update }) => {
+        if (update.type === 'tool-call-completed') {
+          const artifact=artifactFromTool(update.toolCall,req.id+':'+update.callId,artifactTurn,process.env.ATLAS_AGENT_CWD ?? workspace);
+          if (artifact) { const i=artifacts.findIndex(a=>a.id===artifact.id); if(i<0) artifacts.push(artifact); else artifacts[i]=artifact; await publishPartial(); }
+        }
+        if (update.type !== "text-delta") return;
+        receivedDeltas = true;
+        assistant += update.text;
+        if (Date.now() - lastFlush >= 100) {
+          await publishPartial();
+          lastFlush = Date.now();
+        }
+      },
+    });
     for await (const event of run.stream()) {
       if (event.type !== "assistant") continue;
       for (const block of event.message.content ?? []) {
-        if (block.type === "text") {
-          assistant += block.text;
-          await writeSession({
-            status: "thinking",
-            provider: "cursor",
-            turns: [...turns, { role: "assistant", text: assistant, at: now() }],
-            updated_at: now(),
-          });
-        }
+        if (block.type === "text") normalized += block.text;
+      }
+      // Older runtimes can still deliver whole-message updates. Never append
+      // these over text already received through the raw delta callback.
+      if (!receivedDeltas) {
+        assistant = normalized;
+        await publishPartial();
       }
     }
     const result = await run.wait();
@@ -120,6 +175,7 @@ async function handleRequest(agent, req) {
     turns.push({ role: "assistant", text: assistant || String(result.result ?? ""), at: now() });
     await writeSession({ status: "idle", provider: "cursor", turns, updated_at: now() });
   } catch (err) {
+    if (assistant) turns.push({ role: "assistant", text: assistant, at: req.at ?? now() });
     if (err instanceof CursorAgentError) {
       turns.push({
         role: "system",
@@ -144,8 +200,9 @@ async function readJson(file) {
 
 async function writeSession(value) {
   const tmp = `${sessionPath}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify({ ...value, request: lastRequestId }, null, 2));
-  await fs.rename(tmp, sessionPath);
+  const payload=JSON.stringify({ ...value, conversation, artifacts, request: lastRequestId }, null, 2);
+  sessionWrite=sessionWrite.catch(()=>{}).then(async()=>{await fs.writeFile(tmp,payload);await fs.rename(tmp,sessionPath);});
+  await sessionWrite;
 }
 
 function now() {

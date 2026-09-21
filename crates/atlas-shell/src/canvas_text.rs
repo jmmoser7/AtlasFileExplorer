@@ -243,6 +243,35 @@ impl Scaled {
         self.galley.size() * self.scale
     }
 
+    /// Selectable canvas text uses egui's native selection on a transformed child
+    /// layer. The cached galley is unchanged, so zoom never reflows the transcript.
+    pub fn selectable(self, ui: &egui::Ui, id: egui::Id, pos: Pos2, color: Color32) {
+        let layer = egui::LayerId::new(ui.layer_id().order, id);
+        let transform = TSTransform::new(pos.to_vec2(), self.scale);
+        ui.ctx().set_transform_layer(layer, transform);
+        ui.ctx().set_sublayer(ui.layer_id(), layer);
+        let local = Rect::from_min_size(Pos2::ZERO, self.galley.size());
+        egui::Area::new(id)
+            .order(ui.layer_id().order)
+            .fixed_pos(Pos2::ZERO)
+            .movable(false)
+            .constrain(false)
+            .fade_in(false)
+            .show(ui.ctx(), |text_ui| {
+                text_ui.set_clip_rect(transform.inverse() * ui.clip_rect());
+                let (rect, response) =
+                    text_ui.allocate_exact_size(local.size(), egui::Sense::click_and_drag());
+                egui::text_selection::LabelSelectionState::label_text_selection(
+                    text_ui,
+                    &response,
+                    rect.min,
+                    self.galley,
+                    color,
+                    egui::Stroke::NONE,
+                );
+            });
+    }
+
     /// Paint with `pos` as the text's top-left corner.
     pub fn paint(self, painter: &Painter, pos: Pos2, fallback_color: Color32) -> Rect {
         self.paint_anchored(painter, pos, Align2::LEFT_TOP, fallback_color)
@@ -316,6 +345,73 @@ fn on_ladder(painter: &Painter, font: FontId) -> (FontId, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scaled_selection_copies_text_at_multiple_zooms() {
+        for scale in [0.5, 1.0, 2.0] {
+            let ctx = egui::Context::default();
+            let mut time = 0.0;
+            let mut frame = |events| {
+                time += 0.1;
+                ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            Pos2::ZERO,
+                            egui::vec2(800.0, 600.0),
+                        )),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            let galley = ui.painter().layout_no_wrap(
+                                "Selectable reply".into(),
+                                FontId::proportional(20.0),
+                                Color32::WHITE,
+                            );
+                            Scaled::from_galley(galley, scale).selectable(
+                                ui,
+                                egui::Id::new("reply"),
+                                Pos2::new(50.0, 50.0),
+                                Color32::WHITE,
+                            );
+                        });
+                    },
+                )
+            };
+            frame(vec![]);
+            frame(vec![]);
+            let first = Pos2::new(50.0, 50.0 + 10.0 * scale);
+            let last = Pos2::new(50.0 + 160.0 * scale, first.y);
+            frame(vec![
+                egui::Event::PointerMoved(first),
+                egui::Event::PointerButton {
+                    pos: first,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ]);
+            frame(vec![egui::Event::PointerMoved(last)]);
+            frame(vec![egui::Event::PointerButton {
+                pos: last,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }]);
+            let output = frame(vec![egui::Event::Copy]);
+            assert!(
+                output
+                    .platform_output
+                    .commands
+                    .iter()
+                    .any(|c| matches!(c,egui::OutputCommand::CopyText(s) if s=="Selectable reply")),
+                "copy failed at scale {scale}: {:?}",
+                output.platform_output.commands
+            );
+        }
+    }
 
     /// The property the whole pattern is about: double the host, double the
     /// type. Anything that clamps breaks this at one end or the other.

@@ -21,6 +21,18 @@ pub const WIRE_HEIGHT: f32 = CAPSULE_HEIGHT;
 /// Photo-filter capsule reuses the fillet height so the two menus sit alike.
 pub const FILTER_HEIGHT: f32 = CORNER_HEIGHT;
 pub const SELECTION_FADE_SECONDS: f32 = 0.12;
+
+/// Quiet raised surface for conversation cards, using the active shared theme.
+pub fn agent_card(painter: &egui::Painter, rect: Rect, radius: f32, zoom: f32, palette: Palette) {
+    let shadow = egui::epaint::Shadow {
+        offset: [0, (1.0 * zoom).min(127.0) as i8],
+        blur: (5.0 * zoom).min(255.0) as u8,
+        spread: 0,
+        color: Color32::BLACK.gamma_multiply(if palette.dark_mode { 0.10 } else { 0.035 }),
+    };
+    painter.add(shadow.as_shape(rect, radius));
+    painter.rect_filled(rect, radius, palette.card);
+}
 /// Collapse scale of the icon strip before it expands on selection.
 const STRIP_COLLAPSE: f32 = 0.72;
 
@@ -589,7 +601,7 @@ pub fn color_editor(
         state.rgb = Some(rgb);
     }
     let field = Rect::from_min_size(
-        rect.min + Vec2::splat(12.0 * zoom),
+        rect.min + Vec2::splat(5.0 * zoom),
         Vec2::new(396.0, 70.0) * zoom,
     );
     let hue: Color32 = egui::ecolor::Hsva::new(state.hsv.h, 1.0, 1.0, 1.0).into();

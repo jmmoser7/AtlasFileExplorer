@@ -266,11 +266,14 @@ pub fn program_grid(
         painter.rect_filled(
             slot,
             10.0 * zoom,
-            egui::Color32::from_white_alpha((hover * 12.0) as u8),
+            ui.visuals()
+                .text_color()
+                .gamma_multiply(0.035 + hover * 0.045),
         );
         let icon = match program.id.as_str() {
-            "cursor" => atlas_shell::icons::Icon::Select,
-            "codex" => atlas_shell::icons::Icon::Ai,
+            "cursor" => atlas_shell::icons::Icon::ProviderCursor,
+            "codex" => atlas_shell::icons::Icon::ProviderCodex,
+            "ollama" => atlas_shell::icons::Icon::ProviderOllama,
             "image-link" => atlas_shell::icons::Icon::Brush,
             _ => atlas_shell::icons::Icon::Lens,
         };

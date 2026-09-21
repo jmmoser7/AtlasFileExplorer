@@ -226,10 +226,12 @@ command surface**:
 The interface exists to maximize throughput between the user's mind and the
 canvas — and between the user and their agents. Binding rules:
 
-1. **The canvas is the prompt.** Selection, viewport, spatial arrangement,
-   and intent-ink marks *are* agent context, carried automatically (the
-   `atlas-ai` context beacon is the seed of this channel). Typing is a
-   fallback channel, not the primary one.
+1. **Canvas context is explicit.** Agent messages carry the user's text and
+   conversation history. Additional canvas context is supplied only by an
+   explicit user-authored wire into the message card's ordinary midpoint
+   input. Selection, viewport, revision identifiers, and the context beacon
+   are not automatically appended to prompts. Dedicated top-edge chat-history
+   rails express conversation order, not context attachments.
 2. **Every input modality compiles to the command surface.** Mouse, pen,
    keyboard, ink, voice, agent — all express intent as the same registered
    commands. New modalities are adapters, never parallel mutation paths.
@@ -358,6 +360,12 @@ on `slate-doc` or either app.
   (Article XII).
 
 ## Amendment log
+
+- **2026-09-21 — Explicit agent inputs.** At the user's explicit direction,
+  VIII.1 now requires user-authored input wires for additional canvas context.
+  Ordinary messages no longer carry automatic selection/viewport snapshots or
+  revision identifiers. Dedicated history rails retain conversation ordering.
+
 
 - **2026-08-22 — Article XII (one owner of knowledge).** Distinguishes
   knowledge clones (illegal), incidental copies (Rule of Three), and

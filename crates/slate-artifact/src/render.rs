@@ -261,6 +261,15 @@ fn render_slide(
             }
         }
     }
+    for rail in slate_doc::agent_chat::history_rails(&doc.scene) {
+        if !spec.member_ids.contains(&rail.from) || !spec.member_ids.contains(&rail.to) {
+            continue;
+        }
+        let b = rail.curve;
+        let x = spec.origin_x;
+        let y = spec.origin_y;
+        html.push_str(&format!("<svg class=\"agent-history-rail\" aria-label=\"Conversation history\" style=\"position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible\"><path d=\"M {} {} C {} {}, {} {}, {} {}\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"{}\" opacity=\"{}\"/></svg>",b.p0[0]-x,b.p0[1]-y,b.c1[0]-x,b.c1[1]-y,b.c2[0]-x,b.c2[1]-y,b.p3[0]-x,b.p3[1]-y,slate_doc::agent_chat::RAIL_WIDTH,slate_doc::agent_chat::RAIL_LIGHT_OPACITY));
+    }
     for node in wires.into_iter().chain(rest) {
         render_node(
             html,
@@ -323,6 +332,13 @@ fn render_portal(
     style.push_str("background:");
     style.push_str(&portal.fill.css());
     style.push_str(";overflow:hidden;");
+    if let Some(stroke) = portal.agent.as_ref().and_then(|a| a.chat.stroke) {
+        style.push_str(&format!(
+            "box-sizing:border-box;border:{}px solid {};",
+            stroke.width,
+            stroke.color.css()
+        ));
+    }
     html.push_str("<div class=\"node portal\" style=\"");
     html.push_str(&style);
     html.push_str("\">");
@@ -387,6 +403,10 @@ fn render_portal(
             html.push_str(&escape_html(&portal.title));
             html.push_str("</strong><br><span style=\"opacity:.7\">Folder map poster: ");
             html.push_str(&escape_html(pointer));
+            for file in &portal.atlas.files {
+                html.push_str("<br>");
+                html.push_str(&escape_html(file));
+            }
             html.push_str(" (live scan is not exported)</span></div>");
         }
     }
