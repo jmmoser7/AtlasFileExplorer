@@ -722,7 +722,6 @@ impl SlateApp {
             return;
         };
 
-        let style = style;
         let lod = folder_map::lod_for(cam.z, LOD_MID, LOD_FULL, LOD_DETAIL);
         let file_match = if file_match.len() == session.entries.len() {
             file_match
