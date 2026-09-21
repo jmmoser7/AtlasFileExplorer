@@ -16,8 +16,6 @@ members = [
     "crates/collage",
     "crates/vector-ink",
     "crates/code-lens",
-    "crates/repo-graph",
-    "crates/status-board",
     "crates/rhino-mesh",
     "apps/file-atlas",
     "apps/slate",
@@ -58,7 +56,6 @@ kurbo = "0.13.1"
 # Planar boolean + slice for board Trim (Rhino flow, 2D). Pure Rust.
 i_overlay = "4.2"
 earcutr = "0.4"
-gix = { version = "0.86.0", default-features = false, features = ["revision", "sha1"] }
 
 # Workspace crates.
 atlas-core = { path = "crates/atlas-core" }
@@ -75,8 +72,6 @@ slate-artifact = { path = "crates/slate-artifact" }
 circle-pack = { path = "crates/circle-pack" }
 vector-ink = { path = "crates/vector-ink" }
 code-lens = { path = "crates/code-lens" }
-repo-graph = { path = "crates/repo-graph" }
-status-board = { path = "crates/status-board" }
 rhino-mesh = { path = "crates/rhino-mesh" }
 native-file-atlas = { path = "apps/file-atlas" }
 

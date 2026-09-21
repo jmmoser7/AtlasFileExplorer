@@ -6,8 +6,8 @@ and `board_place` unit tests pass)
 Family: tool
 Reference: armed-state chrome for DragRect + PlacePoint create tools
 Command: `board.tool.frame` / `board.tool.rect` / `board.tool.ellipse` /
-`board.tool.text` / `board.tool.sticky` / `board.portal.repo_lens` / `board.portal.status_board` /
-`board.portal.agent` / `board.portal.web` · Keys: F / R / O / T / N ·
+`board.tool.text` / `board.tool.sticky` / `board.portal.agent` / `board.portal.web` /
+`board.portal.atlas` · Keys: F / R / O / T / N ·
 Palette: frame, rectangle, ellipse, text, sticky, web portal, …
 Inherits: P0.* (all), P1.shape.aspect, **P2.GhostFollow**, P2.DragShape,
 P2.PortalPlace — deviations flagged below.

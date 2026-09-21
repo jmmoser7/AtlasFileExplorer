@@ -99,8 +99,6 @@ impl KitState {
             return None;
         }
         match self.root_kit_id(kit).as_str() {
-            "portal-repo-lens" => Some(BoardTool::RepoLens),
-            "portal-status-board" => Some(BoardTool::StatusBoard),
             "portal-agent" => Some(BoardTool::AgentPortal),
             "portal-web" => Some(BoardTool::WebPortal),
             "portal-file-atlas" => Some(BoardTool::AtlasPortal),
@@ -194,8 +192,6 @@ pub struct DerivedCatalogItem {
 
 fn kit_id_for_catalog(catalog_id: &str) -> Option<&'static str> {
     match catalog_id {
-        "portal.repo" => Some("portal-repo-lens"),
-        "portal.status" => Some("portal-status-board"),
         "portal.agent" => Some("portal-agent"),
         "portal.web" => Some("portal-web"),
         "portal.atlas" => Some("portal-file-atlas"),
@@ -207,11 +203,7 @@ fn kit_id_for_catalog(catalog_id: &str) -> Option<&'static str> {
 
 fn group_for_kit(kit_id: &str) -> Option<&'static str> {
     match kit_id {
-        "portal-repo-lens"
-        | "portal-status-board"
-        | "portal-agent"
-        | "portal-web"
-        | "portal-file-atlas" => Some("portals"),
+        "portal-agent" | "portal-web" | "portal-file-atlas" => Some("portals"),
         "rect" | "ellipse" => Some("shapes"),
         "frame" => Some("frame"),
         _ => None,
@@ -338,18 +330,16 @@ mod tests {
                 BoardTool::Eyedropper => 13,
                 BoardTool::Sticky => 14,
                 BoardTool::DirectSelect => 15,
-                BoardTool::RepoLens => 16,
-                BoardTool::StatusBoard => 17,
-                BoardTool::AgentPortal => 18,
-                BoardTool::WebPortal => 19,
-                BoardTool::AtlasPortal => 20,
-                BoardTool::Trim => 21,
-                BoardTool::Split => 22,
+                BoardTool::AgentPortal => 16,
+                BoardTool::WebPortal => 17,
+                BoardTool::AtlasPortal => 18,
+                BoardTool::Trim => 19,
+                BoardTool::Split => 20,
             }
         }
         let mut tags: Vec<u8> = BoardTool::ALL.into_iter().map(tag).collect();
         tags.sort_unstable();
-        assert_eq!(tags, (0..23).collect::<Vec<u8>>());
+        assert_eq!(tags, (0..21).collect::<Vec<u8>>());
     }
 
     #[test]
@@ -374,8 +364,6 @@ mod tests {
                 BoardTool::Frame,
                 BoardTool::RectShape,
                 BoardTool::Ellipse,
-                BoardTool::RepoLens,
-                BoardTool::StatusBoard,
                 BoardTool::AgentPortal,
                 BoardTool::WebPortal,
                 BoardTool::AtlasPortal,

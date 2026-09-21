@@ -135,7 +135,7 @@ drag the address-bar URL or a page link instead.
   selected. Square routing wraps host geometry and ties go right, then down.
 - **Arrows with nothing selected** pan the board canvas (Shift = faster);
   nudge with a selection is unchanged.
-- **Agent portal** commands are registered alongside Repository Lens:
+- **Agent portal** commands:
   `board.portal.agent`, `portal.agent.bind`, `portal.agent.send`,
   `portal.agent.provider`, `portal.agent.reveal`, `portal.agent.launch`,
   `portal.agent.focus`, `portal.agent.get_key`, `portal.agent.switch_chat`,
@@ -405,15 +405,6 @@ Camera-only — never journaled, never repeatable.
 
 ## Board portals
 
-- **Repository Lens** and **Status Board** are generated portals (Art. V.3):
-  the frame, source, and query are journaled; contents are derived and never
-  stored. Place from the canvas palette or the Portals dock flyout — no
-  single-key chord. Click places a default size; drag is free-aspect; Shift
-  locks 16:9. Binding is a later, non-modal step (empty-state Browse or
-  inspector Choose…).
-- **Status Board** binds a local `project-state.json` (or a folder containing
-  one). Inspector section toggles are journaled `Patch`es. Refresh reloads
-  the file; Bake copies authored Text/Shape nodes and leaves the portal live.
 - **File Atlas lens** is a host portal over a local folder (`board.portal.atlas`,
   `portal.atlas.*`). Place from the Portals flyout. Binding is a later
   non-modal step, or a folder drop through the lens chooser (File Atlas is
@@ -431,8 +422,7 @@ Camera-only — never journaled, never repeatable.
 - **Web portal** is a host portal: a new one starts at
   `https://www.google.com/` so the page itself can be used as a search
   surface. Rebind it to a URL, an `.html` file, or a folder with an entry
-  file. That can embed the standalone HTML dashboard; it is not a substitute
-  for the generated Status Board (JSON → native layout). `portal.web.home`
+  file. `portal.web.home`
   returns the live page to the authored locator without changing the workbook.
 - **Portal chrome**: web portals carry a slim Slate identity tab showing the
   locator. Fold it from the context menu or `portal.chrome.toggle` — the

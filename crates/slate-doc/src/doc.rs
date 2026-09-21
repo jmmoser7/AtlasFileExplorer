@@ -348,8 +348,16 @@ impl SlateDoc {
             path: path.to_path_buf(),
             source: err.kind(),
         })?;
-        let mut doc: SlateDoc =
+        let mut value: serde_json::Value =
             serde_json::from_slice(&bytes).map_err(|err| SlateLoadError::Parse {
+                path: path.to_path_buf(),
+                message: err.to_string(),
+            })?;
+        // Repository Lens and Status Board are not part of the product. Drop
+        // those nodes before decode so a mixed workbook still opens.
+        drop_retired_portals(&mut value);
+        let mut doc: SlateDoc =
+            serde_json::from_value(value).map_err(|err| SlateLoadError::Parse {
                 path: path.to_path_buf(),
                 message: err.to_string(),
             })?;
@@ -412,6 +420,25 @@ impl SlateDoc {
         }
         None
     }
+}
+
+/// Removes board nodes whose portal kind is a retired subtype
+/// (`repo_lens`, `status_board`). Other nodes in the same workbook stay.
+fn drop_retired_portals(doc: &mut serde_json::Value) {
+    let Some(nodes) = doc
+        .get_mut("scene")
+        .and_then(|scene| scene.get_mut("nodes"))
+        .and_then(|nodes| nodes.as_array_mut())
+    else {
+        return;
+    };
+    nodes.retain(|node| {
+        !matches!(
+            node.pointer("/kind/portal/kind")
+                .and_then(|kind| kind.as_str()),
+            Some("repo_lens" | "status_board")
+        )
+    });
 }
 
 impl Default for SlateDoc {
@@ -663,6 +690,47 @@ mod tests {
         fs::write(&path, json).expect("write");
         let doc = SlateDoc::load_from(&path).expect("load");
         assert_eq!(doc.view.active_view, crate::view::ViewKind::Board);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_drops_retired_portals_and_keeps_the_rest_of_the_board() {
+        let dir = unique_temp_dir("slate-doc-retired-portals");
+        let path = dir.join("mixed.slate");
+        let json = r#"{
+            "format_version": 2,
+            "name": "mixed",
+            "groups": [],
+            "items": [],
+            "view": { "active_view": "board", "cam_x": 0.0, "cam_y": 0.0, "zoom": 1.0 },
+            "scene": { "nodes": [
+                {
+                    "id": 1,
+                    "rect": { "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0 },
+                    "kind": { "text": { "text": "kept", "family": "sans", "size": 16.0, "color": [0, 0, 0, 255], "align": "left" } }
+                },
+                {
+                    "id": 2,
+                    "rect": { "x": 0.0, "y": 0.0, "w": 960.0, "h": 540.0 },
+                    "kind": { "portal": { "class": "generated", "kind": "repo_lens", "title": "Repository Lens", "fill": [18, 20, 24, 255] } }
+                },
+                {
+                    "id": 3,
+                    "rect": { "x": 0.0, "y": 0.0, "w": 960.0, "h": 720.0 },
+                    "kind": { "portal": { "class": "generated", "kind": "status_board", "title": "Status Board", "fill": [14, 17, 20, 255] } }
+                }
+            ], "next_node_id": 4 },
+            "next_group_id": 1,
+            "next_tag_id": 1,
+            "next_item_id": 1
+        }"#;
+        fs::write(&path, json).expect("write");
+        let doc = SlateDoc::load_from(&path).expect("load");
+        assert_eq!(doc.scene.nodes.len(), 1);
+        match &doc.scene.nodes[0].kind {
+            crate::scene::NodeKind::Text(text) => assert_eq!(text.text, "kept"),
+            other => panic!("expected the text node, got {other:?}"),
+        }
         let _ = fs::remove_dir_all(dir);
     }
 

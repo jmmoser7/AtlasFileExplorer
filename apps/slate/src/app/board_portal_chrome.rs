@@ -188,20 +188,6 @@ pub fn layout_portal_frame(frame: Rect, maximized: bool, zoom: f32) -> PortalChr
     }
 }
 
-/// Contents fill `frame` with no identity tab — presentation and inner
-/// maximize paints that already reserved the tab above.
-pub fn layout_portal_contents_only(frame: Rect) -> PortalChromeLayout {
-    PortalChromeLayout {
-        frame,
-        radius: 0.0,
-        bar: None,
-        reveal: None,
-        maximize: Rect::NOTHING,
-        body: frame,
-        page: frame,
-    }
-}
-
 /// Lay out the identity tab and the contents body inside `frame`.
 ///
 /// `zoom` is the board camera. On the canvas the tab, fillet, and border
@@ -472,8 +458,6 @@ impl SlateApp {
         let title = if title.is_empty() {
             match portal.kind {
                 PortalKind::Web => "Web portal",
-                PortalKind::RepoLens => "Repository",
-                PortalKind::StatusBoard => "Status",
                 PortalKind::Agent => "Agent",
                 PortalKind::FileAtlas => "File Atlas",
             }
@@ -710,11 +694,6 @@ impl SlateApp {
             PortalKind::Web => {
                 self.paint_web_portal_in_rect(ui, &painter, &node, &portal, &layout, 1.0);
             }
-            PortalKind::RepoLens | PortalKind::StatusBoard => {
-                let xf = fit_xf(node.rect, layout.body);
-                let clipped = painter.with_clip_rect(layout.body.intersect(painter.clip_rect()));
-                self.paint_portal_node(ui, &clipped, &xf, &node, &portal, false);
-            }
             PortalKind::Agent => {
                 let xf = fit_xf(node.rect, layout.body);
                 self.paint_agent_portal(ui, &painter, &xf, &node, &portal);
@@ -797,13 +776,7 @@ mod tests {
     fn every_portal_kind_uses_the_same_fillet() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
         let expected = portal_frame_tokens().corner_radius;
-        for kind in [
-            PortalKind::Web,
-            PortalKind::Agent,
-            PortalKind::StatusBoard,
-            PortalKind::RepoLens,
-            PortalKind::FileAtlas,
-        ] {
+        for kind in [PortalKind::Web, PortalKind::Agent, PortalKind::FileAtlas] {
             let layout = layout_for_portal(kind, frame, false, false, 1.0);
             assert!(
                 (layout.radius - expected).abs() < 1e-4,
@@ -896,8 +869,6 @@ mod tests {
     fn only_web_portals_have_an_identity_tab() {
         assert!(uses_identity_tab(PortalKind::Web));
         assert!(!uses_identity_tab(PortalKind::Agent));
-        assert!(!uses_identity_tab(PortalKind::RepoLens));
-        assert!(!uses_identity_tab(PortalKind::StatusBoard));
         assert!(!uses_identity_tab(PortalKind::FileAtlas));
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
         let layout = layout_for_portal(PortalKind::Agent, frame, false, false, 1.0);
@@ -909,7 +880,7 @@ mod tests {
     #[test]
     fn maximize_icon_sits_upper_right_without_a_tab() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let layout = layout_for_portal(PortalKind::StatusBoard, frame, false, false, 1.0);
+        let layout = layout_for_portal(PortalKind::FileAtlas, frame, false, false, 1.0);
         assert!(layout.bar.is_none());
         assert!(layout.maximize.right() <= frame.right() + 0.01);
         assert!(layout.maximize.top() >= frame.top() - 0.01);

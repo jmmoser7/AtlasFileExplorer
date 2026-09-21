@@ -199,17 +199,6 @@ pub enum PickerMsg {
     },
     /// Folder picked for "Export artifact…".
     ExportArtifact(Option<PathBuf>),
-    /// Folder picked as the Lens code root.
-    /// Folder picked as a Repository Lens portal source.
-    RepoPortalSource {
-        portal: NodeId,
-        path: Option<PathBuf>,
-    },
-    /// File or folder picked as a Status Board snapshot.
-    StatusPortalSource {
-        portal: NodeId,
-        path: Option<PathBuf>,
-    },
     /// File or folder picked as a web portal source (D19).
     WebPortalSource {
         portal: NodeId,
@@ -311,7 +300,7 @@ pub struct SlateApp {
     /// (shared plumbing and panel body from `atlas-ai`).
     pub ai: atlas_ai::AiPanel,
 
-    /// Repository Lens portal runtime (derived extract/layout cache).
+    /// Shared contents-focus slot for host portals (web, agent, File Atlas).
     pub portals: board_portal::PortalRuntime,
     /// Agent portal runtime (derived sessions/proposals; never journaled).
     pub agents: board_agent::AgentRuntime,
@@ -1672,12 +1661,6 @@ impl SlateApp {
             inline_assets: self.export_inline,
             thumbs: self.export_thumb_map(),
             model_posters: self.export_model_poster_map(),
-            workbook_dir: self
-                .tab()
-                .path
-                .as_ref()
-                .and_then(|p| p.parent())
-                .map(|p| p.to_path_buf()),
             web_sources,
             web_posters,
             wire_routing: self.board_wire_routing,
@@ -1775,14 +1758,6 @@ impl SlateApp {
                         self.place_items_in_frame(frame, &items);
                     }
                     PickerMsg::ExportArtifact(Some(dir)) => self.do_export(dir),
-                    PickerMsg::RepoPortalSource {
-                        portal,
-                        path: Some(path),
-                    } => self.bind_portal_source(portal, path),
-                    PickerMsg::StatusPortalSource {
-                        portal,
-                        path: Some(path),
-                    } => self.bind_portal_source(portal, path),
                     PickerMsg::WebPortalSource {
                         portal,
                         path: Some(path),
@@ -1899,7 +1874,6 @@ impl SlateApp {
         self.note_engine_failure();
         self.session_pump(ctx);
         self.ai.poll();
-        self.portal_pump(ctx);
         self.agent_pump(ctx);
         self.web_pump(ctx);
         self.atlas_pump(ctx);

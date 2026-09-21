@@ -366,14 +366,6 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::DirectSelect);
                 true
             }
-            "board.portal.repo_lens" => {
-                self.set_board_tool(board::BoardTool::RepoLens);
-                true
-            }
-            "board.portal.status_board" => {
-                self.set_board_tool(board::BoardTool::StatusBoard);
-                true
-            }
             "board.portal.agent" => {
                 self.set_board_tool(board::BoardTool::AgentPortal);
                 true
@@ -441,32 +433,6 @@ impl SlateApp {
             }
             "stage.accept" => self.accept_selected_stage_proposal(),
             "stage.reject" => self.reject_selected_stage_proposal(),
-            "portal.repo.source" | "portal.status.source" => {
-                self.portal_pick_source_for_selection()
-            }
-            "portal.repo.refresh" | "portal.status.refresh" => self.portal_refresh_selected(),
-            "portal.repo.bake" | "portal.status.bake" => self.portal_bake_selected(),
-            "portal.repo.focus" => {
-                // Focus is driven by pointer clicks inside an interactive portal;
-                // the command clears focus when already set (Esc / palette).
-                if self.portals.interactive.is_some() || self.portals.has_commit_focus() {
-                    self.portal_clear_focus()
-                } else if let Some(id) = self
-                    .board_sel
-                    .iter()
-                    .copied()
-                    .find(|id| self.doc().scene.node(*id).is_some_and(|n| n.is_portal()))
-                {
-                    self.portal_enter_interactive(id);
-                    true
-                } else {
-                    false
-                }
-            }
-            "portal.repo.branch_create" | "portal.repo.merge" | "portal.repo.checkout" => {
-                self.toast("Git write-back is human-only and not wired in this build yet.");
-                true
-            }
             // ----- color state + widths -------------------------------------------
             "board.colors.default" => {
                 self.reset_board_colors();
@@ -841,12 +807,6 @@ impl SlateApp {
         }
         if self.doc().view.active_view == ViewKind::Board && self.atlas_lenses.focused.is_some() {
             return self.atlas_blur();
-        }
-        // Repository Lens portal interactive / commit focus.
-        if self.doc().view.active_view == ViewKind::Board
-            && (self.portals.interactive.is_some() || self.portals.has_commit_focus())
-        {
-            return self.portal_clear_focus();
         }
         let board = self.doc().view.active_view == ViewKind::Board;
         let mut live: Vec<CancelLayer> = Vec::new();

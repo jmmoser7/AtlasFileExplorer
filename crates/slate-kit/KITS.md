@@ -98,9 +98,9 @@ expression, and the only one there is.
 
 ### `kind = "portal"`
 
-`portal` names an existing portal kind (`repo_lens`, `status_board`, `agent`, `web`, `file_atlas`) and the recipe
-presets its `title`, `source`, and `query`. Five preset lenses over one
-repository are five kit entries and no new code.
+`portal` names an existing portal kind (`agent`, `web`, `file_atlas`) and the recipe
+presets its `title` and `source`. Three host portals over one gesture are
+three kit entries and no new code.
 
 Leave `source` unset in a kit you intend to share: a locator is relative-first
 (Art. IX.2) and a path from the author's machine is not a gift.

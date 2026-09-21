@@ -61,37 +61,6 @@ icon = "ellipse"
   default_size = [160.0, 160.0]
 
 [[tool]]
-id = "portal-repo-lens"
-name = "Repository Lens"
-grammar = "drag_rect"
-icon = "repo_lens"
-doc = "A generated portal onto a git repository's history."
-
-  [tool.recipe]
-  kind = "portal"
-  portal = "repo_lens"
-  title = "Repository Lens"
-  default_size = [960.0, 540.0]
-  # No `source`: a portal placed from the palette is unbound until the user
-  # chooses a repository. A kit that shipped a source would name a path that
-  # only exists on its author's machine (Art. IX.2).
-
-[[tool]]
-id = "portal-status-board"
-name = "Status Board"
-grammar = "drag_rect"
-icon = "status_board"
-doc = "A generated portal onto a project-status snapshot."
-
-  [tool.recipe]
-  kind = "portal"
-  portal = "status_board"
-  title = "Status Board"
-  default_size = [960.0, 720.0]
-  # No `source`: a shared kit must not name a path from the author's machine
-  # (Art. IX.2). Bind `project-state.json` after placement.
-
-[[tool]]
 id = "portal-file-atlas"
 name = "File Atlas"
 grammar = "drag_rect"

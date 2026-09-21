@@ -18,8 +18,6 @@ atlas-ai = { workspace = true }
 slate-doc = { workspace = true }
 slate-kit = { workspace = true }
 slate-artifact = { workspace = true }
-repo-graph = { workspace = true }
-status-board = { workspace = true }
 rhino-mesh = { workspace = true }
 vector-ink = { workspace = true }
 native-file-atlas = { workspace = true }

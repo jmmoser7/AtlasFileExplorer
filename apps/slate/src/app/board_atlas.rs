@@ -40,8 +40,6 @@ const FS_EVENTS_PER_FRAME: usize = 32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FolderDropKind {
     AtlasLens,
-    RepoLens,
-    StatusBoard,
     Web,
     PlaceContents,
 }
@@ -50,8 +48,6 @@ impl FolderDropKind {
     fn label(self) -> &'static str {
         match self {
             FolderDropKind::AtlasLens => "File Atlas lens",
-            FolderDropKind::RepoLens => "Repository Lens",
-            FolderDropKind::StatusBoard => "Status Board",
             FolderDropKind::Web => "Web portal",
             FolderDropKind::PlaceContents => "Place files on the board",
         }
@@ -60,8 +56,6 @@ impl FolderDropKind {
     fn hint(self) -> &'static str {
         match self {
             FolderDropKind::AtlasLens => "Live folder map inside a portal (default)",
-            FolderDropKind::RepoLens => "This folder is a git repository",
-            FolderDropKind::StatusBoard => "This folder has a project-state snapshot",
             FolderDropKind::Web => "This folder has an HTML entry file",
             FolderDropKind::PlaceContents => "Dump the files onto the board as images — not a lens",
         }
@@ -182,12 +176,6 @@ impl MapMedia for SlateMapHost<'_> {
 
 pub fn folder_drop_options(path: &Path) -> Vec<FolderDropKind> {
     let mut out = vec![FolderDropKind::AtlasLens];
-    if path.join(".git").exists() {
-        out.push(FolderDropKind::RepoLens);
-    }
-    if path.join("project-state.json").is_file() {
-        out.push(FolderDropKind::StatusBoard);
-    }
     if is_web_drop(path) {
         out.push(FolderDropKind::Web);
     }
@@ -1390,18 +1378,6 @@ impl SlateApp {
     pub(crate) fn apply_folder_drop(&mut self, kind: FolderDropKind, path: PathBuf, at: Pos2) {
         match kind {
             FolderDropKind::AtlasLens => self.place_bound_atlas_at(at, &path),
-            FolderDropKind::RepoLens => {
-                self.place_repo_lens_at(at);
-                if let Some(id) = self.selected_portal_of(PortalKind::RepoLens) {
-                    self.bind_portal_source(id, path);
-                }
-            }
-            FolderDropKind::StatusBoard => {
-                self.place_status_board_at(at);
-                if let Some(id) = self.selected_portal_of(PortalKind::StatusBoard) {
-                    self.bind_portal_source(id, path);
-                }
-            }
             FolderDropKind::Web => {
                 let workbook = self.tab().path.clone();
                 let locator = web_source_locator(workbook.as_deref(), &path);
@@ -1416,15 +1392,6 @@ impl SlateApp {
             }
             FolderDropKind::PlaceContents => self.place_folder_contents(&path, at),
         }
-    }
-
-    fn selected_portal_of(&self, kind: PortalKind) -> Option<NodeId> {
-        self.board_sel.iter().copied().find(|id| {
-            self.doc()
-                .scene
-                .node(*id)
-                .is_some_and(|n| matches!(&n.kind, NodeKind::Portal(p) if p.kind == kind))
-        })
     }
 
     fn place_bound_atlas_at(&mut self, at: Pos2, path: &Path) {
@@ -1965,6 +1932,6 @@ mod tests {
         let opts = folder_drop_options(&dir);
         assert_eq!(opts[0], FolderDropKind::AtlasLens);
         assert!(opts.contains(&FolderDropKind::PlaceContents));
-        assert!(!opts.contains(&FolderDropKind::RepoLens));
+        assert!(!opts.contains(&FolderDropKind::Web));
     }
 }

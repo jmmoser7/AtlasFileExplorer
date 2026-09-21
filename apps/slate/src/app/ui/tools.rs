@@ -50,8 +50,6 @@ board_dock_icon!(icon_bezier, ToolIcon::Bezier);
 board_dock_icon!(icon_pen, ToolIcon::Pen);
 board_dock_icon!(icon_brush, ToolIcon::Brush);
 board_dock_icon!(icon_eraser, ToolIcon::Eraser);
-board_dock_icon!(icon_repo, ToolIcon::RepoLens);
-board_dock_icon!(icon_status, ToolIcon::StatusBoard);
 board_dock_icon!(icon_web, ToolIcon::WebPortal);
 board_dock_icon!(icon_atlas, ToolIcon::AtlasLens);
 board_dock_icon!(icon_trim, ToolIcon::Trim);
@@ -84,8 +82,6 @@ fn tool_dock_icon(tool: BoardTool) -> DockIcon {
         BoardTool::Pen => DockIcon::Custom(icon_pen),
         BoardTool::Brush => DockIcon::Custom(icon_brush),
         BoardTool::Eraser => DockIcon::Custom(icon_eraser),
-        BoardTool::RepoLens => DockIcon::Custom(icon_repo),
-        BoardTool::StatusBoard => DockIcon::Custom(icon_status),
         BoardTool::AgentPortal => DockIcon::Custom(icon_portals),
         BoardTool::WebPortal => DockIcon::Custom(icon_web),
         BoardTool::AtlasPortal => DockIcon::Custom(icon_atlas),
@@ -159,16 +155,12 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         DockItem {
             id: "tool.portals",
             label: "Portals",
-            description: "Drop a generated or host portal onto the board (Repository Lens, File Atlas, Status Board, Agent, or Web).",
+            description: "Drop a host portal onto the board (File Atlas, Agent, or Web).",
             icon: DockIcon::Custom(icon_portals),
             kind: DockItemKind::Tool,
             active: matches!(
                 tool,
-                BoardTool::RepoLens
-                    | BoardTool::StatusBoard
-                    | BoardTool::AgentPortal
-                    | BoardTool::WebPortal
-                    | BoardTool::AtlasPortal
+                BoardTool::AgentPortal | BoardTool::WebPortal | BoardTool::AtlasPortal
             ),
             visible: board,
             gap_before: false,
@@ -772,7 +764,7 @@ pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &s
             apply_frame_choice(app, id);
             return;
         }
-        "portal.repo" | "portal.status" | "portal.agent" | "portal.web" | "portal.atlas" => {
+        "portal.agent" | "portal.web" | "portal.atlas" => {
             apply_portal_choice(app, id);
             return;
         }
@@ -924,26 +916,6 @@ pub(crate) fn palette_strip_items<'a>(
         "tool.portals" => {
             let tool = app.board_tool;
             let mut items = vec![
-                FlyoutItem {
-                    id: "portal.repo",
-                    label: "Repository Lens",
-                    description: "Generated git history graph for a local repository.",
-                    hotkey: None,
-                    icon: DockIcon::Custom(icon_repo),
-                    active: tool == BoardTool::RepoLens && app.armed_kit_id.is_none(),
-                    group: Some("portals"),
-                    role: FlyoutRole::Icon,
-                },
-                FlyoutItem {
-                    id: "portal.status",
-                    label: "Status Board",
-                    description: "Generated project-state instrument from a JSON snapshot.",
-                    hotkey: None,
-                    icon: DockIcon::Custom(icon_status),
-                    active: tool == BoardTool::StatusBoard && app.armed_kit_id.is_none(),
-                    group: Some("portals"),
-                    role: FlyoutRole::Icon,
-                },
                 FlyoutItem {
                     id: "portal.agent",
                     label: "Agent portal",

@@ -8,10 +8,8 @@ Art. IV (honest models — the graph is extracted from file timestamps, never
 smoothed or invented).
 
 This surface is not a canvas tool, so it has no `docs/keymap/contracts/` entry
-(that framework scopes to `tool` and `portal` families). It is the shipped form
-of the two **temporal controllers** named for reuse in
-`../contracts/portal-lens-repository.md` § Temporal controllers — the range
-window and the contribution heatmap, merged into one control.
+(that framework scopes to `tool` and `portal` families). It is the shipped
+range window and contribution heatmap, merged into one control.
 
 ## 1. Why one axis
 

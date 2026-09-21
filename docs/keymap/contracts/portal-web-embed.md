@@ -7,7 +7,7 @@ Command: `board.portal.web` (placement) · Key: none in v1 · Palette:
 "web portal" (aliases: embed, web page, iframe, url, dashboard, html)
 Inherits: P0.* (all), P1.node, P1.portal, P2.PortalPlace, **P2.PortalHost** — deviations flagged below.
 Canvas: `portal-web-embed-contract` (volatile) · Precedent:
-`portal-lens-repository` (generated), `portal-agent-link` (host).
+`portal-agent-link` (host), `portal-atlas-lens` (host).
 
 > **Implementation.** Model: `slate-doc::scene` (`PortalKind::Web`,
 > `WebPortalRef`, `classify_web_locator`). Runtime: `apps/slate/src/app/board_web.rs`

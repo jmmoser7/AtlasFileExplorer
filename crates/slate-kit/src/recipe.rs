@@ -6,14 +6,14 @@
 //! interpreters or neither).
 //!
 //! Two kinds ship: [`Recipe::Shape`] for nodes the recipe can build itself, and
-//! [`Recipe::Portal`] for a preset source and query over an existing portal
-//! kind. Stamps — a saved group of nodes placed by the gesture — are the next
+//! [`Recipe::Portal`] for a preset source over an existing portal kind.
+//! Stamps — a saved group of nodes placed by the gesture — are the next
 //! kind and are deliberately absent rather than stubbed.
 
 use serde::{Deserialize, Serialize};
 use slate_doc::scene::{
-    Corner, FontChoice, FrameNode, NodeKind, PortalClass, PortalKind, PortalNode, RepoPortalQuery,
-    Rgba, ShapeKind, ShapeNode, SourceUri, Stroke, TextAlign, TextNode, WorldRect,
+    Corner, FontChoice, FrameNode, NodeKind, PortalClass, PortalKind, PortalNode, Rgba, ShapeKind,
+    ShapeNode, SourceUri, Stroke, TextAlign, TextNode, WorldRect,
 };
 
 use crate::color::{ColorRef, KitColor};
@@ -153,8 +153,6 @@ impl PortalKindRef {
         // `PortalKind` is closed in `slate-doc`: a kit presets an existing kind
         // and can never introduce one.
         match self.0.as_str() {
-            "repo_lens" => Some(PortalKind::RepoLens),
-            "status_board" => Some(PortalKind::StatusBoard),
             "agent" => Some(PortalKind::Agent),
             "web" => Some(PortalKind::Web),
             "file_atlas" => Some(PortalKind::FileAtlas),
@@ -168,7 +166,7 @@ impl PortalKindRef {
     }
 }
 
-/// A recipe that places a portal with a preset source and query.
+/// A recipe that places a portal with a preset source.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PortalRecipe {
@@ -179,8 +177,6 @@ pub struct PortalRecipe {
     /// which is the honest default for a shared kit — see `resolve.rs`.
     #[serde(default)]
     pub source: Option<String>,
-    #[serde(default)]
-    pub query: RepoPortalQuery,
     #[serde(default)]
     pub default_size: Option<[f32; 2]>,
     #[serde(default)]
@@ -241,12 +237,6 @@ impl Recipe {
                     return Vec::new();
                 };
                 let mut node = match kind {
-                    PortalKind::RepoLens => PortalNode::unbound_repo_lens(
-                        p.title.clone().unwrap_or_else(|| "Repository Lens".into()),
-                    ),
-                    PortalKind::StatusBoard => PortalNode::unbound_status_board(
-                        p.title.clone().unwrap_or_else(|| "Status Board".into()),
-                    ),
                     PortalKind::Agent => PortalNode::unbound_agent(
                         p.title.clone().unwrap_or_else(|| "Agent portal".into()),
                         "",
@@ -258,13 +248,7 @@ impl Recipe {
                         p.title.clone().unwrap_or_else(|| "File Atlas".into()),
                     ),
                 };
-                node.class = match kind {
-                    PortalKind::RepoLens | PortalKind::StatusBoard => PortalClass::Generated,
-                    PortalKind::Agent | PortalKind::Web | PortalKind::FileAtlas => {
-                        PortalClass::Host
-                    }
-                };
-                node.query = p.query.clone();
+                node.class = PortalClass::Host;
                 node.source = p.source.clone().map(|locator| SourceUri { locator });
                 if let Some(f) = p.fill {
                     node.fill = f.resolve(ctx.accent);
@@ -466,14 +450,13 @@ mod tests {
     }
 
     #[test]
-    fn a_portal_recipe_presets_source_and_query() {
+    fn a_portal_recipe_presets_a_source() {
         let recipe: Recipe = toml::from_str(
             r#"
             kind = "portal"
-            portal = "repo_lens"
-            title = "This repo"
-            source = "."
-            query = { max_commits = 500, axis = "chronological" }
+            portal = "file_atlas"
+            title = "Shots"
+            source = "shots"
             default_size = [960.0, 540.0]
         "#,
         )
@@ -482,33 +465,23 @@ mod tests {
         let NodeKind::Portal(p) = &specs[0].kind else {
             panic!("expected a portal");
         };
-        assert_eq!(p.class, PortalClass::Generated);
-        assert_eq!(p.kind, PortalKind::RepoLens);
-        assert_eq!(p.title, "This repo");
-        assert_eq!(p.source.as_ref().unwrap().locator, ".");
-        assert_eq!(p.query.max_commits, 500);
-        assert_eq!(p.query.axis, slate_doc::scene::RepoTimeAxis::Chronological);
+        assert_eq!(p.class, PortalClass::Host);
+        assert_eq!(p.kind, PortalKind::FileAtlas);
+        assert_eq!(p.title, "Shots");
+        assert_eq!(p.source.as_ref().unwrap().locator, "shots");
     }
 
     #[test]
-    fn a_status_board_recipe_places_an_unbound_generated_portal() {
+    fn a_retired_portal_kind_builds_nothing() {
         let recipe: Recipe = toml::from_str(
             r#"
             kind = "portal"
             portal = "status_board"
             title = "Status Board"
-            default_size = [960.0, 720.0]
         "#,
         )
         .unwrap();
-        let specs = recipe.instantiate(r(), &ctx());
-        let NodeKind::Portal(p) = &specs[0].kind else {
-            panic!("expected a portal");
-        };
-        assert_eq!(p.class, PortalClass::Generated);
-        assert_eq!(p.kind, PortalKind::StatusBoard);
-        assert!(p.source.is_none());
-        assert_eq!(p.status, slate_doc::scene::StatusPortalQuery::default());
+        assert!(recipe.instantiate(r(), &ctx()).is_empty());
     }
 
     #[test]
@@ -577,7 +550,6 @@ mod tests {
             portal: PortalKindRef("figma_frame".into()),
             title: None,
             source: None,
-            query: RepoPortalQuery::default(),
             default_size: None,
             fill: None,
         });

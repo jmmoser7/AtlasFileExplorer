@@ -180,8 +180,8 @@ mod tests {
             "rect",
             "ellipse",
             "portal-file-atlas",
-            "portal-repo-lens",
-            "portal-status-board",
+            "portal-web",
+            "portal-agent",
         ] {
             assert!(reg.get(id).is_some(), "built-in kit is missing `{id}`");
         }

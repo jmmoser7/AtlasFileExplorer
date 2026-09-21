@@ -239,9 +239,10 @@ text- or image-producing tool appears.
 
 ### P1.portal — portal nodes (generated / document / host)
 
-Promoted when `portal-web-embed` became the third portal contract, then
-extended when `portal-status-board` became the second generated subtype
-(2026-08-16). Older contracts may still state some of these rules inline —
+Promoted when `portal-web-embed` joined the portal contracts. Repository
+Lens and Status Board, the generated subtypes that first extended these
+rows, were later removed from the product; the pattern stays for the host
+portals. Older contracts may still state some of these rules inline —
 rewriting an already-approved matrix cell is a worse cost than the
 duplication. New portal contracts reference these and add only deviations.
 
@@ -491,7 +492,7 @@ P2.DragShape, P2.PortalPlace, or P2.PlaceOnce.
 ### P2.PortalPlace — area placement for portal frames
 
 The placement grammar every portal subtype has arrived at, promoted from
-`portal-lens-repository`, `portal-agent-link`, and `portal-web-embed`.
+`portal-agent-link`, `portal-atlas-lens`, and `portal-web-embed`.
 
 - **P2.PortalPlace.gesture** `Armed → Dragging(rect) → Committed(unbound)`:
   press-drag-release defines the frame and the release commits an **unbound**
