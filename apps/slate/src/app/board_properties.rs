@@ -1086,6 +1086,9 @@ impl SlateApp {
             z,
             theme,
         );
+        let theme_relative_fill = panel == Panel::Fill
+            && matches!(&first.kind, NodeKind::Portal(p) if p.fill_follows_theme());
+        let displayed_rgb = [color.0[0], color.0[1], color.0[2]];
         if let Some(rgb) = edit.rgb {
             self.preview_shape_property(if panel == Panel::Fill {
                 Property::FillRgb(rgb)
@@ -1095,12 +1098,8 @@ impl SlateApp {
         }
         if let Some(alpha) = edit.alpha {
             if panel == Panel::Fill {
-                if matches!(&first.kind, NodeKind::Portal(p) if p.fill_follows_theme())
-                    && edit.rgb.is_none()
-                {
-                    self.preview_shape_property(Property::FillRgb([
-                        color.0[0], color.0[1], color.0[2],
-                    ]));
+                if theme_relative_fill && edit.rgb.is_none() {
+                    self.preview_shape_property(Property::FillRgb(displayed_rgb));
                 }
                 self.preview_shape_property(Property::FillAlpha(alpha));
             } else {

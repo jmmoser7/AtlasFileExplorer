@@ -759,7 +759,7 @@ impl SlateApp {
                 r,
                 0.0,
                 palette.select.gamma_multiply(0.16),
-                egui::Stroke::new(1.0, palette.select),
+                egui::Stroke::new(1.0_f32, palette.select),
                 egui::StrokeKind::Inside,
             );
         }
