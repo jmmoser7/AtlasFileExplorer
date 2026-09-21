@@ -923,6 +923,7 @@ pub fn board_pick_node_routed(
         .map(|n| n.id)
 }
 
+#[cfg(test)]
 pub fn default_draw_stroke(accent: Rgba) -> Stroke {
     Stroke {
         width: 2.0,

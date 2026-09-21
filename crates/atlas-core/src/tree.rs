@@ -1182,7 +1182,7 @@ mod tests {
             // grid re-packs the survivors but the hit test indexed the
             // unfiltered file list, so most cells resolved to the wrong
             // file and every hover/click was dropped.
-            let file_match: Vec<bool> = (0..entries.len()).map(|i| i % 2 == 0).collect();
+            let file_match: Vec<bool> = (0..entries.len()).map(|i| i.is_multiple_of(2)).collect();
             t.refresh_matches(&file_match);
             t.layout_filtered(orient, true, &file_match, false);
             assert_all_hit(&t, "filtered");

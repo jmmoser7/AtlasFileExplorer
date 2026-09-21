@@ -162,14 +162,13 @@ mod tests {
     use super::*;
     use crate::model::{EdgeKind, LensEdge, LensNode, NodeKind};
 
-    fn temp_workspace() -> PathBuf {
+    fn temp_workspace(name: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "code_lens_beacon_{}_{}",
+            "code_lens_beacon_{name}_{}_{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+            NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -211,7 +210,7 @@ mod tests {
 
     #[test]
     fn beacon_write_round_trip_and_fingerprint_gate() {
-        let ws = temp_workspace();
+        let ws = temp_workspace("write");
         let source = ws.join("repo");
         std::fs::create_dir_all(&source).unwrap();
         let mut beacon = LensBeacon::new();
@@ -244,7 +243,7 @@ mod tests {
 
     #[test]
     fn beacon_read_overlay_mtime_cycle() {
-        let ws = temp_workspace();
+        let ws = temp_workspace("read");
         let mut beacon = LensBeacon::new();
 
         beacon.test_force_read_elapsed();

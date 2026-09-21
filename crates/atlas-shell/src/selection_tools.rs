@@ -516,6 +516,7 @@ fn texture_rect(
 }
 
 /// Full-width buffer: values exist only beside the cursor during adjustment.
+#[allow(clippy::too_many_arguments)]
 fn buffer(
     ui: &mut egui::Ui,
     id: Id,
@@ -641,10 +642,10 @@ pub fn color_editor(
             Vec2::new(396.0, 7.0) * zoom,
         )
     };
-    let checker: Vec<_> = (0..2)
+    let checker: Vec<_> = (0..2usize)
         .flat_map(|y| {
-            (0..96).map(move |x| {
-                if (x + y) % 2 == 0 {
+            (0..96usize).map(move |x| {
+                if (x + y).is_multiple_of(2) {
                     theme.border
                 } else {
                     theme.card
@@ -1106,6 +1107,7 @@ pub fn filter_editor(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_filter_radio(
     painter: &egui::Painter,
     center: Pos2,
