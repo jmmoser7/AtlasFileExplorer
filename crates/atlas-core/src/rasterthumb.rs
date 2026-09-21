@@ -203,8 +203,10 @@ fn to_dynamic(
         PixelFormat::L16 => {
             // Native-endian pairs out of the decoder.
             let gray: Vec<u16> = pixels
-                .chunks_exact(2)
-                .map(|c| u16::from_ne_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_ne_bytes(*c))
                 .collect();
             image::ImageBuffer::<image::Luma<u16>, _>::from_raw(w, h, gray)
                 .map(image::DynamicImage::ImageLuma16)
@@ -213,7 +215,9 @@ fn to_dynamic(
             // Rare (Adobe-flavoured) and inverted; convert rather than fail so
             // these files still get a card instead of a placeholder.
             let rgb: Vec<u8> = pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|c| {
                     let (c0, m, y, k) = (c[0] as u32, c[1] as u32, c[2] as u32, c[3] as u32);
                     [

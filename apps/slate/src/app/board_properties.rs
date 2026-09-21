@@ -1143,6 +1143,19 @@ impl SlateApp {
     }
 }
 
+impl SlateApp {
+    pub(crate) fn start_property_desktop_sample(&mut self, panel: Panel) {
+        self.begin_desktop_sample(
+            super::board_color::DesktopDestination::Nodes {
+                ids: self.shape_properties.ids.clone(),
+                panel,
+                preview: true,
+            },
+            false,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::tests::Harness;
@@ -1515,7 +1528,7 @@ mod tests {
         assert!(dims[1].offset.x > 0.0);
         h.app.patch_nodes(&[id], |n| n.rotation_deg = 37.0);
         let n = h.app.doc().scene.node(id).unwrap();
-        let (_, dims) = dimensions(&[n.clone()]);
+        let (_, dims) = dimensions(std::slice::from_ref(n));
         let center = Pos2::new(n.rect.center().0, n.rect.center().1);
         for d in dims {
             let midpoint = d.ends[0].lerp(d.ends[1], 0.5);
@@ -1944,18 +1957,5 @@ mod tests {
         assert!(h.app.shape_properties.panel.is_none());
         assert!(h.app.board_sel.is_empty());
         assert!(!h.app.board_sel.contains(&id));
-    }
-}
-
-impl SlateApp {
-    pub(crate) fn start_property_desktop_sample(&mut self, panel: Panel) {
-        self.begin_desktop_sample(
-            super::board_color::DesktopDestination::Nodes {
-                ids: self.shape_properties.ids.clone(),
-                panel,
-                preview: true,
-            },
-            false,
-        );
     }
 }

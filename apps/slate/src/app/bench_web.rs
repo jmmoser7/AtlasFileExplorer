@@ -114,7 +114,7 @@ fn page_image() -> std::sync::Arc<egui::ColorImage> {
     let mut pixels = Vec::with_capacity(PAGE_W * PAGE_H);
     for y in 0..PAGE_H {
         for x in 0..PAGE_W {
-            let lit = (x / 64 + y / 64) % 2 == 0;
+            let lit = (x / 64 + y / 64).is_multiple_of(2);
             pixels.push(if lit {
                 egui::Color32::from_rgb(28, 84, 150)
             } else {
@@ -329,7 +329,7 @@ impl Bench {
     /// Frames while the camera is moving, which is when jitter is felt.
     fn run_panning(&mut self, secs: f32) -> Stats {
         self.run_paced(secs, 0, |b, i| {
-            b.app.tab_mut().cam.offset += EVec2::new(6.0, if i % 2 == 0 { 2.0 } else { -2.0 });
+            b.app.tab_mut().cam.offset += EVec2::new(6.0, if i.is_multiple_of(2) { 2.0 } else { -2.0 });
         })
     }
 

@@ -89,7 +89,6 @@ impl SlateApp {
         #[cfg(test)]
         {
             let _ = (destination, temporary);
-            return;
         }
         #[cfg(not(test))]
         {
