@@ -187,14 +187,6 @@
     "path": "M4 4H15V15H4ZM9 18V20H20V9H18",
     "filled": false
   },
-  "RepoLens": {
-    "path": "M6 5V18M6 13Q6 10 12 10T18 5M4 3H8V7H4ZM4 17H8V21H4ZM16 3H20V7H16Z",
-    "filled": false
-  },
-  "StatusBoard": {
-    "path": "M4 4H20V20H4ZM8 8H16M8 12H14M8 16H11",
-    "filled": false
-  },
   "View": {
     "path": "M2 12Q12-1 22 12Q12 25 2 12ZM15 12a3 3 0 1 1-6 0 3 3 0 1 1 6 0",
     "filled": false

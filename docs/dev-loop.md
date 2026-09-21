@@ -108,10 +108,10 @@ Create or refresh Windows Desktop shortcuts after a successful release build:
 
 The fast two-app dev loop also refreshes the same shortcuts after it builds,
 pointing them at `target\debug`. The release wrapper repoints them at
-`target\release`. Both targets are stable paths, so pin each Desktop shortcut
-to the taskbar once through Windows; future builds preserve that taskbar pin.
-Windows intentionally keeps taskbar pinning user-controlled, so the scripts do
-not rewrite the user's taskbar layout.
+`target\release`. Both targets are stable paths. Desktop shortcuts, Start menu
+shortcuts, and an existing taskbar or Start pin whose target is `slate.exe` or
+`native-file-atlas.exe` are repointed at that build. The scripts do not add,
+remove, or reorder pins.
 
 ## Chrome visual tuning (already live)
 

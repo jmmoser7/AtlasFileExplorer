@@ -60,19 +60,16 @@ pub fn constraint_for(tool: BoardTool, frame_aspect: f32) -> Option<PlaceConstra
             ratio: frame_aspect.max(0.001),
         }),
         BoardTool::RectShape | BoardTool::Ellipse => Some(PlaceConstraint::SquareOnShift),
-        BoardTool::RepoLens
-        | BoardTool::StatusBoard
-        | BoardTool::AgentPortal
-        | BoardTool::WebPortal
-        | BoardTool::AtlasPortal => Some(PlaceConstraint::ShiftLocksAspect { ratio: 16.0 / 9.0 }),
+        BoardTool::AgentPortal | BoardTool::WebPortal | BoardTool::AtlasPortal => {
+            Some(PlaceConstraint::ShiftLocksAspect { ratio: 16.0 / 9.0 })
+        }
         _ => None,
     }
 }
 
 /// World rect for a press-at-`start` / cursor-at-`end` DragScale.
 ///
-/// The origin and aspect rules match the functions this replaced
-/// (`frame_drag_rect`, `repo_lens_drag_rect`, `constrain_draw_rect`) so
+/// The origin and aspect rules match the drag helpers this replaced so
 /// existing click/drag tests stay honest.
 pub fn place_rect(start: Pos2, end: Pos2, constraint: PlaceConstraint, shift: bool) -> WorldRect {
     let dx = end.x - start.x;
@@ -134,11 +131,9 @@ pub fn ghost_kind(tool: BoardTool) -> Option<GhostKind> {
     match tool {
         BoardTool::Frame | BoardTool::RectShape => Some(GhostKind::RoundedRect),
         BoardTool::Ellipse => Some(GhostKind::Ellipse),
-        BoardTool::RepoLens
-        | BoardTool::StatusBoard
-        | BoardTool::AgentPortal
-        | BoardTool::WebPortal
-        | BoardTool::AtlasPortal => Some(GhostKind::Portal),
+        BoardTool::AgentPortal | BoardTool::WebPortal | BoardTool::AtlasPortal => {
+            Some(GhostKind::Portal)
+        }
         BoardTool::Text => Some(GhostKind::TextBox),
         BoardTool::Sticky => Some(GhostKind::Sticky),
         _ => None,
@@ -245,9 +240,8 @@ mod tests {
         );
         assert_eq!(ghost_kind(BoardTool::Ellipse), Some(GhostKind::Ellipse));
         assert_eq!(ghost_kind(BoardTool::WebPortal), Some(GhostKind::Portal));
-        assert_eq!(ghost_kind(BoardTool::RepoLens), Some(GhostKind::Portal));
-        assert_eq!(ghost_kind(BoardTool::StatusBoard), Some(GhostKind::Portal));
         assert_eq!(ghost_kind(BoardTool::AgentPortal), Some(GhostKind::Portal));
+        assert_eq!(ghost_kind(BoardTool::AtlasPortal), Some(GhostKind::Portal));
         assert_eq!(ghost_kind(BoardTool::Text), Some(GhostKind::TextBox));
         assert_eq!(ghost_kind(BoardTool::Sticky), Some(GhostKind::Sticky));
         assert!(ghost_kind(BoardTool::Line).is_none());

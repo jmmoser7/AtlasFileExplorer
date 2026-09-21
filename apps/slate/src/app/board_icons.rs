@@ -42,10 +42,6 @@ pub enum ToolIcon {
     Colors,
     /// Board Portals family (dock icon + flyout).
     Portals,
-    /// Repository Lens portal subtype.
-    RepoLens,
-    /// Status Board portal subtype.
-    StatusBoard,
     /// Web portal subtype (embedded page / local HTML dashboard).
     WebPortal,
     /// File Atlas lens portal subtype.
@@ -95,8 +91,6 @@ impl ToolIcon {
             ToolIcon::DirectSelect => "Direct select",
             ToolIcon::Colors => "Colors",
             ToolIcon::Portals => "Portals",
-            ToolIcon::RepoLens => "Repository Lens",
-            ToolIcon::StatusBoard => "Status Board",
             ToolIcon::WebPortal => "Web portal",
             ToolIcon::AtlasLens => "File Atlas",
             ToolIcon::Trim => "Trim",
@@ -144,8 +138,6 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
         ToolIcon::DirectSelect => Icon::DirectSelect,
         ToolIcon::Colors => Icon::Colors,
         ToolIcon::Portals => Icon::Portals,
-        ToolIcon::RepoLens => Icon::RepoLens,
-        ToolIcon::StatusBoard => Icon::StatusBoard,
         ToolIcon::AtlasLens => Icon::AtlasLens,
         ToolIcon::WebPortal => Icon::WebPortal,
         ToolIcon::Trim => Icon::Trim,

@@ -34,9 +34,8 @@ pub use osnap::{
 };
 pub use scene::{
     AgentContextScope, AgentPortalRef, AtlasPortalQuery, AtlasSort, DockStripNode, Node, NodeId,
-    NodeKind, PortalClass, PortalKind, PortalNode, RepoPortalQuery, RepoTimeAxis, Scene, SceneCmd,
-    SceneJournal, SourceUri, StatusPortalQuery, WorldRect, REPO_PORTAL_DEFAULT_H,
-    REPO_PORTAL_DEFAULT_W, STATUS_PORTAL_DEFAULT_H, STATUS_PORTAL_DEFAULT_W,
+    NodeKind, PortalClass, PortalKind, PortalNode, Scene, SceneCmd, SceneJournal, SourceUri,
+    WorldRect,
 };
 pub use stage::{
     accept, reject, Proposal, ProposalResult, ProposalStatus, ProposalTarget, StageWatcher,

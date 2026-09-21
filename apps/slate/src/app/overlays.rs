@@ -251,15 +251,6 @@ impl SlateApp {
                 self.push_history(item.id, Some("placed".into()));
                 self.connect_pending_wire_to_selection();
             }
-            "board.portal.repo_lens" => {
-                self.place_repo_lens_at(world);
-                // place_repo_lens_at already pushes history.
-                self.connect_pending_wire_to_selection();
-            }
-            "board.portal.status_board" => {
-                self.place_status_board_at(world);
-                self.connect_pending_wire_to_selection();
-            }
             "board.portal.web" => {
                 self.place_web_portal_at(world);
                 self.connect_pending_wire_to_selection();

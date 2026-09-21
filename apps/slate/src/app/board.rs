@@ -54,7 +54,7 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as E
 use slate_doc::scene::{
     Corner, Crop, Dash, FontChoice, ImageAdjust, ImageNode, Node, NodeKind, PortalKind, PortalNode,
     Rgba, SceneCmd, ShapeKind, StrokeCap, StrokeJoin, TextAlign, TextNode, WidthProfile, WorldRect,
-    PORTAL_DEFAULT_H, PORTAL_DEFAULT_W, REPO_PORTAL_DEFAULT_H, REPO_PORTAL_DEFAULT_W,
+    PORTAL_DEFAULT_H, PORTAL_DEFAULT_W,
 };
 use slate_doc::{ItemId, NodeId};
 use std::collections::BTreeMap;
@@ -144,10 +144,6 @@ pub enum BoardTool {
     Sticky,
     /// Direct Selection: anchor/segment/handle editing on paths (A).
     DirectSelect,
-    /// Repository Lens portal placement (palette / Portals rail).
-    RepoLens,
-    /// Status Board portal placement (palette / Portals rail).
-    StatusBoard,
     /// Local agent host portal placement (palette / Portals rail).
     AgentPortal,
     /// Web host portal placement — embedded page or local HTML dashboard
@@ -165,7 +161,7 @@ impl BoardTool {
     /// Every tool, in declaration order. Kept beside [`BoardTool::grammar`],
     /// whose exhaustive match is the compiler-enforced reason a new variant
     /// cannot be added without being considered here too.
-    pub const ALL: [BoardTool; 23] = [
+    pub const ALL: [BoardTool; 21] = [
         BoardTool::Select,
         BoardTool::Pan,
         BoardTool::Frame,
@@ -182,8 +178,6 @@ impl BoardTool {
         BoardTool::Eyedropper,
         BoardTool::Sticky,
         BoardTool::DirectSelect,
-        BoardTool::RepoLens,
-        BoardTool::StatusBoard,
         BoardTool::AgentPortal,
         BoardTool::WebPortal,
         BoardTool::AtlasPortal,
@@ -209,8 +203,6 @@ impl BoardTool {
             BoardTool::Eyedropper => "Eyedropper",
             BoardTool::Sticky => "Sticky note",
             BoardTool::DirectSelect => "Direct select",
-            BoardTool::RepoLens => "Repository Lens",
-            BoardTool::StatusBoard => "Status Board",
             BoardTool::AgentPortal => "Agent portal",
             BoardTool::WebPortal => "Web portal",
             BoardTool::AtlasPortal => "File Atlas",
@@ -237,8 +229,6 @@ impl BoardTool {
             BoardTool::Eyedropper => board_icons::ToolIcon::Eyedropper,
             BoardTool::Sticky => board_icons::ToolIcon::Sticky,
             BoardTool::DirectSelect => board_icons::ToolIcon::DirectSelect,
-            BoardTool::RepoLens => board_icons::ToolIcon::RepoLens,
-            BoardTool::StatusBoard => board_icons::ToolIcon::StatusBoard,
             BoardTool::AgentPortal => board_icons::ToolIcon::Portals,
             BoardTool::WebPortal => board_icons::ToolIcon::WebPortal,
             BoardTool::AtlasPortal => board_icons::ToolIcon::AtlasLens,
@@ -263,11 +253,7 @@ impl BoardTool {
             BoardTool::Eyedropper => "I",
             BoardTool::Sticky => "N",
             BoardTool::DirectSelect => "A",
-            BoardTool::RepoLens
-            | BoardTool::StatusBoard
-            | BoardTool::AgentPortal
-            | BoardTool::WebPortal
-            | BoardTool::AtlasPortal => "",
+            BoardTool::AgentPortal | BoardTool::WebPortal | BoardTool::AtlasPortal => "",
             BoardTool::Trim => "Ctrl+T",
             BoardTool::Split => "Ctrl+Shift+T",
         }
@@ -289,8 +275,6 @@ impl BoardTool {
             BoardTool::Frame
             | BoardTool::RectShape
             | BoardTool::Ellipse
-            | BoardTool::RepoLens
-            | BoardTool::StatusBoard
             | BoardTool::AgentPortal
             | BoardTool::WebPortal
             | BoardTool::AtlasPortal => G::DragRect,
@@ -319,8 +303,6 @@ impl BoardTool {
             BoardTool::Frame => Some("frame"),
             BoardTool::RectShape => Some("rect"),
             BoardTool::Ellipse => Some("ellipse"),
-            BoardTool::RepoLens => Some("portal-repo-lens"),
-            BoardTool::StatusBoard => Some("portal-status-board"),
             BoardTool::AgentPortal => Some("portal-agent"),
             BoardTool::WebPortal => Some("portal-web"),
             BoardTool::AtlasPortal => Some("portal-file-atlas"),
@@ -2128,9 +2110,6 @@ impl SlateApp {
             NodeKind::Portal(p) => {
                 let portal = p.clone();
                 match portal.kind {
-                    PortalKind::RepoLens | PortalKind::StatusBoard => {
-                        self.paint_portal_node(ui, painter, xf, node, &portal, chrome);
-                    }
                     PortalKind::Agent => {
                         self.paint_agent_portal(ui, painter, xf, node, &portal);
                     }
@@ -2563,8 +2542,6 @@ impl SlateApp {
             BoardTool::Frame
                 | BoardTool::RectShape
                 | BoardTool::Ellipse
-                | BoardTool::RepoLens
-                | BoardTool::StatusBoard
                 | BoardTool::AgentPortal
                 | BoardTool::WebPortal
                 | BoardTool::AtlasPortal
@@ -2715,7 +2692,6 @@ impl SlateApp {
                 }
             }
         }
-        let portal_focus = self.portals.interactive;
         for n in nodes.iter().filter(|n| n.is_frame()) {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
@@ -2734,30 +2710,6 @@ impl SlateApp {
             .filter(|n| !n.is_frame() && !matches!(n.kind, NodeKind::Connector(_)))
         {
             self.paint_board_node(ui, &painter, &xf, n, true);
-        }
-        // Interactive portal focus: dim everything outside the portal frame.
-        if let Some(pid) = portal_focus {
-            if let Some(pn) = self.doc().scene.node(pid) {
-                let focus_rect = xf.rect_w2s(pn.rect).expand(2.0);
-                let full = painter.clip_rect();
-                let dim = Color32::from_black_alpha(140);
-                // Four slabs around the focused portal (cheap; no tessellation cache needed).
-                let top = Rect::from_min_max(full.min, egui::pos2(full.max.x, focus_rect.min.y));
-                let bot = Rect::from_min_max(egui::pos2(full.min.x, focus_rect.max.y), full.max);
-                let left = Rect::from_min_max(
-                    egui::pos2(full.min.x, focus_rect.min.y),
-                    egui::pos2(focus_rect.min.x, focus_rect.max.y),
-                );
-                let right = Rect::from_min_max(
-                    egui::pos2(focus_rect.max.x, focus_rect.min.y),
-                    egui::pos2(full.max.x, focus_rect.max.y),
-                );
-                for r in [top, bot, left, right] {
-                    if r.width() > 0.5 && r.height() > 0.5 {
-                        painter.rect_filled(r, 0.0, dim);
-                    }
-                }
-            }
         }
         // Ctrl+H feedback: just-hidden nodes ghost out over 150 ms.
         self.paint_hide_ghosts(ui, &painter, &xf);
@@ -3988,8 +3940,6 @@ impl SlateApp {
             tool @ (BoardTool::Frame
             | BoardTool::RectShape
             | BoardTool::Ellipse
-            | BoardTool::RepoLens
-            | BoardTool::StatusBoard
             | BoardTool::AgentPortal
             | BoardTool::WebPortal
             | BoardTool::AtlasPortal) => {
@@ -4805,8 +4755,6 @@ impl SlateApp {
     pub(crate) fn place_default_at(&mut self, tool: BoardTool, center: Pos2) {
         match tool {
             BoardTool::Frame => self.place_frame_at(center),
-            BoardTool::RepoLens => self.place_repo_lens_at(center),
-            BoardTool::StatusBoard => self.place_status_board_at(center),
             BoardTool::AgentPortal => self.place_agent_portal_at(center),
             BoardTool::WebPortal => self.place_web_portal_at(center),
             BoardTool::AtlasPortal => self.place_atlas_portal_at(center),
@@ -4841,30 +4789,11 @@ impl SlateApp {
         self.place_from_recipe(BoardTool::Frame, center, (w, h));
     }
 
-    /// Click-to-place default Repository Lens portal (960×540, unbound).
-    pub(crate) fn place_repo_lens_at(&mut self, center: Pos2) {
-        self.place_from_recipe(
-            BoardTool::RepoLens,
-            center,
-            (REPO_PORTAL_DEFAULT_W, REPO_PORTAL_DEFAULT_H),
-        );
-    }
-
-    /// Click-to-place default Status Board portal (960×720, unbound).
-    pub(crate) fn place_status_board_at(&mut self, center: Pos2) {
-        self.place_from_recipe(
-            BoardTool::StatusBoard,
-            center,
-            (
-                slate_doc::scene::STATUS_PORTAL_DEFAULT_W,
-                slate_doc::scene::STATUS_PORTAL_DEFAULT_H,
-            ),
-        );
-    }
-
     /// Click-to-place default Agent portal (host-class local agent link).
     pub(crate) fn place_agent_portal_at(&mut self, center: Pos2) {
         if self.armed_kit_id.is_some() {
+            // An agent portal is a chat card, not a document viewport, so it
+            // does not take PORTAL_DEFAULT_W/H.
             self.place_from_recipe(BoardTool::AgentPortal, center, (384.0, 168.0));
             return;
         }
@@ -5051,8 +4980,6 @@ impl SlateApp {
     fn draw_command_id(tool: BoardTool) -> Option<&'static str> {
         match tool {
             BoardTool::Frame => Some("board.tool.frame"),
-            BoardTool::RepoLens => Some("board.portal.repo_lens"),
-            BoardTool::StatusBoard => Some("board.portal.status_board"),
             BoardTool::AgentPortal => Some("board.portal.agent"),
             BoardTool::WebPortal => Some("board.portal.web"),
             BoardTool::AtlasPortal => Some("board.portal.atlas"),
@@ -5241,8 +5168,6 @@ impl SlateApp {
         match self.board_pick_node(world.x, world.y) {
             Some(id) => {
                 self.apply_select_pick(id, mods, false);
-                // Commit focus inside a selected Repository Lens portal.
-                let _ = self.portal_pointer_click(world, mods);
             }
             None => {
                 if !mods.shift && !mods.ctrl {

@@ -1,5 +1,7 @@
-# Create or refresh Desktop and Start menu shortcuts for the locally built applications.
-# Taskbar pinning stays a user-controlled Windows action; pin either shortcut once.
+# Point Desktop, Start menu, and existing pins at the locally built applications.
+# Pins are not added, removed, or reordered. A shortcut that already launches
+# slate.exe or native-file-atlas.exe is retargeted at this build, including a
+# taskbar or Start pin that was still opening an older copy.
 [CmdletBinding()]
 param(
     [ValidateSet("Debug", "Release")]
@@ -8,43 +10,75 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$binDir = Join-Path $root ("target\\" + $Configuration.ToLowerInvariant())
+$binDir = Join-Path $root ("target\" + $Configuration.ToLowerInvariant())
 $desktop = [Environment]::GetFolderPath("DesktopDirectory")
 $programs = [Environment]::GetFolderPath("Programs")
 $shell = New-Object -ComObject WScript.Shell
 
-function Set-AppShortcut {
+function Update-Shortcut {
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [Parameter(Mandatory)] [string]$Executable,
+        [Parameter(Mandatory)] [string]$Description,
+        [Parameter(Mandatory)] [string]$IconLocation
+    )
+
+    $shortcut = $shell.CreateShortcut($Path)
+    $current = $shortcut.TargetPath -eq $Executable -and
+        $shortcut.WorkingDirectory -eq $root -and
+        $shortcut.Description -eq $Description -and
+        $shortcut.IconLocation -eq $IconLocation
+    if ($current) {
+        return
+    }
+
+    $shortcut.TargetPath = $Executable
+    $shortcut.WorkingDirectory = $root
+    $shortcut.Description = $Description
+    $shortcut.IconLocation = $IconLocation
+    $shortcut.Save()
+    Write-Host "Updated $Path -> $Executable"
+}
+
+function Get-LauncherRoots {
+    $candidates = @(
+        $desktop,
+        $programs,
+        [Environment]::GetFolderPath("CommonDesktopDirectory"),
+        [Environment]::GetFolderPath("CommonPrograms"),
+        (Join-Path $env:APPDATA "Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"),
+        (Join-Path $env:APPDATA "Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu")
+    )
+    $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
+}
+
+function Update-AppLaunchers {
     param(
         [Parameter(Mandatory)] [string]$Name,
         [Parameter(Mandatory)] [string]$Executable,
-        [Parameter(Mandatory)] [string]$Description,
-        [Parameter(Mandatory)] [string]$Icon
+        [Parameter(Mandatory)] [string]$Description
     )
 
     if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) {
         throw "Missing $Executable. Build the $Configuration profile before installing shortcuts."
     }
 
+    $icon = "$Executable,0"
     foreach ($folder in @($desktop, $programs)) {
-        $path = Join-Path $folder "$Name.lnk"
-        $shortcut = $shell.CreateShortcut($path)
-        $needsUpdate = $shortcut.TargetPath -ne $Executable -or
-            $shortcut.WorkingDirectory -ne $root -or
-            $shortcut.Description -ne $Description -or
-            $shortcut.IconLocation -ne "$Icon,0"
+        Update-Shortcut -Path (Join-Path $folder "$Name.lnk") -Executable $Executable -Description $Description -IconLocation $icon
+    }
 
-        if ($needsUpdate) {
-            $shortcut.TargetPath = $Executable
-            $shortcut.WorkingDirectory = $root
-            $shortcut.Description = $Description
-            $shortcut.IconLocation = "$Icon,0"
-            $shortcut.Save()
-            Write-Host "Updated $path"
-        } else {
-            Write-Host "$Name shortcut is already current."
+    $fileName = [System.IO.Path]::GetFileName($Executable)
+    foreach ($folder in Get-LauncherRoots) {
+        Get-ChildItem -LiteralPath $folder -Filter *.lnk -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            $existing = $shell.CreateShortcut($_.FullName)
+            $targetName = [System.IO.Path]::GetFileName($existing.TargetPath)
+            if ($targetName -and ($targetName -ieq $fileName)) {
+                Update-Shortcut -Path $_.FullName -Executable $Executable -Description $Description -IconLocation $icon
+            }
         }
     }
 }
 
-Set-AppShortcut -Name "Slate" -Executable (Join-Path $binDir "slate.exe") -Description "Slate board workspace" -Icon (Join-Path $root "apps/slate/assets/slate.ico")
-Set-AppShortcut -Name "File Atlas" -Executable (Join-Path $binDir "native-file-atlas.exe") -Description "File Atlas explorer" -Icon (Join-Path $root "apps/file-atlas/assets/file-atlas.ico")
+Update-AppLaunchers -Name "Slate" -Executable (Join-Path $binDir "slate.exe") -Description "Slate board workspace"
+Update-AppLaunchers -Name "File Atlas" -Executable (Join-Path $binDir "native-file-atlas.exe") -Description "File Atlas explorer"

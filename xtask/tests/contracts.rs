@@ -65,14 +65,15 @@ fn a_draft_contract_carries_only_proposed_or_decided_rows() {
 }
 
 #[test]
-fn the_first_portal_contract_is_present_and_generated_class() {
+fn an_agreed_portal_contract_covers_every_portal_dimension() {
     let audit = audit_contracts(&workspace_root()).expect("the contract artifacts parse");
     let portal = audit
         .contracts
         .iter()
-        .find(|c| c.name == "portal-lens-repository")
-        .expect("the repository Lens portal contract exists");
+        .find(|c| c.name == "portal-atlas-lens")
+        .expect("the File Atlas portal contract exists");
     assert_eq!(portal.family, Family::Portal);
+    assert_eq!(portal.status, Status::Agreed);
     assert_eq!(
         portal.rows.len(),
         audit.registry.in_scope(Family::Portal).len()

@@ -51,8 +51,9 @@ hidden on home. Opening is the shelf; **New** starts a blank workbook.
 
 Board is the only workbook canvas. Grid, Venn, and standalone Lens are retired.
 Legacy saved view values normalize to Board on load; linked items, tag assignments,
-and legacy `lens_root` metadata remain readable. Repository Lens remains a portal
-using `repo-graph`; it does not depend on the retired `code-lens` runtime.
+and legacy `lens_root` metadata remain readable. Repository Lens and Status Board
+portals are not part of the product: nodes of those kinds are dropped on load
+so the rest of the workbook still opens.
 
 ## Lazy full-resolution previews (`preview.rs`)
 

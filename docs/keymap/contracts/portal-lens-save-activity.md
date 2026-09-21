@@ -26,8 +26,8 @@ recent work: which projects were live, which file families dominated
 then filter that map by time, family, folder, or project.
 
 The 90% deliberately not implemented is in D15. This is not File Atlas, not
-Repository Lens, not Status Board, not a web iframe, and not a keystroke
-logger.
+a git history view, not a project-status dashboard, not a web iframe, and
+not a keystroke logger.
 
 Suggested v1 paint (proposal only): shared `ActivityTimeline` as the
 temporal controller (data = save stamps, colored by `atlas-core` family)
@@ -40,10 +40,9 @@ bake, and export from one `layout_*` function.
 The brief itself names the three refusals. They stand even if a later
 message says "just embed Damon" or "make it a new tab":
 
-1. **Article V.3 + Status Board.** The dashboard HTML is a disposable
-   interpreter. Shipping it as a host / web portal would make the board a
-   browser (Wave 5) for a file we already own. Same decision as
-   `portal-status-board.md`.
+1. **Article V.3.** The dashboard HTML is a disposable interpreter.
+   Shipping it as a host / web portal would make the board a browser
+   (Wave 5) for a file we already own.
 2. **Article IV + I.1.** One extract / layout, two interpreters (egui +
    `slate-artifact`). `app.js` would be a third interpreter, and
    extract/layout cannot live in JS.
@@ -61,9 +60,9 @@ extracts and lays out, and the existing ActivityTimeline widget (Art. X).
 
 ## PortalKind note
 
-`PortalKind` today includes `RepoLens`, `StatusBoard`, `Agent`, `Web`, and
-`FileAtlas`. A **sixth** variant is the honest addition **after** this
-contract is agreed — not before. The brief's list of four kinds is stale.
+`PortalKind` today is `Agent`, `Web`, and `FileAtlas`. Repository Lens and
+Status Board were removed and are not part of the product. A new variant is
+the honest addition **after** this contract is agreed — not before.
 
 ## Behavior matrix
 
@@ -75,7 +74,7 @@ Rows keyed to `DIMENSIONS.md` in registry order. Every row is mirrored in
 | D01 | Initiation & arming | Slate board only. Command `board.portal.save_activity`, board tabs only. Palette: "save activity" (aliases: activity lens, rug, save lens, work journal). Portals flyout. No single-key chord. `P1.portal.folder-drop`: list this lens only when the dropped folder contains a save journal (`saves.db` or `.jsonl`), not on every folder. Not a File Atlas feature and not a new `ViewKind`. | precedent | 85 |
 | D02 | Stickiness & repeat | P1.portal.place / P0.4: one-shot, commit returns to Select; Space/Enter re-arms | pattern | 90 |
 | D03 | Gesture grammar | P1.portal.place: `Armed → Dragging(rect) → Committed(unbound)`. Release paints "Choose save journal…". Binding is a separate non-modal step (D19). A folder-drop that picks this lens skips to `Committed(bound)`. | pattern | 90 |
-| D04 | Click vs drag rule | P1.portal.place. Travel > `draft.drag_threshold` (4 px) = dragged rect. Below it places `portal.activity.default_size` (960×640 world units) centred on the click. Taller than Repository Lens because v1 stacks a timeline readout over a tree. | precedent | 80 |
+| D04 | Click vs drag rule | P1.portal.place. Travel > `draft.drag_threshold` (4 px) = dragged rect. Below it places `portal.activity.default_size` (960×640 world units) centred on the click. Taller than the 960×540 host default because v1 stacks a timeline readout over a tree. | precedent | 80 |
 | D05 | Modifiers | P1.portal.place: Shift during the drag locks 16:9; unmodified drags are free-aspect. Alt while dropping a folder bypasses the chooser (`P1.portal.folder-drop`). Ctrl unassigned in v1. | precedent | 90 |
 | D06 | Constraints & snapping | F9 grid snap and smart guides apply to the frame rect (P1.node.move); F8 ortho is `n/a`. Contents never snap — they are derived geometry. | pattern | 85 |
 | D07 | Direction / value locks | `n/a` — no directional parameter in a rect placement | pattern | 85 |
@@ -89,7 +88,7 @@ Rows keyed to `DIMENSIONS.md` in registry order. Every row is mirrored in
 | D15 | Non-goals | Cut (Art. III): Damon dashboard HTML/JS; the Python HTTP server; wrapping `http://127.0.0.1:8787` as `PortalKind::Web`; a tab-level `ViewKind::Rug`; File Atlas clone; git history client; Status Board / live CI; keystroke or file-open logging; OneDrive-as-entire-home; home-wide watch as a product default; editing files from the lens; git write-back; agent inserts into the save journal; language-of-the-day heatmaps; on-canvas graph widgets in v1; a capture daemon inside Slate in v1; agent overlay in v1. Not cut: place, bind a local journal, extract+layout crate, shared ActivityTimeline, tree/readout, honest health cards, refresh / bake / export. | stated | 100 |
 | D16 | Create-style inheritance | P1.portal.style: **No.** The frame does not consume `BoardLastStyle`. | pattern | 90 |
 | D17 | Hit-testing & pick | P1.portal.pick. The frame picks on its rect, including marquee. Contents are not board-selectable. v1 proposal: no contents-focus (OQ4). Double-click selects the frame. Timeline gestures live on the portal inspector widget (D35). | precedent | 70 |
-| D18 | Portal class & authority | **Generated lens** (Art. V.3). Contents = `extract(journal)` + `SaveQuery` + frame size; never journaled. Closest sibling is Repository Lens, not Status Board and not File Atlas. Host/web of the Damon dashboard is refused (Art. V.3, IV, I.1, I.4, IX.2). If v1 collapses to caption + KPI + timeline with no tree, it becomes an instrument — that is OQ1. | research | 75 |
+| D18 | Portal class & authority | **Generated lens** (Art. V.3). Contents = `extract(journal)` + `SaveQuery` + frame size; never journaled. It is not a host folder map (File Atlas) and not a web page. Host/web of the Damon dashboard is refused (Art. V.3, IV, I.1, I.4, IX.2). If v1 collapses to caption + KPI + timeline with no tree, it becomes an instrument — that is OQ1. | research | 75 |
 | D19 | Source binding | One `SourceUri { kind: LocalFs }` naming a save journal file (`saves.db` or a `.jsonl`) or a folder containing exactly one such journal, stored relative-first (Art. IX.2). Empty state: "Choose save journal…". Bound by `portal.activity.source` or by `P1.portal.folder-drop` when a journal is present. Rebind is a journaled `Patch`. Refused: `http://127.0.0.1:8787`, hosted APIs, accounts, "watch $HOME", a File Atlas window handle, a directory of watch roots (capture — OQ2/OQ3). | guess | 55 |
 | D20 | Query & parameters | `SaveQuery { window: Last(n) / Since(date) / Range(a..b) / All; families: All / Named(Vec<Family>); projects: All / Named(Vec<String>); path_prefix: Option<String>; max_events: u32 default 2000; as_of: None / Date(ts) }`. Family shutters use `atlas-core` `types.rs` colors (Art. X). Grasshopper `gh`/`ghx` stays Cad; if it needs its own chip, promote an ExtGroup "Grasshopper" inside Cad — do not fork a second color table. `max_events` paints a visible "N older not shown" band, never a silent crop. Search-as-you-type is presence (D31). | guess | 55 |
 | D21 | Regeneration & staleness | Recompute on bind, query patch, frame resize, `portal.activity.refresh`, and a debounced mtime watch of the journal file (`portal.activity.refresh_debounce_ms` = 1000). Generation-tagged; stale results discarded (Art. II.3). Last-good stays painted at `portal.activity.stale_alpha` (0.6). An `as_of` pin does not auto-refresh past the pin. Capture of new saves is out of this portal (OQ2). | pattern | 80 |
@@ -117,7 +116,7 @@ before Status: agreed).
 
 Pure crate working name `crates/save-lens` (or `activity-lens`), no renderer
 and no app dependency (Art. I.1), Linux-testable (Art. I.3), split like
-`code-lens` / `status-board`:
+`code-lens`:
 
 - `extract.rs` — journal / sqlite → `SaveGraph`
 - `layout.rs` — `SaveGraph` + `SaveQuery` + frame size → `SaveLayout`
@@ -181,4 +180,4 @@ guesses.
    different fact).
 4. **OQ4 v1 body.** Inspector ActivityTimeline + painted readout, no
    contents hit (proposal) vs on-canvas timeline hits while selected vs
-   contents-focus like Repository Lens.
+   contents-focus through the shared portal slot.

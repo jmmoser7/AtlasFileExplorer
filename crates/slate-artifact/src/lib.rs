@@ -36,8 +36,6 @@ pub struct ExportOptions {
     /// different saved camera poses. Nodes without an entry fall back to
     /// the item thumbnail, then to a labeled card.
     pub model_posters: BTreeMap<slate_doc::NodeId, PathBuf>,
-    /// Workbook directory used to resolve relative portal locators (Art. IX.2).
-    pub workbook_dir: Option<PathBuf>,
     /// Resolved absolute sources for local web portals, keyed by node. The app
     /// resolves the workbook-relative locator; packaging them is a fork that
     /// names its origin (Art. IX.4), so the writer records where each came
@@ -68,12 +66,7 @@ pub fn export_html(
     fs::create_dir_all(out_dir)?;
 
     let asset_report = assets::build_assets(doc, out_dir, opts)?;
-    let html = render::render_html_routed(
-        doc,
-        &asset_report.map,
-        opts.workbook_dir.as_deref(),
-        opts.wire_routing,
-    );
+    let html = render::render_html_routed(doc, &asset_report.map, opts.wire_routing);
 
     let html_path = out_dir.join("index.html");
     fs::write(&html_path, &html)?;
