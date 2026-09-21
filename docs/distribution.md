@@ -80,6 +80,31 @@ SmartScreen has established reputation for a new release.
 
 ## Verification
 
+### Managed machines and trust
+
+Development-time Rust build helpers and procedural-macro DLLs are not shipped;
+never package `target/release` wholesale. End users do not need to approve those
+build artifacts or install the Rust/C++ development toolchain.
+
+An installer approval is not a blanket approval of its contents. Endpoint
+controls can separately inspect installed executables, DLLs, runtime components,
+and updater files; new versions may require fresh review. Sign the installer and
+application binaries with a consistent publisher identity and verify the actual
+release signatures. Optional signing support in this repository does not prove
+that a published release was signed. Signing identifies the publisher but does
+not guarantee immediate SmartScreen reputation or approval by corporate policy.
+
+Coordinate publisher/application approval with the recipient's IT team under its
+supported policy; do not ask users to disable protection or copy development-folder
+exceptions to installed applications. Test install, both app launches, and an
+update on a representative managed machine. Include optional AI/runtime paths
+when those features are part of the deployment.
+
+References: [Microsoft application control guidance](https://learn.microsoft.com/en-us/windows/security/book/application-security/application-and-driver-control)
+and [SmartScreen reputation guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
+
+### Release checks
+
 The release job runs `cargo test --locked --workspace` on Windows before building.
 `test-windows-update.ps1` installs a headless fixture with real Velopack Setup,
 holds two fixture processes open, verifies the helper waits for both, then checks

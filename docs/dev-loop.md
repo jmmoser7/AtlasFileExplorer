@@ -5,11 +5,30 @@ This is **auto rebuild + relaunch**, not in-process hot-patching.
 
 ## One-time setup
 
+On Windows, install Visual Studio Build Tools with the **Desktop development
+with C++** workload and a Windows SDK. From the repository root, select MSVC
+for this checkout (this leaves other projects' Rust defaults unchanged):
+
+```powershell
+rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal --component rustfmt --component clippy
+rustup override set stable-x86_64-pc-windows-msvc
+cargo test --locked --workspace
+.\scripts\build-release.ps1
+```
+
+The build/dev wrappers discover the installed Visual Studio C++ environment.
+For a manually initialized terminal, run `. .\scripts\_msvc-env.ps1` first.
+PDF previews use the checked-in `vendor/pdfium.dll` when launched from the
+repository; keep it beside the executables if launching from another directory.
+
 ```powershell
 cargo install --locked bacon
 ```
 
 (`bacon` is a Cargo-adjacent watcher; it is not a project dependency.)
+
+If Windows denies execution of generated helpers or compiler DLLs, follow
+[Windows builds and execution auditing](windows-builds.md) before retrying.
 
 ## Day-to-day
 

@@ -1,0 +1,12 @@
+---
+description: Windows build setup, execution auditing, and release verification
+alwaysApply: true
+---
+
+# Windows builds
+
+For Windows setup, builds, or execution-block diagnostics, read
+`docs/windows-builds.md` and follow its audit/retry workflow.
+For packaging or distribution, also read `docs/distribution.md`.
+Keep those documents as the owners of detailed instructions; do not duplicate
+machine paths, dependency counts, or security-policy assumptions here.

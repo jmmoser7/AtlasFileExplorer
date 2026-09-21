@@ -105,6 +105,10 @@ kit files with `cargo xtask kits` (also inside `cargo test --workspace`).
 
 ## Build & test (Windows — primary target)
 
+Read `docs/windows-builds.md` before Windows setup, builds, or execution-block
+diagnostics. It owns the MSVC setup and managed-machine audit/retry workflow.
+Distribution signing and end-user approval guidance lives in `docs/distribution.md`.
+
 ```powershell
 cargo test --workspace
 cargo build --release -p native-file-atlas -p slate

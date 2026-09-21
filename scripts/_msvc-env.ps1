@@ -1,8 +1,11 @@
-# Shared MSVC/SDK env for this machine when VS2022's libs are incomplete.
-# Dot-source from other scripts. No-op when paths are missing or LIB is set.
-$msvc2019 = "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133"
-$winsdk = "C:\Program Files (x86)\Windows Kits\10"
-if ((Test-Path "$msvc2019\lib\x64\msvcrt.lib") -and -not $env:LIB) {
-    $env:INCLUDE = "$msvc2019\include;$winsdk\include\10.0.19041.0\ucrt;$winsdk\include\10.0.19041.0\shared;$winsdk\include\10.0.19041.0\um"
-    $env:LIB = "$msvc2019\lib\x64;$winsdk\lib\10.0.19041.0\ucrt\x64;$winsdk\lib\10.0.19041.0\um\x64"
+# Discover the installed C++ toolchain instead of assuming a machine-specific SDK.
+# Dot-source from build/dev scripts; preserve an existing developer shell.
+if ($env:VSCMD_VER) { return }
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+if (Test-Path -LiteralPath $vswhere) {
+    $vsPath = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if ($vsPath) {
+        Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+        Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+    }
 }
