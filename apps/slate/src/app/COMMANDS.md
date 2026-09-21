@@ -427,8 +427,9 @@ Camera-only — never journaled, never repeatable.
   the source portal adds nothing. Drag outside the window to another
   application the same way File Explorer does (`portal.atlas.drag_out`,
   `atlas_core::shell_drag` — copy/link, never move). Unauthored fill follows
-  the card slot (slightly lighter than the board); Fill/Stroke squircles
-  author the window fill and border. Formatting (Display icon) is the filter
+  the card slot (slightly lighter than the board) and a theme hairline
+  outlines the window. Fill/Stroke squircles author the window fill and
+  border. Formatting (Display icon) is the filter
   menu plus Zoom to fit (`portal.atlas.fit`). Open in File Atlas uses the
   existing Slate-hosted viewport. Bake writes a poster + provenance; the
   portal stays live.

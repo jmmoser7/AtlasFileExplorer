@@ -313,11 +313,11 @@ duplication. New portal contracts reference these and add only deviations.
   block; they never consume `BoardLastStyle` and never become the last
   single-node edit. **Deviates P1.shape.style** — analysis and host surfaces
   stay identical between boards and between the two apps (Art. X). File Atlas
-  unauthored fill follows `Palette::card` (slightly lighter than the board) so
-  the window outline is visible; Fill/Stroke squircles author `portal.fill` /
-  `portal.stroke`. Default portals do not paint an outline; a minimalist stroke
-  appears only for edge hover or explicit contents focus, unless an authored
-  stroke is set.
+  unauthored fill follows `Palette::card` (slightly lighter than the board);
+  unauthored File Atlas stroke paints a 1-unit `Palette::border_strong` hairline.
+  Fill/Stroke squircles author `portal.fill` / `portal.stroke`. Other portals
+  do not paint an outline unless authored; a minimalist stroke appears only
+  for edge hover or explicit contents focus.
 - **P1.portal.empty-ui** Generated unbound / loading / error copy shares
   one painter in `board_portal.rs`. Host unbound CTA is
   **P2.PortalHost.empty**.

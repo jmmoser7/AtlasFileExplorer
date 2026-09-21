@@ -2162,6 +2162,15 @@ mod tests {
                 .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
             let palette = h.app.palette();
             assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rect && r.fill == palette.card)), "portal background must use the elevated card slot");
+            assert!(
+                output.shapes.iter().any(|s| match &s.shape {
+                    egui::Shape::Rect(r) => {
+                        r.stroke.width > 0.0 && r.stroke.color == palette.border_strong
+                    }
+                    _ => false,
+                }),
+                "unauthored File Atlas must paint a theme hairline so the window has an outline"
+            );
             assert_eq!(serde_json::to_value(&h.app.doc().scene).unwrap(), scene);
         }
     }

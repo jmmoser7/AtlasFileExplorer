@@ -2489,7 +2489,7 @@
           "decided": "2026-08-22"
         },
         "D16": {
-          "behavior": "P1.portal.style: no BoardLastStyle. Unauthored File Atlas fill follows Palette::card (slightly lighter than the board); theme switches never mutate the scene. Fill/Stroke squircles author portal.fill / portal.stroke. Cards and empty text still follow the palette.",
+          "behavior": "P1.portal.style: no BoardLastStyle. Unauthored File Atlas fill follows Palette::card (slightly lighter than the board); unauthored stroke paints a 1-unit Palette::border_strong hairline. Theme switches never mutate the scene. Fill/Stroke squircles author portal.fill / portal.stroke. Cards and empty text still follow the palette.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

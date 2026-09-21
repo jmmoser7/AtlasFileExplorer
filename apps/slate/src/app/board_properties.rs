@@ -117,11 +117,21 @@ impl Property {
             }
             Self::ImageAdjust(adjust) => scene::set_adjust(node, adjust),
             _ => {
+                let theme_relative =
+                    matches!(&node.kind, NodeKind::Portal(p) if p.stroke_follows_theme());
                 let Some(mut s) = scene::stroke_of(node) else {
                     return;
                 };
                 match *self {
-                    Self::StrokeRgb(rgb) => s.color.0[..3].copy_from_slice(&rgb),
+                    Self::StrokeRgb(rgb) => {
+                        s.color.0[..3].copy_from_slice(&rgb);
+                        if theme_relative {
+                            s.color.0[3] = 255;
+                            if s.width <= 0.0 {
+                                s.width = 1.0;
+                            }
+                        }
+                    }
                     Self::StrokeAlpha(a) => s.color.0[3] = a,
                     Self::StrokeWidth(v) if v.is_finite() => s.width = v.max(0.0),
                     Self::Dash(v) => s.dash = v,
@@ -1067,13 +1077,26 @@ impl SlateApp {
                     }
                 }
                 scene::fill_of(n).unwrap_or(Rgba([128, 128, 128, 0]))
+            } else if let NodeKind::Portal(p) = &n.kind {
+                if p.stroke_follows_theme() {
+                    super::board::to_rgba(theme.border_strong)
+                } else {
+                    scene::stroke_of(n).unwrap().color
+                }
             } else {
                 scene::stroke_of(n).unwrap().color
             }
         };
         let color = get_color(first);
         let mixed = nodes.iter().any(|n| get_color(n) != color);
-        let width = (panel == Panel::Stroke).then(|| scene::stroke_of(first).unwrap().width);
+        let width = (panel == Panel::Stroke).then(|| {
+            let width = scene::stroke_of(first).unwrap().width;
+            if matches!(&first.kind, NodeKind::Portal(p) if p.stroke_follows_theme()) {
+                width.max(1.0)
+            } else {
+                width
+            }
+        });
         let recent = self.doc().view.recent_colors.clone().unwrap_or_default();
         let edit = chrome::color_editor(
             ui,
@@ -1088,6 +1111,8 @@ impl SlateApp {
         );
         let theme_relative_fill = panel == Panel::Fill
             && matches!(&first.kind, NodeKind::Portal(p) if p.fill_follows_theme());
+        let theme_relative_stroke = panel == Panel::Stroke
+            && matches!(&first.kind, NodeKind::Portal(p) if p.stroke_follows_theme());
         let displayed_rgb = [color.0[0], color.0[1], color.0[2]];
         if let Some(rgb) = edit.rgb {
             self.preview_shape_property(if panel == Panel::Fill {
@@ -1103,6 +1128,9 @@ impl SlateApp {
                 }
                 self.preview_shape_property(Property::FillAlpha(alpha));
             } else {
+                if theme_relative_stroke && edit.rgb.is_none() {
+                    self.preview_shape_property(Property::StrokeRgb(displayed_rgb));
+                }
                 self.preview_shape_property(Property::StrokeAlpha(alpha));
             }
         }

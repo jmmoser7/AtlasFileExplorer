@@ -1373,6 +1373,13 @@ impl PortalNode {
         self.kind == PortalKind::FileAtlas
             && (self.fill == Rgba([0, 0, 0, 0]) || self.fill == ATLAS_LEGACY_THEME_FILL)
     }
+
+    /// Unauthored File Atlas outline follows `Palette::border_strong`.
+    /// Width 0 still paints a 1-unit hairline so the pane has an outline.
+    pub fn stroke_follows_theme(&self) -> bool {
+        self.kind == PortalKind::FileAtlas
+            && (self.stroke.color.0[3] == 0 || self.stroke == Stroke::default())
+    }
 }
 
 /// Serialized File Atlas fill from before authored/theme-relative fills.
@@ -2787,7 +2794,9 @@ mod tests {
         assert_eq!(loaded.atlas, AtlasPortalQuery::default());
         assert!(loaded.fill_follows_theme());
         assert!(loaded.stroke.is_none());
+        assert!(loaded.stroke_follows_theme());
         assert!(portal.fill_follows_theme());
+        assert!(portal.stroke_follows_theme());
         let mut authored = portal.clone();
         authored.fill = Rgba([40, 90, 140, 0]);
         assert!(

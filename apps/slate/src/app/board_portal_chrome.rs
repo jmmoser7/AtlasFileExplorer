@@ -669,6 +669,21 @@ impl SlateApp {
         zoom: f32,
     ) {
         let z = zoom.max(0.01);
+        if portal.kind == PortalKind::FileAtlas {
+            let width = canvas_scale::px(portal.stroke.width.max(1.0), z);
+            let color = if portal.stroke_follows_theme() {
+                self.palette().border_strong
+            } else {
+                rgba32(portal.stroke.color)
+            };
+            painter.rect_stroke(
+                layout.frame,
+                layout.radius,
+                Stroke::new(width, color),
+                StrokeKind::Outside,
+            );
+            return;
+        }
         if !portal.stroke.is_none() {
             let width = canvas_scale::px(portal.stroke.width, z);
             painter.rect_stroke(
