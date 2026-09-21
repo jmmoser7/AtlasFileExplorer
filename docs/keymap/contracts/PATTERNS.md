@@ -312,9 +312,12 @@ duplication. New portal contracts reference these and add only deviations.
 - **P1.portal.style** portals paint from `Palette::portal` and the portal token
   block; they never consume `BoardLastStyle` and never become the last
   single-node edit. **Deviates P1.shape.style** — analysis and host surfaces
-  stay identical between boards and between the two apps (Art. X). Default
-  portals do not paint an outline; a minimalist stroke appears only for
-  edge hover or explicit contents focus.
+  stay identical between boards and between the two apps (Art. X). File Atlas
+  unauthored fill follows `Palette::card` (slightly lighter than the board);
+  unauthored File Atlas stroke paints a 1-unit `Palette::border_strong` hairline.
+  Fill/Stroke squircles author `portal.fill` / `portal.stroke`. Other portals
+  do not paint an outline unless authored; a minimalist stroke appears only
+  for edge hover or explicit contents focus.
 - **P1.portal.empty-ui** Generated unbound / loading / error copy shares
   one painter in `board_portal.rs`. Host unbound CTA is
   **P2.PortalHost.empty**.
@@ -596,7 +599,7 @@ a second contract — stop and promote it.
 
 ### P1.shape.properties — selection properties and dimensions
 
-Scene capabilities select one shared squircle strip above the selection: Stroke for shapes, images and wires; Fill for closed shapes, text sticky-note backgrounds, frames and portals; Corners for rectangles and images; photo filters for images (not 3D model viewports); routing/weight/dash/arrows for wire-only selections. Frame-only actions (deck order, add images, tags, present) join that same strip. Mixed selections expose common controls. Width/height/length belong to separate exterior dimension stringers. Rectangle axes follow rotation; straight lines measure endpoint length; circles use diameter; general paths use tight local bounds. Groups without wires use union XY dimensions and uniform centroid scaling. Wire-containing selections omit box-dimension edits because attached endpoints follow their hosts. Portal source UI stays on the portal.
+Scene capabilities select one shared squircle strip above the selection: Stroke for shapes, images, wires and portals; Fill for closed shapes, text sticky-note backgrounds, frames and portals; Corners for rectangles and images; photo filters for images (not 3D model viewports); routing/weight/dash/arrows for wire-only selections. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit) owned by `selection_tools::atlas_format_editor`. Frame-only actions (deck order, add images, tags, present) join that same strip. Mixed selections expose common controls. Width/height/length belong to separate exterior dimension stringers. Rectangle axes follow rotation; straight lines measure endpoint length; circles use diameter; general paths use tight local bounds. Groups without wires use union XY dimensions and uniform centroid scaling. Wire-containing selections omit box-dimension edits because attached endpoints follow their hosts. Portal source UI stays on the portal.
 
 The strip icons expand on selection and collapse when it clears. Palette edits are transient previews until icon change or outside click commits one journal group. A press on empty canvas also deselects. Esc, tool changes, and target changes discard pending previews. Numeric dimensions commit on Enter/focus loss, scale about the measured center, preserve stroke width, and reject invalid values. Locked/read-only selections cannot be mutated. Chrome takes precedence over canvas gestures and follows P0.9. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule reuses that taller height. Heights live in `selection_tools`.
 

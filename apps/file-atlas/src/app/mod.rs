@@ -70,11 +70,7 @@ pub(crate) enum ScanMode {
     Refresh,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FilterMode {
-    Ghost,
-    Hide,
-}
+pub(crate) use atlas_core::filter::FilterMode;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum EditMode {
@@ -3979,10 +3975,7 @@ impl AtlasApp {
     // ---------- filtering ----------
 
     pub(crate) fn ext_group_enabled(&self, family: Family, group: &ExtGroup) -> bool {
-        self.ext_group_on
-            .get(&family.ext_group_id(group))
-            .copied()
-            .unwrap_or(true)
+        atlas_core::filter::ext_group_enabled(&self.ext_group_on, family, group)
     }
 
     pub(crate) fn set_ext_group(&mut self, family: Family, group: &ExtGroup, on: bool) {
@@ -4002,33 +3995,6 @@ impl AtlasApp {
                 self.set_family_ext_groups(fam, true);
             }
         }
-    }
-
-    fn ext_type_matches(&self, e: &FileEntry) -> bool {
-        if e.ext.is_empty() {
-            return true;
-        }
-        let Some(label) = e.family.ext_group_label(&e.ext) else {
-            return true;
-        };
-        e.family
-            .ext_groups()
-            .iter()
-            .any(|group| group.label == label && self.ext_group_enabled(e.family, group))
-    }
-
-    fn ext_filter_active(&self) -> bool {
-        for fam in FAMILIES {
-            if !self.family_on[fam.idx()] {
-                continue;
-            }
-            for group in fam.ext_groups() {
-                if !self.ext_group_enabled(fam, group) {
-                    return true;
-                }
-            }
-        }
-        false
     }
 
     fn file_date_secs(&self, e: &FileEntry) -> i64 {
@@ -4230,13 +4196,8 @@ impl AtlasApp {
     /// Does one file survive the current filter? The single definition of that,
     /// so the streaming path and the full recompute can never disagree.
     fn entry_matches(&self, e: &FileEntry, search: &str) -> bool {
-        let mut m = self.family_on[e.family.idx()];
-        if m {
-            m = self.ext_type_matches(e);
-        }
-        if m && !search.is_empty() {
-            m = e.name_lc.contains(search);
-        }
+        let mut m =
+            atlas_core::filter::name_type_matches(e, search, &self.family_on, &self.ext_group_on);
         if m && self.only_unassigned && self.assign_state.assigns.contains_key(&e.rel) {
             m = false;
         }
@@ -4336,10 +4297,11 @@ impl AtlasApp {
         self.recount_owners();
         self.update_date_span();
         let search = self.search.to_lowercase();
-        self.any_filter = !search.is_empty()
-            || self.family_on.iter().any(|&b| !b)
-            || self.ext_filter_active()
-            || !self.owner_filter.is_empty()
+        self.any_filter = atlas_core::filter::name_type_filter_active(
+            &search,
+            &self.family_on,
+            &self.ext_group_on,
+        ) || !self.owner_filter.is_empty()
             || self.date_filter_active()
             || self.only_unassigned;
         // All family boxes unchecked = lightweight structure map: every

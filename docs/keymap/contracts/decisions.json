@@ -2489,11 +2489,11 @@
           "decided": "2026-08-22"
         },
         "D16": {
-          "behavior": "P1.portal.style: no BoardLastStyle. The live File Atlas surface, cards, and status/empty text follow Slate\u2019s active light/dark palette, including existing portals. Theme switches never mutate the scene.",
+          "behavior": "P1.portal.style: no BoardLastStyle. Unauthored File Atlas fill follows Palette::card (slightly lighter than the board); unauthored stroke paints a 1-unit Palette::border_strong hairline. Theme switches never mutate the scene. Fill/Stroke squircles author portal.fill / portal.stroke. Cards and empty text still follow the palette.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-21"
         },
         "D17": {
           "behavior": "P1.portal.pick: frame rect including marquee. Unfocused clicks hit the frame. Contents-focus hits the shared Atlas hover/collapse grips; portal_frame.border_hit_px stays a Slate target. A carry begun inside focused contents owns input until release, including outside the portal.",
@@ -2531,11 +2531,11 @@
           "decided": "2026-08-21"
         },
         "D22": {
-          "behavior": "P1.portal.contents-focus. Double-click or Enter enters the Atlas canvas. In focus: shared FolderCam navigation; folder-card clicks collapse/expand and the shared incremental/full grips expand nested folders exactly as standalone Atlas. Click selects a file; Ctrl-click toggles selection. A real left-drag carries the pressed file or its selection onto the primary Slate board, linking and placing through the same metadata-based recipient as detached Atlas (frame tags and one placement undo). Release inside the source portal or over UI cancels. Leaving the window hands off to atlas_core::shell_drag (copy/link, never move). Double-click opens a file in the OS. After blur the board owns navigation.",
+          "behavior": "P1.portal.contents-focus. Double-click or Enter enters the Atlas canvas. In focus: shared FolderCam navigation; folder-card clicks collapse/expand and the shared incremental/full grips expand nested folders exactly as standalone Atlas. Click selects a file; Ctrl-click toggles selection. Left-drag on empty canvas, or Shift-drag, marquees files (Tree::files_in_rect; Ctrl additive). A real left-drag on a file carries the pressed file or its selection onto the primary Slate board. Release inside the source portal or over UI cancels. Leaving the window hands off to atlas_core::shell_drag (copy/link, never move). Double-click opens a file in the OS. After blur the board owns navigation.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-21"
         },
         "D23": {
           "behavior": "P0.9: the inner camera is portal-local. Board zoom scales the entire map with the frame; screen scale is inner zoom \u00d7 board zoom, in and out of contents-focus. Board pan and frame movement carry the map with them. Leaving contents preserves the inner view. LOD uses the composed screen scale; drop type when too small, never clamp to a screen constant.",
@@ -2608,11 +2608,11 @@
           "decided": "2026-08-21"
         },
         "D33": {
-          "behavior": "No identity tab (web-only). Maximize square. Right-click: Maximize, Enter/Leave contents, Rebind, Refresh, Bake, Open in File Atlas (OQ4). No File Atlas window chrome inside the frame.",
-          "source": "precedent",
-          "confidence": 80,
+          "behavior": "No identity tab (web-only). Maximize square. Right-click: Maximize, Enter/Leave contents, Rebind, Refresh, Bake, Open in File Atlas (OQ4). No File Atlas window chrome inside the frame. Fill/Stroke/Formatting squircles live on the object property strip.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-21"
+          "decided": "2026-09-21"
         },
         "D34": {
           "behavior": "P1.portal.maximize fills the Slate canvas pane. Esc/square restores. Inner camera unchanged. Slate chrome, not a File Atlas window.",
@@ -2622,11 +2622,11 @@
           "decided": "2026-08-21"
         },
         "D35": {
-          "behavior": "P1.portal.local-ui. Root, sort, refresh, rebind, and filter live on this portal inspector. They do not appear on Document Settings.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "P1.portal.local-ui. Root, sort, refresh, rebind stay on this portal. Formatting (search, file-type radios, Ghost/Hide, Zoom to matches, Zoom to fit) is the object-strip AtlasFormat editor in selection_tools (portal.atlas.fit). Filter/search/camera remain derived view-state.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-21"
+          "decided": "2026-09-21"
         }
       }
     },
@@ -2900,7 +2900,7 @@
       "canvas": "shapes-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "Selecting one or more board objects that expose fill, stroke, corners, wire, or photo-filter controls opens a hovering toolbar directly above the selection. Frame-only actions join the same strip.",
+          "behavior": "Selecting one or more board objects that expose fill, stroke, corners, wire, photo-filter, or File Atlas formatting controls opens a hovering toolbar directly above the selection. Frame-only actions join the same strip.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2984,7 +2984,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel; Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule reuses that height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose colored filter radios plus an intensity slider. Frame-only actions reuse the same strip. Shared light/dark theme tokens apply throughout.",
+          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel; Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule reuses that height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose colored filter radios plus an intensity slider. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. Shared light/dark theme tokens apply throughout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

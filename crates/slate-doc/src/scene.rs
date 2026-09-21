@@ -1244,6 +1244,9 @@ pub struct PortalNode {
     #[serde(default)]
     pub atlas: AtlasPortalQuery,
     pub fill: Rgba,
+    /// Authored frame outline. Width 0 is none (P1.portal.style default).
+    #[serde(default)]
+    pub stroke: Stroke,
 }
 
 impl PortalNode {
@@ -1260,6 +1263,7 @@ impl PortalNode {
             web: None,
             atlas: AtlasPortalQuery::default(),
             fill: Rgba([18, 20, 24, 255]),
+            stroke: Stroke::default(),
         }
     }
 
@@ -1276,6 +1280,7 @@ impl PortalNode {
             web: None,
             atlas: AtlasPortalQuery::default(),
             fill: Rgba([14, 17, 20, 255]),
+            stroke: Stroke::default(),
         }
     }
 
@@ -1293,6 +1298,7 @@ impl PortalNode {
             web: Some(WebPortalRef::default()),
             atlas: AtlasPortalQuery::default(),
             fill: Rgba([20, 20, 26, 255]),
+            stroke: Stroke::default(),
         }
     }
 
@@ -1341,6 +1347,7 @@ impl PortalNode {
             web: None,
             atlas: AtlasPortalQuery::default(),
             fill: Rgba([16, 22, 34, 255]),
+            stroke: Stroke::default(),
         }
     }
 
@@ -1356,7 +1363,8 @@ impl PortalNode {
             agent: None,
             web: None,
             atlas: AtlasPortalQuery::default(),
-            fill: Rgba([16, 18, 22, 255]),
+            fill: Rgba([0, 0, 0, 0]),
+            stroke: Stroke::default(),
         }
     }
 
@@ -1368,7 +1376,24 @@ impl PortalNode {
         });
         portal
     }
+
+    /// Unauthored File Atlas fill follows the canvas card slot so the window
+    /// stays slightly lighter than the board across theme switches.
+    pub fn fill_follows_theme(&self) -> bool {
+        self.kind == PortalKind::FileAtlas
+            && (self.fill == Rgba([0, 0, 0, 0]) || self.fill == ATLAS_LEGACY_THEME_FILL)
+    }
+
+    /// Unauthored File Atlas outline follows `Palette::border_strong`.
+    /// Width 0 still paints a 1-unit hairline so the pane has an outline.
+    pub fn stroke_follows_theme(&self) -> bool {
+        self.kind == PortalKind::FileAtlas
+            && (self.stroke.color.0[3] == 0 || self.stroke == Stroke::default())
+    }
 }
+
+/// Serialized File Atlas fill from before authored/theme-relative fills.
+pub const ATLAS_LEGACY_THEME_FILL: Rgba = Rgba([16, 18, 22, 255]);
 
 pub fn new_agent_session_id() -> String {
     format!("agent-{}", atlas_agent::request_id())
@@ -2778,6 +2803,17 @@ mod tests {
         }"#;
         let loaded: PortalNode = serde_json::from_str(older).expect("file atlas parses");
         assert_eq!(loaded.atlas, AtlasPortalQuery::default());
+        assert!(loaded.fill_follows_theme());
+        assert!(loaded.stroke.is_none());
+        assert!(loaded.stroke_follows_theme());
+        assert!(portal.fill_follows_theme());
+        assert!(portal.stroke_follows_theme());
+        let mut authored = portal.clone();
+        authored.fill = Rgba([40, 90, 140, 0]);
+        assert!(
+            !authored.fill_follows_theme(),
+            "an RGB pick must leave the theme sentinel even if alpha is still 0"
+        );
     }
 
     #[test]
@@ -3792,17 +3828,21 @@ pub fn stroke_of(node: &Node) -> Option<Stroke> {
         NodeKind::Shape(s) => Some(s.stroke),
         NodeKind::Image(i) => Some(i.stroke),
         NodeKind::Connector(c) => Some(c.stroke),
-        NodeKind::Portal(p) if p.agent.is_some() => {
-            Some(p.agent.as_ref().unwrap().chat.stroke.unwrap_or(Stroke {
+        // TWIN: docs/audit/deviations.md DV-21 — an agent portal keeps its
+        // outline in `agent.chat.stroke`; every other portal uses
+        // `PortalNode::stroke`. Collapse onto the field.
+        NodeKind::Portal(p) => Some(match p.agent.as_ref() {
+            Some(a) => a.chat.stroke.unwrap_or(Stroke {
                 width: 0.0,
                 ..Stroke::default()
-            }))
-        }
+            }),
+            None => p.stroke,
+        }),
         _ => None,
     }
 }
 
-/// Stroke editor applies to shapes, images, and wires — the kinds [`stroke_of`] reads.
+/// Stroke editor applies to shapes, images, wires, and portal frames.
 pub fn supports_stroke(node: &Node) -> bool {
     stroke_of(node).is_some()
 }
@@ -3812,9 +3852,11 @@ pub fn set_stroke(node: &mut Node, stroke: Stroke) {
         NodeKind::Shape(s) => s.stroke = stroke,
         NodeKind::Image(i) => i.stroke = stroke,
         NodeKind::Connector(c) => c.stroke = stroke,
-        NodeKind::Portal(p) if p.agent.is_some() => {
-            p.agent.as_mut().unwrap().chat.stroke = Some(stroke)
-        }
+        // TWIN: see `stroke_of` above (DV-21).
+        NodeKind::Portal(p) => match p.agent.as_mut() {
+            Some(a) => a.chat.stroke = Some(stroke),
+            None => p.stroke = stroke,
+        },
         _ => {}
     }
 }
@@ -4022,7 +4064,7 @@ mod corner_percentage_tests {
         );
         assert!(
             supports_fill(&portal)
-                && !supports_stroke(&portal)
+                && supports_stroke(&portal)
                 && !supports_corners(&portal)
                 && !supports_image_adjust(&portal)
         );

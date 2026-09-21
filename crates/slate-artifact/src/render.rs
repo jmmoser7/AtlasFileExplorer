@@ -332,12 +332,13 @@ fn render_portal(
     style.push_str("background:");
     style.push_str(&portal.fill.css());
     style.push_str(";overflow:hidden;");
-    if let Some(stroke) = portal.agent.as_ref().and_then(|a| a.chat.stroke) {
-        style.push_str(&format!(
+    match portal.agent.as_ref().and_then(|a| a.chat.stroke) {
+        Some(stroke) => style.push_str(&format!(
             "box-sizing:border-box;border:{}px solid {};",
             stroke.width,
             stroke.color.css()
-        ));
+        )),
+        None => append_stroke(&mut style, &portal.stroke),
     }
     html.push_str("<div class=\"node portal\" style=\"");
     html.push_str(&style);

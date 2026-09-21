@@ -104,6 +104,51 @@ struct AtlasView {
     tree_n: usize,
     file_filter: Vec<String>,
     hover: MapHover,
+    search: String,
+    family_on: [bool; 10],
+    ext_group_on: HashMap<String, bool>,
+    filter_mode: atlas_core::filter::FilterMode,
+    auto_zoom_matches: bool,
+    file_match: Vec<bool>,
+    any_filter: bool,
+    rubber_origin: Option<Pos2>,
+}
+
+impl AtlasView {
+    fn new(session_key: PathBuf) -> Self {
+        Self {
+            session_key,
+            cam: FolderCam::default(),
+            cam_fitted: false,
+            dir_collapsed: HashMap::new(),
+            selection: HashSet::new(),
+            tree: None,
+            tree_n: 0,
+            file_filter: Vec::new(),
+            hover: MapHover::default(),
+            search: String::new(),
+            family_on: [true; 10],
+            ext_group_on: HashMap::new(),
+            filter_mode: atlas_core::filter::FilterMode::Ghost,
+            auto_zoom_matches: false,
+            file_match: Vec::new(),
+            any_filter: false,
+            rubber_origin: None,
+        }
+    }
+
+    fn reset_for_source(&mut self, session_key: PathBuf) {
+        *self = Self::new(session_key);
+    }
+}
+
+/// Whether an authored `portal.atlas.files` locator names this entry. The list
+/// is workbook-relative, so separators are compared in one direction.
+fn named_file_match(files: &[String], rel: &str) -> bool {
+    let rel = rel.replace('\\', "/");
+    files
+        .iter()
+        .any(|f| f.replace('\\', "/").eq_ignore_ascii_case(&rel))
 }
 
 /// One gesture, owned by the workbook and source that began it. Metadata is
@@ -271,30 +316,12 @@ impl SlateApp {
 
         for (id, key) in &wanted {
             if !self.atlas_lenses.views.contains_key(id) {
-                self.atlas_lenses.views.insert(
-                    *id,
-                    AtlasView {
-                        session_key: key.clone(),
-                        cam: FolderCam::default(),
-                        cam_fitted: false,
-                        dir_collapsed: HashMap::new(),
-                        selection: HashSet::new(),
-                        tree: None,
-                        tree_n: 0,
-                        file_filter: Vec::new(),
-                        hover: MapHover::default(),
-                    },
-                );
+                self.atlas_lenses
+                    .views
+                    .insert(*id, AtlasView::new(key.clone()));
             } else if let Some(view) = self.atlas_lenses.views.get_mut(id) {
                 if view.session_key != *key {
-                    view.session_key = key.clone();
-                    view.cam = FolderCam::default();
-                    view.cam_fitted = false;
-                    view.dir_collapsed.clear();
-                    view.selection.clear();
-                    view.tree = None;
-                    view.tree_n = 0;
-                    view.hover = MapHover::default();
+                    view.reset_for_source(key.clone());
                 }
             }
             self.atlas_ensure_session(key);
@@ -475,7 +502,7 @@ impl SlateApp {
             maximized,
             xf.z,
         );
-        let fill = self.palette().bg;
+        let fill = self.portal_frame_fill_color(portal);
         self.paint_portal_frame_fill(painter, &layout, fill, Color32::TRANSPARENT, false);
         let clipped = painter.with_clip_rect(layout.body.intersect(painter.clip_rect()));
 
@@ -555,39 +582,96 @@ impl SlateApp {
         let tree_n = view.tree_n;
         let has_tree = view.tree.is_some();
         let collapsed = view.dir_collapsed.clone();
-        let Some(session) = self.atlas_lenses.sessions.get(&key) else {
-            return;
+        let built = {
+            let Some(session) = self.atlas_lenses.sessions.get(&key) else {
+                return;
+            };
+            if session.tree.is_none() {
+                return;
+            }
+            if has_tree && tree_n == session.last_tree_n && !filter_changed {
+                return;
+            }
+            let n = session.last_tree_n;
+            let n_entries = session.entries.len();
+            let mut tree = Tree::build(
+                &session.entries,
+                &session.root,
+                LayoutConfig::default(),
+                &HashMap::new(),
+            );
+            folder_map::apply_collapse(&mut tree, &collapsed);
+            (n, n_entries, tree)
         };
-        if session.tree.is_none() {
-            return;
+        let (n, n_entries, mut tree) = built;
+        if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
+            view.file_filter = files;
         }
-        if has_tree && tree_n == session.last_tree_n && !filter_changed {
-            return;
-        }
-        let n = session.last_tree_n;
-        let mut tree = Tree::build(
-            &session.entries,
-            &session.root,
-            LayoutConfig::default(),
-            &HashMap::new(),
-        );
-        folder_map::apply_collapse(&mut tree, &collapsed);
-        let matches: Vec<_> = session
-            .entries
-            .iter()
-            .map(|e| {
-                files.is_empty()
-                    || files.iter().any(|f| {
-                        f.replace('\\', "/")
-                            .eq_ignore_ascii_case(&e.rel.replace('\\', "/"))
-                    })
-            })
-            .collect();
-        tree.layout_filtered(Orient::H, !files.is_empty(), &matches, false);
+        let (file_match, any_filter, hide) = self.atlas_filter_for(id, n_entries);
+        tree.layout_filtered(Orient::H, hide, &file_match, false);
         if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
             view.tree = Some(tree);
             view.tree_n = n;
-            view.file_filter = files;
+            view.file_match = file_match;
+            view.any_filter = any_filter;
+        }
+    }
+
+    fn atlas_filter_for(&self, id: NodeId, n: usize) -> (Vec<bool>, bool, bool) {
+        let Some(view) = self.atlas_lenses.views.get(&id) else {
+            return (vec![true; n], false, false);
+        };
+        let Some(session) = self.atlas_lenses.sessions.get(&view.session_key) else {
+            return (vec![true; n], false, false);
+        };
+        let search = view.search.to_lowercase();
+        // An authored `portal.atlas.files` list narrows the view on top of the
+        // user's name/type filter, and always hides what it excludes.
+        let named = !view.file_filter.is_empty();
+        let any = named
+            || atlas_core::filter::name_type_filter_active(
+                &search,
+                &view.family_on,
+                &view.ext_group_on,
+            );
+        let file_match: Vec<bool> = session
+            .entries
+            .iter()
+            .map(|e| {
+                !e.dead
+                    && atlas_core::filter::name_type_matches(
+                        e,
+                        &search,
+                        &view.family_on,
+                        &view.ext_group_on,
+                    )
+                    && (!named || named_file_match(&view.file_filter, &e.rel))
+            })
+            .collect();
+        let hide = named || (any && view.filter_mode == atlas_core::filter::FilterMode::Hide);
+        (file_match, any, hide)
+    }
+
+    fn atlas_relayout_filter(&mut self, id: NodeId) {
+        self.atlas_ensure_view_tree(id);
+        let n = self
+            .atlas_lenses
+            .views
+            .get(&id)
+            .map(|view| {
+                view.tree
+                    .as_ref()
+                    .map(|t| t.file_pos.len())
+                    .unwrap_or(view.file_match.len())
+            })
+            .unwrap_or(0);
+        let (file_match, any_filter, hide) = self.atlas_filter_for(id, n);
+        if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
+            if let Some(tree) = view.tree.as_mut() {
+                tree.layout_filtered(Orient::H, hide, &file_match, false);
+            }
+            view.file_match = file_match;
+            view.any_filter = any_filter;
         }
     }
 
@@ -633,7 +717,7 @@ impl SlateApp {
         }
 
         let palette = self.palette();
-        let (cam, hover, selection, root, tree) = {
+        let (cam, hover, selection, root, tree, style, file_match, rubber) = {
             let Some(view) = self.atlas_lenses.views.get_mut(&id) else {
                 return;
             };
@@ -643,6 +727,15 @@ impl SlateApp {
                 view.selection.clone(),
                 view.session_key.clone(),
                 view.tree.take(),
+                MapStyle {
+                    orient: Orient::H,
+                    leader: folder_map::LeaderStyle::Orthogonal,
+                    structure_only: false,
+                    any_filter: view.any_filter,
+                    filter_hide: view.filter_mode == atlas_core::filter::FilterMode::Hide,
+                },
+                view.file_match.clone(),
+                view.rubber_origin,
             )
         };
         let Some(tree_ref) = tree.as_ref() else {
@@ -658,9 +751,12 @@ impl SlateApp {
             return;
         };
 
-        let style = MapStyle::default();
         let lod = folder_map::lod_for(cam.z, LOD_MID, LOD_FULL, LOD_DETAIL);
-        let file_match = vec![true; session.entries.len()];
+        let file_match = if file_match.len() == session.entries.len() {
+            file_match
+        } else {
+            vec![true; session.entries.len()]
+        };
         let mut pending = Vec::new();
         {
             let mut host = SlateMapHost {
@@ -684,6 +780,16 @@ impl SlateApp {
         }
         if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
             view.tree = tree;
+        }
+        if let (Some(a), Some(p)) = (rubber, painter.ctx().pointer_latest_pos()) {
+            let r = Rect::from_two_pos(a, p).intersect(body);
+            painter.rect(
+                r,
+                0.0,
+                palette.select.gamma_multiply(0.16),
+                egui::Stroke::new(1.0_f32, palette.select),
+                egui::StrokeKind::Inside,
+            );
         }
         for (path, size, mtime) in pending {
             self.request_path_thumb(path, size, mtime);
@@ -749,17 +855,44 @@ impl SlateApp {
             ui.id().with("atlas_contents").with(id.0),
             Sense::click_and_drag(),
         );
-        if response.drag_started_by(egui::PointerButton::Primary)
-            && !ui.input(|i| i.modifiers.shift)
-        {
+        let shift = ui.input(|i| i.modifiers.shift);
+        if response.drag_started_by(egui::PointerButton::Primary) {
             if let Some(press) = ui.input(|i| i.pointer.press_origin()) {
                 if inset.contains(press) && !layout.pointer_on_chrome(press) {
-                    self.atlas_start_carry(id, press, surface);
+                    let hover = self.atlas_hover_at(id, surface, press);
+                    let on_card = hover.file.is_some() || hover.dir.is_some();
+                    if shift || !on_card {
+                        if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
+                            view.hover = hover;
+                            view.rubber_origin = Some(press);
+                        }
+                    } else {
+                        self.atlas_start_carry(id, press, surface);
+                    }
                 }
             }
         }
         if self.atlas_lenses.carry.is_some() {
             return self.atlas_carry_frame(ui, xf, pointer);
+        }
+        let rubber = self
+            .atlas_lenses
+            .views
+            .get(&id)
+            .and_then(|v| v.rubber_origin);
+        if rubber.is_some()
+            && (response.drag_stopped()
+                || ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)))
+        {
+            if let (Some(a), Some(p)) = (rubber, pointer) {
+                self.atlas_finish_marquee(id, a, p, surface, ui.input(|i| i.modifiers.ctrl));
+            } else if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
+                view.rubber_origin = None;
+            }
+            return true;
+        }
+        if rubber.is_some() {
+            return true;
         }
         let Some(pos) = pointer else { return false };
         if layout.pointer_on_chrome(pos) || !inset.contains(pos) {
@@ -805,7 +938,7 @@ impl SlateApp {
                     view.cam.in_parent(surface),
                     pos,
                     Orient::H,
-                    false,
+                    view.any_filter && view.filter_mode == atlas_core::filter::FilterMode::Hide,
                     false,
                 );
                 if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
@@ -831,6 +964,215 @@ impl SlateApp {
             egui::CursorIcon::Default
         });
         true
+    }
+
+    fn atlas_hover_at(&self, id: NodeId, surface: FolderCam, screen: Pos2) -> MapHover {
+        let Some(view) = self.atlas_lenses.views.get(&id) else {
+            return MapHover::default();
+        };
+        let Some(tree) = view.tree.as_ref() else {
+            return MapHover::default();
+        };
+        folder_map::hover_at(
+            tree,
+            view.cam.in_parent(surface),
+            screen,
+            Orient::H,
+            view.any_filter && view.filter_mode == atlas_core::filter::FilterMode::Hide,
+            false,
+        )
+    }
+
+    fn atlas_finish_marquee(
+        &mut self,
+        id: NodeId,
+        a: Pos2,
+        b: Pos2,
+        surface: FolderCam,
+        additive: bool,
+    ) {
+        let Some((mut hits, file_match)) = (|| {
+            let view = self.atlas_lenses.views.get(&id)?;
+            let tree = view.tree.as_ref()?;
+            let cam = view.cam.in_parent(surface);
+            let world = Rect::from_min_max(cam.s2w(a.min(b)), cam.s2w(a.max(b)));
+            let mut hits = Vec::new();
+            tree.files_in_rect(world, &mut hits);
+            Some((hits, view.file_match.clone()))
+        })() else {
+            if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
+                view.rubber_origin = None;
+            }
+            return;
+        };
+        if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
+            if !additive {
+                view.selection.clear();
+            }
+            for f in hits.drain(..) {
+                if file_match.get(f as usize).copied().unwrap_or(false) {
+                    view.selection.insert(f);
+                }
+            }
+            view.rubber_origin = None;
+        }
+    }
+
+    pub(crate) fn atlas_fit_view(&mut self, id: NodeId, body: Rect) {
+        let Some(view) = self.atlas_lenses.views.get_mut(&id) else {
+            return;
+        };
+        let local_body = Rect::from_min_size(Pos2::ZERO, body.size());
+        let bounds = if view.auto_zoom_matches && view.any_filter {
+            view.tree.as_ref().and_then(|t| {
+                let mut union: Option<Rect> = None;
+                for (i, &ok) in view.file_match.iter().enumerate() {
+                    if !ok {
+                        continue;
+                    }
+                    let r = t.file_pos.get(i)?.rect();
+                    union = Some(union.map(|u| u.union(r)).unwrap_or(r));
+                }
+                union.or_else(|| view.tree.as_ref().map(|t| t.root_bounds()))
+            })
+        } else {
+            view.tree.as_ref().map(|t| t.root_bounds())
+        };
+        if let Some(bounds) = bounds {
+            view.cam = FolderCam::fit_bounds(local_body, bounds, ATLAS_TREE);
+            view.cam_fitted = true;
+        }
+    }
+
+    pub(crate) fn atlas_fit_selected(&mut self) -> bool {
+        let Some(id) = self.selected_atlas_portal() else {
+            return false;
+        };
+        let Some(node) = self.doc().scene.node(id) else {
+            return false;
+        };
+        let body = Rect::from_min_size(Pos2::ZERO, Vec2::new(node.rect.w, node.rect.h));
+        self.atlas_fit_view(id, body);
+        true
+    }
+
+    pub(crate) fn atlas_format_body(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: Rect,
+        id: NodeId,
+        z: f32,
+        theme: atlas_shell::theme::Palette,
+    ) {
+        self.atlas_ensure_view_tree(id);
+        let (mut search, family_on, hide, zoom_matches, families) = {
+            let Some(view) = self.atlas_lenses.views.get(&id) else {
+                return;
+            };
+            let session = self.atlas_lenses.sessions.get(&view.session_key);
+            let mut present = [false; 10];
+            if let Some(session) = session {
+                for e in session.entries.iter().filter(|e| !e.dead) {
+                    present[e.family.idx()] = true;
+                }
+            }
+            let families: Vec<atlas_shell::selection_tools::FilterRadio> =
+                atlas_core::types::FAMILIES
+                    .iter()
+                    .filter(|fam| present[fam.idx()] || present.iter().all(|p| !p))
+                    .map(|fam| {
+                        let c = fam.color();
+                        atlas_shell::selection_tools::FilterRadio {
+                            label: fam.label(),
+                            fill: [c.r(), c.g(), c.b()],
+                            fill_b: None,
+                        }
+                    })
+                    .collect();
+            (
+                view.search.clone(),
+                view.family_on,
+                view.filter_mode == atlas_core::filter::FilterMode::Hide,
+                view.auto_zoom_matches,
+                families,
+            )
+        };
+        let family_flags: Vec<bool> = families
+            .iter()
+            .filter_map(|radio| {
+                atlas_core::types::FAMILIES
+                    .iter()
+                    .find(|fam| fam.label() == radio.label)
+                    .map(|fam| family_on[fam.idx()])
+            })
+            .collect();
+        let edit = atlas_shell::selection_tools::atlas_format_editor(
+            ui,
+            rect,
+            &mut search,
+            &families,
+            &family_flags,
+            hide,
+            zoom_matches,
+            z,
+            theme,
+        );
+        let mut dirty = false;
+        if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
+            if view.search != search {
+                view.search = search;
+                dirty = true;
+            }
+            if let Some(index) = edit.family {
+                if let Some(radio) = families.get(index) {
+                    if let Some(fam) = atlas_core::types::FAMILIES
+                        .iter()
+                        .find(|fam| fam.label() == radio.label)
+                    {
+                        let i = fam.idx();
+                        view.family_on[i] = !view.family_on[i];
+                        dirty = true;
+                    }
+                }
+            }
+            if let Some(next_hide) = edit.hide {
+                view.filter_mode = if next_hide {
+                    atlas_core::filter::FilterMode::Hide
+                } else {
+                    atlas_core::filter::FilterMode::Ghost
+                };
+                dirty = true;
+            }
+            if let Some(next) = edit.zoom_matches {
+                view.auto_zoom_matches = next;
+            }
+        }
+        if dirty {
+            self.atlas_relayout_filter(id);
+        }
+        let should_fit = edit.zoom_fit
+            || (edit.zoom_matches == Some(true)
+                && self
+                    .atlas_lenses
+                    .views
+                    .get(&id)
+                    .is_some_and(|v| v.auto_zoom_matches));
+        if should_fit
+            || (dirty
+                && self
+                    .atlas_lenses
+                    .views
+                    .get(&id)
+                    .is_some_and(|v| v.auto_zoom_matches))
+        {
+            let Some(node) = self.doc().scene.node(id) else {
+                return;
+            };
+            self.atlas_fit_view(
+                id,
+                Rect::from_min_size(Pos2::ZERO, Vec2::new(node.rect.w, node.rect.h)),
+            );
+        }
     }
 
     fn atlas_start_carry(&mut self, id: NodeId, press: Pos2, surface: FolderCam) {
@@ -1061,8 +1403,18 @@ impl SlateApp {
         let Some(tree_mut) = tree.as_mut() else {
             return;
         };
-        let matches = vec![true; n_files.max(tree_mut.file_pos.len())];
-        let out = folder_map::toggle_dir(tree_mut, dir, grip, false, &matches, false, Orient::H, z);
+        let hide =
+            self.atlas_lenses.views.get(&id).is_some_and(|v| {
+                v.any_filter && v.filter_mode == atlas_core::filter::FilterMode::Hide
+            });
+        let matches = self
+            .atlas_lenses
+            .views
+            .get(&id)
+            .map(|v| v.file_match.clone())
+            .filter(|m| m.len() == n_files.max(tree_mut.file_pos.len()))
+            .unwrap_or_else(|| vec![true; n_files.max(tree_mut.file_pos.len())]);
+        let out = folder_map::toggle_dir(tree_mut, dir, grip, hide, &matches, false, Orient::H, z);
         if let Some(view) = self.atlas_lenses.views.get_mut(&id) {
             if let Some(t) = tree.as_ref() {
                 folder_map::record_collapse(t, &mut view.dir_collapsed);
@@ -1869,7 +2221,16 @@ mod tests {
                 .board_xf()
                 .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
             let palette = h.app.palette();
-            assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rect && r.fill == palette.bg)), "portal background must use active theme");
+            assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rect && r.fill == palette.card)), "portal background must use the elevated card slot");
+            assert!(
+                output.shapes.iter().any(|s| match &s.shape {
+                    egui::Shape::Rect(r) => {
+                        r.stroke.width > 0.0 && r.stroke.color == palette.border_strong
+                    }
+                    _ => false,
+                }),
+                "unauthored File Atlas must paint a theme hairline so the window has an outline"
+            );
             assert_eq!(serde_json::to_value(&h.app.doc().scene).unwrap(), scene);
         }
     }
@@ -2020,5 +2381,129 @@ mod tests {
         assert_eq!(opts[0], FolderDropKind::AtlasLens);
         assert!(opts.contains(&FolderDropKind::PlaceContents));
         assert!(!opts.contains(&FolderDropKind::RepoLens));
+    }
+
+    #[test]
+    fn atlas_authored_fill_and_stroke_paint_the_window() {
+        let (mut h, id) = atlas_camera_board("atlas_fill_stroke", 0.65);
+        let fill = slate_doc::scene::Rgba([40, 90, 140, 255]);
+        h.app.patch_nodes(&[id], |node| {
+            if let NodeKind::Portal(p) = &mut node.kind {
+                p.fill = fill;
+                p.stroke.width = 4.0;
+                p.stroke.color = slate_doc::scene::Rgba([200, 40, 40, 255]);
+            }
+        });
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+            ..Default::default()
+        };
+        let output = h.ctx.run(input, |ctx| h.app.update_app(ctx));
+        let rect = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        let want = crate::app::board::rgba32(fill);
+        assert!(
+            output.shapes.iter().any(
+                |s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rect && r.fill == want)
+            ),
+            "authored fill must paint the File Atlas window"
+        );
+        assert!(
+            output.shapes.iter().any(|s| match &s.shape {
+                egui::Shape::Rect(r) => {
+                    r.stroke.width > 0.0
+                        && r.stroke.color
+                            == crate::app::board::rgba32(slate_doc::scene::Rgba([200, 40, 40, 255]))
+                }
+                _ => false,
+            }),
+            "authored stroke must paint the File Atlas border"
+        );
+    }
+
+    #[test]
+    fn atlas_marquee_selects_multiple_files() {
+        let (mut h, id) = atlas_board_files("atlas_marquee", 0.7, &["a.rs", "b.rs"]);
+        h.app.atlas_focus(id);
+        h.frame();
+        let body = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        let a = body.min + Vec2::splat(6.0);
+        let b = body.max - Vec2::splat(6.0);
+        h.frame_with(|i| {
+            i.modifiers.shift = true;
+            i.events.push(egui::Event::PointerMoved(a));
+            i.events.push(egui::Event::PointerButton {
+                pos: a,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: i.modifiers,
+            });
+        });
+        h.frame_with(|i| {
+            i.modifiers.shift = true;
+            i.events.push(egui::Event::PointerMoved(b));
+        });
+        h.frame_with(|i| {
+            i.modifiers.shift = true;
+            i.events.push(egui::Event::PointerButton {
+                pos: b,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: i.modifiers,
+            });
+        });
+        let sel = &h.app.atlas_lenses.views[&id].selection;
+        assert!(
+            sel.len() >= 2,
+            "marquee should collect both files, got {sel:?}"
+        );
+    }
+
+    #[test]
+    fn atlas_format_search_filters_and_fit_keeps_a_camera() {
+        let (mut h, id) = atlas_board_files("atlas_format", 0.7, &["shot.png", "main.rs"]);
+        h.frame();
+        {
+            let view = h.app.atlas_lenses.views.get_mut(&id).unwrap();
+            view.search = "shot".into();
+        }
+        h.app.atlas_relayout_filter(id);
+        let view = &h.app.atlas_lenses.views[&id];
+        assert!(view.any_filter);
+        let png = view
+            .file_match
+            .iter()
+            .zip(
+                h.app.atlas_lenses.sessions[&view.session_key]
+                    .entries
+                    .iter(),
+            )
+            .find(|(_, e)| e.name.ends_with(".png"))
+            .map(|(m, _)| *m)
+            .unwrap();
+        let rs = view
+            .file_match
+            .iter()
+            .zip(
+                h.app.atlas_lenses.sessions[&view.session_key]
+                    .entries
+                    .iter(),
+            )
+            .find(|(_, e)| e.name.ends_with(".rs"))
+            .map(|(m, _)| *m)
+            .unwrap();
+        assert!(png);
+        assert!(!rs);
+        let before = view.cam;
+        h.app
+            .atlas_fit_view(id, Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 240.0)));
+        let after = h.app.atlas_lenses.views[&id].cam;
+        assert!(after.z > 0.0);
+        assert!(after.z != before.z || after.offset != before.offset);
     }
 }

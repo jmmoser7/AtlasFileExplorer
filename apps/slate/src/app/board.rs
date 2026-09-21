@@ -2187,9 +2187,8 @@ impl SlateApp {
         // so the frame can always be grabbed and released.
         self.peel_contents_focus_if_clicked_outside(ui, &xf, pointer);
         let agent_capture = self.agent_shelf_captures(&xf, pointer);
-        let external_capture = self.document_picker_contains(pointer)
-            || self.web_input_frame(ui, &xf, pointer)
-            || self.atlas_input_frame(ui, &xf, pointer);
+        let external_capture =
+            self.web_input_frame(ui, &xf, pointer) || self.atlas_input_frame(ui, &xf, pointer);
         let web_capture = external_capture || agent_capture;
         let _ = self.dock_embed_frame(
             ui.ctx(),

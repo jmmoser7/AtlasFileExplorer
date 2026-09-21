@@ -1,5 +1,22 @@
 # Canvas command project — change log
 
+## 2026-09-21 — File Atlas portal fill, stroke, formatting, marquee
+
+- File Atlas Fill authors the portal window. Unauthored fill follows
+  `Palette::card` (slightly lighter than the board) so the outline is visible;
+  theme switches do not mutate the scene. Legacy `[16,18,22,255]` fills keep
+  that theme-relative behavior.
+- Stroke is a portal capability. The Stroke squircle authors `portal.stroke`
+  (width 0 = none) and paints the window border; hover/focus chrome yields to
+  an authored stroke.
+- A Formatting squircle (catalog Display icon) opens the File Atlas filter
+  menu in `selection_tools`: search, type radios, Ghost/Hide, Zoom to matches,
+  and Zoom to fit (`portal.atlas.fit`). Filter/search/camera stay view-state.
+- Name/type matching lives in `atlas-core::filter`; the standalone app and
+  the portal both call it.
+- Contents-focus: drag a box on empty canvas, or Shift-drag, marquees files
+  (`Tree::files_in_rect`; Ctrl additive). A drag on a file still carries.
+
 ## 2026-09-20 — PDF Pages album and unbundle
 
 - A selected multi-page PDF or PowerPoint gains a Pages squircle on the

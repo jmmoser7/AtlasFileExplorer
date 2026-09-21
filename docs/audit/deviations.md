@@ -34,6 +34,7 @@ Rules:
 | DV-18 | XII.1 | Byte-identical workbook-relative locators: `resolve_source` / `source_locator` in `board_portal.rs` and `resolve_web_source` / `web_source_locator` in `board_web.rs`. Art. IX.2 has two masters; only the portal pair is tested | open | 2026-08-22 (DRY audit) | P2.PortalHost.locators | — |
 | DV-19 | XII.1 | File Atlas scan/watcher session copied into `board_atlas.rs` (`FS_EVENTS_PER_FRAME = 32`, rebuild-on-grew/aged). Perf fixes in `apps/file-atlas` will not reach the portal | open | 2026-08-22 (DRY audit) | folder_map session extract | — |
 | DV-20 | XII.4 | Host-portal mechanism twins: bake-PNG writers remain. Focus and the empty-state Browse painter now use shared owners (Atlas parity, 2026-09-17); the Atlas CTA no longer floors type. Keep open until the remaining bake extraction | open | 2026-08-22 (DRY audit) | P2.PortalHost empty/bake/focus | — |
+| DV-21 | XII.1 | Two owners for a portal's authored outline: agent portals store it in `agent.chat.stroke` (`Option<Stroke>`), every other portal in `PortalNode::stroke` (width 0 = none). `stroke_of`, `set_stroke`, and the artifact writer each branch on which. Landed by merging concurrent local and cloud work; collapse onto the field | open | 2026-09-21 (merge integration) | P1.portal.style | — |
 
 ## Deviation counts by article (maintained by the metrics tool)
 
