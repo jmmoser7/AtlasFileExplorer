@@ -478,9 +478,11 @@ trim, and HTML playback behavior.
 
 PowerPoint stays linked to its source and renders a derived PDF locally using
 installed PowerPoint. Conversion and PDF page counting run on bounded workers;
-cloud-only files are not downloaded. Hover a PDF or deck to browse pages. Clicking
-a page dispatches `board.media.page` and journals the board page change. Large
-decks show 32 pages per picker window. Without PowerPoint, place an exported PDF.
+cloud-only files are not downloaded. A selected PDF or deck shows a Pages
+squircle on the shared property strip. That control opens a thin Cover Flow
+album pallet over the document (`board.media.page`) and Unbundle
+(`board.media.unbundle`) spreads every page onto the board as a selected grid
+in one journal group. Without PowerPoint, place an exported PDF.
 See `docs/keymap/contracts/media.md`.
 
 

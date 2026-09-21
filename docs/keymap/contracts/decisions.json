@@ -109,7 +109,7 @@
           "decided": "2026-09-15"
         },
         "D14": {
-          "behavior": "Reuse the PDF page picker for PowerPoint slides, existing image controls, and existing Rhino camera controls. Video keeps its current poster and trim controls; playback is currently in the HTML artifact.",
+          "behavior": "Selected PDF/PowerPoint images expose a Pages squircle. The same control opens a miniature image_album pallet over the document for the poster page (board.media.page) and Unbundle (board.media.unbundle) lays the deck on the board as a selected grid. Existing image controls and Rhino camera controls are unchanged. Video keeps its current poster and trim controls; playback is currently in the HTML artifact.",
           "source": "guess",
           "confidence": 55,
           "verdict": "approved",

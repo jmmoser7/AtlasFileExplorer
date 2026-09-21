@@ -380,11 +380,14 @@ revision and render version, and retains the last preview during refresh.
 macro-disabled PowerPoint conversion to a local cache destination. It is never
 called from scanning, thumbnail warming, or frame-loop source I/O. Other machines
 can use an exported PDF without Office. The existing thumbnail/preview pools render
-the prepared PDF; `pdf.rs` owns page browsing. Board page selection patches the
-linked page item through the scene journal, so undo/redo works. HTML export stores
-posters per item rather than collapsing distinct selected pages of the same source.
+the prepared PDF; `pdf.rs` owns page browsing and unbundle. A selected paged
+image shows a Pages squircle; `paint_pages_album` reuses `atlas_shell::home::image_album`
+as a thin pallet over the document and `board.media.unbundle` spreads the deck
+through one `commit_scene`. Board page selection patches the linked page item
+through the scene journal, so undo/redo works. HTML export stores posters per
+item rather than collapsing distinct selected pages of the same source.
 
 
 ### Shape selection editing
 
-`board_properties` adapts selected scene capabilities into the shared `atlas-shell::selection_tools` chrome. It caches measurements by scene generation/selection, renders transient node copies for previews, and dispatches `board.shape.edit` / `board.shape.dimension` once on acceptance. `slate-doc::scene` owns style accessors, photo-filter recipes (`PhotoFilter` → `ImageAdjust`), and absolute/percentage corner resolution; board and HTML interpreters use that same resolver. Dimension changes reuse `board_snap` transform arithmetic. `atlas-shell::desktop_color` owns the worker-thread Windows capture and native input overlay for every Slate eyedropper; `board_color` retains requesting-tab/property identity and updates tool state or journaled scene state.
+`board_properties` adapts selected scene capabilities into the shared `atlas-shell::selection_tools` chrome. It caches measurements by scene generation/selection, renders transient node copies for previews, and dispatches `board.shape.edit` / `board.shape.dimension` once on acceptance. A single paged image also adds Pages, which paints the album on the document instead of `editor_rect`. `slate-doc::scene` owns style accessors, photo-filter recipes (`PhotoFilter` → `ImageAdjust`), and absolute/percentage corner resolution; board and HTML interpreters use that same resolver. Dimension changes reuse `board_snap` transform arithmetic. `atlas-shell::desktop_color` owns the worker-thread Windows capture and native input overlay for every Slate eyedropper; `board_color` retains requesting-tab/property identity and updates tool state or journaled scene state.

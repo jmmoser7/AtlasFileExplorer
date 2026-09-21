@@ -52,6 +52,7 @@ fn media_menu_has_three_registered_families() {
         "board.media.model",
         "board.media.video",
         "board.media.page",
+        "board.media.unbundle",
     ] {
         assert!(h
             .app
@@ -224,29 +225,61 @@ fn media_powerpoint_page_choice_is_undoable_and_keeps_the_source_link() {
 }
 
 #[test]
-fn media_picker_hover_bridge_survives_moving_off_the_slide() {
-    let mut h = Harness::new("media_hover");
+fn media_unbundle_places_a_selected_page_grid_and_undoes() {
+    let mut h = Harness::new("media_unbundle");
     h.app.ensure_work_tab();
     h.app.leave_home();
     h.app.doc_mut().view.active_view = ViewKind::Board;
-    let source = h.base.join("deck.pptx");
-    std::fs::write(&source, b"deck").unwrap();
-    let ids = h.app.add_paths(&[source]);
-    h.app.place_items_on_board(&ids, Pos2::ZERO);
-    let card = ERect::from_min_size(Pos2::new(20.0, 20.0), EVec2::new(100.0, 100.0));
-    let popup = ERect::from_min_size(Pos2::new(20.0, 128.0), EVec2::new(200.0, 90.0));
-    h.app.documents.picker = Some((h.app.tab().id, ids[0], card, popup));
-    let screen = popup.center();
-    assert!(h.app.document_picker_contains(Some(screen)));
-    assert_eq!(
-        h.app
-            .board_hovered_pdf(h.app.board_xf().s2w(screen))
-            .unwrap()
-            .0,
-        ids[0]
+    let source = h.base.join("deck.pdf");
+    std::fs::write(&source, b"source remains linked").unwrap();
+    let ids = h.app.add_paths(std::slice::from_ref(&source));
+    h.app.place_items_on_board(&ids, Pos2::new(120.0, 100.0));
+    h.app.documents.seed(
+        source.clone(),
+        pdf::documents::DocumentPreview {
+            path: h.base.join("preview.pdf"),
+            revision: "unbundle-deck".into(),
+            pages: 3,
+            bytes: 120,
+        },
     );
+    let node = h.app.doc().scene.nodes[0].id;
+    let before = h.app.doc().scene.node(node).unwrap().rect;
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.media.unbundle"),
+        Some(format!("{}:1", node.0))
+    ));
+    assert_eq!(h.app.doc().scene.nodes.len(), 3);
+    assert_eq!(h.app.board_sel.len(), 3);
+    assert!(h.app.board_sel.contains(&node));
+    let page_item = match &h.app.doc().scene.node(node).unwrap().kind {
+        slate_doc::NodeKind::Image(i) => i.item,
+        _ => panic!(),
+    };
+    assert_eq!(h.app.doc().item(page_item).unwrap().pdf_page, 1);
+    let xs: Vec<f32> = h.app.doc().scene.nodes.iter().map(|n| n.rect.x).collect();
+    assert!(
+        xs.iter().any(|x| (*x - xs[0]).abs() > 1.0),
+        "unbundled pages must spread into a grid, not stack"
+    );
+    assert_eq!(std::fs::read(&source).unwrap(), b"source remains linked");
     h.app.board_undo();
-    assert!(!h.app.document_picker_contains(Some(screen)));
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    assert_eq!(h.app.doc().scene.nodes[0].id, node);
+    assert_eq!(h.app.doc().scene.node(node).unwrap().rect, before);
+    h.app.documents.seed(
+        source,
+        pdf::documents::DocumentPreview {
+            path: h.base.join("preview.pdf"),
+            revision: "unbundle-deck".into(),
+            pages: 1,
+            bytes: 120,
+        },
+    );
+    assert!(!h.app.unbundle_paged_media(node, None));
+    h.app.tab_mut().read_only = true;
+    assert!(!h.app.unbundle_paged_media(node, Some(0)));
 }
 
 #[test]

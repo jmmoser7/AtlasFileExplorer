@@ -23,7 +23,7 @@ Inherits: P0.* (all), P1.node; shared DOCK.md and TOOLBARS.md.
 | D11 | Commit | P0.2 and P0.3: placement and authored page changes are journaled. Link the original PowerPoint; store its generated PDF only as a derived cache. Converting a file never writes back to the source. | pattern | 90 |
 | D12 | Cancel | P0.1. Canceling the picker adds nothing. A late background result must not populate a different tab or resurrect a deleted item. | pattern | 90 |
 | D13 | Selected presentation | P1.node.transform. Reuse existing image/PDF selection and the existing Rhino node presentation. | pattern | 90 |
-| D14 | Post-edit | Reuse the PDF page picker for PowerPoint slides, existing image controls, and existing Rhino camera controls. Video keeps its current poster and trim controls; playback is currently in the HTML artifact. | guess | 55 |
+| D14 | Post-edit | Selected PDF/PowerPoint images expose a Pages squircle. The same control opens a miniature `image_album` pallet over the document for the poster page (`board.media.page`) and Unbundle (`board.media.unbundle`) lays the deck on the board as a selected grid. Existing image controls and Rhino camera controls are unchanged. Video keeps its current poster and trim controls; playback is currently in the HTML artifact. | stated | 100 |
 | D15 | Non-goals | PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. No new 3D formats or video decoder in this change. JPG and other supported image formats remain native previews. | stated | 100 |
 | D16 | Create-style inheritance | Use existing linked-image node defaults and source aspect ratio; preserve the authored frame when derived previews refresh. | pattern | 85 |
 | D17 | Hit-testing & pick | P1.node.select and existing media hit-testing. Rhino interaction stays with its current viewer and focus controls. | pattern | 90 |
@@ -35,7 +35,7 @@ Existing shared dock/icon tokens and media node transform constants. No new gest
 ## Golden paths
 
 1. GP1: Open Media → Image → pick a JPG → existing image placement; cancel adds nothing.
-2. GP2: Pick a PowerPoint → original stays linked, thumbnail remains during async PDF conversion, page picker selects a rendered slide; source is never written.
+2. GP2: Pick a PowerPoint → original stays linked, thumbnail remains during async PDF conversion, Pages album selects a rendered slide; source is never written. Unbundle keeps the original node id, places every page in a selected grid, and undoes in one step.
 3. GP3: Open Media → 3D → choose .3dm → existing Rhino viewer and camera controls.
 4. GP4: Open Media → Video → existing poster/trim controls and artifact playback for supported web video.
 5. GP5: Close/switch a tab or undo placement while conversion runs → completion does not modify another tab or restore deleted content.

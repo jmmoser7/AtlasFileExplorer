@@ -289,7 +289,7 @@ pub(super) mod win {
         let medium = medium(data, format)?;
         let global = unsafe { medium.0.u.hGlobal };
         let size = unsafe { GlobalSize(global) };
-        if size == 0 || size > 131_074 || (wide && size % 2 != 0) {
+        if size == 0 || size > 131_074 || (wide && !size.is_multiple_of(2)) {
             return None;
         }
         let ptr = unsafe { GlobalLock(global) };
