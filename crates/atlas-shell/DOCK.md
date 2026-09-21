@@ -79,7 +79,10 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   Side / below zones still collapse the bar. Pinned palettes stay and
   drop down.
 - Hover never joins the pinned stack. Volatile bodies retire after
-  `close_delay` when abandoned, or on Escape / outside click.
+  `close_delay` when abandoned, or on Escape / outside click. A
+  right-drag or middle-drag pan is not abandonment: the body stays
+  through the gesture and afterward, until a later outside click or
+  Escape. A right-click that does not drag is still an outside click.
 - Title chips are suppressed on pin/click until the pointer leaves, and never
   shown for icons that already have a pinned or volatile body open.
 - Title chips appear **only** while the pointer is on the icon itself. An

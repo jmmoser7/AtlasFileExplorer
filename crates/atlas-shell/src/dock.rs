@@ -304,6 +304,10 @@ struct DockState {
     /// the new rect on the same click that collapsed it — without this,
     /// that click is read as an outside dismiss.
     last_union_panels: Option<Rect>,
+    /// A right-drag or middle-drag pan moved the pointer off a volatile
+    /// dashboard. That is not abandonment: keep the body until a real
+    /// outside click or Escape, even after the button comes up.
+    pan_hold: bool,
     /// Primary icon bar tucked into a readout blister. Pinned palettes stay.
     bar_collapsed: bool,
     last_icon_rects: HashMap<&'static str, Rect>,
@@ -3799,7 +3803,29 @@ pub fn floating_dock(
             || (hit_panels != Rect::NOTHING && hit_panels.expand(2.0).contains(p))
             || label_chip_rect.is_some_and(|r| r.expand(2.0).contains(p))
     });
+    // Right-drag and middle-drag pan the canvas. The pointer leaving the
+    // dashboard during that gesture is not abandonment, and the body stays
+    // after the button comes up until a real outside click or Escape.
+    let (pan_down, pan_drag_release) = ctx.input(|i| {
+        let p = &i.pointer;
+        let down = p.button_down(egui::PointerButton::Secondary)
+            || p.button_down(egui::PointerButton::Middle);
+        let drag_release = (p.button_released(egui::PointerButton::Secondary)
+            && !p.button_clicked(egui::PointerButton::Secondary))
+            || (p.button_released(egui::PointerButton::Middle)
+                && !p.button_clicked(egui::PointerButton::Middle));
+        (down, drag_release)
+    });
+    if state.body_preview.is_none() {
+        state.pan_hold = false;
+    }
     if pointer_inside {
+        state.last_inside_time = now;
+        state.pan_hold = false;
+    } else if state.body_preview.is_some() && (pan_down || pan_drag_release) {
+        state.pan_hold = true;
+        state.last_inside_time = now;
+    } else if state.pan_hold {
         state.last_inside_time = now;
     } else if label_hover_candidate.is_none() {
         let hover_expired = now - state.last_inside_time > tokens.close_delay as f64;
@@ -3809,6 +3835,7 @@ pub fn floating_dock(
             state.label_hover = None;
             state.label_hover_since = 0.0;
             state.describe_blend = 0.0;
+            state.pan_hold = false;
         }
     }
 
@@ -3819,6 +3846,7 @@ pub fn floating_dock(
         state.label_hover = None;
         state.label_hover_since = 0.0;
         state.describe_blend = 0.0;
+        state.pan_hold = false;
     }
 
     if !state.pinned.is_empty()
@@ -4445,6 +4473,173 @@ mod tests {
             assert!(state.body_preview.is_none());
             assert!(state.advanced.is_none());
         });
+    }
+
+    fn paint_dashboard(ctx: &egui::Context, id: &'static str, time: f64, events: Vec<egui::Event>) {
+        let items = [DockItem {
+            id: "filters",
+            label: "Filters",
+            description: "A portable dashboard.",
+            icon: DockIcon::Filters,
+            kind: DockItemKind::Dashboard,
+            active: false,
+            visible: true,
+            gap_before: false,
+        }];
+        let canvas = Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0));
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(canvas),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                floating_dock(
+                    ctx,
+                    id,
+                    canvas,
+                    &Palette::light(),
+                    DockSide::BottomCenter,
+                    &items,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                    false,
+                    |ui, _| {
+                        ui.label("dashboard body");
+                    },
+                );
+            },
+        );
+    }
+
+    fn seed_volatile_dashboard(ctx: &egui::Context, id: &'static str, time: f64) {
+        paint_dashboard(ctx, id, time, vec![]);
+        let state_id = egui::Id::new(("floating_dock", id));
+        ctx.data_mut(|d| {
+            let mut state = d.get_temp::<DockState>(state_id).unwrap();
+            state.body_preview = Some("filters");
+            state.last_inside_time = time;
+            state.pan_hold = false;
+            d.insert_temp(state_id, state);
+        });
+    }
+
+    fn preview_of(ctx: &egui::Context, id: &'static str) -> Option<&'static str> {
+        let state_id = egui::Id::new(("floating_dock", id));
+        ctx.data(|d| d.get_temp::<DockState>(state_id).unwrap().body_preview)
+    }
+
+    #[test]
+    fn right_drag_pan_keeps_a_volatile_dashboard_open() {
+        let ctx = egui::Context::default();
+        let away = Pos2::new(48.0, 48.0);
+        seed_volatile_dashboard(&ctx, "dash_abandon", 1.0);
+        paint_dashboard(
+            &ctx,
+            "dash_abandon",
+            2.0,
+            vec![egui::Event::PointerMoved(away)],
+        );
+        assert!(
+            preview_of(&ctx, "dash_abandon").is_none(),
+            "leaving the dashboard still retires it after the close delay"
+        );
+
+        seed_volatile_dashboard(&ctx, "dash_pan", 3.0);
+        let press = egui::Event::PointerButton {
+            pos: away,
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        };
+        paint_dashboard(
+            &ctx,
+            "dash_pan",
+            3.05,
+            vec![egui::Event::PointerMoved(away), press],
+        );
+        let end = away + Vec2::new(140.0, 30.0);
+        paint_dashboard(&ctx, "dash_pan", 3.4, vec![egui::Event::PointerMoved(end)]);
+        paint_dashboard(
+            &ctx,
+            "dash_pan",
+            4.2,
+            vec![egui::Event::PointerButton {
+                pos: end,
+                button: egui::PointerButton::Secondary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        paint_dashboard(&ctx, "dash_pan", 6.0, vec![egui::Event::PointerMoved(end)]);
+        assert_eq!(
+            preview_of(&ctx, "dash_pan"),
+            Some("filters"),
+            "a right-drag pan must not retire the dashboard"
+        );
+
+        paint_dashboard(
+            &ctx,
+            "dash_pan",
+            6.1,
+            vec![egui::Event::PointerButton {
+                pos: end,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        paint_dashboard(
+            &ctx,
+            "dash_pan",
+            6.2,
+            vec![egui::Event::PointerButton {
+                pos: end,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(
+            preview_of(&ctx, "dash_pan").is_none(),
+            "a later primary click still dismisses the dashboard"
+        );
+
+        seed_volatile_dashboard(&ctx, "dash_click", 7.0);
+        let click = Pos2::new(60.0, 60.0);
+        paint_dashboard(
+            &ctx,
+            "dash_click",
+            7.05,
+            vec![
+                egui::Event::PointerMoved(click),
+                egui::Event::PointerButton {
+                    pos: click,
+                    button: egui::PointerButton::Secondary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        assert_eq!(preview_of(&ctx, "dash_click"), Some("filters"));
+        paint_dashboard(
+            &ctx,
+            "dash_click",
+            7.1,
+            vec![egui::Event::PointerButton {
+                pos: click,
+                button: egui::PointerButton::Secondary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        assert!(
+            preview_of(&ctx, "dash_click").is_none(),
+            "a right-click that does not drag still dismisses the dashboard"
+        );
     }
 
     #[test]
