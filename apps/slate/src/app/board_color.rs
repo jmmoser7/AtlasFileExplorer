@@ -944,8 +944,18 @@ impl SlateApp {
     pub(crate) fn eraser_hits_at(&self, world: Pos2) -> Vec<NodeId> {
         let zoom = self.tab().cam.z;
         let slop = (self.eraser_width * 0.5).max(1.0);
+        let reach = slop + super::settings::STROKE_WIDTH_MAX * 0.5;
+        let query = slate_doc::scene::WorldRect::new(
+            world.x - reach,
+            world.y - reach,
+            reach * 2.0,
+            reach * 2.0,
+        );
         let mut hits = Vec::new();
-        for n in &self.doc().scene.nodes {
+        for id in self.doc().scene.query_rect(query) {
+            let Some(n) = self.doc().scene.node(id) else {
+                continue;
+            };
             if n.hidden || n.locked {
                 continue;
             }
@@ -1063,7 +1073,21 @@ impl SlateApp {
             x1 = x1.max(p.x + r);
             y1 = y1.max(p.y + r);
         }
-        for n in &self.doc().scene.nodes {
+        if !x0.is_finite() {
+            return;
+        }
+        let ink = super::settings::STROKE_WIDTH_MAX * 0.5;
+        let query = slate_doc::scene::WorldRect::new(
+            x0 - ink,
+            y0 - ink,
+            (x1 - x0) + ink * 2.0,
+            (y1 - y0) + ink * 2.0,
+        );
+        let candidates = self.doc().scene.query_rect(query);
+        for id in candidates {
+            let Some(n) = self.doc().scene.node(id) else {
+                continue;
+            };
             if n.hidden || n.locked || spot.contains(&n.id) {
                 continue;
             }

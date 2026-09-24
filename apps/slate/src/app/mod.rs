@@ -22,6 +22,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 pub mod association;
+#[cfg(test)]
+mod bench_brush;
 pub mod board;
 mod board_agent;
 mod board_align;

@@ -3517,6 +3517,7 @@ impl SlateApp {
         self.tick_bumper_glide(ui.ctx());
         self.fit_agent_cards(ui.ctx());
         let _span = atlas_core::session_log::span("slate.board.paint");
+        brush_prof::lap("paint-start");
         self.path_mesh_cache.tess_misses = 0;
         self.board_snap_guides.clear();
         self.board_osnap_hit = None;
@@ -4279,6 +4280,7 @@ impl SlateApp {
             }
         }
 
+        brush_prof::lap("input");
         // Hover cursors / rotate zones. Selection is not required.
         self.board_hover_hit = None;
         self.board_hover_node = None;
@@ -4316,6 +4318,7 @@ impl SlateApp {
         };
         let dt = ui.input(|i| i.unstable_dt);
         self.tick_hover_preview(hover_target, dt, ui.ctx());
+        brush_prof::lap("hover");
 
         // Adjustment previews must show authored color/stroke without selection tint.
         // One painter also fades wire/line endpoint fills, not just their outlines.
@@ -4326,9 +4329,11 @@ impl SlateApp {
         );
 
         if self.board_show_grid {
+            let _grid = atlas_core::session_log::span("slate.board.grid");
             let grid_alpha = self.tab().grid_fade.alpha(now);
             self.paint_board_grid(&painter, rect, &palette, &xf, grid_alpha);
         }
+        brush_prof::lap("grid");
 
         self.sheet_hits.clear();
         self.sheet_grips.clear();
@@ -4341,6 +4346,7 @@ impl SlateApp {
         // are not cloned or painted.
         self.begin_agent_paint();
         self.brush_stamp_rebuilds = 0;
+        let _nodes_span = atlas_core::session_log::span("slate.board.nodes");
         let mut nodes = self.board_paint_nodes(rect);
         // A Shift preview that continues a stroke paints that stroke inside
         // its own canvas, so the scene copy stays out of this frame.
@@ -4386,6 +4392,8 @@ impl SlateApp {
         {
             self.paint_board_node(ui, &painter, &xf, n, true);
         }
+        drop(_nodes_span);
+        brush_prof::lap("nodes");
         self.paint_deck(ui.ctx(), &painter, &xf, palette.accent);
         // Ctrl+H feedback: just-hidden nodes ghost out over 150 ms.
         self.paint_hide_ghosts(ui, &painter, &xf);
@@ -4794,6 +4802,7 @@ impl SlateApp {
                     if self.eyedropper_active() {
                         self.paint_eyedropper_cursor(&painter, p, w);
                     } else if matches!(self.board_tool, BoardTool::Brush | BoardTool::Eraser) {
+                        let _cursor = atlas_core::session_log::span("slate.board.brush_cursor");
                         self.paint_width_cursor(&painter, p);
                     }
                 }
@@ -4838,6 +4847,7 @@ impl SlateApp {
         self.board_action_menu(ui.ctx());
         self.board_empty_canvas_menu(ui.ctx());
 
+        brush_prof::lap("tail");
         if self
             .textures
             .values()
@@ -8757,6 +8767,53 @@ impl SlateApp {
             let picked = rfd::FileDialog::new().pick_folder();
             let _ = tx.send(super::PickerMsg::ExportArtifact(picked));
         });
+    }
+}
+
+/// Section timings inside `board_canvas`. Off unless a bench calls [`brush_prof::begin`].
+pub(crate) mod brush_prof {
+    use std::cell::RefCell;
+    use std::time::Instant;
+
+    struct Prof {
+        last: Instant,
+        laps: Vec<(&'static str, f32)>,
+    }
+
+    thread_local! {
+        static PROF: RefCell<Option<Prof>> = const { RefCell::new(None) };
+    }
+
+    pub fn begin() {
+        let now = Instant::now();
+        PROF.with(|p| {
+            *p.borrow_mut() = Some(Prof {
+                last: now,
+                laps: Vec::new(),
+            });
+        });
+    }
+
+    pub fn lap(name: &'static str) {
+        PROF.with(|p| {
+            let mut slot = p.borrow_mut();
+            let Some(prof) = slot.as_mut() else {
+                return;
+            };
+            let now = Instant::now();
+            let ms = now.duration_since(prof.last).as_secs_f32() * 1000.0;
+            prof.laps.push((name, ms));
+            prof.last = now;
+        });
+    }
+
+    pub fn take() -> Vec<(&'static str, f32)> {
+        PROF.with(|p| {
+            p.borrow_mut()
+                .take()
+                .map(|prof| prof.laps)
+                .unwrap_or_default()
+        })
     }
 }
 

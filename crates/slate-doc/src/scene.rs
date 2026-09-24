@@ -2665,7 +2665,7 @@ impl Scene {
 
     fn ensure_spatial(&self) {
         let mut idx = self.spatial.borrow_mut();
-        if idx.is_current(self.scene_gen) {
+        if idx.is_current(self.scene_gen) && idx.len() == self.nodes.len() {
             return;
         }
         idx.rebuild(&self.nodes, self.scene_gen);
@@ -2681,6 +2681,11 @@ impl Scene {
     pub fn query_point(&self, x: f32, y: f32) -> Vec<NodeId> {
         self.ensure_spatial();
         self.spatial.borrow().query_point(x, y)
+    }
+
+    /// How many times the spatial index was rebuilt from scratch.
+    pub fn spatial_rebuilds(&self) -> u64 {
+        self.spatial.borrow().rebuilds()
     }
 
     fn alloc_id(&mut self) -> NodeId {
@@ -2931,23 +2936,48 @@ impl Scene {
     /// Applies one command. Returns `false` (and does nothing) when the
     /// command no longer matches the scene (stale index/id).
     pub fn apply(&mut self, cmd: &SceneCmd) -> bool {
-        let ok = match cmd {
+        // A warm spatial index is updated in place for an append, a pop of
+        // the last node, or a bounds change. Anything that shifts z-order
+        // marks the index stale so the next query rebuilds once.
+        let spatial_current = {
+            let idx = self.spatial.borrow();
+            idx.is_current(self.scene_gen) && idx.len() == self.nodes.len()
+        };
+        match cmd {
             SceneCmd::Add { index, node } => {
-                // Do not rebuild the lazy lookup after each insertion in a
-                // bulk command group. The next read builds it once.
-                if *index > self.nodes.len() || self.nodes.iter().any(|n| n.id == node.id) {
+                if *index > self.nodes.len() || self.index_of(node.id).is_some() {
                     return false;
                 }
+                let at_end = *index == self.nodes.len();
                 self.nodes.insert(*index, node.clone());
-                // Keep the id counter ahead of re-inserted (undone) nodes.
                 self.next_node_id = self.next_node_id.max(node.id.0);
+                self.bump_gen();
+                if spatial_current && at_end {
+                    let z = (self.nodes.len() - 1) as u32;
+                    let mut idx = self.spatial.borrow_mut();
+                    idx.append(z, node);
+                    idx.stamp(self.scene_gen);
+                    drop(idx);
+                    self.note_id_appended(node.id);
+                } else {
+                    self.invalidate_derived();
+                }
                 true
             }
             SceneCmd::Remove { index, node } => {
                 if self.nodes.get(*index).map(|n| n.id) != Some(node.id) {
                     return false;
                 }
+                let at_end = *index + 1 == self.nodes.len();
                 self.nodes.remove(*index);
+                self.bump_gen();
+                if spatial_current && at_end {
+                    self.spatial.borrow_mut().pop_last(node);
+                    self.spatial.borrow_mut().stamp(self.scene_gen);
+                    self.forget_id(node.id);
+                } else {
+                    self.invalidate_derived();
+                }
                 true
             }
             SceneCmd::Patch { before, after } => {
@@ -2955,18 +2985,53 @@ impl Scene {
                     return false;
                 }
                 // Patch must not go through [`Self::node_mut`] — that bumps
-                // gen on lookup; we bump once below on success.
+                // gen on lookup; we bump once here on success.
                 let Some(index) = self.index_of(before.id) else {
                     return false;
                 };
                 self.nodes[index] = (**after).clone();
+                self.bump_gen();
+                if spatial_current {
+                    let mut idx = self.spatial.borrow_mut();
+                    if idx.replace_bounds(index as u32, after) {
+                        idx.stamp(self.scene_gen);
+                    } else {
+                        idx.invalidate();
+                        drop(idx);
+                        self.node_positions.borrow_mut().len = usize::MAX;
+                    }
+                } else {
+                    self.invalidate_derived();
+                }
                 true
             }
-        };
-        if ok {
-            self.bump_gen();
         }
-        ok
+    }
+
+    fn invalidate_derived(&self) {
+        self.spatial.borrow_mut().invalidate();
+        self.node_positions.borrow_mut().len = usize::MAX;
+    }
+
+    fn note_id_appended(&self, id: NodeId) {
+        let index = self.nodes.len() - 1;
+        let mut lookup = self.node_positions.borrow_mut();
+        if lookup.len == index {
+            lookup.positions.insert(id, index);
+            lookup.len = self.nodes.len();
+        } else {
+            lookup.len = usize::MAX;
+        }
+    }
+
+    fn forget_id(&self, id: NodeId) {
+        let mut lookup = self.node_positions.borrow_mut();
+        if lookup.len == self.nodes.len() + 1 {
+            lookup.positions.remove(&id);
+            lookup.len = self.nodes.len();
+        } else {
+            lookup.len = usize::MAX;
+        }
     }
 
     /// Applies a group of commands, stopping at the first failure.

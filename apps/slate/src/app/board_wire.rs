@@ -1177,6 +1177,13 @@ impl SlateApp {
         self.connector_sync_gen = self.scene_gen;
         let routing = self.board_wire_routing;
         let scene = &self.doc().scene;
+        if !scene
+            .nodes
+            .iter()
+            .any(|n| matches!(n.kind, NodeKind::Connector(_)))
+        {
+            return;
+        }
         let obstacles = scene_wire_obstacles(scene);
         let lanes = slate_doc::scene_ortho_lanes(scene);
         let updates: Vec<(NodeId, WorldRect)> = scene
