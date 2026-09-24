@@ -8220,7 +8220,7 @@ fn home_cover_frames_do_not_touch_the_filesystem() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     h.frame();
-    atlas_shell::recent::reset_fs_probe();
+    atlas_core::fs_probe::reset();
     let mut samples = Vec::with_capacity(30);
     for i in 0..30 {
         let t = std::time::Instant::now();
@@ -8232,7 +8232,7 @@ fn home_cover_frames_do_not_touch_the_filesystem() {
         });
         samples.push(t.elapsed().as_secs_f64() * 1000.0);
     }
-    let probes = atlas_shell::recent::fs_probe_count();
+    let probes = atlas_core::fs_probe::count();
     samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let p50 = samples[samples.len() / 2];
     let p95 = samples[samples.len() * 95 / 100];

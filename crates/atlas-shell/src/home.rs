@@ -246,7 +246,7 @@ impl HomeScreen {
 }
 
 fn decode_cover(key: &Path, cover: &Path, managed: &Path) -> CoverMsg {
-    crate::recent::note_fs_probe();
+    atlas_core::fs_probe::note();
     if !cover.is_file() || atlas_core::cloud::is_dehydrated(cover) {
         return CoverMsg::Absent(key.to_path_buf());
     }

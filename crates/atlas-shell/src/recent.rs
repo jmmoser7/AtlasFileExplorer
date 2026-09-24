@@ -4,25 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-static FS_PROBES: AtomicU64 = AtomicU64::new(0);
-
-/// Filesystem probes from the home/MRU path. Frame-budget tests reset this
-/// after warm-up.
-pub fn note_fs_probe() {
-    FS_PROBES.fetch_add(1, Ordering::Relaxed);
-}
-
-pub fn fs_probe_count() -> u64 {
-    FS_PROBES.load(Ordering::Relaxed)
-}
-
-pub fn reset_fs_probe() {
-    FS_PROBES.store(0, Ordering::Relaxed);
-}
 
 const MAX_RECENTS: usize = 60;
 
@@ -147,7 +130,7 @@ pub fn spawn_prune_missing(paths: Vec<PathBuf>) -> mpsc::Receiver<Vec<PathBuf>> 
         let missing: Vec<PathBuf> = paths
             .into_iter()
             .filter(|p| {
-                note_fs_probe();
+                atlas_core::fs_probe::note();
                 !p.exists()
             })
             .collect();
@@ -170,7 +153,7 @@ fn paths_equal(a: &Path, b: &Path) -> bool {
 pub fn covers_dir() -> PathBuf {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
-        note_fs_probe();
+        atlas_core::fs_probe::note();
         let dir = atlas_core::index::data_dir().join("home-covers");
         let _ = std::fs::create_dir_all(&dir);
         dir
