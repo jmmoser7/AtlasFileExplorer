@@ -1,5 +1,6 @@
 //! The AI sidebar panel — one implementation rendered by both apps so the
 //! toolbar is identical in Atlas and Slate (shared-chrome rule).
+//! Cursor detection runs off the UI thread.
 
 use crate::config::AiConfig;
 use crate::context::{now_secs, write_context, AiAppContext};
@@ -21,7 +22,9 @@ const BEACON_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 /// frame ends (it self-throttles).
 pub struct AiPanel {
     pub config: AiConfig,
-    cursor_available: bool,
+    /// `None` until the background probe finishes.
+    cursor_available: Option<bool>,
+    cursor_rx: Option<Receiver<bool>>,
     picker_tx: Sender<Option<PathBuf>>,
     picker_rx: Receiver<Option<PathBuf>>,
     picker_open: bool,
@@ -34,9 +37,14 @@ pub struct AiPanel {
 impl AiPanel {
     pub fn new() -> Self {
         let (picker_tx, picker_rx) = crossbeam_channel::unbounded();
+        let (cursor_tx, cursor_rx) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            let _ = cursor_tx.send(launch::cursor_available());
+        });
         AiPanel {
             config: AiConfig::load(),
-            cursor_available: launch::cursor_available(),
+            cursor_available: None,
+            cursor_rx: Some(cursor_rx),
             picker_tx,
             picker_rx,
             picker_open: false,
@@ -52,8 +60,19 @@ impl AiPanel {
         self.picker_open
     }
 
-    /// Drain the async folder picker. Call once per frame.
-    pub fn poll(&mut self) {
+    /// Drain the async folder picker and the Cursor probe. Returns true while
+    /// the probe is still running so the caller can wake one more frame.
+    pub fn poll(&mut self) -> bool {
+        if let Some(rx) = self.cursor_rx.take() {
+            match rx.try_recv() {
+                Ok(found) => self.cursor_available = Some(found),
+                Err(crossbeam_channel::TryRecvError::Empty) => self.cursor_rx = Some(rx),
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.cursor_available = Some(false);
+                }
+            }
+        }
+        let cursor_pending = self.cursor_rx.is_some();
         while let Ok(msg) = self.picker_rx.try_recv() {
             self.picker_open = false;
             if let Some(dir) = msg {
@@ -69,6 +88,7 @@ impl AiPanel {
                 }
             }
         }
+        cursor_pending
     }
 
     /// Open the async "establish AI workspace" folder picker.
@@ -102,7 +122,7 @@ impl AiPanel {
         match launch::launch_cursor(&ws) {
             Ok(()) => self.status = Some("Cursor launched.".into()),
             Err(e) => {
-                self.cursor_available = launch::cursor_available();
+                self.cursor_available = Some(launch::cursor_available());
                 self.status = Some(e);
             }
         }
@@ -144,13 +164,13 @@ impl Default for AiPanel {
 pub fn ai_body(panel: &mut AiPanel, ui: &mut egui::Ui, theme: SidebarTheme) {
     sidebar_region(ui, "Cursor", theme, |ui| {
         ui.horizontal(|ui| {
-            let (dot, msg) = if panel.cursor_available {
-                (
+            let (dot, msg) = match panel.cursor_available {
+                None => (Color32::from_rgb(0x8a, 0x90, 0x98), "Cursor status unknown"),
+                Some(true) => (
                     Color32::from_rgb(0x3f, 0xb9 - 0x10, 0x50),
                     "Cursor detected",
-                )
-            } else {
-                (Color32::from_rgb(0xd0, 0x8a, 0x2e), "Cursor not detected")
+                ),
+                Some(false) => (Color32::from_rgb(0xd0, 0x8a, 0x2e), "Cursor not detected"),
             };
             ui.label(RichText::new("●").color(dot));
             ui.label(RichText::new(msg).small().color(theme.sub));

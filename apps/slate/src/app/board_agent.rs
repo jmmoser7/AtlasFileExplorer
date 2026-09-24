@@ -5334,7 +5334,18 @@ impl SlateApp {
             .codex
             .retain(|session, _| existing.contains(session));
         self.ensure_agent_programs();
-        ctx.request_repaint_after(Duration::from_millis(250));
+        // Home used to wake at ~4 Hz because this fired on every frame, including
+        // an idle Cover Flow. Keep the cadence only while agent work is in flight
+        // or a workbook (not Home) is up.
+        if !self.at_home
+            || self.agents.programs_rx.is_some()
+            || self.agents.recents_rx.is_some()
+            || self.agents.ide_inflight
+            || self.agents.chats_rx.is_some()
+            || !self.agents.awaiting.is_empty()
+        {
+            ctx.request_repaint_after(Duration::from_millis(250));
+        }
         self.ensure_agent_recents(ctx);
         self.pump_cursor_ide(ctx);
         self.pump_agent_chats(ctx);

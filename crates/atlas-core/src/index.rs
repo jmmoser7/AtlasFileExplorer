@@ -8,6 +8,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub struct AssignState {
     /// rel path -> (dest folder relative to export root, optional new name)
@@ -80,11 +81,19 @@ impl Db {
     }
 }
 
+/// Per-user Atlas data directory. The path is resolved and created once per
+/// process. `ATLAS_SECRET_DIR` is unrelated and stays a per-call override in
+/// `secrets` so tests can still isolate the secret store.
 pub fn data_dir() -> PathBuf {
-    let base = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    let dir = base.join("NativeFileAtlas");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        crate::fs_probe::note();
+        let base = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
+        let dir = base.join("NativeFileAtlas");
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    })
+    .clone()
 }
 
 fn db_thread(path: PathBuf, rx: Receiver<DbCmd>) {

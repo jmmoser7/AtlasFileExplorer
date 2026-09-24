@@ -689,6 +689,7 @@ pub struct AtlasApp {
     scan_seeds: Vec<PathBuf>,
     /// Cover Flow home MRU (folders). Shown when `at_home`.
     recents: atlas_shell::recent::RecentList,
+    recent_prune_rx: Option<std::sync::mpsc::Receiver<Vec<PathBuf>>>,
     /// Shared home surface (shelf focus + cover textures) from `atlas-shell`.
     home: atlas_shell::home::HomeScreen,
     /// Cover Flow home — orthogonal to folder tabs (default launch surface).
@@ -1211,14 +1212,8 @@ impl AtlasApp {
             thumbs: ThumbPool::new(),
             root: None,
             scan_seeds: Vec::new(),
-            recents: {
-                let mut r = atlas_shell::recent::RecentList::load("file-atlas");
-                r.remove_missing();
-                atlas_shell::covers::spawn_missing_folder_covers(
-                    r.entries.iter().map(|e| e.path.clone()),
-                );
-                r
-            },
+            recents: atlas_shell::recent::RecentList::load("file-atlas"),
+            recent_prune_rx: None,
             home: atlas_shell::home::HomeScreen::new(
                 "file-atlas",
                 atlas_shell::home::HomeShelfKind::Folders,
@@ -1396,6 +1391,11 @@ impl AtlasApp {
             toasts: Vec::new(),
             demo_ran: false,
         };
+        {
+            let paths: Vec<PathBuf> = app.recents.entries.iter().map(|e| e.path.clone()).collect();
+            atlas_shell::covers::spawn_missing_folder_covers(paths.iter().cloned());
+            app.recent_prune_rx = Some(atlas_shell::recent::spawn_prune_missing(paths));
+        }
         if let Some(root) = initial_root {
             app.at_home = false;
             app.ensure_tab();
@@ -4962,7 +4962,22 @@ impl AtlasApp {
         self.apply_theme(ctx);
         self.debug_screenshot(ctx);
         self.drain_channels(ctx);
-        self.ai.poll();
+        if self.ai.poll() {
+            ctx.request_repaint_after(Duration::from_millis(50));
+        }
+        if let Some(rx) = self.recent_prune_rx.take() {
+            match rx.try_recv() {
+                Ok(missing) => {
+                    let before = self.recents.entries.len();
+                    self.recents.retain_existing(&missing);
+                    if self.recents.entries.len() != before {
+                        self.recents.save("file-atlas");
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => self.recent_prune_rx = Some(rx),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
+            }
+        }
         self.ai_context_frame();
 
         // Dropped folder(s) = open them on this canvas.

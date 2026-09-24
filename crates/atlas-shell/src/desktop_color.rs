@@ -360,6 +360,8 @@ mod platform {
             return Err("Cannot start desktop sampling input session".into());
         }
         let mut msg = MSG::default();
+        // `done` is cleared from the window procedure, not this stack frame.
+        #[allow(clippy::while_immutable_condition)]
         while !state.done {
             if GetMessageW(&mut msg, None, 0, 0).0 <= 0 {
                 break;

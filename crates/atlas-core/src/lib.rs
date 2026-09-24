@@ -12,6 +12,8 @@ pub mod display;
 pub mod export;
 pub mod filter;
 pub mod folder_heat;
+/// Counts filesystem probes so frame-budget tests can assert the UI thread went quiet.
+pub mod fs_probe;
 pub mod fsops;
 pub mod index;
 pub mod journal;

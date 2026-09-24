@@ -884,6 +884,7 @@ impl SlateApp {
             self.web_blur();
         }
 
+        self.ensure_web_host(ctx);
         let workbook = self.tab().path.clone();
         let host_ok = self.web.host.available();
         let mut candidates = Vec::with_capacity(portals.len());

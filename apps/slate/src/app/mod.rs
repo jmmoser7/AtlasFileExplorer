@@ -251,6 +251,12 @@ pub struct SlateApp {
     /// Read-only stand-in when `at_home` and the tab list is empty (frame pump).
     fallback_tab: SlateTab,
     pub recents: atlas_shell::recent::RecentList,
+    /// Off-thread existence check for the MRU. Entries stay until it answers.
+    recent_prune_rx: Option<std::sync::mpsc::Receiver<Vec<PathBuf>>>,
+    /// System font bytes, read off the UI thread and installed once.
+    font_rx: Option<std::sync::mpsc::Receiver<Vec<(String, Vec<u8>)>>>,
+    /// WebView2 host is created on the first frame that has a web portal.
+    web_host_ready: bool,
     /// Shared home surface (shelf focus + cover textures) from `atlas-shell`.
     pub home: atlas_shell::home::HomeScreen,
     /// Floating tools dock placement (Preferences → Dock location).
@@ -589,7 +595,6 @@ impl SlateApp {
         let mut app = Self::with_ctx(&cc.egui_ctx, initial_doc);
         app.gl = cc.gl.clone();
         app.store_frame_hwnd(cc);
-        app.install_web_host(cc);
         app.install_local_grants();
         #[cfg(windows)]
         match external_drop::win::Registration::install(cc, app.external_drop.clone()) {
@@ -614,38 +619,41 @@ impl SlateApp {
     #[cfg(not(windows))]
     fn store_frame_hwnd(&mut self, _cc: &eframe::CreationContext<'_>) {}
 
-    /// Give web portals a real browser when this machine has one. Without it
-    /// the null host stays and portals report `NoRuntime` (D29).
-    #[cfg(windows)]
-    fn install_web_host(&mut self, cc: &eframe::CreationContext<'_>) {
-        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-        let Ok(handle) = cc.window_handle() else {
+    /// Create the WebView2 host the first time a portal needs one.
+    ///
+    /// Construction used to pay for the compositor and D3D device even when
+    /// the workbook had no web portal. The null host stays until this runs, so
+    /// a machine with no runtime still reports `NoRuntime` (D29). Must stay on
+    /// the UI thread: the compositor wants this thread's dispatcher queue.
+    fn ensure_web_host(&mut self, ctx: &egui::Context) {
+        if self.web_host_ready || self.frame_hwnd == 0 {
             return;
-        };
-        let RawWindowHandle::Win32(win32) = handle.as_raw() else {
-            return;
-        };
-        let hwnd = windows::Win32::Foundation::HWND(win32.hwnd.get() as *mut std::ffi::c_void);
-        // Per-user, never beside the workbook. Profiles inside this folder
-        // partition cookies by origin (`web_profile_name`).
-        let user_data = atlas_core::index::data_dir().join("webview2");
-        let _ = std::fs::create_dir_all(&user_data);
-        if let Some(host) = board_web_win::Webview2Host::new(hwnd, &user_data, cc.egui_ctx.clone())
-        {
-            self.web.set_host(Box::new(host));
         }
+        self.web_host_ready = true;
+        #[cfg(windows)]
+        {
+            let hwnd = windows::Win32::Foundation::HWND(self.frame_hwnd as *mut std::ffi::c_void);
+            let user_data = atlas_core::index::data_dir().join("webview2");
+            let _ = std::fs::create_dir_all(&user_data);
+            if let Some(host) = board_web_win::Webview2Host::new(hwnd, &user_data, ctx.clone()) {
+                self.web.set_host(Box::new(host));
+            }
+        }
+        #[cfg(not(windows))]
+        let _ = ctx;
     }
-
-    #[cfg(not(windows))]
-    fn install_web_host(&mut self, _cc: &eframe::CreationContext<'_>) {}
 
     /// Full construction from a bare egui context. Used by `new` and by the
     /// headless test harness (no eframe window, no registry writes).
     fn with_ctx(egui_ctx: &egui::Context, initial_doc: Option<PathBuf>) -> Self {
+        // Overlaps the rest of construction. A board opened at launch waits
+        // for these bytes so the first frame is not in the wrong face; Home
+        // installs them on a later frame (egui's built-in proportional face
+        // until then — Home titles do not use the system list).
+        let font_rx = Self::spawn_system_fonts(egui_ctx.clone());
         egui_ctx.set_theme(egui::ThemePreference::Dark);
         egui_ctx.set_visuals(dark_visuals());
         atlas_shell::canvas_text::install(egui_ctx);
-        Self::install_fonts(egui_ctx);
         #[cfg(test)]
         let chrome_prefs =
             atlas_shell::prefs::ChromePrefs::default_for(atlas_shell::dock::DockSide::BottomCenter);
@@ -665,15 +673,17 @@ impl SlateApp {
             fallback_tab: SlateTab::empty(),
             recents: {
                 #[cfg(test)]
-                let r = atlas_shell::recent::RecentList::default();
+                {
+                    atlas_shell::recent::RecentList::default()
+                }
                 #[cfg(not(test))]
-                let r = {
-                    let mut r = atlas_shell::recent::RecentList::load("slate");
-                    r.remove_missing();
-                    r
-                };
-                r
+                {
+                    atlas_shell::recent::RecentList::load("slate")
+                }
             },
+            recent_prune_rx: None,
+            font_rx: None,
+            web_host_ready: false,
             home: atlas_shell::home::HomeScreen::new(
                 "slate",
                 atlas_shell::home::HomeShelfKind::Workbooks,
@@ -858,6 +868,21 @@ impl SlateApp {
         app.thumbs.retain_generation(THUMB_GENERATION);
         app.thumbs
             .ensure_workers(atlas_core::display::THUMB_WORKERS_SLATE);
+        #[cfg(not(test))]
+        {
+            let paths = app.recents.entries.iter().map(|e| e.path.clone()).collect();
+            app.recent_prune_rx = Some(atlas_shell::recent::spawn_prune_missing(paths));
+        }
+        // Tests and a workbook opened at launch wait out the font read so the
+        // first frame is not in the wrong face. Home (no document) returns
+        // immediately and installs on a later frame.
+        if initial_doc.is_some() || cfg!(test) {
+            if let Ok(files) = font_rx.recv() {
+                Self::install_loaded_fonts(egui_ctx, &files);
+            }
+        } else {
+            app.font_rx = Some(font_rx);
+        }
         if let Some(path) = initial_doc {
             app.at_home = false;
             app.ensure_work_tab();
@@ -890,7 +915,8 @@ impl SlateApp {
             let key = path.to_path_buf();
             if atlas_shell::covers::schedule_cover_bake(&key) {
                 std::thread::spawn(move || {
-                    let _ = atlas_shell::covers::bake_workbook_cover(&key, &media);
+                    let ok = atlas_shell::covers::bake_workbook_cover(&key, &media).is_some();
+                    atlas_shell::covers::note_bake_finished(&key, ok);
                 });
             }
             for e in &mut self.recents.entries {
@@ -903,10 +929,68 @@ impl SlateApp {
         }
     }
 
-    /// Register the bundled serif face so text nodes get a real serif preview
-    /// (`FontChoice::Serif` → the "slate-serif" family; the HTML artifact maps
-    /// it to a serif CSS stack).
-    fn install_fonts(ctx: &egui::Context) {
+    /// Read each system face once on a worker. `cour.ttf` is both Courier and
+    /// the agent title family, so it is in the list a single time.
+    fn spawn_system_fonts(ctx: egui::Context) -> std::sync::mpsc::Receiver<Vec<(String, Vec<u8>)>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut names: Vec<&str> = slate_doc::scene::Typeface::ALL
+                .iter()
+                .filter_map(|face| face.font_file())
+                .collect();
+            names.sort_unstable();
+            names.dedup();
+            let mut files = Vec::new();
+            for name in names {
+                if let Some(bytes) = Self::windows_font_bytes(name) {
+                    files.push((name.to_string(), bytes));
+                }
+            }
+            if !files.iter().any(|(name, _)| name == "cour.ttf") {
+                if let Some(bytes) = Self::courier_fallback_bytes() {
+                    files.push(("cour.ttf".into(), bytes));
+                }
+            }
+            let _ = tx.send(files);
+            ctx.request_repaint();
+        });
+        rx
+    }
+
+    fn poll_deferred_fonts(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.font_rx.take() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(files) => Self::install_loaded_fonts(ctx, &files),
+            Err(std::sync::mpsc::TryRecvError::Empty) => self.font_rx = Some(rx),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
+        }
+    }
+
+    fn poll_recent_prune(&mut self) {
+        let Some(rx) = self.recent_prune_rx.take() else {
+            return;
+        };
+        let missing = match rx.try_recv() {
+            Ok(missing) => missing,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                self.recent_prune_rx = Some(rx);
+                return;
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+        };
+        let before = self.recents.entries.len();
+        self.recents.retain_existing(&missing);
+        if self.recents.entries.len() != before {
+            #[cfg(not(test))]
+            self.recents.save("slate");
+        }
+    }
+
+    /// Register the bundled serif face plus any system faces the worker read.
+    /// One `set_fonts` invalidates galleys a single time.
+    fn install_loaded_fonts(ctx: &egui::Context, files: &[(String, Vec<u8>)]) {
         let mut fonts = egui::FontDefinitions::default();
         fonts.font_data.insert(
             "slate-serif".into(),
@@ -918,33 +1002,41 @@ impl SlateApp {
             egui::FontFamily::Name("slate-serif".into()),
             vec!["slate-serif".into()],
         );
-        Self::install_courier_new(&mut fonts);
-        Self::install_typefaces(&mut fonts);
-        ctx.set_fonts(fonts);
-    }
-
-    /// Optional system faces for shape text. Missing files fall back to the
-    /// built-in family; the HTML artifact still names the intended stack.
-    fn install_typefaces(fonts: &mut egui::FontDefinitions) {
+        let cour = files.iter().find(|(name, _)| name == "cour.ttf");
+        let name = atlas_shell::home::AGENT_TITLE_FAMILY;
+        let mut stack = vec![name.to_string()];
+        if let Some((_, bytes)) = cour {
+            fonts.font_data.insert(
+                name.into(),
+                std::sync::Arc::new(egui::FontData::from_owned(bytes.clone())),
+            );
+        }
+        if let Some(mono) = fonts.families.get(&egui::FontFamily::Monospace) {
+            stack.extend(mono.iter().cloned());
+        }
+        fonts
+            .families
+            .insert(egui::FontFamily::Name(name.into()), stack);
         for face in slate_doc::scene::Typeface::ALL {
             let (Some(file), Some(key)) = (face.font_file(), face.egui_family()) else {
                 continue;
             };
-            let Some(bytes) = Self::windows_font_bytes(file) else {
+            let Some((_, bytes)) = files.iter().find(|(name, _)| name == file) else {
                 continue;
             };
             fonts.font_data.insert(
                 key.into(),
-                std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+                std::sync::Arc::new(egui::FontData::from_owned(bytes.clone())),
             );
-            let mut stack = vec![key.to_string()];
+            let mut family = vec![key.to_string()];
             if let Some(proportional) = fonts.families.get(&egui::FontFamily::Proportional) {
-                stack.extend(proportional.iter().cloned());
+                family.extend(proportional.iter().cloned());
             }
             fonts
                 .families
-                .insert(egui::FontFamily::Name(key.into()), stack);
+                .insert(egui::FontFamily::Name(key.into()), family);
         }
+        ctx.set_fonts(fonts);
     }
 
     fn windows_font_bytes(file: &str) -> Option<Vec<u8>> {
@@ -959,41 +1051,17 @@ impl SlateApp {
             .and_then(|path| std::fs::read(path).ok())
     }
 
-    /// Courier New for agent album title-faces. Windows ships it; elsewhere
-    /// the family aliases the default monospace so Linux still lays out glyphs.
-    fn install_courier_new(fonts: &mut egui::FontDefinitions) {
-        let name = atlas_shell::home::AGENT_TITLE_FAMILY;
-        let mut stack = vec![name.to_string()];
-        if let Some(bytes) = Self::courier_new_bytes() {
-            fonts.font_data.insert(
-                name.into(),
-                std::sync::Arc::new(egui::FontData::from_owned(bytes)),
-            );
-        }
-        if let Some(mono) = fonts.families.get(&egui::FontFamily::Monospace) {
-            stack.extend(mono.iter().cloned());
-        }
-        fonts
-            .families
-            .insert(egui::FontFamily::Name(name.into()), stack);
-    }
-
-    fn courier_new_bytes() -> Option<Vec<u8>> {
-        let mut paths = Vec::new();
-        if let Some(windir) = std::env::var_os("WINDIR") {
-            paths.push(PathBuf::from(windir).join("Fonts").join("cour.ttf"));
-        }
-        paths.push(PathBuf::from(r"C:\Windows\Fonts\cour.ttf"));
-        paths.push(PathBuf::from(
+    /// Linux stand-in when `cour.ttf` is not installed. Windows already loaded
+    /// that file through [`Self::windows_font_bytes`].
+    fn courier_fallback_bytes() -> Option<Vec<u8>> {
+        [
             "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-        ));
-        paths.push(PathBuf::from(
             "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        ));
-        paths
-            .into_iter()
-            .find(|p| p.is_file())
-            .and_then(|p| std::fs::read(p).ok())
+        ]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|p| p.is_file())
+        .and_then(|p| std::fs::read(p).ok())
     }
 
     pub fn palette(&self) -> Palette {
@@ -2071,6 +2139,8 @@ impl SlateApp {
     /// One full UI frame (split out for testability, mirroring Atlas).
     pub fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
+        self.poll_deferred_fonts(ctx);
+        self.poll_recent_prune();
         self.apply_theme(ctx);
         self.preview_reqs_this_frame = 0;
         self.alt_down = ctx.input(|i| i.modifiers.alt);
@@ -2094,7 +2164,9 @@ impl SlateApp {
         self.video_pump(ctx);
         self.note_engine_failure();
         self.session_pump(ctx);
-        self.ai.poll();
+        if self.ai.poll() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
         self.agent_pump(ctx);
         self.web_pump(ctx);
         self.atlas_pump(ctx);
@@ -2341,20 +2413,25 @@ impl SlateApp {
         #[cfg(not(test))]
         for e in self.recents.entries.clone() {
             let path = e.path.clone();
-            if !path.is_file() {
-                continue;
-            }
-            if atlas_shell::recent::cover_cache_path(&path).is_file() {
-                continue;
-            }
             if !atlas_shell::covers::schedule_cover_bake(&path) {
                 continue;
             }
             std::thread::spawn(move || {
-                if let Ok(doc) = SlateDoc::load_from(&path) {
-                    let media = sample_workbook_cover_media(&doc, 9);
-                    let _ = atlas_shell::covers::bake_workbook_cover(&path, &media);
+                if !path.is_file() {
+                    atlas_shell::covers::note_bake_finished(&path, false);
+                    return;
                 }
+                if atlas_shell::recent::cover_cache_path(&path).is_file() {
+                    atlas_shell::covers::note_bake_finished(&path, true);
+                    return;
+                }
+                let ok = if let Ok(doc) = SlateDoc::load_from(&path) {
+                    let media = sample_workbook_cover_media(&doc, 9);
+                    atlas_shell::covers::bake_workbook_cover(&path, &media).is_some()
+                } else {
+                    false
+                };
+                atlas_shell::covers::note_bake_finished(&path, ok);
             });
         }
     }

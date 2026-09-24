@@ -65,6 +65,7 @@ pub fn file_attributes(path: &Path) -> Option<u32> {
     use windows::core::PCWSTR;
     use windows::Win32::Storage::FileSystem::GetFileAttributesW;
 
+    crate::fs_probe::note();
     let wide = extended_wide(path);
     let attrs = unsafe { GetFileAttributesW(PCWSTR(wide.as_ptr())) };
     // INVALID_FILE_ATTRIBUTES

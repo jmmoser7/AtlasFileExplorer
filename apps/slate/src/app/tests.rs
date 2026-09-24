@@ -8150,3 +8150,74 @@ fn eraser_validation_image() {
         "strokes survive spot erasing"
     );
 }
+
+/// Twelve covered recents, then pointer-driven Home frames.
+/// After warm-up the shelf must not stat or read cover bytes.
+#[test]
+fn home_cover_frames_do_not_touch_the_filesystem() {
+    let mut h = Harness::new("home-budget");
+    let dir = h.base.join("covers");
+    std::fs::create_dir_all(&dir).unwrap();
+    h.app.recents.entries = (0..12)
+        .map(|i| {
+            let cover = dir.join(format!("c{i}.png"));
+            image::RgbaImage::from_pixel(32, 32, image::Rgba([i as u8, 40, 80, 255]))
+                .save(&cover)
+                .unwrap();
+            atlas_shell::recent::RecentEntry {
+                path: h.base.join(format!("book{i}.slate")),
+                title: format!("Workbook {i}"),
+                opened_at: 0,
+                cover: Some(cover),
+            }
+        })
+        .collect();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while h.app.home.texture_count() < 12 || !h.app.home.cover_io_settled() {
+        h.frame_with(|input| {
+            input
+                .events
+                .push(egui::Event::PointerMoved(egui::pos2(200.0, 400.0)));
+        });
+        assert!(
+            std::time::Instant::now() < deadline,
+            "covers did not settle (textures={}, settled={})",
+            h.app.home.texture_count(),
+            h.app.home.cover_io_settled()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.frame();
+    atlas_shell::recent::reset_fs_probe();
+    let mut samples = Vec::with_capacity(30);
+    for i in 0..30 {
+        let t = std::time::Instant::now();
+        let x = 80.0 + i as f32 * 17.0;
+        h.frame_with(|input| {
+            input
+                .events
+                .push(egui::Event::PointerMoved(egui::pos2(x, 360.0 + i as f32)));
+        });
+        samples.push(t.elapsed().as_secs_f64() * 1000.0);
+    }
+    let probes = atlas_shell::recent::fs_probe_count();
+    samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let p50 = samples[samples.len() / 2];
+    let p95 = samples[samples.len() * 95 / 100];
+    eprintln!("home_frame_ms p50={p50:.2} p95={p95:.2} fs_probes={probes}");
+    assert_eq!(probes, 0, "home frames probed the filesystem after warm-up");
+}
+
+/// Machine-local: time until `SlateApp::with_ctx` returns (headless `new`).
+/// Not a CI assertion — fonts and the data dir dominate, and they vary by machine.
+#[test]
+#[ignore = "machine-local constructor timing"]
+fn home_startup_constructor_time() {
+    let t0 = std::time::Instant::now();
+    let h = Harness::new("ctor-time");
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    eprintln!(
+        "slate with_ctx constructor_ms={ms:.1} profile=dev at_home={}",
+        h.app.at_home
+    );
+}
