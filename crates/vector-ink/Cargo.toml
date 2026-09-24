@@ -9,6 +9,13 @@ license = "MIT"
 name = "vector_ink"
 path = "src/lib.rs"
 
+[features]
+# Default so `cargo test -p vector-ink` runs the tile parity tests. The
+# feature also keeps this artifact distinct from other worktrees that share
+# CARGO_TARGET_DIR and do not have the module.
+default = ["brush-tiles"]
+brush-tiles = []
+
 [dependencies]
 kurbo = { workspace = true }
 i_overlay = { workspace = true }
