@@ -72,6 +72,27 @@ struct RunCache {
     keys: Vec<u64>,
     tiles: HashMap<TileCoord, GpuTile>,
     used: u64,
+    /// Every tile in `span` at `bits` was exact for the run signature `sig`.
+    /// A frame with the same strokes inside that span only draws textures.
+    validated: Option<Validated>,
+}
+
+#[derive(Clone, Copy)]
+struct Validated {
+    sig: u64,
+    bits: u32,
+    span: (i32, i32, i32, i32),
+}
+
+impl Validated {
+    fn covers(self, sig: u64, bits: u32, span: (i32, i32, i32, i32)) -> bool {
+        self.sig == sig
+            && self.bits == bits
+            && span.0 >= self.span.0
+            && span.1 >= self.span.1
+            && span.2 <= self.span.2
+            && span.3 <= self.span.3
+    }
 }
 
 struct Job {
@@ -381,6 +402,7 @@ impl BrushTiles {
         let Some(run) = self.runs.iter_mut().find(|r| r.token == fin.token) else {
             return;
         };
+        run.validated = None;
         let image = egui::ColorImage::from_rgba_premultiplied(
             [TILE_PX as usize, TILE_PX as usize],
             &super::premultiplied(&fin.rgba),
@@ -644,6 +666,7 @@ pub(crate) fn paint_rest(
     app.brush_tiles.sync_keys(scene_gen);
     app.brush_tiles.drain_finished();
     app.brush_tiles.upload_some(painter.ctx());
+    crate::app::board::brush_prof::lap("tiles.sync");
 
     let want = super::stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
     let view = view_bounds(screen, xf);
@@ -736,20 +759,43 @@ fn paint_run(
     }
     let ids: Vec<NodeId> = prep.iter().map(|p| p.id).collect();
     let keys: Vec<u64> = prep.iter().map(|p| p.key).collect();
+    crate::app::board::brush_prof::lap("tiles.prep");
 
     let token = match_run(&mut app.brush_tiles, &ids, &keys);
+    crate::app::board::brush_prof::lap("tiles.match");
     let mut drew_fallback = false;
     let mut individuals = 0usize;
 
     let (tx0, ty0, tx1, ty1) = tile_span(view, pixel);
+    let span = (tx0, ty0, tx1, ty1);
+    let bits = pixel.to_bits();
+    let sig = run_signature(&ids, &keys);
+    if let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) {
+        if run.validated.is_some_and(|v| v.covers(sig, bits, span)) {
+            for ty in ty0..=ty1 {
+                for tx in tx0..=tx1 {
+                    if let Some(tile) = run.tiles.get_mut(&(bits, tx, ty)) {
+                        tile.used = frame;
+                        paint_tile(painter, xf, tile);
+                    }
+                }
+            }
+            run.used = frame;
+            crate::app::board::brush_prof::lap("tiles.fast");
+            return;
+        }
+    }
+    let bins = bin_by_tile(&prep, pixel, span);
     let mut missing = false;
     let mut covered: HashSet<NodeId> = HashSet::new();
     for ty in ty0..=ty1 {
         for tx in tx0..=tx1 {
             let bounds = tile_bounds(tx, ty, pixel);
+            let bin = &bins[bin_slot(span, tx, ty)];
             let mut desired = std::mem::take(&mut app.brush_tiles.scratch_desired);
             desired.clear();
-            for p in &prep {
+            for &i in bin {
+                let p = &prep[i];
                 if overlaps(p.bounds, bounds) {
                     desired.push((p.id, p.key));
                 }
@@ -758,7 +804,6 @@ fn paint_run(
                 app.brush_tiles.scratch_desired = desired;
                 continue;
             }
-            let bits = pixel.to_bits();
             let kind = app
                 .brush_tiles
                 .runs
@@ -822,8 +867,9 @@ fn paint_run(
                     None
                 };
                 let incremental = base.is_some();
-                let strokes = prep
+                let strokes = bin
                     .iter()
+                    .map(|&i| &prep[i])
                     .filter(|p| overlaps(p.bounds, bounds))
                     .skip(skip)
                     .map(|p| Arc::clone(&p.src))
@@ -891,12 +937,47 @@ fn paint_run(
     if let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) {
         // Grow the cached stroke list when new strokes appear. A cull is the
         // other way around and must not throw the list away.
+        run.validated = (!missing).then_some(Validated { sig, bits, span });
         if subsequence(&ids, &keys, &run.ids, &run.keys) {
             run.ids = ids;
             run.keys = keys;
         }
         run.used = frame;
     }
+}
+
+fn run_signature(ids: &[NodeId], keys: &[u64]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    ids.hash(&mut h);
+    keys.hash(&mut h);
+    h.finish()
+}
+
+fn bin_slot(span: (i32, i32, i32, i32), tx: i32, ty: i32) -> usize {
+    let cols = (span.2 - span.0 + 1) as usize;
+    (ty - span.1) as usize * cols + (tx - span.0) as usize
+}
+
+/// Candidate strokes per visible tile, in paint order. Each stroke lands in
+/// every tile its bounds reach (a hair wider, so `overlaps` stays the judge).
+fn bin_by_tile(prep: &[Prepared], pixel: f32, span: (i32, i32, i32, i32)) -> Vec<Vec<usize>> {
+    let cols = (span.2 - span.0 + 1) as usize;
+    let rows = (span.3 - span.1 + 1) as usize;
+    let mut bins = vec![Vec::new(); cols * rows];
+    let eps = pixel * 0.5;
+    for (i, p) in prep.iter().enumerate() {
+        let x0 = tile_index(p.bounds[0] - eps, pixel, TILE_PX).max(span.0);
+        let y0 = tile_index(p.bounds[1] - eps, pixel, TILE_PX).max(span.1);
+        let x1 = tile_index(p.bounds[2] + eps, pixel, TILE_PX).min(span.2);
+        let y1 = tile_index(p.bounds[3] + eps, pixel, TILE_PX).min(span.3);
+        for ty in y0..=y1 {
+            for tx in x0..=x1 {
+                bins[bin_slot(span, tx, ty)].push(i);
+            }
+        }
+    }
+    bins
 }
 
 fn fallback_pixels(app: &SlateApp, token: u64, current: f32) -> Vec<f32> {
@@ -967,6 +1048,7 @@ fn match_run(cache: &mut BrushTiles, ids: &[NodeId], keys: &[u64]) -> u64 {
         keys: keys.to_vec(),
         tiles: HashMap::new(),
         used: 0,
+        validated: None,
     });
     token
 }

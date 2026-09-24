@@ -167,6 +167,21 @@ fn a_few_brush_strokes_settle_into_tiles() {
 }
 
 /// 5,000 strokes: rest, pan, zoom, and one more commit, old path then tiles.
+/// Saves the bench board to `SLATE_BRUSH_FIXTURE` so a GUI run can open it.
+#[test]
+#[ignore]
+fn write_brush_fixture() {
+    let Ok(path) = std::env::var("SLATE_BRUSH_FIXTURE") else {
+        return;
+    };
+    let bench = Bench::new(STROKES);
+    bench
+        .app
+        .doc()
+        .save_to(std::path::Path::new(&path))
+        .expect("write the brush fixture");
+}
+
 #[test]
 #[ignore]
 fn bench_brush_five_thousand() {
@@ -261,6 +276,12 @@ fn bench_brush_five_thousand() {
             .collect::<Vec<_>>()
             .join(", ")
     );
+    super::board::brush_prof::begin();
+    b.frame();
+    println!("tile rest sections ms:");
+    for (name, ms) in super::board::brush_prof::take() {
+        println!("  {name:<14} {ms:.2}");
+    }
     let pan: Vec<_> = (0..5)
         .map(|i| {
             b.app.tab_mut().cam.offset.x += if i % 2 == 0 { 40.0 } else { -40.0 };
