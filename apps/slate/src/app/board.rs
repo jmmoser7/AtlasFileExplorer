@@ -1110,6 +1110,7 @@ impl SlateApp {
     /// minimap's cached texture and the search-match recompute.
     pub(crate) fn note_scene_change(&mut self) {
         self.scene_gen = self.scene_gen.wrapping_add(1);
+        self.brush_tiles.note_unspecified();
     }
 
     /// Applies an edit to several nodes and journals one coalescible patch
@@ -1167,6 +1168,7 @@ impl SlateApp {
         }
         self.remember_document_colors(colors);
         self.last_board_edit = Some((first, Instant::now()));
+        self.brush_tiles.note_ids(afters.iter().map(|n| n.id));
         self.note_scene_change();
         if afters.len() == 1 {
             self.note_last_style(&afters[0]);
@@ -1332,6 +1334,10 @@ impl SlateApp {
             SceneCmd::Add { node, .. } => Some((None, node)),
             SceneCmd::Patch { before, after } => Some((Some(before.as_ref()), after.as_ref())),
             SceneCmd::Remove { .. } => None,
+        }));
+        self.brush_tiles.note_ids(cmds.iter().map(|c| match c {
+            SceneCmd::Add { node, .. } | SceneCmd::Remove { node, .. } => node.id,
+            SceneCmd::Patch { after, .. } => after.id,
         }));
         let tab = self.tab_mut();
         tab.dirty = true;
@@ -4388,12 +4394,7 @@ impl SlateApp {
         }
         self.paint_wire_grips(&selection_painter, &xf);
         self.paint_agent_history_rails(&painter, &xf);
-        for n in nodes
-            .iter()
-            .filter(|n| !n.is_frame() && !matches!(n.kind, NodeKind::Connector(_)))
-        {
-            self.paint_board_node(ui, &painter, &xf, n, true);
-        }
+        board_path::tiles::paint_rest(self, ui, &painter, &xf, rect, &nodes);
         drop(_nodes_span);
         brush_prof::lap("nodes");
         self.paint_deck(ui.ctx(), &painter, &xf, palette.accent);

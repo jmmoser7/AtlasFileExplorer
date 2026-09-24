@@ -1,22 +1,26 @@
 //! Test hook for filesystem probes on paths the UI must not touch every frame.
 //!
-//! Production calls are a relaxed atomic increment. Frame-budget tests reset
-//! the counter after warm-up and assert it stays put.
+//! Counts per thread: the rule is "nothing on the frame loop", and workers may
+//! stat freely. Frame-budget tests reset the counter after warm-up and assert
+//! it stays put on their own thread, so tests running in parallel don't mix.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::cell::Cell;
 
-static PROBES: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    static PROBES: Cell<u64> = const { Cell::new(0) };
+}
 
 /// Record one filesystem probe (stat, attribute read, or directory create).
 #[inline]
 pub fn note() {
-    PROBES.fetch_add(1, Ordering::Relaxed);
+    PROBES.with(|p| p.set(p.get() + 1));
 }
 
+/// Probes recorded on the calling thread since the last [`reset`].
 pub fn count() -> u64 {
-    PROBES.load(Ordering::Relaxed)
+    PROBES.with(Cell::get)
 }
 
 pub fn reset() {
-    PROBES.store(0, Ordering::Relaxed);
+    PROBES.with(|p| p.set(0));
 }

@@ -15,6 +15,7 @@ mod hit;
 mod mesh;
 mod stamp;
 mod stroke;
+mod tile;
 mod trim;
 
 pub use kurbo;
@@ -78,6 +79,10 @@ pub use stamp::{
     tipped_contours, StampImage, StampStyle, TipPoint,
 };
 pub use stroke::{stroke_bounds, stroke_mesh, stroke_outline, stroke_ribbon};
+pub use tile::{
+    composite_stroke, composite_strokes, composite_strokes_tiled, ink_bounds, source_over_region,
+    tile_index, tile_origin, StrokeInk, TILE_PX,
+};
 pub use trim::{
     boolean_difference, boolean_intersection, boolean_union, boolean_union_all,
     closest_polyline_span, extend_polyline_end, fill_triangles, infinite_line, point_in_mesh,
