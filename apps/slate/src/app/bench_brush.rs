@@ -279,7 +279,7 @@ fn bench_brush_five_thousand() {
     b.app.tab_mut().cam.z = 2.0;
     let zoom_start = Instant::now();
     let mut zoom_frames = 0usize;
-    while zoom_start.elapsed() < Duration::from_secs(45) && zoom_frames < 2000 {
+    while zoom_start.elapsed() < Duration::from_secs(45) && zoom_frames < 20_000 {
         zoom_frames += 1;
         b.frame();
         if b.app.brush_tiles.last.settled {
