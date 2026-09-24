@@ -986,6 +986,36 @@ mod tests {
     }
 
     #[test]
+    fn union_keeps_a_stroke_ribbon_outside_a_rect() {
+        use crate::{stroke_ribbon, Cap, Join, StrokeStyle};
+        let style = StrokeStyle {
+            width: 2.0,
+            cap: Cap::Round,
+            join: Join::Round,
+            taper: None,
+            dash: None,
+        };
+        let ribbon = stroke_ribbon(&[[0.0, 40.0], [140.0, 40.0]], &style).expect("ribbon");
+        assert!(
+            point_in_polygon(&ribbon, [10.0, 40.0]),
+            "ribbon itself must cover the centerline: n={} lens={:?}",
+            ribbon.len(),
+            ribbon.iter().map(|c| c.len()).collect::<Vec<_>>()
+        );
+        let min_x = ribbon
+            .iter()
+            .flatten()
+            .map(|p| p[0])
+            .fold(f32::INFINITY, f32::min);
+        let rect = rect(40.0, 20.0, 40.0, 40.0);
+        let out = boolean_union(&rect, &ribbon);
+        assert!(
+            out.iter().any(|p| point_in_polygon(p, [10.0, 40.0])),
+            "union dropped the ribbon wing (ribbon min x {min_x}): {out:?}"
+        );
+    }
+
+    #[test]
     fn union_of_overlapping_rects_covers_both() {
         let a = rect(0.0, 0.0, 80.0, 80.0);
         let b = rect(40.0, 40.0, 80.0, 80.0);

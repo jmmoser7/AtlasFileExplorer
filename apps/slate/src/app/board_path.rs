@@ -879,6 +879,13 @@ pub fn marquee_selects_node(
     routing: slate_doc::WireRouting,
     mode: MarqueeMode,
 ) -> bool {
+    // Wires keep the approved crossing rule in docs/keymap/specs/connectors.md:
+    // a routed stroke through the box is selected either drag direction.
+    // select-sweep D17's window containment is still proposed, so it does not
+    // apply to connectors.
+    if matches!(node.kind, NodeKind::Connector(_)) {
+        return marquee_hits_node(node, marquee, zoom, scene, routing);
+    }
     match mode {
         MarqueeMode::Crossing => marquee_hits_node(node, marquee, zoom, scene, routing),
         MarqueeMode::Window => marquee_contains_node(node, marquee, scene, routing),

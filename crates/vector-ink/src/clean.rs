@@ -28,7 +28,7 @@ pub fn clean_boolean_result(result: &mut TrimPolys, sources: &[Vec<[f32; 2]>]) {
             for p in ring.iter_mut() {
                 *p = snap_point(*p, &verts, &h_lines, &v_lines, &edges, snap);
             }
-            *ring = collapse_collinear(ring, snap);
+            *ring = collapse_collinear(ring, &verts, snap);
         }
         piece.retain(|r| r.len() >= 3);
     }
@@ -131,7 +131,7 @@ fn nearest_line(x: f32, lines: &[f32], snap: f32) -> Option<f32> {
     best.map(|(l, _)| l)
 }
 
-fn collapse_collinear(ring: &[[f32; 2]], snap: f32) -> Vec<[f32; 2]> {
+fn collapse_collinear(ring: &[[f32; 2]], verts: &[[f32; 2]], snap: f32) -> Vec<[f32; 2]> {
     let n = ring.len();
     if n < 3 {
         return ring.to_vec();
@@ -142,7 +142,12 @@ fn collapse_collinear(ring: &[[f32; 2]], snap: f32) -> Vec<[f32; 2]> {
         let a = ring[(i + n - 1) % n];
         let b = ring[i];
         let c = ring[(i + 1) % n];
-        if dist2(a, c) > snap2 && point_to_seg_dist2(b, a, c) < snap2 {
+        // Drop overlay-only points that landed on a straight source edge.
+        // Source vertices stay: a round cap's facets are closer together than
+        // `snap`, and treating them as collinear deletes the ribbon outside a
+        // joined rectangle (join GP3).
+        let authored = verts.iter().any(|v| dist2(*v, b) < snap2);
+        if !authored && dist2(a, c) > snap2 && point_to_seg_dist2(b, a, c) < snap2 {
             continue;
         }
         if out.last().is_some_and(|p| dist2(*p, b) < snap2) {
