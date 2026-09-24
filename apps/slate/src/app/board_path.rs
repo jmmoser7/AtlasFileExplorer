@@ -1,5 +1,8 @@
 //! Board vector paths: world ↔ `PathData`, tessellation cache, hit-testing.
 
+#[path = "board_path/tiles.rs"]
+pub(crate) mod tiles;
+
 use eframe::egui::{self, Color32, Pos2, Shape, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
     Dash, PathData, PathSeg, Rgba, ShapeKind, ShapeNode, Stroke, StrokeCap, StrokeJoin, StrokeSpan,

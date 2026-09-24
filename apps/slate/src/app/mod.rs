@@ -22,6 +22,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 pub mod association;
+#[cfg(test)]
+mod bench_brush;
 pub mod board;
 mod board_agent;
 mod board_align;
@@ -546,9 +548,15 @@ pub struct SlateApp {
     /// The brush drag's screen-aligned canvas (freehand or Shift preview).
     pub(crate) brush_live: Option<board_path::BrushLiveCanvas>,
     /// Committed radial stamps, keyed by node. The bitmap is derived.
+    /// Kept for strokes that are selected, faded, or mid-erase. Plain runs
+    /// live in [`Self::brush_tiles`] instead.
     pub(crate) brush_stamps: HashMap<NodeId, (u64, board_path::BrushStampGpu)>,
     /// Stamp resolution upgrades spent this frame.
     pub(crate) brush_stamp_rebuilds: u32,
+    /// World-aligned textures for runs of plain committed brush strokes.
+    pub(crate) brush_tiles: board_path::tiles::BrushTiles,
+    /// When false, every stamp paints through its own texture (the pre-tile path).
+    pub(crate) brush_tiles_enabled: bool,
     /// Eraser pick-circle width, world units (persisted; `[`/`]` while E).
     pub eraser_width: f32,
     /// Eraser falloff and strength on painted strokes (persisted).
@@ -822,6 +830,8 @@ impl SlateApp {
             brush_live: None,
             brush_stamps: HashMap::new(),
             brush_stamp_rebuilds: 0,
+            brush_tiles: board_path::tiles::BrushTiles::default(),
+            brush_tiles_enabled: true,
             eraser_width: settings::ERASER_WIDTH_DEFAULT,
             eraser_softness: 0.0,
             eraser_opacity: 1.0,

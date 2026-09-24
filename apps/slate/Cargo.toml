@@ -20,7 +20,7 @@ slate-doc = { workspace = true }
 slate-kit = { workspace = true }
 slate-artifact = { workspace = true }
 model-preview = { workspace = true }
-vector-ink = { workspace = true }
+vector-ink = { workspace = true, features = ["brush-tiles"] }
 native-file-atlas = { workspace = true }
 eframe = { workspace = true }
 crossbeam-channel = { workspace = true }
