@@ -45,6 +45,8 @@ pub struct SpatialIndex {
     aabbs: Vec<WorldRect>,
     /// `Scene::scene_gen` at last rebuild; `u64::MAX` means empty/unbuilt.
     built_gen: u64,
+    /// Full rebuilds. Incremental appends do not increment this.
+    rebuilds: u64,
 }
 
 impl Default for SpatialIndex {
@@ -55,13 +57,28 @@ impl Default for SpatialIndex {
             ids: Vec::new(),
             aabbs: Vec::new(),
             built_gen: u64::MAX,
+            rebuilds: 0,
         }
     }
 }
 
 impl SpatialIndex {
+    pub fn len(&self) -> usize {
+        self.ids.len()
+    }
+
     pub fn is_current(&self, scene_gen: u64) -> bool {
         self.built_gen == scene_gen
+    }
+
+    /// Mark the index as matching `scene_gen` after an incremental edit.
+    pub fn stamp(&mut self, scene_gen: u64) {
+        self.built_gen = scene_gen;
+    }
+
+    /// Force the next query to rebuild.
+    pub fn invalidate(&mut self) {
+        self.built_gen = u64::MAX;
     }
 
     pub fn rebuild(&mut self, nodes: &[Node], scene_gen: u64) {
@@ -82,6 +99,68 @@ impl SpatialIndex {
             }
         }
         self.built_gen = scene_gen;
+        self.rebuilds += 1;
+    }
+
+    pub fn rebuilds(&self) -> u64 {
+        self.rebuilds
+    }
+
+    /// Append one node that is already the last entry in `Scene::nodes`.
+    /// Cell size stays as last chosen; a full [`Self::rebuild`] picks a new one.
+    pub fn append(&mut self, z: u32, node: &Node) {
+        let aabb = node_aabb(node);
+        self.ids.push(node.id);
+        self.aabbs.push(aabb);
+        for key in cell_keys_for_rect(aabb, self.cell_size) {
+            self.cells.entry(key).or_default().push((z, node.id));
+        }
+    }
+
+    /// Drop the last appended node. Z indices below it stay valid.
+    pub fn pop_last(&mut self, node: &Node) {
+        let Some(aabb) = self.aabbs.pop() else {
+            return;
+        };
+        self.ids.pop();
+        let id = node.id;
+        for key in cell_keys_for_rect(aabb, self.cell_size) {
+            let Some(bucket) = self.cells.get_mut(&key) else {
+                continue;
+            };
+            bucket.retain(|&(_, existing)| existing != id);
+            if bucket.is_empty() {
+                self.cells.remove(&key);
+            }
+        }
+    }
+
+    /// Bounds of one existing node changed; z-order did not.
+    /// Returns false when `z` is not that node (caller should rebuild).
+    pub fn replace_bounds(&mut self, z: u32, node: &Node) -> bool {
+        let zi = z as usize;
+        if zi >= self.aabbs.len() || self.ids.get(zi) != Some(&node.id) {
+            return false;
+        }
+        let old = self.aabbs[zi];
+        let new = node_aabb(node);
+        if old == new {
+            return true;
+        }
+        let id = node.id;
+        for key in cell_keys_for_rect(old, self.cell_size) {
+            if let Some(bucket) = self.cells.get_mut(&key) {
+                bucket.retain(|&(_, existing)| existing != id);
+                if bucket.is_empty() {
+                    self.cells.remove(&key);
+                }
+            }
+        }
+        self.aabbs[zi] = new;
+        for key in cell_keys_for_rect(new, self.cell_size) {
+            self.cells.entry(key).or_default().push((z, id));
+        }
+        true
     }
 
     /// Nodes whose AABB intersects `rect`, in ascending z-order (bottom → top).
@@ -98,7 +177,7 @@ impl SpatialIndex {
             };
             for &(z, id) in bucket {
                 let zi = z as usize;
-                if seen[zi] {
+                if zi >= seen.len() || seen[zi] {
                     continue;
                 }
                 if !self.aabbs[zi].intersects(&rect) {
@@ -124,7 +203,10 @@ impl SpatialIndex {
         // A point probes one cell; each node is entered at most once there.
         let mut hits: Vec<(u32, NodeId)> = Vec::new();
         for &(z, id) in bucket {
-            if self.aabbs[z as usize].contains(x, y) {
+            let Some(aabb) = self.aabbs.get(z as usize) else {
+                continue;
+            };
+            if aabb.contains(x, y) {
                 hits.push((z, id));
             }
         }
@@ -331,5 +413,20 @@ mod tests {
             idx_dt.as_secs_f64() * 1000.0 < 2.0,
             "indexed marquee took {idx_dt:?}, want < 2ms"
         );
+    }
+
+    #[test]
+    fn appending_a_node_does_not_rebuild_the_index() {
+        let mut scene = Scene::default();
+        for i in 0..32 {
+            push_image(&mut scene, WorldRect::new(i as f32 * 30.0, 0.0, 10.0, 10.0));
+        }
+        let _ = scene.query_point(5.0, 5.0);
+        let rebuilds = scene.spatial_rebuilds();
+        assert_eq!(rebuilds, 1);
+        let id = push_image(&mut scene, WorldRect::new(0.0, 80.0, 10.0, 10.0));
+        assert_eq!(scene.spatial_rebuilds(), rebuilds);
+        assert!(scene.query_point(5.0, 85.0).contains(&id));
+        assert!(scene.query_point(5.0, 5.0).contains(&scene.nodes[0].id));
     }
 }
