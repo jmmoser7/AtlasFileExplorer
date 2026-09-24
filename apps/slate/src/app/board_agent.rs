@@ -5368,12 +5368,6 @@ impl SlateApp {
         self.rejoin_agent_chats();
         self.refresh_agent_connection();
         self.pump_agent_models();
-        // Idle Home was waking ~4 Hz: this used to request 250 ms every frame,
-        // and egui subtracts a predicted frame (~16 ms) so the gap logged as
-        // ~234 ms. Poll only while a background result is actually in flight.
-        if self.agent_background_pending() {
-            ctx.request_repaint_after(Duration::from_millis(250));
-        }
         if let Some(id) = self.agents.focused {
             if !self.board_sel.contains(&id) && self.portal_chrome.maximized != Some(id) {
                 self.agent_blur();
@@ -5390,6 +5384,13 @@ impl SlateApp {
             .map(|n| (n.id, slate_doc::agent_chat::agent(n).cloned()))
             .collect();
         let live: std::collections::HashSet<NodeId> = portals.iter().map(|(id, _)| *id).collect();
+        // Linked sessions can answer from outside Slate (the sidecar writes
+        // session.json), so an open board with agents keeps a slow poll.
+        if self.agent_background_pending() {
+            ctx.request_repaint_after(Duration::from_millis(250));
+        } else if !self.at_home && !portals.is_empty() {
+            ctx.request_repaint_after(Duration::from_secs(1));
+        }
 
         self.agents.sessions.retain(|id, _| live.contains(id));
         self.agents.prompts.retain(|id, _| live.contains(id));
