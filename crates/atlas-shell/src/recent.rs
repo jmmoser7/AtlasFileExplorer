@@ -4,7 +4,25 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static FS_PROBES: AtomicU64 = AtomicU64::new(0);
+
+/// Filesystem probes from the home/MRU path. Frame-budget tests reset this
+/// after warm-up.
+pub fn note_fs_probe() {
+    FS_PROBES.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn fs_probe_count() -> u64 {
+    FS_PROBES.load(Ordering::Relaxed)
+}
+
+pub fn reset_fs_probe() {
+    FS_PROBES.store(0, Ordering::Relaxed);
+}
 
 const MAX_RECENTS: usize = 60;
 
@@ -88,6 +106,54 @@ impl RecentList {
     pub fn remove_missing(&mut self) {
         self.entries.retain(|e| e.path.exists());
     }
+
+    /// Drop entries whose paths are in `missing`. Identity is the stored path,
+    /// which is what [`spawn_prune_missing`] checked off the UI thread.
+    pub fn retain_existing(&mut self, missing: &[PathBuf]) {
+        if missing.is_empty() {
+            return;
+        }
+        self.entries
+            .retain(|e| !missing.iter().any(|m| m == &e.path));
+    }
+
+    /// Apply a finished [`spawn_prune_missing`] result, if it has arrived.
+    /// Clears `pending` once the worker is done. Returns whether any entry
+    /// was dropped (the caller persists the list).
+    pub fn apply_prune(&mut self, pending: &mut Option<mpsc::Receiver<Vec<PathBuf>>>) -> bool {
+        let Some(rx) = pending.as_ref() else {
+            return false;
+        };
+        let missing = match rx.try_recv() {
+            Ok(missing) => missing,
+            Err(mpsc::TryRecvError::Empty) => return false,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                *pending = None;
+                return false;
+            }
+        };
+        *pending = None;
+        let before = self.entries.len();
+        self.retain_existing(&missing);
+        self.entries.len() != before
+    }
+}
+
+/// Stat `paths` off the UI thread. The receiver yields the paths that are gone.
+/// Entries stay visible until this result is applied.
+pub fn spawn_prune_missing(paths: Vec<PathBuf>) -> mpsc::Receiver<Vec<PathBuf>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let missing: Vec<PathBuf> = paths
+            .into_iter()
+            .filter(|p| {
+                note_fs_probe();
+                !p.exists()
+            })
+            .collect();
+        let _ = tx.send(missing);
+    });
+    rx
 }
 
 fn paths_equal(a: &Path, b: &Path) -> bool {
@@ -100,11 +166,16 @@ fn paths_equal(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// Directory for baked Cover Flow cover PNGs.
+/// Directory for baked Cover Flow cover PNGs. Created once per process.
 pub fn covers_dir() -> PathBuf {
-    let dir = atlas_core::index::data_dir().join("home-covers");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        note_fs_probe();
+        let dir = atlas_core::index::data_dir().join("home-covers");
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    })
+    .clone()
 }
 
 /// Bake recipe generation, part of every cover filename.

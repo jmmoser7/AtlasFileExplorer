@@ -10,6 +10,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+static BAKE_WAKE: Mutex<Option<eframe::egui::Context>> = Mutex::new(None);
+static BAKE_DONE: OnceLock<Mutex<Vec<(PathBuf, bool)>>> = OnceLock::new();
+static IN_FLIGHT: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+
 // Square covers — album-art aspect, matching the Cover Flow shelf.
 const COVER_W: u32 = 512;
 const COVER_H: u32 = 512;
@@ -147,7 +151,8 @@ pub fn spawn_missing_folder_covers(folders: impl IntoIterator<Item = PathBuf>) {
             continue;
         }
         std::thread::spawn(move || {
-            let _ = bake_folder_cover(&path);
+            let ok = bake_folder_cover(&path).is_some();
+            note_bake_finished(&path, ok);
         });
     }
 }
@@ -162,8 +167,42 @@ pub fn spawn_missing_workbook_cover(workbook: PathBuf, media: Vec<PathBuf>) {
         return;
     }
     std::thread::spawn(move || {
-        let _ = bake_workbook_cover(&workbook, &media);
+        let ok = bake_workbook_cover(&workbook, &media).is_some();
+        note_bake_finished(&workbook, ok);
     });
+}
+
+/// Home calls this once it has a context, so a finished bake can wake one frame.
+pub fn set_bake_wake(ctx: &eframe::egui::Context) {
+    if let Ok(mut wake) = BAKE_WAKE.lock() {
+        *wake = Some(ctx.clone());
+    }
+}
+
+/// Background bake threads report here. The UI thread drains this; it does not
+/// stat covers to discover completion.
+pub fn take_bake_results() -> Vec<(PathBuf, bool)> {
+    let q = BAKE_DONE.get_or_init(|| Mutex::new(Vec::new()));
+    q.lock()
+        .map(|mut g| std::mem::take(&mut *g))
+        .unwrap_or_default()
+}
+
+pub fn note_bake_finished(path: &Path, ok: bool) {
+    if let Some(set) = IN_FLIGHT.get() {
+        if let Ok(mut g) = set.lock() {
+            g.remove(path);
+        }
+    }
+    let q = BAKE_DONE.get_or_init(|| Mutex::new(Vec::new()));
+    if let Ok(mut g) = q.lock() {
+        g.push((path.to_path_buf(), ok));
+    }
+    if let Ok(wake) = BAKE_WAKE.lock() {
+        if let Some(ctx) = wake.as_ref() {
+            ctx.request_repaint();
+        }
+    }
 }
 
 /// Returns `true` when this path was not already queued for a background bake.
@@ -172,7 +211,6 @@ pub fn schedule_cover_bake(path: &Path) -> bool {
 }
 
 fn mark_cover_bake_requested(path: &Path) -> bool {
-    static IN_FLIGHT: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
     // First bake request of the run is also when last run's stale covers go.
     let set = IN_FLIGHT.get_or_init(|| {
         crate::recent::prune_stale_covers();

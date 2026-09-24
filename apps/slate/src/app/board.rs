@@ -8786,6 +8786,7 @@ pub(crate) mod brush_prof {
         static PROF: RefCell<Option<Prof>> = const { RefCell::new(None) };
     }
 
+    #[cfg(test)]
     pub fn begin() {
         let now = Instant::now();
         PROF.with(|p| {
@@ -8809,6 +8810,8 @@ pub(crate) mod brush_prof {
         });
     }
 
+    #[cfg(test)]
+    #[cfg(test)]
     pub fn take() -> Vec<(&'static str, f32)> {
         PROF.with(|p| {
             p.borrow_mut()

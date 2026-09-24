@@ -208,7 +208,6 @@ impl SlateApp {
 
     /// Cover Flow home — recent workbooks (same shared `HomeScreen` as Atlas).
     pub(crate) fn home_screen(&mut self, ui: &mut egui::Ui) {
-        self.ensure_home_cover_bakes();
         let palette = self.palette();
         match self.home.show(ui, &palette, &self.recents) {
             Some(atlas_shell::home::HomeScreenAction::New) => self.home_new_workspace(),

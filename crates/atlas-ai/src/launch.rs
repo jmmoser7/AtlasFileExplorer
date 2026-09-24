@@ -19,8 +19,9 @@ pub enum CursorIdeStatus {
     Running,
 }
 
-/// Best-effort check that a `cursor` launcher is reachable. Cheap enough to
-/// run once at panel construction (spawns at most one `where`/`which`).
+/// Best-effort check that a `cursor` launcher is reachable. Spawns at most one
+/// `where`/`which`. Call from a worker — the AI panel probes in the background
+/// and shows unknown until this returns.
 pub fn cursor_available() -> bool {
     #[cfg(windows)]
     {

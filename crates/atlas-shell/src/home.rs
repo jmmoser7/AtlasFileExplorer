@@ -21,8 +21,8 @@ use eframe::egui::{
     TextureId, Ui, Vec2,
 };
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 thread_local! {
@@ -38,11 +38,32 @@ pub const COVER_TEXTURE_OPTIONS: egui::TextureOptions =
 
 /// The one home surface both apps embed. Owns cover textures and shelf focus;
 /// apps only translate the returned action into their own open/new flows.
+enum CoverMsg {
+    Ready {
+        key: PathBuf,
+        image: egui::ColorImage,
+        theme_mask: bool,
+    },
+    /// Cover file is not on disk yet. Wait for a bake signal instead of restatting.
+    Absent(PathBuf),
+    Failed(PathBuf),
+}
+
 pub struct HomeScreen {
     id_salt: &'static str,
     kind: HomeShelfKind,
     focus: usize,
     textures: HashMap<PathBuf, (egui::TextureHandle, bool)>,
+    decode_tx: std::sync::mpsc::Sender<CoverMsg>,
+    decode_rx: std::sync::mpsc::Receiver<CoverMsg>,
+    /// Decode already queued for this recent path.
+    queued: HashSet<PathBuf>,
+    /// Bake or decode will not produce a cover. Do not poll.
+    failed: HashSet<PathBuf>,
+    /// Cover was missing; a bake thread owns the next signal.
+    awaiting_bake: HashSet<PathBuf>,
+    /// Decoded images waiting for the per-frame upload budget.
+    ready: Vec<CoverMsg>,
 }
 
 /// What the user asked the home shelf to do.
@@ -55,12 +76,29 @@ pub enum HomeScreenAction {
 
 impl HomeScreen {
     pub fn new(id_salt: &'static str, kind: HomeShelfKind) -> Self {
+        let (decode_tx, decode_rx) = std::sync::mpsc::channel();
         Self {
             id_salt,
             kind,
             focus: 0,
             textures: HashMap::new(),
+            decode_tx,
+            decode_rx,
+            queued: HashSet::new(),
+            failed: HashSet::new(),
+            awaiting_bake: HashSet::new(),
+            ready: Vec::new(),
         }
+    }
+
+    /// Covers uploaded so far. Frame-budget tests wait on this.
+    pub fn texture_count(&self) -> usize {
+        self.textures.len()
+    }
+
+    /// No cover stat or decode is still in flight.
+    pub fn cover_io_settled(&self) -> bool {
+        self.queued.is_empty() && self.awaiting_bake.is_empty() && self.ready.is_empty()
     }
 
     pub fn show(
@@ -69,7 +107,7 @@ impl HomeScreen {
         palette: &Palette,
         recents: &RecentList,
     ) -> Option<HomeScreenAction> {
-        self.ensure_textures(ui.ctx(), recents);
+        self.sync_covers(ui.ctx(), recents);
         let mut covers = covers_or_placeholders(&recents.entries, self.kind, 20);
         for c in &mut covers {
             if let Some((tex, theme_mask)) = self.textures.get(&c.path) {
@@ -106,45 +144,124 @@ impl HomeScreen {
         }
     }
 
-    /// Upload baked cover PNGs as textures; keep pumping frames while covers
-    /// are still baking on background threads.
-    fn ensure_textures(&mut self, ctx: &egui::Context, recents: &RecentList) {
-        let mut uploaded = 0;
-        for e in &recents.entries {
-            if self.textures.contains_key(&e.path) {
-                continue;
+    /// Upload covers decoded off the UI thread. Missing files wait for a bake
+    /// completion signal; a failed bake is not polled again.
+    fn sync_covers(&mut self, ctx: &egui::Context, recents: &RecentList) {
+        crate::covers::set_bake_wake(ctx);
+        for (key, ok) in crate::covers::take_bake_results() {
+            self.awaiting_bake.remove(&key);
+            self.queued.remove(&key);
+            if !ok {
+                self.failed.insert(key);
             }
-            let cover = e.current_cover_path();
-            if !cover.is_file() || atlas_core::cloud::is_dehydrated(&cover) {
-                continue;
+        }
+        while let Ok(msg) = self.decode_rx.try_recv() {
+            match msg {
+                CoverMsg::Ready {
+                    key,
+                    image,
+                    theme_mask,
+                } => {
+                    self.queued.remove(&key);
+                    self.awaiting_bake.remove(&key);
+                    self.failed.remove(&key);
+                    self.ready.push(CoverMsg::Ready {
+                        key,
+                        image,
+                        theme_mask,
+                    });
+                }
+                CoverMsg::Absent(key) => {
+                    self.queued.remove(&key);
+                    if !self.failed.contains(&key) && !self.textures.contains_key(&key) {
+                        self.awaiting_bake.insert(key);
+                    }
+                }
+                CoverMsg::Failed(key) => {
+                    self.queued.remove(&key);
+                    self.awaiting_bake.remove(&key);
+                    self.failed.insert(key);
+                }
             }
-            let Ok(img) = image::open(&cover) else {
+        }
+        let mut uploaded = 0usize;
+        let mut still = Vec::new();
+        for msg in self.ready.drain(..) {
+            let CoverMsg::Ready {
+                key,
+                image,
+                theme_mask,
+            } = msg
+            else {
                 continue;
             };
-            let theme_mask = cover == crate::recent::cover_cache_path(&e.path)
-                && matches!(img.color(), image::ColorType::La8 | image::ColorType::La16);
-            let rgba = img.to_rgba8();
-            let size = [rgba.width() as usize, rgba.height() as usize];
-            let color = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+            if self.textures.contains_key(&key) {
+                continue;
+            }
+            if uploaded == 2 {
+                still.push(CoverMsg::Ready {
+                    key,
+                    image,
+                    theme_mask,
+                });
+                continue;
+            }
             let tex = ctx.load_texture(
-                format!("home-cover-{}", e.path.to_string_lossy()),
-                color,
+                format!("home-cover-{}", key.to_string_lossy()),
+                image,
                 COVER_TEXTURE_OPTIONS,
             );
-            self.textures.insert(e.path.clone(), (tex, theme_mask));
+            self.textures.insert(key, (tex, theme_mask));
             uploaded += 1;
-            if uploaded == 2 {
-                ctx.request_repaint();
-                break;
-            }
         }
-        let missing = recents
-            .entries
-            .iter()
-            .any(|e| !self.textures.contains_key(&e.path));
-        if missing {
-            ctx.request_repaint_after(std::time::Duration::from_millis(400));
+        self.ready = still;
+        if uploaded == 2 && !self.ready.is_empty() {
+            ctx.request_repaint();
         }
+        for e in &recents.entries {
+            self.consider_cover(ctx, &e.path, &e.current_cover_path());
+        }
+    }
+
+    fn consider_cover(&mut self, ctx: &egui::Context, key: &Path, cover: &Path) {
+        if self.textures.contains_key(key)
+            || self.queued.contains(key)
+            || self.failed.contains(key)
+            || self.awaiting_bake.contains(key)
+        {
+            return;
+        }
+        self.queued.insert(key.to_path_buf());
+        let key = key.to_path_buf();
+        let cover = cover.to_path_buf();
+        let managed = crate::recent::cover_cache_path(&key);
+        let tx = self.decode_tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let msg = decode_cover(&key, &cover, &managed);
+            let _ = tx.send(msg);
+            ctx.request_repaint();
+        });
+    }
+}
+
+fn decode_cover(key: &Path, cover: &Path, managed: &Path) -> CoverMsg {
+    crate::recent::note_fs_probe();
+    if !cover.is_file() || atlas_core::cloud::is_dehydrated(cover) {
+        return CoverMsg::Absent(key.to_path_buf());
+    }
+    let Ok(img) = image::open(cover) else {
+        return CoverMsg::Failed(key.to_path_buf());
+    };
+    let theme_mask =
+        cover == managed && matches!(img.color(), image::ColorType::La8 | image::ColorType::La16);
+    let rgba = img.to_rgba8();
+    let size = [rgba.width() as usize, rgba.height() as usize];
+    let image = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+    CoverMsg::Ready {
+        key: key.to_path_buf(),
+        image,
+        theme_mask,
     }
 }
 
@@ -1352,7 +1469,14 @@ fn paint_cover(
         placeholder,
         title,
         title_font,
-        painter.ctx().fonts(|f| f.font_image_size()),
+        // Textured covers do not sample the font atlas. Including its size
+        // here rebuilt every card whenever a glyph upload grew the atlas
+        // (input frames after launch). Title-faces still key on it.
+        if texture.is_none() {
+            painter.ctx().fonts(|f| f.font_image_size())
+        } else {
+            [0, 0]
+        },
     ));
     if let Some(cached) = painter
         .ctx()

@@ -58,6 +58,7 @@ pub mod minimap;
 pub mod palette;
 pub mod prefs;
 pub mod recent;
+// MRU, covers, and the home shelf share one filesystem-probe counter.
 pub mod session_log;
 pub mod sidebar;
 pub mod tabs;
