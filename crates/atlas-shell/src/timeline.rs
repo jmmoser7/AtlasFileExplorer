@@ -144,7 +144,7 @@ impl ActivityTimeline<'_> {
     }
 
     pub fn show(&self, ui: &mut Ui, sel: TimelineSelection<'_>) -> TimelineAction {
-        let tk = tokens::current().activity_heatmap;
+        let tk = tokens::current().activity_heatmap.clone();
         let mut action = TimelineAction::default();
         if self.span_hi <= self.span_lo {
             ui.label(

@@ -244,6 +244,9 @@ pub struct SlateApp {
     pub tabs: Vec<SlateTab>,
     pub active_tab: usize,
     pub dark_mode: bool,
+    /// `(dark_mode, token generation)` last pushed into egui. Unchanged
+    /// frames skip `set_theme` / `set_visuals` / menu style.
+    theme_stamp: Option<(bool, u64)>,
     /// Cover Flow home (recent workbooks) — default launch surface.
     pub at_home: bool,
     /// Chrome prefs while at home with no work tabs (dock, advanced, etc.).
@@ -468,6 +471,8 @@ pub struct SlateApp {
     pub(crate) frame_time: f64,
     /// Frame/activity recorder shared with File Atlas. Test builds stay in memory.
     pub(crate) session_log: atlas_core::session_log::SessionLog,
+    /// Process-start phases, flushed at the end of the first frame.
+    boot: Option<atlas_core::session_log::Startup>,
 
     // ----- command registry (keymap wave 2a) -----
     /// The command registry over `commands::SPECS` — keyboard, palette,
@@ -589,13 +594,17 @@ impl SlateApp {
         let mut app = Self::with_ctx(&cc.egui_ctx, initial_doc);
         app.gl = cc.gl.clone();
         app.store_frame_hwnd(cc);
+        app.boot_phase("window");
         app.install_web_host(cc);
+        app.boot_phase("web_host");
         app.install_local_grants();
+        app.boot_phase("grants");
         #[cfg(windows)]
         match external_drop::win::Registration::install(cc, app.external_drop.clone()) {
             Ok(registration) => app.drop_registration = Some(registration),
             Err(error) => app.toast(format!("Drag and drop unavailable: {error}")),
         }
+        app.boot_phase("drop");
         app
     }
 
@@ -642,10 +651,12 @@ impl SlateApp {
     /// Full construction from a bare egui context. Used by `new` and by the
     /// headless test harness (no eframe window, no registry writes).
     fn with_ctx(egui_ctx: &egui::Context, initial_doc: Option<PathBuf>) -> Self {
+        let mut boot = atlas_core::session_log::Startup::begin();
         egui_ctx.set_theme(egui::ThemePreference::Dark);
         egui_ctx.set_visuals(dark_visuals());
         atlas_shell::canvas_text::install(egui_ctx);
         Self::install_fonts(egui_ctx);
+        boot.phase("fonts");
         #[cfg(test)]
         let chrome_prefs =
             atlas_shell::prefs::ChromePrefs::default_for(atlas_shell::dock::DockSide::BottomCenter);
@@ -654,6 +665,7 @@ impl SlateApp {
             "slate",
             atlas_shell::dock::DockSide::BottomCenter,
         );
+        boot.phase("prefs");
         let mut app = SlateApp {
             updater: atlas_update::Updater::default(),
             thumbs: ThumbPool::new(),
@@ -785,6 +797,8 @@ impl SlateApp {
             } else {
                 atlas_core::session_log::SessionLog::new("slate")
             },
+            boot: None,
+            theme_stamp: None,
             registry: commands::registry(),
             cmd_history: atlas_commands::History::new(),
             space_tap: dispatch::SpaceTap::default(),
@@ -858,13 +872,31 @@ impl SlateApp {
         app.thumbs.retain_generation(THUMB_GENERATION);
         app.thumbs
             .ensure_workers(atlas_core::display::THUMB_WORKERS_SLATE);
+        boot.phase("construct");
         if let Some(path) = initial_doc {
             app.at_home = false;
             app.ensure_work_tab();
             app.open_doc_at(path);
         }
+        boot.phase("open");
         app.ensure_home_cover_bakes();
+        boot.phase("covers");
+        app.boot = Some(boot);
         app
+    }
+
+    fn boot_phase(&mut self, name: &'static str) {
+        if let Some(boot) = self.boot.as_mut() {
+            boot.phase(name);
+        }
+    }
+
+    fn finish_startup(&mut self) {
+        let Some(mut boot) = self.boot.take() else {
+            return;
+        };
+        boot.phase("first_frame");
+        self.session_log.record_startup(&boot);
     }
 
     pub(crate) fn go_home(&mut self) {
@@ -1006,7 +1038,11 @@ impl SlateApp {
         self.chrome_mut().canvas_fullscreen = on;
     }
 
-    pub fn apply_theme(&self, ctx: &egui::Context) {
+    pub fn apply_theme(&mut self, ctx: &egui::Context) {
+        let generation = atlas_shell::tokens::generation();
+        if self.theme_stamp == Some((self.dark_mode, generation)) {
+            return;
+        }
         ctx.set_theme(if self.dark_mode {
             egui::ThemePreference::Dark
         } else {
@@ -1018,6 +1054,7 @@ impl SlateApp {
             light_visuals()
         });
         atlas_shell::menu::apply_style(ctx, self.dark_mode);
+        self.theme_stamp = Some((self.dark_mode, generation));
     }
 
     pub fn tab(&self) -> &SlateTab {
@@ -2071,17 +2108,24 @@ impl SlateApp {
     /// One full UI frame (split out for testability, mirroring Atlas).
     pub fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
-        self.apply_theme(ctx);
+        {
+            let _span = atlas_core::session_log::span("slate.theme");
+            self.apply_theme(ctx);
+        }
         self.preview_reqs_this_frame = 0;
         self.alt_down = ctx.input(|i| i.modifiers.alt);
         self.shift_down = ctx.input(|i| i.modifiers.shift);
         self.ctrl_down = ctx.input(|i| i.modifiers.ctrl || i.modifiers.command);
         self.frame_time = ctx.input(|i| i.time);
-        self.drain_pickers(ctx);
-        self.resume_unsaved_close_if_ready(ctx);
-        self.documents.poll(ctx);
-        self.poll_artifact_export(ctx);
-        self.heartbeat_active_lease();
+        {
+            let _span = atlas_core::session_log::span("slate.pumps");
+            self.drain_pickers(ctx);
+            self.resume_unsaved_close_if_ready(ctx);
+            self.documents.poll(ctx);
+            self.poll_artifact_export(ctx);
+            self.heartbeat_active_lease();
+            self.note_engine_failure();
+        }
         {
             let _span = atlas_core::session_log::span("slate.thumbs");
             self.drain_thumbs(ctx);
@@ -2090,20 +2134,41 @@ impl SlateApp {
             let _span = atlas_core::session_log::span("slate.previews");
             self.drain_previews(ctx);
         }
-        self.model3d_frame(ctx);
-        self.video_pump(ctx);
-        self.note_engine_failure();
-        self.session_pump(ctx);
-        self.ai.poll();
-        self.agent_pump(ctx);
+        {
+            let _span = atlas_core::session_log::span("slate.model3d");
+            self.model3d_frame(ctx);
+        }
+        {
+            let _span = atlas_core::session_log::span("slate.video");
+            self.video_pump(ctx);
+        }
+        {
+            let _span = atlas_core::session_log::span("slate.session");
+            self.session_pump(ctx);
+        }
+        {
+            let _span = atlas_core::session_log::span("slate.ai");
+            self.ai.poll();
+            self.ai_context_frame();
+        }
+        {
+            let _span = atlas_core::session_log::span("slate.agents");
+            self.agent_pump(ctx);
+        }
         self.web_pump(ctx);
-        self.atlas_pump(ctx);
-        self.slate_pump(ctx);
-        self.ai_context_frame();
+        {
+            let _span = atlas_core::session_log::span("slate.atlas");
+            self.atlas_pump(ctx);
+        }
+        {
+            let _span = atlas_core::session_log::span("slate.portals");
+            self.slate_pump(ctx);
+        }
 
         // Dropped files land in the active workbook, uncategorized. On the
         // board they're also placed at the drop point; landing on a tagged
         // frame assigns its tags.
+        let _drop_span = atlas_core::session_log::span("slate.drop");
         let native_drop = self.external_drop.pop();
         let mut drop_at = None;
         let mut drop_alt = None;
@@ -2141,12 +2206,16 @@ impl SlateApp {
         }
         // Dropped/added .slate files open as tabs, after placement above.
         self.drain_pending_workbooks();
+        drop(_drop_span);
 
-        self.desktop_sample_frame(ctx);
-        if !self.shape_property_keys(ctx) && self.desktop_sample.is_none() {
-            self.hotkeys(ctx);
+        {
+            let _span = atlas_core::session_log::span("slate.input");
+            self.desktop_sample_frame(ctx);
+            if !self.shape_property_keys(ctx) && self.desktop_sample.is_none() {
+                self.hotkeys(ctx);
+            }
+            self.drop_stale_portal_chrome();
         }
-        self.drop_stale_portal_chrome();
         self.link_health_frame(ctx);
 
         let portal_max = self.portal_chrome.maximized.is_some() && self.presenting.is_none();
@@ -2157,15 +2226,24 @@ impl SlateApp {
             // Register the unified top bar first so it is the outermost panel and
             // always spans the full viewport width. Side/bottom chrome is then
             // constrained to the workspace below it.
-            self.draw_top_bar(ctx);
+            {
+                let _span = atlas_core::session_log::span("slate.topbar");
+                self.draw_top_bar(ctx);
+            }
             let fullscreen = self.chrome().canvas_fullscreen;
             if !fullscreen {
                 let _span = atlas_core::session_log::span("slate.readouts");
                 self.draw_readout_bar(ctx);
             }
         }
-        self.draw_advanced_window(ctx);
-        atlas_shell::tuning::show(ctx);
+        {
+            let _span = atlas_core::session_log::span("slate.advanced");
+            self.draw_advanced_window(ctx);
+        }
+        {
+            let _span = atlas_core::session_log::span("slate.tuning");
+            atlas_shell::tuning::show(ctx);
+        }
 
         // Full bleed against the top bar / readout — same as File Atlas.
         // egui's default CentralPanel frame insets and strokes the canvas,
@@ -2177,8 +2255,10 @@ impl SlateApp {
         }
         central.show(ctx, |ui| {
             if portal_max {
+                let _span = atlas_core::session_log::span("slate.portal_max");
                 self.paint_maximized_portal(ui);
             } else if self.at_home {
+                let _span = atlas_core::session_log::span("slate.home");
                 self.home_screen(ui);
             } else {
                 self.canvas(ui);
@@ -2186,30 +2266,43 @@ impl SlateApp {
         });
 
         if self.presenting.is_none() && !self.at_home && !portal_max {
+            let _span = atlas_core::session_log::span("slate.tools");
             self.draw_tools_rail(ctx);
         }
-        // Registry-fed overlays above the canvas (zero cost while closed;
-        // presentation mode owns the whole surface).
-        if !self.at_home && self.presenting.is_none() && !portal_max {
-            self.palette_frame(ctx);
-            self.search_frame(ctx);
-            self.adjust_popover_frame(ctx);
+        {
+            let _span = atlas_core::session_log::span("slate.overlays");
+            // Registry-fed overlays above the canvas (zero cost while closed;
+            // presentation mode owns the whole surface).
+            if !self.at_home && self.presenting.is_none() && !portal_max {
+                self.palette_frame(ctx);
+                self.search_frame(ctx);
+                self.adjust_popover_frame(ctx);
+            }
+            if portal_max {
+                self.board_action_menu(ctx);
+            }
+            self.paint_folder_drop_chooser(ctx);
+            self.paint_workbook_drop_chooser(ctx);
+            if self.presenting.is_none() {
+                self.history_frame(ctx);
+            }
+            self.unsaved_prompt_frame(ctx);
+            self.draw_toasts(ctx);
         }
-        if portal_max {
-            self.board_action_menu(ctx);
+        {
+            let _span = atlas_core::session_log::span("slate.present");
+            self.present_frame(ctx);
         }
-        self.paint_folder_drop_chooser(ctx);
-        self.paint_workbook_drop_chooser(ctx);
-        if self.presenting.is_none() {
-            self.history_frame(ctx);
+        {
+            let _span = atlas_core::session_log::span("slate.atlas_viewport");
+            self.session_render_atlas(ctx);
         }
-        self.unsaved_prompt_frame(ctx);
-        self.draw_toasts(ctx);
-        // Presentation overlay paints above everything, last.
-        self.present_frame(ctx);
-        self.session_render_atlas(ctx);
         let blocked = self.update_close_blocked();
-        if let Some(action) = atlas_shell::updates::window(ctx, &mut self.updater, blocked) {
+        let action = {
+            let _span = atlas_core::session_log::span("slate.updates");
+            atlas_shell::updates::window(ctx, &mut self.updater, blocked)
+        };
+        if let Some(action) = action {
             self.dispatch(ctx, atlas_commands::CommandId(action), None);
         }
         if matches!(self.updater.state, atlas_update::State::Scheduled)
@@ -2231,7 +2324,10 @@ impl SlateApp {
 
         // Preview upkeep after painting so this frame's `last_used` marks
         // are fresh; keep pumping frames while decodes are in flight.
-        self.evict_previews();
+        {
+            let _span = atlas_core::session_log::span("slate.evict");
+            self.evict_previews();
+        }
         if !self.preview_slots.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(150));
         }
@@ -2240,7 +2336,10 @@ impl SlateApp {
         }
         self.external_drop
             .set_url_area(self.web_drop_enabled().then_some(self.canvas_rect));
-        self.atlas_run_shell_drag(ctx);
+        {
+            let _span = atlas_core::session_log::span("slate.shell_drag");
+            self.atlas_run_shell_drag(ctx);
+        }
         self.debug_screenshot(ctx);
     }
 
@@ -2394,8 +2493,14 @@ impl eframe::App for SlateApp {
         let t0 = Instant::now();
         let delivered = ctx.input(|i| i.unstable_dt);
         self.update_app(ctx);
+        self.finish_startup();
         self.snapshot_activity();
-        self.session_log.end_frame(t0.elapsed(), delivered);
+        let app_time = t0.elapsed();
+        let wake = atlas_shell::session_log::frame_wake(ctx);
+        let sample = delivered >= 0.05 || app_time.as_millis() >= 33;
+        let causes = sample.then(|| atlas_shell::session_log::repaint_cause_summary(ctx));
+        self.session_log
+            .end_frame_with(app_time, delivered, wake, causes.as_deref());
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

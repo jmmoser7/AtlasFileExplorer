@@ -204,7 +204,7 @@ pub fn image_album(
         d.get_temp_mut_or_insert_with(state_id, CoverFlowState::default)
             .clone()
     });
-    let tokens = tokens::current().home;
+    let tokens = tokens::current().home.clone();
     let tuning = CoverFlowTuning::from_tokens(&tokens, rect.width() * ALBUM_BROWSE_SCALE);
     let (focus, _, _) = advance_flow(
         ui,
@@ -956,7 +956,7 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
     }
 
     // Square covers (album-art aspect), sized and centered by the live tokens.
-    let home_tokens = tokens::current().home;
+    let home_tokens = tokens::current().home.clone();
     let flow_center = Pos2::new(
         rect.center().x,
         rect.min.y + rect.height() * home_tokens.center_y_frac,

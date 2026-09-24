@@ -70,7 +70,7 @@ mod enabled {
         fn default() -> Self {
             Self {
                 open: true,
-                draft: tokens::current(),
+                draft: (*tokens::current()).clone(),
                 status: "Live preview active — changes are not saved yet.".to_string(),
             }
         }

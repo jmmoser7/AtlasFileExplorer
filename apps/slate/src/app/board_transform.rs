@@ -169,7 +169,7 @@ impl SlateApp {
         dt: f32,
         ctx: &egui::Context,
     ) {
-        let tokens = atlas_shell::tokens::current().board_preview;
+        let tokens = atlas_shell::tokens::current().board_preview.clone();
         if let Some(id) = target {
             self.board_hover_glow.entry(id).or_insert(0.0);
         }
@@ -205,7 +205,7 @@ impl SlateApp {
         xf: &BoardXf,
         color: egui::Color32,
     ) {
-        let tokens = atlas_shell::tokens::current().board_preview;
+        let tokens = atlas_shell::tokens::current().board_preview.clone();
         for (id, progress) in &self.board_hover_glow {
             if *progress <= 0.001 {
                 continue;

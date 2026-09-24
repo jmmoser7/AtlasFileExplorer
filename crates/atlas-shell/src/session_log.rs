@@ -13,6 +13,46 @@ pub struct SessionLogActions {
     pub reveal: bool,
 }
 
+/// Input and immediate-repaint cue for [`atlas_core::session_log::is_stall`].
+pub fn frame_wake(ctx: &egui::Context) -> atlas_core::session_log::FrameWake {
+    let had_input = ctx.input(|input| {
+        input
+            .raw
+            .events
+            .iter()
+            .any(|event| !matches!(event, egui::Event::Screenshot { .. }))
+    });
+    atlas_core::session_log::FrameWake {
+        had_input,
+        eager: ctx.requested_repaint_last_pass(),
+    }
+}
+
+/// Short `file:line reason` list from [`egui::Context::repaint_causes`].
+pub fn repaint_cause_summary(ctx: &egui::Context) -> String {
+    let causes = ctx.repaint_causes();
+    let mut summary = String::new();
+    for (i, cause) in causes.iter().take(6).enumerate() {
+        if i > 0 {
+            summary.push_str(" | ");
+        }
+        let file = cause.file.rsplit(['/', '\\']).next().unwrap_or(cause.file);
+        summary.push_str(file);
+        summary.push(':');
+        summary.push_str(&cause.line.to_string());
+        if !cause.reason.is_empty() {
+            summary.push(' ');
+            for ch in cause.reason.chars().take(80) {
+                summary.push(ch);
+            }
+        }
+    }
+    if causes.len() > 6 {
+        summary.push_str(" | …");
+    }
+    summary
+}
+
 /// Shared "Session log" section for both Advanced windows.
 pub fn section(ui: &mut egui::Ui, log: &SessionLog, palette: &Palette) -> SessionLogActions {
     let mut actions = SessionLogActions {

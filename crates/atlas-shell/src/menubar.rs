@@ -371,7 +371,7 @@ pub fn unified_top_bar(
     palette: &Palette,
     model: UnifiedTopBarModel<'_>,
 ) -> UnifiedTopBarResult {
-    let metrics = crate::tokens::current().topbar;
+    let metrics = crate::tokens::current().topbar.clone();
     let colors = TabChromeColors::from_palette(palette, &metrics);
     let mut result = UnifiedTopBarResult {
         menu_clicked: None,

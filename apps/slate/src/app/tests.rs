@@ -5563,7 +5563,7 @@ fn dock_strip_resize_contains_without_shrinking_icons() {
         panic!("expected a dock strip");
     };
     let items = super::ui::tools::palette_strip_items(&h.app, &strip.palette_id, &strip.visible);
-    let mut tokens = atlas_shell::tokens::current().dock;
+    let mut tokens = atlas_shell::tokens::current().dock.clone();
     tokens.normalize();
     let layout = atlas_shell::dock::measure_icon_strip(
         &h.ctx,

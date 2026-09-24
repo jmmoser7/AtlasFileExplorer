@@ -7,7 +7,8 @@
 use eframe::egui::Color32;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
-use std::sync::{OnceLock, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
 
 const EMBEDDED_TOKENS: &str = include_str!("../ui-tokens.toml");
 
@@ -2589,14 +2590,23 @@ fn parse_embedded() -> UiTokens {
     tokens
 }
 
-fn store() -> &'static RwLock<UiTokens> {
-    static STORE: OnceLock<RwLock<UiTokens>> = OnceLock::new();
-    STORE.get_or_init(|| RwLock::new(parse_embedded()))
+fn store() -> &'static RwLock<Arc<UiTokens>> {
+    static STORE: OnceLock<RwLock<Arc<UiTokens>>> = OnceLock::new();
+    STORE.get_or_init(|| RwLock::new(Arc::new(parse_embedded())))
+}
+
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Bumped by [`replace`]. Apps apply egui theme only when this changes.
+pub fn generation() -> u64 {
+    GENERATION.load(Ordering::Relaxed)
 }
 
 /// Current tokens, including unsaved changes made by the live tuner.
-pub fn current() -> UiTokens {
-    store().read().expect("UI token lock poisoned").clone()
+///
+/// A shared handle: cloning it does not clone the token tree.
+pub fn current() -> Arc<UiTokens> {
+    Arc::clone(&store().read().expect("UI token lock poisoned"))
 }
 
 /// Replace live tokens. Used by the feature-gated UI tuner.
@@ -2613,7 +2623,8 @@ pub fn replace(mut tokens: UiTokens) {
     tokens.board_marquee.normalize();
     tokens.board_forcefield.normalize();
     tokens.menu.normalize();
-    *store().write().expect("UI token lock poisoned") = tokens;
+    *store().write().expect("UI token lock poisoned") = Arc::new(tokens);
+    GENERATION.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Values embedded from the checked-in token file when this build was made.
@@ -2624,6 +2635,16 @@ pub fn embedded() -> UiTokens {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replace_bumps_generation_without_copying_the_handle() {
+        let before = generation();
+        let handle = current();
+        replace((*handle).clone());
+        assert!(generation() > before);
+        let again = current();
+        assert!(Arc::ptr_eq(&again, &current()));
+    }
 
     #[test]
     fn checked_in_tokens_parse() {
@@ -2646,7 +2667,7 @@ mod tests {
 
     #[test]
     fn canvas_tab_fillets_track_zoom() {
-        let t = current().topbar;
+        let t = current().topbar.clone();
         for zoom in [0.05_f32, 0.5, 1.0, 2.0, 8.0] {
             let a = t.scaled(zoom);
             let b = t.scaled(zoom * 2.0);

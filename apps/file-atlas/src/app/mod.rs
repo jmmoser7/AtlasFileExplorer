@@ -720,6 +720,8 @@ pub struct AtlasApp {
     tree_build_rx: Option<Receiver<TreeBuild>>,
     orient: Orient,
     dark_mode: bool,
+    /// `(dark_mode, token generation)` last pushed into egui.
+    theme_stamp: Option<(bool, u64)>,
     /// Floating tools dock placement (Preferences → Dock location).
     pub dock_side: atlas_shell::dock::DockSide,
     /// Dock panels pinned as persistent palettes (restored across sessions).
@@ -969,6 +971,7 @@ pub struct AtlasApp {
     ai: atlas_ai::AiPanel,
     /// Frame/activity recorder shared with Slate. Test builds stay in memory.
     pub(crate) session_log: atlas_core::session_log::SessionLog,
+    boot: Option<atlas_core::session_log::Startup>,
 
     // organizing state
     assign_state: AssignState,
@@ -1149,6 +1152,7 @@ impl AtlasApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_root: Option<PathBuf>) -> Self {
         let mut app = Self::with_db(&cc.egui_ctx, Db::open(), initial_root);
         app.dialog_owner = folder_dialog::DialogOwner::from_window(cc);
+        app.boot_phase("window");
         app
     }
 
@@ -1174,6 +1178,7 @@ impl AtlasApp {
     /// Used by `new` and by the headless test harness (isolated DB, no
     /// eframe window).
     fn with_db(egui_ctx: &egui::Context, db: Db, initial_root: Option<PathBuf>) -> Self {
+        let mut boot = atlas_core::session_log::Startup::begin();
         #[cfg(debug_assertions)]
         if let Err(e) = commands::REGISTRY.validate() {
             panic!("command spec table invalid: {e}");
@@ -1181,6 +1186,7 @@ impl AtlasApp {
         egui_ctx.set_theme(egui::ThemePreference::Dark);
         egui_ctx.set_visuals(dark_visuals());
         atlas_shell::canvas_text::install(egui_ctx);
+        boot.phase("init");
         // Dev harness: ATLAS_FAM=none starts with every family unchecked
         // (structure-only screenshot testing).
         let fam_default = !matches!(std::env::var("ATLAS_FAM").as_deref(), Ok("none"));
@@ -1205,6 +1211,7 @@ impl AtlasApp {
             atlas_shell::dock::DockSide::LeftCenter,
         );
         let edit_prefs = editprefs::EditPrefs::load();
+        boot.phase("prefs");
         let mut app = AtlasApp {
             updater: atlas_update::Updater::default(),
             db,
@@ -1236,6 +1243,7 @@ impl AtlasApp {
             tree_build_rx: None,
             orient: Orient::H,
             dark_mode: true,
+            theme_stamp: None,
             dock_side: chrome_prefs.dock_side,
             dock_pins: chrome_prefs.pinned_panels,
             dock_icon_strips: chrome_prefs.panel_icon_strip,
@@ -1372,6 +1380,7 @@ impl AtlasApp {
             } else {
                 atlas_core::session_log::SessionLog::new("file-atlas")
             },
+            boot: None,
             assign_state: AssignState {
                 assigns: HashMap::new(),
             },
@@ -1409,7 +1418,23 @@ impl AtlasApp {
                 app.start_prewarm(dir);
             }
         }
+        boot.phase("construct");
+        app.boot = Some(boot);
         app
+    }
+
+    fn boot_phase(&mut self, name: &'static str) {
+        if let Some(boot) = self.boot.as_mut() {
+            boot.phase(name);
+        }
+    }
+
+    fn finish_startup(&mut self) {
+        let Some(mut boot) = self.boot.take() else {
+            return;
+        };
+        boot.phase("first_frame");
+        self.session_log.record_startup(&boot);
     }
 
     fn toast(&mut self, msg: impl Into<String>) {
@@ -1420,7 +1445,11 @@ impl AtlasApp {
         Palette::for_mode(self.dark_mode)
     }
 
-    pub(super) fn apply_theme(&self, ctx: &egui::Context) {
+    pub(super) fn apply_theme(&mut self, ctx: &egui::Context) {
+        let generation = atlas_shell::tokens::generation();
+        if self.theme_stamp == Some((self.dark_mode, generation)) {
+            return;
+        }
         ctx.set_theme(if self.dark_mode {
             egui::ThemePreference::Dark
         } else {
@@ -1432,6 +1461,7 @@ impl AtlasApp {
             light_visuals()
         });
         atlas_shell::menu::apply_style(ctx, self.dark_mode);
+        self.theme_stamp = Some((self.dark_mode, generation));
     }
 
     /// Current dark/light preference (for linked Slate sessions).
@@ -4900,6 +4930,7 @@ impl AtlasApp {
         let t0 = Instant::now();
         let delivered = ctx.input(|i| i.unstable_dt);
         self.update_app(ctx);
+        self.finish_startup();
         if self.session.is_none() {
             let blocked = self.update_close_blocked();
             if let Some(action) = atlas_shell::updates::window(ctx, &mut self.updater, blocked) {
@@ -4912,7 +4943,12 @@ impl AtlasApp {
             }
         }
         self.snapshot_activity();
-        self.session_log.end_frame(t0.elapsed(), delivered);
+        let app_time = t0.elapsed();
+        let wake = atlas_shell::session_log::frame_wake(ctx);
+        let sample = delivered >= 0.05 || app_time.as_millis() >= 33;
+        let causes = sample.then(|| atlas_shell::session_log::repaint_cause_summary(ctx));
+        self.session_log
+            .end_frame_with(app_time, delivered, wake, causes.as_deref());
     }
 
     /// Also queried by Slate when Atlas is hosted in its process.
@@ -4951,21 +4987,28 @@ impl AtlasApp {
     /// test harness can pump frames without an eframe window.
     fn update_app(&mut self, ctx: &egui::Context) {
         self.frame_no += 1;
-        if let Some(p) = ctx.pointer_latest_pos() {
-            self.pointer_pos = p;
-        }
-        if let Some(session) = &self.session {
-            if let Ok(s) = session.lock() {
-                self.dark_mode = s.dark_mode;
+        {
+            let _span = atlas_core::session_log::span("atlas.theme");
+            if let Some(p) = ctx.pointer_latest_pos() {
+                self.pointer_pos = p;
             }
+            if let Some(session) = &self.session {
+                if let Ok(s) = session.lock() {
+                    self.dark_mode = s.dark_mode;
+                }
+            }
+            self.apply_theme(ctx);
         }
-        self.apply_theme(ctx);
         self.debug_screenshot(ctx);
-        self.drain_channels(ctx);
-        self.ai.poll();
-        self.ai_context_frame();
+        {
+            let _span = atlas_core::session_log::span("atlas.pumps");
+            self.drain_channels(ctx);
+            self.ai.poll();
+            self.ai_context_frame();
+        }
 
         // Dropped folder(s) = open them on this canvas.
+        let _drop_span = atlas_core::session_log::span("atlas.drop");
         let dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw
                 .dropped_files
@@ -4978,7 +5021,11 @@ impl AtlasApp {
             self.set_roots(dropped);
         }
 
-        self.hotkeys(ctx);
+        drop(_drop_span);
+        {
+            let _span = atlas_core::session_log::span("atlas.input");
+            self.hotkeys(ctx);
+        }
 
         if self.filter_dirty {
             self.recompute_matches();
@@ -5006,9 +5053,13 @@ impl AtlasApp {
         // Register the unified top bar first
         // always spans the full viewport width. Side/bottom chrome is then
         // constrained to the workspace below it.
-        self.draw_top_bar(ctx);
+        {
+            let _span = atlas_core::session_log::span("atlas.topbar");
+            self.draw_top_bar(ctx);
+        }
         let fullscreen = self.active_chrome().canvas_fullscreen;
         if !fullscreen {
+            let _span = atlas_core::session_log::span("atlas.readouts");
             self.draw_readout_bar(ctx);
         }
         // Stacks above the readout bar; only visible during a pre-warm run.
@@ -5016,16 +5067,23 @@ impl AtlasApp {
         if self.root.is_some() {
             self.bottom_tray(ctx);
         }
-        self.draw_advanced_window(ctx);
+        {
+            let _span = atlas_core::session_log::span("atlas.advanced");
+            self.draw_advanced_window(ctx);
+        }
         self.draw_history_window(ctx);
         self.search_popup(ctx);
-        atlas_shell::tuning::show(ctx);
+        {
+            let _span = atlas_core::session_log::span("atlas.tuning");
+            atlas_shell::tuning::show(ctx);
+        }
 
         let palette = self.palette();
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(palette.bg))
             .show(ctx, |ui| {
                 if self.at_home {
+                    let _span = atlas_core::session_log::span("atlas.home");
                     self.welcome(ui);
                 } else if self.root.is_none() {
                     self.empty_workspace(ui);
@@ -5039,6 +5097,7 @@ impl AtlasApp {
         }
 
         if self.root.is_some() || (!self.at_home && !self.tabs.is_empty()) {
+            let _span = atlas_core::session_log::span("atlas.tools");
             self.draw_tools_rail(ctx);
         }
         self.edit_window(ctx);
@@ -5050,9 +5109,18 @@ impl AtlasApp {
         self.cloud_confirm_window(ctx);
         self.drag_overlay(ctx);
         self.hover_tip(ctx);
-        self.draw_toasts(ctx);
-        self.evict_textures();
-        self.run_shell_drag(ctx);
+        {
+            let _span = atlas_core::session_log::span("atlas.overlays");
+            self.draw_toasts(ctx);
+        }
+        {
+            let _span = atlas_core::session_log::span("atlas.evict");
+            self.evict_textures();
+        }
+        {
+            let _span = atlas_core::session_log::span("atlas.shell_drag");
+            self.run_shell_drag(ctx);
+        }
 
         let busy = self.scan_ui.is_some()
             || self.thumbs_pending > 0

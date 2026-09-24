@@ -189,7 +189,7 @@ fn fit_camera(bounds: Rect, viewport: Rect, t: &DockAdvancedTokens) -> (Vec2, f3
 
 /// Paint the catalog into `viewport` and return a tool id to activate.
 pub(crate) fn show(ui: &mut Ui, items: &[FlyoutItem<'_>]) -> Option<&'static str> {
-    let mut dock = crate::tokens::current().dock;
+    let mut dock = crate::tokens::current().dock.clone();
     dock.normalize();
     let linger_delay = dock.dashboard_describe_delay;
     let tokens = dock.advanced;
@@ -659,7 +659,7 @@ fn interact_cards(
             return Some(id);
         }
         let (pan, z) = {
-            let mut dock = crate::tokens::current().dock;
+            let mut dock = crate::tokens::current().dock.clone();
             dock.normalize();
             fit_camera(layout.bounds, viewport, &dock.advanced)
         };
