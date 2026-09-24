@@ -106,6 +106,21 @@ pub fn edge_drag(rect: WorldRect, crop: Crop, handle: u8, local: (f32, f32)) -> 
     (r, crop_from_rects(r, content))
 }
 
+/// Place `crop` on a node whose picture currently occupies `rect` under
+/// `old`. The picture stays fixed in the world; the frame becomes the window
+/// that shows `crop`.
+pub fn place_crop(rect: WorldRect, old: Crop, crop: Crop) -> (WorldRect, Crop) {
+    let content = content_rect(rect, old);
+    let crop = crop.clamped();
+    let window = WorldRect::new(
+        content.x + crop.x * content.w,
+        content.y + crop.y * content.h,
+        crop.w * content.w,
+        crop.h * content.h,
+    );
+    (window, crop_from_rects(window, content))
+}
+
 /// Slide the content under a fixed crop window: the content follows the
 /// pointer, so the UV offset moves *opposite* to the drag. `delta` is the
 /// pointer travel since gesture start, in the node's local axes; `rect` and
@@ -181,6 +196,18 @@ mod tests {
         assert!(approx_rect(nr, WorldRect::new(0.0, 0.0, 150.0, 80.0)));
         assert!(approx(nc.w, 0.75) && approx(nc.h, 0.8));
         assert!(approx_rect(content_rect(nr, nc), r));
+    }
+
+    #[test]
+    fn place_crop_copies_the_window_and_keeps_each_picture_put() {
+        let a = WorldRect::new(0.0, 0.0, 200.0, 100.0);
+        let (ar, ac) = edge_drag(a, Crop::full(), 7, (50.0, 50.0));
+        let b = WorldRect::new(400.0, 10.0, 80.0, 40.0);
+        let (br, bc) = place_crop(b, Crop::full(), ac);
+        assert!(approx(bc.x, ac.x) && approx(bc.w, ac.w));
+        assert!(approx(bc.y, ac.y) && approx(bc.h, ac.h));
+        assert!(approx_rect(content_rect(ar, ac), a));
+        assert!(approx_rect(content_rect(br, bc), b));
     }
 
     #[test]

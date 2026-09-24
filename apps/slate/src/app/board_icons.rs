@@ -11,6 +11,8 @@ pub enum ToolIcon {
     Image,
     Model,
     Video,
+    /// Word, spreadsheets, CSV, and source files on the Media palette.
+    TextDoc,
     Select,
     Pan,
     Frame,
@@ -42,6 +44,8 @@ pub enum ToolIcon {
     Colors,
     /// Board Portals family (dock icon + flyout).
     Portals,
+    /// Agent portal tool.
+    Agent,
     /// Web portal subtype (embedded page / local HTML dashboard).
     WebPortal,
     /// File Atlas lens portal subtype.
@@ -52,6 +56,8 @@ pub enum ToolIcon {
     Join,
     /// Split (cutters, then click — keep every piece).
     Split,
+    /// Order frames into the presentation.
+    Deck,
 }
 
 impl ToolIcon {
@@ -61,11 +67,12 @@ impl ToolIcon {
             ToolIcon::Image => "Image",
             ToolIcon::Model => "3D",
             ToolIcon::Video => "Video",
+            ToolIcon::TextDoc => "Text",
             ToolIcon::Select => "Select",
             ToolIcon::Pan => "Pan",
             ToolIcon::Frame => "Frame",
             ToolIcon::FrameLetter => "8.5 × 11",
-            ToolIcon::FrameTabloid => "11 × 17",
+            ToolIcon::FrameTabloid => "17 × 11",
             ToolIcon::FrameWide => "16:9",
             ToolIcon::FrameCustom => "Custom",
             ToolIcon::Shapes => "Shapes",
@@ -91,11 +98,13 @@ impl ToolIcon {
             ToolIcon::DirectSelect => "Direct select",
             ToolIcon::Colors => "Colors",
             ToolIcon::Portals => "Portals",
+            ToolIcon::Agent => "Agent portal",
             ToolIcon::WebPortal => "Web portal",
             ToolIcon::AtlasLens => "File Atlas",
             ToolIcon::Trim => "Trim",
             ToolIcon::Join => "Join",
             ToolIcon::Split => "Split",
+            ToolIcon::Deck => "Deck",
         }
     }
 }
@@ -108,6 +117,7 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
         ToolIcon::Image => Icon::Image,
         ToolIcon::Model => Icon::Model,
         ToolIcon::Video => Icon::Video,
+        ToolIcon::TextDoc => Icon::TextDoc,
         ToolIcon::Select => Icon::Select,
         ToolIcon::Pan => Icon::Pan,
         ToolIcon::Frame => Icon::Frame,
@@ -138,11 +148,13 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
         ToolIcon::DirectSelect => Icon::DirectSelect,
         ToolIcon::Colors => Icon::Colors,
         ToolIcon::Portals => Icon::Portals,
+        ToolIcon::Agent => Icon::Agent,
         ToolIcon::AtlasLens => Icon::AtlasLens,
         ToolIcon::WebPortal => Icon::WebPortal,
         ToolIcon::Trim => Icon::Trim,
         ToolIcon::Join => Icon::Join,
         ToolIcon::Split => Icon::Split,
+        ToolIcon::Deck => Icon::Deck,
     };
     icons::paint(painter, r, icon, color);
 }

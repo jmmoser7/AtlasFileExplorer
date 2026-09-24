@@ -5,8 +5,10 @@
 
 pub mod agent_chat;
 pub mod agent_inputs;
+pub mod bumper;
 mod doc;
 mod error;
+pub mod geom;
 mod ids;
 mod item;
 pub mod lease;
@@ -33,9 +35,9 @@ pub use osnap::{
     SnapReject,
 };
 pub use scene::{
-    AgentContextScope, AgentPortalRef, AtlasPortalQuery, AtlasSort, DockStripNode, Node, NodeId,
-    NodeKind, PortalClass, PortalKind, PortalNode, Scene, SceneCmd, SceneJournal, SourceUri,
-    WorldRect,
+    AgentContextScope, AgentPortalRef, AtlasPortalQuery, AtlasSort, BoardFit, DockStripNode, Node,
+    NodeId, NodeKind, PortalClass, PortalKind, PortalNode, Scene, SceneCmd, SceneJournal,
+    SourceUri, WorldRect,
 };
 pub use stage::{
     accept, reject, Proposal, ProposalResult, ProposalStatus, ProposalTarget, StageWatcher,

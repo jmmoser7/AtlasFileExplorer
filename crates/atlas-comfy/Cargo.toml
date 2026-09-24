@@ -1,0 +1,10 @@
+[package]
+name = "atlas-comfy"
+version.workspace = true
+edition.workspace = true
+description = "Loopback ComfyUI adapter for local checkpoint image generation"
+
+[dependencies]
+atlas-agent.workspace = true
+atlas-curl.workspace = true
+serde_json.workspace = true

@@ -85,7 +85,10 @@ is searchable.
   locked nodes still feed smart guides.
 - **P1.node.select** click select, Shift+click add/toggle, Shift+marquee
   adds; hover-resize on an unselected node yields to Shift/Ctrl pick.
-  Group click selects the group, Ctrl+Shift+click a member.
+  Group click selects the group, Ctrl+Shift+click a member. A board sweep
+  is Window when the pointer's screen x is at or right of the press
+  (fully enclosed pick geometry only) and Crossing when it is to the left
+  (anything touched). Ctrl during the sweep adds, same as Shift.
 - **P1.node.move** drag with smart guides; ortho (F8, Shift inverts),
   grid snap (F9), and the persistent object-snap set (**P1.node.osnap**)
   apply; arrows nudge. Smart guides (InDesign / tldraw / Keynote) only
@@ -133,8 +136,8 @@ is searchable.
   | Shift | free (non-uniform) from opposite corner | uniform from opposite edge |
   | Ctrl | uniform from center | 1-axis from center |
   | Ctrl+Shift | free from center | uniform from center |
-  | Alt | same as above, snaps off | same |
-  | Ctrl+Alt+Shift (2+ group only) | layout scale from opposite corner; member size unchanged; union opposite corner pinned | layout 1-axis; sizes unchanged; union opposite edge pinned |
+  | Alt (held at press) | duplicate, then the scale above; snaps stay off while Alt is held | same |
+  | Ctrl+Alt+Shift (2+ group only) | layout scale from opposite corner; member size unchanged; union opposite corner pinned. Does not duplicate. | layout 1-axis; sizes unchanged; union opposite edge pinned |
 
   Ctrl+Alt+Shift without the union pin walks the supposed-fixed corner
   on Nw / Ne / Sw (member extents do not scale, so remapping origins
@@ -288,7 +291,11 @@ duplication. New portal contracts reference these and add only deviations.
   (P0.5). Double-click or Enter (`portal.<kind>.focus`) takes contents
   focus for that frame only. Only then do contents receive pointer and
   wheel. Esc peels contents focus without tearing contents down (P0.1).
-  A primary click **outside** the focused portal body — including a click
+  While a host portal has contents focus, the board suppresses that
+  frame's selection cast, selection outline, dimension stringers, and
+  the contents-focus highlight stroke. The frame stays selected. The
+  File Atlas theme hairline and any authored stroke stay. A primary
+  click **outside** the focused portal body — including a click
   on another node — also peels; that click then belongs to the board.
   Wheel and pan never reach an unfocused portal, even if the pointer is
   still over its frame after focus has been peeled. Entering one host
@@ -318,7 +325,8 @@ duplication. New portal contracts reference these and add only deviations.
   unauthored File Atlas stroke paints a 1-unit `Palette::border_strong` hairline.
   Fill/Stroke squircles author `portal.fill` / `portal.stroke`. Other portals
   do not paint an outline unless authored; a minimalist stroke appears only
-  for edge hover or explicit contents focus.
+  for edge hover. Contents focus suppresses that stroke
+  (P1.portal.contents-focus).
 - **P1.portal.empty-ui** Generated unbound / loading / error copy shares
   one painter in `board_portal.rs`. Host unbound CTA is
   **P2.PortalHost.empty**.
@@ -342,15 +350,15 @@ duplication. New portal contracts reference these and add only deviations.
   registry SPECs. Agent-issued frame/source/query mutations stage for
   acceptance (Art. VII.6). Agents never write the source.
 - **P1.portal.clip** Contents paint *inside* the frame fillet. Order:
-  fill → contents (textured or vector, clipped to the rounded outline) →
-  fillet punch (square leftover corners painted in the canvas fill, so
-  every kind shares one rounded footprint) → identity tab (when the kind
-  has one) → stroke last, so the page cannot oversail the corners. On
-  the canvas, radius and stroke follow **P0.9**
-  (`portal_frame.corner_radius × zoom`). Maximized, radius is 0.
-  Web portal pixels are visually full-bleed to the frame/body outline; the
-  invisible focused-page border hit band is input-only, never a bezel.
-  **Deviates** a square `clip_rect` / `painter.image` of the AABB.
+  fill (rounded rect) → contents (textured or vector, clipped to the rounded
+  outline) → identity tab (when the kind has one) → stroke last. No kind
+  paints the square leftover corners in the canvas fill: that mask covers a
+  frame the portal overlaps, including one with its own fill. On the canvas,
+  radius and stroke follow **P0.9** (`portal_frame.corner_radius × zoom`).
+  Maximized, radius is 0. Web portal pixels are visually full-bleed to the
+  frame/body outline; the invisible focused-page border hit band is
+  input-only, never a bezel. A square `clip_rect` / `painter.image` of the
+  AABB still **deviates** where a body has not yet been meshed to the outline.
 - **P1.portal.chrome** Identity chrome is **web-only**, owned by
   `atlas-shell::tabs::portal_tab_bar`: a plain bar with centered page name/URL,
   no blister. It overlays the full-bleed page and retracts after 1.2 seconds
@@ -490,7 +498,9 @@ P2.DragShape, P2.PortalPlace, or P2.PlaceOnce.
   the live preset). The live path starts on press — an egui click is
   not a drag, so `drag_started` never sees ClickPlace. A drag that
   stays under `MIN_DRAW` still discards. Shift = aspect (P1.shape.aspect).
-  Commit returns to Select.
+  Rectangle and ellipse: Ctrl draws from the press point as the center
+  (Shift still squares). Other area tools ignore Ctrl. Commit returns
+  to Select.
 
 ### P2.PortalPlace — area placement for portal frames
 
@@ -532,10 +542,10 @@ and **P1.portal.empty-ui**.
   through one function — not `web_blur(); agent_blur(); atlas_blur();`
   inlined in each kind. Use `peel_contents_focus_if_clicked_outside`.
 - **P2.PortalHost.shell** Paint sequence is shared: layout → fill →
-  clipped body hook → fillet punch (canvas `palette.bg`, not the ink-tool
-  paper swatch and not per-kind fill) → identity chrome → stroke.
+  clipped body hook → identity chrome → stroke. No kind punches the fillet
+  with the canvas color (`portal_masks_fillet_with_canvas` is false).
   Kind-specific work is the body hook and a palette border, not a copied
-  wrapper. Call `paint_portal_shell_finish` / `paint_portal_fillet_punch`.
+  wrapper. Call `paint_portal_shell_finish`.
 - **P2.PortalHost.hit** `border_hit_px` comes only from
   `portal_frame_tokens()` (P0.6). Local `BORDER_HIT_PX` constants are
   forbidden.
@@ -546,8 +556,9 @@ and **P1.portal.empty-ui**.
 ### P2.StickyInk — expressive stroke tools (brush, eraser)
 
 - sticky (stays armed until Esc/tool change); every stroke commits its own
-  undo step; `[`/`]` step width (Photoshop tiers); width-circle cursor;
-  brush spring-loads eyedropper on Alt.
+  undo step; `[`/`]` step width (Photoshop tiers); Alt+right-drag scrubs that
+  width, and Brush also scrubs softness on the vertical axis; width-circle
+  cursor; brush spring-loads the eyedropper on Alt+left.
 
 ### P2.RhinoJoin — selection join / region union
 
@@ -589,8 +600,9 @@ Same phase machine, Esc, Enter, infinite line cutters, and preselect as
 
 ### P2.PlaceOnce — click-to-place (text, sticky note)
 
-- click places and enters edit-in-place; Esc/blur commits text; sticky note
-  chains the next placement on Tab.
+- click places and enters edit-in-place; Esc/blur commits text. A sticky
+  note is one-shot: the place ghost leaves and Select returns. Tab while
+  editing still spawns the next note.
 
 ## L3 — Tool-specific
 
@@ -600,9 +612,9 @@ a second contract — stop and promote it.
 
 ### P1.shape.properties — selection properties and dimensions
 
-Scene capabilities select one shared squircle strip above the selection: Stroke for shapes, images, wires and portals; Fill for closed shapes, text sticky-note backgrounds, frames and portals; Corners for rectangles and images; photo filters for images (not 3D model viewports); routing/weight/dash/arrows for wire-only selections. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit) owned by `selection_tools::atlas_format_editor`. Frame-only actions (deck order, add images, tags, present) join that same strip. Mixed selections expose common controls. Width/height/length belong to separate exterior dimension stringers. Rectangle axes follow rotation; straight lines measure endpoint length; circles use diameter; general paths use tight local bounds. Groups without wires use union XY dimensions and uniform centroid scaling. Wire-containing selections omit box-dimension edits because attached endpoints follow their hosts. Portal source UI stays on the portal.
+Scene capabilities select one shared squircle strip above the selection: Stroke for shapes, images, wires, slide frames, and portals; Fill for closed shapes, text sticky-note backgrounds, frames and portals; Corners for rectangles, images, and slide frames; photo filters for images (not 3D model viewports); routing/weight/dash/arrows for wire-only selections. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit) owned by `selection_tools::atlas_format_editor`. Frame-only actions (deck order, present) join that same strip. Images nest by drag and drop. Mixed selections expose common controls. Width/height/length belong to separate exterior dimension stringers. Rectangle axes follow rotation; straight lines measure endpoint length; circles use diameter; general paths use tight local bounds. Groups without wires use union XY dimensions and uniform centroid scaling. Wire-containing selections omit box-dimension edits because attached endpoints follow their hosts. Portal source UI stays on the portal.
 
-The strip icons expand on selection and collapse when it clears. Palette edits are transient previews until icon change or outside click commits one journal group. A press on empty canvas also deselects. Esc, tool changes, and target changes discard pending previews. Numeric dimensions commit on Enter/focus loss, scale about the measured center, preserve stroke width, and reject invalid values. Locked/read-only selections cannot be mutated. Chrome takes precedence over canvas gestures and follows P0.9. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule reuses that taller height. Heights live in `selection_tools`.
+The strip icons expand on selection and collapse when it clears. Palette edits are transient previews until icon change or outside click commits one journal group. A press on empty canvas also deselects. Esc, tool changes, and target changes discard pending previews. Numeric dimensions commit on Enter/focus loss, scale about the measured center, preserve stroke width, and reject invalid values. Locked/read-only selections cannot be mutated. Chrome takes precedence over canvas gestures and follows P0.9. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. None clears the adjustment; the other radios are low-resolution filtered thumbnails, and the intensity track is as thick as the radio radius. Heights live in `selection_tools`.
 
 Opening an adjustment icon fades selection tint, outlines and endpoint grips out while keeping the objects selected and property controls/stringers visible. Switching editors keeps the decoration hidden; closing or cancelling restores it. Hover decoration yields too, so it cannot obscure the authored color or stroke. The shared dynamic-panel style guide owns the transition; this is presentation state, never a document-opacity mutation.
 

@@ -44,15 +44,24 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 
 ## Eraser tool (E)
 
-- `BoardTool::Eraser`. Drag hit-tests **Path/Shape stroke nodes** under the
-  eraser circle (`vector-ink::hit_stroke`, pick radius = eraser width).
-  P1 = **whole-stroke delete**: any stroke touched during the drag is
-  removed on release as one journal group (`Remove`s). Live feedback:
-  touched strokes render at 30% opacity until release.
+- `BoardTool::Eraser`. **Painted (stamped) brush strokes** are spot-erased:
+  each pass is stored on the stroke as a `PathData::erase` mark (points in
+  the path's normalized coordinates plus the eraser tip) and both painters
+  subtract it from the stamp (`vector_ink::apply_erase`). Within a pass,
+  coverage keeps the maximum, so a pass never erases more than its strength
+  where it crosses itself; separate passes compound. A stroke with no ink
+  left is removed. Erased pixels do not pick. One pass is one undo step.
+- **Vector strokes** keep whole-stroke delete: any the eraser circle
+  crosses (`vector-ink::hit_stroke`) are removed on release, rendering at
+  30% opacity until then.
+- The eraser shares the brush's tip controls: `[`/`]` size, Shift+[ ]
+  softness, Alt+right-drag size and softness, Shift+right-drag strength,
+  a click erases one dab, Shift+drag or Shift+click erases a straight line
+  from the end of the last pass, and Ctrl+Z restores the last setting
+  change. The cursor is the soft tip disc. No color wheel.
 - Only ink/shape strokes are erasable — images, text, frames, connectors
-  are not (delete covers those). This makes E safe to scrub with.
-- `[`/`]` adjust eraser width (shared width-stepping helper).
-- Esc cancels the drag (touched strokes restore full opacity, no journal).
+  are not (delete covers those).
+- Esc cancels the drag (no journal; the live preview drops).
 - **P2**: segment-split erase (Illustrator path-eraser semantics, research
   §2B) — splits the centerline at crossings, regenerates meshes, journals
   Remove+Add pairs.
@@ -98,7 +107,11 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 | D | `board.colors.default` |
 | X | `board.colors.swap` |
 | [ / ] | `board.brush.width_down` / `width_up` |
-| Shift+click (Brush) | straight-connect segment |
+| Shift+[ / Shift+] | `board.brush.softness_up` / `softness_down` (softer / harder) |
+| Alt+right-drag | `board.brush.size_hud` |
+| Shift+right-drag | `board.brush.opacity_hud` (Brush only; Ctrl and Alt win) |
+| Ctrl+right-drag | `board.brush.color_wheel` |
+| Shift+click (Brush) | steps opacity down 10% |
 | Alt+click (Eyedropper) | sample to bg |
 | , / . | preset cycling — **P2** (reserved, not bound in P1) |
 | F6 | color panel — **P2** (chips popover covers P1) |

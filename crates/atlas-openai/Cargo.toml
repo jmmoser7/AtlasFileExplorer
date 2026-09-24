@@ -1,0 +1,11 @@
+[package]
+name = "atlas-openai"
+version.workspace = true
+edition.workspace = true
+description = "OpenAI Images API adapter (GPT Image) for Slate's image agent"
+
+[dependencies]
+atlas-agent.workspace = true
+atlas-curl.workspace = true
+base64 = "0.22"
+serde_json.workspace = true

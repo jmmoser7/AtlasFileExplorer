@@ -226,7 +226,8 @@ pub fn ai_body(panel: &mut AiPanel, ui: &mut egui::Ui, theme: SidebarTheme) {
         ui.label(RichText::new(status).small().italics().color(theme.sub));
     }
 }
-/// Program selection uses only icons and names. The portal supplies focus and
+/// Lobby for choosing a program: icons and names only. The host card is the
+/// surface; there are no button wells. The portal supplies focus and
 /// discovery data; this shared AI surface owns its appearance.
 pub fn program_grid(
     ui: &egui::Ui,
@@ -263,18 +264,12 @@ pub fn program_grid(
             response.hovered(),
             PROGRAM_HOVER_SECONDS,
         );
-        painter.rect_filled(
-            slot,
-            10.0 * zoom,
-            ui.visuals()
-                .text_color()
-                .gamma_multiply(0.035 + hover * 0.045),
-        );
+        let color = program_lobby_color(ui.visuals().text_color(), hover);
         let icon = match program.id.as_str() {
             "cursor" => atlas_shell::icons::Icon::ProviderCursor,
             "codex" => atlas_shell::icons::Icon::ProviderCodex,
             "ollama" => atlas_shell::icons::Icon::ProviderOllama,
-            "image-link" => atlas_shell::icons::Icon::Brush,
+            "image-link" | "comfy" => atlas_shell::icons::Icon::Brush,
             _ => atlas_shell::icons::Icon::Lens,
         };
         atlas_shell::icons::paint(
@@ -284,7 +279,7 @@ pub fn program_grid(
                 egui::vec2(30.0, 30.0) * zoom,
             ),
             icon,
-            ui.visuals().text_color(),
+            color,
         );
         atlas_shell::canvas_text::text(
             &painter,
@@ -292,11 +287,22 @@ pub fn program_grid(
             egui::Align2::CENTER_CENTER,
             &program.display_name,
             egui::FontId::proportional(12.0 * zoom),
-            ui.visuals().text_color(),
+            color,
         );
         if response.clicked() {
             return Some(program.id.clone());
         }
     }
     None
+}
+
+/// Pointer feedback for a lobby entry: the glyph and name brighten, with no well.
+fn program_lobby_color(base: Color32, hover: f32) -> Color32 {
+    let t = (hover * 0.45).clamp(0.0, 1.0);
+    Color32::from_rgba_unmultiplied(
+        (base.r() as f32 + (255.0 - base.r() as f32) * t) as u8,
+        (base.g() as f32 + (255.0 - base.g() as f32) * t) as u8,
+        (base.b() as f32 + (255.0 - base.b() as f32) * t) as u8,
+        base.a(),
+    )
 }

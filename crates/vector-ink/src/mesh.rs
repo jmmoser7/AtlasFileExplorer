@@ -32,7 +32,13 @@ fn section(pos: [f32; 2], normal: [f32; 2], half: f32) -> Station {
 
 fn arc_steps(radius: f32, angle: f32, tolerance: f64) -> usize {
     let step = 2.0 * (1.0 - (tolerance / radius.max(EPS) as f64).min(1.0)).acos();
-    ((angle.abs() as f64 / step.max(0.0001)).ceil() as usize).max(1)
+    let steps = ((angle.abs() as f64 / step.max(0.0001)).ceil() as usize).max(1);
+    // A round tip with one or two facets reads as a spike once the stroke is wide.
+    if angle.abs() >= 0.4 {
+        steps.max(8)
+    } else {
+        steps
+    }
 }
 
 fn stations(
@@ -40,6 +46,7 @@ fn stations(
     style: &StrokeStyle,
     closed: bool,
     tolerance: f64,
+    feather: f32,
 ) -> Vec<Station> {
     if points.len() < 2 {
         return Vec::new();
@@ -63,6 +70,7 @@ fn stations(
                 half_width_at(style, lengths[i] / total),
                 style.join,
                 tolerance,
+                feather,
             );
         }
     } else {
@@ -75,6 +83,7 @@ fn stations(
             style.cap,
             true,
             tolerance,
+            feather,
         );
         // Keep every adaptive curve sample, including on tapered strokes. The
         // former 64-station resampling discarded curvature and sharp vertices.
@@ -89,6 +98,7 @@ fn stations(
                 half_width_at(style, lengths[i] / total),
                 style.join,
                 tolerance,
+                feather,
             );
         }
         let last = normalize(sub(points[n - 1], points[n - 2])).unwrap_or(first);
@@ -100,6 +110,7 @@ fn stations(
             style.cap,
             false,
             tolerance,
+            feather,
         );
     }
     out
@@ -116,7 +127,8 @@ pub(crate) fn tessellate_run(
     if style.width <= 0.0 || !feather.is_finite() || feather < 0.0 {
         return;
     }
-    let mut sections = stations(points, style, closed, tolerance);
+    let points = limit_chords(points, chord_limit(tolerance, feather));
+    let mut sections = stations(&points, style, closed, tolerance, feather);
     if sections.len() < 2 {
         return;
     }
@@ -134,7 +146,7 @@ pub(crate) fn run_outline(
     closed: bool,
     tolerance: f64,
 ) -> Vec<Vec<[f32; 2]>> {
-    let sections = stations(points, style, closed, tolerance);
+    let sections = stations(points, style, closed, tolerance, 0.0);
     if sections.len() < 2 {
         return Vec::new();
     }
@@ -156,6 +168,7 @@ fn push_cap(
     cap: Cap,
     start: bool,
     tolerance: f64,
+    feather: f32,
 ) {
     let normal = perp_left(tangent);
     match cap {
@@ -174,7 +187,7 @@ fn push_cap(
             }
         }
         Cap::Round => {
-            let count = arc_steps(half, std::f32::consts::FRAC_PI_2, tolerance);
+            let count = arc_steps(half + feather * 0.5, std::f32::consts::FRAC_PI_2, tolerance);
             for i in 0..=count {
                 // Longitudinal sections travel from tip to end (start cap), or
                 // end to tip (end cap). No rotating diameters/bow-tie triangles.
@@ -213,6 +226,7 @@ fn push_join(
     half: f32,
     join: Join,
     tolerance: f64,
+    feather: f32,
 ) {
     let a = perp_left(incoming);
     let b = perp_left(outgoing);
@@ -226,7 +240,7 @@ fn push_join(
     }
     let angle = cross.atan2(cosine);
     let count = if join == Join::Round {
-        arc_steps(half, angle, tolerance)
+        arc_steps(half + feather * 0.5, angle, tolerance)
     } else {
         1
     };
@@ -248,7 +262,37 @@ fn push_join(
     }
 }
 
+fn chord_limit(tolerance: f64, feather: f32) -> f32 {
+    if feather <= 2.0 {
+        return f32::MAX;
+    }
+    (tolerance as f32 * 8.0).max(0.75)
+}
+
+fn limit_chords(points: &[[f32; 2]], max_len: f32) -> Vec<[f32; 2]> {
+    if points.len() < 2 || !max_len.is_finite() {
+        return points.to_vec();
+    }
+    let mut out = Vec::with_capacity(points.len());
+    out.push(points[0]);
+    for pair in points.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        let delta = sub(b, a);
+        let len = (delta[0] * delta[0] + delta[1] * delta[1]).sqrt();
+        let steps = (len / max_len).ceil() as usize;
+        if steps > 1 {
+            for i in 1..steps {
+                out.push(add(a, scale(delta, i as f32 / steps as f32)));
+            }
+        }
+        out.push(b);
+    }
+    out
+}
+
 fn emit_strip(mesh: &mut InkMesh, stations: &[Station], feather: f32) {
+    // One fringe quad per station. Extra alpha rings overlap along the stroke
+    // and stack into bright seams.
     for (i, station) in stations.iter().enumerate() {
         let base = mesh.vertices.len() as u32;
         let inset = (feather * 0.5).min(station.half);

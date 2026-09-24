@@ -79,6 +79,7 @@ impl SlateApp {
             detail,
             at: std::time::SystemTime::now(),
         });
+        self.brush_setting_undo.clear();
     }
 
     /// Dispatch a command by id: availability-gated, handler bodies are the
@@ -96,6 +97,8 @@ impl SlateApp {
         if !spec.when.matches(self.command_ctx()) {
             return false; // unavailable commands are no-ops (registry contract)
         }
+        // A command lands after the glide it interrupts, never inside it.
+        self.finish_bumper_glide();
         let board = self.doc().view.active_view == ViewKind::Board;
         let mut detail = detail;
         let ran = match id.0 {
@@ -149,10 +152,12 @@ impl SlateApp {
                 self.export_artifact_dialog();
                 true
             }
-            "board.media.image" | "board.media.model" | "board.media.video" => {
+            "board.media.image" | "board.media.model" | "board.media.video"
+            | "board.media.text" => {
                 let group = match id.0 {
                     "board.media.model" => slate_doc::media::MediaGroup::Model,
                     "board.media.video" => slate_doc::media::MediaGroup::Video,
+                    "board.media.text" => slate_doc::media::MediaGroup::Text,
                     _ => slate_doc::media::MediaGroup::Image,
                 };
                 self.add_media_dialog(group);
@@ -255,6 +260,13 @@ impl SlateApp {
                 self.chrome_mut().advanced_open = true;
                 true
             }
+            "app.optional.bumper_cars" => {
+                let on = !self.settings.optional_bumper_cars;
+                self.settings.optional_bumper_cars = on;
+                self.settings.save();
+                detail = detail.or(Some(if on { "on" } else { "off" }.into()));
+                true
+            }
             "app.session.mark" => {
                 self.session_log.mark("F4");
                 self.toast("Marked this moment in the session log");
@@ -269,13 +281,9 @@ impl SlateApp {
                 true
             }
             "app.properties" => {
-                use super::ui::tools::{DOCK_ID, SELECTION_PANEL_ID};
-                let on = !(self.chrome().tool(super::chrome::ToolPanel::Selection)
-                    && atlas_shell::dock::panel_is_open(ctx, DOCK_ID, SELECTION_PANEL_ID));
-                self.chrome_mut()
-                    .set_tool(super::chrome::ToolPanel::Selection, on);
-                atlas_shell::dock::set_panel_open(ctx, DOCK_ID, SELECTION_PANEL_ID, on);
-                detail = detail.or(Some(if on { "shown" } else { "hidden" }.into()));
+                // Selection editing lives on the per-node strips. The bottom
+                // dock no longer hosts a Selection icon or inspector.
+                detail = detail.or(Some("object strip".into()));
                 true
             }
             "app.repeat_last" => {
@@ -325,6 +333,10 @@ impl SlateApp {
             }
             "board.tool.frame" => {
                 self.set_board_tool(board::BoardTool::Frame);
+                true
+            }
+            "board.tool.deck" => {
+                self.set_board_tool(board::BoardTool::Deck);
                 true
             }
             "board.tool.rect" => {
@@ -392,6 +404,25 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::AtlasPortal);
                 true
             }
+            "board.portal.slate" => {
+                self.set_board_tool(board::BoardTool::SlatePortal);
+                true
+            }
+            "portal.slate.source" => self.slate_pick_source_for_selection(),
+            "portal.slate.refresh" => {
+                if let Some(id) = self.selected_slate_portal() {
+                    self.slate_refresh(ctx, id);
+                } else {
+                    self.toast("Select a Slate board portal first.");
+                }
+                true
+            }
+            "portal.slate.open" => {
+                if !self.open_selected_slate_portal() {
+                    self.toast("Select a Slate board portal first.");
+                }
+                true
+            }
             "portal.atlas.source" => self.atlas_pick_source_for_selection(),
             "portal.atlas.refresh" => self.atlas_refresh_selected(),
             "portal.atlas.bake" => self.atlas_bake_selected(),
@@ -433,19 +464,31 @@ impl SlateApp {
             "portal.agent.unbundle" => self.unbundle_selected_agent(),
             "portal.agent.stop" => self.stop_selected_agent(),
             "portal.agent.train" => self.agent_show_train(),
+            "portal.agent.pairs" => self.agent_show_pairs(),
             "portal.agent.model" => self.agent_set_model(detail.as_deref().unwrap_or("")),
+            "portal.agent.live" => self.agent_toggle_live(),
+            "portal.agent.keep" => self.agent_keep_live(),
             "portal.agent.rename" => self.agent_rename(detail.as_deref().unwrap_or("")),
             "portal.agent.continue" => self.agent_spawn_command(detail.as_deref()),
+            "portal.agent.spawn" => self.spawn_flow_node(detail.as_deref()),
             "portal.agent.approval" => {
                 self.answer_agent_approval(detail.as_deref());
                 true
             }
             "portal.agent.artifacts" => self.toggle_agent_artifacts(detail.as_deref()),
             "portal.agent.open_artifact" => self.open_agent_artifact(detail.as_deref()),
+            "portal.agent.spawn_output" => self.agent_spawn_output(detail.as_deref()),
+            "portal.agent.spawn_outputs" => self.agent_spawn_outputs(detail.as_deref()),
+            "portal.agent.evolution" => self.agent_evolution(detail.as_deref()),
             "portal.agent.chat" => self.agent_show_chat(),
             "portal.agent.bundle_chat" => self.agent_bundle_selection(),
             "portal.agent.expand_chat" => self.agent_expand_bundle(),
             "portal.agent.fork" => self.agent_fork_selected(),
+            "portal.agent.collapse" => self.agent_toggle_collapse(ctx),
+            "portal.agent.fit" => self.agent_fit_to_text(ctx),
+            "portal.agent.full_access" => self.agent_toggle_full_access(),
+            "portal.agent.schedule" => self.agent_set_schedule(detail.as_deref()),
+            "portal.agent.pocket" => self.agent_toggle_pocket(detail.as_deref()),
             "portal.agent.identity" => {
                 self.agent_set_detail(slate_doc::agent_chat::Detail::Identity)
             }
@@ -483,6 +526,18 @@ impl SlateApp {
                     if eraser { "eraser" } else { "brush" }
                 )));
                 true
+            }
+            "board.brush.softness_down" | "board.brush.softness_up" => {
+                if !matches!(
+                    self.board_tool,
+                    board::BoardTool::Brush | board::BoardTool::Eraser
+                ) {
+                    false
+                } else {
+                    let softness = self.step_brush_softness(id.0 == "board.brush.softness_up");
+                    detail = detail.or(Some(format!("{:.0}%", softness * 100.0)));
+                    true
+                }
             }
             // ----- path editing -----------------------------------------------------
             "board.path.join" => {
@@ -695,16 +750,18 @@ impl SlateApp {
                 true
             }
             "board.crop" => {
-                // C: one selected croppable image → the same crop mode the
-                // double-click path enters. No-op otherwise.
-                let single =
-                    (self.board_sel.len() == 1).then(|| *self.board_sel.iter().next().unwrap());
-                match single {
-                    Some(node_id) if self.croppable_image(node_id) => {
-                        self.enter_crop_mode(node_id);
-                        true
-                    }
-                    _ => false,
+                // C: enter crop on the selected croppable images. The rest of
+                // the selection stays. No-op when none of them can crop.
+                if let Some(node_id) = self
+                    .board_sel
+                    .iter()
+                    .copied()
+                    .find(|id| self.croppable_image(*id))
+                {
+                    self.enter_crop_mode(node_id);
+                    true
+                } else {
+                    false
                 }
             }
             "board.image.adjust" => {
@@ -762,11 +819,18 @@ impl SlateApp {
                 };
                 // OS clipboard text (from the platform Paste event, when one
                 // arrived this frame) wins over the app-internal buffer so
-                // selections round-trip between Slate instances.
+                // selections round-trip between Slate instances. An image or
+                // a copied file list is not text; those land first.
                 let os_text = self.pending_paste_text.take();
-                let n = self.board_paste(os_text.as_deref(), at);
-                detail = detail.or(Some(format!("{n} node(s)")));
-                n > 0
+                let at_media = at.unwrap_or_else(|| self.paste_target_world(ctx));
+                if self.paste_os_clipboard(at_media, os_text.as_deref()) {
+                    detail = detail.or(Some("from clipboard".into()));
+                    true
+                } else {
+                    let n = self.board_paste(os_text.as_deref(), at);
+                    detail = detail.or(Some(format!("{n} node(s)")));
+                    n > 0
+                }
             }
             "board.palette" => {
                 let screen = self.canvas_rect.center();
@@ -847,15 +911,21 @@ impl SlateApp {
         // Running drag operations (wire drags, eraser scrubs, direct-
         // selection edits, the zoom-window marquee) cancel first — restore,
         // no journal.
-        if self.zoom_marquee.is_some()
+        if self.brush_hud.is_some()
+            || self.zoom_marquee.is_some()
             || matches!(
                 self.board_drag,
                 Some(
                     board::BoardDrag::Wire(_)
                         | board::BoardDrag::Erase { .. }
                         | board::BoardDrag::Direct(_)
+                        | board::BoardDrag::DeckStroke { .. }
+                        | board::BoardDrag::Marquee { .. }
+                        | board::BoardDrag::CropEdge { .. }
                 )
             )
+            || (self.bumper.dragging()
+                && matches!(self.board_drag, Some(board::BoardDrag::Move { .. })))
         {
             live.push(CancelLayer::ActiveOperation);
         }
@@ -893,17 +963,34 @@ impl SlateApp {
         }
         match cancel_target(&live) {
             Some(CancelLayer::ActiveOperation) => {
+                if self.brush_hud.is_some() {
+                    self.cancel_brush_hud();
+                    return true;
+                }
                 if self.zoom_marquee.is_some() {
                     // Cancel the zoom window; the tool stays armed.
                     self.zoom_marquee = None;
                     return true;
                 }
                 match self.board_drag.take() {
+                    Some(board::BoardDrag::Move { before, .. }) => self.cancel_bumper_drag(before),
                     Some(board::BoardDrag::Wire(wd)) => self.cancel_wire_drag(wd),
                     Some(board::BoardDrag::Direct(d)) => self.cancel_direct_drag(d),
-                    // Eraser: nothing was mutated — dropping the drag
-                    // restores full opacity.
-                    _ => {}
+                    Some(board::BoardDrag::CropEdge {
+                        id, before, peers, ..
+                    }) => {
+                        if let Some(n) = self.doc_mut().scene.node_mut(id) {
+                            *n = before;
+                        }
+                        for peer in peers {
+                            if let Some(n) = self.doc_mut().scene.node_mut(peer.id) {
+                                *n = peer;
+                            }
+                        }
+                    }
+                    // Eraser: nothing was mutated — dropping the drag and its
+                    // live preview restores the ink.
+                    _ => self.erase_live.clear(),
                 }
                 true
             }
@@ -960,6 +1047,11 @@ impl SlateApp {
     // ---------- the keyboard front-end ----------
 
     pub(crate) fn hotkeys(&mut self, ctx: &egui::Context) {
+        // egui swallows Ctrl+V before it becomes a Key event, and it emits
+        // Paste only when the clipboard has text. Track the chord here so a
+        // copied image or file still reaches `board.paste`.
+        let focused = ctx.input(|i| i.focused);
+        let paste_edge = self.take_paste_chord_edge(focused);
         // Presentation mode owns the keyboard (handled in present_frame).
         if self.presenting.is_some() {
             self.space_tap = SpaceTap::default();
@@ -968,7 +1060,7 @@ impl SlateApp {
         }
         let wants_kb = ctx.wants_keyboard_input();
         let board = self.doc().view.active_view == ViewKind::Board;
-        let editing = self.text_edit.is_some();
+        let editing = self.text_edit.is_some() || self.sheet_edit.is_some();
         // A focused web portal is a keyboard sink, like an inline editor: bare
         // letters, digits, Tab, and arrows belong to the page, so typing in a
         // form cannot switch tools (D22). Ctrl chords stay Slate's — save and
@@ -977,6 +1069,34 @@ impl SlateApp {
         let web_focus = board && self.web.focused.is_some();
         let agent_focus = board && self.agents.focused.is_some();
         let typing_sink = editing || web_focus || agent_focus;
+        // A selected chat card stays deletable while it holds the keyboard,
+        // unless the person is typing into its composer.
+        let agent_delete = if board && !editing && !web_focus {
+            self.agent_delete_keys(wants_kb)
+        } else {
+            (false, false)
+        };
+        let delete_passes = |chord: Chord, id: CommandId| {
+            id.0 == "board.delete"
+                && !chord.ctrl
+                && ((chord.key == Key::Delete && agent_delete.0)
+                    || (chord.key == Key::Backspace && agent_delete.1))
+        };
+        if board && !typing_sink && self.board_tool == board::BoardTool::Select {
+            let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+            if enter {
+                let ids: Vec<_> = self.board_sel.iter().copied().collect();
+                let slate = ids.len() == 1
+                    && self.doc().scene.node(ids[0]).is_some_and(|node| {
+                        matches!(&node.kind, slate_doc::NodeKind::Portal(p) if p.kind == slate_doc::PortalKind::Slate)
+                    });
+                if slate {
+                    ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                    self.open_slate_portal(ids[0]);
+                    return;
+                }
+            }
+        }
         let palette_open = self.palette_state.open;
         let cmd_ctx = self.command_ctx();
         // Type-to-command / bare-letter hold: Board only, and never while a
@@ -1007,7 +1127,7 @@ impl SlateApp {
             paste_text: Option<String>,
             pointer_pressed: bool,
         }
-        let keys = ctx.input(|i| {
+        let mut keys = ctx.input(|i| {
             let mut k = Keys {
                 matched: Vec::new(),
                 bare_letter: None,
@@ -1056,7 +1176,9 @@ impl SlateApp {
                 if !chord_pressed(i, chord) {
                     continue;
                 }
-                if suppressed(chord, wants_kb, typing_sink, palette_open) {
+                if suppressed(chord, wants_kb, typing_sink, palette_open)
+                    && (palette_open || !delete_passes(chord, spec.id))
+                {
                     continue;
                 }
                 if !spec.when.matches(cmd_ctx) {
@@ -1076,7 +1198,9 @@ impl SlateApp {
                 if !chord_pressed(i, *chord) {
                     continue;
                 }
-                if suppressed(*chord, wants_kb, typing_sink, palette_open) {
+                if suppressed(*chord, wants_kb, typing_sink, palette_open)
+                    && (palette_open || !delete_passes(*chord, *id))
+                {
                     continue;
                 }
                 if let Some(spec) = self.registry.by_id(*id) {
@@ -1168,6 +1292,22 @@ impl SlateApp {
             }
             k
         });
+
+        if let Some(shift) = paste_edge {
+            if board && !self.at_home && !wants_kb && !editing && !palette_open {
+                let already = keys
+                    .matched
+                    .iter()
+                    .any(|id| id.0 == "board.paste" || id.0 == "board.paste_in_place");
+                if !already {
+                    keys.matched.push(CommandId(if shift {
+                        "board.paste_in_place"
+                    } else {
+                        "board.paste"
+                    }));
+                }
+            }
+        }
 
         // --- Escape: cancel a pending bare-letter hold first; else stack ---
         let mut cancelled_hold = false;
@@ -1335,7 +1475,9 @@ impl SlateApp {
 
         // --- Tab cycling (suppressed while typing/presenting/crop) ---
         if let Some(dir) = keys.tab {
-            if board && self.line_draft.is_some() {
+            if board && self.board_tool == board::BoardTool::Deck {
+                // Deck has no direction lock and does not cycle the selection.
+            } else if board && self.line_draft.is_some() {
                 // Mid-draft Tab locks the segment direction instead of
                 // cycling the selection (contract D07; KEYMAP Tab note).
                 self.line_toggle_lock();

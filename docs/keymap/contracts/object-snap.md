@@ -18,7 +18,7 @@ Inherits: P0.* (all), **P1.node.osnap** — this contract *is* that pattern.
 
 | ID | Dimension | Agreed behavior | Source | Conf |
 |----|-----------|-----------------|--------|------|
-| D01 | Initiation & arming | Document Settings → Object snaps fold (tools-dock grid icon) + command palette. Master `board.osnap`; per-kind `board.osnap.*`; Snap to grid is `board.snap_grid` (F9) inside the same fold. | stated | 100 |
+| D01 | Initiation & arming | Home menu → Preferences (grid, object snaps, reach) + command palette. Master `board.osnap`; per-kind `board.osnap.*`; Snap to grid is `board.snap_grid` (F9) in that menu. | stated | 100 |
 | D02 | Stickiness & repeat | Persistent until toggled. Master off remembers checked kinds (Rhino Disable inverted). Survives relaunch via `slate-settings.json`. | research | 80 |
 | D03 | Gesture grammar | n/a as its own machine. Each point pick / bbox move reads `ObjectSnapSet`. Tan / Perp stay inert until the gesture has a prior point. | stated | 100 |
 | D04 | Click vs drag rule | n/a — no click/drag grammar of its own. | pattern | 85 |

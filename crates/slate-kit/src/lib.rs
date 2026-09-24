@@ -215,6 +215,30 @@ mod tests {
     }
 
     #[test]
+    fn the_builtin_frame_recipe_is_filleted_and_unbordered() {
+        let reg = Registry::build(&[(Scope::Builtin, builtin_kit())]);
+        let frame = reg.get("frame").unwrap();
+        let specs = frame
+            .def
+            .recipe
+            .instantiate(WorldRect::new(0.0, 0.0, 960.0, 540.0), &ctx());
+        let NodeKind::Frame(f) = &specs[0].kind else {
+            panic!("expected a frame");
+        };
+        assert_eq!(
+            f.corner,
+            slate_doc::scene::Corner::Rounded {
+                radius: slate_doc::media::TEXT_CARD_FILLET
+            }
+        );
+        assert!(f.stroke.is_none());
+        assert_eq!(f.fill, slate_doc::scene::Rgba::WHITE);
+        assert!(f.fill_follows_theme());
+        assert_eq!(f.title, "Slide 1");
+        assert_eq!(f.order, 0);
+    }
+
+    #[test]
     fn the_builtin_kit_round_trips_through_the_writer() {
         let kit = builtin_kit();
         let back = Kit::from_toml(&kit.to_toml().unwrap()).unwrap();

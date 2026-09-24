@@ -423,9 +423,12 @@ version = "0.1.0"
 dependencies = [
  "atlas-agent",
  "atlas-codex",
+ "atlas-comfy",
  "atlas-core",
  "atlas-ollama",
+ "atlas-openai",
  "atlas-shell",
+ "chrono",
  "crossbeam-channel",
  "eframe",
  "rfd",
@@ -440,6 +443,15 @@ version = "0.1.0"
 dependencies = [
  "atlas-agent",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "atlas-comfy"
+version = "0.1.0"
+dependencies = [
+ "atlas-agent",
+ "atlas-curl",
  "serde_json",
 ]
 
@@ -468,10 +480,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-curl"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "atlas-ollama"
 version = "0.1.0"
 dependencies = [
  "atlas-agent",
+ "atlas-curl",
+ "base64 0.22.1",
+ "image",
+ "serde_json",
+]
+
+[[package]]
+name = "atlas-openai"
+version = "0.1.0"
+dependencies = [
+ "atlas-agent",
+ "atlas-curl",
+ "base64 0.22.1",
  "serde_json",
 ]
 
@@ -565,6 +597,12 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
@@ -1704,6 +1742,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "gltf"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3ce1918195723ce6ac74e80542c5a96a40c2b26162c1957a5cd70799b8cacf7"
+dependencies = [
+ "byteorder",
+ "gltf-json",
+ "lazy_static",
+ "serde_json",
+]
+
+[[package]]
+name = "gltf-derive"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14070e711538afba5d6c807edb74bcb84e5dbb9211a3bf5dea0dfab5b24f4c51"
+dependencies = [
+ "inflections",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "gltf-json"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6176f9d60a7eab0a877e8e96548605dedbde9190a7ae1e80bbcc1c9af03ab14"
+dependencies = [
+ "gltf-derive",
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
 name = "glutin"
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1967,7 +2041,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -2132,6 +2206,12 @@ dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
 ]
+
+[[package]]
+name = "inflections"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a257582fdcde896fd96463bf2d40eefea0580021c0712a0e2b028b60b47a837a"
 
 [[package]]
 name = "inotify"
@@ -2475,6 +2555,15 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "model-preview"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "gltf",
+ "rhino-mesh",
 ]
 
 [[package]]
@@ -3822,6 +3911,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 name = "slate"
 version = "0.1.0"
 dependencies = [
+ "atlas-agent",
  "atlas-ai",
  "atlas-commands",
  "atlas-core",
@@ -3832,10 +3922,10 @@ dependencies = [
  "crossbeam-channel",
  "eframe",
  "image",
+ "model-preview",
  "native-file-atlas",
  "raw-window-handle",
  "rfd",
- "rhino-mesh",
  "serde",
  "serde_json",
  "slate-artifact",
@@ -3853,8 +3943,11 @@ dependencies = [
 name = "slate-artifact"
 version = "0.1.0"
 dependencies = [
+ "atlas-core",
+ "image",
  "slate-doc",
  "vector-ink",
+ "zip 2.4.2",
 ]
 
 [[package]]
@@ -3864,6 +3957,7 @@ dependencies = [
  "atlas-agent",
  "serde",
  "serde_json",
+ "vector-ink",
 ]
 
 [[package]]
@@ -4432,7 +4526,7 @@ version = "3.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc"
 dependencies = [
- "base64",
+ "base64 0.23.1",
  "flate2",
  "log",
  "percent-encoding",
@@ -4449,7 +4543,7 @@ version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f86fd172ccca569e458f61b6bdd6220965a9ef36e672a6852953b51a0e1583be"
 dependencies = [
- "base64",
+ "base64 0.23.1",
  "http",
  "httparse",
  "log",
@@ -4480,7 +4574,7 @@ version = "0.48.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "977d0a4abdef933f424a99fe09f95576e089b90aebc6f016a3bc813762493e91"
 dependencies = [
- "base64",
+ "base64 0.23.1",
  "data-url",
  "flate2",
  "fontdb",

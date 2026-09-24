@@ -2,8 +2,8 @@
 
 Status: draft
 Family: tool
-Reference: User request, 2026-09-18; existing Slate text, crop and shared dynamic panels
-Command: board.shape.text.edit, board.shape.text.format, board.shape.image.set, board.shape.image.crop, board.shape.image.remove (proposed registrations)
+Reference: User request, 2026-09-21; existing Slate text editing and shared dynamic panels
+Command: board.shape.text.edit, board.shape.text.format (proposed registrations)
 Inherits: P0.*, P1.node, P1.shape.properties
 
 Stated behaviors are already accepted. New defaults below remain proposals;
@@ -16,23 +16,23 @@ D01–D17 are the in-scope tool dimensions; D18–D35 are portal-only.
 
 | ID | Dimension | Proposed behavior | Source | Conf |
 |----|-----------|-------------------|--------|------|
-| D01 | Initiation & arming | Double-click the filled region of any unlocked closed shape to enter text editing in place. A Text squircle joins its property strip while text exists or is being edited. Right-click exposes Place image, Replace image, Edit crop and Remove image as applicable. | stated | 100 |
+| D01 | Initiation & arming | Double-click anywhere on an unlocked closed shape (rectangle, ellipse, or closed path, including an unfilled interior) to open the text editing configuration and a blinking caret. The Text control stays on the selection palette while that session is open and whenever the shape's text is non-empty. | stated | 100 |
 | D02 | Stickiness & repeat | P1.shape.properties: the property strip stays attached to selection. Text editing is a session on the existing shape, not a sticky drawing tool; finishing returns to ordinary Select. | precedent | 95 |
-| D03 | Gesture grammar | Rectangle text starts at an inset upper-left caret. Proposed for ellipses, stars and irregular shapes: center a wrapped text block in a safe rectangular interior region; do not put text in star tips or holes. The same shape may retain text above an image fill. | guess | 55 |
+| D03 | Gesture grammar | New shape text is center-justified (`TextAlign::Center`) and wraps inside an inset of the shape. The caret blinks at the insertion point of that centered block. Ellipses and closed paths use the same inset of their bounds and clip glyphs to the outline. Re-entry keeps the stored alignment. | stated | 100 |
 | D04 | Click vs drag rule | P1.node.select/move remain unchanged. A double-click enters typing; dragging selected text selects characters. Property controls own their pointer gestures and never start a shape move. | pattern | 90 |
 | D05 | Modifiers | Text fields own typing, clipboard and text-selection keys. Enter inserts a paragraph. Outside text editing, retain the existing selection, transform and Alt plain-drop behavior. | precedent | 90 |
 | D06 | Constraints & snapping | P0.9: text, caret, palette, clipping and hit regions follow the host through zoom, pan and rotation. Host movement/resizing keeps P1.node.transform and snapping. Cache derived interior and clip geometry on change. | pattern | 90 |
 | D07 | Direction / value locks | No direction lock for typing. Proposed overflow rule: keep the authored shape and font size fixed, wrap inside the text area, and show an overflow indication while editing/selected; retain all text for editing. Never silently enlarge the shape or shrink the type. | guess | 55 |
-| D08 | Numeric / manual entry | Typeface, text color, inline editable font size, Bold, Underline and paragraph alignment are available in the compact Text editor. Numeric values are edited directly; text color reuses the existing RGB/recent-colors/desktop-eyedropper panel. | stated | 100 |
-| D09 | Preview & readouts | Dragging one image over an eligible shape shows its actual silhouette and a clipped crop preview when the image is ready. On leave or cancel, the preview vanishes without mutation. P1.shape.properties selection fading applies while the Text adjustment panel is open. | stated | 100 |
-| D10 | Cursor | A blinking insertion caret appears inside the text area, without a separate text window. Text hover uses the I-beam; an eligible image-drop target indicates acceptance. | stated | 100 |
-| D11 | Commit | P0.2/P0.3: text sessions, formatting changes and image attachments each use invertible SceneCmd groups. Preserve the host id, geometry, stroke, transforms and links. Images remain linked items and use centered cover fitting without distortion. Empty/no-op text sessions add no undo step. | pattern | 90 |
-| D12 | Cancel | Match existing text behavior: Escape or click outside finishes and commits typing; Ctrl+Z undoes the session. Escape cancels an uncommitted property/crop/drop preview. Canceling an image picker changes nothing; late results never attach to another workbook or deleted/locked host. | precedent | 90 |
-| D13 | Selected presentation | Follow DYNAMIC_PANELS.md: squircle Text icon; one restrained, theme-aware editor above the strip; font selector, underlined size, color access, B/U and alignment controls. Reuse the shared color editor. No permanent Apply/Cancel footer or secondary numeric dialog. | stated | 100 |
-| D14 | Post-edit | Double-click to resume typing. Shape-image crop is entered through the image action/context menu so double-click keeps its text meaning. Reposition the image inside a fixed true silhouette; replacing/removing the image preserves text, outline and host identity. | guess | 55 |
-| D15 | Non-goals | Proposed first scope: one typography style and paragraph alignment for the whole shape text block, matching current Text nodes; no mixed-font spans, text-on-path, linked text frames or new drawing tool. If selected-word formatting is needed, decide it before changing the durable text model. | guess | 50 |
-| D16 | Create-style inheritance | Reuse the Text tool font/color defaults when first creating text; preserve existing values on re-entry. Image fill does not replace the host stroke or corner settings. Do not seed unrelated drawing defaults from a mixed selection. | precedent | 90 |
-| D17 | Hit-testing & pick | Only true closed regions can host content: rectangle/ellipse and closed paths, including stars, concave trims and compound paths. Open curves, holes, hidden or locked targets reject attachment. Interior text/drop picking works on unfilled closed shapes. Multiple-file drops keep the existing board placement behavior. | pattern | 90 |
+| D08 | Numeric / manual entry | Typeface and text height are fillet capsules at CORNER_HEIGHT; the menu arrow sits in a circle at the capsule end. Typefaces are Sans, Serif, Mono, and the installed system faces in Typeface. Text height offers 12, 16, 24, 32, 48, 64, and 96 (default 24). Justification is Left, Center, or Right. Font color uses the shared color editor. Color, typeface, size, and justification update the caret immediately, and selection follows the aligned glyphs. One style applies to the whole block. | stated | 100 |
+| D09 | Preview & readouts | P1.shape.properties selection fading applies while the Text adjustment panel is open. Typed characters paint in the shape as they are entered. | pattern | 90 |
+| D10 | Cursor | A blinking insertion caret appears inside the text area, without a separate text window. Text hover uses the I-beam. | stated | 100 |
+| D11 | Commit | P0.2/P0.3: a finished text session and each formatting change are invertible SceneCmd groups. Preserve the host id, geometry, stroke, transforms and links. Empty or unchanged sessions add no undo step. | pattern | 90 |
+| D12 | Cancel | Match existing text behavior: Escape or click outside finishes and commits typing; Ctrl+Z undoes the session. Escape cancels an uncommitted Text-palette preview. | precedent | 90 |
+| D13 | Selected presentation | Double-click opens the Text editor above the selection strip: typeface capsule, justification, text-height capsule, and color access. The Text squircle stays while editing and whenever the shape's text is non-empty. Follow DYNAMIC_PANELS.md and P1.shape.properties. No Apply/Cancel footer. | stated | 100 |
+| D14 | Post-edit | Double-click the shape again to resume typing at the stored text. Clearing the text removes the Text control from the palette. | precedent | 90 |
+| D15 | Non-goals | One typeface, size, color, and justification for the whole shape text block. No mixed-font spans, bold, underline, text-on-path, linked text frames, or a new drawing tool. Shape image fill stays out of this pass. | stated | 100 |
+| D16 | Create-style inheritance | First text on a shape uses center alignment, Sans, size 24, and the Text tool's ink color. Re-entry keeps the shape's stored family, size, color, and alignment. | precedent | 85 |
+| D17 | Hit-testing & pick | Only unlocked closed regions accept text: rectangle, ellipse, and closed paths, including stars and concave trims. Open curves, holes, hidden nodes, and locked nodes do not enter text edit. An unfilled closed interior still accepts the double-click. | pattern | 90 |
 
 ## Feel constants
 
@@ -42,31 +42,22 @@ board-unit tokens. Do not freeze type/caret size in screen pixels.
 
 ## Golden paths
 
-- GP1: Double-click empty rectangle; upper-left inset caret; type two paragraphs;
-  click outside; one undo returns to the original empty shape with the same id.
-- GP2: Enter text in an ellipse, star and concave trimmed shape; no letters in
-  tips, cutouts or holes. Rotate, pan and zoom: paint, caret, hit targets and
-  palette follow the same local transform.
-- GP3: Open Text; change font, size, color, Bold, Underline and alignment; preview
-  does not obscure the authored result. Check both themes and inline numeric focus.
-- GP4: Enter more text than fits; the chosen overflow behavior is explicit;
-  text is retained through save/reopen and undo, with no silent shape mutation.
-- GP5: Hover an image over a circle/star; exact-silhouette preview; leave cancels;
-  drop attaches with a cover crop. Stroke, existing text, geometry and id survive.
-- GP6: Right-click Place/Replace image; cancel does nothing; completion after
-  changing tabs, deleting or locking the host never edits a different target.
-- GP7: Edit image crop; the host remains fixed and rotated UV mapping stays
-  correct. Remove image restores the visible base fill without deleting text.
-- GP8: Image drop over a hole, open line, locked shape or empty board keeps normal
-  board behavior; multi-file drops keep existing grid placement. Undo attachment.
-- GP9: Save/reopen, clone and clipboard preserve hosted content. HTML export
-  packages the referenced image and reproduces clipping, text and typography.
+- GP1: Double-click an empty rectangle; a blinking caret appears in a center-justified
+  block; type two paragraphs; click outside; one undo returns the same shape id with no text.
+- GP2: Enter text in an ellipse and a closed star; glyphs stay inside the outline.
+  Rotate, pan, and zoom: paint, caret, hit targets, and the palette follow the host.
+- GP3: With text present, open Text; change typeface, size, color, and justification.
+  Check both themes. One undo restores the previous style.
+- GP4: Enter more text than fits; the shape and font size stay fixed; every character
+  remains through save, reopen, and undo.
+- GP5: Double-click a line or a locked rectangle; typing does not start.
+- GP6: Delete all characters and leave the session; the Text control leaves the palette.
 
 ## Open questions
 
-1. Centered safe rectangle or line-by-line contour wrapping for irregular shapes?
-2. Fixed font/geometry with an overflow indicator, or automatic text shrinking?
-3. Whole-block styling or selected-word rich-text formatting?
+1. Vertical placement of the centered block is the middle of the inset.
+2. Overflow: clip paint and keep every character. No overflow mark in this pass.
+3. Bold and underline stay off.
 
 ## Implementation reuse
 

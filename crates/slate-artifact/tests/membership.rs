@@ -12,7 +12,10 @@ fn add_frame(doc: &mut SlateDoc, rect: WorldRect, title: &str, order: u32) -> No
             title: title.into(),
             order,
             fill: Rgba::WHITE,
+            fill_authored: false,
             assignments: BTreeMap::new(),
+            stroke: Stroke::none(),
+            corner: Corner::Square,
         }),
     );
     let id = node.id;
@@ -39,11 +42,12 @@ fn overlapping_frames_do_not_duplicate_a_slide_member() {
         WorldRect::new(600.0, 210.0, 200.0, 120.0),
         NodeKind::Text(TextNode {
             text: MARKER.into(),
-            family: FontChoice::Sans,
+            family: Typeface::Sans,
             size: 32.0,
             color: Rgba::opaque(10, 10, 10),
             align: TextAlign::Center,
             fill: None,
+            agent: None,
         }),
     );
     let text_id = text.id;

@@ -74,7 +74,7 @@ pub enum DockIcon {
 /// How an icon responds to interaction.
 ///
 /// Apps should list **Tool** icons as one contiguous group and **Dashboard**
-/// icons as another (neighbors by order only â€” no visible separator).
+/// icons as another (neighbors by order only — no visible separator).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DockItemKind {
     /// Settings dashboards (filters, tags, display…). Hover → title chip;
@@ -224,10 +224,10 @@ pub struct DockItem<'a> {
     pub description: &'a str,
     pub icon: DockIcon,
     pub kind: DockItemKind,
-    /// Highlight the squircle (active tool / non-empty filterâ€¦).
+    /// Highlight the squircle (active tool / non-empty filter…).
     pub active: bool,
     pub visible: bool,
-    /// Extra gap before this icon â€” visual grouping without a strip.
+    /// Extra gap before this icon — visual grouping without a strip.
     /// Prefer ordering Tool vs Dashboard neighbors instead of a separator.
     pub gap_before: bool,
 }
@@ -1044,9 +1044,23 @@ fn forced_open() -> Option<&'static str> {
     })
 }
 
-/// Bodies in the centered stack — **pinned only** (hover previews stay on-icon).
+/// Bodies laid out in the centered stack. A single-click preview occupies the
+/// same slot a double-click pin would, so the two gestures do not disagree.
 fn stack_ids(state: &DockState) -> Vec<&'static str> {
-    state.pinned.clone()
+    let mut ids = state.pinned.clone();
+    if let Some(preview) = state.body_preview {
+        if !ids.contains(&preview) {
+            ids.push(preview);
+        }
+    }
+    ids
+}
+
+/// Axis-aligned corridor from the spawning icon to its flyout. A straight
+/// move from the click to the palette stays inside, so close-delay does not
+/// start until the pointer actually leaves that path.
+fn travel_bridge(icon: Rect, panel: Rect) -> Rect {
+    icon.union(panel).expand(48.0)
 }
 
 /// Gap kept between a panel and the canvas edge.
@@ -1578,6 +1592,7 @@ fn interact_blister(
             seam + (depth + p.blister_sink).min(readout_depth),
         ),
     );
+    nav_push_rect(ctx, hit_rect);
     // Fresh id: the previous Area remembered a CENTER_TOP pivot and drew
     // the handle a half-width left of the icon bar.
     let shown = egui::Area::new(state_id.with("blister_tab"))
@@ -2773,7 +2788,7 @@ fn show_hover_chip(
     description: Option<(&str, f32)>,
     th: &DockThemeTokens,
 ) {
-    egui::Area::new(id)
+    let chip = egui::Area::new(id)
         .order(egui::Order::Tooltip)
         .pivot(pivot)
         .fixed_pos(pos)
@@ -2803,6 +2818,7 @@ fn show_hover_chip(
                     }
                 });
         });
+    nav_push_rect(ctx, chip.response.rect);
 }
 
 /// Render a floating dock. Returns the id of a clicked icon, if any
@@ -2817,6 +2833,157 @@ fn show_hover_chip(
 /// `restore_hidden`: tools hidden from each palette's strip (`palette → tool ids`).
 /// `restore_order`: authored tool order on each palette strip.
 #[allow(clippy::too_many_arguments)]
+/// How a floating dock should treat canvas zoom and pan while the pointer
+/// is over it. Published at the end of [`floating_dock`] and read next frame,
+/// the same lag egui uses for hover.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DockPointerNav {
+    /// Icon bar, open palette, hover chip, or readout blister.
+    pub over_chrome: bool,
+    /// The pointer is on an overflowing body that can still move this wheel tick.
+    pub wheel_scrolls: bool,
+}
+
+impl DockPointerNav {
+    /// Wheel zoom / Shift+wheel pan should move the canvas.
+    pub fn canvas_wheel(self) -> bool {
+        self.over_chrome && !self.wheel_scrolls
+    }
+
+    /// Right-drag and middle-drag should pan the canvas.
+    pub fn canvas_pan(self) -> bool {
+        self.over_chrome
+    }
+}
+
+const NAV_RECTS: usize = 32;
+const NAV_SCROLLS: usize = 8;
+const NAV_ID: &str = "atlas.dock.nav";
+
+#[derive(Clone, Copy)]
+struct ScrollGate {
+    rect: Rect,
+    can_up: bool,
+    can_down: bool,
+}
+
+impl Default for ScrollGate {
+    fn default() -> Self {
+        Self {
+            rect: Rect::NOTHING,
+            can_up: false,
+            can_down: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct DockNavFrame {
+    rects: [Rect; NAV_RECTS],
+    n_rects: u8,
+    scrolls: [ScrollGate; NAV_SCROLLS],
+    n_scrolls: u8,
+}
+
+impl Default for DockNavFrame {
+    fn default() -> Self {
+        Self {
+            rects: [Rect::NOTHING; NAV_RECTS],
+            n_rects: 0,
+            scrolls: [ScrollGate::default(); NAV_SCROLLS],
+            n_scrolls: 0,
+        }
+    }
+}
+
+fn nav_frame(ctx: &egui::Context) -> DockNavFrame {
+    ctx.data(|d| d.get_temp(egui::Id::new(NAV_ID)).unwrap_or_default())
+}
+
+fn nav_store(ctx: &egui::Context, frame: DockNavFrame) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(NAV_ID), frame));
+}
+
+fn nav_begin(ctx: &egui::Context) {
+    nav_store(ctx, DockNavFrame::default());
+}
+
+fn nav_push_rect(ctx: &egui::Context, rect: Rect) {
+    if rect.width() < 1.0 || rect.height() < 1.0 {
+        return;
+    }
+    let mut frame = nav_frame(ctx);
+    let i = frame.n_rects as usize;
+    if i >= NAV_RECTS {
+        return;
+    }
+    frame.rects[i] = rect;
+    frame.n_rects += 1;
+    nav_store(ctx, frame);
+}
+
+fn nav_push_scroll(ctx: &egui::Context, gate: ScrollGate) {
+    if gate.rect.width() < 1.0 || gate.rect.height() < 1.0 {
+        return;
+    }
+    if !gate.can_up && !gate.can_down {
+        return;
+    }
+    let mut frame = nav_frame(ctx);
+    let i = frame.n_scrolls as usize;
+    if i >= NAV_SCROLLS {
+        return;
+    }
+    frame.scrolls[i] = gate;
+    frame.n_scrolls += 1;
+    nav_store(ctx, frame);
+}
+
+fn scroll_gate_claims(scroll_y: f32, gate: ScrollGate) -> bool {
+    (scroll_y > 0.0 && gate.can_up) || (scroll_y < 0.0 && gate.can_down)
+}
+
+/// Shift+wheel pans the canvas. The scroll body only reads smooth wheel,
+/// and it runs after the canvas, so drop that delta when the pointer is
+/// already over a body that would otherwise scroll too.
+fn surrender_shift_wheel(ctx: &egui::Context) {
+    if !ctx.input(|i| i.modifiers.shift) {
+        return;
+    }
+    let frame = nav_frame(ctx);
+    let Some(p) = ctx.pointer_latest_pos() else {
+        return;
+    };
+    let over = frame.scrolls[..frame.n_scrolls as usize]
+        .iter()
+        .any(|g| g.rect.contains(p));
+    if over {
+        ctx.input_mut(|i| i.smooth_scroll_delta = Vec2::ZERO);
+    }
+}
+
+/// Canvas cameras call this while handling the wheel and drag. `true` for
+/// [`DockPointerNav::canvas_wheel`] means the dock must not eat zoom.
+pub fn dock_pointer_nav(ctx: &egui::Context) -> DockPointerNav {
+    let frame = nav_frame(ctx);
+    let Some(p) = ctx.pointer_latest_pos() else {
+        return DockPointerNav::default();
+    };
+    let over_chrome = frame.rects[..frame.n_rects as usize]
+        .iter()
+        .any(|r| r.contains(p));
+    let shift = ctx.input(|i| i.modifiers.shift);
+    let scroll_y = ctx.input(|i| i.smooth_scroll_delta.y + i.raw_scroll_delta.y);
+    let wheel_scrolls = !shift
+        && frame.scrolls[..frame.n_scrolls as usize]
+            .iter()
+            .any(|g| g.rect.contains(p) && scroll_gate_claims(scroll_y, *g));
+    DockPointerNav {
+        over_chrome,
+        wheel_scrolls,
+    }
+}
+
 pub fn floating_dock(
     ctx: &egui::Context,
     id: impl std::hash::Hash,
@@ -2831,6 +2998,8 @@ pub fn floating_dock(
     restore_bar_collapsed: bool,
     mut panel_body: impl FnMut(&mut egui::Ui, &'static str),
 ) -> DockOutcome {
+    surrender_shift_wheel(ctx);
+    nav_begin(ctx);
     let mut tokens = crate::tokens::current().dock;
     tokens.normalize();
     let th = theme(palette, &tokens);
@@ -3309,164 +3478,9 @@ pub fn floating_dock(
     let mut new_content_h: HashMap<&'static str, f32> = HashMap::new();
     let mut tracer_for: Option<(&'static str, Rect, Rect)> = None;
 
-    // ---- Hover preview panel (on-icon; does not join the centered stack) ----
-    if let Some(preview_id) = state.body_preview {
-        if !state.pinned.contains(&preview_id) {
-            if let Some(&icon) = icon_rects.get(&preview_id) {
-                let label = visible
-                    .iter()
-                    .find(|item| item.id == preview_id)
-                    .map(|item| item.label.to_owned())
-                    .unwrap_or_default();
-                let body_max_h = panel_body_max_height(canvas, &tokens);
-                let (origin, pivot) = icon_popover_anchor(side, icon, tokens.popover_gap);
-                let open =
-                    ease_out_cubic(state.panel_open.get(&preview_id).copied().unwrap_or(0.0));
-                let width = panel_width(&state, preview_id, &tokens, canvas);
-                let last_h = state
-                    .panel_content_h
-                    .get(&preview_id)
-                    .copied()
-                    .unwrap_or(0.0);
-                let kind = visible
-                    .iter()
-                    .find(|item| item.id == preview_id)
-                    .map(|item| item.kind)
-                    .unwrap_or(DockItemKind::Dashboard);
-                let layout = body_layout_for(&state, preview_id, kind);
-                let last_size = state.panel_sizes.get(&preview_id).copied();
-                let panel_area = dock_body_area(
-                    state_id.with((
-                        if layout == DockBodyLayout::Icons {
-                            "preview_strip"
-                        } else {
-                            "preview"
-                        },
-                        preview_id,
-                    )),
-                    side,
-                    origin,
-                    pivot,
-                    canvas,
-                    layout,
-                    width,
-                    body_max_h,
-                    tokens.palette.caption_height,
-                    last_size,
-                );
-                let render = show_dock_body(
-                    ctx,
-                    panel_area,
-                    &tokens,
-                    th,
-                    &label,
-                    false,
-                    kind,
-                    layout,
-                    width,
-                    body_max_h,
-                    last_h,
-                    open,
-                    canvas,
-                    side,
-                    None,
-                    ctx.animate_bool_with_time(
-                        state_id.with(("assoc", preview_id)),
-                        host_associate == Some(preview_id)
-                            || pointer.is_some_and(|p| {
-                                last_size.is_some_and(|sz| {
-                                    body_rect_at(origin, pivot, sz).expand(2.0).contains(p)
-                                })
-                            }),
-                        tokens.palette.hover_fade,
-                    ),
-                    |ui| {
-                        set_body_layout(ui.ctx(), layout);
-                        set_current_palette(ui.ctx(), preview_id, &label);
-                        panel_body(ui, preview_id);
-                    },
-                );
-                if render.advanced {
-                    state.advanced = if state.advanced == Some(preview_id) {
-                        None
-                    } else {
-                        Some(preview_id)
-                    };
-                }
-                if render.drop_to_canvas {
-                    drop_to_canvas = Some(preview_id);
-                }
-                if render.minimize {
-                    state.body_preview = None;
-                    state.panel_open.remove(&preview_id);
-                    if state.advanced == Some(preview_id) {
-                        state.advanced = None;
-                    }
-                }
-                if layout != DockBodyLayout::Icons {
-                    new_widths.insert(
-                        preview_id,
-                        adapt_panel_width(
-                            width,
-                            render.content_h,
-                            body_max_h,
-                            tokens.popover_width,
-                            panel_max_width(canvas, &tokens),
-                        ),
-                    );
-                }
-                new_content_h.insert(preview_id, render.content_h);
-                new_sizes.insert(preview_id, render.rect.size());
-                state.last_panel_rects.insert(preview_id, render.rect);
-                union_panels = render.rect;
-                if state.advanced == Some(preview_id) {
-                    let title = visible
-                        .iter()
-                        .find(|item| item.id == preview_id)
-                        .map(|item| item.label)
-                        .unwrap_or("tools");
-                    let adv = show_advanced_overlay(
-                        ctx,
-                        state_id.with(("advanced", preview_id)),
-                        &tokens,
-                        canvas,
-                        title,
-                        open,
-                        |ui| {
-                            set_body_layout(ui.ctx(), DockBodyLayout::Advanced);
-                            set_current_palette(ui.ctx(), preview_id, &label);
-                            panel_body(ui, preview_id);
-                        },
-                    );
-                    if adv.minimize {
-                        state.advanced = None;
-                    }
-                    union_panels = union_panels.union(adv.rect);
-                    if pointer.is_some_and(|p| adv.rect.contains(p)) {
-                        state.last_inside_time = now;
-                    }
-                }
-                if layout != DockBodyLayout::Icons {
-                    if let Some(p) = pointer {
-                        if border_hovered(render.rect, p, tokens.tracer_border_hit) {
-                            if let Some(&icon_rect) = icon_rects.get(&preview_id) {
-                                tracer_for = Some((preview_id, icon_rect, render.rect));
-                            }
-                        }
-                    }
-                }
-                if pointer.is_some_and(|p| render.rect.contains(p)) {
-                    state.last_inside_time = now;
-                    state.label_hover = None;
-                    state.label_hover_since = 0.0;
-                    state.describe_blend = 0.0;
-                }
-            }
-        }
-    }
-
-    // ---- Centered stack (pinned panels only) ----
-    let open = stack_ids(&state);
+    // ---- Centered stack (pins and the single-click preview share one layout) ----
+    let mut open = stack_ids(&state);
+    open.sort_by_key(|oid| order.iter().position(|id| id == oid).unwrap_or(usize::MAX));
     let strip_ids: Vec<&'static str> = open
         .iter()
         .copied()
@@ -3614,6 +3628,9 @@ pub fn floating_dock(
         if render.minimize {
             if let Some(idx) = state.pinned.iter().position(|p| p == oid) {
                 state.pinned.remove(idx);
+            }
+            if state.body_preview == Some(*oid) {
+                state.body_preview = None;
             }
             state.panel_open.remove(oid);
             if state.advanced == Some(*oid) {
@@ -3787,10 +3804,16 @@ pub fn floating_dock(
         (false, None) => union_panels,
         (false, Some(last)) => union_panels.union(last),
     };
+    let travel = state.body_preview.and_then(|id| {
+        let icon = icon_rects.get(id).copied()?;
+        let panel = state.last_panel_rects.get(id).copied()?;
+        Some(travel_bridge(icon, panel))
+    });
     let pointer_inside = pointer.is_some_and(|p| {
         bar_rect
             .expand(tokens.palette.collapse_zone.max(4.0))
             .contains(p)
+            || travel.is_some_and(|r| r.contains(p))
             || blister_geom(
                 ctx,
                 canvas,
@@ -3862,6 +3885,13 @@ pub fn floating_dock(
         state.advanced = None;
     }
     state.last_union_panels = (union_panels != Rect::NOTHING).then_some(union_panels);
+    nav_push_rect(ctx, bar_rect);
+    for rect in state.last_panel_rects.values() {
+        nav_push_rect(ctx, *rect);
+    }
+    if let Some(rect) = label_chip_rect {
+        nav_push_rect(ctx, rect);
+    }
     ctx.data_mut(|d| d.insert_temp(state_id, state));
 
     DockOutcome {
@@ -3889,13 +3919,24 @@ fn compact_panel_scroll(
         scroll.floating_allocated_width = 3.0;
         scroll.bar_inner_margin = 2.0;
         scroll.bar_outer_margin = 1.0;
-        ScrollArea::vertical()
+        let out = ScrollArea::vertical()
             .max_height(max_h)
             .drag_to_scroll(false)
             .auto_shrink([true, true])
-            .show(ui, add_body)
-            .content_size
-            .y
+            .show(ui, add_body);
+        let max_offset = (out.content_size.y - out.inner_rect.height()).max(0.0);
+        let offset = out.state.offset.y;
+        if max_offset > 0.5 {
+            nav_push_scroll(
+                ui.ctx(),
+                ScrollGate {
+                    rect: ui.min_rect().union(out.inner_rect),
+                    can_up: offset > 0.5,
+                    can_down: offset < max_offset - 0.5,
+                },
+            );
+        }
+        out.content_size.y
     })
     .inner
 }
@@ -4366,6 +4407,28 @@ fn panel_caption(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn an_overflowing_palette_keeps_only_the_wheel_direction_it_can_still_move() {
+        let down_only = super::ScrollGate {
+            rect: egui::Rect::NOTHING,
+            can_up: false,
+            can_down: true,
+        };
+        assert!(!super::scroll_gate_claims(0.0, down_only));
+        assert!(
+            !super::scroll_gate_claims(8.0, down_only),
+            "already at the top — that tick zooms the canvas"
+        );
+        assert!(super::scroll_gate_claims(-8.0, down_only));
+        let either = super::ScrollGate {
+            rect: egui::Rect::NOTHING,
+            can_up: true,
+            can_down: true,
+        };
+        assert!(super::scroll_gate_claims(4.0, either));
+        assert!(super::scroll_gate_claims(-4.0, either));
+    }
+
+    #[test]
     fn blister_arrow_stays_inside_every_animation_depth() {
         for seam in [0.0_f32, 877.0, 878.0, 2160.0] {
             for direction in [-1.0_f32, 1.0] {
@@ -4540,7 +4603,7 @@ mod tests {
         paint_dashboard(
             &ctx,
             "dash_abandon",
-            2.0,
+            2.2,
             vec![egui::Event::PointerMoved(away)],
         );
         assert!(
@@ -4989,6 +5052,46 @@ mod tests {
             frame_x < shapes_x,
             "frame ({frame_x}) should stay left of shapes ({shapes_x})"
         );
+    }
+
+    #[test]
+    fn single_click_preview_uses_the_pin_slot_and_the_path_stays_open() {
+        let mut state = DockState::default();
+        state.pinned.push("tool.frame");
+        state.body_preview = Some("tool.shapes");
+        assert_eq!(stack_ids(&state), vec!["tool.frame", "tool.shapes"]);
+        state.pinned.push("tool.shapes");
+        assert_eq!(
+            stack_ids(&state)
+                .iter()
+                .filter(|id| **id == "tool.shapes")
+                .count(),
+            1
+        );
+
+        let mut tokens = DockTokens::default();
+        tokens.normalize();
+        let canvas = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0));
+        let shapes_icon = Rect::from_center_size(Pos2::new(700.0, 860.0), Vec2::splat(34.0));
+        let open = [("tool.shapes", shapes_icon, Vec2::new(200.0, 40.0))];
+        let origins = layout_panel_origins(DockSide::BottomCenter, &open, &tokens, canvas, false);
+        let slot = origins["tool.shapes"];
+        let (on_icon, _) =
+            icon_popover_anchor(DockSide::BottomCenter, shapes_icon, tokens.popover_gap);
+        assert!(
+            (slot.x - on_icon.x).abs() > 40.0,
+            "pin slot {slot:?} must not sit on the icon anchor {on_icon:?}"
+        );
+        let panel =
+            Rect::from_center_size(Pos2::new(slot.x, slot.y - 20.0), Vec2::new(200.0, 40.0));
+        let bridge = travel_bridge(shapes_icon, panel);
+        let mid = Pos2::new(
+            (shapes_icon.center().x + panel.center().x) * 0.5,
+            (shapes_icon.center().y + panel.center().y) * 0.5,
+        );
+        assert!(bridge.contains(mid));
+        assert!(bridge.contains(shapes_icon.center()));
+        assert!(bridge.contains(panel.center()));
     }
 
     #[test]

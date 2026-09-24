@@ -11,12 +11,12 @@ use slate_doc::scene::{
     ShapeNode, WorldRect,
 };
 use vector_ink::{
-    closest_polyline_span, extend_polyline_end, fill_triangles, flatten_contours, infinite_line,
-    point_in_polygon, split_closed, split_open_at_cutters, trim_closed_at_click, Cutter, Polygon,
+    closest_polyline_span, extend_polyline_end, fill_triangles, infinite_line, point_in_polygon,
+    split_closed, split_open_at_cutters, trim_closed_at_click, Cutter, Polygon,
 };
 
 use super::board::{BoardTool, BoardXf};
-use super::board_path::{bounds_of_world_points, path_data_to_world_bez, points_to_path_data};
+use super::board_path::{bounds_of_world_points, points_to_path_data};
 use super::SlateApp;
 
 /// Screen-px slop for picking an open span or an extendable end.
@@ -509,82 +509,11 @@ impl SlateApp {
     }
 
     pub(crate) fn node_open_polyline(&self, n: &Node) -> Option<Vec<[f32; 2]>> {
-        match &n.kind {
-            NodeKind::Shape(s) => match s.shape {
-                ShapeKind::Line => {
-                    let (a, b) = if s.flip {
-                        (
-                            [n.rect.x, n.rect.y + n.rect.h],
-                            [n.rect.x + n.rect.w, n.rect.y],
-                        )
-                    } else {
-                        (
-                            [n.rect.x, n.rect.y],
-                            [n.rect.x + n.rect.w, n.rect.y + n.rect.h],
-                        )
-                    };
-                    Some(vec![
-                        n.rect.rotate_point(a, n.rotation_deg),
-                        n.rect.rotate_point(b, n.rotation_deg),
-                    ])
-                }
-                ShapeKind::Path => {
-                    let path = s.path.as_ref()?;
-                    if path.closed {
-                        return None;
-                    }
-                    let bez = path_data_to_world_bez(path, n.rect, n.rotation_deg);
-                    let contours = flatten_contours(&bez, trim_tokens::GEOMETRY_TOLERANCE as f64);
-                    contours.into_iter().next().filter(|c| c.len() >= 2)
-                }
-                _ => None,
-            },
-            _ => None,
-        }
+        slate_doc::geom::node_open_polyline(n, trim_tokens::GEOMETRY_TOLERANCE)
     }
 
     pub(crate) fn node_closed_poly(&self, n: &Node) -> Option<Polygon> {
-        if let Some(clip) = &n.clip {
-            let bez = path_data_to_world_bez(clip, n.rect, n.rotation_deg);
-            let contours = flatten_contours(&bez, trim_tokens::GEOMETRY_TOLERANCE as f64);
-            if contours.is_empty() {
-                return None;
-            }
-            return Some(contours);
-        }
-        match &n.kind {
-            NodeKind::Shape(s) => match s.shape {
-                ShapeKind::Rect | ShapeKind::Ellipse => {
-                    let outline = if s.shape == ShapeKind::Rect {
-                        s.corner.outline(n.rect, trim_tokens::GEOMETRY_TOLERANCE)
-                    } else {
-                        n.rect.ellipse_outline(trim_tokens::GEOMETRY_TOLERANCE)
-                    };
-                    Some(vec![outline
-                        .into_iter()
-                        .map(|p| n.rect.rotate_point(p, n.rotation_deg))
-                        .collect()])
-                }
-                ShapeKind::Path => {
-                    let path = s.path.as_ref()?;
-                    if !path.closed {
-                        return None;
-                    }
-                    let bez = path_data_to_world_bez(path, n.rect, n.rotation_deg);
-                    let contours = flatten_contours(&bez, trim_tokens::GEOMETRY_TOLERANCE as f64);
-                    if contours.is_empty() {
-                        None
-                    } else {
-                        Some(contours)
-                    }
-                }
-                ShapeKind::Line => None,
-            },
-            NodeKind::Text(_) | NodeKind::Image(_) | NodeKind::Frame(_) => {
-                Some(vec![rect_ring(n.rect, n.rotation_deg)])
-            }
-            _ => None,
-        }
+        slate_doc::geom::node_closed_poly(n, trim_tokens::GEOMETRY_TOLERANCE)
     }
 
     fn commit_open_trim(&mut self, target: NodeId, span: usize) -> bool {
@@ -911,13 +840,6 @@ fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
     (dx * dx + dy * dy).sqrt()
 }
 
-fn rect_ring(rect: WorldRect, rot: f32) -> Vec<[f32; 2]> {
-    rect.corners_rotated(rot)
-        .into_iter()
-        .map(|(x, y)| [x, y])
-        .collect()
-}
-
 pub(crate) fn pieces_to_path_data(pieces: &[Polygon]) -> Option<(WorldRect, PathData)> {
     if pieces.is_empty() {
         return None;
@@ -967,6 +889,8 @@ pub(crate) fn pieces_to_path_data(pieces: &[Polygon]) -> Option<(WorldRect, Path
             closed: true,
             extra,
             fill_rule,
+            tips: Vec::new(),
+            erase: Vec::new(),
         },
     ))
 }
@@ -996,6 +920,8 @@ fn polygon_to_path_data(poly: &Polygon) -> (WorldRect, PathData) {
             closed: true,
             extra,
             fill_rule,
+            tips: Vec::new(),
+            erase: Vec::new(),
         },
     )
 }
@@ -1032,6 +958,8 @@ fn polygons_to_clip(pieces: &[Polygon], host: WorldRect) -> PathData {
         closed: true,
         extra,
         fill_rule,
+        tips: Vec::new(),
+        erase: Vec::new(),
     }
 }
 

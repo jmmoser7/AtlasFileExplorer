@@ -39,7 +39,10 @@ shared crates:
 | `crates/circle-pack` | Pure geometry: circle packing + Venn layout | Yes |
 | `crates/vector-ink` | Pure vector geometry engine (kurbo): path flattening, variable-width stroking to feathered AA meshes, stroke outlines for SVG export, hit-testing, freehand fitting. No renderer deps (Constitution Art. I) | Yes |
 | `crates/code-lens` | UI-free codebase analysis for Slate's Lens view: cargo workspace + Rust source extraction to a code graph, semantic-zoom layout, agent overlay/beacon contract | Yes |
-| `crates/rhino-mesh` | Pure-Rust reader for cached render meshes in Rhino `.3dm` files (Slate's 3D board viewports) | Yes |
+| `crates/rhino-mesh` | Pure-Rust reader for cached render meshes in Rhino `.3dm` files. Called by `model-preview`; the board does not parse `.3dm` itself | Yes |
+| `crates/model-preview` | The one 3D preview scene the board viewport draws. OBJ, STL, glTF/GLB, and Rhino today; recognized gaps for Blender, DWG, DXF, SketchUp, and FBX. Maintenance: `docs/model-preview.md` | Yes |
+| `crates/atlas-curl` | The one curl transport for model adapters (Ollama, ComfyUI, OpenAI). Requests travel as stdin configuration, so keys never reach a command line | Yes |
+| `crates/atlas-openai` | OpenAI Images API (GPT Image) adapter for the image agent. The key comes from `atlas_core::secrets`, never the workbook | Yes |
 | `apps/file-atlas` | Atlas app: canvas + app state (`src/app/mod.rs` is the integration point) | Coordinate on `mod.rs` |
 | `apps/slate` | Slate app: canvas, tagging sidebar, session host | Coordinate on `app/mod.rs` |
 
@@ -301,6 +304,19 @@ Three structural rules keep the board honest — hold all three when extending i
    per-kind rows to board-wide panels. New portal contracts answer
    **D35**. Exception only when the user explicitly says a control is
    canvas-wide.
+4. **Secrets stay on the machine.** A workbook stores locators, never API
+   keys, cookies, or refresh tokens. Named secrets go through
+   `atlas_core::secrets` (Windows Credential Manager for this user; a
+   mode-`0600` file only where that store does not exist, or when
+   `ATLAS_SECRET_DIR` is set for tests). Health is `Ok` or `Missing` for
+   this operating-system user. Web sign-in lives in the per-user WebView2
+   folder under the Atlas data directory, one profile per origin
+   (`slate_doc::scene::web_profile_name`), so another person opening the
+   file is signed out and one site's cookies are not another's. Packaging
+   and HTML export refuse that folder, the secret store, and a legacy
+   `cursor-api-key` file (`is_machine_private`). Agents never read the
+   values. Do not log them. See `portal-web-embed` D32 and
+   `docs/agent/cursor-sidecar/SETUP.md`.
 
 Frames are slides (geometric membership, `order` = deck sequence, optional
 tag assignments inherited by dropped images). Presentation mode
@@ -308,9 +324,13 @@ tag assignments inherited by dropped images). Presentation mode
 
 Media kinds (`slate-doc::media`) decide what a placed file becomes, in both
 renderers: images → `<img>`, web-safe video → `<video>` (time-trim via
-`VideoOpts` → `#t=` media fragment + runtime guard; board shows the poster
-with a ▶ badge), text → snippet card (same excerpt both sides), PDF/docs →
-thumbnail-backed card linking to the copied original. **`.slate` files never
+`VideoOpts` → `#t=` media fragment + runtime guard; the board pans across
+the clip to scrub and clicks to play when the OS can decode it, otherwise
+the poster with a ▶ badge), text → snippet card (same excerpt both sides; Word and
+source code are text, CSV and Excel are a table that keeps authored cell
+fills, and an unreadable office package falls back to the document card),
+PDF/docs → thumbnail-backed card linking to the
+copied original. **`.slate` files never
 become items** — every add/drop path diverts them to open as tabs
 (`pending_workbooks`), and `open_doc_at` dedupes by canonical path, which is
 what makes workbook-in-workbook (and workbook-in-itself) recursion

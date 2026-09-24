@@ -1,7 +1,140 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-09-21",
+  "updated": "2026-09-24",
   "tools": {
+    "bumper-cars": {
+      "status": "shipped",
+      "family": "tool",
+      "reference": "air hockey; opt-in collision between board objects",
+      "inherits": [
+        "P0.*",
+        "P1.node.move",
+        "P1.curve.pick",
+        "P1.shape.properties"
+      ],
+      "canvas": "bumper-cars-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Not an armed tool. With the preference on, a Bumper squircle joins the shared selection strip when every selected node is compatible: shapes (rect, ellipse, polygon, closed and open paths, lines, arcs, pen and brush ink) and sticky notes (text with a fill). Images, frames, portals, wires, plain text boxes and dock strips do not show it. With the preference off the squircle never appears.",
+          "source": "stated",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D02": {
+          "behavior": "The Bumper property stays on a node until turned off in its dashboard. Turning the preference off hides the squircle and suspends every collision; nodes keep their settings in the file and wake up when the preference is back on. The preference is not in repeat-last.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D03": {
+          "behavior": "Rides the existing move drag (P1.node.move); no new grammar. Each frame of a drag, contacts are solved between bumper bodies only. A node without the property passes through everything. The dragged set follows the pointer; bodies it touches are pushed out of contact and can push the next body in a chain. On release, bodies keep the speed they had and glide until friction stops them (Physics model).",
+          "source": "stated",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D04": {
+          "behavior": "Unchanged. `draft.drag_threshold` (4 screen px) still separates a click from a move. A click selects and never pushes anything.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D05": {
+          "behavior": "Alt held mid-drag suspends collision for that frame, the same way Alt suspends snaps. Alt at press still duplicates; the copy collides once Alt is released. Shift and Ctrl keep their selection meaning.",
+          "source": "pattern",
+          "confidence": 65,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D06": {
+          "behavior": "Snaps resolve first on the dragged set (grid, object snaps, smart guides). Collision resolves second: an anchor can stop the dragged set short of a snap target. Pushed and gliding bodies never snap.",
+          "source": "guess",
+          "confidence": 65,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D07": {
+          "behavior": "Ortho (F8) constrains the dragged set as it does today. Pushed bodies move along the contact normal, not along ortho. A locked node (Ctrl+L) with the property is always an anchor, whatever its friction.",
+          "source": "guess",
+          "confidence": 70,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D08": {
+          "behavior": "Dashboard values are edited in place like the fillet capsule: click the number, type, Enter or click away to commit, Esc to cancel. Buffer is world units, 0 to 200. Friction is 0% to 100%.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D09": {
+          "behavior": "No buffer outline is ever drawn; the buffer is felt, not seen. The scrub readout next to the cursor follows P1.shape.properties and vanishes on release.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D10": {
+          "behavior": "Unchanged move cursor. The squircle's tooltip reads \"Bumper cars\".",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D11": {
+          "behavior": "One gesture, one undo (P0.2). Release commits the dragged set and every body the collision moved, including where gliding bodies come to rest, as one journal group of rect patches authored by the human. Dashboard edits commit one patch group for the selection, as other property edits do. Changing the preference writes no journal entry.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D12": {
+          "behavior": "Esc mid-drag puts the dragged and pushed bodies back where they were and writes nothing. Esc in the dashboard discards its preview. Once released, Ctrl+Z is the way back.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D13": {
+          "behavior": "One Bumper squircle in the shared strip (`atlas_shell::selection_tools`), drawn filled when the property is on. It opens one fillet-height capsule holding an On / Off radio, a Buffer slider with its value, and a Friction slider labelled Puck at 0% and Anchor at 100%. A mixed selection reads Mixed until a value is set.",
+          "source": "stated",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D14": {
+          "behavior": "Reopen the squircle to change values or turn it off. Copy, paste and Alt-duplicate carry the property. Members of one group move as one set and do not collide with each other.",
+          "source": "guess",
+          "confidence": 60,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D15": {
+          "behavior": "Cut from the first version: spin from impact, mass or density (every body weighs the same except anchors), gravity, attraction, motion while nobody is dragging, images / frames / portals / wires as bodies, anything in the HTML export, and File Atlas.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D16": {
+          "behavior": "New shapes never inherit the Bumper property from the last edited style. Each node opts in.",
+          "source": "guess",
+          "confidence": 70,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D17": {
+          "behavior": "Bodies come from pick geometry, not the bounding box. A closed shape with a visible fill is a solid. A closed shape with no fill is a ring: only its stroke band collides, so a body inside it stays inside and a body outside stays out. An open curve is a wall along its stroke. A sticky note is its rotated rectangle. Every pairing collides: solid, ring and wall with each other.",
+          "source": "stated",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        }
+      }
+    },
     "media": {
       "status": "agreed",
       "family": "tool",
@@ -14,15 +147,16 @@
       "variants": [
         "image",
         "model",
-        "video"
+        "video",
+        "text"
       ],
       "decisions": {
         "D01": {
-          "behavior": "Add a primary Media icon with Image, 3D, and Video sub-icons. Image includes flat/print media such as JPG, PDF, and PowerPoint. 3D connects to the existing Rhino viewer.",
+          "behavior": "Add a primary Media icon with Image, 3D, Video, and Text sub-icons. Image includes flat/print media such as JPG, PDF, and PowerPoint. Text includes Word, spreadsheets, CSV, Excel, and source code, and shows an excerpt when the file can be read. 3D connects to the existing Rhino viewer.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-22"
         },
         "D02": {
           "behavior": "Each sub-icon runs a one-shot file-import command. After choosing files, use the existing placement flow. Repeat opens that category's picker again.",
@@ -109,18 +243,18 @@
           "decided": "2026-09-15"
         },
         "D14": {
-          "behavior": "Selected PDF/PowerPoint images expose a Pages squircle. The same control opens a miniature image_album pallet over the document for the poster page (board.media.page) and Unbundle (board.media.unbundle) lays the deck on the board as a selected grid. Existing image controls and Rhino camera controls are unchanged. Video keeps its current poster and trim controls; playback is currently in the HTML artifact.",
-          "source": "guess",
-          "confidence": 55,
-          "verdict": "approved",
-          "decided": "2026-09-15"
-        },
-        "D15": {
-          "behavior": "PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. No new 3D formats or video decoder in this change. JPG and other supported image formats remain native previews.",
+          "behavior": "Selected PDF/PowerPoint images expose a Pages squircle. The same control opens a miniature image_album pallet over the document for the poster page (board.media.page) and Unbundle (board.media.unbundle) lays the deck on the board as a selected grid. Existing image controls and Rhino camera controls are unchanged. On the Select tool, moving the pointer horizontally across a video node scrubs that node's full trim window without playing (Frame.io hover pan). The playhead stays where the pan stopped. A 96-frame filmstrip makes the pan a lookup; the playhead and timecode are derived and not journaled. A click with no modifiers toggles silent playback from that frame; click-drag still moves the node. One video decodes at a time. Windows Media Foundation plays mp4, m4v, mov, wmv, avi, mpg, and mpeg, and also webm, mkv, and ogv when that codec is installed. A file it cannot open, or a cloud placeholder, keeps the poster, play badge, and extension badge. HTML export is unchanged.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-22"
+        },
+        "D15": {
+          "behavior": "PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. No new 3D formats in this change. JPG and other supported image formats remain native previews. The board video viewer does not edit a timeline, cut clips, play audio, or shuttle with JKL.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-22"
         },
         "D16": {
           "behavior": "Use existing linked-image node defaults and source aspect ratio; preserve the authored frame when derived previews refresh.",
@@ -154,21 +288,21 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box \u00b7 (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T \u2192 Text box, N \u2192 Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7).",
+          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box · (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T → Text box, N → Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7).",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
           "decided": null
         },
         "D02": {
-          "behavior": "Text box: one-shot \u2014 after place+edit-blur (or Esc commit), return to Select. Sticky: stays armed after commit; Tab / Shift+Tab while editing spawns an adjacent sticky and keeps the tool armed. Esc while armed (no edit) disarms to Select.",
-          "source": "research",
-          "confidence": 70,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Text box and sticky are both one-shot. After place, return to Select so the place ghost does not stay under the pointer. Sticky: Tab / Shift+Tab while editing still spawns an adjacent sticky and moves the caret; that does not re-arm placement. Esc while armed (no edit) disarms to Select.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-23"
         },
         "D03": {
-          "behavior": "Armed \u2192 GhostFollow (default-size ghost locked to cursor) \u2192 Press \u2192 (ClickPlace | DragScale) \u2192 Commit \u2192 enter inline edit. Click-release places at default world size. Press-drag-release places and scales. Replaces P2.PlaceOnce for text/sticky (new L2: GhostPlace).",
+          "behavior": "Armed → GhostFollow (default-size ghost locked to cursor) → Press → (ClickPlace | DragScale) → Commit → enter inline edit. Click-release places at default world size. Press-drag-release places and scales. Replaces P2.PlaceOnce for text/sticky (new L2: GhostPlace).",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -182,7 +316,7 @@
           "decided": null
         },
         "D05": {
-          "behavior": "Held Shift during DragScale locks aspect: Sticky \u2192 square; Text box \u2192 lock to default aspect (280\u00d748). No Alt/Ctrl create modifiers in v1.",
+          "behavior": "Held Shift during DragScale locks aspect: Sticky → square; Text box → lock to default aspect (280×48). No Alt/Ctrl create modifiers in v1.",
           "source": "research",
           "confidence": 65,
           "verdict": "proposed",
@@ -210,7 +344,7 @@
           "decided": null
         },
         "D09": {
-          "behavior": "While Armed: ghosted Text box or sticky preview locked to the cursor at the default world size (text: 280\u00d748 + sample Text; sticky: STICKY_SIZE + yellow fill), alpha from place.ghost_alpha. During DragScale: live sized ghost. Paint always uses world metrics \u00d7 camera zoom (font = size\u00d7z, wrap = rect.w\u00d7z) with no screen-constant / auto-fit path and no relative-scale floor.",
+          "behavior": "While Armed: ghosted Text box or sticky preview locked to the cursor at the default world size (text: 280×48 + sample Text; sticky: STICKY_SIZE + white fill), alpha from place.ghost_alpha. During DragScale: live sized ghost. Paint always uses world metrics × camera zoom (font = size×z, wrap = rect.w×z) with no screen-constant / auto-fit path and no relative-scale floor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -224,18 +358,18 @@
           "decided": null
         },
         "D11": {
-          "behavior": "Text box \u2192 TextNode (fill=None, default text Text, size 24 world). Sticky \u2192 TextNode with STICKY_FILL + STICKY_INK, empty text, size 24 world. Journal cmds board.tool.text / board.tool.sticky; one gesture = one undo. Immediately open inline edit. Creation DragScale sets rect from drag and scales font by mean scale vs default rect. Subsequent bbox resize of an existing node changes the frame only \u2014 authored font size stays put and text reflows.",
+          "behavior": "Text box → TextNode (fill=None, default text Text, size 24 world). Sticky → TextNode with white STICKY_FILL + STICKY_INK, empty text, TextAlign::Center, size 24 world, and the shared drop shadow (STICKY_SHADOW_OFFSET_Y / BLUR / ALPHA). Journal cmds board.tool.text / board.tool.sticky; one gesture = one undo. Immediately open inline edit. The sticky caret is black, blinking, and in the vertical and horizontal middle of the note. The fill/text strip and its color capsule stay hidden while that caret is up. Creation DragScale sets rect from drag and scales font by mean scale vs default rect. Subsequent bbox resize of an existing node changes the frame only — authored font size stays put and text reflows.",
           "source": "stated",
-          "confidence": 90,
-          "verdict": "proposed",
-          "decided": null
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-23"
         },
         "D12": {
-          "behavior": "Esc while GhostFollow / mid-DragScale \u2192 disarm to Select, no node (P0.1). Esc while inline-editing \u2192 commit text + peel edit (sticky stays armed per D02; text returns to Select).",
-          "source": "pattern",
-          "confidence": 85,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Esc while GhostFollow / mid-DragScale → disarm to Select, no node (P0.1). Esc or a click off the note while inline-editing → commit text and leave edit. Both text and sticky are already on Select (D02).",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-23"
         },
         "D13": {
           "behavior": "Standard node resize bbox + rotation (P1.node). Multi-select uses the shared group bbox; group uniform scale also scales TextNode.size.",
@@ -245,21 +379,21 @@
           "decided": null
         },
         "D14": {
-          "behavior": "Double-click enters inline edit. Inspector edits family / size / color / align / fill. Single-node bbox resize = frame-only reflow at fixed authored font size. No Miro Auto font size.",
+          "behavior": "Double-click enters inline edit. A sticky double-click puts the same black blinking caret back in the middle and hides the fill/text strip until editing ends. The Text capsules remain the fillet text editor (typeface, justification, height, color) when the user opens them from the strip; they update the caret immediately and selection follows the aligned glyphs. Fill stays on the Fill control. Single-node bbox resize = frame-only reflow. A sticky's painted size shrinks from the authored size until the centered block fits, and grows back when text is removed. The authored size stays the ceiling.",
           "source": "stated",
-          "confidence": 95,
-          "verdict": "proposed",
-          "decided": null
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-23"
         },
         "D15": {
-          "behavior": "Cut (Art. III): Miro Auto font size; sticky bulk-mode / spreadsheet paste; sticky stack; emoji reactions; S/M/L size picker chrome; screen-constant text / LOD that changes relative glyph size vs geometry.",
+          "behavior": "Cut (Art. III): sticky bulk-mode / spreadsheet paste; sticky stack; emoji reactions; S/M/L size picker chrome; screen-constant text / LOD that changes relative glyph size vs geometry.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
           "decided": null
         },
         "D16": {
-          "behavior": "Next Text box / sticky consumes the last single-node Text edit when present: family, size, color, align; sticky also inherits fill (else STICKY_FILL). Defaults when none: Text box fill=None size 24; sticky yellow fill size 24.",
+          "behavior": "Next Text box / sticky consumes the last single-node Text edit when present: family, size, color, align; sticky also inherits fill (else STICKY_FILL). Defaults when none: Text box fill=None size 24; sticky white fill size 24.",
           "source": "guess",
           "confidence": 55,
           "verdict": "proposed",
@@ -393,7 +527,7 @@
           "decided": "2026-07-23"
         },
         "D16": {
-          "behavior": "Yes \u2014 last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Yes — last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -419,7 +553,7 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Document Settings \u2192 Object snaps fold (tools-dock grid icon) + command palette. Master board.osnap; per-kind board.osnap.*; Snap to grid is board.snap_grid (F9) inside the same fold.",
+          "behavior": "Home menu → Preferences (grid, object snaps, reach) + command palette. Master board.osnap; per-kind board.osnap.*; Snap to grid is board.snap_grid (F9) in that menu.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -440,7 +574,7 @@
           "decided": "2026-08-15"
         },
         "D04": {
-          "behavior": "n/a \u2014 no click/drag grammar of its own.",
+          "behavior": "n/a — no click/drag grammar of its own.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -482,21 +616,21 @@
           "decided": "2026-08-15"
         },
         "D10": {
-          "behavior": "n/a \u2014 does not change the tool cursor. The marker is the feedback.",
+          "behavior": "n/a — does not change the tool cursor. The marker is the feedback.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D11": {
-          "behavior": "n/a \u2014 snaps resolve a point; they do not create or patch nodes. Not journaled.",
+          "behavior": "n/a — snaps resolve a point; they do not create or patch nodes. Not journaled.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D12": {
-          "behavior": "n/a \u2014 Esc does not clear snap kinds. Alt is the suspend.",
+          "behavior": "n/a — Esc does not clear snap kinds. Alt is the suspend.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -510,7 +644,7 @@
           "decided": "2026-08-15"
         },
         "D14": {
-          "behavior": "Line grips, path clicks, GhostFollow hover, both DragScale corners (live rect edges via `resolve_draw_rect`), free wire ends, bbox moves, and corner-scale handles use the same ObjectSnapSet. Create-tool corners and the armed pointer emit smart-guide forcefield pulses when they align to a nearby object. Preview and commit consume the resolved point \u2014 never the raw cursor while a snap is live.",
+          "behavior": "Line grips, path clicks, GhostFollow hover, both DragScale corners (live rect edges via `resolve_draw_rect`), free wire ends, bbox moves, and corner-scale handles use the same ObjectSnapSet. Create-tool corners and the armed pointer emit smart-guide forcefield pulses when they align to a nearby object. Preview and commit consume the resolved point — never the raw cursor while a snap is live.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -531,7 +665,7 @@
           "decided": "2026-08-15"
         },
         "D17": {
-          "behavior": "n/a \u2014 snap picking is not selection hit-testing.",
+          "behavior": "n/a — snap picking is not selection hit-testing.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -550,7 +684,7 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Palette: \"agent portal\" + Enter; Portals dock flyout; command `board.portal.agent`; board view only.",
+          "behavior": "Palette: \"agent portal\" + Enter; Portals dock flyout; command `board.portal.agent`; board view only. Ollama and ComfyUI are no longer program tiles: text and image agents start from media, through the Agent squircle on a selected picture, video, 3D model, text or generated frame. Existing Ollama and ComfyUI cards keep working.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -606,11 +740,11 @@
           "decided": "2026-09-15"
         },
         "D09": {
-          "behavior": "Quiet at rest. Chooser contains only icons and names. Chat identity and actions reveal on hover or contents focus. Image portals are full bleed without labels; hover/focus reveals Generate and the shared Maximize control. Wire affordance is a subtle animated blister behind the edge; resting wires have no port rings.",
+          "behavior": "Quiet at rest. Chooser contains only icons and names. Chat identity and actions reveal on hover or contents focus. Media an agent makes looks like the media: a picture an agent generates is an ordinary image card, and a note an agent writes is an ordinary sticky. Hover or selection reveals, on the card, its inputs as role chips (Prompt, Geometry, Image, Style) that select their source on click, the action Render, Transform or Generate named by what is wired (Run on a note), Keep while live, a waiting count, progress, and the prompt docked along the bottom as a capsule that expands on hover. Two or more results show as squares under the picture; a click picks one. Selected, a picture with two or more results cover-flows under the wheel; its labels, dock and ports hide while it flows and return when the picture is clicked again, and where the flow settles becomes the pick. Hover never flows: unselected, the wheel zooms the board. The card height follows the newest result. A live picture at rest shows one small dot. Model, count, aspect, seed and Live are on the Agent squircle, not on the card. Wire affordance is a subtle animated blister behind the edge; resting wires have no port rings. While a picture or note an agent makes is selected, hovered, or any wire is being drawn, it shows labeled input ports down its left edge, ringed when empty and filled when wired: a picture has Media (picture or 3D model), Prompt (any text) and Style (a second picture that guides the look); a note has Image and Prompt. One output port with a plus sits at the right middle.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-23"
         },
         "D10": {
           "behavior": "Output-grip proximity suppresses body resize hit targets and resize cursors. The grip owns continuation/fork presses; surrounding body edges retain their existing resize behavior.",
@@ -627,18 +761,18 @@
           "decided": "2026-09-18"
         },
         "D12": {
-          "behavior": "Esc peels one layer per press (P0.1): maximize \u2192 contents focus \u2192 drag draft \u2192 armed tool \u2192 selection. Releasing contents focus leaves the shelf / poster intact. Agent sidecar work is out-of-process and is not cancelled by board Esc.",
+          "behavior": "Esc peels one layer per press (P0.1): maximize → contents focus → drag draft → armed tool → selection. Releasing contents focus leaves the shelf / poster intact. Agent sidecar work is out-of-process and is not cancelled by board Esc.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
           "decided": "2026-09-15"
         },
         "D13": {
-          "behavior": "Double-click the title to edit the name across its maximal linear branch segment, including hidden members. Codex titles combine the custom conversation name with a model dropdown populated by the installed provider; the menu also offers Rename. Model choice is journaled per card and inherited by new continuations. Renaming a fork does not rename its siblings or upstream prefix.",
+          "behavior": "Double-click the title to edit the name across its maximal linear branch segment, including hidden members. Codex and Cursor titles combine the custom conversation name with a model dropdown populated by the installed provider; the menu also offers Rename. Only the tail card (or an unsent draft) offers the dropdown; a card that has a child shows \"Title · Model\" as canvas text and refuses a model change. Model choice is journaled per card and inherited by new continuations. Renaming a fork does not rename its siblings or upstream prefix.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-21"
+          "decided": "2026-09-23"
         },
         "D14": {
           "behavior": "Switch presentation only through the contextual menu. Single chat window converts each maximal linear segment, keeps the current viewport height as its ceiling and shrinks shorter content. Chat train restores message views and forks. Single windows only show full conversation, and never offer Unbundle.",
@@ -648,7 +782,7 @@
           "decided": "2026-09-18"
         },
         "D15": {
-          "behavior": "Codex and Cursor expose only conversations supported by their installed interfaces. Legacy Cursor desktop chats are not claimed as SDK agents. No hidden provider-history deletion. Ollama remains local text chat; direct OpenAI chat and local tool execution remain later increments.",
+          "behavior": "Codex and Cursor expose only conversations supported by their installed interfaces. Legacy Cursor desktop chats are not claimed as SDK agents. No hidden provider-history deletion. Ollama is local chat and the one-shot text block; it reads wired pictures only with an installed vision model. ComfyUI runs installed Stable Diffusion 1.5, 2, and XL checkpoints with core nodes only; the Style port runs the Stable Diffusion 1.5 T2I style adapter with CLIP ViT-L. IP-Adapter and other custom nodes, transformer checkpoints (FLUX, SD3, Qwen-Image), masked edit, upscale, and weight download remain later. Image agents may also use ChatGPT through the installed Codex's ChatGPT sign-in (no API key) or GPT Image through the person's own OpenAI API key; ComfyUI stays the default, so no image agent requires an account (Art. I.4). Video generation remains later; a video contributes the frame it shows. Direct OpenAI chat and local tool execution remain later increments.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -662,14 +796,14 @@
           "decided": "2026-09-15"
         },
         "D17": {
-          "behavior": "The header and border pick or move the card. Transcript text supports native drag selection and Copy through the shared scaled-text owner, retaining glyph layout while zooming. Text selection does not move the card. Program tiles and project/conversation rows accept the first click throughout their visible hover target; contents focus is not a prerequisite. Conversation-title text renames on a single click; the separate model-name text opens the model dropdown across its complete visible area.",
+          "behavior": "The header and border pick or move the card. Transcript text supports native drag selection and Copy through the shared scaled-text owner, retaining glyph layout while zooming. Text selection does not move the card. Program tiles and project/conversation rows accept the first click throughout their visible hover target; contents focus is not a prerequisite. Conversation-title text renames on a single click; the separate model-name text opens the model dropdown across its complete visible area. A press in a tail card's \"Message\" area focuses that card's own composer on press, caret at the end, when that card is the topmost node there; the press never starts a move, marquee or selection drag. The rest of the card body still selects and moves it. A wire dropped on a generator's or text block's port binds to that port when it carries the port's kind (text on Prompt, pictures and 3D models on Media and Style) and is inert otherwise; dropped anywhere else on the node, edge or body, it lands on the first free port that reads it. A wire drawn back from an input port lands on the other node's output. Wires saved before ports keep their anchor and read by what they carry. Chat cards keep the left midpoint. A generator's input chip selects its source node.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-21"
+          "decided": "2026-09-23"
         },
         "D18": {
-          "behavior": "Host. Provider histories remain outside .slate. Branch deletion prunes this view and retains its source; one Undo restores view references without inference. Agents cannot mutate transcript ownership through the host.",
+          "behavior": "Host. Provider histories remain outside .slate. Branch deletion prunes this view and retains its source; one Undo restores view references without inference. Agents cannot mutate transcript ownership through the host. A picture or note an agent makes is media, not a host portal: its agent binding is journaled on the node, its results stay in the linked session folder, and the picture it shows or the words it holds are picked or edited by the person. Run completion never patches the scene.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -683,42 +817,42 @@
           "decided": "2026-09-21"
         },
         "D20": {
-          "behavior": "Journaled binding includes provider/session/source plus ChatView ranges, immutable history ancestry, detail, draft status and hidden bundle members. Arbitrary reparenting is forbidden; validated subdivision may insert views of a contiguous range without changing its ancestry or checkpoint. Context connectors remain independently editable.",
+          "behavior": "Journaled binding includes provider/session/source plus ChatView ranges, immutable history ancestry, detail, draft status and hidden bundle members. Arbitrary reparenting is forbidden; validated subdivision may insert views of a contiguous range without changing its ancestry or checkpoint. Context connectors remain independently editable. A generator journals its checkpoint (absent means Auto) and its Live flag.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-18"
         },
         "D21": {
-          "behavior": "Only explicit wires into the message card midpoint input supply additional context at Send. Selection, viewport, revision ids and ambient canvas data are not appended to messages. Editing connected text changes the next input without running an agent. Background history refresh preserves the visible answer, including on refresh failure. Auto-sizing invalidates on picker exit, workbook change, geometry change, typing and streamed output. Undo pauses sizing until new content arrives. Project and conversation pickers size to their visible rows with a bounded list height and a separate header.",
+          "behavior": "Only explicit wires into the message card midpoint input supply additional context at Send. Selection, viewport, revision ids and ambient canvas data are not appended to messages. Editing connected text changes the next input without running an agent. ComfyUI accepts further presses while it works, up to eight waiting on one generator, and runs them in order. Its wires are reread on every run and are never consumed. A wired 3D model is captured when its run starts: shaded view and exact depth from its current camera, standing on a ground plane at its base. Live reruns whenever a wired input changes (the model's camera, a prompt, a source image, or the checkpoint), one run at a time with the latest inputs and one seed per generator; Keep leaves the shown frame in the album and continues in a new slot. Background history refresh preserves the visible answer, including on refresh failure. Auto-sizing invalidates on picker exit, workbook change, geometry change, typing and streamed output. Undo pauses sizing until new content arrives. Project and conversation pickers size to their visible rows with a bounded list height and a separate header.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-21"
         },
         "D22": {
-          "behavior": "Codex and Cursor have one linear stream, with continuation at the tail by clicking or dragging the dedicated top output circle; historical handles cannot fork coding agents. Permanent midpoint left/right circles show referenced/changed artifacts on hover. Clicking lists artifacts; choosing one opens an existing Web or filtered Atlas portal with a provenance wire. Midpoint context wiring stays editable and separate from immutable top history rails. Local providers retain checkpoint forks. Enter sends; Shift+Enter inserts a newline; the placeholder appears only on selected cards. Ollama has exactly one home tile; installed local models are chosen through the same title dropdown as Codex, without replacing the conversation. Focusing an agent does not suppress canvas wheel zoom. Provider tiles use Codex, Cursor and Ollama marks; model labels omit GPT version prefixes for Astra, Sol, Terra and Luna.",
+          "behavior": "Codex and Cursor have one linear stream, with continuation at the tail by clicking or dragging the dedicated top output circle; historical handles cannot fork coding agents. Train presentation is the default. Chooser phases hide input and output handles. The left context handle shares the top status dot's inset and is the same gray at zero resting opacity: hovering it shows the linked-context description and suppresses the split; hovering outward from the card edge slides that handle and any provenance wire up and reveals an equal-size human context handle just below, on the same inset column. A click on that dot shows the linked documents as a temporary cluster that collapses when the pointer leaves; a double-click pins them on the canvas. The human context handle holds the card's pocketed context. Deleting a node that a card already sent as context hides it and keeps its id and wires, in one journal step, and it shrinks into every consuming card's input. While the pocket is non-empty the handle stays visible at rest and its hover lists the pocketed context. A click shows the context beside the card, and a second click pockets it again. Deleting the last consuming card also removes its pocket. Every chat card except drafts and bundles has a quiet collapse chevron just left of the ellipsis. The card's hover reveals it. A leaf card deletes from Delete, or from the ellipsis menu's Delete card, unless its composer holds typed text. An empty focused composer passes Delete through and keeps Backspace. Dragging a train card moves it, except while a text field is being edited. The right edited-document handle appears only when that train card reported document changes, inset to match the top output dot. Hover reveals only those gray handles; the edge wire blister is not shown on an agent card. Clicking lists artifacts; choosing one opens an existing Web or filtered Atlas portal with a provenance wire. Midpoint context wiring stays editable and separate from immutable top history rails. Local providers retain checkpoint forks. Enter sends; Shift+Enter inserts a newline; the placeholder appears only on selected cards. Ollama has exactly one home tile; installed local models are chosen through the same title dropdown as Codex, without replacing the conversation. ComfyUI has exactly one home tile; installed checkpoints are chosen from the hover menu, without a chat transcript. Focusing an agent does not suppress canvas wheel zoom, except while the pointer is over an overflowing project or conversation list, or over a user-sized chat card whose text overflows, which scroll instead. Once a chat train has started, Choose program is not offered. Provider tiles use Codex, Cursor and Ollama marks; model labels omit GPT version prefixes for Astra, Sol, Terra and Luna. A focused live generator is a viewport onto its wired model: drag orbits, Shift+drag pans, and the wheel zooms that model; leaving focus locks the model at that pose as one journaled camera change. Clicking a generator's or text block's output port, or releasing its wire on empty board, opens a two-item menu: Text adds a text block (local language model) wired to its Image port, and Image adds a generator wired to Media from a picture or Prompt from text. The new node lands beside the source for a click, or with its port at the drop point, in one undo step. A text block spawned from a picture starts with a style-description instruction. It runs its wired prompts and then its instruction once per Run or Enter, with no conversation history; the reply replaces the previous one, grows the card to fit, and feeds any wire from its output. Its model menu offers Auto, which uses an installed model that reads pictures. From media, the Agent squircle opens an upward editor with Text or Image, the model menu, a prompt face, and for images a count (1 to 8), aspect (Source, 1:1, 3:2, 2:3, 16:9), seed lock and Live. Submit spawns a new frame downstream, wired from the source (a picture, a video's shown frame or a 3D view on Media, words on Prompt), journals the prompt and settings on it, and runs it; the source stays selected for the next variation. Pictures fill the album as they arrive, with square thumbnails under it while it is browsed. Since 24 September 2026, Text makes a sticky an agent writes and Image an ordinary picture; a wire released on empty board from any media that shows the Agent squircle opens the same modality menu (Text and Image today; 3D and video join the same list), and the new wire keeps the grip it left from.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-21"
+          "decided": "2026-09-23"
         },
         "D23": {
-          "behavior": "Cards display complete text; Name only and Summary choices are removed from menus and inspector. Full conversation offers inline input and response. Transcript text uses shared canvas text scaling, fixed wrap bounds and world-scaled scroll offsets during zoom. No blue selection outline or dimensions.",
+          "behavior": "Cards display complete text, or a collapsed three-line capsule. A collapsed card keeps its width and is the header plus three lines and the text pad, ending in an ellipsis when more text exists. The tail keeps its composer below those lines. A resize records the card's size in the same undo step and expands a collapsed card. Text rewraps to that width, and overflow scrolls with the wheel inside the card. Fit to text clears the size. Name only and Summary choices are removed from menus and inspector. Full conversation offers inline input and response. Transcript text uses shared canvas text scaling, fixed wrap bounds and world-scaled scroll offsets during zoom. No blue selection outline or dimensions.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-18"
+          "decided": "2026-09-23"
         },
         "D24": {
-          "behavior": "Chat exports remain honest host posters and source identity; derived history rails serialize with the same cubic geometry. No live controls, credentials or inference are exported. Existing image-bundle export remains unchanged.",
+          "behavior": "Chat exports remain honest host posters and source identity; derived history rails serialize with the same cubic geometry. No live controls, credentials or inference are exported. A picture an agent makes exports as a plain image of the result it shows (the pick, else the newest); a note an agent writes exports the words it shows (its own, else the finished reply). A chat image bundle keeps its bundle export.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-18"
         },
         "D25": {
-          "behavior": "Bundles may contain other bundles to arbitrary depth. Unbundle restores one presentation level, preserves inner bundles and lays visible cards side-by-side in train order. Bundle/Unbundle remain contextual squircle actions; single chat windows never offer Unbundle.",
+          "behavior": "Bundles may contain other bundles to arbitrary depth. Unbundle restores one presentation level, preserves inner bundles and lays visible cards side-by-side in train order. Bundle/Unbundle remain contextual squircle actions; single chat windows never offer Unbundle. Unbundle on a picture an agent makes places every other result as an ordinary picture beside it in one undo step; the card keeps its agent. Picking a result makes it the picture file. Copying a picture an agent makes copies only the picture it shows, as a plain placed image without the agent. Editing a note an agent writes makes the words belong to the person; running it again replaces them as one undo.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -732,11 +866,11 @@
           "decided": "2026-09-15"
         },
         "D27": {
-          "behavior": "Adapters consume immutable snapshots. Proposed board edits retain staged SceneCmd acceptance. Coding tools operate under the provider configuration; Slate does not substitute a read-only persona or silently grant requested approvals.",
+          "behavior": "Adapters consume immutable snapshots. Proposed board edits retain staged SceneCmd acceptance. Coding tools operate under the provider configuration; Slate does not substitute a read-only persona or silently grant requested approvals. The only grant is the person's explicit per-conversation Full access (D32).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-21"
+          "decided": "2026-09-23"
         },
         "D28": {
           "behavior": "History checkpoints are exact exclusive transcript bounds; partially loaded prefixes are refused. Forks replay quoted ancestor text into a fresh source, not a claimed native provider fork. Shared source snapshots are immutable Arc values.",
@@ -746,35 +880,35 @@
           "decided": "2026-09-18"
         },
         "D29": {
-          "behavior": "One atlas-ai AgentSources worker/cache per source path shared by its cards. Source reads and protocol work stay off-thread. Summary layout caches by source/scene revision and zoom resolution. Completed train runtimes are released; large-history frame-time validation remains pending.",
+          "behavior": "One atlas-ai AgentSources worker/cache per source path shared by its cards. Source reads and protocol work stay off-thread. Summary layout caches by source/scene revision and zoom resolution. Completed train runtimes are released; large-history frame-time validation remains pending. A generator's resolved inputs cache per scene and output revision. A 3D capture is two offscreen passes and two fast PNG writes on the frame that starts a run, into local app data; ComfyUI results land in local app data too, so only the small manifest syncs with the workspace.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-18"
         },
         "D30": {
-          "behavior": "Installed program, healthy server and installed model are separate states. Ollama never downloads a model or silently falls back to cloud. Failures name unsupported image inputs, context budget, model absence, transport errors and cancellation.",
+          "behavior": "Installed program, healthy server and installed model are separate states. Ollama never downloads a model or silently falls back to cloud. ComfyUI starts with API nodes disabled and never downloads a checkpoint. It names a checkpoint with no matching ControlNet, a transformer checkpoint, a model still loading, a missing GPU and extra sources. Failures name unsupported image inputs, context budget, model absence, transport errors and cancellation. A Style picture names a missing style adapter or CLIP vision model, a checkpoint family without an adapter, and a second style wire. A picture wired to a local model that cannot read it names an installed model that can, or asks for one. GPT Image names a missing or refused API key and offers the paste; ChatGPT names a Codex run that returned no picture.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-18"
         },
         "D31": {
-          "behavior": "Journaled: bindings, ranges, parent view references, detail, bundle membership and placement. Derived: source transcript snapshots, streaming text, readiness and hover. Pruning removes view references, not foreign provider records.",
+          "behavior": "Journaled: bindings, ranges, parent view references, detail, bundle membership and placement. Derived: source transcript snapshots, streaming text, readiness and hover. Pruning removes view references, not foreign provider records. A generator's live run identity, input signature, waiting runs and capture files are derived; kept frames live in its bundle manifest.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-18"
         },
         "D32": {
-          "behavior": "The renderer-free Codex adapter uses installed authentication and provider permissions. Supported command/file approvals appear on-card with Allow once and Deny; unsupported requests fail explicitly. Cursor loads installed settings and enables SDK auto-review. Opening a referenced Web or Atlas portal uses its existing consent and source owners.",
+          "behavior": "The renderer-free Codex adapter uses installed authentication and provider permissions. Supported command/file approvals appear on-card with Allow once and Deny; unsupported requests fail explicitly. Cursor loads installed settings and enables SDK auto-review. Full access (ellipsis menu, Cursor and Codex, disabled while a reply runs) is the person's explicit grant for one conversation, applied from its next message: Codex turns carry approval policy never and a full-access sandbox; Cursor's sidecar restarts without auto-review. The model name turns deep red (the theme's danger color) on every card of that conversation the moment it is granted; the ellipsis row shows a check. The grant is stored for this user in the Atlas data folder (agent-access.json, keyed by session), never in the workbook or the synced link folder, so a received .slate never arrives with an agent trusted to act freely; packaging and export refuse that file. Opening a referenced Web or Atlas portal uses its existing consent and source owners. An OpenAI API key is pasted as bullets into the agent editor and stored for this Windows user in Credential Manager (`openai-api-key`); curl receives it on stdin, never on its command line, and it is never logged, exported or written to the workbook. ChatGPT images use the installed Codex's own ChatGPT sign-in, running in Slate's local output folder.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-21"
+          "decided": "2026-09-23"
         },
         "D33": {
-          "behavior": "Minimal theme-aware cards have faint shadows and no bevel. Wires have no bevel. Selection retains Fill and Stroke squircles; default stroke weight is zero. Authored card colors and strokes persist and export. Compact title, ellipsis and maximize remain at the top.",
+          "behavior": "Minimal theme-aware cards have faint shadows and no bevel. Wires have no bevel. Selection retains Fill and Stroke squircles; default stroke weight is zero. Authored card colors and strokes persist and export. Compact title and ellipsis remain at the top. Agent cards do not offer maximize.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -788,7 +922,7 @@
           "decided": "2026-09-15"
         },
         "D35": {
-          "behavior": "P1.portal.local-ui. Provider, model, explicit input wiring, sidecar setup and bundle commands stay on the portal/inspector. The board-wide panel gains no provider-specific settings.",
+          "behavior": "P1.portal.local-ui. Provider, model, explicit input wiring, sidecar setup and bundle commands stay on the portal/inspector. The board-wide panel gains no provider-specific settings. The Agent squircle on media an agent makes edits that agent: model, count, aspect, seed and Live apply at once, and Submit runs it again.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -842,7 +976,7 @@
           "decided": "2026-08-07"
         },
         "D06": {
-          "behavior": "No grid, ortho, or object snap applies to filesystem placement. The target is the deepest folder whose bounds contain the cursor, so a folder's whole rectangle accepts a drop \u2014 including over the files it already holds.",
+          "behavior": "No grid, ortho, or object snap applies to filesystem placement. The target is the deepest folder whose bounds contain the cursor, so a folder's whole rectangle accepts a drop — including over the files it already holds.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -877,7 +1011,7 @@
           "decided": "2026-08-07"
         },
         "D11": {
-          "behavior": "Release on valid folder dispatches a background FsOp. A copy is first accounted for cloud placeholders on a worker thread \u2014 files and whole folder subtrees, directory entries only \u2014 and confirms before downloading anything. Completed changes are journaled as FsRename, FsMove, FsCopy, or FsDelete and applied to the current index/tree.",
+          "behavior": "Release on valid folder dispatches a background FsOp. A copy is first accounted for cloud placeholders on a worker thread — files and whole folder subtrees, directory entries only — and confirms before downloading anything. Completed changes are journaled as FsRename, FsMove, FsCopy, or FsDelete and applied to the current index/tree.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -905,7 +1039,7 @@
           "decided": "2026-08-07"
         },
         "D15": {
-          "behavior": "No cut/paste file operations, no agent-initiated writes, and no Delete command outside Edit mode. Delete acts on the selection, or on the item under the cursor when nothing is selected \u2014 the only way to delete a folder from the keyboard, since folders are never part of a selection.",
+          "behavior": "No cut/paste file operations, no agent-initiated writes, and no Delete command outside Edit mode. Delete acts on the selection, or on the item under the cursor when nothing is selected — the only way to delete a folder from the keyboard, since folders are never part of a selection.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -996,7 +1130,7 @@
           "decided": "2026-08-08"
         },
         "D09": {
-          "behavior": "During the drag: frame outline in Palette::portal + live w x h in the dock readout. Placed: P1.portal.chrome - one Slate identity tab showing the display locator (or the page currently being visited), a live dot while pooled, and no default frame outline. A minimalist stroke appears on edge hover or contents focus. Tab text clips to the tab bounds. Contents clip full-bleed to the frame fillet (P1.portal.clip), with no visual bezel. Dock readout when selected: locator - source kind - viewport width - zoom mode - state.",
+          "behavior": "During the drag: frame outline in Palette::portal + live w x h in the dock readout. Placed: P1.portal.chrome - one Slate identity tab showing the display locator (or the page currently being visited), a live dot while pooled, and no default frame outline. A minimalist stroke appears on edge hover. Contents focus suppresses the selection cast, outline, and that stroke (P1.portal.contents-focus). Tab text clips to the tab bounds. Contents clip full-bleed to the frame fillet (P1.portal.clip), with no visual bezel. Dock readout when selected: locator - source kind - viewport width - zoom mode - state.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1024,7 +1158,7 @@
           "decided": "2026-08-15"
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) \u2014 no prior selection. Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Portals stay axis-aligned: no rotate chrome, including in a mixed group rotate.",
+          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Portals stay axis-aligned: no rotate chrome, including in a mixed group rotate.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
@@ -1038,7 +1172,7 @@
           "decided": "2026-08-16"
         },
         "D15": {
-          "behavior": "Cut, each a decision (Art. III): browser chrome (multiple tabs, address bar / omnibox, bookmarks, history UI, devtools, downloads, printing, a cookie jar shared with the user's real browser, persisted logins across sessions, notifications / geolocation / camera / mic / clipboard-read, scraping page DOM into board nodes, writing back to the source HTML file (Art. IX.5), and typed frame dimensions (D08). Not cut: in-page back/forward/reload/home commands, the Slate identity tab of P1.portal.chrome (one tab, the locator, maximize / fold), and _blank links navigating the same webview instead of opening popups. Not cut, deferred to its own contract: the declared control surface of D18. Arbitrary JS bridges, host objects, and page-initiated postMessage into Slate remain permanently cut. Page-internal navigation is derived session state: losing a pool slot (zoom out, off-screen, budget) resumes the last URL, not the authored home. It is never written into the .slate. Home returns to the authored locator. The default Google start page is a locator, not Slate chrome.",
+          "behavior": "Cut, each a decision (Art. III): browser chrome (multiple tabs, address bar / omnibox, bookmarks, history UI, devtools, downloads, printing, a cookie jar shared with the user's real browser, sign-in cookies or tokens written into the workbook or an export, notifications / geolocation / camera / mic / clipboard-read, scraping page DOM into board nodes, writing back to the source HTML file (Art. IX.5), and typed frame dimensions (D08). Not cut: in-page back/forward/reload/home commands, the Slate identity tab of P1.portal.chrome (one tab, the locator, maximize / fold), and _blank links navigating the same webview instead of opening popups. Not cut, deferred to its own contract: the declared control surface of D18. Arbitrary JS bridges, host objects, and page-initiated postMessage into Slate remain permanently cut. Amended 24 September 2026 (user-ratified): when a person submits an agent whose Prompt is wired from this portal, Slate reads the page's visible text (document.body.innerText) once, read-only, for that run only; it never reads cookies or storage, never runs page-supplied code, and never writes the text into board nodes. Page-internal navigation is derived session state: losing a pool slot (zoom out, off-screen, budget) resumes the last URL, not the authored home. It is never written into the .slate. Home returns to the authored locator. The default Google start page is a locator, not Slate chrome. Sign-in for a remote origin persists for this Windows user in a WebView2 profile derived from that origin (web_profile_name). Opening the same file as another user starts signed out.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1052,7 +1186,7 @@
           "decided": "2026-08-08"
         },
         "D17": {
-          "behavior": "The frame picks on its rect, including marquee, whenever it is not input-focused. Only the single input-focused portal routes pointer and keyboard to the page - except the identity tab, the reveal strip, and a portal_frame.border_hit_px (6 px) border band, which stay Slate targets as invisible input chrome. The border band may reveal a minimalist hover/focus stroke but never creates a visual bezel. Right-click on the tab or anywhere on the portal is Slate's (Copy URL, Paste URL, Maximize, Hide tab), never the page's. No board tool reaches the contents.",
+          "behavior": "The frame picks on its rect, including marquee, whenever it is not input-focused. Only the single input-focused portal routes pointer and keyboard to the page - except the identity tab, the reveal strip, and a portal_frame.border_hit_px (6 px) border band, which stay Slate targets as invisible input chrome. The border band may reveal a minimalist hover stroke but never creates a visual bezel. Contents focus does not add a highlight stroke. Right-click on the tab or anywhere on the portal is Slate's (Copy URL, Paste URL, Maximize, Hide tab), never the page's. No board tool reaches the contents.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1080,7 +1214,7 @@
           "decided": "2026-08-08"
         },
         "D21": {
-          "behavior": "Poster recapture triggers: bind/rebind, viewport change, explicit `portal.web.recapture`, pool eviction (D29), and \u2014 for local file/folder sources only \u2014 an mtime change found by a worker-thread poll no more often than `portal.web.poll_secs` (1.0). Remote URLs never auto-recapture: a network fetch is never implicit. GPU capture/copy is asynchronous and readback is polled without waiting, generation-tagged; a stale capture is discarded, never painted (Art. II.3). While capturing, the last valid poster stays at full authored opacity until a valid replacement arrives; recapture never clears it. Source gone: `Missing`, last poster retained and dimmed, locator named (P1.portal.health).",
+          "behavior": "Poster recapture triggers: bind/rebind, viewport change, explicit `portal.web.recapture`, pool eviction (D29), and — for local file/folder sources only — an mtime change found by a worker-thread poll no more often than `portal.web.poll_secs` (1.0). Remote URLs never auto-recapture: a network fetch is never implicit. GPU capture/copy is asynchronous and readback is polled without waiting, generation-tagged; a stale capture is discarded, never painted (Art. II.3). While capturing, the last valid poster stays at full authored opacity until a valid replacement arrives; recapture never clears it. Source gone: `Missing`, last poster retained and dimmed, locator named (P1.portal.health).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1101,7 +1235,7 @@
           "decided": "2026-09-15"
         },
         "D24": {
-          "behavior": "Two modes, journaled per portal, defaulting by source kind (OQ2 = A). Local file/folder: packaged iframe - build_assets copies the entry file and its folder into assets/ and rewrites the locator (Art. IX.4 fork, origin recorded in the manifest), and the writer emits <iframe src=\"assets/...\" sandbox=\"allow-scripts allow-same-origin\" title=...> plus a caption naming the origin. Remote URL: poster + pointer (Art. V.3) - <a href=url><img poster></a> with a caption reading \"Live page, captured <date>\", and an honesty note where the site would refuse framing. export_mode: Iframe is opt-in for remote and says in its caption that the frame loads live from the network.",
+          "behavior": "Two modes, journaled per portal, defaulting by source kind (OQ2 = A). Local file/folder: packaged iframe - build_assets copies the entry file and its folder into assets/ and rewrites the locator (Art. IX.4 fork, origin recorded in the manifest), and the writer emits <iframe src=\"assets/...\" sandbox=\"allow-scripts allow-same-origin\" title=...> plus a caption naming the origin. Remote URL: poster + pointer (Art. V.3) - <a href=url><img poster></a> with a caption reading \"Live page, captured <date>\", and an honesty note where the site would refuse framing. export_mode: Iframe is opt-in for remote and says in its caption that the frame loads live from the network. Machine-private paths (the WebView2 folder, the secret store, a legacy API-key file) are never packaged; those portals export as a poster.",
           "source": "stated",
           "confidence": 95,
           "verdict": "approved",
@@ -1115,14 +1249,14 @@
           "decided": "2026-08-08"
         },
         "D26": {
-          "behavior": "Frame, locator, entry, viewport, and export mode sync as ordinary journal deltas. Poster texture, live/pool state, scroll offset, page history, and per-origin consent are per-peer and never transmitted - each peer runs its own pool, and only the peer who focuses a portal gives it input. A peer that cannot resolve the locator paints Unknown naming the locator it tried (P1.portal.health). Consent is deliberately not journaled: a .slate you received must never arrive carrying someone else's decision to trust a host.",
+          "behavior": "Frame, locator, entry, viewport, and export mode sync as ordinary journal deltas. Poster texture, live/pool state, scroll offset, page history, per-origin consent, and per-origin sign-in are per-peer and never transmitted - each peer runs its own pool, and only the peer who focuses a portal gives it input. A peer that cannot resolve the locator paints Unknown naming the locator it tried (P1.portal.health). Consent is deliberately not journaled: a .slate you received must never arrive carrying someone else's decision to trust a host.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-08"
         },
         "D27": {
-          "behavior": "Parity, mediated by the existing autonomy grant. Agents and humans drive the identical board.portal.web / portal.web.* commands with identical privileges (Art. VII.1); agent-issued mutations stage for acceptance by default and apply directly where the workspace has granted autonomy (Art. VII.6) - the same rule that governs every command, not a portal-specific leash. Origin consent (D32) is a command like any other and follows that same path. The remaining restrictions are capability-level, not agent-level: nobody, human or agent, can read page DOM, cookies, or storage, or make the page issue a command, because no such channel exists (D15). Art. IX.5's \"never available to an agent\" clause governs write-back to sources and does not bite here - this portal never writes to its source. The context beacon carries locator, source kind, viewport, and state.",
+          "behavior": "Parity, mediated by the existing autonomy grant. Agents and humans drive the identical board.portal.web / portal.web.* commands with identical privileges (Art. VII.1); agent-issued mutations stage for acceptance by default and apply directly where the workspace has granted autonomy (Art. VII.6) - the same rule that governs every command, not a portal-specific leash. Origin consent (D32) is a command like any other and follows that same path. The remaining restrictions are capability-level, not agent-level: nobody, human or agent, can read page DOM, cookies, or storage, or make the page issue a command, because no such channel exists (D15). The one exception (amended 24 September 2026, user-ratified) is the page's visible text, read once when a person submits an agent run wired from the portal; an agent cannot request that read itself. Art. IX.5's \"never available to an agent\" clause governs write-back to sources and does not bite here - this portal never writes to its source. The context beacon carries locator, source kind, viewport, and state.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1150,14 +1284,14 @@
           "decided": "2026-08-08"
         },
         "D31": {
-          "behavior": "Journaled authored intent: frame rect / rotation / opacity / fill, title, locator, entry, viewport width and zoom mode, interactive_allowed, poster_capture mode, export mode. Derived per-peer: poster texture and its capture time, live/pool membership, input focus, scroll offset, page navigation history (survives pool eviction this session), load errors, origin consent grants, WebView2 runtime availability, maximize, identity-tab fold.",
+          "behavior": "Journaled authored intent: frame rect / rotation / opacity / fill, title, locator, entry, viewport width and zoom mode, interactive_allowed, poster_capture mode, export mode. Derived per-peer: poster texture and its capture time, live/pool membership, input focus, scroll offset, page navigation history (survives pool eviction this session), load errors, origin consent grants, per-origin web sign-in, WebView2 runtime availability, maximize, identity-tab fold.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D32": {
-          "behavior": "Remote origins are Blocked until the human permits them; grants key on (workbook, origin), live in local app state, and are never journaled or written into the .slate, so a workbook you receive cannot arrive pre-trusting a host. Placing a default web portal is the human permitting the start locator's origin for that workbook, matching paste/drop behavior. Local sources under the workbook root need no prompt. The webview runs in a per-workbook user-data folder - no cookies, storage, or logins shared with the user's real browser. Denied outright: downloads, popups, notifications / geolocation / camera / mic / clipboard-read, and any host object or postMessage bridge (D15). Exports sandbox what they embed: packaged local content gets sandbox=\"allow-scripts allow-same-origin\", because a dashboard must fetch its own sibling data files; remote iframes get allow-scripts only.",
+          "behavior": "Remote origins are Blocked until the human permits them; grants key on (workbook, origin), live in local app state, and are never journaled or written into the .slate, so a workbook you receive cannot arrive pre-trusting a host. Grants for a saved workbook persist for this user in the Atlas data folder (web-consent.json), so reopening that board in a later session is not asked again; unsaved boards keep session grants only. Packaging and export refuse that file. Placing a default web portal is the human permitting the start locator's origin for that workbook, matching paste/drop behavior. Local sources under the workbook root need no prompt. The webview user-data folder lives under the per-user Atlas data directory, never beside the workbook. Each remote origin gets its own WebView2 profile, so a sign-in on one site is not a sign-in on another; local files share a profile with no remote cookies. Cookies are not shared with the system browser. Packaging and HTML export refuse the webview folder and the machine secret store. Denied outright: downloads, popups, notifications / geolocation / camera / mic / clipboard-read, and any host object or postMessage bridge (D15). Exports sandbox what they embed: packaged local content gets sandbox=\"allow-scripts allow-same-origin\", because a dashboard must fetch its own sibling data files; remote iframes get allow-scripts only.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1200,7 +1334,7 @@
       "canvas": "tool-arming-preview-contract",
       "decisions": {
         "D01": {
-          "behavior": "Menu, palette (typed name + aliases), flyout / nested dock icon, and hotkey all dispatch the same CommandId (P0.7). A family primary (Frame, Shapes, Portals, Text, Media, Actions) opens the flyout only. The instant the tool is armed \u2014 before any click \u2014 GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live.",
+          "behavior": "Menu, palette (typed name + aliases), flyout / nested dock icon, and hotkey all dispatch the same CommandId (P0.7). A family primary (Frame, Shapes, Portals, Text, Media, Actions) opens the flyout only. The instant the tool is armed — before any click — GhostFollow starts (P2.GhostFollow). The rail highlight already exists; this is the missing canvas-side confirmation that the command is live.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1214,7 +1348,7 @@
           "decided": "2026-08-15"
         },
         "D03": {
-          "behavior": "Armed \u2192 GhostFollow (small cursor-locked silhouette) \u2192 Press \u2192 (ClickPlace | DragScale) \u2192 Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not drag_started / drag_stopped). Shared board_place::place_rect computes the DragScale rect for both the live rubber-band and the journaled commit.",
+          "behavior": "Armed → GhostFollow (small cursor-locked silhouette) → Press → (ClickPlace | DragScale) → Commit. GhostFollow is chrome only and never creates a node. The press/release path owns DragRect tools (not drag_started / drag_stopped). Shared board_place::place_rect computes the DragScale rect for both the live rubber-band and the journaled commit.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1228,14 +1362,14 @@
           "decided": "2026-08-16"
         },
         "D05": {
-          "behavior": "P2.GhostFollow.place. During DragScale only. GhostFollow ignores modifiers. No new Alt/Ctrl create modifiers.",
+          "behavior": "P2.GhostFollow.place. During DragScale only. GhostFollow ignores modifiers. Rectangle and ellipse: Ctrl draws from the press point as center; Shift still locks aspect. Alt suspends snaps. Other DragRect tools have no Ctrl create modifier.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D06": {
-          "behavior": "GhostFollow glyph stays screen-space (P0.9) but sits on the snapped world point: osnap + smart-guide forcefield, same `resolve_point_snap` as every other live board point. DragScale snaps both corners \u2014 press resolves the start; every frame and commit snap the live rect's moving edges (`resolve_draw_rect`, same forcefield as a resize). F8 ortho does not apply to area placement. Alt suspends. Shift is aspect only, never ortho.",
+          "behavior": "GhostFollow glyph stays screen-space (P0.9) but sits on the snapped world point: osnap + smart-guide forcefield, same `resolve_point_snap` as every other live board point. DragScale snaps both corners — press resolves the start; every frame and commit snap the live rect's moving edges (`resolve_draw_rect`, same forcefield as a resize). F8 ortho does not apply to area placement. Alt suspends. Shift is aspect only, never ortho.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1284,14 +1418,14 @@
           "decided": "2026-08-15"
         },
         "D13": {
-          "behavior": "n/a \u2014 this contract does not change post-commit handles (P1.node bbox / P1.curve.grips).",
+          "behavior": "n/a — this contract does not change post-commit handles (P1.node bbox / P1.curve.grips).",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D14": {
-          "behavior": "n/a \u2014 existing bbox / inspector / portal bind paths unchanged.",
+          "behavior": "n/a — existing bbox / inspector / portal bind paths unchanged.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1305,14 +1439,14 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "Unchanged. Shapes still consume BoardLastStyle; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style \u2014 the silhouette is chrome.",
+          "behavior": "Unchanged. Shapes still consume BoardLastStyle; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D17": {
-          "behavior": "n/a \u2014 the ghost is not hittable. Existing node pick unchanged.",
+          "behavior": "n/a — the ghost is not hittable. Existing node pick unchanged.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1339,14 +1473,14 @@
           "decided": "2026-08-15"
         },
         "D02": {
-          "behavior": "Persistent while the selection qualifies. Repeat-last is Never \u2014 a second fire is idempotent.",
+          "behavior": "Persistent while the selection qualifies. Repeat-last is Never — a second fire is idempotent.",
           "source": "research",
           "confidence": 80,
           "verdict": "approved",
           "decided": "2026-08-15"
         },
         "D03": {
-          "behavior": "Idle \u2192 HoverIcon \u2192 Press \u2192 Commit. No drag grammar. Icons only on the bottom and left sides \u2014 top and right duplicate the same actions and are not drawn.",
+          "behavior": "Idle → HoverIcon → Press → Commit. No drag grammar. Icons only on the bottom and left sides — top and right duplicate the same actions and are not drawn.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1367,7 +1501,7 @@
           "decided": "2026-08-15"
         },
         "D06": {
-          "behavior": "n/a \u2014 the action writes rect.x / rect.y against the selection union. Grid / ortho / object snaps are not consulted.",
+          "behavior": "n/a — the action writes rect.x / rect.y against the selection union. Grid / ortho / object snaps are not consulted.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1388,7 +1522,7 @@
           "decided": "2026-08-15"
         },
         "D09": {
-          "behavior": "No second frame \u2014 each selected shape keeps its own silhouette. Icons sit align.frame_outset (20 px) outside the union box on the left; the bottom cluster also clears the width stringer (STRINGER_GAP \u00d7 zoom). Hover: icon invert + action name outside the cluster. No ghost outlines, no axis guide (they flicker). No numeric readout.",
+          "behavior": "No second frame — each selected shape keeps its own silhouette. Icons sit align.frame_outset (20 px) outside the union box on the left; the bottom cluster also clears the width stringer (STRINGER_GAP × zoom). Hover: icon invert + action name outside the cluster. No ghost outlines, no axis guide (they flicker). No numeric readout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1437,7 +1571,7 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "n/a \u2014 does not create nodes.",
+          "behavior": "n/a — does not create nodes.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1478,7 +1612,7 @@
           "decided": "2026-08-16"
         },
         "D03": {
-          "behavior": "Armed \u2192 PickCutters \u2192 Enter \u2192 TrimParts \u2192 click*. Preselect skips to TrimParts with mutual cutters.",
+          "behavior": "Armed → PickCutters → Enter → TrimParts → click*. Preselect skips to TrimParts with mutual cutters.",
           "source": "research",
           "confidence": 80,
           "verdict": "approved",
@@ -1513,7 +1647,7 @@
           "decided": "2026-08-16"
         },
         "D08": {
-          "behavior": "n/a \u2014 no typed options in v1.",
+          "behavior": "n/a — no typed options in v1.",
           "source": "guess",
           "confidence": 60,
           "verdict": "approved",
@@ -1541,7 +1675,7 @@
           "decided": "2026-09-17"
         },
         "D12": {
-          "behavior": "Esc TrimParts\u2192PickCutters\u2192Select. Committed clicks stay.",
+          "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1610,14 +1744,14 @@
           "decided": "2026-08-16"
         },
         "D03": {
-          "behavior": "No live gesture. Preselect \u2192 Join. A-tool both-endpoints case merges/closes that path.",
+          "behavior": "No live gesture. Preselect → Join. A-tool both-endpoints case merges/closes that path.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-08-16"
         },
         "D04": {
-          "behavior": "n/a \u2014 not a pointer tool.",
+          "behavior": "n/a — not a pointer tool.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1659,7 +1793,7 @@
           "decided": "2026-08-16"
         },
         "D10": {
-          "behavior": "Unchanged \u2014 command, not an armed tool.",
+          "behavior": "Unchanged — command, not an armed tool.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
@@ -1701,7 +1835,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a \u2014 copies first operand style, does not consume fg/bg.",
+          "behavior": "n/a — copies first operand style, does not consume fg/bg.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1806,7 +1940,7 @@
           "decided": "2026-08-16"
         },
         "D12": {
-          "behavior": "Esc TrimParts\u2192PickCutters\u2192Select. Committed clicks stay.",
+          "behavior": "Esc TrimParts→PickCutters→Select. Committed clicks stay.",
           "source": "precedent",
           "confidence": 90,
           "verdict": "approved",
@@ -1834,7 +1968,7 @@
           "decided": "2026-08-16"
         },
         "D16": {
-          "behavior": "n/a \u2014 pieces copy source stroke/fill.",
+          "behavior": "n/a — pieces copy source stroke/fill.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -1906,7 +2040,7 @@
           "decided": "2026-08-21"
         },
         "D07": {
-          "behavior": "n/a \u2014 no directional parameter in a rect placement.",
+          "behavior": "n/a — no directional parameter in a rect placement.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2018,7 +2152,7 @@
           "decided": "2026-09-21"
         },
         "D23": {
-          "behavior": "P0.9: the inner camera is portal-local. Board zoom scales the entire map with the frame; screen scale is inner zoom \u00d7 board zoom, in and out of contents-focus. Board pan and frame movement carry the map with them. Leaving contents preserves the inner view. LOD uses the composed screen scale; drop type when too small, never clamp to a screen constant.",
+          "behavior": "P0.9: the inner camera is portal-local. Board zoom scales the entire map with the frame; screen scale is inner zoom × board zoom, in and out of contents-focus. Board pan and frame movement carry the map with them. Leaving contents preserves the inner view. LOD uses the composed screen scale; drop type when too small, never clamp to a screen constant.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2138,7 +2272,7 @@
           "decided": null
         },
         "D03": {
-          "behavior": "P1.portal.place: Armed -> Dragging(rect) -> Committed(unbound). Release paints Choose save journal\u2026. Binding is a separate non-modal step. A folder-drop that picks this lens skips to Committed(bound).",
+          "behavior": "P1.portal.place: Armed -> Dragging(rect) -> Committed(unbound). Release paints Choose save journal…. Binding is a separate non-modal step. A folder-drop that picks this lens skips to Committed(bound).",
           "source": "pattern",
           "confidence": 90,
           "verdict": "proposed",
@@ -2166,7 +2300,7 @@
           "decided": null
         },
         "D07": {
-          "behavior": "n/a \u2014 no directional parameter in a rect placement.",
+          "behavior": "n/a — no directional parameter in a rect placement.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "proposed",
@@ -2250,7 +2384,7 @@
           "decided": null
         },
         "D19": {
-          "behavior": "One SourceUri LocalFs naming a save journal file (saves.db or .jsonl) or a folder containing exactly one, relative-first. Empty state: Choose save journal\u2026. Bound by portal.activity.source or folder-drop when a journal is present. Refused: 127.0.0.1:8787, hosted APIs, accounts, watch $HOME, File Atlas window, a directory of watch roots.",
+          "behavior": "One SourceUri LocalFs naming a save journal file (saves.db or .jsonl) or a folder containing exactly one, relative-first. Empty state: Choose save journal…. Bound by portal.activity.source or folder-drop when a journal is present. Refused: 127.0.0.1:8787, hosted APIs, accounts, watch $HOME, File Atlas window, a directory of watch roots.",
           "source": "guess",
           "confidence": 55,
           "verdict": "proposed",
@@ -2306,7 +2440,7 @@
           "decided": null
         },
         "D27": {
-          "behavior": "board.portal.save_activity and portal.activity.* are registry SPECs. Agent frame/source/query mutations stage for acceptance. An agent may never insert, edit, or delete save events. Beacon: locator, window, family set, project set, one focused path \u2014 never every path. Overlay deferred.",
+          "behavior": "board.portal.save_activity and portal.activity.* are registry SPECs. Agent frame/source/query mutations stage for acceptance. An agent may never insert, edit, or delete save events. Beacon: locator, window, family set, project set, one focused path — never every path. Overlay deferred.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -2327,7 +2461,7 @@
           "decided": null
         },
         "D30": {
-          "behavior": "Unbound Choose save journal\u2026; Unknown names locator; Analyzing last-good + progress; Ready; Missing names locator; NotAJournal says why; Unreadable no partial graph as complete; Truncated visible N older not shown. URL/webview refused.",
+          "behavior": "Unbound Choose save journal…; Unknown names locator; Analyzing last-good + progress; Ready; Missing names locator; NotAJournal says why; Unreadable no partial graph as complete; Truncated visible N older not shown. URL/webview refused.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "proposed",
@@ -2464,7 +2598,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel; Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule reuses that height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose colored filter radios plus an intensity slider. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. Shared light/dark theme tokens apply throughout.",
+          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel; Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. Shared light/dark theme tokens apply throughout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2538,7 +2672,7 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "P1.shape.aspect for creation; P1.node.transform for later resize.",
+          "behavior": "P1.shape.aspect for creation. Ctrl during DragScale draws from the press point as center (Shift still squares). Later resize is P1.node.transform, including Alt-at-press scale copies.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -2601,7 +2735,7 @@
           "decided": "2026-09-17"
         },
         "D14": {
-          "behavior": "Fill, Stroke, Corners: three circular icons matching the primary toolbar. Fill opens opacity then RGB/eyedropper upward; Corners opens Fillet/Chamfer and Board units/Percent. Confirmed percent amount = p/100 \u00d7 min(W,H)/2; 100% makes a square a circle/diamond. See shape-property-editing.md.",
+          "behavior": "Fill, Stroke, Corners: three circular icons matching the primary toolbar. Fill opens opacity then RGB/eyedropper upward; Corners opens Fillet/Chamfer and Board units/Percent. Confirmed percent amount = p/100 × min(W,H)/2; 100% makes a square a circle/diamond. See shape-property-editing.md.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2668,7 +2802,7 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
+          "behavior": "Shift locks a circle (P1.shape.aspect). Ctrl during DragScale draws from the press point as center. Later resize is P1.node.transform, including Alt-at-press scale copies. Fill and stroke sample the ellipse to a 0.1px screen chord so the circle is not a coarse polygon.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -3411,132 +3545,132 @@
       }
     },
     "brush": {
-      "status": "agreed",
+      "status": "shipped",
       "family": "tool",
-      "reference": "Implementation authorized by user 2026-09-17; rectangle palette and circle/diamond endpoints confirmed.",
+      "reference": "Photoshop brush HUD, built 2026-09-22 from the brush behavior matrix.",
       "inherits": [
         "P0.*, P1.node, P1.curve, P1.curve.pick, P2.StickyInk"
       ],
-      "canvas": "shapes-tool-contract",
+      "canvas": "brush-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "Use the existing tool command through P0.7; no new shortcut in this proposal.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "B still arms Brush through board.tool.brush. Size, softness, and the color wheel are modifiers on that tool: board.brush.softness_down, board.brush.softness_up, board.brush.size_hud, board.brush.color_wheel.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D02": {
-          "behavior": "P2.StickyInk: remain armed; each stroke is one undo step.",
+          "behavior": "P2.StickyInk: Brush stays armed after each stroke, and each stroke is one undo step.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D03": {
-          "behavior": "Retain existing freehand Brush behavior; investigate its shared sampling path alongside Pen without changing expressive defaults.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Left-drag paints the existing freehand stroke at the brush width. Shift+click steps opacity. Shift+right-drag scrubs opacity. Alt+left-click samples with the eyedropper. Alt+right-drag enters SizeHud, centered on the press point, and paints nothing. Ctrl+right-drag enters ColorWheel and paints nothing. Releasing the right button commits that HUD.",
+          "source": "research",
+          "confidence": 80,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D04": {
-          "behavior": "Share ordered freehand sampling and final endpoint preservation with Pen; keep the existing width profile, Shift straight-chain and temporary Alt desktop sampler.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Left-button travel past the existing 4 px draft threshold starts a stroke. An Alt+left press that stays under that threshold samples. Alt+right-drag is SizeHud from the first pixel and never starts a stroke. Shift+click under the threshold still seeds or extends the straight chain.",
+          "source": "research",
+          "confidence": 80,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D05": {
-          "behavior": "P2.StickyInk: width keys and Alt eyedropper; preserve the current Shift straight-segment chain.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "While Brush is armed and no text field has focus, brush chords run before the global command map. [ and ] step size. Shift+[ steps softness up and Shift+] steps it down, by 25 points. Shift+click steps opacity down by 10 percent, wrapping from 10 percent to 100. Shift+right-drag scrubs opacity vertically (up = more opaque, 100 screen px across the range) with the circle fixed on the press point. Alt+right-drag scrubs size horizontally (right = larger, 1 screen px per pixel) and softness vertically (up = softer), with the circle fixed on the press point. Ctrl+right-drag opens the color wheel and does not turbo-pan. Ctrl wins over Shift, and Alt wins over Shift. Those right-button chords take the button away from right-drag pan and the node context menu. Alt+left stays the eyedropper. Tool letters, D, X, Space pan, scroll zoom, and Ctrl+Z keep their current commands. Esc closes an open HUD before it disarms the brush. Eraser shares [ ] and SizeHud. Softness and the color wheel belong to Brush.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D06": {
-          "behavior": "No point snapping along a freehand brush stroke. Preserve the current Shift straight-segment and Alt eyedropper semantics; committed path grips still use P1.node.osnap.",
+          "behavior": "A freehand stroke still does not point-snap. SizeHud and the color wheel ignore grid and object snap. Grips on a committed stroke still use P1.node.osnap.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D07": {
-          "behavior": "No new lock binding. Preserve existing locks; numeric property editing is separate from drawing.",
+          "behavior": "No Tab lock for size, softness, or hue. Existing locks on other tools stay as they are.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D08": {
-          "behavior": "centerline W/H stringers; scale the centerline about bounds center while retaining stroke width/taper. An ink-envelope measurement or linked Scale ink is a distinct alternative, not an automatic consequence.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Selected strokes keep their centerline W/H stringers. While Brush is armed, [ ] keep the screen-px tiers already shipped (under 10: 1, 10-50: 5, 50-100: 10, over 100: 25) and convert through zoom. Shift+[ ] steps softness through 0, 25, 50, 75, 100. SizeHud horizontal travel changes diameter by 1 screen px per pixel. Typing digits does not enter a width.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D09": {
-          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "The brush dock tooltip reads: Brush — [ ] size, Shift+[ ] softness, Shift+click steps opacity, Shift+right-drag scrubs opacity, Alt+right-drag scrubs size and softness from the press point, Ctrl+right-drag opens the color wheel. While Brush is armed, the bottom readout shows diameter in screen px and softness as Hard or a percent. During SizeHud the width circle and those two numbers update live. The color wheel is pointer-attached chrome: a thin hue ring, a circular saturation/value disk, and outer dots on 24 equal angles. Slot 0 is 6 o'clock; slot numbers increase clockwise. The document stores that many recent colors. Fill, Stroke, and text editors keep showing the first 6 only. A color seen for the first time fills the next empty slot. At 24, the oldest color is dropped, survivors pack back against 6 o'clock, and the new color takes the next slot. Using a color already on the ring moves it to 6 o'clock and refreshes its age. The wheel opens translated so the current foreground sits under the pointer. Dragging inside the disk changes saturation and value. Dragging in the hue ring changes hue. Landing within 8 px of a dot adopts that color and moves the pointer to that color on the saturation/value disc. The wheel stays where it opened. The ring reshuffles on release. Readout type is window chrome. The wheel and HUD numbers stay in screen px. The width circle stays world times zoom.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Idle Brush and the size HUD paint a filled tip in the foreground color. The fill is opaque from the center out to (1 - softness) of the radius, then fades to clear at the rim. A thin white ring marks the full diameter.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D11": {
-          "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Releasing a stroke journals one Add and stores the softness used. Width, softness, and foreground edits from keys or HUDs are tool state and are not journaled. Releasing the color wheel keeps the foreground and writes it into the 24-slot recent list. A brush stroke is a radial bitmap of its centerline (Stroke.stamp, and any softness above zero). Both painters share that bitmap: opaque out to (1 - softness) of the radius, clear at the rim, maximum coverage where dabs overlap. The HTML artifact embeds the PNG. A hard non-brush stroke stays a vector path. A Shift segment that starts at the end of the last brush mark extends that stroke instead of adding a node, with one tip per vertex, so the chain is one stamp: joints and self-overlaps never exceed the opacity, and each segment is its own undo step. Finished brush strokes use Photoshop's default Normal blend: source-over, opacity on the whole stroke, so one stroke does not build past that opacity and a later stroke covers an earlier one.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D12": {
-          "behavior": "P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged.",
+          "behavior": "Esc during SizeHud or the color wheel restores width, softness, and foreground from the moment the right button went down, then closes the overlay. Brush stays armed. The next Esc disarms to Select. A stroke still commits on pointer release.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "behavior": "P1.shape.properties: a selected stroke keeps the shared Fill / Stroke / Corners strip and its exterior stringers.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D14": {
-          "behavior": "Circular Stroke and, if explicitly closed, Fill; preserve the current brush profile. All eyedroppers, including temporary Alt while Brush is armed, must sample across the desktop via the shared owner.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "A committed stroke keeps the softness it was painted with. Recoloring that stroke later leaves the brush softness where it was. The temporary Alt eyedropper, and the Eyedropper tool, still sample across the desktop.",
+          "source": "precedent",
+          "confidence": 85,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D15": {
-          "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "The selection strip gains no size or softness control. This pass adds no opacity digits, flow, airbrush, or brush-preset cycling on comma/period. The color wheel has no Space-to-jump between hue and saturation.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D16": {
-          "behavior": "Deviates P1.curve.create-style: preserve the existing brush foreground color, brush width, round caps/joins and taper defaults. Batch style edits do not change the brush settings.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Deviates P1.curve.create-style: foreground, width, softness, and round caps stay on the brush. The stroke is a uniform radial stamp so it matches the round tip. A style edit on a selected shape does not change them. The stroke stores the softness that was current at release.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         },
         "D17": {
-          "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "behavior": "SizeHud and the color wheel consume the pointer for the whole right-button hold, so they neither paint, select, nor open the context menu. Committed ink is still picked on its stroke width.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-22"
         }
       }
     },
@@ -3552,11 +3686,11 @@
       "canvas": "shape-content-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "Double-click the filled region of any unlocked closed shape to enter text editing in place. A Text squircle joins its property strip while text exists or is being edited. Right-click exposes Place image, Replace image, Edit crop and Remove image as applicable.",
+          "behavior": "Double-click anywhere on an unlocked closed shape (rectangle, ellipse, or closed path, including an unfilled interior) to open the text editing configuration and a blinking caret. The Text control stays on the selection palette while that session is open and whenever the shape's text is non-empty.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-18"
+          "decided": "2026-09-21"
         },
         "D02": {
           "behavior": "P1.shape.properties: the property strip stays attached to selection. Text editing is a session on the existing shape, not a sticky drawing tool; finishing returns to ordinary Select.",
@@ -3566,11 +3700,11 @@
           "decided": null
         },
         "D03": {
-          "behavior": "Rectangle text starts at an inset upper-left caret. Proposed for ellipses, stars and irregular shapes: center a wrapped text block in a safe rectangular interior region; do not put text in star tips or holes. The same shape may retain text above an image fill.",
-          "source": "guess",
-          "confidence": 55,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "New shape text is center-justified (TextAlign::Center) and wraps inside an inset of the shape. The caret blinks at the insertion point of that centered block. Ellipses and closed paths use the same inset of their bounds and clip glyphs to the outline. Re-entry keeps the stored alignment.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-21"
         },
         "D04": {
           "behavior": "P1.node.select/move remain unchanged. A double-click enters typing; dragging selected text selects characters. Property controls own their pointer gestures and never start a shape move.",
@@ -3601,74 +3735,729 @@
           "decided": null
         },
         "D08": {
-          "behavior": "Typeface, text color, inline editable font size, Bold, Underline and paragraph alignment are available in the compact Text editor. Numeric values are edited directly; text color reuses the existing RGB/recent-colors/desktop-eyedropper panel.",
+          "behavior": "Typeface and text height are fillet capsules at CORNER_HEIGHT; the menu arrow sits in a circle at the capsule end. Typefaces are Sans, Serif, Mono, and the installed system faces in Typeface. Text height offers 12, 16, 24, 32, 48, 64, and 96 (default 24). Justification is Left, Center, or Right. Font color uses the shared color editor. Color, typeface, size, and justification update the caret immediately, and selection follows the aligned glyphs. One style applies to the whole block.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-18"
+          "decided": "2026-09-22"
         },
         "D09": {
-          "behavior": "Dragging one image over an eligible shape shows its actual silhouette and a clipped crop preview when the image is ready. On leave or cancel, the preview vanishes without mutation. P1.shape.properties selection fading applies while the Text adjustment panel is open.",
-          "source": "stated",
-          "confidence": 100,
-          "verdict": "approved",
-          "decided": "2026-09-18"
+          "behavior": "P1.shape.properties selection fading applies while the Text adjustment panel is open. Typed characters paint in the shape as they are entered.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
         },
         "D10": {
-          "behavior": "A blinking insertion caret appears inside the text area, without a separate text window. Text hover uses the I-beam; an eligible image-drop target indicates acceptance.",
+          "behavior": "A blinking insertion caret appears inside the text area, without a separate text window. Text hover uses the I-beam.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-18"
+          "decided": "2026-09-21"
         },
         "D11": {
-          "behavior": "P0.2/P0.3: text sessions, formatting changes and image attachments each use invertible SceneCmd groups. Preserve the host id, geometry, stroke, transforms and links. Images remain linked items and use centered cover fitting without distortion. Empty/no-op text sessions add no undo step.",
+          "behavior": "P0.2/P0.3: a finished text session and each formatting change are invertible SceneCmd groups. Preserve the host id, geometry, stroke, transforms and links. Empty or unchanged sessions add no undo step.",
           "source": "pattern",
           "confidence": 90,
           "verdict": "proposed",
           "decided": null
         },
         "D12": {
-          "behavior": "Match existing text behavior: Escape or click outside finishes and commits typing; Ctrl+Z undoes the session. Escape cancels an uncommitted property/crop/drop preview. Canceling an image picker changes nothing; late results never attach to another workbook or deleted/locked host.",
+          "behavior": "Match existing text behavior: Escape or click outside finishes and commits typing; Ctrl+Z undoes the session. Escape cancels an uncommitted Text-palette preview.",
           "source": "precedent",
           "confidence": 90,
           "verdict": "proposed",
           "decided": null
         },
         "D13": {
-          "behavior": "Follow DYNAMIC_PANELS.md: squircle Text icon; one restrained, theme-aware editor above the strip; font selector, underlined size, color access, B/U and alignment controls. Reuse the shared color editor. No permanent Apply/Cancel footer or secondary numeric dialog.",
+          "behavior": "Double-click opens the Text editor above the selection strip: typeface capsule, justification, text-height capsule, and color access. The Text squircle stays while editing and whenever the shape's text is non-empty. Follow DYNAMIC_PANELS.md and P1.shape.properties. No Apply/Cancel footer.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-18"
+          "decided": "2026-09-22"
         },
         "D14": {
-          "behavior": "Double-click to resume typing. Shape-image crop is entered through the image action/context menu so double-click keeps its text meaning. Reposition the image inside a fixed true silhouette; replacing/removing the image preserves text, outline and host identity.",
-          "source": "guess",
-          "confidence": 55,
-          "verdict": "proposed",
-          "decided": null
-        },
-        "D15": {
-          "behavior": "Proposed first scope: one typography style and paragraph alignment for the whole shape text block, matching current Text nodes; no mixed-font spans, text-on-path, linked text frames or new drawing tool. If selected-word formatting is needed, decide it before changing the durable text model.",
-          "source": "guess",
-          "confidence": 50,
-          "verdict": "proposed",
-          "decided": null
-        },
-        "D16": {
-          "behavior": "Reuse the Text tool font/color defaults when first creating text; preserve existing values on re-entry. Image fill does not replace the host stroke or corner settings. Do not seed unrelated drawing defaults from a mixed selection.",
+          "behavior": "Double-click the shape again to resume typing at the stored text. Clearing the text removes the Text control from the palette.",
           "source": "precedent",
           "confidence": 90,
           "verdict": "proposed",
           "decided": null
         },
+        "D15": {
+          "behavior": "One typeface, size, color, and justification for the whole shape text block. No mixed-font spans, bold, underline, text-on-path, linked text frames, or a new drawing tool. Shape image fill stays out of this pass.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-21"
+        },
+        "D16": {
+          "behavior": "First text on a shape uses center alignment, Sans, size 24, and the Text tool's ink color. Re-entry keeps the shape's stored family, size, color, and alignment.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
         "D17": {
-          "behavior": "Only true closed regions can host content: rectangle/ellipse and closed paths, including stars, concave trims and compound paths. Open curves, holes, hidden or locked targets reject attachment. Interior text/drop picking works on unfilled closed shapes. Multiple-file drops keep the existing board placement behavior.",
+          "behavior": "Only unlocked closed regions accept text: rectangle, ellipse, and closed paths, including stars and concave trims. Open curves, holes, hidden nodes, and locked nodes do not enter text edit. An unfilled closed interior still accepts the double-click.",
           "source": "pattern",
           "confidence": 90,
           "verdict": "proposed",
           "decided": null
+        }
+      }
+    },
+    "portal-slate-board": {
+      "status": "agreed",
+      "family": "portal",
+      "reference": "Nested Slate workbook board (Art. V.3 document portal, spike S1)",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.portal",
+        "P2.PortalPlace",
+        "P2.PortalHost"
+      ],
+      "canvas": "portal-slate-board-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Slate board only. Command `board.portal.slate`. Palette name \"slate board\" (aliases: nested board, workbook portal). Portals flyout, no single-key chord. Not a File Atlas feature.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D02": {
+          "behavior": "P2.PortalPlace.oneshot / P0.4. One-shot: commit returns to Select. Space or Enter re-arms.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D03": {
+          "behavior": "P2.PortalPlace.gesture: Armed, then Dragging(rect), then Committed(unbound). Release paints \"Choose workbook…\". Binding is a separate step (D19).",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D04": {
+          "behavior": "P2.PortalPlace.click. Travel under `draft.drag_threshold` (4 screen px) places 960×540 world units (`PORTAL_DEFAULT_W` × `PORTAL_DEFAULT_H`) centred on the click. Past the threshold, the drag is the rect.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D05": {
+          "behavior": "P2.PortalPlace.aspect. Shift during the drag locks 16:9. An unmodified drag is free-aspect. Ctrl and Alt do nothing during placement.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D06": {
+          "behavior": "P2.PortalPlace.snap. Grid snap and smart guides apply to the frame rect. The child scene does not snap to the parent grid. No ortho lock.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D07": {
+          "behavior": "n/a. Rect placement has no directional parameter.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D08": {
+          "behavior": "No digit entry during placement. After bind, Rebind edits the path. Frame size uses the existing node resize, not a new numeric mode.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D09": {
+          "behavior": "While dragging: portal outline and live width × height in the dock readout. Bound and idle: file name, health (Ok, Unknown, or Missing). Selected readout adds the relative locator and whether that workbook is an open tab.",
+          "source": "precedent",
+          "confidence": 78,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D10": {
+          "behavior": "Crosshair while armed. Arrow over the frame, the maximize square, and the chrome. Version one has no contents-focus cursor.",
+          "source": "precedent",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D11": {
+          "behavior": "One journaled Add: rect, class Document, kind Slate, source None. Binding later is a Patch. The child scene is not copied into the parent journal. One gesture is one undo. No BoardLastStyle (D16).",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D12": {
+          "behavior": "Esc during the drag cancels placement and returns to Select (P0.1). Esc on a selected portal does not unbind it. Maximize, if up, peels first (D34). There is no contents-focus layer in version one.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D13": {
+          "behavior": "P1.portal.pick and P1.node.transform. Hover resize, axis-aligned, no rotate chrome. Child nodes are not grips. Maximize square per P1.portal.chrome.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D14": {
+          "behavior": "Rebind is `portal.slate.source`, a journaled Patch that drops the cached child. Resize refits the same child (D20). Edits to the board happen in the child tab and stay on the child journal.",
+          "source": "pattern",
+          "confidence": 82,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D15": {
+          "behavior": "Cut in version one: in-place editing; contents-focus tools; the child's Grid, Venn, or Lens; a second Slate process; a WebView of the export; binding the parent path; a `.slate` drop on empty canvas becoming a portal; bake-merging the child into the parent; agent writes into the child; reading secrets. Not cut: place, bind a local `.slate`, fitted paint of the child's Board, open-in-tab, refresh, cycle refusal, export of the child rendered in the frame.",
+          "source": "research",
+          "confidence": 78,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D16": {
+          "behavior": "P1.portal.style. No BoardLastStyle. Unauthored fill follows Palette::card, slightly lighter than the canvas in both light and dark. No outline unless portal.stroke is authored. Theme changes do not write the scene.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D17": {
+          "behavior": "P1.portal.pick. Click and marquee hit the frame rect. A click on the painted child selects the frame, not a child node. `border_hit_px` comes only from `portal_frame_tokens`.",
+          "source": "pattern",
+          "confidence": 88,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D18": {
+          "behavior": "Document (Art. V.3). The child workbook's journal owns mutations of that board. The parent journals the frame only: rect, title, source, fill, stroke. `PortalClass::Document` is new. Determinism is not required.",
+          "source": "pattern",
+          "confidence": 92,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D19": {
+          "behavior": "Dropping a `.slate` file on a board whose scene already has nodes opens a chooser: Open (the existing tab path, `open_doc_at`) or Insert (a bound Slate portal, 960×540, centred on the drop). A blank board, meaning no board nodes, skips the chooser and opens the file as a tab. Browse on an unbound Slate portal, or `portal.slate.source`, still binds. One `SourceUri`, a local `.slate` file, stored relative-first (Art. IX.2). Health is Ok, Missing, or Unknown, and the card names the locator. Refused: empty, a directory, a URL, a non-`.slate` file, the parent workbook path, and a locator that closes a cycle. Rebind is a journaled Patch. Child-internal links resolve against the child workbook.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D20": {
+          "behavior": "No journaled query in version one. The fitted region is the union of the child's visible Board node rects (see Fit). An empty union paints \"Empty board\". Frames are nodes in that union, not a paged deck.",
+          "source": "guess",
+          "confidence": 52,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D21": {
+          "behavior": "Load and reload run off the frame loop and are generation-tagged (Art. II.3). A stale load is dropped. Triggers: bind, `portal.slate.refresh`, and a changed child mtime. If that workbook is already an open tab, paint the live scene, including unsaved edits, instead of the disk copy. The last good scene stays up across a refresh.",
+          "source": "guess",
+          "confidence": 60,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D22": {
+          "behavior": "Click selects the frame. Double-click or Enter (`portal.slate.open`) opens the child through `open_doc_at`, which focuses the tab when that canonical path is already open. Wheel, pan, and board tools stay with the parent (P0.5). No contents-focus in version one. The fit inverse in Fit is the later edit-mode map.",
+          "source": "research",
+          "confidence": 78,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D23": {
+          "behavior": "P0.9. Board zoom scales the portal and the fitted child together, with no screen-size floor. Type that is too small drops, using the board painter's existing LOD. The fit is in world space; screen size is that result times parent zoom.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D24": {
+          "behavior": "Document class: `slate-artifact` renders the child's Board into the frame with the same fit function (Art. IV). A caption names the relative locator and health. Unbound, Missing, cycle, and empty export that state card. Depth cap matches D29. The child secret store and WebView profile are not packaged.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D25": {
+          "behavior": "No bake command in version one. Copying the child's nodes into the parent is a document merge and stays deferred. The portal remains a link.",
+          "source": "guess",
+          "confidence": 48,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D26": {
+          "behavior": "P1.portal.sync. Frame, source, fill, and stroke sync as journal deltas. Each peer resolves the relative locator and loads locally. A peer who cannot resolve it paints Unknown and names the locator. The loaded scene is not transmitted.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D27": {
+          "behavior": "`board.portal.slate`, `portal.slate.source`, `portal.slate.refresh`, and `portal.slate.open` are registry commands (Art. VII.1). Agent frame and source mutations stage for acceptance (Art. VII.6). An agent may not write the child, read secrets, or bind a cycle or the parent path. The beacon carries locator and health, not the child scene.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D28": {
+          "behavior": "Not deterministic (Art. V.3, document class). The caption is the relative locator, health, and the child mtime when known. Two peers may differ while one has unsaved tab edits (D21).",
+          "source": "pattern",
+          "confidence": 82,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D29": {
+          "behavior": "One cached child scene per canonical path, shared by every portal on that file; the fit stays per portal. Generation tags drop stale loads. Paint depth is 2: a Slate portal inside the child paints the grandchild, and anything deeper paints a card naming the locator without loading it. The frame loop does not read the child file. Child tessellation is cached with the scene (Art. II).",
+          "source": "guess",
+          "confidence": 58,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D30": {
+          "behavior": "Unbound paints \"Choose workbook…\". Missing and Unknown name the locator. A wrong kind is refused and the frame stays unbound, with the reason. A cycle or a self-bind paints \"This workbook already contains that board\" and names both locators, without loading. An empty board paints \"Empty board\". An unreadable file paints the parse error. A failed child does not take down the parent board.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D31": {
+          "behavior": "Journaled: rect, title, source, fill, stroke. Derived, never journaled: loaded scene, fit transform, load generation, hover, maximize, open-tab hint. No inner camera in version one.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D32": {
+          "behavior": "Local `.slate` only. No network fetch, no script, no WebView. Loading parses the scene and does not start the child's agent sidecars, does not open the child's web portals as live pages, and does not read secrets. Child host portals paint their frame and empty or poster state inside the nest.",
+          "source": "research",
+          "confidence": 70,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D33": {
+          "behavior": "P1.portal.chrome. No identity tab (web-only). Maximize square at the upper right. Right-click: Open workbook, Rebind, Refresh, Maximize. No Slate top bar inside the frame.",
+          "source": "pattern",
+          "confidence": 88,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D34": {
+          "behavior": "P1.portal.maximize. Maximize fills the Slate canvas pane with the same fitted board, still read-only. The node rect is not mutated. Esc peels maximize first. Maximize does not open a tab.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D35": {
+          "behavior": "P1.portal.local-ui. Locator, health, Rebind, Refresh, and Open workbook stay on this portal's inspector and menu. They do not appear on Document Settings or any board-wide panel.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        }
+      }
+    },
+    "frame-deck": {
+      "status": "shipped",
+      "family": "tool",
+      "reference": "Slate presentation order",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.shape"
+      ],
+      "canvas": "frame-deck-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Selecting one frame shows a Deck squircle on the selection strip, with the hover tooltip Order frames: click each one, or draw a stroke through them. It is not a tools-dock icon. No key. Command board.tool.deck, aliases slides and presentation order. Clicking the squircle arms the tool; clicking it again returns to Select. The squircle stays highlighted while armed. Repeat-last re-arms it.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D02": {
+          "behavior": "Sticky. A click or a finished stroke commits that order change and leaves the tool armed so the next frame or stroke can extend the same sequence. Another tool, or Esc with no stroke in progress, returns to Select.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D03": {
+          "behavior": "Armed. Click a frame to append it. Press and drag to draw a stroke; each frame whose rect the stroke first enters is appended in that order. Release commits the stroke. The stroke is preview only and is not a node.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D04": {
+          "behavior": "Pointer travel from press to release at or below draft.drag_threshold (4 screen px) is a click. Travel beyond that is a stroke. The split uses unsnapped screen travel, same as DragRect.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D05": {
+          "behavior": "No Shift, Ctrl, or Alt chord changes the gesture. Selection shortcuts do not run while the tool is armed.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D06": {
+          "behavior": "The stroke is freehand. F8 ortho, F9 grid, and object snaps do not move it. A frame counts when the stroke polyline first intersects its rect, topmost frame only where rects overlap.",
+          "source": "guess",
+          "confidence": 50,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D07": {
+          "behavior": "n/a. Tab does nothing. There is no length or angle to lock.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D08": {
+          "behavior": "n/a. Digits do not edit order. The existing frame Prev and Next squircles still swap neighbors after the tool is left.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D09": {
+          "behavior": "While armed, every frame shows its deck index (1-based position in frames_in_order) above its top-left, through canvas_text at 14 world units, dropped when illegible (P0.9). The in-progress stroke paints in Palette::accent at width 2 world units. A frame lights as the stroke enters it. The dock readout shows n slides.",
+          "source": "guess",
+          "confidence": 60,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D10": {
+          "behavior": "Crosshair while armed, including over a frame.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D11": {
+          "behavior": "One journaled patch of FrameNode.order per click and per completed stroke, command board.tool.deck. A click appends a frame, or moves it to the end of the session if it is already there. A stroke appends only frames not yet in the session, in first-contact order. Untouched visible frames keep their previous relative order after that session. Hidden frames stay hidden and are not slides. A gesture that does not change order adds no undo step. One changed gesture is one undo. Re-arming keeps the session.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D12": {
+          "behavior": "Esc during a stroke drops the stroke and commits nothing. A second Esc disarms to Select. Committed order changes stay; Ctrl+Z undoes the last gesture.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D13": {
+          "behavior": "The tool does not select frames and does not show resize grips. Deck index badges are the only added chrome, and only while armed. Leaving the tool restores ordinary frame selection.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D14": {
+          "behavior": "Frame-strip Prev and Next still swap one selected frame with its neighbor. Re-arming Deck continues the same document order: further clicks and strokes append frames not yet in the session. Playback stays F5, View → Present, and the frame-strip Present squircle.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D15": {
+          "behavior": "Cut: a stored path or ink node; starting presentation on commit; hiding or deleting frames that were not touched; marquee select; changing fill, stroke, corner, or membership; reordering non-frames.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D16": {
+          "behavior": "The tool does not read or write BoardLastStyle. New frames stay on the frame recipe: fillet radius 8 (TEXT_CARD_FILLET) and no stroke. The Fill, Stroke, and Corners squircles still edit a selected frame.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        },
+        "D17": {
+          "behavior": "A click hits the topmost frame whose rect contains the point, the same rect test as Scene::frame_at. Empty board and non-frames do nothing. A stroke hits by polyline intersection with the frame rect, first contact wins, topmost on overlap.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-22"
+        }
+      }
+    },
+    "select-sweep": {
+      "status": "shipped",
+      "family": "tool",
+      "reference": "AutoCAD / Rhino window vs crossing marquee",
+      "inherits": [
+        "P0.*",
+        "P1.node.select"
+      ],
+      "canvas": "select-sweep-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Existing Select tool: V, or the Select/Pan dock button. The sweep starts on left-drag on empty board, or on a frame body that selects its contents (frame_body_selects_contents). Command stays board.marquee. No new key.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D02": {
+          "behavior": "Select stays armed after release. The sweep does not change tool stickiness.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D03": {
+          "behavior": "Press, drag, release. Mode is the pointer's screen x against the press: pointer.x >= press.x is Window; pointer.x < press.x is Crossing. A drag with no horizontal travel is Window. The mode updates live while the button is held.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D04": {
+          "behavior": "A press on a pickable node still moves or scales it. A press on empty space, or a frame body, is the sweep. Release replaces or extends the selection even when the rect is only a few pixels; a miss on empty space clears the selection unless Shift or Ctrl is held.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D05": {
+          "behavior": "Shift or Ctrl held at release adds the hits to the current selection (P1.node.select). Neither modifier removes hits. Alt does not force Window. Pan chords (Space, middle, right) never start this sweep.",
+          "source": "pattern",
+          "confidence": 70,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D06": {
+          "behavior": "The sweep rect is the raw screen drag converted by the camera. F8 ortho, F9 grid, and object snaps do not move its corners.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D07": {
+          "behavior": "n/a. Tab does not lock the sweep.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D08": {
+          "behavior": "n/a. Digits do nothing. Typing W or C during the drag does not force a mode.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D09": {
+          "behavior": "Window: solid 1 px stroke in palette.select and a fill of that color at alpha 0.12, which is today's preview. Crossing: dashed stroke, 6 px on and 4 px off, in a new token board.marquee.crossing (light #3D9A4A, dark #7DDEA0) with the same 0.12 fill. Both rects are screen-space chrome on the pointer drag, not canvas objects.",
+          "source": "research",
+          "confidence": 70,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D10": {
+          "behavior": "The arrow cursor stays. No window or crossing glyph.",
+          "source": "pattern",
+          "confidence": 80,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D11": {
+          "behavior": "Release writes board_sel. No modifier replaces it with the hits. Shift or Ctrl extends it. expand_board_selection still promotes a hit member to its group. The selection is not journaled. Hidden and locked nodes stay out. Frames are not selected. A sweep that started inside a frame only tests that frame's members.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D12": {
+          "behavior": "Esc during the drag drops the sweep and leaves board_sel unchanged.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D13": {
+          "behavior": "P1.node.transform after the selection lands. The sweep adds no grips of its own.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D14": {
+          "behavior": "n/a. The sweep does not create or edit geometry.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D15": {
+          "behavior": "Cut: Alt forcing Window; W/C typed aliases; Ctrl removing hits; File Atlas card marquee; the Z zoom-window; portal-internal file marquee; Direct Selection (A) anchor marquee, which keeps selecting anchors whose points lie inside the box.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D16": {
+          "behavior": "n/a. The sweep does not read or write BoardLastStyle.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "proposed",
+          "decided": null
+        },
+        "D17": {
+          "behavior": "Window selects a node only when its pick geometry lies entirely inside the rect. Stroke-pick shapes and connectors: every flattened centerline sample is inside. Other nodes: all four corners of the rotated rect are inside. Crossing keeps marquee_hits_node: stroke intersection, or the rotated rect intersecting the sweep. A line that only crosses the box is selected right-to-left and missed left-to-right.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": null
+        }
+      }
+    },
+    "image-crop": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Image corner palette plus existing InDesign-style crop mode",
+      "inherits": [
+        "P0.*",
+        "P1.node",
+        "P1.shape.properties"
+      ],
+      "canvas": "image-crop-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Crop lives in the Corners squircle, with the fillet. The panel shows Fillet/Chamfer and an Off/Crop control. Crop turns the mode on for every selected croppable image. C and double-click still enter that same mode. 3D, text cards, and workbooks stay ineligible.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D02": {
+          "behavior": "Crop stays on until Off is chosen in the Corners panel, Enter, Esc, or a tool other than Select. It is not a sticky drawing tool and does not repeat as a new image.",
+          "source": "precedent",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D03": {
+          "behavior": "All selected frames display the crop in real time with the prime. Each image shows a corner bracket and an edge bar on every side. Dragging one clips that side. The picture stays fixed in the world and the frame shrinks over it. Releasing writes that same crop onto every selected croppable image.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D04": {
+          "behavior": "A press that travels less than draft.drag_threshold (4 screen px) does not clip. The Off/Crop control is a click and never starts a board drag or a marquee.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D05": {
+          "behavior": "No extra modifier. Shift does not lock aspect. The multi-selection itself is what copies the crop. Alt-drag still duplicates nodes and does not start a crop.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D06": {
+          "behavior": "F8, F9, and object snap do not move a crop edge. The window stays inside the uncropped picture and cannot shrink below MIN_CROP_WORLD (8 world units) or 5% of the source on either axis.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D07": {
+          "behavior": "n/a. Tab does not lock a crop edge.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D08": {
+          "behavior": "n/a in this pass. There is no typed crop inset. The Corners capsule still edits the fillet.",
+          "source": "guess",
+          "confidence": 50,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D09": {
+          "behavior": "While crop is on, each selected croppable image shows the white brackets, edge bars, and a white crop border. The dimmed full picture and the scrim outside the window stay on the image under the pointer. The Corners squircle stays up, with Crop shown on.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D10": {
+          "behavior": "The hit is the painted bracket or bar expanded by CROP_HIT_PAD_PX (4) through canvas_scale. Left and right bars use the horizontal resize cursor. Top and bottom use the vertical resize cursor. Corners use the diagonal resize cursors.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D11": {
+          "behavior": "Pointer-up writes one journal group: the grabbed image's new frame and Crop, and the same Crop on every other selected croppable image, each frame resized so its own picture stays put. An unchanged drag adds no undo step. Undo restores every image in that group. Every path that sends this image to an agent uses only the visible crop window. The hidden part of the source file is omitted.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D12": {
+          "behavior": "Esc during a drag restores the gesture-start frames and crops and leaves crop mode on. Esc or Enter with no drag exits crop mode and keeps the last committed crop. The Corners fillet is untouched.",
+          "source": "precedent",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D13": {
+          "behavior": "Crop on paints Photoshop crop chrome: a white corner bracket on each corner and a short white bar across the middle of each side, each with a dark edge. Ordinary resize handles hide on those images until crop turns off. The fillet stays in the same Corners squircle.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D14": {
+          "behavior": "Turning crop off leaves the authored Crop on the node. Turning it on again puts the brackets and bars on the current crop edges. Save and HTML export keep the existing crop serialization.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D15": {
+          "behavior": "No rule-of-thirds grid, no rotate-to-straighten, and no destructive pixel delete. Dragging inside the picture does not pan the photo.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D16": {
+          "behavior": "n/a. Crop does not read or write BoardLastStyle.",
+          "source": "pattern",
+          "confidence": 90,
+          "verdict": "approved",
+          "decided": "2026-09-24"
+        },
+        "D17": {
+          "behavior": "Each bracket and bar is hit across its full graphic plus CROP_HIT_PAD_PX. That hit overrides wires and other transient handles. Crop mode does not clear the rest of the selection. Pressing empty canvas exits crop mode and deselects, matching the selection strip.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-24"
         }
       }
     }

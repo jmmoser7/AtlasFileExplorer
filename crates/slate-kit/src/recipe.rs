@@ -156,6 +156,7 @@ impl PortalKindRef {
             "agent" => Some(PortalKind::Agent),
             "web" => Some(PortalKind::Web),
             "file_atlas" => Some(PortalKind::FileAtlas),
+            "slate" => Some(PortalKind::Slate),
             _ => None,
         }
     }
@@ -247,8 +248,13 @@ impl Recipe {
                     PortalKind::FileAtlas => PortalNode::unbound_file_atlas(
                         p.title.clone().unwrap_or_else(|| "File Atlas".into()),
                     ),
+                    PortalKind::Slate => {
+                        PortalNode::unbound_slate(p.title.clone().unwrap_or_else(|| "Board".into()))
+                    }
                 };
-                node.class = PortalClass::Host;
+                if kind != PortalKind::Slate {
+                    node.class = PortalClass::Host;
+                }
                 node.source = p.source.clone().map(|locator| SourceUri { locator });
                 if let Some(f) = p.fill {
                     node.fill = f.resolve(ctx.accent);
@@ -268,15 +274,21 @@ impl Recipe {
             .unwrap_or_default();
         let fill = s.fill.map(|c| c.resolve(ctx.accent));
         let kind = match s.node {
-            NodeTarget::Frame => NodeKind::Frame(FrameNode {
-                title: s
-                    .frame
-                    .title
-                    .replace("{n}", &(ctx.next_frame_order + 1).to_string()),
-                order: ctx.next_frame_order,
-                fill: s.frame.fill.resolve(ctx.accent),
-                assignments: std::collections::BTreeMap::new(),
-            }),
+            NodeTarget::Frame => {
+                let frame_fill = s.frame.fill.resolve(ctx.accent);
+                NodeKind::Frame(FrameNode {
+                    title: s
+                        .frame
+                        .title
+                        .replace("{n}", &(ctx.next_frame_order + 1).to_string()),
+                    order: ctx.next_frame_order,
+                    fill: frame_fill,
+                    fill_authored: frame_fill != Rgba::WHITE,
+                    assignments: std::collections::BTreeMap::new(),
+                    stroke,
+                    corner: s.corner,
+                })
+            }
             NodeTarget::Rect | NodeTarget::Ellipse => NodeKind::Shape(ShapeNode {
                 shape: if s.node == NodeTarget::Rect {
                     ShapeKind::Rect
@@ -288,14 +300,16 @@ impl Recipe {
                 corner: s.corner,
                 flip: false,
                 path: None,
+                text: None,
             }),
             NodeTarget::Text => NodeKind::Text(TextNode {
                 text: s.text.text.clone(),
-                family: s.text.family,
+                family: s.text.family.into(),
                 size: s.text.size,
                 color: s.text.color.resolve(ctx.accent),
                 align: s.text.align,
                 fill: s.text.fill.map(|c| c.resolve(ctx.accent)),
+                agent: None,
             }),
             // The gesture owns path geometry; the recipe only styles it.
             NodeTarget::Path => return Vec::new(),

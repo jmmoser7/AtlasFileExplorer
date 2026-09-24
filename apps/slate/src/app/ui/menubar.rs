@@ -2,15 +2,108 @@
 //! All painting lives in `atlas_shell::menubar`; this file supplies data and
 //! applies returned actions.
 
+use super::super::settings::SnapReach;
 use super::super::SlateApp;
+use super::tools::osnap_command_id;
 use atlas_shell::dock::DockSide;
 use atlas_shell::menubar::{self, AppIcon, MenuIcon, MenuItem, MenuSpec, UnifiedTopBarModel};
 use atlas_shell::tabs::{TabAction, TabSpec};
 use eframe::egui;
 
+/// A workbook tab is nested when another open tab hosts it in a Slate portal.
+fn tab_is_nested(app: &SlateApp, index: usize) -> bool {
+    use slate_doc::scene::{resolve_source, workbook_key, NodeKind, PortalKind};
+    let Some(path) = app.tabs.get(index).and_then(|tab| tab.path.as_deref()) else {
+        return false;
+    };
+    let child = workbook_key(path);
+    app.tabs.iter().enumerate().any(|(i, host)| {
+        i != index
+            && host.doc.scene.nodes.iter().any(|node| {
+                let NodeKind::Portal(portal) = &node.kind else {
+                    return false;
+                };
+                if portal.kind != PortalKind::Slate {
+                    return false;
+                }
+                let Some(src) = &portal.source else {
+                    return false;
+                };
+                let resolved = resolve_source(host.path.as_deref(), &src.locator);
+                workbook_key(&resolved) == child
+            })
+    })
+}
+
+fn snap_items(app: &SlateApp) -> Vec<MenuItem> {
+    use slate_doc::SnapKind;
+    let mut items = vec![
+        MenuItem::new("board.grid", "Grid")
+            .icon(MenuIcon::Settings)
+            .checked(app.board_show_grid),
+        MenuItem::new("board.snap_grid", "Snap to grid")
+            .icon(MenuIcon::Settings)
+            .shortcut("F9")
+            .checked(app.board_snap_grid),
+        MenuItem::new("board.osnap", "Object snaps")
+            .icon(MenuIcon::Settings)
+            .checked(app.board_osnap.enabled),
+        MenuItem::new("board.smart_guides", "Smart guides")
+            .icon(MenuIcon::Settings)
+            .checked(app.board_smart_guides),
+        MenuItem::new("board.snap_reach.tight", "Reach · Tight")
+            .icon(MenuIcon::Settings)
+            .checked(app.board_snap_reach == SnapReach::Tight)
+            .separated(),
+        MenuItem::new("board.snap_reach.nearby", "Reach · Nearby")
+            .icon(MenuIcon::Settings)
+            .checked(app.board_snap_reach == SnapReach::Nearby),
+        MenuItem::new("board.snap_reach.wide", "Reach · Wide")
+            .icon(MenuIcon::Settings)
+            .checked(app.board_snap_reach == SnapReach::Wide),
+    ];
+    for (i, kind) in SnapKind::ALL.iter().copied().enumerate() {
+        let mut item = MenuItem::new(osnap_command_id(kind), kind.label())
+            .icon(MenuIcon::Settings)
+            .checked(app.board_osnap.is_kind_remembered(kind));
+        if i == 0 {
+            item = item.separated();
+        }
+        items.push(item);
+    }
+    items
+}
+
 pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
     let palette = app.palette();
     let chrome = app.chrome();
+
+    let preference_items = vec![
+        MenuItem::new("dock.left", "Dock · left edge")
+            .icon(MenuIcon::Settings)
+            .checked(app.dock_side == DockSide::LeftCenter)
+            .separated(),
+        MenuItem::new("dock.bottom", "Dock · bottom edge")
+            .icon(MenuIcon::Settings)
+            .checked(app.dock_side == DockSide::BottomCenter),
+        MenuItem::new("prefs.snaps", "Snaps")
+            .icon(MenuIcon::Settings)
+            .separated()
+            .children(snap_items(app)),
+        MenuItem::new("prefs.configure", "Configure")
+            .icon(MenuIcon::Settings)
+            .children(vec![MenuItem::new("prefs.configure.tools", "Tools")
+                .icon(MenuIcon::Settings)
+                .children(vec![MenuItem::new(
+                    "app.optional.bumper_cars",
+                    "Bumper cars",
+                )
+                .icon(MenuIcon::Settings)
+                .checked(app.settings.optional_bumper_cars)])]),
+        MenuItem::new("view.advanced", "Advanced settings…")
+            .icon(MenuIcon::Settings)
+            .separated(),
+    ];
 
     let menus = [
         MenuSpec {
@@ -70,18 +163,7 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
         MenuSpec {
             title: "Preferences",
             icon: MenuIcon::Settings,
-            items: vec![
-                MenuItem::new("dock.left", "Dock · left edge")
-                    .icon(MenuIcon::Settings)
-                    .checked(app.dock_side == DockSide::LeftCenter)
-                    .separated(),
-                MenuItem::new("dock.bottom", "Dock · bottom edge")
-                    .icon(MenuIcon::Settings)
-                    .checked(app.dock_side == DockSide::BottomCenter),
-                MenuItem::new("view.advanced", "Advanced settings…")
-                    .icon(MenuIcon::Settings)
-                    .separated(),
-            ],
+            items: preference_items,
         },
     ];
 
@@ -110,6 +192,7 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
                 closable: app.tabs.len() > 1 || !blank,
                 content_action_label: None,
                 is_empty: blank,
+                height_scale: if tab_is_nested(app, i) { 0.7 } else { 1.0 },
             }
         })
         .collect();
@@ -190,6 +273,16 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
         }
         Some("view.advanced") => {
             app.dispatch(ctx, CommandId("app.preferences"), Some("menu".into()));
+        }
+        Some("app.optional.bumper_cars") => {
+            app.dispatch(
+                ctx,
+                CommandId("app.optional.bumper_cars"),
+                Some("menu".into()),
+            );
+        }
+        Some(id) if id.starts_with("board.") => {
+            app.dispatch(ctx, CommandId(id), Some("menu".into()));
         }
         _ => {}
     }

@@ -133,6 +133,87 @@ impl TurboPanState {
     }
 }
 
+/// Screen-space pan when a right-drag, middle-drag, or (when `primary_pans`)
+/// primary drag starts over chrome that egui did not give to the canvas.
+///
+/// `allow` is false while another gesture owns the camera (turbo pan, a
+/// focused page). `over_chrome` is this frame's palette hit. The drag stays
+/// latched after the pointer leaves the palette until the button comes up.
+/// Clicks stay on the palette: this does not synthesize a primary click.
+pub fn chrome_pass_pan_delta(
+    ctx: &egui::Context,
+    canvas: &egui::Response,
+    canvas_rect: Rect,
+    allow: bool,
+    over_chrome: bool,
+    primary_pans: bool,
+) -> Option<Vec2> {
+    let delta = ctx.input(|i| i.pointer.delta());
+    let (secondary, middle, primary) = ctx.input(|i| {
+        (
+            i.pointer.button_down(egui::PointerButton::Secondary),
+            i.pointer.button_down(egui::PointerButton::Middle),
+            i.pointer.button_down(egui::PointerButton::Primary),
+        )
+    });
+    let down = secondary || middle || (primary_pans && primary);
+    let id = egui::Id::new("atlas.chrome.pan_latch");
+    let latch = ctx.data(|d| d.get_temp(id).unwrap_or(false));
+    let latch = step_pan_latch(latch, allow, over_chrome, down);
+    ctx.data_mut(|d| d.insert_temp(id, latch));
+    let pointer_in = ctx
+        .pointer_latest_pos()
+        .is_some_and(|p| canvas_rect.contains(p));
+    pan_delta_through_chrome(
+        latch,
+        pointer_in,
+        secondary,
+        middle,
+        primary,
+        primary_pans,
+        canvas.dragged_by(egui::PointerButton::Secondary),
+        canvas.dragged_by(egui::PointerButton::Middle),
+        canvas.dragged_by(egui::PointerButton::Primary),
+        delta,
+    )
+}
+
+pub(crate) fn step_pan_latch(
+    latch: bool,
+    allow: bool,
+    over_chrome: bool,
+    button_down: bool,
+) -> bool {
+    if !allow || !button_down {
+        false
+    } else if over_chrome {
+        true
+    } else {
+        latch
+    }
+}
+
+pub(crate) fn pan_delta_through_chrome(
+    pass: bool,
+    pointer_in_canvas: bool,
+    secondary_down: bool,
+    middle_down: bool,
+    primary_down: bool,
+    primary_pans: bool,
+    canvas_secondary: bool,
+    canvas_middle: bool,
+    canvas_primary: bool,
+    delta: Vec2,
+) -> Option<Vec2> {
+    if !pass || !pointer_in_canvas || delta == Vec2::ZERO {
+        return None;
+    }
+    let want = (secondary_down && !canvas_secondary)
+        || (middle_down && !canvas_middle)
+        || (primary_pans && primary_down && !canvas_primary);
+    want.then_some(delta)
+}
+
 /// Reference table for Advanced settings. `source_hint` names the file where
 /// the app's `ENTRIES` table lives so contributors keep it complete.
 pub fn shortcuts_reference_ui(ui: &mut Ui, entries: &[CommandEntry], source_hint: &str) {
@@ -177,4 +258,67 @@ pub fn shortcuts_reference_ui(ui: &mut Ui, entries: &[CommandEntry], source_hint
                 });
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{pan_delta_through_chrome, step_pan_latch};
+    use eframe::egui::Vec2;
+
+    #[test]
+    fn palette_hover_pans_when_the_canvas_did_not_receive_the_drag() {
+        let delta = Vec2::new(4.0, -2.0);
+        assert_eq!(
+            pan_delta_through_chrome(
+                true, true, true, false, false, false, false, false, false, delta
+            ),
+            Some(delta)
+        );
+        assert_eq!(
+            pan_delta_through_chrome(
+                true, true, false, true, false, false, false, false, false, delta
+            ),
+            Some(delta)
+        );
+    }
+
+    #[test]
+    fn palette_clicks_and_canvas_owned_drags_do_not_pan_twice() {
+        let delta = Vec2::new(3.0, 1.0);
+        assert_eq!(
+            pan_delta_through_chrome(
+                true, true, false, false, true, false, false, false, false, delta
+            ),
+            None,
+            "primary click on a palette icon"
+        );
+        assert_eq!(
+            pan_delta_through_chrome(
+                true, true, true, false, false, false, true, false, false, delta
+            ),
+            None,
+            "canvas already has the right-drag"
+        );
+        assert_eq!(
+            pan_delta_through_chrome(
+                false, true, true, false, false, false, false, false, false, delta
+            ),
+            None
+        );
+        assert_eq!(
+            pan_delta_through_chrome(
+                true, true, false, false, true, true, false, false, false, delta
+            ),
+            Some(delta),
+            "space or hand tool primary-drags through the palette"
+        );
+    }
+
+    #[test]
+    fn a_pan_that_starts_on_a_palette_continues_after_the_pointer_leaves() {
+        assert!(step_pan_latch(false, true, true, true));
+        assert!(step_pan_latch(true, true, false, true));
+        assert!(!step_pan_latch(true, true, false, false));
+        assert!(!step_pan_latch(true, false, true, true));
+    }
 }

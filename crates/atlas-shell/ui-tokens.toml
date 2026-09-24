@@ -188,7 +188,7 @@ shadow_offset_y = 6.0
 shadow_blur = 20.0
 shadow_spread = 1.0
 shadow_opacity = 0.25999999046325684
-close_delay = 0.44999998807907104
+close_delay = 1.0
 left_margin = 22.0
 bottom_margin = 7.0
 stack_gap = 7.0
@@ -711,6 +711,13 @@ hover_line_weight = 1.25
 hover_opacity = 0.550000011920929
 highlight_in = 0.11999999731779099
 highlight_out = 0.2199999988079071
+
+[board_marquee]
+crossing_light = [61, 154, 74, 255]
+crossing_dark = [125, 222, 160, 255]
+dash_on = 6.0
+dash_off = 4.0
+fill_alpha = 0.12
 
 [board_forcefield]
 expand_secs = 0.800000011920929

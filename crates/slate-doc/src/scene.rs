@@ -20,6 +20,7 @@
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 
 use crate::ids::{GroupId, ItemId, TagId};
 use crate::spatial::SpatialIndex;
@@ -86,6 +87,24 @@ impl WorldRect {
 
     pub fn translated(&self, dx: f32, dy: f32) -> Self {
         Self::new(self.x + dx, self.y + dy, self.w, self.h)
+    }
+
+    /// Smallest rect containing both. Degenerate inputs are normalized first.
+    pub fn union(self, other: WorldRect) -> Self {
+        let a = self.normalized();
+        let b = other.normalized();
+        let x0 = a.x.min(b.x);
+        let y0 = a.y.min(b.y);
+        let x1 = (a.x + a.w).max(b.x + b.w);
+        let y1 = (a.y + a.h).max(b.y + b.h);
+        Self::new(x0, y0, x1 - x0, y1 - y0)
+    }
+
+    /// Shrink each edge by `pad`, stopping at an empty rect.
+    pub fn inset(self, pad: f32) -> Self {
+        let r = self.normalized();
+        let pad = pad.max(0.0).min(r.w * 0.5).min(r.h * 0.5);
+        Self::new(r.x + pad, r.y + pad, r.w - pad * 2.0, r.h - pad * 2.0)
     }
 
     /// Inverse-rotate `(px, py)` into the rect's local axes and test containment.
@@ -225,6 +244,41 @@ pub struct Stroke {
     pub join: StrokeJoin,
     #[serde(default)]
     pub profile: WidthProfile,
+    /// Edge falloff, 0 = hard. Above zero, both painters stamp a radial
+    /// bitmap instead of an offset stroke. `blur_sigma` remains the vector
+    /// fallback for a stroke that is not stamped.
+    #[serde(default, skip_serializing_if = "softness_zero")]
+    pub softness: f32,
+    /// Brush commits set this so a hard stroke is still the radial bitmap.
+    /// Softness above zero stamps even when this is false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub stamp: bool,
+    /// Legacy two-tip tween from before per-vertex tips. Read only: new
+    /// strokes store [`PathData::tips`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tween_from: Option<StrokeSpan>,
+}
+
+/// One brush tip on a path vertex.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct StrokeSpan {
+    pub width: f32,
+    pub softness: f32,
+    pub color: Rgba,
+}
+
+impl StrokeSpan {
+    pub fn of(stroke: &Stroke) -> StrokeSpan {
+        StrokeSpan {
+            width: stroke.width,
+            softness: stroke.softness,
+            color: stroke.color,
+        }
+    }
+}
+
+fn softness_zero(value: &f32) -> bool {
+    *value == 0.0
 }
 
 impl Default for Stroke {
@@ -236,11 +290,43 @@ impl Default for Stroke {
             cap: StrokeCap::default(),
             join: StrokeJoin::default(),
             profile: WidthProfile::default(),
+            softness: 0.0,
+            stamp: false,
+            tween_from: None,
         }
     }
 }
 
 impl Stroke {
+    /// `width` is the outer diameter, matching the on-canvas tip. The fade
+    /// sits inside that diameter: opaque out to `(1 - softness)` of the
+    /// radius, clear at the rim. Returns `(stroke width, feather)` for
+    /// `stroke_mesh`, where the mesh's outer edge is `width / 2`.
+    pub fn paint_profile(self) -> (f32, f32) {
+        let softness = self.softness.clamp(0.0, 1.0);
+        let width = self.width.max(0.0);
+        if softness <= 0.0 {
+            return (width, 0.0);
+        }
+        let outer = width * 0.5;
+        let solid = outer * (1.0 - softness);
+        let half = (solid + outer) * 0.5;
+        let feather = (outer - solid).max(0.0);
+        (half * 2.0, feather)
+    }
+
+    pub fn blur_sigma(self) -> f32 {
+        let (_, feather) = self.paint_profile();
+        feather * 0.5
+    }
+
+    /// Radial bitmap of the centerline. Brush strokes set [`Self::stamp`];
+    /// any softness above zero uses the same picture so older soft ink
+    /// matches the tip.
+    pub fn paints_as_stamp(self) -> bool {
+        self.stamp || self.softness > 0.001
+    }
+
     pub fn none() -> Stroke {
         Stroke::default()
     }
@@ -799,6 +885,99 @@ impl FontChoice {
     }
 }
 
+/// Typefaces for shape text, text boxes, and sticky notes. `sans` / `serif` /
+/// `mono` stay compatible with the original three-face field. Named faces load
+/// from the OS when the file is present and still name a CSS stack when it is not.
+macro_rules! typefaces {
+    ($first:ident, $first_label:literal, $first_css:literal, $first_file:expr, $first_egui:expr;
+     $($variant:ident, $label:literal, $css:literal, $file:expr, $egui:expr;)*) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum Typeface {
+            #[default]
+            $first,
+            $($variant,)*
+        }
+
+        impl Typeface {
+            pub const ALL: &'static [Typeface] = &[
+                Typeface::$first,
+                $(Typeface::$variant,)*
+            ];
+
+            fn meta(self) -> (&'static str, &'static str, Option<&'static str>, Option<&'static str>) {
+                match self {
+                    Typeface::$first => ($first_label, $first_css, $first_file, $first_egui),
+                    $(Typeface::$variant => ($label, $css, $file, $egui),)*
+                }
+            }
+
+            pub fn label(self) -> &'static str {
+                self.meta().0
+            }
+
+            pub fn css_stack(self) -> &'static str {
+                self.meta().1
+            }
+
+            /// Windows font file name, when this face is not a built-in family.
+            pub fn font_file(self) -> Option<&'static str> {
+                self.meta().2
+            }
+
+            /// egui family name. `None` for proportional Sans and monospace.
+            pub fn egui_family(self) -> Option<&'static str> {
+                self.meta().3
+            }
+
+            pub fn index(self) -> usize {
+                Self::ALL.iter().position(|face| *face == self).unwrap_or(0)
+            }
+        }
+    };
+}
+
+typefaces! {
+    Sans, "Sans", "system-ui, 'Segoe UI', Helvetica, Arial, sans-serif", None, None;
+    Serif, "Serif", "Georgia, 'Times New Roman', serif", None, Some("slate-serif");
+    Mono, "Mono", "'Cascadia Mono', Consolas, 'SF Mono', monospace", None, None;
+    Segoe, "Segoe UI", "'Segoe UI', system-ui, sans-serif", Some("segoeui.ttf"), Some("slate-segoe");
+    Arial, "Arial", "Arial, Helvetica, sans-serif", Some("arial.ttf"), Some("slate-arial");
+    Calibri, "Calibri", "Calibri, 'Segoe UI', sans-serif", Some("calibri.ttf"), Some("slate-calibri");
+    Verdana, "Verdana", "Verdana, sans-serif", Some("verdana.ttf"), Some("slate-verdana");
+    Tahoma, "Tahoma", "Tahoma, sans-serif", Some("tahoma.ttf"), Some("slate-tahoma");
+    Trebuchet, "Trebuchet MS", "'Trebuchet MS', sans-serif", Some("trebuc.ttf"), Some("slate-trebuchet");
+    Candara, "Candara", "Candara, sans-serif", Some("Candara.ttf"), Some("slate-candara");
+    Corbel, "Corbel", "Corbel, sans-serif", Some("corbel.ttf"), Some("slate-corbel");
+    Bahnschrift, "Bahnschrift", "Bahnschrift, sans-serif", Some("bahnschrift.ttf"), Some("slate-bahnschrift");
+    Franklin, "Franklin Gothic", "'Franklin Gothic Medium', sans-serif", Some("framd.ttf"), Some("slate-franklin");
+    Comic, "Comic Sans MS", "'Comic Sans MS', cursive", Some("comic.ttf"), Some("slate-comic");
+    Impact, "Impact", "Impact, sans-serif", Some("impact.ttf"), Some("slate-impact");
+    Georgia, "Georgia", "Georgia, serif", Some("georgia.ttf"), Some("slate-georgia");
+    Times, "Times New Roman", "'Times New Roman', Times, serif", Some("times.ttf"), Some("slate-times");
+    Palatino, "Palatino Linotype", "'Palatino Linotype', Palatino, serif", Some("pala.ttf"), Some("slate-palatino");
+    Garamond, "Garamond", "Garamond, serif", Some("GARA.TTF"), Some("slate-garamond");
+    Constantia, "Constantia", "Constantia, serif", Some("constan.ttf"), Some("slate-constantia");
+    Century, "Century Schoolbook", "'Century Schoolbook', serif", Some("CENTURY.TTF"), Some("slate-century");
+    Consolas, "Consolas", "Consolas, monospace", Some("consola.ttf"), Some("slate-consolas");
+    Courier, "Courier New", "'Courier New', Courier, monospace", Some("cour.ttf"), Some("slate-courier");
+    Cascadia, "Cascadia Mono", "'Cascadia Mono', Consolas, monospace", Some("CascadiaMono.ttf"), Some("slate-cascadia");
+    SegoeScript, "Segoe Script", "'Segoe Script', cursive", Some("segoesc.ttf"), Some("slate-segoe-script");
+    SegoePrint, "Segoe Print", "'Segoe Print', cursive", Some("segoepr.ttf"), Some("slate-segoe-print");
+    InkFree, "Ink Free", "'Ink Free', cursive", Some("Inkfree.ttf"), Some("slate-ink-free");
+    Gabriola, "Gabriola", "Gabriola, cursive", Some("Gabriola.ttf"), Some("slate-gabriola");
+}
+
+impl From<FontChoice> for Typeface {
+    fn from(face: FontChoice) -> Self {
+        match face {
+            FontChoice::Sans => Typeface::Sans,
+            FontChoice::Serif => Typeface::Serif,
+            FontChoice::Mono => Typeface::Mono,
+        }
+    }
+}
+
 /// Text alignment; maps to CSS `text-align`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -823,9 +1002,27 @@ pub struct FrameNode {
     /// Slide sequence position (ascending; gaps allowed).
     pub order: u32,
     pub fill: Rgba,
+    /// Set when the user picks a fill. While false, a white `fill` follows
+    /// the active theme instead of staying paper-white in dark mode.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fill_authored: bool,
     /// Tags applied to images dropped onto this frame.
     #[serde(default)]
     pub assignments: BTreeMap<GroupId, TagId>,
+    /// Authored outline. Width 0 paints no border.
+    #[serde(default)]
+    pub stroke: Stroke,
+    /// Fillet or chamfer of the frame plate. Absent on an older file stays
+    /// square. The frame recipe places radius 8 and no stroke.
+    #[serde(default)]
+    pub corner: Corner,
+}
+
+impl FrameNode {
+    /// The user has not picked a fill, so paint uses the theme card.
+    pub fn fill_follows_theme(&self) -> bool {
+        !self.fill_authored
+    }
 }
 
 /// Default portal frame size (world units) for click-to-place, shared by every
@@ -839,6 +1036,8 @@ pub const PORTAL_DEFAULT_H: f32 = 540.0;
 pub enum PortalClass {
     /// Deterministic derived contents; owns nothing. Frame/source/query are journaled.
     Generated,
+    /// The child document's journal owns mutations made inside it (Art. V.3).
+    Document,
     /// Foreign local-agent surface; owns no mutations and exports as a poster + pointer.
     Host,
 }
@@ -855,6 +1054,8 @@ pub enum PortalKind {
     Web,
     /// File Atlas folder map hosted on a Slate board (not a File Atlas app feature).
     FileAtlas,
+    /// Another workbook's board, fitted into this frame (Art. V.3 document class).
+    Slate,
 }
 
 /// Local-filesystem locator stub until full `SourceUri` (T2.1) lands.
@@ -928,6 +1129,34 @@ pub struct AgentPortalRef {
     /// Authored presentation of linked history. Transcript bytes stay in the source.
     #[serde(default)]
     pub chat: crate::agent_chat::ChatView,
+    /// When set, a connected 3D model view is restyled as its camera moves.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub live: bool,
+    /// The authored prompt: a text block's instruction, or the style guide an
+    /// image agent was submitted with. Wired prompts are read before it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub instruction: String,
+    /// How a generator's runs are shaped: pictures per run, aspect, seed lock.
+    #[serde(default, skip_serializing_if = "ImageSettings::is_default")]
+    pub image: ImageSettings,
+}
+
+/// Journaled image-agent settings (D20). A locked seed makes runs repeatable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ImageSettings {
+    /// Pictures per run; 0 and 1 both mean one.
+    #[serde(default)]
+    pub count: u8,
+    #[serde(default)]
+    pub aspect: atlas_agent::Aspect,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+}
+
+impl ImageSettings {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// How a web portal's rendered page is fitted into its frame (D20).
@@ -1159,6 +1388,48 @@ pub fn web_origin(locator: &str) -> Option<String> {
     None
 }
 
+/// WebView2 profile that holds this page's cookies. Remote origins each get
+/// their own profile, so a sign-in on one site is not a sign-in on another.
+/// Local files share `local`. The name is derived from the locator; it is not
+/// stored in the workbook and it is not a secret.
+///
+/// WebView2 profile names are file names of at most 64 characters.
+pub fn web_profile_name(locator: &str) -> String {
+    let Some(origin) = web_origin(locator) else {
+        return "local".to_string();
+    };
+    let mut name = String::from("site-");
+    for c in origin.chars() {
+        if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+            name.push(c);
+        } else {
+            name.push('-');
+        }
+    }
+    while name.ends_with('.') {
+        name.pop();
+    }
+    const MAX: usize = 64;
+    if name.len() > MAX {
+        let suffix = format!("-{:08x}", fnv1a(&origin));
+        name.truncate(MAX - suffix.len());
+        while name.ends_with('.') {
+            name.pop();
+        }
+        name.push_str(&suffix);
+    }
+    name
+}
+
+fn fnv1a(text: &str) -> u32 {
+    let mut hash = 2166136261u32;
+    for byte in text.bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(16777619);
+    }
+    hash
+}
+
 /// A journaled portal frame. Contents are derived from `source` + `query`
 /// (generated class) and never serialized here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1246,6 +1517,9 @@ impl PortalNode {
                 seed: None,
                 view: atlas_agent::PortalView::Chat,
                 chat: Default::default(),
+                live: false,
+                instruction: String::new(),
+                image: ImageSettings::default(),
             })),
             web: None,
             atlas: AtlasPortalQuery::default(),
@@ -1269,6 +1543,31 @@ impl PortalNode {
         }
     }
 
+    /// Fresh unbound document portal. Fill alpha 0 follows `Palette::card`
+    /// (slightly lighter than the canvas) until the Fill squircle authors a color.
+    pub fn unbound_slate(title: impl Into<String>) -> Self {
+        Self {
+            class: PortalClass::Document,
+            kind: PortalKind::Slate,
+            title: title.into(),
+            source: None,
+            agent: None,
+            web: None,
+            atlas: AtlasPortalQuery::default(),
+            fill: Rgba([0, 0, 0, 0]),
+            stroke: Stroke::default(),
+        }
+    }
+
+    /// Document portal bound to another workbook.
+    pub fn bound_slate(title: impl Into<String>, locator: impl Into<String>) -> Self {
+        let mut portal = Self::unbound_slate(title);
+        portal.source = Some(SourceUri {
+            locator: locator.into(),
+        });
+        portal
+    }
+
     /// File Atlas lens bound at placement (folder drop).
     pub fn bound_file_atlas(title: impl Into<String>, locator: impl Into<String>) -> Self {
         let mut portal = Self::unbound_file_atlas(title);
@@ -1276,6 +1575,12 @@ impl PortalNode {
             locator: locator.into(),
         });
         portal
+    }
+
+    /// Unauthored Slate board fill (alpha 0) paints `Palette::card` until
+    /// the Fill squircle writes a color with a real alpha.
+    pub fn slate_fill_follows_theme(&self) -> bool {
+        self.kind == PortalKind::Slate && self.fill.0[3] == 0
     }
 
     /// Unauthored File Atlas fill follows the canvas card slot so the window
@@ -1298,6 +1603,109 @@ pub const ATLAS_LEGACY_THEME_FILL: Rgba = Rgba([16, 18, 22, 255]);
 
 pub fn new_agent_session_id() -> String {
     format!("agent-{}", atlas_agent::request_id())
+}
+
+/// Nested Slate portals painted before a deeper one becomes a card (D29).
+pub const SLATE_PORTAL_PAINT_DEPTH: u32 = 2;
+
+/// Child world point `c` maps to parent world `origin + c * scale`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BoardFit {
+    pub origin_x: f32,
+    pub origin_y: f32,
+    pub scale: f32,
+}
+
+impl BoardFit {
+    pub fn map_xy(self, x: f32, y: f32) -> (f32, f32) {
+        (
+            self.origin_x + x * self.scale,
+            self.origin_y + y * self.scale,
+        )
+    }
+
+    pub fn map_rect(self, rect: WorldRect) -> WorldRect {
+        let (x, y) = self.map_xy(rect.x, rect.y);
+        WorldRect::new(x, y, rect.w * self.scale, rect.h * self.scale)
+    }
+
+    pub fn inverse_xy(self, x: f32, y: f32) -> Option<(f32, f32)> {
+        if self.scale <= f32::EPSILON {
+            return None;
+        }
+        Some((
+            (x - self.origin_x) / self.scale,
+            (y - self.origin_y) / self.scale,
+        ))
+    }
+}
+
+/// Uniform fit of `child` inside `content`, centered, aspect preserved.
+/// `None` when either rect is empty.
+pub fn fit_board(content: WorldRect, child: WorldRect) -> Option<BoardFit> {
+    let content = content.normalized();
+    let child = child.normalized();
+    if content.w <= 0.0 || content.h <= 0.0 || child.w <= 0.0 || child.h <= 0.0 {
+        return None;
+    }
+    let scale = (content.w / child.w).min(content.h / child.h);
+    if !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+    let placed_w = child.w * scale;
+    let placed_h = child.h * scale;
+    Some(BoardFit {
+        origin_x: content.x + (content.w - placed_w) * 0.5 - child.x * scale,
+        origin_y: content.y + (content.h - placed_h) * 0.5 - child.y * scale,
+        scale,
+    })
+}
+
+/// Stable identity for a workbook path. Comparison is case-insensitive and
+/// ignores slash direction so a self-embed is the same file on Windows.
+pub fn workbook_key(path: &Path) -> String {
+    let mut text = path.to_string_lossy().replace('\\', "/");
+    while text.ends_with('/') {
+        text.pop();
+    }
+    text.to_ascii_lowercase()
+}
+
+/// Store `path` relative to the workbook file when it lives beside it.
+pub fn source_locator(workbook: Option<&Path>, path: &Path) -> String {
+    if let Some(dir) = workbook.and_then(|p| p.parent()) {
+        if let Ok(rel) = path.strip_prefix(dir) {
+            return rel.to_string_lossy().replace('\\', "/");
+        }
+    }
+    path.to_string_lossy().into_owned()
+}
+
+/// Resolve a stored locator against the workbook file. Absolute locators
+/// pass through. This is the one pair every portal kind calls (Art. IX.2).
+pub fn resolve_source(workbook: Option<&Path>, locator: &str) -> PathBuf {
+    let path = PathBuf::from(locator);
+    if path.is_absolute() {
+        return path;
+    }
+    if let Some(dir) = workbook.and_then(|p| p.parent()) {
+        return dir.join(path);
+    }
+    path
+}
+
+/// Why a Slate portal refuses a candidate workbook.
+pub fn slate_embed_refusal(
+    parent: &Path,
+    candidate: &Path,
+    ancestors: &[String],
+) -> Option<&'static str> {
+    let key = workbook_key(candidate);
+    if workbook_key(parent) == key || ancestors.iter().any(|ancestor| ancestor == &key) {
+        Some("This workbook already contains that board")
+    } else {
+        None
+    }
 }
 
 /// A placed image: a link into the workbook item pool plus placement styling.
@@ -1358,7 +1766,24 @@ impl VideoOpts {
 /// pose. Duplicated nodes keep independent poses, which is how one model
 /// appears from several perspectives across slides.
 ///
-/// Orbit convention follows Rhino: Z-up world, `yaw` spins around +Z,
+/// Orbit convention follows Rhino: Z-up world, `yaw` spins around +Z.
+///
+/// How a model viewport draws. Shaded is the working view. The others are
+/// display passes: white clay, a flat segmentation mask, or a Z-buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelDisplay {
+    #[default]
+    Shaded,
+    /// White surfaces, soft light. Rhino's Arctic display, without textures.
+    Arctic,
+    /// Flat color per mesh part. Authored colors stay together; parts with
+    /// no color get a stable palette color. This is the segmentation mask.
+    Material,
+    /// Inverse view depth: nearest geometry is white, far geometry is black.
+    Depth,
+}
+
 /// `pitch` tilts above/below the XY plane, the eye sits `distance` from
 /// `target` along that direction.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -1373,6 +1798,9 @@ pub struct ModelCamera {
     /// Eye distance from the target. `<= 0` = auto-fit to the model bounds
     /// (the state of a freshly placed node, resolved on first render).
     pub distance: f32,
+    /// Viewport display pass. Missing on older files, which stay shaded.
+    #[serde(default)]
+    pub display: ModelDisplay,
 }
 
 impl Default for ModelCamera {
@@ -1384,6 +1812,7 @@ impl Default for ModelCamera {
             yaw: -std::f32::consts::FRAC_PI_4,
             pitch: 0.5,
             distance: 0.0,
+            display: ModelDisplay::Shaded,
         }
     }
 }
@@ -1400,14 +1829,28 @@ impl ModelCamera {
         self.yaw.to_bits().hash(&mut h);
         self.pitch.to_bits().hash(&mut h);
         self.distance.to_bits().hash(&mut h);
+        self.display.hash(&mut h);
         h.finish()
     }
+}
+
+/// Authored column widths and row heights for a spreadsheet card, in world
+/// units. Empty means the card's default cell size.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SheetLayout {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cols: Vec<f32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<f32>,
 }
 
 /// Never pixels — the pool item owns the file link.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageNode {
     pub item: ItemId,
+    /// Column and row sizes when this card shows a spreadsheet.
+    #[serde(default, skip_serializing_if = "SheetLayout::is_empty")]
+    pub sheet: SheetLayout,
     #[serde(default = "Crop::full")]
     pub crop: Crop,
     #[serde(default)]
@@ -1423,6 +1866,17 @@ pub struct ImageNode {
     /// otherwise.
     #[serde(default)]
     pub model: ModelCamera,
+    /// The agent generating this picture. Its results are the card's album;
+    /// `item` is the result a person picked, and [`ItemId::NONE`] shows the
+    /// newest (see [`crate::agent_inputs::newest_image`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<Box<AgentPortalRef>>,
+}
+
+impl SheetLayout {
+    pub fn is_empty(&self) -> bool {
+        self.cols.is_empty() && self.rows.is_empty()
+    }
 }
 
 impl ImageNode {
@@ -1431,12 +1885,23 @@ impl ImageNode {
     pub fn new(item: ItemId) -> ImageNode {
         ImageNode {
             item,
+            sheet: SheetLayout::default(),
             crop: Crop::full(),
             corner: Corner::Square,
             stroke: Stroke::none(),
             adjust: ImageAdjust::default(),
             video: VideoOpts::default(),
             model: ModelCamera::default(),
+            agent: None,
+        }
+    }
+
+    /// A picture an agent will generate; it shows the newest result until a
+    /// person picks one.
+    pub fn generated(agent: AgentPortalRef) -> ImageNode {
+        ImageNode {
+            agent: Some(Box::new(agent)),
+            ..ImageNode::new(ItemId::NONE)
         }
     }
 }
@@ -1497,6 +1962,26 @@ pub struct PathData {
     pub extra: Vec<PathContour>,
     #[serde(default, skip_serializing_if = "is_nonzero_rule")]
     pub fill_rule: PathFillRule,
+    /// Brush tips, one per vertex in path order (start, then the end of each
+    /// segment). Empty means the stroke's own tip everywhere. Segments lerp
+    /// between their end tips, so a straight Shift chain can change size,
+    /// softness, color, or opacity along its length.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tips: Vec<StrokeSpan>,
+    /// Spot erases on a stamped brush path, oldest first. Each is an eraser
+    /// polyline in this path's normalized coordinates. The painters stamp it
+    /// as a mask and scale the ink's alpha by `1 - mask`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub erase: Vec<EraseMark>,
+}
+
+/// One eraser pass over a stamped brush path. `tips` holds one tip per
+/// point (or one for the whole pass); the tip color's alpha is the erase
+/// strength and its RGB is unused.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EraseMark {
+    pub points: Vec<[f32; 2]>,
+    pub tips: Vec<StrokeSpan>,
 }
 
 impl Default for PathData {
@@ -1507,6 +1992,8 @@ impl Default for PathData {
             closed: false,
             extra: Vec::new(),
             fill_rule: PathFillRule::NonZero,
+            tips: Vec::new(),
+            erase: Vec::new(),
         }
     }
 }
@@ -1514,6 +2001,18 @@ impl Default for PathData {
 impl PathData {
     pub fn is_empty(&self) -> bool {
         self.segs.is_empty()
+    }
+
+    /// Per-vertex brush tips for painting: the stored list, the legacy
+    /// two-tip tween, or empty for a constant tip.
+    pub fn paint_tips(&self, stroke: &Stroke) -> Vec<StrokeSpan> {
+        if !self.tips.is_empty() {
+            return self.tips.clone();
+        }
+        match stroke.tween_from {
+            Some(from) => vec![from, StrokeSpan::of(stroke)],
+            None => Vec::new(),
+        }
     }
 
     pub fn point_count(&self) -> usize {
@@ -1551,13 +2050,85 @@ pub struct ShapeNode {
     pub flip: bool,
     #[serde(default)]
     pub path: Option<PathData>,
+    /// In-place text. Absent until a text session or a text-style edit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<ShapeText>,
+}
+
+/// Paragraph text hosted by a closed shape. One style for the whole block.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShapeText {
+    pub body: String,
+    #[serde(default)]
+    pub family: Typeface,
+    #[serde(default = "default_shape_text_size")]
+    pub size: f32,
+    pub color: Rgba,
+    #[serde(default = "default_shape_align")]
+    pub align: TextAlign,
+}
+
+fn default_shape_text_size() -> f32 {
+    24.0
+}
+
+fn default_shape_align() -> TextAlign {
+    TextAlign::Center
+}
+
+impl ShapeText {
+    pub fn new(color: Rgba) -> Self {
+        Self {
+            body: String::new(),
+            family: Typeface::Sans,
+            size: default_shape_text_size(),
+            color,
+            align: TextAlign::Center,
+        }
+    }
+}
+
+/// Rect, ellipse, and closed paths can host text. Open curves cannot.
+pub fn shape_hosts_text(shape: &ShapeNode) -> bool {
+    match shape.shape {
+        ShapeKind::Line => false,
+        ShapeKind::Rect | ShapeKind::Ellipse => true,
+        ShapeKind::Path => shape.path.as_ref().is_some_and(|p| p.closed),
+    }
+}
+
+/// Ink that stays readable on the shape's fill. Light fills get dark type.
+pub fn shape_text_ink(fill: Option<Rgba>) -> Rgba {
+    let light = fill.is_some_and(|c| {
+        let l = 0.2126 * c.0[0] as f32 + 0.7152 * c.0[1] as f32 + 0.0722 * c.0[2] as f32;
+        l > 160.0 && c.0[3] > 40
+    });
+    if light {
+        Rgba::opaque(20, 22, 26)
+    } else {
+        Rgba::opaque(228, 230, 235)
+    }
+}
+
+pub fn ensure_shape_text(node: &mut Node) -> Option<&mut ShapeText> {
+    let ink = match &node.kind {
+        NodeKind::Shape(s) if shape_hosts_text(s) => shape_text_ink(s.fill),
+        _ => return None,
+    };
+    let NodeKind::Shape(s) = &mut node.kind else {
+        return None;
+    };
+    if s.text.is_none() {
+        s.text = Some(ShapeText::new(ink));
+    }
+    s.text.as_mut()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextNode {
     pub text: String,
     #[serde(default)]
-    pub family: FontChoice,
+    pub family: Typeface,
     pub size: f32,
     pub color: Rgba,
     #[serde(default)]
@@ -1566,6 +2137,39 @@ pub struct TextNode {
     /// with a fill). `None` = transparent, the classic text node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<Rgba>,
+    /// The agent writing this note. While `text` is empty the note shows the
+    /// agent's newest reply; editing it makes the words the person's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<Box<AgentPortalRef>>,
+}
+
+/// Drop shadow under a sticky (a text node that has a fill). Designed sizes
+/// at zoom 1: the board multiplies by zoom, the artifact uses CSS pixels.
+pub const STICKY_SHADOW_OFFSET_Y: f32 = 6.0;
+pub const STICKY_SHADOW_BLUR: f32 = 16.0;
+/// Strength of the shadow's dark center, 0–1.
+pub const STICKY_SHADOW_ALPHA: f32 = 0.16;
+/// Smallest world font size a sticky will shrink to. Below this, text clips.
+pub const STICKY_FIT_MIN: f32 = 8.0;
+/// A sticky's paper and ink.
+pub const STICKY_FILL: Rgba = Rgba([0xFF, 0xFF, 0xFF, 0xFF]);
+pub const STICKY_INK: Rgba = Rgba([0x26, 0x28, 0x2C, 0xFF]);
+/// Designed type size of a note an agent writes.
+pub const AGENT_NOTE_SIZE: f32 = 16.0;
+
+impl TextNode {
+    /// A sticky an agent writes into. It shows the reply until a person edits it.
+    pub fn agent_note(agent: AgentPortalRef) -> TextNode {
+        TextNode {
+            text: String::new(),
+            family: Typeface::Sans,
+            size: AGENT_NOTE_SIZE,
+            color: STICKY_INK,
+            align: TextAlign::Left,
+            fill: Some(STICKY_FILL),
+            agent: Some(Box::new(agent)),
+        }
+    }
 }
 
 // ---------- connectors (wires) ----------
@@ -1670,10 +2274,20 @@ impl ConnectorNode {
 // *current* rects of anchored nodes, so the wire follows its endpoints by
 // construction.
 
-/// Handle length = clamp(0.35 × chord distance, 24, 160) world units.
-pub const CONNECTOR_HANDLE_FRACTION: f32 = 0.35;
-pub const CONNECTOR_HANDLE_MIN: f32 = 24.0;
-pub const CONNECTOR_HANDLE_MAX: f32 = 160.0;
+/// Both interpreters draw a connector at twice its stored [`Stroke::width`]
+/// so the board and the HTML artifact stay the same thickness (Art. IV).
+pub const CONNECTOR_WIDTH_SCALE: f32 = 2.0;
+
+/// Stroke actually painted and exported for a connector.
+pub fn connector_drawn_stroke(mut stroke: Stroke) -> Stroke {
+    stroke.width = (stroke.width * CONNECTOR_WIDTH_SCALE).max(0.0);
+    stroke
+}
+
+/// Grasshopper `GH_Painter.ConnectionPathBezier` (Rhino 8): both handles
+/// share `max(0.5·|Δx|, 0.75·|Δy|)` world units. No floor, no ceiling.
+pub const CONNECTOR_HANDLE_DX: f32 = 0.5;
+pub const CONNECTOR_HANDLE_DY: f32 = 0.75;
 
 /// World point on `side` of an axis-aligned `rect` at fraction `t` (0..=1,
 /// measured left→right on horizontal sides, top→bottom on vertical sides).
@@ -1809,7 +2423,7 @@ fn resolve_end(
 /// - An anchored end leaves its rect **perpendicular to its side** (handle
 ///   along the side's outward normal).
 /// - A free end aims at the other endpoint (handle along the chord).
-/// - Handle length is `clamp(0.35 × chord, 24, 160)` world units.
+/// - Handle length is Grasshopper's `max(0.5·|Δx|, 0.75·|Δy|)`.
 ///
 /// Returns `None` when an anchored node is missing from `rect_of` (the
 /// interpreters skip such connectors).
@@ -1835,7 +2449,7 @@ pub fn connector_bezier(
 }
 
 /// Cubic from two world points and their outward handle directions.
-/// Handle length is `clamp(0.35 × chord, 24, 160)` world units.
+/// Handle length matches Grasshopper: `max(0.5·|Δx|, 0.75·|Δy|)`.
 pub fn connector_bezier_from_dirs(
     p0: [f32; 2],
     dir_a: [f32; 2],
@@ -1843,8 +2457,7 @@ pub fn connector_bezier_from_dirs(
     dir_b: [f32; 2],
 ) -> ConnectorBezier {
     let chord = [p3[0] - p0[0], p3[1] - p0[1]];
-    let dist = (chord[0] * chord[0] + chord[1] * chord[1]).sqrt();
-    let len = (CONNECTOR_HANDLE_FRACTION * dist).clamp(CONNECTOR_HANDLE_MIN, CONNECTOR_HANDLE_MAX);
+    let len = (CONNECTOR_HANDLE_DX * chord[0].abs()).max(CONNECTOR_HANDLE_DY * chord[1].abs());
     let dir_a = normalize_or(dir_a, chord);
     let dir_b = normalize_or(dir_b, [-chord[0], -chord[1]]);
     ConnectorBezier {
@@ -1941,6 +2554,10 @@ pub struct Node {
     /// `clip-path`). Shapes rewrite their path instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clip: Option<PathData>,
+    /// Opt-in collision with other bumper nodes during a drag. Behavior,
+    /// not style: the artifact writer has nothing to emit for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bumper: Option<crate::bumper::Bumper>,
     pub kind: NodeKind,
 }
 
@@ -2017,6 +2634,26 @@ impl Scene {
         self.nodes.is_empty()
     }
 
+    /// Axis-aligned union of visible node rects. Hidden nodes are excluded.
+    /// `None` when nothing visible has area.
+    pub fn visible_bounds(&self) -> Option<WorldRect> {
+        let mut acc: Option<WorldRect> = None;
+        for node in &self.nodes {
+            if node.hidden {
+                continue;
+            }
+            let rect = node.rect.normalized();
+            if rect.w <= 0.0 && rect.h <= 0.0 {
+                continue;
+            }
+            acc = Some(match acc {
+                None => rect,
+                Some(bounds) => bounds.union(rect),
+            });
+        }
+        acc.filter(|bounds| bounds.w > 0.0 && bounds.h > 0.0)
+    }
+
     /// Generation counter for derived caches (spatial index). Not serialized.
     pub fn scene_gen(&self) -> u64 {
         self.scene_gen
@@ -2076,6 +2713,7 @@ impl Scene {
             hidden: false,
             group: None,
             clip: None,
+            bumper: None,
             kind,
         }
     }
@@ -2109,6 +2747,19 @@ impl Scene {
                 ..Default::default()
             });
             changed = true;
+        }
+        if changed {
+            self.bump_gen();
+        }
+    }
+
+    /// Generator and text-block portals become the media they make: a picture
+    /// an agent generates and a note an agent writes. Same id, rect, binding
+    /// and wires (portal-agent-link, 24 September 2026). Chat cards stay.
+    pub fn migrate_agent_cards(&mut self) {
+        let mut changed = false;
+        for n in &mut self.nodes {
+            changed |= agent_card_as_media(n);
         }
         if changed {
             self.bump_gen();
@@ -2456,7 +3107,10 @@ mod tests {
                 title: "Slide 1".into(),
                 order: 0,
                 fill: Rgba::WHITE,
+                fill_authored: false,
                 assignments: BTreeMap::new(),
+                stroke: Stroke::none(),
+                corner: Corner::Square,
             }),
         );
         let frame_id = frame.id;
@@ -2651,6 +3305,18 @@ mod tests {
         // Local material has no origin, so there is nothing to consent to.
         assert_eq!(web_origin("reports/index.html"), None);
         assert_eq!(
+            web_profile_name("https://Bank.Example/account"),
+            web_profile_name("https://bank.example/other")
+        );
+        assert_ne!(
+            web_profile_name("https://bank.example/"),
+            web_profile_name("http://bank.example/")
+        );
+        assert_eq!(web_profile_name("reports/index.html"), "local");
+        let profile = web_profile_name("https://bank.example:8443/a");
+        assert!(profile.len() <= 64);
+        assert!(!profile.contains(['\\', '/', ':', '*', '?', '"', '<', '>', '|']));
+        assert_eq!(
             web_display_locator("https://example.com/a/b"),
             "example.com"
         );
@@ -2675,6 +3341,29 @@ mod tests {
             portal.web_source_kind(false),
             Some(WebSourceKind::LocalFile)
         );
+    }
+
+    #[test]
+    fn a_slate_portal_is_a_document_and_fits_the_child_board() {
+        let portal = PortalNode::bound_slate("Notes", "notes.slate");
+        assert_eq!(portal.class, PortalClass::Document);
+        assert_eq!(portal.kind, PortalKind::Slate);
+        let content = WorldRect::new(0.0, 0.0, 200.0, 100.0);
+        let child = WorldRect::new(10.0, 20.0, 100.0, 100.0);
+        let fit = fit_board(content, child).expect("fit");
+        assert!((fit.scale - 1.0).abs() < 1e-4);
+        let (x, y) = fit.map_xy(10.0, 20.0);
+        assert!((x - 50.0).abs() < 1e-3);
+        assert!((y - 0.0).abs() < 1e-3);
+        let parent = Path::new("C:/work/board.slate");
+        let same = Path::new("C:/work/Board.slate");
+        assert!(slate_embed_refusal(parent, same, &[]).is_some());
+        let other = Path::new("C:/work/notes.slate");
+        assert!(slate_embed_refusal(parent, other, &[]).is_none());
+        assert!(slate_embed_refusal(parent, other, &[workbook_key(other)]).is_some());
+        let json = serde_json::to_string(&portal).unwrap();
+        let back: PortalNode = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, portal);
     }
 
     #[test]
@@ -2761,7 +3450,10 @@ mod tests {
                 title: format!("Slide {order}"),
                 order,
                 fill: Rgba::WHITE,
+                fill_authored: false,
                 assignments: BTreeMap::new(),
+                stroke: Stroke::none(),
+                corner: Corner::Square,
             }),
         );
         let id = node.id;
@@ -2910,7 +3602,10 @@ mod tests {
                     title: title.into(),
                     order,
                     fill: Rgba::WHITE,
+                    fill_authored: false,
                     assignments: BTreeMap::new(),
+                    stroke: Stroke::none(),
+                    corner: Corner::Square,
                 }),
             );
             let index = scene.nodes.len();
@@ -3104,6 +3799,9 @@ mod tests {
                     start: 1.0,
                     end: 0.25,
                 },
+                softness: 0.0,
+                stamp: false,
+                tween_from: None,
             },
             corner: Corner::Square,
             flip: false,
@@ -3124,6 +3822,7 @@ mod tests {
                 closed: true,
                 ..Default::default()
             }),
+            text: None,
         };
         let json = serde_json::to_string(&shape).unwrap();
         let back: ShapeNode = serde_json::from_str(&json).unwrap();
@@ -3157,6 +3856,9 @@ mod tests {
             cap: StrokeCap::Butt,
             join: StrokeJoin::Miter,
             profile: WidthProfile::Uniform,
+            softness: 0.0,
+            stamp: false,
+            tween_from: None,
         };
         for flip in [false, true] {
             let n = scene.build_node(
@@ -3168,6 +3870,7 @@ mod tests {
                     corner: Corner::Square,
                     flip,
                     path: None,
+                    text: None,
                 }),
             );
             scene.nodes.push(n);
@@ -3240,6 +3943,7 @@ mod tests {
             hidden: false,
             group: None,
             clip: None,
+            bumper: None,
             kind: NodeKind::Portal(PortalNode::unbound_web("Web portal")),
         };
         let json = serde_json::to_string(&node).unwrap();
@@ -3269,6 +3973,7 @@ mod tests {
             hidden: false,
             group: None,
             clip: None,
+            bumper: None,
             kind: NodeKind::DockStrip(DockStripNode {
                 palette_id: "tool.shapes".into(),
                 visible: vec!["shape.rect".into(), "shape.ellipse".into()],
@@ -3338,6 +4043,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: None,
+                agent: None,
             }),
         );
         node.group = Some(GroupKey(41));
@@ -3479,11 +4185,15 @@ mod tests {
         assert_eq!(bez.c2[0], bez.p3[0]);
         assert!(bez.c2[1] < bez.p3[1]);
 
-        // Handle length obeys clamp(0.35·chord, 24, 160).
-        let chord = ((320.0f32 - 100.0).powi(2) + (200.0f32 - 30.0).powi(2)).sqrt();
-        let expect = (0.35 * chord).clamp(24.0, 160.0);
+        // Grasshopper: max(0.5·|Δx|, 0.75·|Δy|) = max(110, 127.5).
+        let expect = (0.5 * 220.0_f32).max(0.75 * 170.0);
         let got = bez.c1[0] - bez.p0[0];
         assert!((got - expect).abs() < 1e-3, "handle {got} vs {expect}");
+        let got_b = bez.p3[1] - bez.c2[1];
+        assert!(
+            (got_b - expect).abs() < 1e-3,
+            "end handle {got_b} vs {expect}"
+        );
 
         // Unit tangents match the side normals.
         assert_eq!(bez.start_dir(), [1.0, 0.0]);
@@ -3502,14 +4212,19 @@ mod tests {
         assert_eq!(bez.c2[1], 0.0);
         assert!(bez.c1[0] > 0.0);
         assert!(bez.c2[0] < 100.0);
-        // 0.35 * 100 = 35 world units each way.
-        assert!((bez.c1[0] - 35.0).abs() < 1e-3);
-        assert!((bez.c2[0] - 65.0).abs() < 1e-3);
+        // Horizontal span: 0.5·|Δx| = 50, and |Δy| does not lift it.
+        assert!((bez.c1[0] - 50.0).abs() < 1e-3);
+        assert!((bez.c2[0] - 50.0).abs() < 1e-3);
 
-        // Short chords clamp the handle to the minimum.
+        // A short span stays short — Grasshopper has no minimum handle.
         let near = ConnectorEnd::Free { point: [10.0, 0.0] };
         let bez = connector_bezier(&a, &near, |_| None).unwrap();
-        assert!((bez.c1[0] - CONNECTOR_HANDLE_MIN).abs() < 1e-3);
+        assert!((bez.c1[0] - 5.0).abs() < 1e-3);
+
+        // Stacked components: |Δy| dominates, so the bulge is 0.75·|Δy|.
+        let below = ConnectorEnd::Free { point: [0.0, 80.0] };
+        let bez = connector_bezier(&a, &below, |_| None).unwrap();
+        assert!((bez.c1[1] - 60.0).abs() < 1e-3);
     }
 
     #[test]
@@ -3619,6 +4334,7 @@ mod tests {
                     closed: false,
                     ..Default::default()
                 }),
+                text: None,
             }),
         );
         let id = path_node.id;
@@ -3665,12 +4381,43 @@ mod tests {
     }
 }
 
+/// An agent portal bound to an image or text engine becomes the media it
+/// makes, keeping its id and rect: a picture an agent generates, or a note an
+/// agent writes. False for chat cards and every other node.
+pub fn agent_card_as_media(node: &mut Node) -> bool {
+    let NodeKind::Portal(p) = &mut node.kind else {
+        return false;
+    };
+    if p.kind != PortalKind::Agent {
+        return false;
+    }
+    let media = match p.agent.as_ref().map(|a| a.view) {
+        Some(atlas_agent::PortalView::Images) => p
+            .agent
+            .take()
+            .map(|a| NodeKind::Image(ImageNode::generated(*a))),
+        Some(atlas_agent::PortalView::Text) => p
+            .agent
+            .take()
+            .map(|a| NodeKind::Text(TextNode::agent_note(*a))),
+        _ => None,
+    };
+    match media {
+        Some(kind) => {
+            node.kind = kind;
+            true
+        }
+        None => false,
+    }
+}
+
 // Shared scene style access, used by every property-edit surface.
 pub fn stroke_of(node: &Node) -> Option<Stroke> {
     match &node.kind {
         NodeKind::Shape(s) => Some(s.stroke),
         NodeKind::Image(i) => Some(i.stroke),
         NodeKind::Connector(c) => Some(c.stroke),
+        NodeKind::Frame(f) => Some(f.stroke),
         // TWIN: docs/audit/deviations.md DV-21 — an agent portal keeps its
         // outline in `agent.chat.stroke`; every other portal uses
         // `PortalNode::stroke`. Collapse onto the field.
@@ -3685,7 +4432,7 @@ pub fn stroke_of(node: &Node) -> Option<Stroke> {
     }
 }
 
-/// Stroke editor applies to shapes, images, wires, and portal frames.
+/// Stroke editor applies to shapes, images, wires, slide frames, and portal frames.
 pub fn supports_stroke(node: &Node) -> bool {
     stroke_of(node).is_some()
 }
@@ -3695,6 +4442,7 @@ pub fn set_stroke(node: &mut Node, stroke: Stroke) {
         NodeKind::Shape(s) => s.stroke = stroke,
         NodeKind::Image(i) => i.stroke = stroke,
         NodeKind::Connector(c) => c.stroke = stroke,
+        NodeKind::Frame(f) => f.stroke = stroke,
         // TWIN: see `stroke_of` above (DV-21).
         NodeKind::Portal(p) => match p.agent.as_mut() {
             Some(a) => a.chat.stroke = Some(stroke),
@@ -3708,6 +4456,7 @@ pub fn corner_of(node: &Node) -> Option<Corner> {
     match &node.kind {
         NodeKind::Shape(s) => Some(s.corner),
         NodeKind::Image(i) => Some(i.corner),
+        NodeKind::Frame(f) => Some(f.corner),
         _ => None,
     }
 }
@@ -3716,16 +4465,17 @@ pub fn set_corner(node: &mut Node, corner: Corner) {
     match &mut node.kind {
         NodeKind::Shape(s) => s.corner = corner,
         NodeKind::Image(i) => i.corner = corner,
+        NodeKind::Frame(f) => f.corner = corner,
         _ => {}
     }
 }
 
-/// Fillet/chamfer applies to rectangles and images. Other shapes store a
-/// corner field that is not a user-facing treatment.
+/// Fillet/chamfer applies to rectangles, images, and slide frames. Other
+/// shapes store a corner field that is not a user-facing treatment.
 pub fn supports_corners(node: &Node) -> bool {
     match &node.kind {
         NodeKind::Shape(s) => s.shape == ShapeKind::Rect,
-        NodeKind::Image(_) => true,
+        NodeKind::Image(_) | NodeKind::Frame(_) => true,
         _ => false,
     }
 }
@@ -3765,6 +4515,7 @@ pub fn set_fill(node: &mut Node, fill: Option<Rgba>) {
         NodeKind::Frame(f) => {
             if let Some(c) = fill {
                 f.fill = c;
+                f.fill_authored = true;
             }
         }
         NodeKind::Portal(p) => {
@@ -3858,22 +4609,27 @@ mod corner_percentage_tests {
             hidden: false,
             group: None,
             clip: None,
+            bumper: None,
             kind,
         };
         let frame = node(NodeKind::Frame(FrameNode {
             title: "Slide".into(),
             order: 0,
             fill: Rgba::WHITE,
+            fill_authored: false,
             assignments: Default::default(),
+            stroke: Stroke::none(),
+            corner: Corner::Square,
         }));
         let image = node(NodeKind::Image(ImageNode::new(crate::ItemId(1))));
         let text = node(NodeKind::Text(TextNode {
             text: "Note".into(),
-            family: FontChoice::default(),
+            family: Typeface::default(),
             size: 16.0,
             color: Rgba([0, 0, 0, 255]),
             align: TextAlign::default(),
             fill: None,
+            agent: None,
         }));
         let portal = node(NodeKind::Portal(PortalNode::unbound_web("Page")));
         let shape = node(NodeKind::Shape(ShapeNode {
@@ -3883,6 +4639,7 @@ mod corner_percentage_tests {
             corner: Corner::Square,
             flip: false,
             path: None,
+            text: None,
         }));
         let line = node(NodeKind::Shape(ShapeNode {
             shape: ShapeKind::Line,
@@ -3891,8 +4648,9 @@ mod corner_percentage_tests {
             corner: Corner::Square,
             flip: false,
             path: None,
+            text: None,
         }));
-        assert!(supports_fill(&frame) && !supports_stroke(&frame) && !supports_corners(&frame));
+        assert!(supports_fill(&frame) && supports_stroke(&frame) && supports_corners(&frame));
         assert!(
             !supports_fill(&image)
                 && supports_stroke(&image)
@@ -3923,5 +4681,45 @@ mod corner_percentage_tests {
                 && !supports_corners(&line)
                 && !supports_image_adjust(&line)
         );
+        let NodeKind::Frame(frame_fill) = &frame.kind else {
+            panic!("frame");
+        };
+        assert!(frame_fill.fill_follows_theme());
+    }
+
+    #[test]
+    fn an_edited_frame_fill_stops_following_the_theme() {
+        let rect = WorldRect::new(0.0, 0.0, 40.0, 20.0);
+        let mut frame = Node {
+            id: NodeId(1),
+            rect,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            bumper: None,
+            kind: NodeKind::Frame(FrameNode {
+                title: "Slide".into(),
+                order: 0,
+                fill: Rgba::WHITE,
+                fill_authored: false,
+                assignments: Default::default(),
+                stroke: Stroke::none(),
+                corner: Corner::Square,
+            }),
+        };
+        set_fill(&mut frame, Some(Rgba::WHITE));
+        let NodeKind::Frame(f) = &frame.kind else {
+            panic!("frame");
+        };
+        assert!(!f.fill_follows_theme());
+        set_fill(&mut frame, Some(Rgba([9, 8, 7, 255])));
+        let NodeKind::Frame(f) = &frame.kind else {
+            panic!("frame");
+        };
+        assert_eq!(f.fill, Rgba([9, 8, 7, 255]));
+        assert!(!f.fill_follows_theme());
     }
 }

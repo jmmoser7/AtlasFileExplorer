@@ -18,7 +18,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D02 | Stickiness & repeat | One-shot creation; return to Select. Repeat follows P0.4. | pattern | 85 |
 | D03 | Gesture grammar | P2.DragShape: click default ellipse/circle; drag sizes freely; Shift constrains a circle. | pattern | 85 |
 | D04 | Click vs drag rule | P2.DragShape; snap movement never changes click-vs-drag classification. | pattern | 85 |
-| D05 | Modifiers | Retain tool-specific creation modifiers and P1.node.transform for selected objects. | pattern | 85 |
+| D05 | Modifiers | Shift locks a circle (P1.shape.aspect). Ctrl during DragScale draws from the press point as center. Later resize is P1.node.transform, including Alt-at-press scale copies. Fill and stroke sample the ellipse to a 0.1px screen chord so the circle is not a coarse polygon. | stated | 100 |
 | D06 | Constraints & snapping | P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority. | pattern | 85 |
 | D07 | Direction / value locks | No new lock binding. Preserve existing locks; numeric property editing is separate from drawing. | pattern | 85 |
 | D08 | Numeric / manual entry | one diameter stringer for a circle; two local-axis diameters for an ellipse. Edits stay centered; a circle stays circular. Alternative: radius/radii labels instead of diameter. No size fields in the toolbar. | guess | 55 |

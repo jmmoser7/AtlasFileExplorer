@@ -12,20 +12,28 @@ use super::board::{rgba32, BoardXf};
 use super::{board_path, SlateApp};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
-    ConnectorBezier, ConnectorEnd, ConnectorNode, Dash, Node, NodeKind, Scene, SceneCmd, Side,
-    Stroke, StrokeCap, StrokeJoin, WidthProfile, WireDisplay, WorldRect,
+    connector_drawn_stroke, ConnectorBezier, ConnectorEnd, ConnectorNode, Dash, Node, NodeKind,
+    Scene, SceneCmd, Side, Stroke, StrokeCap, StrokeJoin, WidthProfile, WireDisplay, WorldRect,
 };
 use slate_doc::wire::{
-    connector_aabb_routed, connector_route_in_scene, filleted_polyline, scene_wire_obstacles,
-    ConnectorPath, OrthoLane, PathCmd, WireRouting, ORTHO_CORNER_RADIUS,
+    connector_aabb_routed, connector_route_in_scene, filleted_polyline, retreat_off_hosts,
+    scene_wire_hosts, scene_wire_obstacles, ConnectorPath, OrthoLane, PathCmd, WireRouting,
+    ORTHO_CORNER_RADIUS,
 };
 use slate_doc::{connector_anchor_on, NodeId, WireHost};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use vector_ink::kurbo::BezPath;
 
-/// Press-hit / hover-preview radius on a grip dot (screen px slop).
+/// Painted grip radius at zoom 1. Screen size is this times zoom.
+const GRIP_RADIUS: f32 = 3.0;
+/// Press-hit radius on the node side of a grip, and the full disk for a
+/// selected connector's endpoint dots (screen px).
 pub const GRIP_HIT_PX: f32 = 8.0;
+/// Outward press-hit radius: 500% larger than [`GRIP_HIT_PX`] (six times).
+/// The extra reach is the outward half-plane only — inside the node the
+/// hit stays [`GRIP_HIT_PX`].
+pub const GRIP_HIT_OUT_PX: f32 = GRIP_HIT_PX * 6.0;
 /// Snap radius while dragging a wire (screen px) to a grip or edge.
 pub const WIRE_SNAP_PX: f32 = 14.0;
 /// Connector stroke pick width (click select / right-click).
@@ -64,13 +72,6 @@ pub struct WireDrag {
     pub snap: Option<(NodeId, Side, f32)>,
 }
 
-/// Wire released on empty canvas: the palette opens there and the placed
-/// node auto-connects to its nearest side; dismissing cancels the wire.
-#[derive(Clone, Copy)]
-pub struct PendingWire {
-    pub from: (NodeId, Side, f32),
-}
-
 // ---------- pure geometry helpers ----------
 
 #[cfg(test)]
@@ -82,6 +83,25 @@ pub(crate) fn grip_point(rect: WorldRect, side: Side) -> Pos2 {
 fn port_point(node: &Node, side: Side, t: f32) -> Pos2 {
     let p = connector_anchor_on(node, side, t);
     Pos2::new(p[0], p[1])
+}
+
+/// Grip under the pointer. The inner disk is [`GRIP_HIT_PX`] on every side.
+/// Past that, the pointer must sit in the outward half-plane and within
+/// [`GRIP_HIT_OUT_PX`] — the enlargement does not reach into the node.
+pub(crate) fn grip_hit(screen: Pos2, grip: Pos2, outward: Vec2) -> bool {
+    let delta = screen - grip;
+    let dist = delta.length();
+    if dist <= GRIP_HIT_PX {
+        return true;
+    }
+    if dist > GRIP_HIT_OUT_PX {
+        return false;
+    }
+    let len = outward.length();
+    if len <= 1e-4 {
+        return false;
+    }
+    delta.dot(outward / len) > 0.0
 }
 
 /// Distance from a point to the rect outline (0 on the boundary; positive
@@ -166,6 +186,9 @@ pub fn hit_connector_routed(
     zoom: f32,
     routing: WireRouting,
 ) -> bool {
+    if wire_blocked_by_node(scene, wx, wy, zoom) {
+        return false;
+    }
     let Some(path) = connector_route_in_scene(
         scene,
         Some(id),
@@ -175,8 +198,9 @@ pub fn hit_connector_routed(
     ) else {
         return false;
     };
+    let (path, stroke) = drawn_connector(scene, path, conn);
     let kurbo = connector_path_kurbo(&path);
-    let style = board_path::stroke_style_world(&conn.stroke, zoom);
+    let style = board_path::stroke_style_world(&stroke, zoom);
     let slop = CONNECTOR_PICK_PX / zoom.max(0.05);
     vector_ink::hit_stroke(&kurbo, &style, [wx, wy], slop)
 }
@@ -190,6 +214,41 @@ fn end_point(scene: &Scene, end: &ConnectorEnd) -> Option<Pos2> {
         }
         ConnectorEnd::Free { point } => Some(Pos2::new(point[0], point[1])),
     }
+}
+
+/// The pointer is on a node (or within the wire's own pick slop of one).
+/// That node wins; the wire underneath must not.
+fn wire_blocked_by_node(scene: &Scene, wx: f32, wy: f32, zoom: f32) -> bool {
+    let slop = CONNECTOR_PICK_PX / zoom.max(0.05);
+    scene.nodes.iter().any(|n| {
+        if n.hidden || n.is_frame() || matches!(n.kind, NodeKind::Connector(_)) {
+            return false;
+        }
+        let r = n.rect;
+        WorldRect::new(r.x - slop, r.y - slop, r.w + slop * 2.0, r.h + slop * 2.0).contains_rotated(
+            wx,
+            wy,
+            n.rotation_deg,
+        )
+    })
+}
+
+/// Painted stroke (twice the stored width) and the same curve pulled just
+/// outside each anchored host so the stroke does not cross that face.
+fn drawn_connector(
+    scene: &Scene,
+    path: ConnectorPath,
+    conn: &ConnectorNode,
+) -> (ConnectorPath, Stroke) {
+    let stroke = connector_drawn_stroke(conn.stroke);
+    let path = retreat_off_hosts(
+        path,
+        &conn.a,
+        &conn.b,
+        scene_wire_hosts(scene),
+        stroke.width * 0.5,
+    );
+    (path, stroke)
 }
 
 fn is_on_grip(end: &ConnectorEnd, node: NodeId, side: Side) -> bool {
@@ -207,6 +266,9 @@ impl SlateApp {
             cap: StrokeCap::Round,
             join: StrokeJoin::Round,
             profile: WidthProfile::Uniform,
+            softness: 0.0,
+            stamp: false,
+            tween_from: None,
         }
     }
 
@@ -270,10 +332,34 @@ impl SlateApp {
                 continue;
             }
             let host = WireHost::from_node(n);
-            let hovered = host.ports().into_iter().find(|port| {
-                let g = xf.w2s(Pos2::new(port.point[0], port.point[1]));
-                g.distance(screen) <= GRIP_HIT_PX
-            });
+            if let NodeKind::Portal(portal) = &n.kind {
+                if portal.kind == slate_doc::scene::PortalKind::Agent {
+                    if let Some(id) = self.agent_manual_context_at(screen, xf) {
+                        return Some((id, Side::Left, 0.5));
+                    }
+                    if !host.is_flow() {
+                        if host.is_area() && n.rect.contains_rotated(w.x, w.y, n.rotation_deg) {
+                            return None;
+                        }
+                        continue;
+                    }
+                }
+            }
+            // Stacked ports overlap once zoomed out; the nearest one wins.
+            let hovered = host
+                .ports()
+                .into_iter()
+                .filter(|port| {
+                    let g = xf.w2s(Pos2::new(port.point[0], port.point[1]));
+                    let n = host.outward(port.side, port.t);
+                    grip_hit(screen, g, Vec2::new(n[0], n[1]))
+                })
+                .min_by(|a, b| {
+                    let d = |p: &slate_doc::WirePort| {
+                        xf.w2s(Pos2::new(p.point[0], p.point[1])).distance(screen)
+                    };
+                    d(a).total_cmp(&d(b))
+                });
             if let Some(port) = hovered {
                 return Some((n.id, port.side, port.t));
             }
@@ -285,7 +371,7 @@ impl SlateApp {
     }
 
     /// Per-frame grip hover: with the Select tool, only the grip whose
-    /// midpoint is within [`GRIP_HIT_PX`] of the pointer previews (locked
+    /// midpoint is within the grip hit of the pointer previews (locked
     /// nodes included — wires may anchor to them). An edge between grips
     /// is inert. A node body under the pointer occludes grips behind it.
     pub(crate) fn update_wire_grips(&mut self, pointer: Option<Pos2>, xf: &BoardXf) {
@@ -313,6 +399,12 @@ impl SlateApp {
         let Some(node) = self.doc().scene.node(grips.node) else {
             return;
         };
+        if matches!(
+            &node.kind,
+            NodeKind::Portal(portal) if portal.kind == slate_doc::scene::PortalKind::Agent
+        ) {
+            return;
+        };
         let visible = self
             .wire_grips
             .is_some_and(|g| g.node == grips.node && g.hovered == Some(side));
@@ -325,7 +417,7 @@ impl SlateApp {
             return;
         }
         let edge = xf.w2s(port_point(node, side, 0.5));
-        let r = atlas_shell::canvas_scale::px(6.0, xf.z);
+        let r = atlas_shell::canvas_scale::px(GRIP_RADIUS, xf.z);
         let normal = WireHost::from_node(node).outward(side, 0.5);
         let center = edge + egui::vec2(normal[0], normal[1]) * (r * (progress - 1.0));
         painter.circle_filled(center, r, self.palette().accent.gamma_multiply(0.45));
@@ -357,6 +449,10 @@ impl SlateApp {
                         continue;
                     };
                     if xf.w2s(p).distance(screen) <= GRIP_HIT_PX {
+                        if conn.binding.as_ref().is_some_and(|b| b.consumed) {
+                            self.toast("This context was already sent. It stays attached.");
+                            return None;
+                        }
                         let before = self.doc().scene.node(id)?.clone();
                         return Some(WireDrag {
                             mode: WireMode::Detach {
@@ -416,6 +512,12 @@ impl SlateApp {
                     d(a).total_cmp(&d(b))
                 })
                 .expect("non-empty");
+            if let NodeKind::Connector(c) = &nearest.2.kind {
+                if c.binding.as_ref().is_some_and(|b| b.consumed) {
+                    self.toast("This context was already sent. It stays attached.");
+                    return None;
+                }
+            }
             WireMode::Detach {
                 conn: nearest.0,
                 end_b: nearest.1,
@@ -437,11 +539,14 @@ impl SlateApp {
     fn wire_snap_target(
         &self,
         world: Pos2,
-        exclude: Option<NodeId>,
+        from: Option<(NodeId, Side, f32)>,
     ) -> Option<(NodeId, Side, f32)> {
         let z = self.tab().cam.z.max(0.05);
         let snap_w = WIRE_SNAP_PX / z;
-        for n in self.doc().scene.nodes.iter().rev() {
+        let exclude = from.map(|f| f.0);
+        let doc = self.doc();
+        let scene = &doc.scene;
+        for n in scene.nodes.iter().rev() {
             if n.hidden || matches!(n.kind, NodeKind::Connector(_)) || Some(n.id) == exclude {
                 continue;
             }
@@ -452,6 +557,27 @@ impl SlateApp {
                 .find(|port| Pos2::new(port.point[0], port.point[1]).distance(world) <= snap_w)
             {
                 return Some((n.id, port.side, port.t));
+            }
+            // Dropped anywhere on a generator or text block, a wire lands on
+            // the port that reads it; drawn back from an input, on the output.
+            if host.is_flow()
+                && (n.rect.contains_rotated(world.x, world.y, n.rotation_deg)
+                    || host.snap([world.x, world.y]).dist <= snap_w)
+            {
+                let Some((source, side, _)) = from else {
+                    continue;
+                };
+                if side == Side::Left && slate_doc::agent_inputs::is_flow_node(scene, source) {
+                    return Some((n.id, Side::Right, slate_doc::agent_inputs::OUTPUT_T));
+                }
+                if let Some(port) =
+                    slate_doc::agent_inputs::default_port(scene, n.id, source, &|id| {
+                        doc.item(id).map(|item| item.path.as_path())
+                    })
+                {
+                    return Some((n.id, Side::Left, port.t));
+                }
+                continue;
             }
             let snap = host.snap([world.x, world.y]);
             if snap.dist <= snap_w {
@@ -484,11 +610,12 @@ impl SlateApp {
         }
         let _ = shift;
         wd.cursor = cursor;
-        let exclude = match &wd.mode {
-            WireMode::Add { from } => Some(from.0),
+        let from = match &wd.mode {
+            WireMode::Add { from } => Some(*from),
             _ => None,
         };
-        wd.snap = self.wire_snap_target(cursor, exclude);
+        let exclude = from.map(|f| f.0);
+        wd.snap = self.wire_snap_target(cursor, from);
         if wd.snap.is_none() {
             let from = match &wd.mode {
                 WireMode::Add { from } => self
@@ -543,8 +670,9 @@ impl SlateApp {
         }
     }
 
-    /// Release: journal the net effect (Add / Patch / Patch group), or open
-    /// the palette for the connect-to-placed flow.
+    /// Release: journal the net effect (Add / Patch / Patch group).
+    /// An add that misses every node keeps a free end at the release
+    /// point, drawn the same way a detached end is.
     pub(crate) fn finish_wire_drag(&mut self, wd: WireDrag) {
         match wd.mode {
             WireMode::Add { from } => match wd.snap {
@@ -559,6 +687,10 @@ impl SlateApp {
                     );
                 }
                 None => {
+                    // A generator or text block output offers Text / Image here.
+                    if self.flow_wire_released(from, wd.cursor) {
+                        return;
+                    }
                     // Releasing back on the source node cancels quietly.
                     let on_source = self
                         .doc()
@@ -568,11 +700,16 @@ impl SlateApp {
                     if on_source {
                         return;
                     }
-                    // Blueprint flow: palette at the release point,
-                    // placeables ranked first; placing auto-connects.
-                    self.wire_pending = Some(PendingWire { from });
-                    let screen = self.board_xf().w2s(wd.cursor);
-                    self.open_board_palette(screen, wd.cursor);
+                    self.add_connector(
+                        ConnectorEnd::Anchored {
+                            node: from.0,
+                            side: from.1,
+                            t: from.2,
+                        },
+                        ConnectorEnd::Free {
+                            point: [wd.cursor.x, wd.cursor.y],
+                        },
+                    );
                 }
             },
             WireMode::Detach { conn, before, .. } => {
@@ -580,7 +717,7 @@ impl SlateApp {
                     if let (NodeKind::Connector(old), NodeKind::Connector(new)) =
                         (&before.kind, &mut after.kind)
                     {
-                        new.binding = slate_doc::agent_inputs::rebind(&self.doc().scene, old, new);
+                        new.binding = self.rebind_wire(old, new);
                     }
                     if after != before {
                         if let Some(node) = self.doc_mut().scene.node_mut(conn) {
@@ -619,8 +756,7 @@ impl SlateApp {
                         if let (NodeKind::Connector(old), NodeKind::Connector(new)) =
                             (&before.kind, &mut after.kind)
                         {
-                            new.binding =
-                                slate_doc::agent_inputs::rebind(&self.doc().scene, old, new);
+                            new.binding = self.rebind_wire(old, new);
                         }
                         (after != *before).then(|| SceneCmd::Patch {
                             before: Box::new(before.clone()),
@@ -669,12 +805,97 @@ impl SlateApp {
         }
     }
 
+    fn wire_item_paths(
+        &self,
+        ends: &[&slate_doc::scene::ConnectorEnd],
+    ) -> std::collections::HashMap<slate_doc::ItemId, std::path::PathBuf> {
+        let mut paths = std::collections::HashMap::new();
+        for end in ends {
+            let Some(node_id) = slate_doc::agent_inputs::endpoint_node(end) else {
+                continue;
+            };
+            let Some(node) = self.doc().scene.node(node_id) else {
+                continue;
+            };
+            let NodeKind::Image(image) = &node.kind else {
+                continue;
+            };
+            if let Some(item) = self.doc().item(image.item) {
+                paths.insert(image.item, item.path.clone());
+            }
+        }
+        paths
+    }
+
+    fn bind_wire(
+        &self,
+        a: &slate_doc::scene::ConnectorEnd,
+        b: &slate_doc::scene::ConnectorEnd,
+        pending: &[Node],
+    ) -> Option<slate_doc::agent_inputs::WireBinding> {
+        let ends = [a, b].map(slate_doc::agent_inputs::endpoint_node);
+        if !pending.iter().any(|n| ends.contains(&Some(n.id))) {
+            let paths = self.wire_item_paths(&[a, b]);
+            return slate_doc::agent_inputs::infer_binding_with(&self.doc().scene, a, b, &|id| {
+                paths.get(&id).map(std::path::PathBuf::as_path)
+            });
+        }
+        // Inference reads only the two endpoint nodes, so a scene of those
+        // two binds exactly as the committed scene will.
+        let mut ends_only = Scene::default();
+        ends_only.nodes = ends
+            .iter()
+            .flatten()
+            .filter_map(|id| {
+                self.doc()
+                    .scene
+                    .node(*id)
+                    .or_else(|| pending.iter().find(|n| n.id == *id))
+                    .cloned()
+            })
+            .collect();
+        let mut paths = std::collections::HashMap::new();
+        for node in &ends_only.nodes {
+            if let NodeKind::Image(image) = &node.kind {
+                if let Some(item) = self.doc().item(image.item) {
+                    paths.insert(image.item, item.path.clone());
+                }
+            }
+        }
+        slate_doc::agent_inputs::infer_binding_with(&ends_only, a, b, &|id| {
+            paths.get(&id).map(std::path::PathBuf::as_path)
+        })
+    }
+
+    fn rebind_wire(
+        &self,
+        old: &slate_doc::scene::ConnectorNode,
+        new: &slate_doc::scene::ConnectorNode,
+    ) -> Option<slate_doc::agent_inputs::WireBinding> {
+        let paths = self.wire_item_paths(&[&new.a, &new.b]);
+        slate_doc::agent_inputs::rebind_with(&self.doc().scene, old, new, &|id| {
+            paths.get(&id).map(std::path::PathBuf::as_path)
+        })
+    }
+
     /// Journaled connector Add (stroke = fg default, no arrows).
     pub(crate) fn build_connector(&mut self, a: ConnectorEnd, b: ConnectorEnd) -> slate_doc::Node {
+        self.build_connector_with(a, b, &[])
+    }
+
+    /// [`Self::build_connector`] for a batch: `pending` are nodes built for
+    /// the same `add_nodes` call, so the wire binds and routes against them
+    /// before they are committed.
+    pub(crate) fn build_connector_with(
+        &mut self,
+        a: ConnectorEnd,
+        b: ConnectorEnd,
+        pending: &[Node],
+    ) -> slate_doc::Node {
         let stroke = self.default_wire_stroke();
         let mut conn = ConnectorNode {
             routing: Some(self.board_wire_routing),
-            binding: slate_doc::agent_inputs::infer_binding(&self.doc().scene, &a, &b),
+            binding: self.bind_wire(&a, &b, pending),
             a,
             b,
             stroke,
@@ -690,11 +911,26 @@ impl SlateApp {
                     .and_then(|id| self.agent_active_output(id));
             }
         }
+        // Wires into a chat train start in the train's calm gray instead of the
+        // drawing color. It is only the default: a color picked later is kept.
+        if let Some(binding) = &conn.binding {
+            let input = if binding.input_b { &conn.b } else { &conn.a };
+            if slate_doc::agent_inputs::endpoint_node(input)
+                .is_some_and(|id| slate_doc::agent_inputs::is_chat_card(&self.doc().scene, id))
+            {
+                conn.stroke.color = self.chat_wire_color();
+            }
+        }
         let scene = &self.doc().scene;
         let obstacles = scene_wire_obstacles(scene);
         let rect = connector_aabb_routed(
             &conn,
-            |id| scene.node(id).map(WireHost::from_node),
+            |id| {
+                scene
+                    .node(id)
+                    .or_else(|| pending.iter().find(|n| n.id == id))
+                    .map(WireHost::from_node)
+            },
             self.board_wire_routing,
             &obstacles,
             OrthoLane::default(),
@@ -717,45 +953,6 @@ impl SlateApp {
             Some("connected".into()),
         );
         Some(id)
-    }
-
-    /// Palette follow-up: a node placed while a wire was pending
-    /// auto-connects from the stored grip to the placed node's nearest side.
-    pub(crate) fn resolve_pending_wire(&mut self, placed: NodeId) {
-        let Some(pending) = self.wire_pending.take() else {
-            return;
-        };
-        let Some(target) = self.doc().scene.node(placed).cloned() else {
-            return;
-        };
-        let from_pt = self
-            .doc()
-            .scene
-            .node(pending.from.0)
-            .map(|n| port_point(n, pending.from.1, pending.from.2));
-        let Some(from_pt) = from_pt else { return };
-        let host = WireHost::from_node(&target);
-        let port = host
-            .ports()
-            .into_iter()
-            .min_by(|a, b| {
-                Pos2::new(a.point[0], a.point[1])
-                    .distance(from_pt)
-                    .total_cmp(&Pos2::new(b.point[0], b.point[1]).distance(from_pt))
-            })
-            .expect("every host has ports");
-        self.add_connector(
-            ConnectorEnd::Anchored {
-                node: pending.from.0,
-                side: pending.from.1,
-                t: pending.from.2,
-            },
-            ConnectorEnd::Anchored {
-                node: placed,
-                side: port.side,
-                t: port.t,
-            },
-        );
     }
 
     // ----- painting -----
@@ -786,12 +983,20 @@ impl SlateApp {
             if let Some(path) =
                 connector_route_in_scene(scene, None, &a, &b, self.board_wire_routing)
             {
+                let stroke = connector_drawn_stroke(self.default_wire_stroke());
+                let path =
+                    retreat_off_hosts(path, &a, &b, scene_wire_hosts(scene), stroke.width * 0.5);
                 let color = rgba32(self.board_colors.fg).gamma_multiply(if wd.snap.is_some() {
                     1.0
                 } else {
                     0.55
                 });
-                paint_route_preview(painter, xf, &path, EStroke::new(2.0_f32, color));
+                paint_route_preview(
+                    painter,
+                    xf,
+                    &path,
+                    EStroke::new(atlas_shell::canvas_scale::px(stroke.width, xf.z), color),
+                );
             }
         }
         // Snap highlight.
@@ -838,6 +1043,7 @@ impl SlateApp {
         let Some(path) = self.connector_path_visible(node.id, conn) else {
             return;
         };
+        let (path, stroke) = drawn_connector(&self.doc().scene, path, conn);
         let opacity = (node.opacity
             * match conn.display {
                 WireDisplay::Faint => FAINT_OPACITY,
@@ -845,18 +1051,18 @@ impl SlateApp {
             })
         .clamp(0.0, 1.0);
         let fade = |c: Color32| c.gamma_multiply(opacity);
-        let base = fade(rgba32(conn.stroke.color));
+        let base = fade(rgba32(stroke.color));
 
-        if !conn.stroke.is_none() {
+        if !stroke.is_none() {
             let bucket = board_path::zoom_bucket(xf.z);
             let key = connector_cache_key(
                 &path,
                 self.board_wire_routing,
-                &conn.stroke,
+                &stroke,
                 conn.display,
                 bucket,
             );
-            let style = board_path::stroke_style_world(&conn.stroke, xf.z);
+            let style = board_path::stroke_style_world(&stroke, xf.z);
             let feather = board_path::FEATHER_PX / xf.z.max(0.05);
             let kurbo = connector_path_kurbo(&path);
             let cached = self.path_mesh_cache.get_or_tessellate(node.id, key, || {
@@ -868,7 +1074,7 @@ impl SlateApp {
 
         // Arrowheads: filled triangles, tip at the endpoint, base back along
         // the tangent into the curve; size matches the artifact.
-        let arrow_len = (conn.stroke.width * 4.0).max(10.0);
+        let arrow_len = (stroke.width * 4.0).max(10.0);
         let arrow = |tip: [f32; 2], into: [f32; 2]| {
             let base_pt = [tip[0] + into[0] * arrow_len, tip[1] + into[1] * arrow_len];
             let half = arrow_len * 0.4;
@@ -936,6 +1142,8 @@ impl SlateApp {
         let Some(path) = self.connector_path_visible(node.id, conn) else {
             return;
         };
+        let anchors = [path.start(), path.end()];
+        let (path, _) = drawn_connector(&self.doc().scene, path, conn);
         let palette = self.palette();
         paint_route_preview(
             painter,
@@ -944,10 +1152,7 @@ impl SlateApp {
             EStroke::new(atlas_shell::canvas_scale::px(1.5, xf.z), palette.select),
         );
         let r = atlas_shell::canvas_scale::px(4.5, xf.z);
-        let ends = [
-            xf.w2s(Pos2::new(path.start()[0], path.start()[1])),
-            xf.w2s(Pos2::new(path.end()[0], path.end()[1])),
-        ];
+        let ends = anchors.map(|p| xf.w2s(Pos2::new(p[0], p[1])));
         for p in ends {
             painter.circle_filled(p, r, palette.bg);
             painter.circle_stroke(
@@ -1132,7 +1337,22 @@ mod tests {
             cap: StrokeCap::Round,
             join: StrokeJoin::Round,
             profile: WidthProfile::Uniform,
+            softness: 0.0,
+            stamp: false,
+            tween_from: None,
         }
+    }
+
+    #[test]
+    fn grip_hit_enlarges_only_outward() {
+        let grip = Pos2::new(100.0, 100.0);
+        let up = Vec2::new(0.0, -1.0);
+        assert!(grip_hit(grip, grip, up));
+        assert!(grip_hit(grip + Vec2::new(0.0, 6.0), grip, up));
+        assert!(!grip_hit(grip + Vec2::new(0.0, 30.0), grip, up));
+        assert!(grip_hit(grip + Vec2::new(0.0, -30.0), grip, up));
+        assert!(!grip_hit(grip + Vec2::new(0.0, -50.0), grip, up));
+        assert!(!grip_hit(grip + Vec2::new(30.0, 0.0), grip, up));
     }
 
     #[test]

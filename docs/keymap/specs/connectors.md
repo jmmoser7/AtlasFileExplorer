@@ -41,8 +41,9 @@ Rules:
   retain the session fallback until explicitly edited:
   - **Bezier** (default): a cubic leaving each anchored end along the
     host's outward (rotated local-edge normal, or the stroke tangent at
-    start/end / left-normal at mid). Handle length
-    `clamp(0.35 * distance, 24.0, 160.0)`.
+    start/end / left-normal at mid). Handle length matches Grasshopper's
+    `GH_Painter.ConnectionPathBezier`: `max(0.5·|Δx|, 0.75·|Δy|)`, shared
+    by both handles, with no floor or ceiling.
   - **Orthogonal** (**P1.wire.rails**): leaves each end along the host's
     true outward (so a rotated edge does not immediately re-enter), then
     takes a **50/50 three-leg** through the midpoint when that corridor
@@ -81,11 +82,13 @@ Ports sit on **object features**, not the world AABB (**P1.wire.ports**):
   three.
 - Connectors themselves have no ports.
 
-With the **Select tool**, a grip previews only when the pointer is
-within ~8 px of **that port**. An edge or stroke between ports is
-inert for preview — it does not reveal the others. A press on a port
-starts a wire and **beats** the edge-resize band (hit-test the press
-origin, not the live hover cache). Snap radius while dragging a wire:
+With the **Select tool**, a grip previews when the pointer is within
+8 px of **that port**, or within 48 px on the **outside** of the node
+(500% larger than the inner radius, outward half-plane only — the
+enlargement does not reach into the body). An edge or stroke between
+ports is inert for preview — it does not reveal the others. A press
+on a port starts a wire and **beats** the edge-resize band (hit-test
+the press origin, not the live hover cache). Snap radius while dragging a wire:
 **14 px screen space** to a port; anywhere on a local edge or open
 stroke snaps to the projected site (`t` along the edge, or arclength
 on `Mid`).
@@ -97,7 +100,7 @@ on `Mid`).
 
 | Gesture | Behavior |
 |---------|----------|
-| **Drag from grip** | Rubber-band bezier preview from the grip. Near a valid target grip/edge: preview snaps and renders solid. Release on target → `Add` connector. Release on empty canvas → **open the canvas palette at that point, pre-filtered to placeables** (Blueprint pattern, recommended by research); placing an item auto-connects to its nearest side. Esc during drag cancels. |
+| **Drag from grip** | Rubber-band bezier preview from the grip. Near a valid target grip/edge: preview snaps and renders solid. Release on target → `Add` connector. Release on empty canvas → `Add` with a `Free` end at that point, drawn the same way a detached end is. The canvas palette does not open. Esc during drag cancels. |
 | **Plain drag** (no modifier) | Adds; whiteboard default is additive (research §9: "add default"). Existing connectors on the grip are untouched. |
 | **Shift+drag** | Identical to plain add in P1 (kept so Grasshopper muscle memory does nothing surprising). Cursor shows a small `+`. |
 | **Ctrl+drag from a grip with wires** | **Detach**: grabs the nearest existing connector end off the grip; it follows the cursor. Release on another grip/edge → `Patch` (rewired). Release on empty → the end becomes `Free` there (`Patch`). Cursor shows `−`. |

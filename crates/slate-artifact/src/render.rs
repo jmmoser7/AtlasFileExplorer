@@ -1,12 +1,13 @@
 use slate_doc::media::{ext_badge, media_kind, web_safe_video, MediaKind};
 use slate_doc::scene::{
-    web_origin, ConnectorNode, Corner, Dash, DockStripNode, Node, NodeId, NodeKind, PathData,
-    PathFillRule, PathSeg, PortalKind, PortalNode, Rgba, Scene, ShapeKind, StrokeCap, StrokeJoin,
-    TextAlign, WebExport, WebSourceKind, WidthProfile, WireDisplay, WorldRect,
+    connector_drawn_stroke, web_origin, ConnectorNode, Corner, Dash, DockStripNode, Node, NodeId,
+    NodeKind, PathData, PathFillRule, PathSeg, PortalKind, PortalNode, Rgba, Scene, ShapeKind,
+    SheetLayout, StrokeCap, StrokeJoin, TextAlign, WebExport, WebSourceKind, WidthProfile,
+    WireDisplay, WorldRect,
 };
 use slate_doc::wire::{
-    connector_route_in_scene, filleted_polyline, ConnectorPath, PathCmd, WireRouting,
-    ORTHO_CORNER_RADIUS,
+    connector_route_in_scene, filleted_polyline, retreat_off_hosts, scene_wire_hosts,
+    ConnectorPath, PathCmd, WireRouting, ORTHO_CORNER_RADIUS,
 };
 use slate_doc::SlateDoc;
 use vector_ink::kurbo::{BezPath, PathEl, Point};
@@ -77,8 +78,24 @@ var x=e.clientX/window.innerWidth;
 if(x>2/3)next();
 else if(x<1/3)prev();
 });
+function fitStickies(){
+[].slice.call(document.querySelectorAll('[data-sticky-fit]')).forEach(function(el){
+var max=parseFloat(el.getAttribute('data-fit-max'))||24;
+var min=parseFloat(el.getAttribute('data-fit-min'))||8;
+var inner=el.firstElementChild||el;
+function fits(size){
+inner.style.fontSize=size+'px';
+return el.scrollHeight<=el.clientHeight+1;
+}
+if(fits(max)){inner.style.fontSize=max+'px';return;}
+var lo=min,hi=max;
+for(var i=0;i<8;i++){var mid=(lo+hi)/2;if(fits(mid))lo=mid;else hi=mid;}
+inner.style.fontSize=lo+'px';
+});
+}
 show(0);
 scaleSlides();
+fitStickies();
 })();"#;
 
 struct SlideSpec {
@@ -87,18 +104,22 @@ struct SlideSpec {
     origin_x: f32,
     origin_y: f32,
     background: String,
+    /// Default plate: CSS switches with `prefers-color-scheme` instead of a baked color.
+    theme_fill: bool,
+    /// Authored stroke and corner, already serialized as CSS declarations.
+    chrome: String,
     member_ids: Vec<NodeId>,
 }
 
 /// Renders a complete HTML document for `doc` using resolved asset URLs.
 pub fn render_html(doc: &SlateDoc, assets: &AssetMap) -> String {
-    render_html_routed(doc, assets, WireRouting::Bezier)
+    render_html_routed(doc, assets, &crate::ExportOptions::default())
 }
 
 pub(crate) fn render_html_routed(
     doc: &SlateDoc,
     assets: &AssetMap,
-    routing: WireRouting,
+    opts: &crate::ExportOptions,
 ) -> String {
     let slides = collect_slides(&doc.scene);
     let slide_count = slides.len();
@@ -118,7 +139,7 @@ pub(crate) fn render_html_routed(
     } else {
         html.push_str("<div id=\"deck\">\n");
         for (i, spec) in slides.iter().enumerate() {
-            render_slide(&mut html, doc, assets, spec, i == 0, routing);
+            render_slide(&mut html, doc, assets, spec, i == 0, opts);
         }
         html.push_str("</div>\n");
         if slide_count == 1 {
@@ -140,6 +161,7 @@ const CSS: &str = r#"*{box-sizing:border-box}
 html,body{margin:0;height:100%;background:#111;overflow:hidden}
 #deck{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
 .slide{position:absolute;width:var(--sw);height:var(--sh);opacity:0;transition:opacity 150ms;transform-origin:center center;overflow:hidden}
+.slide.theme-plate,.portal.theme-plate{background-color:#ffffff}
 .slide.active{opacity:1}
 .node{position:absolute;overflow:hidden}
 .ovl{position:absolute;inset:0;pointer-events:none;border-radius:inherit}
@@ -149,14 +171,27 @@ html,body{margin:0;height:100%;background:#111;overflow:hidden}
 .thumbcard{display:block;position:relative;width:100%;height:100%;text-decoration:none}
 .thumbcard img{width:100%;height:100%;object-fit:cover;display:block}
 .thumbcard .badge{position:absolute;left:6px;bottom:6px}
-.textcard{display:block;width:100%;height:100%;background:#fdfdfb;color:#222;text-decoration:none;overflow:hidden}
-.textcard pre{margin:0;padding:10px 12px 4px;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
-.textcard .fname{display:block;padding:2px 12px 8px;color:#888;font:11px system-ui,sans-serif}
+.textcard{display:block;position:relative;width:100%;height:100%;background:#fff;color:#1b1e22;text-decoration:none;overflow:hidden;border-radius:inherit}
+.textcard pre{margin:0;padding:10px 12px;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+.textcard .sheetwrap{position:absolute;inset:0;overflow:auto}
+.textcard .fname{position:absolute;left:4px;bottom:4px;z-index:1;padding:2px 6px;border-radius:3px;background:rgba(0,0,0,.55);color:#fff;font:11px system-ui,sans-serif;opacity:0;pointer-events:none}
+.textcard:hover .fname{opacity:1}
+.textcard table{width:max-content;min-width:100%;border-collapse:collapse}
+.textcard td{border:1px solid rgba(27,30,34,.16);padding:1px 4px;height:15px;min-width:20px;font:11px/1.2 ui-sans-serif,system-ui,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.textcard tr:first-child td:not([data-fill]){background:#eef0f2;font-weight:600}
+@media (prefers-color-scheme: dark){
+.slide.theme-plate,.portal.theme-plate{background-color:#1c2026}
+.textcard{background:#1c2026;color:#dde2e8}
+.textcard td{border-color:rgba(221,226,232,.18)}
+.textcard tr:first-child td:not([data-fill]){background:#15181c}
+}
 .empty{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#888;font:18px system-ui,sans-serif}
 .counter{position:fixed;bottom:16px;right:16px;color:#888;font:14px monospace;z-index:100}
 .counter.hidden{display:none}
 "#;
 
+/// `.slide.theme-plate` uses `theme.light.card` (`#ffffff`) and
+/// `theme.dark.card` (`#1c2026`). The board paints the live `Palette::card`.
 fn collect_slides(scene: &Scene) -> Vec<SlideSpec> {
     let frames = scene.frames_in_order();
     if !frames.is_empty() {
@@ -165,9 +200,20 @@ fn collect_slides(scene: &Scene) -> Vec<SlideSpec> {
             .map(|frame| {
                 let mut member_ids = scene.members_of(frame.id);
                 member_ids.sort_by_key(|id| scene.index_of(*id).unwrap_or(usize::MAX));
-                let background = match &frame.kind {
-                    NodeKind::Frame(f) => f.fill.css(),
-                    _ => Rgba::WHITE.css(),
+                let (background, chrome, theme_fill) = match &frame.kind {
+                    NodeKind::Frame(f) => {
+                        let mut chrome = String::new();
+                        append_stroke(&mut chrome, &f.stroke);
+                        append_corner(&mut chrome, f.corner, frame.rect.w, frame.rect.h);
+                        let theme_fill = f.fill_follows_theme();
+                        let background = if theme_fill {
+                            String::new()
+                        } else {
+                            f.fill.css()
+                        };
+                        (background, chrome, theme_fill)
+                    }
+                    _ => (Rgba::WHITE.css(), String::new(), false),
                 };
                 SlideSpec {
                     width: frame.rect.w,
@@ -175,6 +221,8 @@ fn collect_slides(scene: &Scene) -> Vec<SlideSpec> {
                     origin_x: frame.rect.x,
                     origin_y: frame.rect.y,
                     background,
+                    theme_fill,
+                    chrome,
                     member_ids,
                 }
             })
@@ -208,6 +256,8 @@ fn collect_slides(scene: &Scene) -> Vec<SlideSpec> {
         origin_x: min_x - PAD,
         origin_y: min_y - PAD,
         background: Rgba::WHITE.css(),
+        theme_fill: false,
+        chrome: String::new(),
         member_ids,
     }]
 }
@@ -218,9 +268,12 @@ fn render_slide(
     assets: &AssetMap,
     spec: &SlideSpec,
     active: bool,
-    routing: WireRouting,
+    opts: &crate::ExportOptions,
 ) {
     html.push_str("<section class=\"slide");
+    if spec.theme_fill {
+        html.push_str(" theme-plate");
+    }
     if active {
         html.push_str(" active");
     }
@@ -232,9 +285,14 @@ fn render_slide(
     html.push_str(&fmt_px(spec.width));
     html.push_str("px;--sh:");
     html.push_str(&fmt_px(spec.height));
-    html.push_str("px;background-color:");
-    html.push_str(&spec.background);
-    html.push_str(";\">\n");
+    html.push_str("px;");
+    if !spec.theme_fill {
+        html.push_str("background-color:");
+        html.push_str(&spec.background);
+        html.push(';');
+    }
+    html.push_str(&spec.chrome);
+    html.push_str("\">\n");
 
     let mut wires = Vec::new();
     let mut rest = Vec::new();
@@ -264,7 +322,9 @@ fn render_slide(
             node,
             spec.origin_x,
             spec.origin_y,
-            routing,
+            opts,
+            opts.workbook.as_deref(),
+            0,
         );
     }
 
@@ -279,7 +339,9 @@ fn render_node(
     node: &Node,
     origin_x: f32,
     origin_y: f32,
-    routing: WireRouting,
+    opts: &crate::ExportOptions,
+    host: Option<&std::path::Path>,
+    depth: u32,
 ) {
     // Export honesty (Art. IV): hidden nodes are not part of what the board
     // shows, so they never reach the artifact.
@@ -290,31 +352,50 @@ fn render_node(
     match &node.kind {
         NodeKind::Image(img) => render_image(html, doc, assets, node, img, rel),
         NodeKind::Shape(shape) => render_shape(html, node, shape, rel),
-        NodeKind::Text(text) => render_text(html, node, text, rel),
-        NodeKind::Connector(conn) => {
-            render_connector(html, &doc.scene, node, conn, origin_x, origin_y, routing)
+        NodeKind::Text(text) => {
+            // A note an agent writes shows its reply until it is edited.
+            let reply = (text.agent.is_some() && text.text.trim().is_empty())
+                .then(|| assets.agent_reply(node.id))
+                .flatten();
+            render_text(html, node, text, reply.unwrap_or(&text.text), rel)
         }
+        NodeKind::Connector(conn) => render_connector(
+            html,
+            &doc.scene,
+            node,
+            conn,
+            origin_x,
+            origin_y,
+            opts.wire_routing,
+        ),
         NodeKind::Frame(_) => {}
         NodeKind::DockStrip(s) => render_dock_strip(html, node, s, rel),
-        NodeKind::Portal(p) if p.kind == PortalKind::Web => {
+        NodeKind::Portal(p) if p.kind == PortalKind::Web && depth == 0 => {
             render_web_portal(html, assets, node, p, rel);
         }
-        NodeKind::Portal(p) => render_portal(html, node, p, rel, assets),
+        NodeKind::Portal(p) => render_portal(html, doc, assets, node, p, rel, opts, host, depth),
     }
 }
 
 fn render_portal(
     html: &mut String,
+    _doc: &SlateDoc,
+    assets: &AssetMap,
     node: &Node,
     portal: &PortalNode,
     rel: WorldRect,
-    assets: &AssetMap,
+    opts: &crate::ExportOptions,
+    host: Option<&std::path::Path>,
+    depth: u32,
 ) {
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
-    style.push_str("background:");
-    style.push_str(&portal.fill.css());
-    style.push_str(";overflow:hidden;");
+    if !portal.slate_fill_follows_theme() {
+        style.push_str("background:");
+        style.push_str(&portal.fill.css());
+        style.push(';');
+    }
+    style.push_str("overflow:hidden;");
     match portal.agent.as_ref().and_then(|a| a.chat.stroke) {
         Some(stroke) => style.push_str(&format!(
             "box-sizing:border-box;border:{}px solid {};",
@@ -323,12 +404,25 @@ fn render_portal(
         )),
         None => append_stroke(&mut style, &portal.stroke),
     }
-    html.push_str("<div class=\"node portal\" style=\"");
+    html.push_str("<div class=\"node portal");
+    if portal.slate_fill_follows_theme() {
+        html.push_str(" theme-plate");
+    }
+    html.push_str("\" style=\"");
     html.push_str(&style);
     html.push_str("\">");
 
     match portal.kind {
-        PortalKind::Web => unreachable!("web portals render via render_web_portal"),
+        PortalKind::Web => {
+            let pointer = portal
+                .source
+                .as_ref()
+                .map(|s| s.locator.as_str())
+                .unwrap_or("unbound page");
+            html.push_str("<div style=\"width:100%;height:100%;display:flex;align-items:center;justify-content:center;text-align:center;font:14px system-ui,sans-serif\"><span>");
+            html.push_str(&escape_html(pointer));
+            html.push_str("</span></div>");
+        }
         PortalKind::Agent => {
             if let Some(images) = assets.agent_images(node.id).filter(|v| !v.is_empty()) {
                 html.push_str("<div data-provider=\"");
@@ -383,9 +477,90 @@ fn render_portal(
             }
             html.push_str(" (live scan is not exported)</span></div>");
         }
+        PortalKind::Slate => {
+            render_slate_board(html, assets, portal, node, opts, host, depth);
+        }
     }
 
     html.push_str("</div>\n");
+}
+
+fn render_slate_board(
+    html: &mut String,
+    assets: &AssetMap,
+    portal: &PortalNode,
+    node: &Node,
+    opts: &crate::ExportOptions,
+    host: Option<&std::path::Path>,
+    depth: u32,
+) {
+    let locator = portal
+        .source
+        .as_ref()
+        .map(|src| src.locator.as_str())
+        .unwrap_or("");
+    if locator.is_empty() {
+        slate_caption(html, "Choose workbook…");
+        return;
+    }
+    if depth >= slate_doc::scene::SLATE_PORTAL_PAINT_DEPTH {
+        slate_caption(html, locator);
+        return;
+    }
+    let path = slate_doc::scene::resolve_source(host, locator);
+    let key = slate_doc::scene::workbook_key(&path);
+    if host.is_some_and(|parent| slate_doc::scene::workbook_key(parent) == key) {
+        slate_caption(html, "This workbook already contains that board");
+        return;
+    }
+    let Some(board) = opts.slate_boards.get(&key) else {
+        slate_caption(html, &format!("Missing: {locator}"));
+        return;
+    };
+    let Some(bounds) = board.doc.scene.visible_bounds() else {
+        slate_caption(html, "Empty board");
+        return;
+    };
+    let Some(fit) = slate_doc::scene::fit_board(node.rect, bounds) else {
+        slate_caption(html, "Empty board");
+        return;
+    };
+    let (left, top) = fit.map_xy(bounds.x, bounds.y);
+    html.push_str("<div style=\"position:absolute;left:");
+    html.push_str(&fmt_px(left - node.rect.x));
+    html.push_str("px;top:");
+    html.push_str(&fmt_px(top - node.rect.y));
+    html.push_str("px;width:");
+    html.push_str(&fmt_px(bounds.w * fit.scale));
+    html.push_str("px;height:");
+    html.push_str(&fmt_px(bounds.h * fit.scale));
+    html.push_str("px;overflow:hidden\"><div style=\"position:absolute;left:0;top:0;width:");
+    html.push_str(&fmt_px(bounds.w));
+    html.push_str("px;height:");
+    html.push_str(&fmt_px(bounds.h));
+    html.push_str("px;transform:scale(");
+    html.push_str(&fmt_px(fit.scale));
+    html.push_str(");transform-origin:0 0\">");
+    for child in &board.doc.scene.nodes {
+        render_node(
+            html,
+            &board.doc,
+            assets,
+            child,
+            bounds.x,
+            bounds.y,
+            opts,
+            Some(&board.path),
+            depth + 1,
+        );
+    }
+    html.push_str("</div></div>");
+}
+
+fn slate_caption(html: &mut String, text: &str) {
+    html.push_str("<div style=\"width:100%;height:100%;display:flex;align-items:center;justify-content:center;text-align:center;font:14px system-ui,sans-serif\"><span>");
+    html.push_str(&escape_html(text));
+    html.push_str("</span></div>");
 }
 
 fn render_dock_strip(html: &mut String, node: &Node, strip: &DockStripNode, rel: WorldRect) {
@@ -547,7 +722,10 @@ fn render_image(
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
     append_clip(&mut style, node, rel);
-    append_corner(&mut style, img.corner, rel.w, rel.h);
+    let corner = path_opt
+        .map(|path| slate_doc::media::text_card_corner(path, img.corner))
+        .unwrap_or(img.corner);
+    append_corner(&mut style, corner, rel.w, rel.h);
     append_stroke(&mut style, &img.stroke);
     style.push_str("overflow:hidden;");
 
@@ -555,8 +733,17 @@ fn render_image(
     html.push_str(&style);
     html.push_str("\">");
 
+    // A picture an agent makes shows its newest result until one is picked;
+    // the app lists the shown result first, as the board paints it.
+    let shown = (img.agent.is_some() && img.item.is_none())
+        .then(|| assets.agent_images(node.id).and_then(|v| v.first()))
+        .flatten();
     let missing = item.is_none() || path_opt.is_none_or(|p| assets.get(p).is_none());
-    if missing {
+    if let Some(url) = shown {
+        render_img_tag(html, url, img);
+    } else if img.agent.is_some() && img.item.is_none() {
+        // Not generated yet: an empty picture, not a missing file.
+    } else if missing {
         html.push_str("<div class=\"missing\">");
         html.push_str(&escape_html(file_name));
         html.push_str("</div>");
@@ -570,12 +757,15 @@ fn render_image(
                 render_video_tag(html, url, img, path, assets.item_thumb(img.item, path));
             }
             MediaKind::Text => {
-                render_text_card(html, url, file_name, assets.snippet(path), path);
+                if let Some(sheet) = assets.sheet(path) {
+                    render_sheet_card(html, url, file_name, sheet, &img.sheet);
+                } else {
+                    render_text_card(html, url, file_name, assets.snippet(path), path);
+                }
             }
-            // 3D models: the frozen-camera poster rendered on the board for
-            // exactly this node (its saved perspective), falling back to
-            // the generic item thumbnail, always linking to the copied
-            // original so viewers can open it in Rhino.
+            // 3D models: the frozen-camera poster for exactly this node,
+            // falling back to the item thumbnail, always linking to the
+            // copied original.
             MediaKind::Model => {
                 let poster = assets
                     .model_poster(node.id)
@@ -679,6 +869,55 @@ fn render_video_tag(
     html.push_str("\" type=\"");
     html.push_str(mime);
     html.push_str("\"></video>");
+}
+
+/// CSV / Excel card. Authored fills are inline; the header wash follows the
+/// viewer's light or dark scheme, matching the canvas theme slots.
+fn render_sheet_card(
+    html: &mut String,
+    url: &str,
+    file_name: &str,
+    rows: &[Vec<atlas_core::office::SheetCell>],
+    layout: &SheetLayout,
+) {
+    html.push_str("<a class=\"textcard\" href=\"");
+    html.push_str(&escape_attr(url));
+    html.push_str("\" target=\"_blank\"><div class=\"sheetwrap\"><table>");
+    for (ri, row) in rows.iter().enumerate() {
+        html.push_str("<tr");
+        if let Some(h) = layout.rows.get(ri).copied() {
+            use std::fmt::Write;
+            let _ = write!(html, " style=\"height:{h:.1}px\"");
+        }
+        html.push('>');
+        for (ci, cell) in row.iter().enumerate() {
+            html.push_str("<td");
+            let width = layout.cols.get(ci).copied();
+            if let Some(rgb) = cell.fill {
+                let ink = atlas_core::office::SheetCell::ink_on(rgb);
+                use std::fmt::Write;
+                let _ = write!(
+                    html,
+                    " data-fill style=\"background:#{:02x}{:02x}{:02x};color:#{:02x}{:02x}{:02x}",
+                    rgb[0], rgb[1], rgb[2], ink[0], ink[1], ink[2]
+                );
+                if let Some(w) = width {
+                    let _ = write!(html, ";width:{w:.1}px");
+                }
+                html.push('"');
+            } else if let Some(w) = width {
+                use std::fmt::Write;
+                let _ = write!(html, " style=\"width:{w:.1}px\"");
+            }
+            html.push('>');
+            html.push_str(&escape_html(&cell.text));
+            html.push_str("</td>");
+        }
+        html.push_str("</tr>");
+    }
+    html.push_str("</table></div><span class=\"fname\">");
+    html.push_str(&escape_html(file_name));
+    html.push_str("</span></a>");
 }
 
 /// Excerpt card for text files: monospace snippet + filename, linked to the
@@ -801,10 +1040,34 @@ fn render_rect_shape(
     }
 
     append_stroke(&mut style, &shape.stroke);
+    if shape.text.as_ref().is_some_and(|t| !t.body.is_empty()) {
+        style.push_str(
+            "display:flex;align-items:center;overflow:hidden;box-sizing:border-box;padding:8px;",
+        );
+        style.push_str(match shape.text.as_ref().map(|t| t.align) {
+            Some(slate_doc::scene::TextAlign::Left) => "justify-content:flex-start;",
+            Some(slate_doc::scene::TextAlign::Right) => "justify-content:flex-end;",
+            _ => "justify-content:center;",
+        });
+    }
 
     html.push_str("<div class=\"node\" style=\"");
     html.push_str(&style);
-    html.push_str("\"></div>\n");
+    html.push_str("\">");
+    if let Some(text) = shape.text.as_ref().filter(|t| !t.body.is_empty()) {
+        html.push_str("<div style=\"width:100%;font-family:");
+        html.push_str(text.family.css_stack());
+        html.push_str(";font-size:");
+        html.push_str(&fmt_px(text.size));
+        html.push_str("px;color:");
+        html.push_str(&text.color.css());
+        html.push_str(";text-align:");
+        html.push_str(text_align_css(text.align));
+        html.push_str(";white-space:pre-wrap;line-height:1.3;\">");
+        html.push_str(&escape_html(&text.body));
+        html.push_str("</div>");
+    }
+    html.push_str("</div>\n");
 }
 
 fn render_line(
@@ -863,6 +1126,150 @@ fn render_line(
     html.push_str("></line></svg></div>\n");
 }
 
+/// Soft and brush strokes are one radial bitmap, the same picture the board
+/// paints. An embedded PNG is what SVG can hold for that falloff.
+fn render_brush_stamp(
+    html: &mut String,
+    node: &Node,
+    shape: &slate_doc::scene::ShapeNode,
+    path: &PathData,
+    rel: WorldRect,
+) -> bool {
+    let w = rel.w.max(1.0e-3);
+    let h = rel.h.max(1.0e-3);
+    let mut bez = BezPath::new();
+    append_contour(&mut bez, path.start, &path.segs, path.closed, w, h);
+    for extra in &path.extra {
+        append_contour(&mut bez, extra.start, &extra.segs, extra.closed, w, h);
+    }
+    let base = stamp_style(slate_doc::scene::StrokeSpan::of(&shape.stroke));
+    let tips: Vec<vector_ink::StampStyle> = path
+        .paint_tips(&shape.stroke)
+        .into_iter()
+        .map(stamp_style)
+        .collect();
+    let mut contours = vector_ink::tipped_contours(&bez, &tips, base, 0.25);
+    contours.retain(|c| !c.is_empty());
+    if contours.is_empty() {
+        contours.push(vec![vector_ink::TipPoint {
+            pos: [w * 0.5, h * 0.5],
+            tip: tips.first().copied().unwrap_or(base),
+        }]);
+    }
+    let widest = contours
+        .iter()
+        .flatten()
+        .map(|p| p.tip.diameter)
+        .fold(0.0_f32, f32::max);
+    let Some(mut stamp) = vector_ink::stamp_tipped(&contours, vector_ink::default_pixel(widest))
+    else {
+        return false;
+    };
+    let marks: Vec<Vec<vector_ink::TipPoint>> = path
+        .erase
+        .iter()
+        .map(|mark| {
+            mark.points
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let (x, y) = denorm_pt(*p, w, h);
+                    let tip = mark.tips.get(i).or(mark.tips.first()).copied();
+                    vector_ink::TipPoint {
+                        pos: [x, y],
+                        tip: tip.map(stamp_style).unwrap_or(base),
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    vector_ink::apply_erase(&mut stamp, &marks);
+    let Some(png) = encode_png(&stamp) else {
+        return false;
+    };
+    let mut wrap = geometry_style(rel, node.rotation_deg);
+    append_opacity(&mut wrap, node.opacity);
+    wrap.push_str("overflow:visible;background:transparent;");
+    html.push_str("<div class=\"node\" style=\"");
+    html.push_str(&wrap);
+    html.push_str("\"><img alt=\"\" style=\"position:absolute;left:");
+    html.push_str(&fmt_px(stamp.origin[0]));
+    html.push_str("px;top:");
+    html.push_str(&fmt_px(stamp.origin[1]));
+    html.push_str("px;width:");
+    html.push_str(&fmt_px(stamp.width as f32 * stamp.pixel));
+    html.push_str("px;height:");
+    html.push_str(&fmt_px(stamp.height as f32 * stamp.pixel));
+    html.push_str("px;pointer-events:none\" src=\"data:image/png;base64,");
+    html.push_str(&crate::assets::base64_encode(&png));
+    html.push_str("\"></div>\n");
+    true
+}
+
+fn stamp_style(tip: slate_doc::scene::StrokeSpan) -> vector_ink::StampStyle {
+    vector_ink::StampStyle {
+        diameter: tip.width.max(0.0),
+        softness: tip.softness,
+        rgba: tip.color.0,
+    }
+}
+
+fn append_contour(
+    bez: &mut BezPath,
+    start: [f32; 2],
+    segs: &[PathSeg],
+    closed: bool,
+    w: f32,
+    h: f32,
+) {
+    let (x, y) = denorm_pt(start, w, h);
+    bez.move_to(Point::new(x as f64, y as f64));
+    for seg in segs {
+        match *seg {
+            PathSeg::Line { to } => {
+                let (x, y) = denorm_pt(to, w, h);
+                bez.line_to(Point::new(x as f64, y as f64));
+            }
+            PathSeg::Quad { ctrl, to } => {
+                let (cx, cy) = denorm_pt(ctrl, w, h);
+                let (x, y) = denorm_pt(to, w, h);
+                bez.quad_to(
+                    Point::new(cx as f64, cy as f64),
+                    Point::new(x as f64, y as f64),
+                );
+            }
+            PathSeg::Cubic { c1, c2, to } => {
+                let (ax, ay) = denorm_pt(c1, w, h);
+                let (bx, by) = denorm_pt(c2, w, h);
+                let (x, y) = denorm_pt(to, w, h);
+                bez.curve_to(
+                    Point::new(ax as f64, ay as f64),
+                    Point::new(bx as f64, by as f64),
+                    Point::new(x as f64, y as f64),
+                );
+            }
+        }
+    }
+    if closed {
+        bez.close_path();
+    }
+}
+
+fn encode_png(stamp: &vector_ink::StampImage) -> Option<Vec<u8>> {
+    use image::ImageEncoder;
+    let mut bytes = Vec::new();
+    let encoder = image::codecs::png::PngEncoder::new(&mut bytes);
+    encoder
+        .write_image(
+            &stamp.rgba,
+            stamp.width,
+            stamp.height,
+            image::ExtendedColorType::Rgba8,
+        )
+        .ok()?;
+    Some(bytes)
+}
+
 fn render_path(
     html: &mut String,
     node: &Node,
@@ -870,9 +1277,15 @@ fn render_path(
     rel: WorldRect,
 ) {
     let path = match shape.path.as_ref() {
-        Some(p) if !p.is_empty() => p,
+        Some(p) if !p.is_empty() || shape.stroke.paints_as_stamp() => p,
         _ => return,
     };
+    if shape.stroke.paints_as_stamp()
+        && !shape.stroke.is_none()
+        && render_brush_stamp(html, node, shape, path, rel)
+    {
+        return;
+    }
 
     let w = rel.w;
     let h = rel.h;
@@ -898,6 +1311,19 @@ fn render_path(
     html.push_str(&fmt_px(h));
     html.push_str("\" style=\"display:block;overflow:visible\">");
 
+    let sigma = shape.stroke.blur_sigma();
+    let (ink_width, _) = shape.stroke.paint_profile();
+    let filter_id = (sigma > 0.0).then(|| format!("soft{}", node.id.0));
+    if let Some(id) = &filter_id {
+        html.push_str("<defs><filter id=\"");
+        html.push_str(id);
+        html.push_str(
+            "\" x=\"-50%\" y=\"-50%\" width=\"200%\" height=\"200%\" color-interpolation-filters=\"sRGB\"><feGaussianBlur stdDeviation=\"",
+        );
+        html.push_str(&fmt_px(sigma));
+        html.push_str("\"/></filter></defs>");
+    }
+
     match shape.stroke.profile {
         WidthProfile::Uniform => {
             push_path_open(html, &d, &fill_css, path.fill_rule);
@@ -907,7 +1333,7 @@ fn render_path(
                 html.push_str(" stroke=\"");
                 html.push_str(&shape.stroke.color.css());
                 html.push_str("\" stroke-width=\"");
-                html.push_str(&fmt_px(shape.stroke.width));
+                html.push_str(&fmt_px(ink_width));
                 html.push_str("\" stroke-linecap=\"");
                 html.push_str(stroke_cap_css(shape.stroke.cap));
                 html.push_str("\" stroke-linejoin=\"");
@@ -921,6 +1347,11 @@ fn render_path(
                 if shape.stroke.dash == Dash::Dotted {
                     html.push_str(" stroke-linecap=\"round\"");
                 }
+                if let Some(id) = &filter_id {
+                    html.push_str(" filter=\"url(#");
+                    html.push_str(id);
+                    html.push_str(")\"");
+                }
             }
             html.push_str("></path>");
         }
@@ -932,7 +1363,7 @@ fn render_path(
             if !shape.stroke.is_none() {
                 let bez = path_data_to_bez(path, w, h);
                 let style = StrokeStyle {
-                    width: shape.stroke.width,
+                    width: ink_width,
                     cap: ink_cap(shape.stroke.cap),
                     join: ink_join(shape.stroke.join),
                     taper: Some((start, end)),
@@ -947,13 +1378,58 @@ fn render_path(
                         &shape.stroke.color.css(),
                         PathFillRule::NonZero,
                     );
-                    html.push_str(" stroke=\"none\"></path>");
+                    html.push_str(" stroke=\"none\"");
+                    if let Some(id) = &filter_id {
+                        html.push_str(" filter=\"url(#");
+                        html.push_str(id);
+                        html.push_str(")\"");
+                    }
+                    html.push_str("></path>");
                 }
             }
         }
     }
 
     html.push_str("</svg></div>\n");
+    push_shape_text_overlay(html, node, shape, rel);
+}
+
+fn push_shape_text_overlay(
+    html: &mut String,
+    node: &Node,
+    shape: &slate_doc::scene::ShapeNode,
+    rel: WorldRect,
+) {
+    let Some(text) = shape.text.as_ref().filter(|t| !t.body.is_empty()) else {
+        return;
+    };
+    if !matches!(shape.shape, slate_doc::scene::ShapeKind::Path) {
+        return;
+    }
+    if !slate_doc::scene::shape_hosts_text(shape) {
+        return;
+    }
+    let mut style = geometry_style(rel, node.rotation_deg);
+    append_opacity(&mut style, node.opacity);
+    style.push_str("display:flex;align-items:center;overflow:hidden;box-sizing:border-box;padding:8px;pointer-events:none;background:transparent;");
+    style.push_str(match text.align {
+        slate_doc::scene::TextAlign::Left => "justify-content:flex-start;",
+        slate_doc::scene::TextAlign::Right => "justify-content:flex-end;",
+        slate_doc::scene::TextAlign::Center => "justify-content:center;",
+    });
+    html.push_str("<div class=\"node\" style=\"");
+    html.push_str(&style);
+    html.push_str("\"><div style=\"width:100%;font-family:");
+    html.push_str(text.family.css_stack());
+    html.push_str(";font-size:");
+    html.push_str(&fmt_px(text.size));
+    html.push_str("px;color:");
+    html.push_str(&text.color.css());
+    html.push_str(";text-align:");
+    html.push_str(text_align_css(text.align));
+    html.push_str(";white-space:pre-wrap;line-height:1.3;\">");
+    html.push_str(&escape_html(&text.body));
+    html.push_str("</div></div>\n");
 }
 
 fn push_path_open(html: &mut String, d: &str, fill: &str, rule: PathFillRule) {
@@ -1208,10 +1684,18 @@ fn render_connector(
     ) else {
         return;
     };
+    let drawn = connector_drawn_stroke(conn.stroke);
+    let path = retreat_off_hosts(
+        path,
+        &conn.a,
+        &conn.b,
+        scene_wire_hosts(scene),
+        drawn.width * 0.5,
+    );
 
     // Position the wrapper at the curve AABB, padded so stroke width and
     // arrowheads survive even a degenerate (straight axis-aligned) box.
-    let pad = conn.stroke.width.max(1.0) * 0.5 + arrow_len(conn) + 2.0;
+    let pad = drawn.width.max(1.0) * 0.5 + arrow_len(&drawn) + 2.0;
     let aabb = path.aabb();
     let boxed = WorldRect::new(
         aabb.x - pad,
@@ -1248,7 +1732,7 @@ fn render_connector(
     html.push_str(" stroke=\"");
     html.push_str(&conn.stroke.color.css());
     html.push_str("\" stroke-width=\"");
-    html.push_str(&fmt_px(conn.stroke.width));
+    html.push_str(&fmt_px(drawn.width));
     html.push_str("\" stroke-linecap=\"");
     html.push_str(stroke_cap_css(conn.stroke.cap));
     html.push('"');
@@ -1341,14 +1825,14 @@ fn svg_d_for_path(path: &ConnectorPath, local: &impl Fn([f32; 2]) -> (f32, f32))
     }
 }
 
-fn arrow_len(conn: &ConnectorNode) -> f32 {
-    (conn.stroke.width * 4.0).max(10.0)
+fn arrow_len(stroke: &slate_doc::scene::Stroke) -> f32 {
+    (stroke.width * 4.0).max(10.0)
 }
 
 /// One filled triangle: tip at the endpoint, base back along `into_curve`
 /// (the unit tangent pointing from the endpoint into the curve).
 fn push_arrow_head(html: &mut String, conn: &ConnectorNode, tip: (f32, f32), into_curve: [f32; 2]) {
-    let len = arrow_len(conn);
+    let len = arrow_len(&connector_drawn_stroke(conn.stroke));
     let half_w = len * 0.4;
     let base = (tip.0 + into_curve[0] * len, tip.1 + into_curve[1] * len);
     let perp = [-into_curve[1], into_curve[0]];
@@ -1367,7 +1851,13 @@ fn push_arrow_head(html: &mut String, conn: &ConnectorNode, tip: (f32, f32), int
     html.push_str(" stroke=\"none\"></path>");
 }
 
-fn render_text(html: &mut String, node: &Node, text: &slate_doc::scene::TextNode, rel: WorldRect) {
+fn render_text(
+    html: &mut String,
+    node: &Node,
+    text: &slate_doc::scene::TextNode,
+    shown: &str,
+    rel: WorldRect,
+) {
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
     append_clip(&mut style, node, rel);
@@ -1375,6 +1865,17 @@ fn render_text(html: &mut String, node: &Node, text: &slate_doc::scene::TextNode
         style.push_str("background:");
         style.push_str(&fill.css());
         style.push(';');
+        // Same vertical middle the board caret uses. Horizontal alignment
+        // stays on text-align so wrapped lines follow TextAlign.
+        style.push_str("display:flex;align-items:center;overflow:hidden;box-sizing:border-box;");
+        use std::fmt::Write;
+        let _ = write!(
+            style,
+            "box-shadow:0 {y:.0}px {blur:.0}px rgba(0,0,0,{alpha:.2});",
+            y = slate_doc::scene::STICKY_SHADOW_OFFSET_Y,
+            blur = slate_doc::scene::STICKY_SHADOW_BLUR,
+            alpha = slate_doc::scene::STICKY_SHADOW_ALPHA,
+        );
     }
     style.push_str("font-family:");
     style.push_str(text.family.css_stack());
@@ -1388,8 +1889,24 @@ fn render_text(html: &mut String, node: &Node, text: &slate_doc::scene::TextNode
 
     html.push_str("<div class=\"node\" style=\"");
     html.push_str(&style);
-    html.push_str("\">");
-    html.push_str(&escape_html(&text.text));
+    html.push('"');
+    if text.fill.is_some() {
+        use std::fmt::Write;
+        let _ = write!(
+            html,
+            " data-sticky-fit=\"1\" data-fit-max=\"{max:.1}\" data-fit-min=\"{min:.1}\"",
+            max = text.size.max(slate_doc::scene::STICKY_FIT_MIN),
+            min = slate_doc::scene::STICKY_FIT_MIN,
+        );
+    }
+    html.push('>');
+    if text.fill.is_some() {
+        html.push_str("<div style=\"width:100%;\">");
+        html.push_str(&escape_html(shown));
+        html.push_str("</div>");
+    } else {
+        html.push_str(&escape_html(shown));
+    }
     html.push_str("</div>\n");
 }
 

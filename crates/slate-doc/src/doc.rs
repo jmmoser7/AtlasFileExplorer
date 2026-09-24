@@ -372,6 +372,7 @@ impl SlateDoc {
         // Legacy bbox lines convert to parametric two-point paths
         // (contracts/line.md migration decision).
         doc.scene.migrate_legacy_lines();
+        doc.scene.migrate_agent_cards();
         Ok(doc)
     }
 
@@ -476,6 +477,7 @@ mod tests {
                 corner: Default::default(),
                 flip: false,
                 path: None,
+                text: None,
             }),
         );
         assert_eq!(doc.item_paths_revision(), added);

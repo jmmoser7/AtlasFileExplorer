@@ -24,6 +24,9 @@ pub use render::render_html;
 pub struct ExportOptions {
     /// Completed linked image outputs, active image first. No live runtime is exported.
     pub agent_images: BTreeMap<slate_doc::NodeId, Vec<PathBuf>>,
+    /// The finished reply a note an agent writes shows while its own words
+    /// are empty, as the board shows it.
+    pub agent_replies: BTreeMap<slate_doc::NodeId, String>,
     /// Inline image assets as base64 data URIs instead of copying to assets/.
     /// Videos, documents, and other card-backed originals are always copied.
     pub inline_assets: bool,
@@ -46,6 +49,17 @@ pub struct ExportOptions {
     pub web_posters: BTreeMap<slate_doc::NodeId, PathBuf>,
     /// Routing fallback for legacy wires; authored per-wire choices take precedence.
     pub wire_routing: WireRouting,
+    /// Nested workbook boards keyed by [`slate_doc::scene::workbook_key`].
+    pub slate_boards: BTreeMap<String, ExportedBoard>,
+    /// The workbook file this export was made from, for resolving child locators.
+    pub workbook: Option<PathBuf>,
+}
+
+/// A child workbook loaded for document-portal export.
+#[derive(Debug, Clone)]
+pub struct ExportedBoard {
+    pub path: PathBuf,
+    pub doc: SlateDoc,
 }
 
 /// Summary returned after a successful export.
@@ -66,7 +80,7 @@ pub fn export_html(
     fs::create_dir_all(out_dir)?;
 
     let asset_report = assets::build_assets(doc, out_dir, opts)?;
-    let html = render::render_html_routed(doc, &asset_report.map, opts.wire_routing);
+    let html = render::render_html_routed(doc, &asset_report.map, opts);
 
     let html_path = out_dir.join("index.html");
     fs::write(&html_path, &html)?;
@@ -187,7 +201,10 @@ mod tests {
                 title: format!("Slide {order}"),
                 order,
                 fill: Rgba::WHITE,
+                fill_authored: false,
                 assignments: BTreeMap::new(),
+                stroke: Stroke::none(),
+                corner: Corner::Square,
             }),
         );
         let id = node.id;
@@ -213,8 +230,10 @@ mod tests {
                 corner,
                 stroke,
                 adjust,
+                sheet: Default::default(),
                 video: Default::default(),
                 model: Default::default(),
+                agent: None,
             }),
         );
         let id = node.id;
@@ -233,6 +252,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: None,
+                agent: None,
             }),
         );
         let index = scene.nodes.len();
@@ -380,6 +400,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: None,
+                agent: None,
             }),
         );
         doc.scene.apply(&SceneCmd::Add { index: 0, node });
@@ -555,6 +576,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: Some(Rgba::opaque(255, 235, 130)),
+                agent: None,
             }),
         );
         let index = doc.scene.nodes.len();
@@ -599,6 +621,8 @@ mod tests {
                 corner: Corner::Square,
                 flip: false,
                 path: None,
+
+                text: None,
             }),
         );
         let anchor_id = anchor.id;
@@ -630,7 +654,7 @@ mod tests {
         assert!(html.contains("<path d=\"M"), "path element:\n{html}");
         assert!(html.contains(" C "), "cubic bezier:\n{html}");
         assert!(html.contains("stroke=\"rgba(30,30,30,1.000)\""));
-        assert!(html.contains("stroke-width=\"2.0\""));
+        assert!(html.contains("stroke-width=\"4.0\""));
         // Arrowhead at b: a small filled triangle (closed path, no stroke).
         assert!(
             html.contains(&format!(
@@ -703,7 +727,7 @@ mod tests {
             html.contains(" L "),
             "authored square route must override the default Bezier route"
         );
-        assert!(html.contains("stroke-width=\"7.0\""));
+        assert!(html.contains("stroke-width=\"14.0\""));
         assert!(html.contains("stroke-dasharray="));
         assert!(html.contains(" Z\" fill="), "arrowhead must be exported");
         let NodeKind::Connector(c) = &mut doc.scene.node_mut(id).unwrap().kind else {
@@ -733,6 +757,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: None,
+                agent: None,
             }),
         );
         node.hidden = true;
@@ -816,7 +841,9 @@ mod tests {
         export_html(&doc, &out, &ExportOptions::default()).expect("export");
         let html = fs::read_to_string(out.join("index.html")).expect("read");
         assert!(html.contains("class=\"textcard\""));
+        assert!(html.contains("border-radius:8px"));
         assert!(html.contains("&lt;b&gt;not html&lt;/b&gt;"));
+        assert!(html.contains("prefers-color-scheme: dark"));
         assert!(html.contains("notes.md"));
         // Original copied and linked.
         assert!(html.contains("href=\"assets/notes-"));
@@ -869,6 +896,54 @@ mod tests {
     }
 
     #[test]
+    fn docx_with_text_becomes_snippet_card() {
+        let dir = unique_temp_dir("slate-artifact-docx");
+        let docx = dir.join("note.docx");
+        let file = fs::File::create(&docx).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.start_file("word/document.xml", opts).unwrap();
+        use std::io::Write;
+        zip.write_all(
+            br#"<w:document><w:body><w:p><w:r><w:t>Hello from Word</w:t></w:r></w:p></w:body></w:document>"#,
+        )
+        .unwrap();
+        zip.finish().unwrap();
+
+        let mut doc = SlateDoc::new("Docx");
+        let item = doc.add_item(docx, "note.docx", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        add_media(&mut doc.scene, WorldRect::new(0.0, 0.0, 300.0, 200.0), item);
+
+        let out = dir.join("out");
+        export_html(&doc, &out, &ExportOptions::default()).expect("export");
+        let html = fs::read_to_string(out.join("index.html")).expect("read");
+        assert!(html.contains("class=\"textcard\""));
+        assert!(html.contains("Hello from Word"));
+        assert!(html.contains("note.docx"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn csv_becomes_a_table() {
+        let dir = unique_temp_dir("slate-artifact-csv");
+        let csv = dir.join("rows.csv");
+        fs::write(&csv, "Month,Value\nJan,12\n").unwrap();
+        let mut doc = SlateDoc::new("Csv");
+        let item = doc.add_item(csv, "rows.csv", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 800.0, 450.0));
+        add_media(&mut doc.scene, WorldRect::new(0.0, 0.0, 300.0, 200.0), item);
+        let out = dir.join("out");
+        export_html(&doc, &out, &ExportOptions::default()).expect("export");
+        let html = fs::read_to_string(out.join("index.html")).expect("read");
+        assert!(html.contains("<table>"));
+        assert!(html.contains(">Month<"));
+        assert!(html.contains(">Jan<"));
+        assert!(html.contains("prefers-color-scheme: dark"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn non_web_safe_video_becomes_card() {
         let dir = unique_temp_dir("slate-artifact-mov");
         let mov = dir.join("raw.mov");
@@ -914,6 +989,8 @@ mod tests {
                     closed: false,
                     ..Default::default()
                 }),
+
+                text: None,
             }),
         );
         let index = doc.scene.nodes.len();
@@ -955,6 +1032,8 @@ mod tests {
                     closed: true,
                     ..Default::default()
                 }),
+
+                text: None,
             }),
         );
         let index = doc.scene.nodes.len();
@@ -994,6 +1073,8 @@ mod tests {
                     closed: false,
                     ..Default::default()
                 }),
+
+                text: None,
             }),
         );
         let index = doc.scene.nodes.len();
@@ -1006,6 +1087,47 @@ mod tests {
         );
         assert!(html.contains("stroke=\"none\""));
         assert!(!html.contains("stroke-linecap"));
+    }
+
+    #[test]
+    fn soft_brush_stroke_blurs_in_the_html_artifact() {
+        let mut doc = SlateDoc::new("SoftBrush");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+        let node = doc.scene.build_node(
+            WorldRect::new(20.0, 20.0, 120.0, 60.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke: Stroke {
+                    width: 4.0,
+                    color: Rgba::opaque(0, 120, 200),
+                    dash: Dash::Solid,
+                    softness: 1.0,
+                    profile: WidthProfile::Taper {
+                        start: 1.0,
+                        end: 0.2,
+                    },
+                    ..Default::default()
+                },
+                corner: Corner::Square,
+                flip: false,
+                path: Some(PathData {
+                    start: [0.0, 0.5],
+                    segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
+                    closed: false,
+                    ..Default::default()
+                }),
+                text: None,
+            }),
+        );
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(
+            html.contains("data:image/png;base64,"),
+            "soft brush embeds the shared stamp:\n{html}"
+        );
+        assert!(!html.contains("feGaussianBlur"));
     }
 
     #[test]
@@ -1038,7 +1160,11 @@ mod tests {
                         closed: true,
                     }],
                     fill_rule: PathFillRule::EvenOdd,
+                    tips: Vec::new(),
+                    erase: Vec::new(),
                 }),
+
+                text: None,
             }),
         );
         let index = doc.scene.nodes.len();
@@ -1061,6 +1187,7 @@ mod tests {
                 color: Rgba::BLACK,
                 align: Default::default(),
                 fill: None,
+                agent: None,
             }),
         );
         node.clip = Some(PathData {
@@ -1081,6 +1208,8 @@ mod tests {
                 closed: true,
             }],
             fill_rule: PathFillRule::EvenOdd,
+            tips: Vec::new(),
+            erase: Vec::new(),
         });
         let index = doc.scene.nodes.len();
         doc.scene.apply(&SceneCmd::Add { index, node });
@@ -1123,5 +1252,47 @@ mod tests {
         assert!(!html.contains(">Generate<"));
         assert!(html.contains("data-provider=\"image-link\""));
         assert!(!html.contains("live agent state is not exported"));
+    }
+
+    /// Media an agent makes exports as the media: the picture's shown result
+    /// as a plain img, and a note's reply as its words (Art. IV).
+    #[test]
+    fn agent_media_exports_as_the_media_it_shows() {
+        let mut doc = SlateDoc::new("Made");
+        let agent = slate_doc::PortalNode::unbound_agent("Images", "comfy")
+            .agent
+            .map(|a| *a)
+            .unwrap();
+        let picture = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 400.0, 300.0),
+            NodeKind::Image(slate_doc::scene::ImageNode::generated(agent.clone())),
+        );
+        let note = doc.scene.build_node(
+            WorldRect::new(500.0, 0.0, 300.0, 200.0),
+            NodeKind::Text(slate_doc::scene::TextNode::agent_note(agent)),
+        );
+        let (picture_id, note_id) = (picture.id, note.id);
+        doc.scene.apply(&SceneCmd::Add {
+            index: 0,
+            node: picture,
+        });
+        doc.scene.apply(&SceneCmd::Add {
+            index: 1,
+            node: note,
+        });
+        let mut assets = AssetMap::default();
+        assets.insert_agent_images(
+            picture_id,
+            vec!["assets/newest.png".into(), "assets/older.png".into()],
+        );
+        assets.insert_agent_reply(note_id, "A calm harbour at dusk.".into());
+        let html = render_html(&doc, &assets);
+        assert!(html.contains("<img src=\"assets/newest.png\""));
+        assert!(
+            !html.contains("assets/older.png"),
+            "one picture, not a bundle"
+        );
+        assert!(!html.contains("agent-image-bundle"));
+        assert!(html.contains("A calm harbour at dusk."));
     }
 }

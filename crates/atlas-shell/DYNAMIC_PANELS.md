@@ -71,7 +71,10 @@ One shared color editor has this vertical order:
 
 **Rails have no permanent metrics, captions, unit labels, or metric gutter.**
 During adjustment, display the active value beside the cursor; remove it on
-release. The readout overlays without changing layout or shortening the rail.
+release. A click on the handle (press and release without dragging) replaces
+that readout with an inline number: the current value is selected, Enter or
+a click outside commits it clamped to the rail, and Escape cancels. The
+readout overlays without changing layout or shortening the rail.
 Stroke width uses board units (`u`). Stroke must reuse the Fill editor,
 including the footer; do not fork it into a width-and-color form.
 
@@ -89,21 +92,59 @@ add colors; persistence and commit rules remain in P1.shape.properties.
 Every eyedropper uses the shared desktop-wide sampler, including outside
 Slate; see [desktop sampling](../../docs/keymap/specs/desktop-color-sampling.md).
 
+## Capsule default
+
+The fillet toolbar is the default capsule. Unless this guide names a
+different thickness, every capsule uses that configuration:
+
+- height `CORNER_HEIGHT` (the 17-unit baseline × 1.3)
+- radius half the height, so the ends are semicircles
+- fill `theme.panel`, inside stroke `0.8`, border from the shared palette
+- labels at 9 units through `canvas_text`
+
+Paint it with the shared capsule in `selection_tools`. Do not invent a taller
+pill, a padded tray behind the capsule, or a screen-constant height.
+
+Named exceptions:
+
+- Wire stays at the 17-unit baseline (`WIRE_HEIGHT` / `CAPSULE_HEIGHT`).
+- Photo filters are twice the fillet height (`FILTER_HEIGHT`) so the image radios fit.
+- File Atlas Formatting is its own taller editor (`ATLAS_FORMAT_HEIGHT`).
+
+## Capsule stack
+
+A port circle that lists things (an agent card's outputs on the right, its
+linked context on the left) opens a vertical stack of default capsules.
+`capsule_stack_rects(anchor, side, count, zoom)` owns the layout: rows
+`STACK_WIDTH` wide at the default capsule height, `STACK_GAP` apart, starting
+`STACK_OFFSET` from the circle, extending away from the host and vertically
+centered on the circle. Like every object-attached editor it is in board
+units and pans and zooms with the host.
+
+Each row is `selection_tools::capsule` (or `paint_capsule_row` when the
+caller handles the pointer): a name at 9 units, an optional trailing type
+chip, and an optional accent `vN` badge left of the chip that has its own
+click. States are selected (the shared selection fill), spawned (a small
+accent dot before the name), dim (secondary ink for incidental rows), and
+disabled (faded, not interactive).
+
+A section break is `capsule_divider` (`paint_capsule_divider` on a caller's
+painter): a hairline and a small label in one row, never a header block. Do not frame the stack in a tray, add a title
+row, or wrap it in a menu popup.
+
 ## Corners and wire controls
 
-The corner editor is **one slender capsule**. The wire capsule stays at the
-17-unit baseline (`WIRE_HEIGHT` / `CAPSULE_HEIGHT`). The fillet capsule is
-30% taller (`CORNER_HEIGHT` = 22.1). The photo-filter capsule reuses that
-same taller height (`FILTER_HEIGHT`). File Atlas Formatting is a taller
-search-and-radio editor (`ATLAS_FORMAT_HEIGHT`). `EDITOR_WIDTH` and those
-heights in the shared implementation are the live numeric owners. Do not
-recover the old 34-unit thickness from the earlier concept image.
+The corner editor is **one slender capsule** at the default fillet thickness
+(`CORNER_HEIGHT` = 22.1). `EDITOR_WIDTH` and the heights in the shared
+implementation are the live numeric owners. Do not recover the old 34-unit
+thickness from the earlier concept image.
 
 Read left to right: Fillet/Chamfer segmented toggle; a **separately outlined
 slider capsule** containing a thin rail and outlined pill thumb; percent/`u`
 segmented toggle. Preserve this nested silhouette. A bare rail in the outer
 container, oversized knob, or tall form row is a regression. The amount
-readout appears by the cursor only during adjustment.
+readout appears by the cursor only during a drag. A click on the pill thumb
+types that amount in place.
 
 Use the model's corner semantics: 0% is sharp; 100% is the maximum amount
 (half the shorter local side), producing a circle or diamond from a square.
@@ -111,10 +152,13 @@ Units are board units, never screen pixels. Percentage and absolute modes
 must retain their resize behavior and switch without a visual jump; the
 shape specification and model own that calculation.
 
-The photo-filter capsule keeps the same nested slider silhouette and adds
-**colored radio dots** on the left (B&W gray, Invert split light/dark,
-and tinted Instagram recipes). Authored swatch colors do not change with
-theme. Hovering a radio previews that recipe at the current intensity;
+The photo-filter capsule is twice the fillet height. Its radios are 80% of
+that doubled dot. The first radio is None and clears the adjustment; the rest
+are low-resolution center crops of the selected image with that recipe
+applied. The authored color swatch shows until the thumbnail is ready and does
+not change with theme. The intensity track is only as thick as the radio
+radius and stays vertically centered in the row.
+Hovering a radio previews that recipe at the current intensity;
 click or slider records a pending `ImageAdjust`. Intensity 0% is identity.
 
 Wire-only selection reuses the same slender capsule language for
@@ -184,3 +228,37 @@ Do not create a competing style master in an app, proposal, or rule file.
 ## Contextual action visibility (18 September 2026)
 
 Show only actions meaningful for the current object and selection. Hide actions whose preconditions are absent rather than teaching the user through disabled or irrelevant entries. Prefer direct graphical affordances for continuation/forking and the shared selection squircle strip for bundle/unbundle. Agent windows omit ordinary selection outlines and dimension stringers; their card skin follows the active theme. This refinement was explicitly requested by the user.
+
+## Agent editor and album index (24 September 2026)
+
+The Agent squircle (robot glyph, `Icon::Agent`) appears on a single selected
+picture, video, 3D model, text document, note or generated frame. Its editor
+is `selection_tools::agent_editor`, `AGENT_HEIGHT` tall on the shared panel:
+
+1. A default-capsule row: the mode segments, then the model menu
+   (`capsule_menu`), which lists the local default first. The caller passes
+   the modes (`AgentEdit::modes`: Text | Image today, from Slate's
+   `MODALITIES`). On a picture or note an agent already makes, one fixed
+   segment names its kind, and every option edits that agent directly.
+2. The prompt face, `AGENT_PROMPT_HEIGHT`, a quiet inset field painted by
+   `selection_tools::prompt_field`, the one canvas prompt field. The agent
+   composer and the text block use it too. Enter submits; Shift+Enter adds a
+   line.
+3. A default-capsule row. For Image: − count + chips, the aspect menu, Seed
+   and Live chips. For both modes, Submit at the right end.
+
+No header block or Apply/Cancel footer. Submit is the editor's one action,
+like Send in a chat. An OpenAI key is pasted into the prompt face as bullets
+and stored in Windows Credential Manager; it is never painted in the clear.
+
+A picture an agent makes, with two or more results, shows
+`home::album_index_strip` under it while hovered or selected. It is a row of
+square thumbnails at `STRIP_SQUARE` board units, with a wider gap between
+runs, and the shown picture carries the selection ring. A click picks that
+result. At rest the picture paints like any placed picture. Selected, the
+wheel cover-flows its results through `home::image_album` with
+`AlbumInput::host_paints_rest`, so the album draws only while browsed and the
+host keeps its crop, corners and filters at rest. Labels, dock and ports hide
+from the first flow step until the picture is clicked again. Unselected, the
+wheel zooms the board. The prompt docks along the bottom of the card as a capsule
+that expands on hover, beside Generate; the card carries no model chip.

@@ -26,15 +26,19 @@ pub enum Panel {
     Filter,
     Pages,
     AtlasFormat,
+    Text,
+    /// Text and image agents started from a piece of media.
+    Agent,
+    /// Bumper cars: On / Off, buffer, friction (optional tool).
+    Bumper,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FrameAction {
     Prev,
     Next,
-    Images,
-    Tags,
     Present,
+    Deck,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,11 +65,35 @@ pub enum Property {
     WireRouting(slate_doc::WireRouting),
     WireArrows(bool),
     ImageAdjust(ImageAdjust),
+    TextFamily(scene::Typeface),
+    TextSize(f32),
+    TextAlign(scene::TextAlign),
+    TextRgb([u8; 3]),
+    TextAlpha(u8),
+    BumperOn(bool),
+    BumperBuffer(f32),
+    BumperFriction(f32),
 }
 
 impl Property {
     pub(crate) fn apply(&self, node: &mut Node) {
         match *self {
+            Self::BumperOn(on) => {
+                node.bumper = (on && slate_doc::bumper::supports_bumper(node))
+                    .then(|| node.bumper.unwrap_or_default());
+            }
+            Self::BumperBuffer(v) | Self::BumperFriction(v) => {
+                if !slate_doc::bumper::supports_bumper(node) {
+                    return;
+                }
+                let mut b = node.bumper.unwrap_or_default();
+                if matches!(self, Self::BumperBuffer(_)) {
+                    b.buffer = v;
+                } else {
+                    b.friction = v;
+                }
+                node.bumper = Some(b.clamped());
+            }
             Self::WireRouting(routing) => {
                 if let NodeKind::Connector(c) = &mut node.kind {
                     c.routing = Some(routing);
@@ -82,8 +110,11 @@ impl Property {
                 }
             }
             Self::FillRgb(_) | Self::FillAlpha(_) | Self::Filled(_) => {
-                let theme_relative =
-                    matches!(&node.kind, NodeKind::Portal(p) if p.fill_follows_theme());
+                let theme_relative = match &node.kind {
+                    NodeKind::Portal(p) => p.fill_follows_theme() || p.slate_fill_follows_theme(),
+                    NodeKind::Frame(f) => f.fill_follows_theme(),
+                    _ => false,
+                };
                 let mut c = scene::fill_of(node).unwrap_or(Rgba([128, 128, 128, 255]));
                 match *self {
                     Self::FillRgb(rgb) => {
@@ -118,6 +149,24 @@ impl Property {
                 scene::set_corner(node, Corner::from_parameters(chamfer, percent, amount));
             }
             Self::ImageAdjust(adjust) => scene::set_adjust(node, adjust),
+            Self::TextFamily(family) => {
+                map_text_style(node, |face, _, _, _| *face = family);
+            }
+            Self::TextSize(size) => {
+                if size.is_finite() {
+                    let size = size.clamp(1.0, 512.0);
+                    map_text_style(node, |_, stored, _, _| *stored = size);
+                }
+            }
+            Self::TextAlign(align) => {
+                map_text_style(node, |_, _, _, stored| *stored = align);
+            }
+            Self::TextRgb(rgb) => {
+                map_text_style(node, |_, _, color, _| color.0[..3].copy_from_slice(&rgb));
+            }
+            Self::TextAlpha(alpha) => {
+                map_text_style(node, |_, _, color, _| color.0[3] = alpha);
+            }
             _ => {
                 let theme_relative =
                     matches!(&node.kind, NodeKind::Portal(p) if p.stroke_follows_theme());
@@ -190,9 +239,15 @@ pub struct ShapeProperties {
     pub(super) pages_focus: u16,
     pub preview: Vec<Node>,
     edits: Vec<Property>,
+    /// Last photo-filter radio under the pointer. The intensity slider sits
+    /// beside the radios, so a scrub starts after hover has already ended.
+    filter_aim: Option<usize>,
     number: Option<NumberEdit>,
+    text_family_open: bool,
+    text_size_open: bool,
+    /// Screen rects of the strip and open editor, so a text caret can ignore them.
+    pub chrome_hits: Vec<Rect>,
     color: chrome::ColorState,
-    frame_menu: Option<FrameAction>,
     last_chrome: Option<LastChrome>,
 }
 
@@ -241,9 +296,8 @@ fn property_strip_items(nodes: &[Node]) -> Vec<StripItem> {
         items.extend([
             StripItem::Frame(FrameAction::Prev),
             StripItem::Frame(FrameAction::Next),
-            StripItem::Frame(FrameAction::Images),
-            StripItem::Frame(FrameAction::Tags),
             StripItem::Frame(FrameAction::Present),
+            StripItem::Frame(FrameAction::Deck),
         ]);
     }
     items
@@ -256,6 +310,15 @@ fn image_is_model(app: &SlateApp, n: &Node) -> bool {
     app.doc()
         .item(img.item)
         .is_some_and(|item| slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Model)
+}
+
+fn image_is_text(app: &SlateApp, n: &Node) -> bool {
+    let NodeKind::Image(img) = &n.kind else {
+        return false;
+    };
+    app.doc()
+        .item(img.item)
+        .is_some_and(|item| slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Text)
 }
 
 fn image_has_pages(app: &SlateApp, n: &Node) -> bool {
@@ -291,27 +354,152 @@ fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
             items.push(StripItem::Agent(true));
             return items;
         }
+        // A generated picture or text is media too.
+        if nodes.len() == 1 && app.is_agent_media(nodes[0].id) {
+            items.push(StripItem::Panel(Panel::Agent));
+        }
         return items;
     }
     let mut items = property_strip_items(nodes);
-    if nodes.iter().any(|n| image_is_model(app, n)) {
+    if nodes
+        .iter()
+        .any(|n| image_is_model(app, n) || image_is_text(app, n))
+    {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
     }
     if nodes.len() == 1 && image_has_pages(app, &nodes[0]) {
         items.push(StripItem::Panel(Panel::Pages));
     }
+    if hosted_text_on_strip(app, nodes) {
+        items.push(StripItem::Panel(Panel::Text));
+    }
+    if nodes.len() == 1 && app.is_agent_media(nodes[0].id) {
+        items.push(StripItem::Panel(Panel::Agent));
+    }
+    if app.settings.optional_bumper_cars && nodes.iter().all(slate_doc::bumper::supports_bumper) {
+        items.push(StripItem::Panel(Panel::Bumper));
+    }
     items
 }
 
-fn photo_filter_radios() -> [chrome::FilterRadio; 5] {
-    PhotoFilter::ALL.map(|kind| {
+fn hosted_text_on_strip(app: &SlateApp, nodes: &[Node]) -> bool {
+    let [node] = nodes else {
+        return false;
+    };
+    match &node.kind {
+        NodeKind::Text(_) => true,
+        NodeKind::Shape(shape) if scene::shape_hosts_text(shape) => {
+            let editing = app.text_edit.as_ref().is_some_and(|(id, _)| *id == node.id);
+            let has_body = shape
+                .text
+                .as_ref()
+                .is_some_and(|text| !text.body.is_empty());
+            editing || has_body
+        }
+        _ => false,
+    }
+}
+
+fn map_text_style(
+    node: &mut Node,
+    edit: impl FnOnce(&mut scene::Typeface, &mut f32, &mut scene::Rgba, &mut scene::TextAlign),
+) {
+    if let NodeKind::Text(text) = &mut node.kind {
+        edit(
+            &mut text.family,
+            &mut text.size,
+            &mut text.color,
+            &mut text.align,
+        );
+        return;
+    }
+    if let Some(text) = scene::ensure_shape_text(node) {
+        edit(
+            &mut text.family,
+            &mut text.size,
+            &mut text.color,
+            &mut text.align,
+        );
+    }
+}
+
+/// Radio 0 clears the adjustment. The rest are [`PhotoFilter::ALL`] in order.
+fn photo_filter_radios(thumbs: [Option<egui::TextureId>; 6]) -> [chrome::FilterRadio; 6] {
+    std::array::from_fn(|i| {
+        if i == 0 {
+            return chrome::FilterRadio {
+                label: "None",
+                fill: [196, 196, 196],
+                fill_b: None,
+                thumb: thumbs[0],
+            };
+        }
+        let kind = PhotoFilter::ALL[i - 1];
         let (fill, fill_b) = kind.swatch();
         chrome::FilterRadio {
             label: kind.label(),
             fill,
             fill_b,
+            thumb: thumbs[i],
         }
     })
+}
+
+fn photo_filter_adjust(index: usize, amount: f32) -> ImageAdjust {
+    if index == 0 {
+        ImageAdjust::default()
+    } else {
+        PhotoFilter::ALL[index - 1].at(amount)
+    }
+}
+
+enum FilterStep {
+    /// Record an edit the next outside-click can journal.
+    Commit(ImageAdjust),
+    /// Show the look without recording it.
+    Peek(ImageAdjust),
+    /// Drop the peek and show recorded edits only.
+    Rest,
+}
+
+/// Hover peeks. Click and the intensity slider record. `selected` is the
+/// authored filter (scene plus pending edits), never the peek — otherwise
+/// the click that should arm a hovered filter toggles it off.
+fn photo_filter_gesture(
+    selected: Option<usize>,
+    amount: f32,
+    aim: Option<usize>,
+    edit: chrome::FilterEdit,
+) -> FilterStep {
+    let strength = if amount < 0.05 { 1.0 } else { amount };
+    if let Some(index) = edit.clicked {
+        let next = if index == 0 || selected == Some(index) {
+            ImageAdjust::default()
+        } else {
+            photo_filter_adjust(index, strength)
+        };
+        return FilterStep::Commit(next);
+    }
+    if let Some(t) = edit.amount {
+        let index = edit
+            .hovered
+            .filter(|index| *index > 0)
+            .or(selected.filter(|index| *index > 0))
+            .or(aim.filter(|index| *index > 0));
+        if let Some(index) = index {
+            return FilterStep::Commit(photo_filter_adjust(index, t));
+        }
+    }
+    if let Some(index) = edit.hovered {
+        return FilterStep::Peek(photo_filter_adjust(index, strength));
+    }
+    FilterStep::Rest
+}
+
+fn photo_filter_choice(adjust: &ImageAdjust) -> Option<(usize, f32)> {
+    let (kind, amount) = PhotoFilter::recognize(adjust)?;
+    let index = PhotoFilter::ALL.iter().position(|k| *k == kind)?;
+    Some((index, amount))
 }
 
 fn dimension_editable(n: &Node) -> bool {
@@ -432,10 +620,28 @@ fn dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
 }
 
 impl SlateApp {
-    fn sync_shape_properties(&mut self) {
+    pub(crate) fn sync_shape_properties(&mut self) {
         let ids: Vec<_> = self.board_sel.iter().copied().collect();
         let changed =
             self.shape_properties.tab != self.tab().id || self.shape_properties.ids != ids;
+        let keep_text = self.text_edit.as_ref().is_some_and(|(id, _)| {
+            ids.len() == 1
+                && ids[0] == *id
+                && self.doc().scene.node(*id).is_some_and(|n| match &n.kind {
+                    NodeKind::Text(_) => true,
+                    NodeKind::Shape(s) => scene::shape_hosts_text(s),
+                    _ => false,
+                })
+        });
+        // A sticky opens on the caret. The text/color capsule stays closed
+        // until the user opens it from the strip.
+        let sticky_edit = keep_text
+            && self
+                .doc()
+                .scene
+                .node(ids[0])
+                .is_some_and(|n| matches!(&n.kind, NodeKind::Text(t) if t.fill.is_some()));
+        let open_text = keep_text && !sticky_edit;
         if changed {
             let last_chrome = ids
                 .is_empty()
@@ -445,8 +651,11 @@ impl SlateApp {
                 tab: self.tab().id,
                 ids: ids.clone(),
                 last_chrome,
+                panel: open_text.then_some(Panel::Text),
                 ..Default::default()
             };
+        } else if open_text && self.shape_properties.panel.is_none() {
+            self.shape_properties.panel = Some(Panel::Text);
         }
         if changed || self.shape_properties.generation != self.scene_gen {
             self.shape_properties.preview.clear();
@@ -583,6 +792,71 @@ impl SlateApp {
         }
     }
 
+    /// Low-resolution faces for None plus the photo-filter radios. Color
+    /// swatches stand in until the image thumbnail has arrived.
+    fn filter_swatch_ids(
+        &mut self,
+        ctx: &egui::Context,
+        amount: f32,
+    ) -> [Option<egui::TextureId>; 6] {
+        let none = [None; 6];
+        let Some(item) = self
+            .shape_properties
+            .nodes
+            .iter()
+            .find_map(|n| match &n.kind {
+                NodeKind::Image(img) => Some(img.item),
+                _ => None,
+            })
+        else {
+            return none;
+        };
+        let Some((key, _, _, _)) = self.resolved_item_preview(item) else {
+            return none;
+        };
+        if key.is_empty() || !self.thumb_pixels.contains_key(&key) {
+            self.request_thumb(item);
+            return none;
+        }
+        if !self.filter_swatch_src.contains_key(&key) {
+            let src = super::imagefx::square_swatch(
+                &self.thumb_pixels[&key],
+                super::imagefx::SWATCH_EDGE,
+            );
+            self.filter_swatch_src.insert(key.clone(), src);
+        }
+        if self.filter_swatch_tex.len() > 80 {
+            self.filter_swatch_tex.clear();
+        }
+        let mut out = none;
+        for i in 0..6 {
+            let adjust = photo_filter_adjust(i, amount);
+            let hash = adjust.cache_hash();
+            let cache_key = (key.clone(), hash);
+            if !self.filter_swatch_tex.contains_key(&cache_key) {
+                let image = super::imagefx::adjusted(&self.filter_swatch_src[&key], &adjust);
+                let tex = ctx.load_texture(
+                    format!("slate-filter-swatch-{key}-{hash}"),
+                    image,
+                    egui::TextureOptions::NEAREST,
+                );
+                self.filter_swatch_tex.insert(cache_key.clone(), tex);
+            }
+            out[i] = Some(self.filter_swatch_tex[&cache_key].id());
+        }
+        out
+    }
+
+    fn committed_shape_nodes(&self) -> Vec<Node> {
+        let mut nodes = self.shape_properties.nodes.clone();
+        for edit in &self.shape_properties.edits {
+            for n in &mut nodes {
+                edit.apply(n);
+            }
+        }
+        nodes
+    }
+
     fn rebuild_shape_preview(&mut self, peek: Option<Property>) {
         if self.shape_properties.edits.is_empty() && peek.is_none() {
             self.shape_properties.preview.clear();
@@ -635,16 +909,12 @@ impl SlateApp {
     }
 
     pub(crate) fn shape_property_keys(&mut self, ctx: &egui::Context) -> bool {
-        if self.shape_properties.number.is_some()
-            || self.shape_properties.panel.is_some()
-            || self.shape_properties.frame_menu.is_some()
-        {
+        if self.shape_properties.number.is_some() || self.shape_properties.panel.is_some() {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
                 self.shape_properties.preview.clear();
                 self.shape_properties.edits.clear();
                 self.shape_properties.number = None;
                 self.shape_properties.panel = None;
-                self.shape_properties.frame_menu = None;
                 self.shape_properties.color = Default::default();
                 return true;
             }
@@ -659,9 +929,26 @@ impl SlateApp {
         let ctx = ui.ctx().clone();
         self.sync_shape_properties();
         self.seed_document_colors();
-        let live = self.board_tool == BoardTool::Select
-            && self.board_drag.is_none()
-            && self.text_edit.is_none()
+        self.shape_properties.chrome_hits.clear();
+        let editing_hosted_text = self.text_edit.as_ref().is_some_and(|(id, _)| {
+            self.doc().scene.node(*id).is_some_and(|n| match &n.kind {
+                NodeKind::Text(_) => true,
+                NodeKind::Shape(s) => scene::shape_hosts_text(s),
+                _ => false,
+            })
+        });
+        // A sticky's first job is the caret. The fill/text strip returns
+        // once editing ends and the note is simply selected.
+        let editing_sticky = self.text_edit.as_ref().is_some_and(|(id, _)| {
+            self.doc()
+                .scene
+                .node(*id)
+                .is_some_and(|n| matches!(&n.kind, NodeKind::Text(t) if t.fill.is_some()))
+        });
+        let live = self.board_drag.is_none()
+            && !editing_sticky
+            && (editing_hosted_text
+                || (self.board_tool == BoardTool::Select && self.text_edit.is_none()))
             && !self.shape_properties.nodes.is_empty();
         if live {
             if let Some(bounds) = self.shape_properties.bounds {
@@ -712,7 +999,6 @@ impl SlateApp {
         let mut requested_frame = None;
         let mut requested_agent = None;
         let mut captures = false;
-        let mut tags_rect = None;
         for (index, item) in items.iter().enumerate() {
             let r = chrome::strip_button_rect(strip, index, z);
             let (label, icon, active) = match item {
@@ -729,9 +1015,14 @@ impl SlateApp {
                     self.shape_properties.panel == Some(Panel::Stroke),
                 ),
                 StripItem::Panel(Panel::Corners) => (
-                    "Corners: fillet / chamfer",
+                    if self.corners_include_crop() {
+                        "Corners and crop"
+                    } else {
+                        "Corners: fillet / chamfer"
+                    },
                     Icon::Corners,
-                    self.shape_properties.panel == Some(Panel::Corners),
+                    self.shape_properties.panel == Some(Panel::Corners)
+                        || (self.corners_include_crop() && self.board_crop.is_some()),
                 ),
                 StripItem::Panel(Panel::Wire) => (
                     "Wire: routing / weight / dashes / arrows",
@@ -753,27 +1044,41 @@ impl SlateApp {
                     Icon::Display,
                     self.shape_properties.panel == Some(Panel::AtlasFormat),
                 ),
+                StripItem::Panel(Panel::Text) => (
+                    "Text",
+                    Icon::Text,
+                    self.shape_properties.panel == Some(Panel::Text),
+                ),
+                StripItem::Panel(Panel::Agent) => (
+                    "Agent: write or picture from this",
+                    Icon::Agent,
+                    self.shape_properties.panel == Some(Panel::Agent),
+                ),
+                StripItem::Panel(Panel::Bumper) => (
+                    "Bumper cars",
+                    Icon::Bumper,
+                    self.shape_properties.panel == Some(Panel::Bumper)
+                        || self
+                            .shape_properties
+                            .nodes
+                            .iter()
+                            .all(|n| n.bumper.is_some()),
+                ),
                 StripItem::Frame(FrameAction::Prev) => {
                     ("Move earlier in the deck", Icon::ChevronLeft, false)
                 }
                 StripItem::Frame(FrameAction::Next) => {
                     ("Move later in the deck", Icon::ChevronRight, false)
                 }
-                StripItem::Frame(FrameAction::Images) => {
-                    ("Add image files into this frame", Icon::Image, false)
-                }
-                StripItem::Frame(FrameAction::Tags) => (
-                    "Frame tags — dropped images inherit these",
-                    Icon::Tags,
-                    self.shape_properties.frame_menu == Some(FrameAction::Tags),
-                ),
                 StripItem::Frame(FrameAction::Present) => {
                     ("Present from this slide", Icon::View, false)
                 }
+                StripItem::Frame(FrameAction::Deck) => (
+                    "Order frames: click each one, or draw a stroke through them",
+                    Icon::Deck,
+                    self.board_tool == BoardTool::Deck,
+                ),
             };
-            if matches!(item, StripItem::Frame(FrameAction::Tags)) {
-                tags_rect = Some(r);
-            }
             let response = chrome::button(
                 ui,
                 r,
@@ -794,6 +1099,9 @@ impl SlateApp {
                 }
             }
             captures |= ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
+            if live {
+                self.shape_properties.chrome_hits.push(r);
+            }
         }
         if let Some(expand) = requested_agent {
             self.dispatch(
@@ -810,7 +1118,6 @@ impl SlateApp {
             let was = self.shape_properties.panel;
             self.apply_shape_preview(&ctx, true);
             self.shape_properties.number = None;
-            self.shape_properties.frame_menu = None;
             if was != Some(panel) {
                 self.shape_properties.panel = Some(panel);
                 if panel == Panel::Pages {
@@ -828,10 +1135,16 @@ impl SlateApp {
         if let Some(action) = requested_frame {
             self.apply_shape_preview(&ctx, true);
             self.shape_properties.number = None;
-            self.run_frame_strip_action(action);
+            self.run_frame_strip_action(&ctx, action);
         }
         // The inline editor is attached to a dimension kind, never a cached screen position.
-        let dims = self.shape_properties.dimensions.clone();
+        // Nested portal edit keeps the frame selected but hides its stringers.
+        let dims = if self.selection_stringers_suppressed() {
+            self.shape_properties.number = None;
+            Vec::new()
+        } else {
+            self.shape_properties.dimensions.clone()
+        };
         let mut dimension_commit = None;
         for (index, d) in dims.iter().enumerate() {
             let mut edit = self.shape_properties.number.take();
@@ -890,6 +1203,9 @@ impl SlateApp {
                 serde_json::to_string(&request).ok(),
             );
         }
+        if self.shape_properties.panel != Some(Panel::Filter) {
+            self.shape_properties.filter_aim = None;
+        }
         if live {
             if let Some(panel) = self.shape_properties.panel {
                 if panel == Panel::Pages {
@@ -934,12 +1250,25 @@ impl SlateApp {
                     let height = match panel {
                         Panel::Fill => chrome::FILL_HEIGHT,
                         Panel::Stroke => chrome::STROKE_HEIGHT,
-                        Panel::Corners => chrome::CORNER_HEIGHT,
+                        Panel::Corners => {
+                            if self.corners_include_crop() {
+                                chrome::CORNER_HEIGHT * 2.0 + 6.0
+                            } else {
+                                chrome::CORNER_HEIGHT
+                            }
+                        }
                         Panel::Wire => chrome::WIRE_HEIGHT,
                         Panel::Filter => chrome::FILTER_HEIGHT,
                         Panel::Pages => 0.0,
                         Panel::AtlasFormat => chrome::ATLAS_FORMAT_HEIGHT,
+                        Panel::Text => chrome::TEXT_HEIGHT,
+                        Panel::Agent => chrome::AGENT_HEIGHT,
+                        Panel::Bumper => chrome::CORNER_HEIGHT,
                     };
+                    if panel != Panel::Text {
+                        self.shape_properties.text_family_open = false;
+                        self.shape_properties.text_size_open = false;
+                    }
                     let rect = chrome::editor_rect(strip, height, z);
                     let mut sample = false;
                     let canvas = self.canvas_rect;
@@ -956,40 +1285,24 @@ impl SlateApp {
                                 sample = self.shape_property_body(ui, rect, panel, z);
                             });
                         });
-                    captures |= ctx
-                        .pointer_latest_pos()
-                        .is_some_and(|p| rect.contains(p) && canvas.contains(p));
+                    captures |= ctx.pointer_latest_pos().is_some_and(|p| {
+                        rect.contains(p) && canvas.contains(p)
+                            || self
+                                .shape_properties
+                                .chrome_hits
+                                .iter()
+                                .any(|hit| hit.contains(p))
+                    });
+                    if live {
+                        self.shape_properties.chrome_hits.push(rect);
+                    }
                     if sample {
                         self.start_property_desktop_sample(panel);
                     }
                 }
             }
-            if self.shape_properties.frame_menu == Some(FrameAction::Tags) {
-                if let (Some(id), Some(anchor)) =
-                    (self.shape_properties.ids.first().copied(), tags_rect)
-                {
-                    let canvas = self.canvas_rect;
-                    let pos = Pos2::new(anchor.left(), anchor.top() - 8.0 * z);
-                    let popup = egui::Area::new(Id::new("frame_tags_menu"))
-                        .order(egui::Order::Foreground)
-                        .fixed_pos(pos)
-                        .constrain(false)
-                        .movable(false)
-                        .fade_in(false)
-                        .show(&ctx, |ui| {
-                            ui.set_clip_rect(canvas);
-                            ui.set_max_width(220.0 * z);
-                            self.frame_tags_menu(ui, id);
-                        });
-                    captures |= popup
-                        .response
-                        .rect
-                        .contains(ctx.pointer_latest_pos().unwrap_or(pos));
-                }
-            }
-            let overlay_open = self.shape_properties.panel.is_some()
-                || self.shape_properties.frame_menu.is_some()
-                || self.shape_properties.number.is_some();
+            let overlay_open =
+                self.shape_properties.panel.is_some() || self.shape_properties.number.is_some();
             // Primary press on empty canvas commits and deselects. Right-drag
             // and middle-drag are the canvas pan, so that press must not
             // collapse the editor that emerged from the selection squircles.
@@ -1001,7 +1314,6 @@ impl SlateApp {
             });
             if overlay_open && !captures && dismiss {
                 self.apply_shape_preview(&ctx, true);
-                self.shape_properties.frame_menu = None;
                 if let Some(p) = ctx.pointer_latest_pos() {
                     if self.canvas_rect.contains(p) {
                         let world = xf.s2w(p);
@@ -1027,7 +1339,7 @@ impl SlateApp {
         captures
     }
 
-    fn run_frame_strip_action(&mut self, action: FrameAction) {
+    fn run_frame_strip_action(&mut self, ctx: &egui::Context, action: FrameAction) {
         let Some(id) = self.shape_properties.ids.first().copied() else {
             return;
         };
@@ -1038,12 +1350,14 @@ impl SlateApp {
             return;
         }
         match action {
-            FrameAction::Tags => {
-                self.shape_properties.frame_menu = (self.shape_properties.frame_menu
-                    != Some(FrameAction::Tags))
-                .then_some(FrameAction::Tags);
+            FrameAction::Deck => {
+                let cmd = if self.board_tool == BoardTool::Deck {
+                    "board.tool.select"
+                } else {
+                    "board.tool.deck"
+                };
+                self.dispatch(ctx, CommandId(cmd), Some("frame-strip".into()));
             }
-            FrameAction::Images => self.add_to_frame_dialog(id),
             FrameAction::Present => self.start_present(Some(id)),
             FrameAction::Prev | FrameAction::Next => {
                 let frames: Vec<NodeId> = self
@@ -1068,6 +1382,11 @@ impl SlateApp {
         }
     }
 
+    fn corners_include_crop(&self) -> bool {
+        let nodes = &self.shape_properties.nodes;
+        !nodes.is_empty() && nodes.iter().all(|n| self.croppable_image(n.id))
+    }
+
     fn shape_property_body(&mut self, ui: &mut egui::Ui, rect: Rect, panel: Panel, z: f32) -> bool {
         let theme = self.palette();
         let nodes = if self.shape_properties.preview.is_empty() {
@@ -1076,6 +1395,17 @@ impl SlateApp {
             &self.shape_properties.preview
         };
         let first = &nodes[0];
+        if panel == Panel::Agent {
+            let Some(id) = self.shape_properties.ids.first().copied() else {
+                return false;
+            };
+            let popups = self.agent_editor_body(ui, rect, id, z, theme);
+            for popup in &popups {
+                self.agents.note_menu_popup(ui.ctx(), *popup);
+            }
+            self.shape_properties.chrome_hits.extend(popups);
+            return false;
+        }
         if panel == Panel::AtlasFormat {
             let Some(id) = self.shape_properties.ids.first().copied() else {
                 return false;
@@ -1084,41 +1414,35 @@ impl SlateApp {
             return false;
         }
         if panel == Panel::Filter {
-            let Some(current) = scene::adjust_of(first) else {
+            let committed = self.committed_shape_nodes();
+            let Some(current) = committed.first().and_then(scene::adjust_of) else {
                 return false;
             };
-            let common = nodes.iter().all(|n| scene::adjust_of(n) == Some(current));
-            let recognized = common.then(|| PhotoFilter::recognize(&current)).flatten();
-            let selected = recognized.map(|(kind, _)| {
-                PhotoFilter::ALL
-                    .iter()
-                    .position(|k| *k == kind)
-                    .unwrap_or(0)
-            });
-            let amount = recognized.map(|(_, amount)| amount).unwrap_or(1.0);
-            let edit =
-                chrome::filter_editor(ui, rect, &photo_filter_radios(), selected, amount, z, theme);
-            if let Some(index) = edit.clicked {
-                let kind = PhotoFilter::ALL[index];
-                let next = if selected == Some(index) {
-                    ImageAdjust::default()
-                } else {
-                    kind.at(if amount < 0.05 { 1.0 } else { amount })
-                };
-                self.preview_shape_property(Property::ImageAdjust(next));
-            } else if let Some(t) = edit.amount {
-                if let Some(index) = edit.hovered.or(selected) {
-                    self.preview_shape_property(Property::ImageAdjust(
-                        PhotoFilter::ALL[index].at(t),
-                    ));
+            let common = committed
+                .iter()
+                .all(|n| scene::adjust_of(n) == Some(current));
+            let (selected, amount) = if common {
+                match photo_filter_choice(&current) {
+                    Some((index, amount)) => (Some(index + 1), amount),
+                    None => (Some(0), 1.0),
                 }
-            } else if let Some(index) = edit.hovered {
-                let t = if amount < 0.05 { 1.0 } else { amount };
-                self.rebuild_shape_preview(Some(Property::ImageAdjust(
-                    PhotoFilter::ALL[index].at(t),
-                )));
             } else {
-                self.rebuild_shape_preview(None);
+                (None, 1.0)
+            };
+            let thumbs = self.filter_swatch_ids(ui.ctx(), amount);
+            let radios = photo_filter_radios(thumbs);
+            let edit = chrome::filter_editor(ui, rect, &radios, selected, amount, z, theme);
+            if let Some(index) = edit.hovered {
+                self.shape_properties.filter_aim = Some(index);
+            }
+            match photo_filter_gesture(selected, amount, self.shape_properties.filter_aim, edit) {
+                FilterStep::Commit(adjust) => {
+                    self.preview_shape_property(Property::ImageAdjust(adjust));
+                }
+                FilterStep::Peek(adjust) => {
+                    self.rebuild_shape_preview(Some(Property::ImageAdjust(adjust)));
+                }
+                FilterStep::Rest => self.rebuild_shape_preview(None),
             }
             return false;
         }
@@ -1152,7 +1476,7 @@ impl SlateApp {
                     .then_some(dashed)
                     .flatten(),
                 common(&|c| (c.arrow_a || c.arrow_b) == arrows).then_some(arrows),
-                first.stroke.width,
+                first.stroke.width * slate_doc::scene::CONNECTOR_WIDTH_SCALE,
                 z,
                 theme,
             );
@@ -1174,7 +1498,9 @@ impl SlateApp {
                 self.preview_shape_property(Property::WireArrows(arrows));
             }
             if let Some(width) = edit.width {
-                self.preview_shape_property(Property::StrokeWidth(width));
+                self.preview_shape_property(Property::StrokeWidth(
+                    width / slate_doc::scene::CONNECTOR_WIDTH_SCALE,
+                ));
             }
             return false;
         }
@@ -1186,7 +1512,42 @@ impl SlateApp {
             } else {
                 first.rect.w.min(first.rect.h) * 0.5
             };
-            let edit = chrome::corner_editor(ui, rect, chamfer, percent, amount, maximum, z, theme);
+            let fillet_rect = if self.corners_include_crop() {
+                Rect::from_min_size(rect.min, Vec2::new(rect.width(), chrome::CORNER_HEIGHT * z))
+            } else {
+                rect
+            };
+            let edit =
+                chrome::corner_editor(ui, fillet_rect, chamfer, percent, amount, maximum, z, theme);
+            if self.corners_include_crop() {
+                let row = Rect::from_min_size(
+                    Pos2::new(rect.min.x, fillet_rect.max.y + 6.0 * z),
+                    Vec2::new(140.0 * z, chrome::CORNER_HEIGHT * z),
+                );
+                let on = self.board_crop.is_some();
+                let picked = chrome::segments(
+                    ui,
+                    row,
+                    ui.id().with("image-crop"),
+                    ["Off", "Crop"],
+                    on as usize,
+                    z,
+                    theme,
+                );
+                if (picked == 1) != on {
+                    if on {
+                        self.board_crop = None;
+                    } else if let Some(id) = self
+                        .shape_properties
+                        .ids
+                        .iter()
+                        .copied()
+                        .find(|id| self.croppable_image(*id))
+                    {
+                        self.enter_crop_mode(id);
+                    }
+                }
+            }
             if edit.chamfer != chamfer {
                 self.preview_shape_property(Property::CornerTreatment(edit.chamfer));
             }
@@ -1198,10 +1559,46 @@ impl SlateApp {
             }
             return false;
         }
+        if panel == Panel::Text {
+            return self.shape_text_panel(ui, rect, z, theme);
+        }
+        if panel == Panel::Bumper {
+            let on = first.bumper.is_some();
+            let common = nodes.iter().all(|n| n.bumper.is_some() == on);
+            let b = first.bumper.unwrap_or_default();
+            let edit = chrome::bumper_editor(
+                ui,
+                rect,
+                common.then_some(on),
+                b.buffer,
+                slate_doc::bumper::tokens::MAX_BUFFER,
+                b.friction,
+                z,
+                theme,
+            );
+            if let Some(on) = edit.on {
+                self.preview_shape_property(Property::BumperOn(on));
+            }
+            if let Some(v) = edit.buffer {
+                self.preview_shape_property(Property::BumperBuffer(v));
+            }
+            if let Some(v) = edit.friction {
+                self.preview_shape_property(Property::BumperFriction(v));
+            }
+            return false;
+        }
         let get_color = |n: &Node| {
             if panel == Panel::Fill {
                 if let NodeKind::Portal(p) = &n.kind {
                     if p.fill_follows_theme() {
+                        return super::board::to_rgba(theme.card);
+                    }
+                    if p.slate_fill_follows_theme() {
+                        return super::board::to_rgba(theme.card);
+                    }
+                }
+                if let NodeKind::Frame(f) = &n.kind {
+                    if f.fill_follows_theme() {
                         return super::board::to_rgba(theme.card);
                     }
                 }
@@ -1239,7 +1636,10 @@ impl SlateApp {
             theme,
         );
         let theme_relative_fill = panel == Panel::Fill
-            && matches!(&first.kind, NodeKind::Portal(p) if p.fill_follows_theme());
+            && matches!(
+                &first.kind,
+                NodeKind::Portal(p) if p.fill_follows_theme() || p.slate_fill_follows_theme()
+            );
         let theme_relative_stroke = panel == Panel::Stroke
             && matches!(&first.kind, NodeKind::Portal(p) if p.stroke_follows_theme());
         let displayed_rgb = [color.0[0], color.0[1], color.0[2]];
@@ -1270,7 +1670,122 @@ impl SlateApp {
     }
 }
 
+fn text_size_label(size: f32) -> String {
+    if (size - size.round()).abs() < 0.05 {
+        format!("{}", size.round() as i32)
+    } else {
+        format!("{size:.1}")
+    }
+}
+
 impl SlateApp {
+    fn shape_text_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: Rect,
+        z: f32,
+        theme: atlas_shell::theme::Palette,
+    ) -> bool {
+        let snapshot = {
+            let nodes = if self.shape_properties.preview.is_empty() {
+                &self.shape_properties.nodes
+            } else {
+                &self.shape_properties.preview
+            };
+            let Some(first) = nodes.first() else {
+                return false;
+            };
+            match &first.kind {
+                NodeKind::Shape(shape) if scene::shape_hosts_text(shape) => shape
+                    .text
+                    .clone()
+                    .unwrap_or_else(|| scene::ShapeText::new(scene::shape_text_ink(shape.fill))),
+                NodeKind::Text(text) => scene::ShapeText {
+                    body: text.text.clone(),
+                    family: text.family,
+                    size: text.size,
+                    color: text.color,
+                    align: text.align,
+                },
+                _ => return false,
+            }
+        };
+        let families: Vec<&str> = scene::Typeface::ALL
+            .iter()
+            .map(|face| face.label())
+            .collect();
+        let family = snapshot.family.index();
+        let align = match snapshot.align {
+            scene::TextAlign::Left => 0,
+            scene::TextAlign::Center => 1,
+            scene::TextAlign::Right => 2,
+        };
+        let size_label = text_size_label(snapshot.size);
+        let size_index = chrome::TEXT_HEIGHT_PRESETS
+            .iter()
+            .position(|preset| (*preset - snapshot.size).abs() < 0.5)
+            .unwrap_or(usize::MAX);
+        let row = Rect::from_min_size(
+            rect.min,
+            Vec2::new(rect.width(), chrome::TEXT_ROW_HEIGHT * z),
+        );
+        let edit = chrome::text_format_editor(
+            ui,
+            rect,
+            &families,
+            family,
+            &mut self.shape_properties.text_family_open,
+            align,
+            &size_label,
+            size_index,
+            &mut self.shape_properties.text_size_open,
+            z,
+            theme,
+        );
+        for popup in edit.popups {
+            self.shape_properties.chrome_hits.push(popup);
+        }
+        if let Some(index) = edit.family {
+            if let Some(family) = scene::Typeface::ALL.get(index).copied() {
+                self.preview_shape_property(Property::TextFamily(family));
+            }
+        }
+        if let Some(index) = edit.align {
+            let align = match index {
+                0 => scene::TextAlign::Left,
+                2 => scene::TextAlign::Right,
+                _ => scene::TextAlign::Center,
+            };
+            self.preview_shape_property(Property::TextAlign(align));
+        }
+        if let Some(size) = edit.size {
+            self.preview_shape_property(Property::TextSize(size));
+        }
+        let color_rect = Rect::from_min_size(
+            Pos2::new(rect.left(), row.bottom() + 6.0 * z),
+            Vec2::new(rect.width(), chrome::FILL_HEIGHT * z),
+        );
+        let recent = self.doc().view.recent_colors.clone().unwrap_or_default();
+        let color_edit = chrome::color_editor(
+            ui,
+            color_rect,
+            snapshot.color.0,
+            None,
+            false,
+            &recent,
+            &mut self.shape_properties.color,
+            z,
+            theme,
+        );
+        if let Some(rgb) = color_edit.rgb {
+            self.preview_shape_property(Property::TextRgb(rgb));
+        }
+        if let Some(alpha) = color_edit.alpha {
+            self.preview_shape_property(Property::TextAlpha(alpha));
+        }
+        color_edit.sample
+    }
+
     pub(crate) fn start_property_desktop_sample(&mut self, panel: Panel) {
         self.begin_desktop_sample(
             super::board_color::DesktopDestination::Nodes {
@@ -1466,6 +1981,8 @@ mod tests {
                 corner: Corner::Square,
                 flip: false,
                 path: None,
+
+                text: None,
             }),
         );
         node.rotation_deg = angle;
@@ -1840,16 +2357,10 @@ mod tests {
         size(&mut h, vec![id], DimensionKind::Width, 200.0);
         assert_eq!(h.app.doc().view.recent_colors, before);
         apply(&mut h, vec![id], vec![Property::FillRgb([4, 5, 6])]);
-        assert_eq!(
-            h.app.doc().view.recent_colors.as_ref().unwrap()[0],
-            [4, 5, 6]
-        );
+        let colors = h.app.doc().view.recent_colors.as_ref().unwrap();
+        assert_eq!(colors.last().copied(), Some([4, 5, 6]));
+        assert_ne!(colors[0], [4, 5, 6]);
         h.app.board_undo();
-        assert_eq!(
-            h.app.doc().view.recent_colors.as_ref().unwrap()[0],
-            [4, 5, 6]
-        );
-        apply(&mut h, vec![id], vec![Property::FillRgb([4, 5, 6])]);
         assert_eq!(
             h.app
                 .doc()
@@ -1857,11 +2368,14 @@ mod tests {
                 .recent_colors
                 .as_ref()
                 .unwrap()
-                .iter()
-                .filter(|c| **c == [4, 5, 6])
-                .count(),
-            1
+                .last()
+                .copied(),
+            Some([4, 5, 6])
         );
+        apply(&mut h, vec![id], vec![Property::FillRgb([4, 5, 6])]);
+        let colors = h.app.doc().view.recent_colors.as_ref().unwrap();
+        assert_eq!(colors[0], [4, 5, 6]);
+        assert_eq!(colors.iter().filter(|c| **c == [4, 5, 6]).count(), 1);
     }
 
     fn frame_node(h: &mut Harness, rect: WorldRect) -> NodeId {
@@ -1871,7 +2385,10 @@ mod tests {
                 title: "Slide".into(),
                 order: 0,
                 fill: Rgba([20, 30, 40, 255]),
+                fill_authored: false,
                 assignments: Default::default(),
+                stroke: scene::Stroke::none(),
+                corner: scene::Corner::Square,
             }),
         );
         let id = h.app.add_nodes(vec![node])[0];
@@ -1889,6 +2406,7 @@ mod tests {
                 color: Rgba([0, 0, 0, 255]),
                 align: Default::default(),
                 fill: None,
+                agent: None,
             }),
         );
         let id = h.app.add_nodes(vec![node])[0];
@@ -1932,11 +2450,13 @@ mod tests {
                 StripItem::Panel(Panel::Filter) => "filter",
                 StripItem::Panel(Panel::Pages) => "pages",
                 StripItem::Panel(Panel::AtlasFormat) => "format",
+                StripItem::Panel(Panel::Text) => "text",
+                StripItem::Panel(Panel::Agent) => "agent",
+                StripItem::Panel(Panel::Bumper) => "bumper",
                 StripItem::Frame(FrameAction::Prev) => "prev",
                 StripItem::Frame(FrameAction::Next) => "next",
-                StripItem::Frame(FrameAction::Images) => "images",
-                StripItem::Frame(FrameAction::Tags) => "tags",
                 StripItem::Frame(FrameAction::Present) => "present",
+                StripItem::Frame(FrameAction::Deck) => "deck",
                 StripItem::Agent(true) => "unbundle",
                 StripItem::Agent(false) => "bundle",
             })
@@ -1964,7 +2484,7 @@ mod tests {
         let node = |id| h.app.doc().scene.node(id).unwrap().clone();
         assert_eq!(
             item_kinds(&property_strip_items(&[node(frame)])),
-            ["fill", "prev", "next", "images", "tags", "present"]
+            ["fill", "stroke", "corners", "prev", "next", "present", "deck"]
         );
         assert_eq!(
             item_kinds(&property_strip_items(&[node(image)])),
@@ -1985,12 +2505,66 @@ mod tests {
         );
         assert_eq!(
             item_kinds(&property_strip_items(&[node(frame), node(shape)])),
-            ["fill"]
+            ["fill", "stroke", "corners"]
         );
         assert_eq!(
             item_kinds(&property_strip_items(&[node(image), node(shape)])),
             ["stroke", "corners"]
         );
+    }
+
+    #[test]
+    fn bumper_squircle_needs_the_preference_and_a_compatible_selection() {
+        let mut h = board();
+        let rect = WorldRect::new(0.0, 0.0, 120.0, 80.0);
+        let shape = rectangle(&mut h, rect, 0.0);
+        let image = image_node(&mut h, rect);
+        let node = |h: &Harness, id| h.app.doc().scene.node(id).unwrap().clone();
+        let has = |h: &Harness, nodes: &[Node]| {
+            item_kinds(&live_property_strip_items(&h.app, nodes)).contains(&"bumper")
+        };
+        assert!(!has(&h, &[node(&h, shape)]), "off by default");
+        h.app.settings.optional_bumper_cars = true;
+        assert!(has(&h, &[node(&h, shape)]));
+        assert!(!has(&h, &[node(&h, image)]));
+        assert!(!has(&h, &[node(&h, shape), node(&h, image)]));
+
+        apply(&mut h, vec![shape], vec![Property::BumperOn(true)]);
+        let b = node(&h, shape).bumper.expect("turned on");
+        assert_eq!(b, slate_doc::bumper::Bumper::default());
+        apply(&mut h, vec![shape], vec![Property::BumperFriction(1.0)]);
+        assert!(node(&h, shape).bumper.unwrap().is_anchor());
+        h.app.board_undo();
+        assert_eq!(node(&h, shape).bumper, Some(b));
+        apply(&mut h, vec![shape], vec![Property::BumperOn(false)]);
+        assert_eq!(node(&h, shape).bumper, None);
+    }
+
+    #[test]
+    fn text_documents_skip_photo_filters() {
+        let mut h = board();
+        let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);
+        let item = h.app.doc_mut().add_item(
+            std::path::PathBuf::from("rows.csv"),
+            "rows.csv",
+            1,
+            0,
+            "csv",
+        );
+        let node = h
+            .app
+            .doc_mut()
+            .scene
+            .build_node(rect, NodeKind::Image(scene::ImageNode::new(item)));
+        let id = h.app.add_nodes(vec![node])[0];
+        let node = h.app.doc().scene.node(id).unwrap().clone();
+        let kinds = item_kinds(&live_property_strip_items(&h.app, &[node]));
+        assert!(
+            !kinds.contains(&"filter"),
+            "text cards keep stroke and corners, not photo filters: {kinds:?}"
+        );
+        assert!(kinds.contains(&"stroke"));
+        assert!(kinds.contains(&"corners"));
     }
 
     fn pdf_node(h: &mut Harness, rect: WorldRect) -> NodeId {
@@ -2092,6 +2666,68 @@ mod tests {
         assert!((amount - 0.6).abs() < 0.02);
         h.app.board_undo();
         assert_eq!(h.app.doc().scene.node(image).unwrap(), &before);
+    }
+
+    #[test]
+    fn hovering_a_photo_filter_does_not_count_as_selecting_it() {
+        let hover_click = chrome::FilterEdit {
+            hovered: Some(1),
+            clicked: Some(1),
+            amount: None,
+        };
+        match photo_filter_gesture(Some(0), 1.0, Some(0), hover_click) {
+            FilterStep::Commit(adjust) => {
+                assert_eq!(
+                    PhotoFilter::recognize(&adjust),
+                    Some((PhotoFilter::Mono, 1.0))
+                );
+            }
+            FilterStep::Peek(_) | FilterStep::Rest => {
+                panic!("click must record the hovered filter")
+            }
+        }
+        let clear = chrome::FilterEdit {
+            hovered: Some(0),
+            clicked: Some(0),
+            amount: None,
+        };
+        match photo_filter_gesture(Some(1), 1.0, Some(1), clear) {
+            FilterStep::Commit(adjust) => assert!(adjust.is_identity()),
+            FilterStep::Peek(_) | FilterStep::Rest => panic!("None clears the filter"),
+        }
+        match photo_filter_gesture(Some(1), 1.0, Some(1), hover_click) {
+            FilterStep::Commit(adjust) => assert!(adjust.is_identity()),
+            FilterStep::Peek(_) | FilterStep::Rest => panic!("a second click clears the filter"),
+        }
+        let scrub = chrome::FilterEdit {
+            hovered: None,
+            clicked: None,
+            amount: Some(0.35),
+        };
+        match photo_filter_gesture(Some(0), 1.0, Some(3), scrub) {
+            FilterStep::Commit(adjust) => {
+                let (kind, amount) = PhotoFilter::recognize(&adjust).unwrap();
+                assert_eq!(kind, PhotoFilter::Clarendon);
+                assert!((amount - 0.35).abs() < 0.02);
+            }
+            FilterStep::Peek(_) | FilterStep::Rest => {
+                panic!("the slider must keep the filter that was just hovered")
+            }
+        }
+        match photo_filter_gesture(Some(2), 0.8, Some(0), scrub) {
+            FilterStep::Commit(adjust) => {
+                let (kind, amount) = PhotoFilter::recognize(&adjust).unwrap();
+                assert_eq!(kind, PhotoFilter::Invert);
+                assert!((amount - 0.35).abs() < 0.02);
+            }
+            FilterStep::Peek(_) | FilterStep::Rest => panic!("a selected filter owns the slider"),
+        }
+        match photo_filter_gesture(Some(0), 1.0, Some(0), scrub) {
+            FilterStep::Rest => {}
+            FilterStep::Commit(_) | FilterStep::Peek(_) => {
+                panic!("None has no intensity to scrub")
+            }
+        }
     }
 
     #[test]

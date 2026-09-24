@@ -289,6 +289,8 @@ impl SlateApp {
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
                 path: Some(data),
+
+                text: None,
             }),
         );
         let mut node = node;

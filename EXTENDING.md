@@ -160,7 +160,7 @@ The interfaces survive; the implementation does not.
 **Worked example (named in the constitution itself): replacing egui with a GPU
 vector renderer such as Vello.** Article I calls this the substrate hedge, and
 the hedge is real but narrower than it sounds. What ports unchanged: every pure
-crate — `slate-doc`, `circle-pack`, `code-lens`, `rhino-mesh`, `vector-ink`,
+crate — `slate-doc`, `circle-pack`, `code-lens`, `rhino-mesh`, `model-preview`, `vector-ink`,
 `atlas-commands` — because none of them names a renderer type. What gets
 rewritten: all of `crates/atlas-shell` and everything under `apps/*/src/app/`.
 That is the honest number, and it is large: `apps/slate/src/app/board.rs` alone

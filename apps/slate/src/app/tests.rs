@@ -37,7 +37,7 @@ fn update_restart_checks_inactive_workbooks_and_pending_dialogs() {
 }
 
 #[test]
-fn media_menu_has_three_registered_families() {
+fn media_menu_has_four_registered_families() {
     let mut h = Harness::new("media_menu");
     h.app.ensure_work_tab();
     h.app.leave_home();
@@ -45,12 +45,13 @@ fn media_menu_has_three_registered_families() {
     let items = ui::tools::palette_strip_items(&h.app, "tool.media", &[]);
     assert_eq!(
         items.iter().map(|i| i.label).collect::<Vec<_>>(),
-        vec!["Image", "3D", "Video"]
+        vec!["Image", "3D", "Video", "Text"]
     );
     for id in [
         "board.media.image",
         "board.media.model",
         "board.media.video",
+        "board.media.text",
         "board.media.page",
         "board.media.unbundle",
     ] {
@@ -75,6 +76,7 @@ fn media_menu_has_three_registered_families() {
         ("media.image", "board.media.image"),
         ("media.model", "board.media.model"),
         ("media.video", "board.media.video"),
+        ("media.text", "board.media.text"),
     ] {
         ui::tools::activate_flyout_id(&mut h.app, &h.ctx, icon);
         assert_eq!(h.app.cmd_history.iter().last().unwrap().id.0, command);
@@ -149,7 +151,7 @@ fn media_picker_places_one_undo_group_and_ignores_late_or_cancelled_results() {
         paths: Some(vec![path.clone()]),
     })
     .unwrap();
-    h.app.drain_pickers();
+    h.app.drain_pickers(&h.ctx);
     assert_eq!(h.app.doc().scene.nodes.len(), 1);
     h.app.board_undo();
     assert!(h.app.doc().scene.nodes.is_empty());
@@ -162,7 +164,7 @@ fn media_picker_places_one_undo_group_and_ignores_late_or_cancelled_results() {
         paths: Some(vec![path]),
     })
     .unwrap();
-    h.app.drain_pickers();
+    h.app.drain_pickers(&h.ctx);
     assert!(h.app.doc().items.is_empty());
     let (tx, rx) = crossbeam_channel::unbounded();
     h.app.picker_rx = Some(rx);
@@ -172,7 +174,7 @@ fn media_picker_places_one_undo_group_and_ignores_late_or_cancelled_results() {
         paths: None,
     })
     .unwrap();
-    h.app.drain_pickers();
+    h.app.drain_pickers(&h.ctx);
     assert!(h.app.doc().scene.nodes.is_empty());
 }
 
@@ -587,7 +589,10 @@ impl Harness {
                 title: "Slide 1".into(),
                 order: 0,
                 fill: Rgba::WHITE,
+                fill_authored: false,
                 assignments: std::collections::BTreeMap::new(),
+                stroke: slate_doc::scene::Stroke::none(),
+                corner: slate_doc::scene::Corner::Square,
             }),
         );
         let id = self.app.add_nodes(vec![node])[0];
@@ -763,6 +768,102 @@ fn slate_files_never_become_items() {
 }
 
 #[test]
+fn a_blank_board_opens_a_dropped_workbook_without_asking() {
+    let mut h = Harness::new("wb_blank_drop");
+    let wb_path = h.base.join("other.slate");
+    SlateDoc::new("Other").save_to(&wb_path).unwrap();
+    h.app
+        .accept_workbook_drop(wb_path.clone(), Pos2::new(40.0, 40.0));
+    assert_eq!(h.app.pending_workbook_drops(), 0);
+    assert_eq!(h.app.pending_workbooks, vec![wb_path.clone()]);
+    h.frame();
+    assert!(h.app.pending_workbooks.is_empty());
+    assert_eq!(h.app.tabs.len(), 1);
+    assert_eq!(h.app.tab().doc.name, "Other");
+    assert!(h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .all(|n| !matches!(&n.kind, slate_doc::scene::NodeKind::Portal(_))));
+}
+
+#[test]
+fn an_occupied_board_can_insert_a_dropped_workbook() {
+    let mut h = Harness::new("wb_insert");
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 80.0, 40.0),
+        slate_doc::scene::NodeKind::Text(slate_doc::scene::TextNode {
+            text: "keep".into(),
+            family: slate_doc::scene::Typeface::Sans,
+            size: 24.0,
+            color: slate_doc::scene::Rgba::opaque(20, 20, 20),
+            align: slate_doc::scene::TextAlign::Left,
+            fill: None,
+            agent: None,
+        }),
+    );
+    h.app.add_nodes(vec![node]);
+    let wb_path = h.base.join("child.slate");
+    let mut child = SlateDoc::new("Child");
+    let mark = child.scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 120.0, 40.0),
+        slate_doc::scene::NodeKind::Text(slate_doc::scene::TextNode {
+            text: "NESTED-MARK".into(),
+            family: slate_doc::scene::Typeface::Sans,
+            size: 24.0,
+            color: slate_doc::scene::Rgba::opaque(20, 20, 20),
+            align: slate_doc::scene::TextAlign::Left,
+            fill: None,
+            agent: None,
+        }),
+    );
+    child.scene.nodes.push(mark);
+    child.save_to(&wb_path).unwrap();
+    h.app.tab_mut().path = Some(h.base.join("parent.slate"));
+
+    h.app
+        .accept_workbook_drop(wb_path.clone(), Pos2::new(200.0, 200.0));
+    assert!(h.app.pending_workbooks.is_empty());
+    assert_eq!(h.app.pending_workbook_drops(), 1);
+    let (path, at) = h.app.pop_workbook_drop().unwrap();
+    h.app
+        .apply_workbook_drop(&h.ctx, board_slate::WorkbookDropChoice::Insert, path, at);
+    let portal = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .find_map(|n| match &n.kind {
+            slate_doc::scene::NodeKind::Portal(p)
+                if p.kind == slate_doc::scene::PortalKind::Slate =>
+            {
+                Some(p)
+            }
+            _ => None,
+        })
+        .expect("inserted portal");
+    assert_eq!(portal.class, slate_doc::scene::PortalClass::Document);
+    assert_eq!(
+        portal.source.as_ref().map(|s| s.locator.as_str()),
+        Some("child.slate")
+    );
+
+    h.app.do_export(h.base.join("export"));
+    h.wait_for_export();
+    let html = std::fs::read_to_string(
+        h.base
+            .join("export")
+            .join("Untitled-slides")
+            .join("index.html"),
+    )
+    .unwrap();
+    assert!(html.contains("NESTED-MARK"), "{html}");
+}
+
+#[test]
 fn opening_same_workbook_twice_focuses_existing_tab() {
     let mut h = Harness::new("wb_dedupe");
     let path = h.base.join("one.slate");
@@ -833,6 +934,65 @@ fn video_trim_settings_survive_save_and_reload() {
     assert_eq!(img.video.end, Some(11.0));
     assert!(img.video.controls);
     h2.frame();
+}
+
+#[test]
+fn video_pan_scrubs_the_full_trim_and_does_not_journal() {
+    use slate_doc::scene::VideoOpts;
+
+    let mut h = Harness::new("video_pan");
+    let clip = h.base.join("clip.mp4");
+    std::fs::write(&clip, b"not really mp4").unwrap();
+    let ids = h.app.add_paths(&[clip]);
+    h.app
+        .place_items_on_board(&ids, eframe::egui::Pos2::new(400.0, 300.0));
+    let node_id = h.app.doc().scene.nodes[0].id;
+    h.app.patch_nodes(&[node_id], |n| {
+        if let NodeKind::Image(i) = &mut n.kind {
+            i.video = VideoOpts {
+                start: 3.0,
+                end: Some(11.0),
+                ..VideoOpts::default()
+            };
+        }
+    });
+    h.app.video_probe_for_test(node_id, 20.0);
+    let before = h.app.doc().scene.nodes.clone();
+    assert!(h.app.video_shown_for_test(node_id).is_none());
+
+    let rect = h.app.doc().scene.node(node_id).unwrap().rect;
+    h.app
+        .video_pointer(Pos2::new(rect.x + 0.5, rect.y + rect.h * 0.5));
+    let left = h.app.video_shown_for_test(node_id).expect("in-point");
+    assert!((left - 3.0).abs() < 0.05, "left pan {left}");
+
+    h.app
+        .video_pointer(Pos2::new(rect.x + rect.w - 0.5, rect.y + rect.h * 0.5));
+    let right = h.app.video_shown_for_test(node_id).expect("out-point");
+    assert!((right - 11.0).abs() < 0.05, "right pan {right}");
+
+    h.app.video_clear_hover();
+    let held = h.app.video_shown_for_test(node_id).expect("held frame");
+    assert!(
+        (held - right).abs() < 0.001,
+        "pan should leave the playhead {held}"
+    );
+
+    h.app.video_click(node_id);
+    assert!(h.app.video_playing_for_test(node_id));
+    assert_eq!(
+        before,
+        h.app.doc().scene.nodes,
+        "scrub and play are derived, not journaled"
+    );
+    h.app.video_click(node_id);
+    assert!(!h.app.video_playing_for_test(node_id));
+    let paused = h.app.video_shown_for_test(node_id).expect("paused");
+    assert!(
+        (paused - right).abs() < 0.2,
+        "pause keeps the panned frame {paused}"
+    );
+    assert_eq!(before, h.app.doc().scene.nodes);
 }
 
 #[test]
@@ -989,6 +1149,8 @@ fn path_node_add_undo_via_journal() {
                 closed: false,
                 ..Default::default()
             }),
+
+            text: None,
         }),
     );
     let id = node.id;
@@ -1019,6 +1181,8 @@ fn add_stroke(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
                 closed: false,
                 ..Default::default()
             }),
+
+            text: None,
         }),
     );
     let ids = app.add_nodes(vec![node]);
@@ -1037,6 +1201,8 @@ fn add_rect(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
             corner: slate_doc::scene::Corner::Square,
             flip: false,
             path: None,
+
+            text: None,
         }),
     );
     let ids = app.add_nodes(vec![node]);
@@ -1059,7 +1225,8 @@ fn eraser_release_is_one_undo_group() {
     let hits = h.app.eraser_hits_at(Pos2::new(50.0, 0.5));
     assert_eq!(hits, vec![ids[0]]);
 
-    h.app.finish_erase(ids.clone());
+    h.app
+        .finish_erase(ids.clone(), vec![Pos2::new(50.0, 0.5)], Vec::new());
     assert!(h.app.doc().scene.nodes.is_empty());
     h.app.board_undo();
     assert_eq!(h.app.doc().scene.nodes.len(), 3, "one undo restores all");
@@ -1210,6 +1377,125 @@ fn sticky_tab_spawn_offsets_right() {
         .text_edit
         .as_ref()
         .is_some_and(|(id, _)| *id == second));
+    h.frame();
+}
+
+/// Place is one-shot: Select returns, text is center-aligned, the caret is
+/// open, and the text/color capsule stays closed.
+#[test]
+fn sticky_place_opens_centered_edit_without_the_color_capsule() {
+    use slate_doc::scene::{NodeKind, TextAlign};
+    let mut h = Harness::new("sticky-place");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.set_board_tool(board::BoardTool::Sticky);
+
+    h.app.place_sticky_at(Pos2::new(0.0, 0.0));
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+    let id = *h.app.board_sel.iter().next().expect("sticky selected");
+    match &h.app.doc().scene.node(id).unwrap().kind {
+        NodeKind::Text(t) => {
+            assert_eq!(t.align, TextAlign::Center);
+            assert_eq!(t.fill, Some(board_color::STICKY_FILL));
+            assert_eq!(board_color::STICKY_FILL.0, [255, 255, 255, 255]);
+            assert!(t.text.is_empty());
+        }
+        _ => panic!("sticky is a text node"),
+    }
+    assert!(h
+        .app
+        .text_edit
+        .as_ref()
+        .is_some_and(|(edit, _)| *edit == id));
+    h.app.sync_shape_properties();
+    assert!(h.app.shape_properties.panel.is_none());
+
+    h.app.commit_text_edit();
+    assert!(h.app.text_edit.is_none());
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+
+    h.app.board_double_click_for_test(Pos2::new(0.0, 0.0));
+    assert!(h
+        .app
+        .text_edit
+        .as_ref()
+        .is_some_and(|(edit, _)| *edit == id));
+    h.app.sync_shape_properties();
+    assert!(h.app.shape_properties.panel.is_none());
+    h.frame();
+}
+
+/// Double-click anywhere on a closed shape opens center-justified text editing
+/// and the text configuration. A line does not.
+#[test]
+fn double_click_closed_shape_opens_text_editor() {
+    use slate_doc::scene::{NodeKind, ShapeKind, ShapeNode, TextAlign};
+    let mut h = Harness::new("shape-text");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let rect = slate_doc::scene::WorldRect::new(10.0, 20.0, 180.0, 90.0);
+    let node = h.app.doc_mut().scene.build_node(
+        rect,
+        NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Rect,
+            fill: None,
+            stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: None,
+            text: None,
+        }),
+    );
+    let id = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app.board_double_click_for_test(egui::pos2(40.0, 50.0));
+    assert!(h
+        .app
+        .text_edit
+        .as_ref()
+        .is_some_and(|(edit_id, body)| *edit_id == id && body.is_empty()));
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(board_properties::Panel::Text)
+    );
+    h.app.text_edit = Some((id, "Hello".into()));
+    h.app.commit_text_edit();
+    match &h.app.doc().scene.node(id).unwrap().kind {
+        NodeKind::Shape(s) => {
+            let text = s.text.as_ref().expect("hosted text");
+            assert_eq!(text.body, "Hello");
+            assert_eq!(text.align, TextAlign::Center);
+        }
+        _ => panic!("rectangle"),
+    }
+    h.app.board_undo();
+    match &h.app.doc().scene.node(id).unwrap().kind {
+        NodeKind::Shape(s) => assert!(s.text.is_none()),
+        _ => panic!("rectangle"),
+    }
+
+    let line = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(300.0, 20.0, 80.0, 40.0),
+        NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Line,
+            fill: None,
+            stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: None,
+            text: None,
+        }),
+    );
+    let line_id = line.id;
+    h.app.add_nodes(vec![line]);
+    h.app.board_double_click_for_test(egui::pos2(340.0, 40.0));
+    assert!(h
+        .app
+        .text_edit
+        .as_ref()
+        .is_none_or(|(edit_id, _)| *edit_id != line_id));
     h.frame();
 }
 
@@ -1599,6 +1885,9 @@ fn line_create_matches_last_edited_style() {
         cap: slate_doc::scene::StrokeCap::Butt,
         join: slate_doc::scene::StrokeJoin::Bevel,
         profile: slate_doc::scene::WidthProfile::Uniform,
+        softness: 0.0,
+        stamp: false,
+        tween_from: None,
     };
     h.app.patch_nodes(&[id], |n| {
         n.opacity = 0.5;
@@ -1688,6 +1977,8 @@ fn closed_polyline_pick_and_near_ignore_empty_bbox() {
             corner: slate_doc::scene::Corner::Square,
             flip: false,
             path: Some(data),
+
+            text: None,
         }),
     );
     let id = h.app.add_nodes(vec![node])[0];
@@ -1745,6 +2036,8 @@ fn closed_polyline_pick_and_near_ignore_points_outside_the_bbox() {
             corner: slate_doc::scene::Corner::Square,
             flip: false,
             path: Some(data),
+
+            text: None,
         }),
     );
     let id = h.app.add_nodes(vec![node])[0];
@@ -1820,6 +2113,8 @@ fn add_ellipse(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> NodeId {
             corner: slate_doc::scene::Corner::Square,
             flip: false,
             path: None,
+
+            text: None,
         }),
     );
     app.add_nodes(vec![node])[0]
@@ -2008,9 +2303,13 @@ fn every_drag_rect_tool_second_corner_snaps() {
         h.app.board_smart_guides = true;
         add_rect(&mut h.app, 200.0, 0.0);
         h.app.set_board_tool(tool);
-        let r = h
-            .app
-            .resolve_draw_rect(Pos2::new(0.0, 0.0), Pos2::new(197.0, 280.0), tool, false);
+        let r = h.app.resolve_draw_rect(
+            Pos2::new(0.0, 0.0),
+            Pos2::new(197.0, 280.0),
+            tool,
+            false,
+            false,
+        );
         assert!(
             !h.app.board_snap_guides.is_empty(),
             "{tool:?} second corner must emit a forcefield"
@@ -2035,61 +2334,29 @@ fn kit_board(tag: &str, tool: board::BoardTool) -> Harness {
 }
 
 #[test]
-fn f3_opens_and_closes_the_selection_inspector_in_icon_strip_mode() {
-    use super::ui::tools::{DOCK_ID, SELECTION_PANEL_ID};
-    let mut h = kit_board("selection_f3", board::BoardTool::Select);
-    h.app.dock_pins.clear();
-    h.app.dock_icon_strips = vec!["*".into()];
-    h.app
-        .chrome_mut()
-        .set_tool(chrome::ToolPanel::Selection, true);
+fn selection_properties_are_not_a_bottom_dock_panel() {
+    use super::ui::tools::DOCK_ID;
+    let mut h = kit_board("selection_strip", board::BoardTool::Select);
+    h.app.dock_pins = vec![
+        "selection".into(),
+        "object.properties".into(),
+        "document.settings".into(),
+    ];
     h.frame();
-    assert!(!atlas_shell::dock::panel_is_open(
-        &h.ctx,
-        DOCK_ID,
-        SELECTION_PANEL_ID
-    ));
-    for expected_open in [true, false, true] {
-        h.frame_with(|input| {
-            input.events.push(egui::Event::Key {
-                key: egui::Key::F3,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: egui::Modifiers::default(),
-            })
-        });
-        assert_eq!(
-            atlas_shell::dock::panel_is_open(&h.ctx, DOCK_ID, SELECTION_PANEL_ID),
-            expected_open
+    for id in ["selection", "object.properties", "document.settings"] {
+        assert!(
+            !atlas_shell::dock::panel_is_open(&h.ctx, DOCK_ID, id),
+            "{id} must not return as a bottom-dock panel"
         );
-        assert_eq!(
-            h.app.chrome().tool(chrome::ToolPanel::Selection),
-            expected_open
-        );
-        h.frame_with(|input| {
-            input.events.push(egui::Event::Key {
-                key: egui::Key::F3,
-                physical_key: None,
-                pressed: false,
-                repeat: false,
-                modifiers: egui::Modifiers::default(),
-            })
-        });
     }
-    // A visible dock icon is not the same thing as an open body: after its
-    // minimize action, F3 must reopen immediately rather than hide the icon.
-    atlas_shell::dock::set_panel_open(&h.ctx, DOCK_ID, SELECTION_PANEL_ID, false);
-    h.frame();
-    assert!(h.app.chrome().tool(chrome::ToolPanel::Selection));
     assert!(h
         .app
         .dispatch(&h.ctx, atlas_commands::CommandId("app.properties"), None));
     h.frame();
-    assert!(atlas_shell::dock::panel_is_open(
+    assert!(!atlas_shell::dock::panel_is_open(
         &h.ctx,
         DOCK_ID,
-        SELECTION_PANEL_ID
+        "selection"
     ));
 }
 
@@ -2144,6 +2411,9 @@ fn a_drawn_rectangle_inherits_last_fill_and_stroke() {
         cap: slate_doc::scene::StrokeCap::Butt,
         join: slate_doc::scene::StrokeJoin::Miter,
         profile: slate_doc::scene::WidthProfile::Uniform,
+        softness: 0.0,
+        stamp: false,
+        tween_from: None,
     };
     h.app.patch_nodes(&[id], |n| {
         if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
@@ -2308,6 +2578,16 @@ fn placed_frames_claim_consecutive_slide_orders() {
         frames,
         vec![(0, "Slide 1".to_string()), (1, "Slide 2".to_string())]
     );
+    let NodeKind::Frame(first) = &h.app.doc().scene.nodes[0].kind else {
+        panic!("expected a frame");
+    };
+    assert_eq!(
+        first.corner,
+        slate_doc::scene::Corner::Rounded {
+            radius: slate_doc::media::TEXT_CARD_FILLET
+        }
+    );
+    assert!(first.stroke.is_none(), "a new frame has no border");
     // The frame preset, not the recipe, sizes a click-placed frame.
     let (w, h_) = h.app.board_frame_preset.size();
     assert_eq!(
@@ -2320,7 +2600,305 @@ fn placed_frames_claim_consecutive_slide_orders() {
     h.frame();
 }
 
-/// A click-placed File Atlas lens is host-class, unbound, and 960×540.
+fn deck_frame(h: &mut Harness, rect: slate_doc::scene::WorldRect, order: u32) -> NodeId {
+    let node = h.app.doc_mut().scene.build_node(
+        rect,
+        NodeKind::Frame(slate_doc::scene::FrameNode {
+            title: format!("S{order}"),
+            order,
+            fill: slate_doc::scene::Rgba::WHITE,
+            fill_authored: false,
+            assignments: Default::default(),
+            stroke: slate_doc::scene::Stroke::none(),
+            corner: slate_doc::scene::Corner::Square,
+        }),
+    );
+    let id = node.id;
+    h.app.add_nodes(vec![node]);
+    id
+}
+
+fn visible_frames(h: &Harness) -> Vec<NodeId> {
+    h.app
+        .doc()
+        .scene
+        .frames_in_order()
+        .iter()
+        .filter(|n| !n.hidden)
+        .map(|n| n.id)
+        .collect()
+}
+
+fn deck_release(h: &mut Harness, press: Pos2, release_world: Pos2, release_screen: Pos2) {
+    h.app.board_drag =
+        h.app
+            .begin_gesture_for_test(Pos2::new(0.0, 0.0), press, egui::Modifiers::default());
+    h.app.end_gesture_for_test(
+        release_world,
+        Some(release_screen),
+        egui::Modifiers::default(),
+    );
+}
+
+/// GP1–GP6 for the Deck tool (`docs/keymap/contracts/frame-deck.md`).
+#[test]
+fn deck_clicks_build_a_prefix_and_undo_one_gesture_at_a_time() {
+    let mut h = kit_board("deck_gp1", board::BoardTool::Deck);
+    let a = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 80.0, 60.0),
+        0,
+    );
+    let b = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(200.0, 0.0, 80.0, 60.0),
+        1,
+    );
+    let c = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(400.0, 0.0, 80.0, 60.0),
+        2,
+    );
+    let before = h.app.tab().journal.undo_depth();
+    deck_release(
+        &mut h,
+        Pos2::new(40.0, 30.0),
+        Pos2::new(40.0, 30.0),
+        Pos2::new(0.0, 0.0),
+    );
+    // A was already first, so the click journals nothing but stays in the session.
+    assert_eq!(h.app.tab().journal.undo_depth(), before);
+    deck_release(
+        &mut h,
+        Pos2::new(440.0, 30.0),
+        Pos2::new(440.0, 30.0),
+        Pos2::new(0.0, 0.0),
+    );
+    assert_eq!(visible_frames(&h), vec![a, c, b]);
+    deck_release(
+        &mut h,
+        Pos2::new(240.0, 30.0),
+        Pos2::new(240.0, 30.0),
+        Pos2::new(0.0, 0.0),
+    );
+    assert_eq!(visible_frames(&h), vec![a, c, b]);
+    // C is already in the session, so this click moves it to the end.
+    deck_release(
+        &mut h,
+        Pos2::new(440.0, 30.0),
+        Pos2::new(440.0, 30.0),
+        Pos2::new(0.0, 0.0),
+    );
+    assert_eq!(visible_frames(&h), vec![a, b, c]);
+    assert_eq!(h.app.board_tool, board::BoardTool::Deck);
+    assert!(h.app.presenting.is_none());
+    h.app.board_undo();
+    assert_eq!(visible_frames(&h), vec![a, c, b]);
+    h.app.board_undo();
+    assert_eq!(visible_frames(&h), vec![a, b, c]);
+    assert_eq!(h.app.tab().journal.undo_depth(), before);
+}
+
+#[test]
+fn deck_stroke_orders_frames_along_the_path_without_a_node() {
+    let mut h = kit_board("deck_gp2", board::BoardTool::Deck);
+    let a = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 80.0),
+        2,
+    );
+    let c = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(200.0, 0.0, 100.0, 80.0),
+        0,
+    );
+    let b = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(400.0, 0.0, 100.0, 80.0),
+        1,
+    );
+    let before_nodes = h.app.doc().scene.nodes.len();
+    h.app.board_drag = h.app.begin_gesture_for_test(
+        Pos2::new(0.0, 0.0),
+        Pos2::new(50.0, 40.0),
+        egui::Modifiers::default(),
+    );
+    h.app
+        .update_gesture_for_test(Pos2::new(250.0, 40.0), egui::Modifiers::default());
+    h.app.end_gesture_for_test(
+        Pos2::new(450.0, 40.0),
+        Some(Pos2::new(40.0, 0.0)),
+        egui::Modifiers::default(),
+    );
+    assert_eq!(visible_frames(&h), vec![a, c, b]);
+    assert_eq!(h.app.doc().scene.nodes.len(), before_nodes);
+    assert!(h.app.board_drag.is_none());
+}
+
+#[test]
+fn deck_travel_under_four_pixels_is_a_click() {
+    let mut h = kit_board("deck_gp3", board::BoardTool::Deck);
+    let a = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 80.0),
+        1,
+    );
+    let b = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(300.0, 0.0, 100.0, 80.0),
+        0,
+    );
+    deck_release(
+        &mut h,
+        Pos2::new(50.0, 40.0),
+        Pos2::new(350.0, 40.0),
+        Pos2::new(3.0, 0.0),
+    );
+    assert_eq!(visible_frames(&h), vec![a, b]);
+}
+
+#[test]
+fn deck_escape_drops_the_stroke_then_disarms() {
+    let mut h = kit_board("deck_gp4", board::BoardTool::Deck);
+    let a = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 80.0, 60.0),
+        0,
+    );
+    let _b = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(200.0, 0.0, 80.0, 60.0),
+        1,
+    );
+    let before = h.app.tab().journal.undo_depth();
+    h.app.board_drag = h.app.begin_gesture_for_test(
+        Pos2::new(0.0, 0.0),
+        Pos2::new(40.0, 30.0),
+        egui::Modifiers::default(),
+    );
+    h.app
+        .update_gesture_for_test(Pos2::new(240.0, 30.0), egui::Modifiers::default());
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("app.cancel"), None));
+    assert!(h.app.board_drag.is_none());
+    assert_eq!(h.app.tab().journal.undo_depth(), before);
+    assert_eq!(visible_frames(&h)[0], a);
+    assert_eq!(h.app.board_tool, board::BoardTool::Deck);
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("app.cancel"), None));
+    assert_eq!(h.app.board_tool, board::BoardTool::Select);
+}
+
+#[test]
+fn deck_stroke_skips_a_hidden_frame() {
+    let mut h = kit_board("deck_gp5", board::BoardTool::Deck);
+    let a = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 80.0, 60.0),
+        0,
+    );
+    let hidden = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(100.0, 0.0, 80.0, 60.0),
+        1,
+    );
+    h.app.patch_nodes(&[hidden], |n| n.hidden = true);
+    let b = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(200.0, 0.0, 80.0, 60.0),
+        2,
+    );
+    h.app.board_drag = h.app.begin_gesture_for_test(
+        Pos2::new(0.0, 0.0),
+        Pos2::new(20.0, 20.0),
+        egui::Modifiers::default(),
+    );
+    h.app.end_gesture_for_test(
+        Pos2::new(240.0, 20.0),
+        Some(Pos2::new(30.0, 0.0)),
+        egui::Modifiers::default(),
+    );
+    assert!(h.app.doc().scene.node(hidden).unwrap().hidden);
+    assert_eq!(visible_frames(&h), vec![a, b]);
+}
+
+#[test]
+fn deck_does_not_start_presentation_and_present_follows_the_new_order() {
+    let mut h = kit_board("deck_gp6", board::BoardTool::Deck);
+    let _a = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 80.0, 40.0),
+        0,
+    );
+    let b = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(200.0, 0.0, 80.0, 40.0),
+        1,
+    );
+    deck_release(
+        &mut h,
+        Pos2::new(240.0, 20.0),
+        Pos2::new(240.0, 20.0),
+        Pos2::new(0.0, 0.0),
+    );
+    assert!(h.app.presenting.is_none());
+    h.app.start_present(None);
+    let first = h
+        .app
+        .doc()
+        .scene
+        .frames_in_order()
+        .iter()
+        .find(|n| !n.hidden)
+        .map(|n| n.id);
+    assert_eq!(first, Some(b));
+    assert!(h.app.presenting.is_some());
+}
+
+#[test]
+fn deck_rearm_appends_and_a_second_click_moves_to_the_end() {
+    let mut h = kit_board("deck_session", board::BoardTool::Deck);
+    let a = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 40.0, 40.0),
+        0,
+    );
+    let b = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(80.0, 0.0, 40.0, 40.0),
+        1,
+    );
+    let c = deck_frame(
+        &mut h,
+        slate_doc::scene::WorldRect::new(160.0, 0.0, 40.0, 40.0),
+        2,
+    );
+    deck_release(
+        &mut h,
+        Pos2::new(180.0, 20.0),
+        Pos2::new(180.0, 20.0),
+        Pos2::new(0.0, 0.0),
+    );
+    assert_eq!(visible_frames(&h), vec![c, a, b]);
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.app.set_board_tool(board::BoardTool::Deck);
+    deck_release(
+        &mut h,
+        Pos2::new(100.0, 20.0),
+        Pos2::new(100.0, 20.0),
+        Pos2::new(0.0, 0.0),
+    );
+    assert_eq!(visible_frames(&h), vec![c, b, a]);
+    deck_release(
+        &mut h,
+        Pos2::new(180.0, 20.0),
+        Pos2::new(180.0, 20.0),
+        Pos2::new(0.0, 0.0),
+    );
+    assert_eq!(visible_frames(&h), vec![b, c, a]);
+}
 #[test]
 fn a_placed_file_atlas_lens_is_unbound_at_the_recipe_size() {
     let mut h = kit_board("kit_atlas_portal", board::BoardTool::AtlasPortal);
@@ -2777,6 +3355,43 @@ fn drag_past_threshold_still_scales() {
         r.h
     );
     assert_eq!(h.app.board_tool, board::BoardTool::Select);
+}
+
+/// Ctrl during a rectangle or ellipse drag keeps the press point as the center.
+#[test]
+fn ctrl_drag_draws_rect_and_circle_from_center() {
+    let mut h = arming_board("draw_from_center_rect", board::BoardTool::RectShape);
+    let mods = egui::Modifiers {
+        ctrl: true,
+        ..Default::default()
+    };
+    h.app.finish_draw(
+        Pos2::new(40.0, 30.0),
+        Pos2::new(140.0, 70.0),
+        board::BoardTool::RectShape,
+        mods,
+    );
+    let r = h.app.doc().scene.nodes[0].rect;
+    let (cx, cy) = r.center();
+    assert!((cx - 40.0).abs() < 0.01 && (cy - 30.0).abs() < 0.01);
+    assert!((r.w - 200.0).abs() < 0.01 && (r.h - 80.0).abs() < 0.01);
+
+    let mut h = arming_board("draw_from_center_circle", board::BoardTool::Ellipse);
+    let mods = egui::Modifiers {
+        ctrl: true,
+        shift: true,
+        ..Default::default()
+    };
+    h.app.finish_draw(
+        Pos2::new(0.0, 0.0),
+        Pos2::new(50.0, 20.0),
+        board::BoardTool::Ellipse,
+        mods,
+    );
+    let r = h.app.doc().scene.nodes[0].rect;
+    assert!((r.w - r.h).abs() < 0.01 && (r.w - 100.0).abs() < 0.01);
+    let (cx, cy) = r.center();
+    assert!(cx.abs() < 0.01 && cy.abs() < 0.01);
 }
 
 /// The real pointer path: arm Rect, click-release on the canvas (no drag).
@@ -3729,6 +4344,72 @@ fn maximize_covers_the_window_without_mutating_the_frame() {
     assert_eq!(h.app.web.focused, Some(id), "restore keeps page focus");
 }
 
+/// The restore glyph on a maximized portal is the click that leaves maximize.
+/// It has to land for every kind, including a press and release in one frame.
+#[test]
+fn maximized_restore_glyph_click_leaves_maximize() {
+    fn click_restore(h: &mut Harness, kind: slate_doc::scene::PortalKind, id: NodeId) {
+        h.app.portal_maximize(id);
+        h.frame();
+        let screen = h.app.canvas_rect;
+        let node = h.app.doc().scene.node(id).unwrap().rect;
+        let host = board_portal_chrome::maximized_host_rect(kind, node, screen);
+        let layout = board_portal_chrome::layout_for_portal(kind, host, false, true, 1.0);
+        let at = layout.maximize.center();
+        assert!(
+            layout.maximize.width() > 8.0 && layout.maximize.contains(at),
+            "{kind:?} restore hit {:?} does not contain its center",
+            layout.maximize
+        );
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(at));
+        });
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(at));
+            input.events.push(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+        assert_eq!(
+            h.app.portal_chrome.maximized, None,
+            "{kind:?} press on the restore glyph did not leave maximize"
+        );
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(at));
+            input.events.push(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+        assert_eq!(
+            h.app.portal_chrome.maximized, None,
+            "{kind:?} restore click at {at:?} in {:?} did not leave maximize",
+            layout.maximize
+        );
+    }
+
+    let mut web = web_board("restore_web");
+    with_fake_host(&mut web);
+    web.app.paste_web_url("https://example.com/a", Pos2::ZERO);
+    let (id, _) = only_portal(&web);
+    click_restore(&mut web, slate_doc::scene::PortalKind::Web, id);
+
+    let mut agent = web_board("restore_agent");
+    agent.app.place_agent_portal_at(Pos2::ZERO);
+    let id = agent.app.doc().scene.nodes[0].id;
+    click_restore(&mut agent, slate_doc::scene::PortalKind::Agent, id);
+
+    let mut atlas = web_board("restore_atlas");
+    atlas.app.place_atlas_portal_at(Pos2::ZERO);
+    let id = atlas.app.doc().scene.nodes[0].id;
+    click_restore(&mut atlas, slate_doc::scene::PortalKind::FileAtlas, id);
+}
+
 #[test]
 fn native_escape_restores_maximize_without_also_blurring_the_page() {
     let (mut h, id, host) = focused_page("web_native_escape");
@@ -4399,6 +5080,39 @@ fn wire_grips_preview_only_the_handle_under_the_pointer() {
     );
 }
 
+/// The enlarged grip hit reaches outside the node and stops at the edge.
+#[test]
+fn wire_grip_hit_reaches_outside_the_node_only() {
+    let mut h = web_board("wire_grip_outward");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let grip = xf.w2s(board_wire::grip_point(rect, slate_doc::scene::Side::Top));
+    let outside = grip + EVec2::new(0.0, -30.0);
+    let inside = grip + EVec2::new(0.0, 30.0);
+
+    assert_eq!(
+        h.app.wire_grip_at(outside, &xf).map(|(_, side, _)| side),
+        Some(slate_doc::scene::Side::Top),
+        "30 px outside the edge is a grip"
+    );
+    assert!(
+        h.app.wire_grip_at(inside, &xf).is_none(),
+        "the same distance inside the node is not a grip"
+    );
+
+    let mods = egui::Modifiers::default();
+    let drag = h.app.begin_gesture_for_test(outside, xf.s2w(outside), mods);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Wire(_))),
+        "a press in the outward hit starts a wire"
+    );
+}
+
 /// A press on the displayed wire handle starts a wire, even when that
 /// point is also on the resize band and the live hover cache has cleared
 /// (egui's drag threshold often leaves the 8 px dot before drag_started).
@@ -4435,6 +5149,174 @@ fn wire_grip_press_beats_edge_resize() {
         matches!(edge_drag, Some(board::BoardDrag::Resize { .. })),
         "the rest of the edge must still resize"
     );
+}
+
+/// Dropping a new wire on empty canvas commits a free end there.
+/// The tool-search palette stays closed. Undo removes that wire.
+#[test]
+fn wire_drop_on_empty_canvas_keeps_a_free_end() {
+    let mut h = web_board("wire_drop_empty");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let xf = h.app.board_xf();
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let grip = xf.w2s(board_wire::grip_point(rect, slate_doc::scene::Side::Right));
+    let mods = egui::Modifiers::default();
+    let Some(board::BoardDrag::Wire(mut wd)) =
+        h.app.begin_gesture_for_test(grip, xf.s2w(grip), mods)
+    else {
+        panic!("press on the grip starts a wire");
+    };
+
+    let drop = Pos2::new(rect.x + rect.w + 240.0, rect.y + rect.h * 0.5);
+    h.app.wire_drag_update(&mut wd, drop, false);
+    assert!(wd.snap.is_none(), "blank canvas is not a snap target");
+    let end = [wd.cursor.x, wd.cursor.y];
+    h.app.finish_wire_drag(wd);
+
+    assert!(
+        !h.app.palette_state.open,
+        "empty release must not open the tool search"
+    );
+    let (a, b) = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .find_map(|n| match &n.kind {
+            slate_doc::scene::NodeKind::Connector(c) => Some((c.a, c.b)),
+            _ => None,
+        })
+        .expect("a wire is committed");
+    assert!(matches!(
+        a,
+        slate_doc::scene::ConnectorEnd::Anchored { node, .. } if node == id
+    ));
+    match b {
+        slate_doc::scene::ConnectorEnd::Free { point } => assert_eq!(point, end),
+        other => panic!("free end at the drop, got {other:?}"),
+    }
+    assert!(
+        slate_doc::wire::connector_route_in_scene(
+            &h.app.doc().scene,
+            None,
+            &a,
+            &b,
+            h.app.board_wire_routing,
+        )
+        .is_some(),
+        "the free end draws"
+    );
+
+    h.app.board_undo();
+    assert!(
+        h.app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .all(|n| !matches!(n.kind, slate_doc::scene::NodeKind::Connector(_))),
+        "undo removes the wire"
+    );
+}
+
+/// Alt on a scale handle copies, then scales the copy. The original stays.
+#[test]
+fn alt_edge_scale_copies_and_keeps_the_original() {
+    let mut h = web_board("alt_scale_copy");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+
+    let rect = h.app.doc().scene.node(id).unwrap().rect;
+    let xf = h.app.board_xf();
+    // Off the edge midpoint so a wire grip does not steal the press.
+    let edge = xf.w2s(Pos2::new(rect.x + rect.w, rect.y + 12.0));
+    let edge_world = xf.s2w(edge);
+    h.app.alt_down = true;
+    let drag = h.app.begin_gesture_for_test(
+        edge,
+        edge_world,
+        egui::Modifiers {
+            alt: true,
+            ..Default::default()
+        },
+    );
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Resize { dup: true, .. })),
+        "Alt on an edge must scale a copy"
+    );
+    h.app.board_drag = drag;
+    let grown = Pos2::new(rect.x + rect.w + 50.0, rect.y + 12.0);
+    h.app.update_gesture_for_test(
+        grown,
+        egui::Modifiers {
+            alt: true,
+            ..Default::default()
+        },
+    );
+    h.app.end_gesture_for_test(
+        grown,
+        Some(xf.w2s(grown)),
+        egui::Modifiers {
+            alt: true,
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(h.app.doc().scene.nodes.len(), 2);
+    let original = h.app.doc().scene.node(id).unwrap().rect;
+    assert!(
+        (original.w - 80.0).abs() < 0.01 && (original.h - 60.0).abs() < 0.01,
+        "original must stay, got {}×{}",
+        original.w,
+        original.h
+    );
+    let copy = h.app.doc().scene.nodes.iter().find(|n| n.id != id).unwrap();
+    assert!(
+        copy.rect.w > original.w + 20.0,
+        "copy must grow, got {}",
+        copy.rect.w
+    );
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    assert!(h.app.doc().scene.node(id).is_some());
+}
+
+/// Ctrl on an edge scales about the center.
+#[test]
+fn ctrl_edge_scale_keeps_the_center() {
+    let mut h = web_board("ctrl_scale_center");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.insert(id);
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    let before = h.app.doc().scene.node(id).unwrap().rect;
+    let (cx, cy) = before.center();
+    let xf = h.app.board_xf();
+    let edge = xf.w2s(Pos2::new(before.x + before.w, before.y + 12.0));
+    let mods = egui::Modifiers {
+        ctrl: true,
+        ..Default::default()
+    };
+    h.app.ctrl_down = true;
+    h.app.board_drag = h.app.begin_gesture_for_test(edge, xf.s2w(edge), mods);
+    let grown = Pos2::new(before.x + before.w + 40.0, before.y + 12.0);
+    h.app.update_gesture_for_test(grown, mods);
+    h.app.end_gesture_for_test(grown, Some(xf.w2s(grown)), mods);
+    let after = h.app.doc().scene.node(id).unwrap().rect;
+    let (nx, ny) = after.center();
+    assert!(
+        (nx - cx).abs() < 0.5 && (ny - cy).abs() < 0.5,
+        "center walked to {nx},{ny}"
+    );
+    assert!(after.w > before.w + 20.0, "width {}", after.w);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
 }
 
 /// Bounding-box chrome is live on hover — no prior selection (P1.node.transform).
@@ -4556,6 +5438,8 @@ fn selection_outline_follows_silhouette() {
                 corner: slate_doc::scene::Corner::Rounded { radius: 12.0 },
                 flip: false,
                 path: None,
+
+                text: None,
             }),
         );
         h.app.add_nodes(vec![node])[0]
@@ -4572,6 +5456,8 @@ fn selection_outline_follows_silhouette() {
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
                 path: None,
+
+                text: None,
             }),
         );
         h.app.add_nodes(vec![node])[0]
@@ -4900,6 +5786,151 @@ fn shift_click_adds_rectangles_to_the_selection() {
     assert!(h.app.board_sel.contains(&b), "second rect is added");
 }
 
+fn sweep(h: &mut Harness, from: Pos2, to: Pos2, mods: egui::Modifiers) {
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.tab_mut().cam.offset = egui::vec2(0.0, 0.0);
+    let xf = h.app.board_xf();
+    let drag = h.app.begin_gesture_for_test(xf.w2s(from), from, mods);
+    let kind = match &drag {
+        None => "none",
+        Some(board::BoardDrag::Marquee { .. }) => "marquee",
+        Some(board::BoardDrag::Move { .. }) => "move",
+        Some(board::BoardDrag::LineGrip { .. }) => "line-grip",
+        Some(board::BoardDrag::Wire(_)) => "wire",
+        Some(board::BoardDrag::Resize { .. }) => "resize",
+        Some(board::BoardDrag::GroupResize { .. }) => "group-resize",
+        Some(board::BoardDrag::Draw { .. }) => "draw",
+        Some(board::BoardDrag::Direct(_)) => "direct",
+        Some(_) => "other",
+    };
+    let hit = h.app.board_pick_node(from.x, from.y);
+    let rect = hit.and_then(|id| h.app.doc().scene.node(id).map(|n| (n.id, n.rect)));
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Marquee { .. })),
+        "sweep must start on empty board, got {kind} pick={rect:?} at {from:?} z={}",
+        h.app.tab().cam.z
+    );
+    h.app.board_drag = drag;
+    h.app.end_gesture_for_test(to, Some(xf.w2s(to)), mods);
+}
+
+/// GP1 — left-to-right over the middle of a line misses it.
+#[test]
+fn sweep_gp1_window_misses_a_crossing_line() {
+    let mut h = align_board("sweep_gp1");
+    let line = add_stroke(&mut h.app, 0.0, 50.0);
+    sweep(
+        &mut h,
+        Pos2::new(-80.0, 20.0),
+        Pos2::new(40.0, 80.0),
+        egui::Modifiers::NONE,
+    );
+    assert!(!h.app.board_sel.contains(&line));
+}
+
+/// GP2 — right-to-left over that middle selects the line.
+#[test]
+fn sweep_gp2_crossing_hits_the_line() {
+    let mut h = align_board("sweep_gp2");
+    let line = add_stroke(&mut h.app, 0.0, 50.0);
+    sweep(
+        &mut h,
+        Pos2::new(40.0, 120.0),
+        Pos2::new(-80.0, 0.0),
+        egui::Modifiers::NONE,
+    );
+    assert!(h.app.board_sel.contains(&line));
+}
+
+/// GP3 — window takes a fully inside rect and skips an edge overlap.
+#[test]
+fn sweep_gp3_window_takes_only_the_contained_rect() {
+    let mut h = align_board("sweep_gp3");
+    let inside = add_rect(&mut h.app, 10.0, 10.0);
+    let overlap = add_rect(&mut h.app, 90.0, 10.0);
+    sweep(
+        &mut h,
+        Pos2::new(-40.0, -40.0),
+        Pos2::new(120.0, 100.0),
+        egui::Modifiers::NONE,
+    );
+    assert!(h.app.board_sel.contains(&inside));
+    assert!(!h.app.board_sel.contains(&overlap));
+}
+
+/// GP4 — Shift crossing adds without dropping the current selection.
+#[test]
+fn sweep_gp4_shift_adds() {
+    let mut h = align_board("sweep_gp4");
+    let kept = add_rect(&mut h.app, 400.0, 400.0);
+    let line = add_stroke(&mut h.app, 0.0, 50.0);
+    h.app.board_sel.insert(kept);
+    let mut shift = egui::Modifiers::NONE;
+    shift.shift = true;
+    sweep(&mut h, Pos2::new(40.0, 120.0), Pos2::new(-80.0, 0.0), shift);
+    assert!(h.app.board_sel.contains(&kept));
+    assert!(h.app.board_sel.contains(&line));
+}
+
+/// GP5 — a window with no modifier replaces the selection.
+#[test]
+fn sweep_gp5_window_replaces() {
+    let mut h = align_board("sweep_gp5");
+    let inside = add_rect(&mut h.app, 10.0, 10.0);
+    let other = add_rect(&mut h.app, 400.0, 400.0);
+    h.app.board_sel.insert(inside);
+    h.app.board_sel.insert(other);
+    sweep(
+        &mut h,
+        Pos2::new(-40.0, -40.0),
+        Pos2::new(120.0, 100.0),
+        egui::Modifiers::NONE,
+    );
+    assert!(h.app.board_sel.contains(&inside));
+    assert!(!h.app.board_sel.contains(&other));
+}
+
+/// A frame that covers the viewport selects its members on drag. A smaller
+/// frame still moves.
+#[test]
+fn frame_drag_moves_until_the_frame_covers_the_viewport() {
+    let mut h = align_board("frame_cover_select");
+    assert_eq!(board::FramePreset::Tabloid.size(), (1224.0, 792.0));
+    let frame = h.seed_frame(None);
+    let inside = add_rect(&mut h.app, 100.0, 80.0);
+    let outside = add_rect(&mut h.app, 2000.0, 80.0);
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.tab_mut().cam.offset = egui::vec2(400.0, 225.0);
+    let press = Pos2::new(400.0, 300.0);
+    let drag =
+        h.app
+            .begin_gesture_for_test(h.app.board_xf().w2s(press), press, egui::Modifiers::NONE);
+    assert!(
+        matches!(drag, Some(board::BoardDrag::Move { .. })),
+        "a frame smaller than the viewport moves"
+    );
+
+    h.app.board_drag = None;
+    h.app.tab_mut().cam.z = 2.0;
+    let drag =
+        h.app
+            .begin_gesture_for_test(h.app.board_xf().w2s(press), press, egui::Modifiers::NONE);
+    assert!(
+        matches!(
+            drag,
+            Some(board::BoardDrag::Marquee { frame: Some(id), .. }) if id == frame
+        ),
+        "a frame covering the viewport selects inside"
+    );
+    h.app.board_drag = drag;
+    let end = Pos2::new(120.0, 90.0);
+    h.app
+        .end_gesture_for_test(end, Some(h.app.board_xf().w2s(end)), egui::Modifiers::NONE);
+    assert!(h.app.board_sel.contains(&inside));
+    assert!(!h.app.board_sel.contains(&frame));
+    assert!(!h.app.board_sel.contains(&outside));
+}
+
 /// Hover-resize on an unselected rectangle must not steal Shift+select.
 #[test]
 fn shift_press_on_unselected_rect_edge_adds_instead_of_resize() {
@@ -4946,6 +5977,7 @@ fn group_reposition_keeps_member_size() {
         before,
         group_before: gb,
         handle: board_handles::ResizeHandle::E as u8,
+        dup: false,
     });
     let mods = egui::Modifiers {
         ctrl: true,
@@ -5017,6 +6049,7 @@ fn group_every_handle_scale_and_reposition() {
                 before,
                 group_before: gb,
                 handle,
+                dup: false,
             });
             let mut mods = egui::Modifiers::default();
             if reposition {
@@ -5186,6 +6219,8 @@ fn add_seg(app: &mut SlateApp, a: Pos2, b: Pos2) -> NodeId {
             corner: slate_doc::scene::Corner::Square,
             flip: false,
             path: Some(path),
+
+            text: None,
         }),
     );
     app.add_nodes(vec![node])[0]
@@ -5203,6 +6238,8 @@ fn add_filled_rect(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> NodeId
             corner: slate_doc::scene::Corner::Square,
             flip: false,
             path: None,
+
+            text: None,
         }),
     );
     app.add_nodes(vec![node])[0]
@@ -5220,6 +6257,8 @@ fn add_filled_ellipse(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> Nod
             corner: slate_doc::scene::Corner::Square,
             flip: false,
             path: None,
+
+            text: None,
         }),
     );
     app.add_nodes(vec![node])[0]
@@ -5541,7 +6580,7 @@ fn trim_gp6_esc_stack() {
 /// Text + circle: the circle chops a hole in the text's clip (D11).
 #[test]
 fn trim_text_clip_punches_a_hole() {
-    use slate_doc::scene::{FontChoice, TextAlign, TextNode};
+    use slate_doc::scene::{TextAlign, TextNode, Typeface};
     let mut h = trim_board("trim_text_clip");
     let text = {
         let rect = slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 40.0);
@@ -5549,11 +6588,12 @@ fn trim_text_clip_punches_a_hole() {
             rect,
             slate_doc::scene::NodeKind::Text(TextNode {
                 text: "HELLO".into(),
-                family: FontChoice::Sans,
+                family: Typeface::Sans,
                 size: 24.0,
                 color: slate_doc::scene::Rgba::BLACK,
                 align: TextAlign::Left,
                 fill: None,
+                agent: None,
             }),
         );
         h.app.add_nodes(vec![node])[0]
@@ -5767,7 +6807,7 @@ fn join_one_closed_is_noop() {
 /// Text is skipped; two rects still union (P2.RhinoJoin.skip).
 #[test]
 fn join_skips_text() {
-    use slate_doc::scene::{FontChoice, TextAlign, TextNode};
+    use slate_doc::scene::{TextAlign, TextNode, Typeface};
     let mut h = join_board("join_skips_text");
     let a = add_filled_rect(&mut h.app, 0.0, 0.0, 40.0, 40.0);
     let b = add_filled_rect(&mut h.app, 20.0, 20.0, 40.0, 40.0);
@@ -5777,11 +6817,12 @@ fn join_skips_text() {
             rect,
             slate_doc::scene::NodeKind::Text(TextNode {
                 text: "keep".into(),
-                family: FontChoice::Sans,
+                family: Typeface::Sans,
                 size: 14.0,
                 color: slate_doc::scene::Rgba::BLACK,
                 align: TextAlign::Left,
                 fill: None,
+                agent: None,
             }),
         );
         h.app.add_nodes(vec![node])[0]
@@ -5830,6 +6871,38 @@ fn wire_under_node_does_not_steal_pick() {
         h.app.board_wire_routing,
     );
     assert_eq!(hit, Some(a), "host under the pointer beats the wire");
+
+    let wire = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .find(|n| n.id != a && n.id != b)
+        .unwrap()
+        .id;
+    let beside = board_path::board_pick_node_routed(
+        &h.app.doc().scene,
+        84.0,
+        30.0,
+        1.0,
+        false,
+        h.app.board_wire_routing,
+    );
+    assert_ne!(
+        beside,
+        Some(wire),
+        "the pick slop on the neighboring node must not select the wire"
+    );
+    let mid = board_path::board_pick_node_routed(
+        &h.app.doc().scene,
+        140.0,
+        30.0,
+        1.0,
+        false,
+        h.app.board_wire_routing,
+    );
+    assert_eq!(mid, Some(wire), "the open span of the wire still hits");
 }
 
 #[test]
@@ -6048,6 +7121,21 @@ fn agent_presentation_is_menu_only_and_window_is_not_a_bundle() {
     h.app.board_sel.clear();
     h.app.board_sel.insert(id);
     assert!(!h.app.agent_expand_bundle());
+    assert!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+            .unwrap()
+            .chat
+            .train,
+        "train is the default presentation"
+    );
+    h.app
+        .dispatch(&h.ctx, atlas_commands::CommandId("portal.agent.chat"), None);
+    assert!(
+        !slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+            .unwrap()
+            .chat
+            .train
+    );
     h.app
         .agent_set_detail(slate_doc::agent_chat::Detail::Identity);
     assert_eq!(
@@ -6057,20 +7145,9 @@ fn agent_presentation_is_menu_only_and_window_is_not_a_bundle() {
             .detail,
         slate_doc::agent_chat::Detail::Full
     );
-    h.app.dispatch(
-        &h.ctx,
-        atlas_commands::CommandId("portal.agent.train"),
-        None,
-    );
-    assert!(
-        slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
-            .unwrap()
-            .chat
-            .train
-    );
     h.app.board_undo();
     assert!(
-        !slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(id).unwrap())
             .unwrap()
             .chat
             .train
@@ -6098,6 +7175,148 @@ fn host_focus_has_one_owner_when_switching_between_agent_and_web() {
     assert_eq!(h.app.contents_focused(), Some(agent));
     h.app.contents_blur();
     assert_eq!(h.app.contents_focused(), None);
+}
+
+#[test]
+fn contents_focus_suppresses_frame_selection_chrome_for_every_host() {
+    let mut h = agent_board("portal_chrome_suppress");
+    let portals = [
+        slate_doc::PortalNode::unbound_file_atlas("File Atlas"),
+        slate_doc::PortalNode::unbound_web("Web"),
+        slate_doc::PortalNode::unbound_agent("Agent portal", ""),
+    ];
+    let mut ids = Vec::new();
+    for (i, portal) in portals.into_iter().enumerate() {
+        let node = h.app.doc_mut().scene.build_node(
+            WorldRect::new(i as f32 * 400.0, 0.0, 320.0, 200.0),
+            NodeKind::Portal(portal),
+        );
+        ids.push(node.id);
+        h.app.add_nodes(vec![node]);
+    }
+    for id in ids {
+        assert!(!h.app.portal_frame_chrome_suppressed(id));
+        assert!(!h.app.selection_stringers_suppressed());
+        h.app.portal_enter_interactive(id);
+        assert!(h.app.portal_frame_chrome_suppressed(id));
+        assert!(h.app.frame_chrome_suppressed(id));
+        assert!(h.app.selection_stringers_suppressed());
+        h.app.contents_blur();
+        assert!(!h.app.portal_frame_chrome_suppressed(id));
+        assert!(!h.app.frame_chrome_suppressed(id));
+        assert!(!h.app.selection_stringers_suppressed());
+    }
+}
+
+/// Double-click into a text frame, a shape's text, or a sheet cell drops the
+/// single-click selection cast. The frame stays selected. Leaving the edit
+/// brings the cast back.
+#[test]
+fn entered_media_suppresses_the_selection_cast() {
+    use slate_doc::scene::{NodeKind, ShapeKind, ShapeNode, TextAlign, TextNode, Typeface};
+    let mut h = agent_board("media_cast");
+    let text = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 80.0),
+        NodeKind::Text(TextNode {
+            text: "Note".into(),
+            family: Typeface::Sans,
+            size: 18.0,
+            color: slate_doc::scene::Rgba::opaque(20, 20, 20),
+            align: TextAlign::Left,
+            fill: Some(slate_doc::scene::Rgba::WHITE),
+            agent: None,
+        }),
+    );
+    let text_id = text.id;
+    h.app.add_nodes(vec![text]);
+    let shape = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(300.0, 0.0, 180.0, 90.0),
+        NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Rect,
+            fill: None,
+            stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: None,
+            text: None,
+        }),
+    );
+    let shape_id = shape.id;
+    h.app.add_nodes(vec![shape]);
+
+    h.app.board_sel.clear();
+    h.app.board_sel.insert(text_id);
+    assert!(!h.app.frame_chrome_suppressed(text_id));
+    assert!(!h.app.selection_stringers_suppressed());
+    h.app.text_edit = Some((text_id, "Note".into()));
+    assert!(h.app.frame_chrome_suppressed(text_id));
+    assert!(h.app.selection_stringers_suppressed());
+    h.app.commit_text_edit();
+    assert!(!h.app.frame_chrome_suppressed(text_id));
+
+    h.app.board_sel.clear();
+    h.app.board_sel.insert(shape_id);
+    h.app.text_edit = Some((shape_id, String::new()));
+    assert!(h.app.frame_chrome_suppressed(shape_id));
+    assert!(h.app.selection_stringers_suppressed());
+    h.app.commit_text_edit();
+    assert!(!h.app.frame_chrome_suppressed(shape_id));
+
+    h.app.sheet_edit = Some(board::SheetEdit {
+        node: text_id,
+        item: slate_doc::ItemId(1),
+        row: 0,
+        col: 0,
+        buf: "a".into(),
+        origin: "a".into(),
+        fresh: false,
+        screen: egui::Rect::NOTHING,
+        font_px: 12.0,
+    });
+    h.app.board_sel.clear();
+    h.app.board_sel.insert(text_id);
+    assert!(h.app.frame_chrome_suppressed(text_id));
+    assert!(h.app.selection_stringers_suppressed());
+    h.app.sheet_edit = None;
+    assert!(!h.app.frame_chrome_suppressed(text_id));
+    assert!(!h.app.selection_stringers_suppressed());
+}
+
+#[test]
+fn sheet_enter_keeps_the_typed_number_until_save() {
+    let mut h = Harness::new("sheet_enter");
+    let path = h.base.join("rows.csv");
+    std::fs::write(&path, "A,B\n1,2\n").unwrap();
+    let item = h
+        .app
+        .doc_mut()
+        .add_item(path.clone(), "rows.csv", 8, 0, "rows");
+    h.app
+        .sheets
+        .insert(item, atlas_core::table::read_sheet_card(&path));
+    h.app.sheet_edit = Some(board::SheetEdit {
+        node: NodeId(1),
+        item,
+        row: 1,
+        col: 1,
+        buf: "9".into(),
+        origin: "2".into(),
+        fresh: false,
+        screen: egui::Rect::NOTHING,
+        font_px: 12.0,
+    });
+    h.app.commit_sheet_edit();
+    let shown = h
+        .app
+        .sheets
+        .get(&item)
+        .and_then(|g| g.as_ref())
+        .and_then(|rows| rows.get(1))
+        .and_then(|row| row.get(1))
+        .map(|cell| cell.text.as_str());
+    assert_eq!(shown, Some("9"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "A,B\n1,2\n");
+    assert!(h.app.sheet_dirty);
 }
 
 #[test]
@@ -6274,5 +7493,660 @@ fn agent_output_draft_is_consumed_without_an_extra_empty_car() {
             .unwrap()
             .chat
             .draft
+    );
+}
+
+#[test]
+fn an_agent_place_file_spawns_a_file_atlas_portal() {
+    let mut h = agent_board("atlas_place");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    let folder = h.base.join("penn-station-images");
+    std::fs::create_dir_all(&folder).unwrap();
+    let link = h.base.join("link");
+    std::fs::create_dir_all(&link).unwrap();
+    h.app.ai.config.workspace_dir = Some(h.base.clone());
+    std::fs::write(
+        link.join("place.json"),
+        r#"{"id":"penn","kind":"file_atlas","path":"penn-station-images"}"#,
+    )
+    .unwrap();
+    assert!(h.app.consume_atlas_place(id, &link));
+    assert!(
+        !link.join("place.json").exists(),
+        "the request is consumed once the portal exists"
+    );
+    let atlas = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .find(|n| {
+            matches!(
+                &n.kind,
+                NodeKind::Portal(p) if p.kind == slate_doc::scene::PortalKind::FileAtlas
+            )
+        })
+        .expect("a File Atlas portal");
+    let host = h.app.doc().scene.node(id).unwrap();
+    assert!(atlas.rect.x >= host.rect.x + host.rect.w);
+    assert!(!h.app.consume_atlas_place(id, &link));
+}
+
+#[test]
+fn train_composer_grows_with_the_message_instead_of_a_tall_empty_card() {
+    let mut h = agent_board("train_composer_fit");
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let id = h.app.doc().scene.nodes[0].id;
+    h.app.set_agent_program(id, "local");
+    h.frame();
+    *h.app.agents.prompt_mut(id) = "Hello".into();
+    h.app.agents.prompt_epoch = h.app.agents.prompt_epoch.wrapping_add(1);
+    h.app.fit_agent_cards(&h.ctx);
+    let short = h.app.doc().scene.node(id).unwrap().rect.h;
+    assert!(
+        short < 120.0,
+        "a short train message should sit in a short card, height {short}"
+    );
+    *h.app.agents.prompt_mut(id) = (0..24)
+        .map(|i| format!("line {i} wraps across the card"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    h.app.agents.prompt_epoch = h.app.agents.prompt_epoch.wrapping_add(1);
+    h.app.fit_agent_cards(&h.ctx);
+    let long = h.app.doc().scene.node(id).unwrap().rect.h;
+    assert!(
+        long > short + 80.0,
+        "the card should grow with the message ({short} -> {long})"
+    );
+}
+
+#[test]
+fn brush_hud_scrubs_size_and_softness_and_escape_restores() {
+    let mut h = Harness::new("brush_hud");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.alt_down = true;
+    h.app.brush_width = 10.0;
+    h.app.brush_softness = 0.0;
+    h.app.tab_mut().cam.z = 1.0;
+    assert!(h.app.drive_brush_hud(Some(Pos2::new(0.0, 0.0)), true, true));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(40.0, -50.0)), true, false));
+    assert!((h.app.brush_width - 50.0).abs() < 0.01);
+    assert!((h.app.brush_softness - 0.5).abs() < 0.01);
+    h.app.cancel_brush_hud();
+    assert!((h.app.brush_width - 10.0).abs() < 0.01);
+    assert!(h.app.brush_softness.abs() < 0.01);
+    assert!(h.app.brush_hud.is_none());
+
+    h.app.alt_down = false;
+    h.app.ctrl_down = true;
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(20.0, 20.0)), true, true));
+    assert!(matches!(
+        h.app.brush_hud,
+        Some(board_color::BrushHud::Wheel { .. })
+    ));
+    h.app.cancel_brush_hud();
+}
+
+#[test]
+fn brush_size_hud_opens_when_alt_is_already_held() {
+    let mut h = Harness::new("brush_hold");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.alt_down = true;
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(4.0, 4.0)), true, false));
+    assert!(matches!(
+        h.app.brush_hud,
+        Some(board_color::BrushHud::Size { .. })
+    ));
+    h.app.cancel_brush_hud();
+}
+
+#[test]
+fn shift_right_drag_scrubs_opacity_and_escape_restores() {
+    let mut h = Harness::new("brush_opacity");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.shift_down = true;
+    h.app.brush_opacity = 1.0;
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(10.0, 10.0)), true, false));
+    assert!(matches!(
+        h.app.brush_hud,
+        Some(board_color::BrushHud::Opacity { .. })
+    ));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(10.0, 60.0)), true, false));
+    assert!((h.app.brush_opacity - 0.5).abs() < 0.02);
+    h.app.cancel_brush_hud();
+    assert!((h.app.brush_opacity - 1.0).abs() < 1e-4);
+}
+
+#[test]
+fn a_color_dot_moves_the_pointer_and_leaves_the_wheel() {
+    let mut h = Harness::new("brush_dot");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.tab_mut().doc.view.recent_colors = Some(vec![[255, 0, 0]]);
+    h.app.ctrl_down = true;
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(400.0, 300.0)), true, true));
+    let center = match h.app.brush_hud {
+        Some(board_color::BrushHud::Wheel { center, .. }) => center,
+        other => panic!("wheel opened, got {other:?}"),
+    };
+    let slot = board_color::wheel_slot_offset(0, 24, board_color::WHEEL_SLOT_RADIUS);
+    let dot = center + egui::vec2(slot[0], slot[1]);
+    let approach = dot + egui::vec2(12.0, 0.0);
+    assert!(h.app.drive_brush_hud(Some(approach), true, false));
+    match h.app.brush_hud {
+        Some(board_color::BrushHud::Wheel { center: now, .. }) => {
+            assert_eq!(now, center);
+        }
+        other => panic!("wheel stayed open, got {other:?}"),
+    }
+    assert_eq!(h.app.board_colors.fg.0[0], 255);
+    assert_eq!(h.app.brush_cursor_warp, Some((approach, dot)));
+}
+
+#[test]
+fn brush_stroke_keeps_softness_and_remembers_its_color() {
+    let mut h = Harness::new("brush_soft");
+    h.app.brush_softness = 0.5;
+    h.app.brush_width = 8.0;
+    h.app.finish_freehand_brush(vec![
+        Pos2::new(0.0, 0.0),
+        Pos2::new(30.0, 12.0),
+        Pos2::new(60.0, 0.0),
+    ]);
+    let node = h.app.doc().scene.nodes.last().unwrap();
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        panic!("brush commits a path");
+    };
+    assert!((shape.stroke.softness - 0.5).abs() < 1e-4);
+    assert!(shape.stroke.paints_as_stamp());
+    assert!(shape.stroke.stamp);
+    let rgb = [
+        shape.stroke.color.0[0],
+        shape.stroke.color.0[1],
+        shape.stroke.color.0[2],
+    ];
+    assert_eq!(
+        h.app
+            .doc()
+            .view
+            .recent_colors
+            .as_ref()
+            .unwrap()
+            .first()
+            .copied(),
+        Some(rgb)
+    );
+}
+
+#[test]
+fn a_brush_click_commits_one_round_dab() {
+    let mut h = Harness::new("brush_dab");
+    h.app.finish_freehand_brush(vec![Pos2::new(12.0, 8.0)]);
+    let dab = h.app.doc().scene.nodes.last().unwrap();
+    let slate_doc::scene::NodeKind::Shape(shape) = &dab.kind else {
+        panic!("a click commits a dab");
+    };
+    assert!(shape.path.as_ref().is_some_and(|p| p.segs.is_empty()));
+    assert!(shape.stroke.stamp);
+}
+
+#[test]
+fn ctrl_z_reverts_a_brush_size_change_until_another_action() {
+    let mut h = Harness::new("brush_undo_size");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 10.0;
+    let before = h.app.brush_setting_snapshot();
+    h.app.brush_width = 40.0;
+    h.app.push_brush_setting_undo(before);
+    h.app.board_undo();
+    assert!((h.app.brush_width - 10.0).abs() < 1e-3);
+    h.app.brush_width = 10.0;
+    let before = h.app.brush_setting_snapshot();
+    h.app.brush_width = 40.0;
+    h.app.push_brush_setting_undo(before);
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(0.0, 0.0), Pos2::new(30.0, 0.0)]);
+    h.app.board_undo();
+    assert!((h.app.brush_width - 40.0).abs() < 1e-3);
+}
+
+#[test]
+fn a_shift_line_tweens_the_tip_from_the_start_click() {
+    let mut h = Harness::new("brush_tween");
+    h.app.brush_width = 4.0;
+    let start = h.app.tip_now();
+    h.app.brush_width = 20.0;
+    h.app
+        .commit_tween_line(Pos2::new(0.0, 0.0), Pos2::new(80.0, 0.0), start, None);
+    let node = h.app.doc().scene.nodes.last().unwrap();
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        panic!("line");
+    };
+    assert!((shape.stroke.width - 20.0).abs() < 1e-3);
+    let tips = &shape.path.as_ref().unwrap().tips;
+    assert_eq!(tips.len(), 2);
+    assert!((tips[0].width - 4.0).abs() < 1e-3);
+    assert!((tips[1].width - 20.0).abs() < 1e-3);
+}
+
+#[test]
+fn a_shift_chain_extends_one_stroke_so_joints_do_not_stack() {
+    let mut h = Harness::new("brush_chain");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 12.0;
+    h.app.brush_opacity = 0.5;
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(0.0, 0.0), Pos2::new(60.0, 0.0)]);
+    let before = h.app.doc().scene.nodes.len();
+    let anchor = h.app.brush_line_anchor.expect("anchor after a stroke");
+    let first = anchor.node.expect("anchor names the stroke");
+    h.app
+        .commit_tween_line(anchor.pos, Pos2::new(60.0, 50.0), anchor.tip, anchor.node);
+    let anchor = h.app.brush_line_anchor.unwrap();
+    h.app
+        .commit_tween_line(anchor.pos, Pos2::new(10.0, 10.0), anchor.tip, anchor.node);
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        before,
+        "segments extend the stroke instead of stacking new nodes"
+    );
+    let node = h.app.doc().scene.node(first).unwrap();
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        panic!("path");
+    };
+    let path = shape.path.clone().unwrap();
+    assert_eq!(path.tips.len(), path.segs.len() + 1);
+    // One stamp for the whole chain: its opacity never exceeds the brush's.
+    let contours = board_path::stamped_contours(node, shape, &path, 0.25);
+    let img = vector_ink::stamp_tipped(&contours, 1.0).unwrap();
+    let top = img.rgba.iter().skip(3).step_by(4).copied().max().unwrap();
+    assert_eq!(top, shape.stroke.color.0[3]);
+    // Undo removes only the last segment.
+    h.app.board_undo();
+    let node = h.app.doc().scene.node(first).unwrap();
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        panic!("path");
+    };
+    assert_eq!(shape.path.as_ref().unwrap().tips.len(), path.tips.len() - 1);
+}
+
+#[test]
+fn space_repeats_the_latest_tool_not_a_brush_stroke() {
+    let mut h = Harness::new("repeat_tool");
+    h.app.set_board_tool(board::BoardTool::Line);
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.finish_freehand_brush(vec![
+        Pos2::new(0.0, 0.0),
+        Pos2::new(20.0, 8.0),
+        Pos2::new(40.0, 0.0),
+    ]);
+    h.app.set_board_tool(board::BoardTool::RectShape);
+    let last = h
+        .app
+        .cmd_history
+        .last_repeatable(&h.app.registry)
+        .expect("a tool was armed");
+    assert_eq!(last.0, "board.tool.rect");
+}
+
+/// Renders the committed brush pipeline to `target/brush-validate/*.png` so
+/// joints, self-overlaps, tweens, and dabs can be inspected by eye.
+#[test]
+#[ignore]
+fn brush_validation_images() {
+    fn composite(img: &mut image::RgbaImage, stamp: &vector_ink::StampImage, offset: [f32; 2]) {
+        for y in 0..stamp.height {
+            for x in 0..stamp.width {
+                let i = ((y * stamp.width + x) * 4) as usize;
+                let a = stamp.rgba[i + 3] as f32 / 255.0;
+                if a <= 0.0 {
+                    continue;
+                }
+                let wx = stamp.origin[0] + (x as f32 + 0.5) * stamp.pixel - offset[0];
+                let wy = stamp.origin[1] + (y as f32 + 0.5) * stamp.pixel - offset[1];
+                if wx < 0.0 || wy < 0.0 || wx >= img.width() as f32 || wy >= img.height() as f32 {
+                    continue;
+                }
+                let p = img.get_pixel_mut(wx as u32, wy as u32);
+                for c in 0..3 {
+                    p.0[c] =
+                        (stamp.rgba[i + c] as f32 * a + p.0[c] as f32 * (1.0 - a)).round() as u8;
+                }
+            }
+        }
+    }
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = Harness::new("brush_validate");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.board_colors.fg.0 = [150, 255, 170, 255];
+
+    // 1. Soft freehand wave, 60% opacity.
+    h.app.brush_width = 40.0;
+    h.app.brush_softness = 0.6;
+    h.app.brush_opacity = 0.6;
+    let wave: Vec<Pos2> = (0..=60)
+        .map(|i| {
+            let t = i as f32 / 60.0;
+            Pos2::new(40.0 + t * 520.0, 120.0 + (t * 9.0).sin() * 60.0)
+        })
+        .collect();
+    h.app.finish_freehand_brush(wave);
+
+    // 2. Semi-transparent Shift zigzag with acute joints.
+    h.app.brush_width = 36.0;
+    h.app.brush_softness = 0.4;
+    h.app.brush_opacity = 0.5;
+    h.app.finish_freehand_brush(vec![Pos2::new(60.0, 300.0)]);
+    for p in [
+        Pos2::new(300.0, 300.0),
+        Pos2::new(90.0, 340.0),
+        Pos2::new(330.0, 380.0),
+        Pos2::new(120.0, 430.0),
+    ] {
+        let a = h.app.brush_line_anchor.unwrap();
+        h.app.commit_tween_line(a.pos, p, a.tip, a.node);
+    }
+
+    // 3. Tween chain: size and color change between Shift clicks.
+    h.app.brush_softness = 0.3;
+    h.app.brush_opacity = 1.0;
+    h.app.brush_width = 8.0;
+    h.app.finish_freehand_brush(vec![Pos2::new(380.0, 460.0)]);
+    for (i, p) in [
+        Pos2::new(470.0, 300.0),
+        Pos2::new(560.0, 460.0),
+        Pos2::new(560.0, 250.0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        h.app.brush_width = 8.0 + 22.0 * (i + 1) as f32;
+        h.app.board_colors.fg.0 = [150, 255 - 60 * i as u8, 170 + 25 * i as u8, 255];
+        let a = h.app.brush_line_anchor.unwrap();
+        h.app.commit_tween_line(a.pos, p, a.tip, a.node);
+    }
+
+    // 4. Dabs, hard and soft.
+    h.app.board_colors.fg.0 = [255, 120, 200, 255];
+    h.app.brush_opacity = 0.7;
+    h.app.brush_width = 50.0;
+    h.app.brush_softness = 0.0;
+    h.app.finish_freehand_brush(vec![Pos2::new(90.0, 520.0)]);
+    h.app.brush_softness = 1.0;
+    h.app.finish_freehand_brush(vec![Pos2::new(170.0, 520.0)]);
+
+    // 5. Self-crossing loop at 50%.
+    h.app.board_colors.fg.0 = [120, 200, 255, 255];
+    h.app.brush_opacity = 0.5;
+    h.app.brush_softness = 0.5;
+    h.app.brush_width = 30.0;
+    let loop_pts: Vec<Pos2> = (0..=80)
+        .map(|i| {
+            let t = i as f32 / 80.0 * std::f32::consts::TAU * 1.25;
+            Pos2::new(300.0 + t.cos() * 60.0 + t * 12.0, 520.0 + t.sin() * 45.0)
+        })
+        .collect();
+    h.app.finish_freehand_brush(loop_pts);
+
+    let mut img = image::RgbaImage::from_pixel(620, 600, image::Rgba([16, 17, 20, 255]));
+    let mut tops = Vec::new();
+    for node in &h.app.doc().scene.nodes {
+        let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+            continue;
+        };
+        let Some(path) = shape.path.as_ref() else {
+            continue;
+        };
+        let contours = board_path::stamped_contours(node, shape, path, 0.25);
+        let stamp = vector_ink::stamp_tipped(&contours, 1.0).unwrap();
+        let top = stamp.rgba.iter().skip(3).step_by(4).copied().max().unwrap();
+        let widest = path
+            .paint_tips(&shape.stroke)
+            .iter()
+            .map(|t| t.color.0[3])
+            .chain([shape.stroke.color.0[3]])
+            .max()
+            .unwrap();
+        tops.push((node.id, top, widest));
+        composite(&mut img, &stamp, [0.0, 0.0]);
+    }
+    img.save(dir.join("brush.png")).unwrap();
+    for (id, top, cap) in tops {
+        assert!(top <= cap, "node {id:?} peaks at {top}, opacity is {cap}");
+    }
+}
+
+#[test]
+fn the_eraser_spot_erases_painted_ink_and_keeps_the_stroke() {
+    let mut h = Harness::new("eraser_spot");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 20.0;
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(0.0, 0.0), Pos2::new(200.0, 0.0)]);
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 30.0;
+    h.app.board_drag = Some(h.app.begin_erase(Pos2::new(100.0, -20.0), false));
+    h.app.update_erase(Pos2::new(100.0, 20.0));
+    let Some(board::BoardDrag::Erase {
+        touched,
+        points,
+        spot,
+        ..
+    }) = h.app.board_drag.take()
+    else {
+        panic!("erase drag");
+    };
+    assert!(touched.is_empty(), "painted strokes are not removed whole");
+    assert_eq!(spot, vec![id]);
+    h.app.finish_erase(touched, points, spot);
+    let node = h.app.doc().scene.node(id).expect("stroke survives");
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        panic!("path");
+    };
+    let path = shape.path.as_ref().unwrap();
+    assert_eq!(path.erase.len(), 1);
+    // The gap no longer picks; the ink either side still does.
+    let z = h.app.tab().cam.z;
+    assert!(!board_path::hit_path_node(node, shape, 100.0, 0.0, z));
+    assert!(board_path::hit_path_node(node, shape, 20.0, 0.0, z));
+    // One undo restores the ink.
+    h.app.board_undo();
+    let node = h.app.doc().scene.node(id).unwrap();
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        panic!("path");
+    };
+    assert!(shape.path.as_ref().unwrap().erase.is_empty());
+}
+
+#[test]
+fn erasing_all_of_a_painted_stroke_removes_it() {
+    let mut h = Harness::new("eraser_all");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 10.0;
+    h.app.finish_freehand_brush(vec![Pos2::new(40.0, 40.0)]);
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 60.0;
+    h.app.board_drag = Some(h.app.begin_erase(Pos2::new(40.0, 40.0), false));
+    let Some(board::BoardDrag::Erase {
+        touched,
+        points,
+        spot,
+        ..
+    }) = h.app.board_drag.take()
+    else {
+        panic!("erase drag");
+    };
+    h.app.finish_erase(touched, points, spot);
+    assert!(h.app.doc().scene.node(id).is_none());
+}
+
+#[test]
+fn the_wheel_gap_keeps_the_color_and_only_outside_samples() {
+    use board_color::{sample_wheel, WheelHit, WHEEL_BACKDROP_RADIUS, WHEEL_SV_RADIUS};
+    let hsv = [0.3, 0.5, 0.5];
+    // Just past the saturation/value disc: the hue ring, never the eyedropper.
+    assert!(matches!(
+        sample_wheel([WHEEL_SV_RADIUS + 1.0, 0.0], hsv, &[]),
+        WheelHit::Field(..)
+    ));
+    // Between the ring and the swatches: keep the value.
+    assert!(matches!(
+        sample_wheel([0.0, -(WHEEL_BACKDROP_RADIUS - 4.0)], hsv, &[]),
+        WheelHit::Keep
+    ));
+    assert!(matches!(
+        sample_wheel([0.0, -(WHEEL_BACKDROP_RADIUS + 4.0)], hsv, &[]),
+        WheelHit::Outside
+    ));
+}
+
+#[test]
+fn eraser_settings_ride_the_same_hud_and_undo() {
+    let mut h = Harness::new("eraser_hud");
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 10.0;
+    h.app.eraser_softness = 0.0;
+    h.app.eraser_opacity = 1.0;
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.alt_down = true;
+    assert!(h.app.drive_brush_hud(Some(Pos2::new(0.0, 0.0)), true, true));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(40.0, -50.0)), true, false));
+    assert!((h.app.eraser_width - 50.0).abs() < 0.01);
+    assert!((h.app.eraser_softness - 0.5).abs() < 0.01);
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(40.0, -50.0)), false, false));
+    h.app.alt_down = false;
+    h.app.shift_down = true;
+    assert!(h.app.drive_brush_hud(Some(Pos2::new(0.0, 0.0)), true, true));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(0.0, 50.0)), true, false));
+    assert!((h.app.eraser_opacity - 0.5).abs() < 0.02);
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(0.0, 50.0)), false, false));
+    assert!((h.app.eraser_tip().rgba[3] as f32 - 127.5).abs() < 3.0);
+    h.app.board_undo();
+    assert!((h.app.eraser_opacity - 1.0).abs() < 1e-3);
+    h.app.board_undo();
+    assert!((h.app.eraser_width - 10.0).abs() < 1e-3);
+}
+
+#[test]
+#[ignore]
+fn eraser_validation_image() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/brush-validate");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = Harness::new("eraser_validate");
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.board_colors.fg.0 = [150, 255, 170, 255];
+    h.app.brush_width = 44.0;
+    h.app.brush_softness = 0.3;
+    for y in [100.0, 220.0, 340.0] {
+        let pts: Vec<Pos2> = (0..=40)
+            .map(|i| Pos2::new(40.0 + i as f32 * 13.0, y + (i as f32 * 0.4).sin() * 20.0))
+            .collect();
+        h.app.finish_freehand_brush(pts);
+    }
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    let mut pass = |app: &mut SlateApp, pts: &[Pos2], shift: bool| {
+        app.board_drag = Some(app.begin_erase(pts[0], shift));
+        for p in &pts[1..] {
+            app.update_erase(*p);
+        }
+        let Some(board::BoardDrag::Erase {
+            touched,
+            points,
+            spot,
+            ..
+        }) = app.board_drag.take()
+        else {
+            panic!("erase drag");
+        };
+        app.finish_erase(touched, points, spot);
+    };
+    // Hard full-strength dabs.
+    h.app.eraser_width = 36.0;
+    h.app.eraser_softness = 0.0;
+    h.app.eraser_opacity = 1.0;
+    pass(&mut h.app, &[Pos2::new(120.0, 100.0)], false);
+    pass(&mut h.app, &[Pos2::new(200.0, 100.0)], false);
+    // Soft, half-strength freehand that crosses itself over all three.
+    h.app.eraser_width = 50.0;
+    h.app.eraser_softness = 0.8;
+    h.app.eraser_opacity = 0.5;
+    let zig: Vec<Pos2> = (0..=60)
+        .map(|i| {
+            let t = i as f32 / 60.0;
+            Pos2::new(330.0 + (t * 18.0).sin() * 50.0, 60.0 + t * 320.0)
+        })
+        .collect();
+    pass(&mut h.app, &zig, false);
+    // Hard straight Shift pass, from the last pass's end.
+    h.app.eraser_width = 16.0;
+    h.app.eraser_softness = 0.0;
+    h.app.eraser_opacity = 1.0;
+    h.app.eraser_anchor = Some(Pos2::new(470.0, 60.0));
+    pass(
+        &mut h.app,
+        &[Pos2::new(470.0, 60.0), Pos2::new(520.0, 380.0)],
+        true,
+    );
+
+    let mut img = image::RgbaImage::from_pixel(620, 440, image::Rgba([16, 17, 20, 255]));
+    for node in &h.app.doc().scene.nodes {
+        let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+            continue;
+        };
+        let Some(path) = shape.path.as_ref() else {
+            continue;
+        };
+        let contours = board_path::stamped_contours(node, shape, path, 0.25);
+        let mut stamp = vector_ink::stamp_tipped(&contours, 1.0).unwrap();
+        vector_ink::apply_erase(
+            &mut stamp,
+            &board_path::stamped_erase_marks(node, shape, path),
+        );
+        for y in 0..stamp.height {
+            for x in 0..stamp.width {
+                let i = ((y * stamp.width + x) * 4) as usize;
+                let a = stamp.rgba[i + 3] as f32 / 255.0;
+                let wx = stamp.origin[0] + x as f32 + 0.5;
+                let wy = stamp.origin[1] + y as f32 + 0.5;
+                if a <= 0.0 || wx < 0.0 || wy < 0.0 || wx >= 620.0 || wy >= 440.0 {
+                    continue;
+                }
+                let p = img.get_pixel_mut(wx as u32, wy as u32);
+                for c in 0..3 {
+                    p.0[c] =
+                        (stamp.rgba[i + c] as f32 * a + p.0[c] as f32 * (1.0 - a)).round() as u8;
+                }
+            }
+        }
+    }
+    img.save(dir.join("eraser.png")).unwrap();
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        3,
+        "strokes survive spot erasing"
     );
 }

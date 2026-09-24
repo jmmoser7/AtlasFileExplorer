@@ -117,8 +117,23 @@ pub struct SlateSettings {
     pub board_bg: Option<[u8; 4]>,
     /// Brush stroke width in world units (`[`/`]` step it).
     pub brush_width: f32,
+    /// Brush edge falloff, 0 = hard, 1 = softest (`Shift+[` / `Shift+]`).
+    pub brush_softness: f32,
+    /// Brush paint opacity, 0.1..=1. Shift+click steps it.
+    pub brush_opacity: f32,
     /// Eraser pick-circle width in world units.
     pub eraser_width: f32,
+    /// Eraser edge falloff on painted strokes, 0 = hard.
+    pub eraser_softness: f32,
+    /// Eraser strength on painted strokes, 0.1..=1.
+    pub eraser_opacity: f32,
+    /// The (provider, model) last chosen for image agents and text agents.
+    /// New frames and editors start from it until another is chosen.
+    pub agent_image_model: Option<(String, String)>,
+    pub agent_text_model: Option<(String, String)>,
+    /// Preferences → Configure → Tools → Bumper cars. Off until turned on;
+    /// while off, nodes keep their Bumper settings and nothing collides.
+    pub optional_bumper_cars: bool,
 }
 
 impl Default for SlateSettings {
@@ -134,7 +149,14 @@ impl Default for SlateSettings {
             board_fg: None,
             board_bg: None,
             brush_width: BRUSH_WIDTH_DEFAULT,
+            brush_softness: 0.0,
+            brush_opacity: 1.0,
             eraser_width: ERASER_WIDTH_DEFAULT,
+            eraser_softness: 0.0,
+            eraser_opacity: 1.0,
+            agent_image_model: None,
+            agent_text_model: None,
+            optional_bumper_cars: false,
         }
     }
 }
@@ -187,7 +209,23 @@ impl SlateSettings {
             self.eraser_width = ERASER_WIDTH_DEFAULT;
         }
         self.brush_width = self.brush_width.clamp(STROKE_WIDTH_MIN, STROKE_WIDTH_MAX);
+        if !self.brush_softness.is_finite() {
+            self.brush_softness = 0.0;
+        }
+        self.brush_softness = self.brush_softness.clamp(0.0, 1.0);
+        if !self.brush_opacity.is_finite() {
+            self.brush_opacity = 1.0;
+        }
+        self.brush_opacity = self.brush_opacity.clamp(0.1, 1.0);
         self.eraser_width = self.eraser_width.clamp(STROKE_WIDTH_MIN, STROKE_WIDTH_MAX);
+        if !self.eraser_softness.is_finite() {
+            self.eraser_softness = 0.0;
+        }
+        self.eraser_softness = self.eraser_softness.clamp(0.0, 1.0);
+        if !self.eraser_opacity.is_finite() {
+            self.eraser_opacity = 1.0;
+        }
+        self.eraser_opacity = self.eraser_opacity.clamp(0.1, 1.0);
         self
     }
 }

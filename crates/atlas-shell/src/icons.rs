@@ -18,7 +18,7 @@ macro_rules! catalog {
         }
     };
 }
-catalog! { Media, Image, Model, Video, Pages, Select, DirectSelect, Pan, Frame, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, WebPortal, Tags, Filters, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, Brush, Eraser, Eyedropper, Sticky, Colors, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners, ChatBundle, ChatUnbundle, ChatTrain, ChatWindow, ProviderCursor, ProviderCodex, ProviderOllama }
+catalog! { Media, Image, Model, Video, TextDoc, Pages, Select, DirectSelect, Pan, Frame, Deck, FrameLetter, FrameTabloid, FrameWide, FrameCustom, Rect, Ellipse, Line, Arc, Polyline, Bezier, Pen, Text, Ruler, Trim, Join, Split, Portals, Agent, WebPortal, Tags, Filters, Grid, Snap, AtlasLens, Fit, Shapes, Actions, ObjectProperties, DocumentSettings, Selection, Display, Mode, Workflow, Ai, ChevronRight, ChevronLeft, Align, Brush, Eraser, Eyedropper, Sticky, Colors, View, Lens, SnapGrid, SnapEnd, SnapMid, SnapCenter, SnapNear, SnapInt, SnapQuad, SnapPerp, SnapTan, Swap, Reset, Dark, Ghost, Hide, ModeEdit, Fill, Corners, Crop, Bumper, ChatBundle, ChatUnbundle, ChatTrain, ChatWindow, ChatPairs, Stop, Clock, ProviderCursor, ProviderCodex, ProviderOllama }
 
 #[derive(serde::Deserialize)]
 struct Definition {
@@ -30,9 +30,10 @@ struct Definition {
     stroke_width: Option<f32>,
 }
 
-/// Letter 8.5×11, Tabloid 11×17, 16:9, Custom 1:1. Width / height.
+/// Letter 8.5×11 portrait, Tabloid 17×11 landscape, 16:9, Custom 1:1.
+/// Width / height.
 const FRAME_LETTER_ASPECT: f64 = 8.5 / 11.0;
-const FRAME_TABLOID_ASPECT: f64 = 11.0 / 17.0;
+const FRAME_TABLOID_ASPECT: f64 = 17.0 / 11.0;
 const FRAME_WIDE_ASPECT: f64 = 16.0 / 9.0;
 const FRAME_CUSTOM_ASPECT: f64 = 1.0;
 

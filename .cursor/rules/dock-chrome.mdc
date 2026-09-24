@@ -18,10 +18,12 @@ Apps only supply `DockItem` lists and panel bodies.
   egui `on_hover_text` for dock icons — it is inconsistent and draws below.
 - **Dashboard description**: fade in over `describe_fade_duration` after
   `dashboard_describe_delay` — no hard show/hide layout jumps.
-- **Tool / Dashboard body preview**: opens **on-icon** while hovering (not in
-  the centered stack). Ease-in via `panel_open_duration` + `ease_out_cubic`.
-  Previews survive the pointer's travel into the panel; they retire after
-  `close_delay` once abandoned, never mid-flight.
+- **Tool / Dashboard body preview**: a single click opens the body in the
+  centered stack, in the same slot a double click would pin. Ease-in via
+  `panel_open_duration` + `ease_out_cubic`. The corridor from the icon to
+  that slot counts as inside, and `close_delay` after leaving it is long
+  enough for a normal pointer move. Previews retire once that grace ends,
+  never mid-flight.
 - **Pinned panels only** join the centered stack layout.
 
 ## Persistence

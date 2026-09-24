@@ -31,7 +31,7 @@ hidden on home. Opening is the shelf; **New** starts a blank workbook.
 | Board | `board.rs` | Authored open-world canvas: frames, shapes, text, placed images, gestures (draw tools live in the shared bottom dock). A **dropped toolbar** is a journaled `DockStrip` node (`board_dock_embed.rs`, `P1.dock-strip`): the same `atlas-shell::dock` fieldset strip as the docked flyout (unlabeled capsules, contain-scaled — no second painter); click an icon to arm, click-hold-drag anywhere on the node to move it; selection chrome follows the painted card fillet. Armed create-tool chrome (tinted pointer + 22 px ghost) lives in `board_place.rs`. **Trim** (`board_trim.rs`, Ctrl+T) picks cutters then clicks the dying piece — open paths rewrite spans, closed shapes become compound even-odd paths, text/images store `Node.clip`. **Split** (same session, Ctrl+Shift+T) keeps every piece as its own Path. **Join** (`board_join.rs`, Ctrl+J) merges open paths at nearest ends, or boolean-unions connected closed regions (open operands become stroke-weight ribbons; disjoint operands stay put). Object snaps (`board_osnap.rs`, syntax in `slate-doc::osnap`) live in Document Settings as session aids. Wire routing (`slate-doc::wire`, Bezier / Square) is authored per connector from the object-local property palette, alongside weight, dash and arrows; `None` preserves the legacy session fallback. Wire ports follow object features (`P1.wire.ports`), not the world AABB. Wires paint under host nodes. A Grasshopper-style align widget (`board_align.rs`) appears around a 2+ selection. Canvas objects follow **P0.9** (scale with zoom). Agent portals have no identity tab; an unbound portal embeds `atlas-shell::home::cover_flow_home` (`HomeModel.interactive` only in contents-focus) and journals the chosen folder on `PortalNode.source`. Bound posters split Cursor IDE status from file-link sidecar status. |
 | Presentation | `present.rs` | Fullscreen slide playback of the board's frames |
 | Image filters | `imagefx.rs` | CSS-filter math on pixels (board preview parity with the HTML artifact) |
-| 3D viewports | `model3d.rs` | Rhino `.3dm` viewport lifecycle: off-thread mesh parse (`crates/rhino-mesh`), offscreen glow render, lock/unlock + poster cache |
+| 3D viewports | `model3d.rs` | One viewport for every placed 3D file. Readers live in `crates/model-preview` (Rhino via `rhino-mesh`, plus OBJ, STL, glTF). Offscreen glow render, lock/unlock, poster cache |
 | Previews | `preview.rs` | Lazy full-resolution texture tier above the thumbnails (see below) |
 | Settings | `settings.rs` | Persisted UI settings (`slate-settings.json` next to the index DB) |
 | Bottom readouts | `ui/readouts.rs` | Item/tag counts, link health, zoom |
@@ -126,7 +126,7 @@ Other board rules:
 - **Object snaps** are a session preference (`ObjectSnapSet` in
   `slate-settings.json`), not a journaled document property. Syntax and
   apply/reject live in `slate-doc::osnap`; the picker is `board_osnap.rs`.
-  Document Settings → Object snaps holds the board kinds plus Snap to
+  Home menu → Preferences holds the board kinds plus grid and Snap to
   grid. 3D / NURBS snaps are not listed there — they belong on a Rhino
   view portal (`P1.portal.local-ui`).
 - **Click-to-place.** Armed area tools (rect, ellipse, frame, portals)
@@ -167,26 +167,27 @@ what a file *is*:
 | Kind | Board | Artifact |
 |------|-------|----------|
 | Image | thumbnail texture (crop/filters) | `<img>` (crop/filters as CSS) |
-| Video (web-safe: mp4/webm/ogv/m4v) | poster thumbnail + ▶ badge | `<video>` with `VideoOpts` attrs; trim → `#t=start,end` fragment + runtime guard |
-| Video (mov/avi/mkv…) | poster + ▶ + ext badge | thumbnail card linking to the copied original |
-| 3D model (`.3dm`) | interactive viewport (unlocked) or frozen-camera poster (locked) | poster card from `ExportOptions::model_posters` (per node — the saved perspective) + link |
+| Video | Hover across the node scrubs the trim window without playing; click plays from that frame. Media Foundation opens mp4, m4v, mov, wmv, avi, mpg, mpeg, and webm/mkv/ogv when the OS codec is installed. Anything it cannot open, including a cloud placeholder, stays a poster with a ▶ badge | Web-safe (mp4/webm/ogv/m4v) → `<video>` with `VideoOpts` and `#t=` trim; every other type → thumbnail card + link |
+| 3D model | interactive viewport when a reader can build a mesh; otherwise the same card naming the gap. Enscape standalones open on double-click | poster card from `ExportOptions::model_posters` (per node — the saved perspective) + link |
 | Text (txt/md/csv/code…) | snippet card (`snippets` cache) | `.textcard` — same excerpt (`slate_artifact::read_snippet`), linked original |
 | PDF / Doc | shell thumbnail + ext badge | thumbnail-backed card (poster from `ExportOptions::thumbs`, supplied by `export_thumb_map` from the shared cache) + link |
 | Workbook (`.slate`) | **never an item** | n/a |
 
-Video playback happens in the artifact, not on the board (egui has no
-decoder); the ▶ badge is the honest marker of that divergence. Spatial video
+Video playback happens in the artifact for web-safe files, and on the board
+for anything Windows Media Foundation can open. Hovering across the node
+pans through the trim window without pressing play; a click plays from that
+frame. The ▶ badge is the resting poster. Spatial video
 cropping reuses the image `Crop`; time cropping is `VideoOpts { start, end }`
 edited in the inspector's Video section.
 
 ### 3D model viewports (`model3d.rs`)
 
-Placed `.3dm` files are **viewport nodes**: the node's `ModelCamera`
+Placed 3D files are **viewport nodes**: the node's `ModelCamera`
 (document state on `ImageNode`, like `VideoOpts`) selects the view. Locked
 nodes paint a disk-cached poster rendered from that pose — no mesh in
-memory. Unlocking (padlock on hover) parses the file's cached render meshes
-off-thread (`crates/rhino-mesh`), uploads to the GPU, and renders offscreen
-(glow MSAA framebuffer → egui texture) with Rhino-style controls. Live
+memory. Unlocking (padlock on hover) parses the file off-thread
+(`crates/model-preview`), uploads to the GPU, and renders offscreen
+(glow MSAA framebuffer → egui texture) with orbit, pan, and zoom. Live
 viewports are capped (`MAX_LIVE`) and auto-lock after 30 s idle; locking
 re-renders the poster at presentation quality and journals the camera as
 one undo step. Duplicating a model node duplicates the *pose*, so one model
@@ -228,8 +229,49 @@ a length label, and accumulate completed measurements for the live session
 - **Length / area / volume:** sub-object select, then `Length` / `Area` /
   `Volume`.
 
-The `.3dm` reader currently exposes **render meshes only** (`rhino-mesh`), so
-point-to-point works now; curve/surface/volume modes need brep/NURBS metadata.
+The Rhino reader exposes **render meshes only** (`rhino-mesh`, called from
+`model-preview`), so point-to-point works on those meshes; curve, surface,
+and volume modes need brep/NURBS metadata. Other formats contribute the
+same triangle preview. Which extensions decode, which stay a gap card, and
+how a future file format joins are recorded in `docs/model-preview.md`.
+
+### Generator flow (`board_flow.rs`)
+
+Image and text agents make media: an ordinary picture (`ImageNode::agent`)
+or an ordinary sticky (`TextNode::agent`), each with typed input ports.
+`slate_doc::agent_chat::agent` / `agent_mut` are the one lookup for an
+agent binding on any node, and chat cards stay `PortalKind::Agent` portals.
+The port table lives in `slate_doc::agent_inputs` and `WireHost::ports` reads
+it, so `board_wire.rs` hit-tests and snaps them like any other grip.
+`board_flow.rs` paints the ports and owns `MODALITIES` (the wire-drop menu and
+the editor's mode switch), the `portal.agent.spawn` command, the note's
+docked prompt and reply (`paint_agent_note`) and the Agent squircle editor.
+`board_agent.rs` owns the picture overlay (`paint_agent_picture`), picks
+(`pick_agent_result`) and the shown result (`agent_shown_index`, which reads
+`agent_inputs::newest_image`). The board image painter paints the shown
+result through the same textured outline and filters as a placed file.
+Saved generator and text-block portals open as these media
+(`Scene::migrate_agent_cards`). The contract is `portal-agent-link` (Flow
+ports, 23 September; Media is the interface, 24 September 2026).
+
+Media is the front door (24 September 2026). `board_properties` shows the
+Agent squircle when `SlateApp::is_agent_media` holds, and paints
+`selection_tools::agent_editor` through `agent_editor_body` in `board_flow`.
+Submit dispatches the same `portal.agent.spawn` with a prompt and
+`ImageSettings`, and the spawned frame runs at once. Engines are chosen per
+frame by provider: `comfy`, `codex-image` (ChatGPT sign-in) or `openai-image`.
+
+### Agent outputs (`board_agent_outputs.rs`)
+
+A child module of `board_agent.rs`. A chat card's right output circle opens
+the shared capsule stack (`atlas_shell::selection_tools::capsule`), listing
+the card's requested files, then "Also changed". The link worker in
+`atlas_ai::agent::AgentLink` consumes `return.json` and loads deliverables
+and versions; the module only reads that snapshot and splits it with
+`atlas_ai::outputs::partition`. Single, group and evolution spawns build nodes
+with `build_artifact_node`, one frame by the pure `group_layout`, Slate Link
+wires with `build_connector_with`, and one `provenance_wire`, all in one
+`add_nodes` call. Spec: `docs/agent-link-contract.md` ("Spawning artifacts").
 
 ### Web portals (`board_web.rs`, `board_web_win.rs`)
 
@@ -279,7 +321,12 @@ egui still decides what reaches the page and Esc can peel focus off it.
 
 The page has no channel back into Slate — web messages and host objects are
 disabled — which is what makes Art. VII.4 structural rather than a promise.
-The contract is `docs/keymap/contracts/portal-web-embed.md`.
+The user-data folder is `%LOCALAPPDATA%\NativeFileAtlas\webview2`, never
+beside the workbook. Each remote origin gets its own WebView2 profile
+(`slate_doc::scene::web_profile_name`); local files share `local`. Sign-in
+therefore belongs to this Windows user and this site. Export skips any
+locator `atlas_core::secrets::is_machine_private` would flag. The contract
+is `docs/keymap/contracts/portal-web-embed.md`.
 
 Host contents-focus and shared host mechanism:
 `docs/keymap/contracts/PATTERNS.md` **P1.portal.contents-focus** and
@@ -392,3 +439,7 @@ item rather than collapsing distinct selected pages of the same source.
 ### Shape selection editing
 
 `board_properties` adapts selected scene capabilities into the shared `atlas-shell::selection_tools` chrome. It caches measurements by scene generation/selection, renders transient node copies for previews, and dispatches `board.shape.edit` / `board.shape.dimension` once on acceptance. A single paged image also adds Pages, which paints the album on the document instead of `editor_rect`. `slate-doc::scene` owns style accessors, photo-filter recipes (`PhotoFilter` → `ImageAdjust`), and absolute/percentage corner resolution; board and HTML interpreters use that same resolver. Dimension changes reuse `board_snap` transform arithmetic. `atlas-shell::desktop_color` owns the worker-thread Windows capture and native input overlay for every Slate eyedropper; `board_color` retains requesting-tab/property identity and updates tool state or journaled scene state.
+
+### Bumper cars (optional tool)
+
+`Node.bumper` is authored and edited through the Bumper squircle like any other property. `slate_doc::geom` owns a node's world outline (pick, trim, and bumpers all call it). `slate_doc::bumper` turns a node into a solid, ring, or wall body and solves the drag and the release glide; `vector_ink::collide` owns contact between two bodies. `board_bumper.rs` only feeds the move drag in, writes pushed rects live during the gesture, replays the glide, and journals every body's resting place with the drag as one group. Any command, press, key, or tab change ends the replay at that resting place first. The preference is local (`SlateSettings.optional_bumper_cars`); with it off nothing collides and the squircle is hidden.

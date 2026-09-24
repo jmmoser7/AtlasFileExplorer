@@ -9,8 +9,10 @@
 //! opacity, and many pages at once — none of which an airspace child window
 //! could give.
 //!
-//! Everything here is derived state. Nothing in this file touches the journal,
-//! and the page has no channel back into Slate (Art. VII.4).
+//! Everything here is derived state. Nothing in this file touches the journal.
+//! The page still cannot post messages or host objects into Slate (Art. VII.4).
+//! The one exception is a user export: a download named `slate-canvas-*.png`
+//! is saved and handed back so the board can place it under the portal.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -49,11 +51,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::UI::Composition::{Compositor, ContainerVisual};
 use windows_numerics::Vector2;
 
+use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     CreateCoreWebView2EnvironmentWithOptions, GetAvailableCoreWebView2BrowserVersionString,
     ICoreWebView2, ICoreWebView2CompositionController, ICoreWebView2Controller,
-    ICoreWebView2Controller2, ICoreWebView2Controller3, ICoreWebView2Environment,
-    ICoreWebView2Environment3, ICoreWebView2ExecuteScriptCompletedHandler, ICoreWebView2_4,
+    ICoreWebView2Controller2, ICoreWebView2Controller3, ICoreWebView2ControllerOptions,
+    ICoreWebView2Environment, ICoreWebView2Environment10, ICoreWebView2Environment3,
+    ICoreWebView2ExecuteScriptCompletedHandler, ICoreWebView2_4,
     COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS, COREWEBVIEW2_COLOR, COREWEBVIEW2_MOUSE_EVENT_KIND,
     COREWEBVIEW2_MOUSE_EVENT_KIND_HORIZONTAL_WHEEL, COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE,
     COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN, COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP,
@@ -69,14 +73,69 @@ use webview2_com::{
     AcceleratorKeyPressedEventHandler, CallDevToolsProtocolMethodCompletedHandler,
     CreateCoreWebView2CompositionControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler,
-    NavigationCompletedEventHandler, NewWindowRequestedEventHandler,
+    ExecuteScriptCompletedHandler, NavigationCompletedEventHandler, NewWindowRequestedEventHandler,
+    StateChangedEventHandler,
 };
 
 use super::board_web::{WebHost, WebInput, WebRequest};
 
+/// A download the board should place under the portal. Every other download
+/// stays cancelled. The saved name is ours, so a repeated export never
+/// overwrites the previous picture.
+fn canvas_export_file(suggested: &str) -> Option<std::path::PathBuf> {
+    let name = std::path::Path::new(suggested)
+        .file_name()?
+        .to_string_lossy();
+    if !(name.starts_with("slate-canvas-")
+        && name.to_ascii_lowercase().ends_with(".png")
+        && !name.contains(".."))
+    {
+        return None;
+    }
+    let dir = atlas_core::index::data_dir().join("canvas-exports");
+    std::fs::create_dir_all(&dir).ok()?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let mut path = dir.join(format!("slate-canvas-{stamp}.png"));
+    let mut n = 0u32;
+    while path.exists() {
+        n += 1;
+        path = dir.join(format!("slate-canvas-{stamp}-{n}.png"));
+        if n > 1000 {
+            return None;
+        }
+    }
+    Some(path)
+}
+
+fn take_pwstr(p: windows::core::PWSTR) -> Option<String> {
+    if p.is_null() {
+        return None;
+    }
+    let text = unsafe { p.to_string() }.ok();
+    unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(p.0 as *const _)) };
+    text
+}
+
 /// Wide, NUL-terminated, kept alive for the duration of the call.
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// A per-origin cookie jar inside the shared user-data folder. `None` when
+/// this runtime cannot partition profiles; the caller then uses the single
+/// default profile.
+fn profile_options(
+    env: &ICoreWebView2Environment3,
+    profile: &str,
+) -> Option<ICoreWebView2ControllerOptions> {
+    let env10 = env.cast::<ICoreWebView2Environment10>().ok()?;
+    let options = unsafe { env10.CreateCoreWebView2ControllerOptions() }.ok()?;
+    let name = wide(profile);
+    unsafe { options.SetProfileName(PCWSTR(name.as_ptr())) }.ok()?;
+    Some(options)
 }
 
 /// Composition-controller mouse coordinates use its raw-pixel bounds.
@@ -133,6 +192,8 @@ struct Pending {
     attached: bool,
     cancelled: bool,
     document_generation: u64,
+    /// Latest dashboard wire script. Re-run after each navigation.
+    link_script: String,
 }
 
 struct View {
@@ -148,6 +209,9 @@ struct View {
     scale: f64,
     size: (u32, u32),
     target: String,
+    /// Origin profile requested when this view was created. A different
+    /// authored origin rebuilds the webview so cookies do not cross sites.
+    profile: String,
     /// The most recent readback, kept so a demoted portal still has a poster.
     last: Option<egui::ColorImage>,
     scrollbar_style: Option<(u64, bool, u32, egui::Color32)>,
@@ -171,7 +235,27 @@ pub struct Webview2Host {
     /// Admissions that arrived before the environment finished creating.
     deferred: HashMap<NodeId, WebRequest>,
     escape: Rc<Cell<bool>>,
+    /// Finished `slate-canvas-*.png` exports, drained on the frame that places them.
+    canvas_drops: Rc<RefCell<Vec<(NodeId, std::path::PathBuf)>>>,
+    /// Page text read for an agent run, waiting to be taken.
+    texts: Rc<RefCell<HashMap<NodeId, Result<String, String>>>>,
     wake: egui::Context,
+}
+
+impl Drop for Webview2Host {
+    fn drop(&mut self) {
+        // Fields drop in declaration order, so the D3D device and the
+        // dispatcher queue would otherwise die while capture sessions and
+        // WebView2 controllers are still alive. That deadlock freezes the
+        // desktop compositor on workbook close. Shut the views down first,
+        // while both are still alive.
+        let ids: Vec<NodeId> = self.views.keys().copied().collect();
+        for id in ids {
+            self.evict(id);
+        }
+        self.deferred.clear();
+        self._queue.take();
+    }
 }
 
 impl Webview2Host {
@@ -245,6 +329,8 @@ impl Webview2Host {
             views: HashMap::new(),
             deferred: HashMap::new(),
             escape: Rc::new(Cell::new(false)),
+            canvas_drops: Rc::new(RefCell::new(Vec::new())),
+            texts: Rc::new(RefCell::new(HashMap::new())),
             wake,
         })
     }
@@ -272,7 +358,10 @@ impl Webview2Host {
         child.SetRelativeSizeAdjustment(Vector2 { X: 1.0, Y: 1.0 })?;
         root.Children()?.InsertAtTop(&child)?;
 
-        let shared: Rc<RefCell<Pending>> = Rc::new(RefCell::new(Pending::default()));
+        let shared: Rc<RefCell<Pending>> = Rc::new(RefCell::new(Pending {
+            link_script: req.link_script.clone(),
+            ..Pending::default()
+        }));
         let sink = shared.clone();
         let visual = child.clone();
         let target = req.target.clone();
@@ -283,6 +372,7 @@ impl Webview2Host {
             bottom: h as i32,
         };
         let escape = self.escape.clone();
+        let drops = self.canvas_drops.clone();
         let wake = self.wake.clone();
         let handler = CreateCoreWebView2CompositionControllerCompletedHandler::create(Box::new(
             move |result: windows::core::Result<()>,
@@ -309,13 +399,27 @@ impl Webview2Host {
                     &sink,
                     escape.clone(),
                     wake.clone(),
+                    id,
+                    drops.clone(),
                 ) {
                     sink.borrow_mut().error = Some(format!("WebView2 could not start: {e}"));
                 }
                 Ok(())
             },
         ));
-        unsafe { env.CreateCoreWebView2CompositionController(self.parent, &handler) }?;
+        let profile = slate_doc::scene::web_profile_name(&req.target);
+        if let Some(options) = profile_options(&env, &profile) {
+            let env10 = env.cast::<ICoreWebView2Environment10>()?;
+            unsafe {
+                env10.CreateCoreWebView2CompositionControllerWithOptions(
+                    self.parent,
+                    &options,
+                    &handler,
+                )
+            }?;
+        } else {
+            unsafe { env.CreateCoreWebView2CompositionController(self.parent, &handler) }?;
+        }
 
         self.views.insert(
             id,
@@ -331,6 +435,7 @@ impl Webview2Host {
                 scale,
                 size: (w, h),
                 target: req.target.clone(),
+                profile,
                 last: None,
                 scrollbar_style: None,
                 shared,
@@ -535,9 +640,68 @@ impl Webview2Host {
             webview.CallDevToolsProtocolMethod(PCWSTR(m.as_ptr()), PCWSTR(p.as_ptr()), &handler)
         };
     }
+
+    fn refresh_link_script(&mut self, id: NodeId, script: &str) {
+        let Some(view) = self.views.get(&id) else {
+            return;
+        };
+        let webview = {
+            let pending = view.shared.borrow();
+            if pending.link_script == script {
+                return;
+            }
+            pending.webview.clone()
+        };
+        view.shared.borrow_mut().link_script = script.to_string();
+        if script.is_empty() {
+            return;
+        }
+        if let Some(webview) = webview {
+            let script = wide(script);
+            let _ = unsafe {
+                webview.ExecuteScript(
+                    PCWSTR(script.as_ptr()),
+                    None::<&ICoreWebView2ExecuteScriptCompletedHandler>,
+                )
+            };
+        }
+    }
 }
 
 impl WebHost for Webview2Host {
+    fn request_text(&mut self, id: NodeId) -> bool {
+        let Some(webview) = self
+            .views
+            .get(&id)
+            .and_then(|view| view.shared.borrow().webview.clone())
+        else {
+            return false;
+        };
+        let texts = self.texts.clone();
+        let wake = self.wake.clone();
+        // A fixed, read-only expression: no interpolation, and nothing the
+        // page can call back into.
+        let script = wide("document.body ? document.body.innerText : ''");
+        let handler = ExecuteScriptCompletedHandler::create(Box::new(
+            move |result: windows::core::Result<()>, json: String| {
+                let text = result
+                    .map_err(|e| format!("The page could not be read: {}", e.message()))
+                    .and_then(|()| {
+                        serde_json::from_str::<String>(&json)
+                            .map_err(|_| "The page returned no text.".to_string())
+                    });
+                texts.borrow_mut().insert(id, text);
+                wake.request_repaint();
+                Ok(())
+            },
+        ));
+        unsafe { webview.ExecuteScript(PCWSTR(script.as_ptr()), &handler) }.is_ok()
+    }
+
+    fn take_text(&mut self, id: NodeId) -> Option<Result<String, String>> {
+        self.texts.borrow_mut().remove(&id)
+    }
+
     fn set_scrollbars(&mut self, id: NodeId, visible: bool, width_css: f32, color: egui::Color32) {
         let Some(view) = self.views.get_mut(&id) else {
             return;
@@ -552,8 +716,9 @@ impl WebHost for Webview2Host {
             return;
         }
         let css = atlas_shell::tabs::web_scrollbar_style(width as f32 / 100.0, color, visible);
-        // Fixed host chrome only; no URL interpolation, DOM extraction, or
-        // message bridge. Reinstall after navigation replaces the document.
+        // Fixed host chrome only; no URL interpolation or message bridge. The
+        // one DOM read is `request_text`, started by the human (D15 / D27).
+        // Reinstall after navigation replaces the document.
         let script = format!("(()=>{{let s=document.getElementById('slate-web-scrollbar-chrome');if(!s){{s=document.createElement('style');s.id='slate-web-scrollbar-chrome';(document.head||document.documentElement).appendChild(s);}}s.textContent={};}})()", serde_json::to_string(&css).unwrap());
         let script = wide(&script);
         if unsafe {
@@ -571,6 +736,16 @@ impl WebHost for Webview2Host {
     fn take_escape(&mut self) -> bool {
         self.escape.replace(false)
     }
+    fn release_keyboard(&self) {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
+        let focused = unsafe { GetFocus() };
+        if !focused.is_invalid() && focused != self.parent {
+            let _ = unsafe { SetFocus(Some(self.parent)) };
+        }
+    }
+    fn take_canvas_drops(&mut self) -> Vec<(NodeId, std::path::PathBuf)> {
+        std::mem::take(&mut *self.canvas_drops.borrow_mut())
+    }
     fn available(&self) -> bool {
         !*self.env_failed.borrow()
     }
@@ -586,9 +761,20 @@ impl WebHost for Webview2Host {
                 let _ = self.create_view(pending_id, &pending);
             }
         }
+        let profile = slate_doc::scene::web_profile_name(&req.target);
+        if self
+            .views
+            .get(&id)
+            .is_some_and(|view| view.profile != profile)
+        {
+            // Rebind to another origin. In-page hops stay in the profile of
+            // the authored locator; only a new locator changes the jar.
+            self.evict(id);
+        }
         if self.views.contains_key(&id) {
             // In-page navigation and camera zoom must not rebuild the webview.
             self.resize(id, req);
+            self.refresh_link_script(id, &req.link_script);
         } else {
             let _ = self.create_view(id, req);
         }
@@ -810,6 +996,8 @@ fn attach(
     sink: &Rc<RefCell<Pending>>,
     escape: Rc<Cell<bool>>,
     wake: egui::Context,
+    portal: NodeId,
+    drops: Rc<RefCell<Vec<(NodeId, std::path::PathBuf)>>>,
 ) -> windows::core::Result<()> {
     unsafe { comp.SetRootVisualTarget(visual) }?;
     let controller: ICoreWebView2Controller = comp.cast()?;
@@ -835,6 +1023,7 @@ fn attach(
         controller.SetBounds(bounds)?;
         controller.SetIsVisible(true)?;
     }
+    let export_wake = wake.clone();
     let accelerator = AcceleratorKeyPressedEventHandler::create(Box::new(move |sender, args| {
         if let Some(args) = args {
             let mut key = 0;
@@ -901,12 +1090,16 @@ fn attach(
         let Some(errors) = errors.upgrade() else {
             return Ok(());
         };
+        let mut succeeded = false;
+        let mut link_script = String::new();
         if let Some(args) = args {
             let mut ok = windows::core::BOOL(0);
             let _ = unsafe { args.IsSuccess(&mut ok) };
+            succeeded = ok.as_bool();
             let mut pending = errors.borrow_mut();
             pending.document_generation = pending.document_generation.wrapping_add(1);
-            pending.error = if ok.as_bool() {
+            link_script = pending.link_script.clone();
+            pending.error = if succeeded {
                 None
             } else {
                 let mut status = Default::default();
@@ -922,6 +1115,15 @@ fn attach(
                 let text = unsafe { source.to_string() }.ok();
                 unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(source.0 as *const _)) };
                 errors.borrow_mut().url = text;
+            }
+            if succeeded && !link_script.is_empty() {
+                let script = wide(&link_script);
+                let _ = unsafe {
+                    sender.ExecuteScript(
+                        PCWSTR(script.as_ptr()),
+                        None::<&ICoreWebView2ExecuteScriptCompletedHandler>,
+                    )
+                };
             }
         }
         Ok(())
@@ -954,9 +1156,49 @@ fn attach(
     let _ = unsafe { webview.add_NewWindowRequested(&popup, &mut popup_token) };
     if let Ok(wv4) = webview.cast::<ICoreWebView2_4>() {
         let download = DownloadStartingEventHandler::create(Box::new(move |_sender, args| {
-            if let Some(args) = args {
+            let Some(args) = args else {
+                return Ok(());
+            };
+            let mut suggested = windows::core::PWSTR::null();
+            let name = if unsafe { args.ResultFilePath(&mut suggested) }.is_ok() {
+                take_pwstr(suggested)
+            } else {
+                None
+            };
+            let canvas = name.as_deref().and_then(canvas_export_file);
+            let Some(dest) = canvas else {
+                // Ordinary downloads stay out of the board (D15).
                 let _ = unsafe { args.SetCancel(true) };
                 let _ = unsafe { args.SetHandled(true) };
+                return Ok(());
+            };
+            let wide_dest = wide(&dest.to_string_lossy());
+            if unsafe { args.SetResultFilePath(PCWSTR(wide_dest.as_ptr())) }.is_err() {
+                let _ = unsafe { args.SetCancel(true) };
+                let _ = unsafe { args.SetHandled(true) };
+                return Ok(());
+            }
+            // No save dialog. The file lands under the portal when it finishes.
+            let _ = unsafe { args.SetHandled(true) };
+            if let Ok(op) = unsafe { args.DownloadOperation() } {
+                let drops = drops.clone();
+                let wake = export_wake.clone();
+                let done = StateChangedEventHandler::create(Box::new(move |sender, _| {
+                    let Some(op) = sender else {
+                        return Ok(());
+                    };
+                    let mut state = Default::default();
+                    if unsafe { op.State(&mut state) }.is_ok()
+                        && state == COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED
+                        && dest.is_file()
+                    {
+                        drops.borrow_mut().push((portal, dest.clone()));
+                        wake.request_repaint();
+                    }
+                    Ok(())
+                }));
+                let mut token = 0i64;
+                let _ = unsafe { op.add_StateChanged(&done, &mut token) };
             }
             Ok(())
         }));
@@ -1252,6 +1494,7 @@ mod tests {
             height_css: 200,
             raster_w: 320,
             raster_h: 200,
+            link_script: String::new(),
         };
         let (frames, red) = run_until(&mut host, id, &req, 45, |img| {
             img.pixels
@@ -1280,6 +1523,7 @@ mod tests {
             height_css: 700,
             raster_w: 1024,
             raster_h: 700,
+            link_script: String::new(),
         };
         // Any page that renders text puts dark pixels on a light background;
         // an unpainted capture is uniformly transparent.
@@ -1308,6 +1552,7 @@ mod tests {
             height_css: 120,
             raster_w: 200,
             raster_h: 120,
+            link_script: String::new(),
         };
         let (frames, _) = run_until(&mut host, id, &req, 30, |_| true);
         assert!(frames > 0);

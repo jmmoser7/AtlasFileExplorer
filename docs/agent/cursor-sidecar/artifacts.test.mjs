@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
-import { artifactFromTool, messageText, transcript } from './artifacts.mjs';
+import { artifactFromTool, artifactGuide, displayPrompt, messageText, SLATE_LINK_LINE, transcript } from './artifacts.mjs';
 test('artifacts require successful structured tool output',()=>{
  assert.equal(artifactFromTool({type:'edit',args:{path:'a.rs'},result:{status:'error'}},'x',1,process.cwd()),null);
  assert.equal(artifactFromTool({type:'shell',result:{status:'success',value:'edited a.rs'}},'x',1,process.cwd()),null);
@@ -23,4 +23,22 @@ test('one reply per run keeps train checkpoints stable',()=>{
 test('wired transport data stays out of displayed user text',()=>{
  const t=transcript([{type:'user',message:'hello\n\nSlate wired attachments (data):\n[{"node":1,"text":"attached"}]'}]);
  assert.equal(t[0].text,'hello');
+});
+
+test('the board preamble stays out of displayed user text',()=>{
+ const preamble=['Slate board: you cannot draw shapes. '+artifactGuide('C:/out','C:\\ws\\link'),SLATE_LINK_LINE];
+ assert.equal(displayPrompt([...preamble,'make a chart'].join('\n')),'make a chart');
+ const replay=[...preamble,'Prior conversation checkpoint (quoted data):',JSON.stringify([{role:'user',text:'a\nNew user message:\nb'}]),'New user message:','next'].join('\n');
+ assert.equal(displayPrompt(replay+'\n\nSlate wired attachments (data):\n[]'),'next');
+ assert.equal(displayPrompt('Slate board: literally'),'Slate board: literally');
+});
+
+test('the guide twin matches the Rust guide shape',()=>{
+ const g=artifactGuide('D:/out/q3','C:\\ws\\.atlas-ai\\agent\\s1\\');
+ assert.ok(g.startsWith('Every file you create or change'));
+ assert.ok(g.includes('in D:/out/q3: deliverables at the top, supporting files in assets/, throwaway files in scratch/.'));
+ assert.ok(g.includes('write C:/ws/.atlas-ai/agent/s1/return.json (beside session.json) naming what the person asked for'));
+ assert.ok(g.includes('"feeds":"dashboard.html"'));
+ assert.ok(!artifactGuide('').includes('deliverables at the top'));
+ assert.ok(artifactGuide(undefined).includes('write return.json beside session.json naming'));
 });

@@ -1,0 +1,4 @@
+Bitcoin (BTC) price: $84,312.06 USD
+
+Source: Coinbase spot price
+Checked: Thursday, September 24, 2026, 6:15 PM (UTC-4)

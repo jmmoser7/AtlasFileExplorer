@@ -53,13 +53,18 @@ pub fn provider_by_id(id: &str) -> AgentProvider {
         "ollama" => ("Ollama", LaunchKind::None),
         "local" => ("Local agent", LaunchKind::None),
         "image-link" => ("Image link", LaunchKind::None),
+        "comfy" => ("ComfyUI", LaunchKind::None),
+        "codex-image" => ("ChatGPT", LaunchKind::None),
+        "openai-image" => ("GPT Image", LaunchKind::None),
+        "codex-text" => ("ChatGPT", LaunchKind::None),
+        "openai-text" => ("OpenAI", LaunchKind::None),
         _ => (id, LaunchKind::None),
     };
     AgentProvider {
         id: id.into(),
         display_name: name.into(),
         launch,
-        view: if id == "image-link" {
+        view: if id == "image-link" || local_image_engine(id) {
             PortalView::Images
         } else {
             PortalView::Chat
@@ -84,6 +89,8 @@ enum LinkWork {
     Context(PathBuf, AgentContext),
     Request(PathBuf, AgentRequest),
     Read(PathBuf),
+    /// Folders `return.json` paths resolve against after the output folder.
+    Roots(Vec<PathBuf>),
 }
 
 /// One worker and shared immutable snapshot per linked source, regardless of how
@@ -92,17 +99,35 @@ enum LinkWork {
 pub struct AgentSources {
     links: std::collections::HashMap<PathBuf, AgentLink>,
     snapshots: std::collections::HashMap<PathBuf, std::sync::Arc<AgentSession>>,
+    outputs: std::collections::HashMap<PathBuf, std::sync::Arc<crate::outputs::LinkOutputs>>,
 }
 impl AgentSources {
     pub fn retain(&mut self, dirs: &std::collections::HashSet<PathBuf>) {
         self.links.retain(|dir, _| dirs.contains(dir));
         self.snapshots.retain(|dir, _| dirs.contains(dir));
+        self.outputs.retain(|dir, _| dirs.contains(dir));
+    }
+    /// The working folder and AI workspace of this link, in that order. The
+    /// worker consumes `return.json` only once it knows them.
+    pub fn set_roots(&mut self, dir: &Path, roots: Vec<PathBuf>) {
+        self.links.entry(dir.into()).or_default().set_roots(roots);
+    }
+    /// Deliverables and versions, as of the last [`Self::poll`].
+    pub fn outputs(&self, dir: &Path) -> Option<std::sync::Arc<crate::outputs::LinkOutputs>> {
+        self.outputs.get(dir).cloned()
     }
     pub fn send(&mut self, dir: &Path, request: &AgentRequest) -> std::io::Result<()> {
         self.links
             .entry(dir.into())
             .or_default()
             .send_request_in(dir, request)
+    }
+    /// A request went out through another channel; read its session promptly.
+    pub fn expect(&mut self, dir: &Path, request: &str) {
+        let link = self.links.entry(dir.into()).or_default();
+        link.streaming = true;
+        link.awaited = Some(request.to_string());
+        link.next_read = None;
     }
     pub fn poll(
         &mut self,
@@ -117,6 +142,10 @@ impl AgentSources {
             self.snapshots
                 .insert(dir.into(), std::sync::Arc::new(session));
         }
+        if let Some(outputs) = link.take_outputs() {
+            self.outputs
+                .insert(dir.into(), std::sync::Arc::new(outputs));
+        }
         self.snapshots.get(dir).cloned()
     }
 }
@@ -128,6 +157,12 @@ pub struct AgentLink {
     next_read: Option<Instant>,
     next_write: Option<Instant>,
     streaming: bool,
+    /// Request whose session has not been read yet. A stale snapshot of the
+    /// previous run must not end fast reads.
+    awaited: Option<String>,
+    outputs: std::sync::Arc<std::sync::Mutex<Option<crate::outputs::LinkOutputs>>>,
+    /// Roots the worker has accepted.
+    roots: Option<Vec<PathBuf>>,
 }
 impl Default for AgentLink {
     fn default() -> Self {
@@ -139,10 +174,22 @@ impl AgentLink {
         let (tx, rx) = crossbeam_channel::bounded(8);
         let latest = std::sync::Arc::new(std::sync::Mutex::new(None));
         let result = latest.clone();
+        let outputs = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let outputs_out = outputs.clone();
         std::thread::spawn(move || {
             let mut link = FileAgentLink::new();
+            // Snapshot files only when completion or the artifact list can have
+            // changed, not on every streamed token.
+            let mut captured: Option<(PathBuf, bool, usize, usize)> = None;
+            let mut roots: Option<Vec<PathBuf>> = None;
+            let mut turns = crate::outputs::skeleton(None);
+            let mut watch = crate::outputs::OutputWatch::default();
             while let Ok(work) = rx.recv() {
                 let update = match work {
+                    LinkWork::Roots(r) => {
+                        roots = Some(r);
+                        None
+                    }
                     LinkWork::Context(dir, ctx) => {
                         link.tick_write_context_in(&dir, &ctx);
                         None
@@ -164,7 +211,37 @@ impl AgentLink {
                                 bundle: Default::default(),
                             })
                     }
-                    LinkWork::Read(path) => link.tick_read_session_file(&path),
+                    LinkWork::Read(path) => {
+                        let session = link.tick_read_session_file(&path);
+                        let mut copied = false;
+                        if let (Some(s), Some(dir)) = (&session, path.parent()) {
+                            let key = (
+                                dir.to_path_buf(),
+                                s.status == AgentStatus::Thinking,
+                                s.turns.len(),
+                                s.artifacts.len(),
+                            );
+                            if captured.as_ref() != Some(&key) {
+                                if let Ok(changed) = crate::versions::capture(dir, s) {
+                                    captured = Some(key);
+                                    copied = changed;
+                                }
+                            }
+                            if s.turns.len() != turns.turns.len()
+                                || s.artifacts.len() != turns.artifacts.len()
+                            {
+                                turns = crate::outputs::skeleton(Some(s));
+                            }
+                        }
+                        if let (Some(roots), Some(dir)) = (&roots, path.parent()) {
+                            if let Some(found) = watch.tick(dir, &turns, roots, copied) {
+                                if let Ok(mut value) = outputs_out.lock() {
+                                    *value = Some(found);
+                                }
+                            }
+                        }
+                        session
+                    }
                 };
                 if update.is_some() {
                     if let Ok(mut value) = result.lock() {
@@ -179,7 +256,22 @@ impl AgentLink {
             next_read: None,
             next_write: None,
             streaming: false,
+            awaited: None,
+            outputs,
+            roots: None,
         }
+    }
+    pub fn set_roots(&mut self, roots: Vec<PathBuf>) {
+        if self.roots.as_ref() == Some(&roots) {
+            return;
+        }
+        if self.tx.try_send(LinkWork::Roots(roots.clone())).is_ok() {
+            self.roots = Some(roots);
+        }
+    }
+    /// A new deliverables and versions snapshot, when the worker made one.
+    pub fn take_outputs(&mut self) -> Option<crate::outputs::LinkOutputs> {
+        self.outputs.try_lock().ok()?.take()
     }
     pub fn tick_write_context(&mut self, ws: &Path, id: &str, ctx: &AgentContext) -> bool {
         self.tick_write_context_in(&agent_dir(ws, id), ctx)
@@ -201,6 +293,7 @@ impl AgentLink {
     }
     pub fn send_request_in(&mut self, dir: &Path, req: &AgentRequest) -> std::io::Result<()> {
         self.streaming = true;
+        self.awaited = Some(req.id.clone());
         self.next_read = None;
         self.tx
             .try_send(LinkWork::Request(dir.into(), req.clone()))
@@ -226,7 +319,13 @@ impl AgentLink {
         }
         let update = self.latest.try_lock().ok()?.take();
         if let Some(session) = &update {
-            self.streaming = matches!(session.status, AgentStatus::Thinking);
+            if self.awaited.as_deref() == Some(session.request.as_str())
+                && session.status != AgentStatus::Thinking
+            {
+                self.awaited = None;
+            }
+            self.streaming =
+                matches!(session.status, AgentStatus::Thinking) || self.awaited.is_some();
         }
         update
     }
@@ -347,6 +446,106 @@ pub fn agent_dir(ai_workspace: &Path, session: &str) -> PathBuf {
     ai_workspace.join(LINK_DIR).join("agent").join(session)
 }
 
+/// The folder a conversation's new files go to. The first call records it in
+/// `<link_dir>/output.json`, so renaming the board or conversation later never
+/// moves outputs. `base` is the conversation's working folder (its project, or
+/// the AI workspace); `board` is the workbook file stem. Creates only the top
+/// folder. Blocking I/O: call from a worker.
+pub fn output_dir(
+    link_dir: &Path,
+    base: &Path,
+    board: Option<&str>,
+    title: &str,
+    now_secs: u64,
+) -> std::io::Result<PathBuf> {
+    let record = link_dir.join("output.json");
+    if let Some(dir) = recorded_output_dir(link_dir) {
+        std::fs::create_dir_all(&dir)?;
+        return Ok(dir);
+    }
+    let board = board
+        .map(|b| slug(b, ""))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "untitled-board".into());
+    let session = link_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let (y, m, d) = civil_date(now_secs);
+    let dir = base.join("slate-outputs").join(board).join(format!(
+        "{y:04}-{m:02}-{d:02}-{}-{}",
+        slug(title, "conversation"),
+        short_id(&session)
+    ));
+    std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(link_dir)?;
+    atomic_write_json(&record, &OutputRecord { dir: dir.clone() })?;
+    Ok(dir)
+}
+
+#[derive(Serialize, Deserialize)]
+struct OutputRecord {
+    dir: PathBuf,
+}
+
+/// The output folder [`output_dir`] recorded for this link, if any. Blocking I/O.
+pub fn recorded_output_dir(link_dir: &Path) -> Option<PathBuf> {
+    std::fs::read(link_dir.join("output.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<OutputRecord>(&b).ok())
+        .map(|r| r.dir)
+        .filter(|d| d.is_absolute())
+}
+
+/// Lowercase ASCII letters and digits joined by single `-`, at most 40 chars.
+fn slug(text: &str, fallback: &str) -> String {
+    let mut out = String::new();
+    for word in text
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+    {
+        let sep = usize::from(!out.is_empty());
+        if out.len() + sep + word.len() > 40 {
+            if out.is_empty() {
+                out.push_str(&word[..40]);
+            }
+            break;
+        }
+        if sep == 1 {
+            out.push('-');
+        }
+        out.push_str(word);
+    }
+    if out.is_empty() {
+        fallback.into()
+    } else {
+        out.to_ascii_lowercase()
+    }
+}
+
+/// Six hex digits naming the session folder. Slate's folder names share an
+/// `agent-req-<pid>-` prefix, so a leading slice would not tell them apart.
+fn short_id(session: &str) -> String {
+    let hash = session.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!("{:06x}", hash & 0xff_ffff)
+}
+
+/// UTC calendar date (proleptic Gregorian) of a Unix time.
+fn civil_date(secs: u64) -> (i64, u32, u32) {
+    let z = (secs / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    (y, m, d)
+}
+
 pub fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(value)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -419,6 +618,9 @@ mod tests {
             next_read: Some(Instant::now()),
             next_write: None,
             streaming: false,
+            awaited: None,
+            outputs: Default::default(),
+            roots: None,
         };
         let path = Path::new("unused-session.json");
         assert_eq!(
@@ -433,7 +635,7 @@ mod tests {
             conversation: String::new(),
             artifacts: Vec::new(),
             status: AgentStatus::Idle,
-            ..session
+            ..session.clone()
         });
         link.tick_read_session_file(path);
         link.next_read = Some(Instant::now() - Duration::from_millis(150));
@@ -442,6 +644,71 @@ mod tests {
             rx.try_recv().is_err(),
             "idle sources must retain their slower poll cadence"
         );
+
+        // The next run's first read may still see the last run's finished session.
+        link.streaming = true;
+        link.awaited = Some("r2".into());
+        *latest.lock().unwrap() = Some(AgentSession {
+            status: AgentStatus::Idle,
+            ..session.clone()
+        });
+        link.tick_read_session_file(path);
+        link.next_read = Some(Instant::now() - Duration::from_millis(150));
+        link.tick_read_session_file(path);
+        assert!(
+            matches!(rx.try_recv(), Ok(LinkWork::Read(_))),
+            "a stale session keeps fast reads until the awaited request reports"
+        );
+    }
+
+    #[test]
+    fn output_folder_is_named_once_and_recorded() {
+        let ws = temp_workspace("output");
+        let link = ws.join(".atlas-ai/agent/agent-req-1-2-3");
+        // 2026-09-23T19:19:00Z
+        let now = 1_790_191_140;
+        let dir = output_dir(&link, &ws, Some("Q3 Review"), "Chart the café sales!", now).unwrap();
+        let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(dir.parent().unwrap(), ws.join("slate-outputs/q3-review"));
+        assert!(
+            name.starts_with("2026-09-23-chart-the-caf-sales-"),
+            "{name}"
+        );
+        assert_eq!(name.len(), "2026-09-23-chart-the-caf-sales-".len() + 6);
+        assert!(dir.is_dir());
+        assert!(!dir.join("assets").exists());
+        assert!(link.join("output.json").is_file());
+        let renamed = output_dir(&link, &ws, Some("Other"), "Renamed", now + 86_400 * 9).unwrap();
+        assert_eq!(renamed, dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(output_dir(&link, &ws, None, "", now).unwrap(), dir);
+        assert!(dir.is_dir(), "a recorded folder is recreated");
+
+        let other = ws.join(".atlas-ai/agent/agent-req-1-2-4");
+        let fresh = output_dir(&other, &ws, None, "  ", now).unwrap();
+        let fresh_name = fresh.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(
+            fresh.parent().unwrap(),
+            ws.join("slate-outputs/untitled-board")
+        );
+        assert!(fresh_name.starts_with("2026-09-23-conversation-"));
+        assert_ne!(fresh_name, name);
+        let _ = std::fs::remove_dir_all(ws);
+    }
+
+    #[test]
+    fn slugs_and_dates() {
+        assert_eq!(slug("  Hello,  World -- 2 ", "x"), "hello-world-2");
+        assert_eq!(slug("日本", "conversation"), "conversation");
+        let long = slug(&"word ".repeat(20), "x");
+        assert!(long.len() <= 40 && !long.ends_with('-'), "{long}");
+        assert_eq!(slug(&"a".repeat(50), "x").len(), 40);
+        assert_eq!(civil_date(0), (1970, 1, 1));
+        assert_eq!(civil_date(951_782_400), (2000, 2, 29));
+        assert_eq!(civil_date(1_790_191_140), (2026, 9, 23));
+        assert_eq!(civil_date(1_798_761_599), (2026, 12, 31));
+        assert_eq!(short_id("agent-a").len(), 6);
+        assert_ne!(short_id("agent-a"), short_id("agent-b"));
     }
 
     #[test]
@@ -470,6 +737,9 @@ mod tests {
             prompt: "Continue".into(),
             at: 1,
             inputs: Default::default(),
+            image: None,
+            output_dir: None,
+            oneshot: false,
         };
         link.send_request_in(&dir, &request).unwrap();
         let state = AgentSession {
@@ -504,6 +774,9 @@ mod tests {
             id: "r1".into(),
             prompt: "Summarize".into(),
             at: 1,
+            image: None,
+            output_dir: None,
+            oneshot: false,
         };
         link.send_request(&ws, "s1", &req).unwrap();
         let text = std::fs::read_to_string(agent_dir(&ws, "s1").join("request.json")).unwrap();
@@ -541,7 +814,33 @@ mod tests {
 }
 
 /// Friendly display names never change the provider model ID sent on the wire.
+/// The model catalog a provider's portals choose from.
+pub fn model_catalog(provider: &str) -> &str {
+    if provider == "ollama" || provider.starts_with("ollama/") {
+        "ollama"
+    } else if provider == "codex-text" {
+        // ChatGPT text through the sign-in offers the Codex model catalog.
+        "codex"
+    } else {
+        provider
+    }
+}
+
+/// An image engine Slate supervises in process: runs wait their turn on the
+/// portal, 3D and video inputs are captured at run start, and Live reruns on
+/// changes. ChatGPT (through Codex) and the OpenAI API run remotely but are
+/// supervised the same way.
+pub fn local_image_engine(provider: &str) -> bool {
+    matches!(provider, "comfy" | "codex-image" | "openai-image")
+}
+
 pub fn model_label(name: &str) -> &str {
+    // A checkpoint is named by its file; the extension carries no meaning.
+    for ext in [".safetensors", ".ckpt"] {
+        if name.len() > ext.len() && name.to_ascii_lowercase().ends_with(ext) {
+            return &name[..name.len() - ext.len()];
+        }
+    }
     for (suffix, label) in [
         ("astra", "Astra"),
         ("sol", "Sol"),
@@ -565,8 +864,14 @@ mod model_label_tests {
             ("gpt-5.6-terra", "Terra"),
             ("gpt-5.6-luna", "Luna"),
             ("llama3.1:8b", "llama3.1:8b"),
+            ("DreamShaper8_LCM.safetensors", "DreamShaper8_LCM"),
+            ("old.CKPT", "old"),
         ] {
             assert_eq!(super::model_label(id), expected);
         }
+        assert_eq!(super::model_catalog("ollama/qwen3"), "ollama");
+        assert_eq!(super::model_catalog("comfy"), "comfy");
+        assert!(super::local_image_engine("comfy"));
+        assert!(!super::local_image_engine("image-link"));
     }
 }

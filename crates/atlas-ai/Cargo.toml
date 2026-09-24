@@ -8,6 +8,8 @@ description = "AI / Cursor integration shared by File Atlas and Slate: workspace
 atlas-agent.workspace = true
 atlas-codex.workspace = true
 atlas-ollama.workspace = true
+atlas-comfy.workspace = true
+atlas-openai.workspace = true
 atlas-core = { workspace = true }
 atlas-shell = { workspace = true }
 eframe = { workspace = true }
@@ -15,4 +17,5 @@ crossbeam-channel = { workspace = true }
 rfd = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+chrono = { workspace = true }
 rusqlite = { workspace = true }

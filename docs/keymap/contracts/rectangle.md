@@ -18,7 +18,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D02 | Stickiness & repeat | One-shot creation; return to Select. Repeat follows P0.4. | pattern | 85 |
 | D03 | Gesture grammar | P2.DragShape: click places the kit's default rectangle; press-drag-release sizes it. | pattern | 85 |
 | D04 | Click vs drag rule | P2.DragShape: use raw press-to-release travel in screen pixels, independent of snap displacement. | pattern | 85 |
-| D05 | Modifiers | P1.shape.aspect for creation; P1.node.transform for later resize. | pattern | 85 |
+| D05 | Modifiers | P1.shape.aspect for creation. Ctrl during DragScale draws from the press point as center (Shift still squares). Later resize is P1.node.transform, including Alt-at-press scale copies. | stated | 100 |
 | D06 | Constraints & snapping | P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority. | pattern | 85 |
 | D07 | Direction / value locks | Percentage corner intent persists through resize; absolute values retain the authored distance and clamp only their effective value. Mode conversion is per host and preserves the visible amount. | guess | 55 |
 | D08 | Numeric / manual entry | Local width and height stringers aligned with the rectangle axes; clicking a value edits its dimension about the centroid. No dimensions in the toolbar. | stated | 100 |

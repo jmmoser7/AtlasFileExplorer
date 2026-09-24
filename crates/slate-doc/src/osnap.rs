@@ -826,6 +826,7 @@ mod tests {
             hidden: false,
             group: None,
             clip: None,
+            bumper: None,
             kind: NodeKind::Shape(ShapeNode {
                 shape: kind,
                 fill: None,
@@ -833,6 +834,7 @@ mod tests {
                 corner: Corner::Square,
                 flip: false,
                 path: None,
+                text: None,
             }),
         }
     }

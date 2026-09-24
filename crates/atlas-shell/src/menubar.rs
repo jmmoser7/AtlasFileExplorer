@@ -33,6 +33,9 @@ pub struct MenuItem {
     pub checked: Option<bool>,
     pub separator_before: bool,
     pub icon: MenuIcon,
+    /// A non-empty list makes this row open a further flyout instead of
+    /// reporting a click.
+    pub children: Vec<MenuItem>,
 }
 
 impl MenuItem {
@@ -45,7 +48,13 @@ impl MenuItem {
             checked: None,
             separator_before: false,
             icon: MenuIcon::None,
+            children: Vec::new(),
         }
+    }
+
+    pub fn children(mut self, items: Vec<MenuItem>) -> Self {
+        self.children = items;
+        self
     }
 
     pub fn icon(mut self, icon: MenuIcon) -> Self {
@@ -169,13 +178,16 @@ struct PortalMenuState {
     open: bool,
     pinned: bool,
     active_menu: Option<usize>,
+    /// The open row at each nested flyout level below the active menu.
+    active_path: Vec<usize>,
     last_inside_time: f64,
 }
 
 struct PortalMenuResponse {
     clicked: Option<&'static str>,
     main_rect: Rect,
-    submenu_rect: Rect,
+    /// Every open flyout, outermost first.
+    submenu_rects: Vec<Rect>,
 }
 
 fn paint_bar_background(painter: &egui::Painter, rect: Rect, colors: TabChromeColors) {
@@ -240,11 +252,15 @@ fn show_portal_menu(
                         active_row_rect = response.rect;
                     }
                     if response.hovered() {
-                        state.active_menu = if spec.items.is_empty() {
+                        let next = if spec.items.is_empty() {
                             None
                         } else {
                             Some(index)
                         };
+                        if next != state.active_menu {
+                            state.active_path.clear();
+                        }
+                        state.active_menu = next;
                         active_row_rect = response.rect;
                     }
                 }
@@ -252,32 +268,29 @@ fn show_portal_menu(
         });
 
     let mut clicked = None;
-    let mut submenu_rect = Rect::NOTHING;
+    let mut submenu_rects = Vec::new();
     if let Some(index) = state.active_menu {
         if let Some(spec) = model.menus.get(index) {
             if !spec.items.is_empty() && active_row_rect.is_positive() {
-                let submenu =
-                    egui::Area::new(egui::Id::new(("portal_submenu", model.app_title, index)))
-                        .order(egui::Order::Foreground)
-                        .fixed_pos(Pos2::new(
-                            main.response.rect.right() + portal.submenu_gap,
-                            active_row_rect.top() - pad,
-                        ))
-                        .show(ctx, |ui| {
-                            ui.set_width(portal.submenu_width);
-                            menu::frame(dark).show(ui, |ui| {
-                                ui.set_width((portal.submenu_width - pad * 2.0).max(1.0));
-                                for item in &spec.items {
-                                    if item.separator_before {
-                                        menu::separator(ui, dark);
-                                    }
-                                    if portal_item_row(ui, item, dark).clicked() {
-                                        clicked = Some(item.id);
-                                    }
-                                }
-                            });
-                        });
-                submenu_rect = submenu.response.rect;
+                let mut flyout = Flyout {
+                    ctx,
+                    dark,
+                    width: portal.submenu_width,
+                    gap: portal.submenu_gap,
+                    pad,
+                    state,
+                    clicked: &mut clicked,
+                    rects: &mut submenu_rects,
+                };
+                flyout.show(
+                    egui::Id::new(("portal_submenu", model.app_title, index)),
+                    Pos2::new(
+                        main.response.rect.right() + portal.submenu_gap,
+                        active_row_rect.top() - pad,
+                    ),
+                    &spec.items,
+                    0,
+                );
             }
         }
     }
@@ -285,7 +298,70 @@ fn show_portal_menu(
     PortalMenuResponse {
         clicked,
         main_rect: main.response.rect,
-        submenu_rect,
+        submenu_rects,
+    }
+}
+
+/// One flyout level of the icon-portal menu. A row with children opens the
+/// next level beside it, drawn by this same method.
+struct Flyout<'a> {
+    ctx: &'a egui::Context,
+    dark: bool,
+    width: f32,
+    gap: f32,
+    pad: f32,
+    state: &'a mut PortalMenuState,
+    clicked: &'a mut Option<&'static str>,
+    rects: &'a mut Vec<Rect>,
+}
+
+impl Flyout<'_> {
+    fn show(&mut self, id: egui::Id, pos: Pos2, items: &[MenuItem], depth: usize) {
+        let (width, pad, dark) = (self.width, self.pad, self.dark);
+        let mut open = None;
+        let area = egui::Area::new(id)
+            .order(egui::Order::Foreground)
+            .fixed_pos(pos)
+            .show(self.ctx, |ui| {
+                ui.set_width(width);
+                menu::frame(dark).show(ui, |ui| {
+                    ui.set_width((width - pad * 2.0).max(1.0));
+                    for (i, item) in items.iter().enumerate() {
+                        if item.separator_before {
+                            menu::separator(ui, dark);
+                        }
+                        if item.children.is_empty() {
+                            let response = portal_item_row(ui, item, dark);
+                            if response.hovered() {
+                                self.state.active_path.truncate(depth);
+                            }
+                            if response.clicked() {
+                                *self.clicked = Some(item.id);
+                            }
+                            continue;
+                        }
+                        let selected = self.state.active_path.get(depth) == Some(&i);
+                        let response = menu::submenu(ui, item.icon, &item.label, selected, dark);
+                        if response.hovered() || response.clicked() {
+                            self.state.active_path.truncate(depth);
+                            self.state.active_path.push(i);
+                        }
+                        if self.state.active_path.get(depth) == Some(&i) {
+                            open = Some((i, response.rect));
+                        }
+                    }
+                });
+            });
+        let rect = area.response.rect;
+        self.rects.push(rect);
+        if let Some((i, row)) = open {
+            self.show(
+                id.with(i),
+                Pos2::new(rect.right() + self.gap, row.top() - pad),
+                &items[i].children,
+                depth + 1,
+            );
+        }
     }
 }
 
@@ -426,7 +502,7 @@ pub fn unified_top_bar(
         let pointer_inside = ctx.pointer_latest_pos().is_some_and(|pointer| {
             portal_anchor.contains(pointer)
                 || popup.main_rect.contains(pointer)
-                || popup.submenu_rect.contains(pointer)
+                || popup.submenu_rects.iter().any(|r| r.contains(pointer))
         });
         if pointer_inside {
             portal_state.last_inside_time = now;

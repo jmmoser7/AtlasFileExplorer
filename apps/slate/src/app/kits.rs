@@ -102,6 +102,7 @@ impl KitState {
             "portal-agent" => Some(BoardTool::AgentPortal),
             "portal-web" => Some(BoardTool::WebPortal),
             "portal-file-atlas" => Some(BoardTool::AtlasPortal),
+            "portal-slate" => Some(BoardTool::SlatePortal),
             "rect" => Some(BoardTool::RectShape),
             "ellipse" => Some(BoardTool::Ellipse),
             "frame" => Some(BoardTool::Frame),
@@ -195,6 +196,7 @@ fn kit_id_for_catalog(catalog_id: &str) -> Option<&'static str> {
         "portal.agent" => Some("portal-agent"),
         "portal.web" => Some("portal-web"),
         "portal.atlas" => Some("portal-file-atlas"),
+        "portal.slate" => Some("portal-slate"),
         "shape.rect" => Some("rect"),
         "shape.ellipse" => Some("ellipse"),
         _ => None,
@@ -203,7 +205,7 @@ fn kit_id_for_catalog(catalog_id: &str) -> Option<&'static str> {
 
 fn group_for_kit(kit_id: &str) -> Option<&'static str> {
     match kit_id {
-        "portal-agent" | "portal-web" | "portal-file-atlas" => Some("portals"),
+        "portal-agent" | "portal-web" | "portal-file-atlas" | "portal-slate" => Some("portals"),
         "rect" | "ellipse" => Some("shapes"),
         "frame" => Some("frame"),
         _ => None,
@@ -333,13 +335,15 @@ mod tests {
                 BoardTool::AgentPortal => 16,
                 BoardTool::WebPortal => 17,
                 BoardTool::AtlasPortal => 18,
-                BoardTool::Trim => 19,
-                BoardTool::Split => 20,
+                BoardTool::SlatePortal => 19,
+                BoardTool::Trim => 20,
+                BoardTool::Split => 21,
+                BoardTool::Deck => 22,
             }
         }
         let mut tags: Vec<u8> = BoardTool::ALL.into_iter().map(tag).collect();
         tags.sort_unstable();
-        assert_eq!(tags, (0..21).collect::<Vec<u8>>());
+        assert_eq!(tags, (0..23).collect::<Vec<u8>>());
     }
 
     #[test]
@@ -367,6 +371,7 @@ mod tests {
                 BoardTool::AgentPortal,
                 BoardTool::WebPortal,
                 BoardTool::AtlasPortal,
+                BoardTool::SlatePortal,
             ],
             "begin_gesture's Draw arm and grammar() must agree"
         );

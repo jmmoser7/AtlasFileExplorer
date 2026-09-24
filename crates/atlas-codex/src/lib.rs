@@ -24,6 +24,12 @@ pub struct Client {
     next: u64,
     thread: String,
     approval_dir: Option<std::path::PathBuf>,
+    /// The person's full-access grant for this conversation (atlas-ai `access`).
+    full_access: bool,
+    /// Where image runs copy their pictures, outside Codex's own folder.
+    image_dir: Option<std::path::PathBuf>,
+    /// The folder Codex runs in; fresh threads for one-shot runs start here.
+    cwd: std::path::PathBuf,
 }
 
 impl Drop for Client {
@@ -40,6 +46,23 @@ pub fn thread_params(cwd: &Path, thread: Option<&str>) -> Value {
     if let Some(id) = thread {
         p["threadId"] = json!(id);
         p["excludeTurns"] = json!(true);
+    }
+    p
+}
+
+/// Without a grant the provider's own approval and sandbox settings apply.
+pub fn turn_params(
+    thread: &str,
+    input: Vec<Value>,
+    request: &str,
+    model: Option<&str>,
+    full_access: bool,
+) -> Value {
+    let mut p =
+        json!({"threadId":thread,"input":input,"clientUserMessageId":request,"model":model});
+    if full_access {
+        p["approvalPolicy"] = json!("never");
+        p["sandboxPolicy"] = json!({"type":"dangerFullAccess"});
     }
     p
 }
@@ -109,6 +132,9 @@ impl Client {
             next: 1,
             thread: String::new(),
             approval_dir: None,
+            full_access: false,
+            image_dir: None,
+            cwd: cwd.to_path_buf(),
         };
         c.rpc("initialize",json!({"clientInfo":{"name":"slate","title":"Slate agent portal","version":"0.1.0"},"capabilities":{"experimentalApi":true}}))?;
         c.write(json!({"method":"initialized","params":{}}))?;
@@ -205,6 +231,14 @@ impl Client {
     pub fn set_approval_dir(&mut self, path: &Path) {
         self.approval_dir = Some(path.to_path_buf());
     }
+    /// Image runs (requests with `image` params) copy pictures here.
+    pub fn set_image_dir(&mut self, dir: std::path::PathBuf) {
+        self.image_dir = Some(dir);
+    }
+    /// Applies from the next turn; the thread keeps its provider configuration.
+    pub fn set_full_access(&mut self, on: bool) {
+        self.full_access = on;
+    }
     pub fn thread_id(&self) -> &str {
         &self.thread
     }
@@ -249,15 +283,54 @@ impl Client {
             return Err("Codex request cancelled before submission.".into());
         }
         session.request = request.id.clone();
-        let mut input = vec![json!({"type":"text","text":request.input_text()})];
-        for value in request.inputs.wired.iter() {
-            for path in &value.images {
-                input.push(json!({"type":"localImage","path":path}));
-            }
+        // A text block or picture run is one-shot: a fresh thread, so earlier
+        // runs never ride along as context.
+        if request.oneshot || request.image.is_some() {
+            let response = self.rpc("thread/start", thread_params(&self.cwd.clone(), None))?;
+            self.thread = response
+                .pointer("/thread/id")
+                .and_then(Value::as_str)
+                .ok_or("Codex did not return a conversation id")?
+                .into();
+        }
+        // An image run asks the built-in image tool for pictures and collects
+        // them from Codex's generated-images folder as they appear.
+        let mut pictures = match (&request.image, &self.image_dir) {
+            (Some(_), Some(dir)) => Some(Pictures::new(&self.thread, dir.clone())),
+            (Some(_), None) => return Err("This image run has no output folder.".into()),
+            _ => None,
+        };
+        let text = if pictures.is_some() {
+            image_turn(request)
+        } else if request.oneshot {
+            oneshot_turn(request)
+        } else {
+            request.input_text_in(self.approval_dir.as_deref())
+        };
+        let mut input = vec![json!({"type":"text","text":text})];
+        let attached: Vec<&String> = if pictures.is_some() {
+            // The source first, then the style reference, as the prompt names them.
+            request
+                .inputs
+                .on(atlas_agent::InputSlot::Media)
+                .chain(request.inputs.on(atlas_agent::InputSlot::Style))
+                .flat_map(|v| v.images.iter())
+                .collect()
+        } else {
+            request.inputs.wired.iter().flat_map(|v| v.images.iter()).collect()
+        };
+        for path in attached {
+            input.push(json!({"type":"localImage","path":path}));
         }
         let result = self.rpc(
             "turn/start",
-            json!({"threadId":self.thread,"input":input,"clientUserMessageId":request.id,"model":request.model}),
+            turn_params(
+                &self.thread,
+                input,
+                &request.id,
+                request.model.as_deref(),
+                self.full_access,
+            ),
         )?;
         let turn = result
             .pointer("/turn/id")
@@ -319,6 +392,11 @@ impl Client {
             }
             if Instant::now() > deadline {
                 return Err("Codex timed out. Open Codex to inspect the conversation.".into());
+            }
+            if let Some(pictures) = pictures.as_mut() {
+                if pictures.collect(request, session)? {
+                    changed(session);
+                }
             }
             let event = if let Some(e) = self.pending.pop_front() {
                 e
@@ -413,6 +491,15 @@ impl Client {
                     } else {
                         AgentStatus::Idle
                     };
+                    if let Some(pictures) = pictures.as_mut() {
+                        pictures.settle();
+                        pictures.collect(request, session)?;
+                        if pictures.found == 0 && session.status == AgentStatus::Idle {
+                            session.status = AgentStatus::Error(
+                                "Codex finished without an image. Check that image generation is enabled for your ChatGPT sign-in.".into(),
+                            );
+                        }
+                    }
                     session.approval = None;
                     session.updated_at = now();
                     changed(session);
@@ -428,6 +515,152 @@ impl Client {
         }
     }
 }
+/// Codex's home, where its built-in image tool saves pictures.
+pub fn codex_home() -> Option<std::path::PathBuf> {
+    std::env::var_os("CODEX_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                .map(|home| std::path::PathBuf::from(home).join(".codex"))
+        })
+}
+
+/// The instruction an image run sends. Codex's built-in image tool needs no
+/// API key: it runs under the person's ChatGPT sign-in.
+pub fn image_turn(request: &AgentRequest) -> String {
+    use atlas_agent::{Aspect, InputSlot};
+    let params = request.image.clone().unwrap_or_default();
+    let count = params.images();
+    let has = |slot| request.inputs.on(slot).any(|i| !i.images.is_empty());
+    let (source, style) = (has(InputSlot::Media), has(InputSlot::Style));
+    let shape = match params.aspect {
+        Aspect::Source if source => "the same shape as the source image".to_string(),
+        Aspect::Source => "square".to_string(),
+        aspect => format!("{} (width:height)", aspect.label()),
+    };
+    let roles = match (source, style) {
+        (true, true) => "The first attached image is the source to transform: keep its composition. The second attached image is a style reference only: follow its look, not its subject. ",
+        (true, false) => "Transform the attached image and keep its composition. ",
+        (false, true) => "The attached image is a style reference only: follow its look, not its subject. ",
+        (false, false) => "",
+    };
+    let plural = if count == 1 { "" } else { "s" };
+    let variants = if count > 1 { ", each a distinct variation" } else { "" };
+    format!(
+        "Create {count} image{plural} with your built-in image_gen tool, one image_gen call per image{variants}. Shape: {shape}. {roles}Do not run commands, read or write files, or ask questions: Slate collects the images from Codex's generated images folder. When done, reply with one short line.\n\nImage prompt:\n{}",
+        request.prompt.trim()
+    )
+}
+
+/// The instruction a text block sends through the person's ChatGPT sign-in.
+pub fn oneshot_turn(request: &AgentRequest) -> String {
+    format!(
+        "Answer directly in this reply. Do not run commands, read or write files, or ask questions. Reply with only the requested text: no preamble, no headings, and no closing remarks. Any attached image is the picture the instruction refers to.\n\n{}",
+        request.prompt.trim()
+    )
+}
+
+/// The pictures one image run collects from `generated_images/<thread>`.
+struct Pictures {
+    watch: Option<std::path::PathBuf>,
+    dest: std::path::PathBuf,
+    /// Files present before the run, and files already collected.
+    seen: std::collections::BTreeSet<std::path::PathBuf>,
+    /// A file is taken once its size is the same on two scans.
+    sizes: BTreeMap<std::path::PathBuf, u64>,
+    found: usize,
+    last_scan: Option<Instant>,
+    settled: bool,
+}
+
+impl Pictures {
+    fn new(thread: &str, dest: std::path::PathBuf) -> Self {
+        let watch = codex_home().map(|home| home.join("generated_images").join(thread));
+        let seen = watch.as_deref().map(picture_files).unwrap_or_default();
+        Self {
+            watch,
+            dest,
+            seen: seen.into_iter().collect(),
+            sizes: BTreeMap::new(),
+            found: 0,
+            last_scan: None,
+            settled: false,
+        }
+    }
+
+    /// The turn ended: take every remaining file without waiting a scan.
+    fn settle(&mut self) {
+        self.settled = true;
+    }
+
+    /// Copy newly finished pictures into the album. True when one arrived.
+    fn collect(&mut self, request: &AgentRequest, session: &mut AgentSession) -> Result<bool, String> {
+        if !self.settled
+            && self
+                .last_scan
+                .is_some_and(|at| at.elapsed() < Duration::from_millis(250))
+        {
+            return Ok(false);
+        }
+        self.last_scan = Some(Instant::now());
+        let Some(watch) = self.watch.as_deref() else {
+            return Ok(false);
+        };
+        let mut arrived = false;
+        for path in picture_files(watch) {
+            if self.seen.contains(&path) {
+                continue;
+            }
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            if size == 0 || (!self.settled && self.sizes.insert(path.clone(), size) != Some(size)) {
+                continue;
+            }
+            std::fs::create_dir_all(&self.dest).map_err(|e| e.to_string())?;
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
+            let id = format!("{}-{}", request.id, self.found);
+            let copy = self.dest.join(format!("{id}.{ext}"));
+            std::fs::copy(&path, &copy).map_err(|e| e.to_string())?;
+            self.seen.insert(path);
+            self.found += 1;
+            let vary = request
+                .inputs
+                .on(atlas_agent::InputSlot::Media)
+                .any(|i| !i.images.is_empty());
+            session.bundle.images.push(atlas_agent::ImageOutput {
+                id,
+                source: copy.to_string_lossy().into_owned(),
+                request: request.id.clone(),
+                prompt: request.prompt.clone(),
+                model: request.model.clone().unwrap_or_else(|| "ChatGPT".into()),
+                task: if vary { "vary" } else { "generate" }.into(),
+                live: String::new(),
+            });
+            arrived = true;
+        }
+        Ok(arrived)
+    }
+}
+
+/// Picture files in `dir`, oldest first.
+fn picture_files(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut files: Vec<_> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| {
+            e.path().extension().and_then(|x| x.to_str()).is_some_and(|x| {
+                ["png", "webp", "jpg", "jpeg"].contains(&x.to_ascii_lowercase().as_str())
+            })
+        })
+        .map(|e| {
+            let at = e.metadata().and_then(|m| m.modified()).ok();
+            (at, e.path())
+        })
+        .collect();
+    files.sort();
+    files.into_iter().map(|(_, p)| p).collect()
+}
+
 pub fn session_from_thread(thread: &Value) -> AgentSession {
     let mut session = AgentSession {
         approval: None,
@@ -560,6 +793,17 @@ mod tests {
     }
 
     #[test]
+    fn full_access_is_per_turn_and_absent_without_a_grant() {
+        let asks = turn_params("t", vec![], "r", Some("gpt"), false);
+        assert!(asks.get("approvalPolicy").is_none());
+        assert!(asks.get("sandboxPolicy").is_none());
+        let full = turn_params("t", vec![], "r", Some("gpt"), true);
+        assert_eq!(full["approvalPolicy"], "never");
+        assert_eq!(full["sandboxPolicy"]["type"], "dangerFullAccess");
+        assert_eq!(full["threadId"], "t");
+    }
+
+    #[test]
     fn thread_configuration_preserves_provider_permissions() {
         for id in [None, Some("portal-owned")] {
             let p = thread_params(Path::new("C:/project"), id);
@@ -568,5 +812,76 @@ mod tests {
             assert!(p.get("developerInstructions").is_none());
             assert_eq!(p.get("threadId").and_then(Value::as_str), id);
         }
+    }
+
+    #[test]
+    #[ignore = "spends one ChatGPT image through the installed, signed-in Codex; set CODEX_BIN"]
+    fn live_image_run_collects_a_chatgpt_picture() {
+        let exe = std::path::PathBuf::from(std::env::var_os("CODEX_BIN").expect("CODEX_BIN"));
+        let dir = std::env::temp_dir().join(format!("atlas-codex-live-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut client = Client::start(&exe, &dir, None).unwrap();
+        client.set_image_dir(dir.join("out"));
+        let request: AgentRequest = serde_json::from_value(json!({
+            "id": "live-image", "prompt": "a small blue sphere on a plain white background", "at": 0,
+            "image": {"count": 1, "aspect": "square"},
+            "inputs": {"revision": "1", "context": [], "wired": []}
+        }))
+        .unwrap();
+        let mut session = session_from_thread(&json!({}));
+        let started = Instant::now();
+        client
+            .run(&request, &mut session, &AtomicBool::new(false), |_| {})
+            .unwrap();
+        eprintln!("{:?} in {:?}", session.status, started.elapsed());
+        assert_eq!(session.status, AgentStatus::Idle);
+        assert_eq!(session.bundle.images.len(), 1);
+        assert!(Path::new(&session.bundle.images[0].source).is_file());
+        eprintln!("{}", session.bundle.images[0].source);
+    }
+
+    #[test]
+    fn an_image_run_names_count_shape_and_roles_and_collects_finished_files() {
+        let request: AgentRequest = serde_json::from_value(json!({
+            "id": "run", "prompt": "a timber pavilion at dusk", "at": 0,
+            "image": {"count": 3, "aspect": "wide"},
+            "inputs": {"revision": "1", "context": [], "wired": [
+                {"node": 1, "text": "", "images": ["hall.png"], "slot": "media"},
+                {"node": 2, "text": "", "images": ["monet.jpg"], "slot": "style"}
+            ]}
+        }))
+        .unwrap();
+        let text = image_turn(&request);
+        assert!(text.contains("Create 3 images"));
+        assert!(text.contains("16:9"));
+        assert!(text.contains("second attached image is a style reference"));
+        assert!(text.ends_with("a timber pavilion at dusk"));
+
+        let root = std::env::temp_dir().join(format!("atlas-codex-pictures-{}", std::process::id()));
+        let (watch, dest) = (root.join("thread"), root.join("out"));
+        std::fs::create_dir_all(&watch).unwrap();
+        std::fs::write(watch.join("old.png"), b"old").unwrap();
+        let mut pictures = Pictures {
+            watch: Some(watch.clone()),
+            dest: dest.clone(),
+            seen: picture_files(&watch).into_iter().collect(),
+            sizes: BTreeMap::new(),
+            found: 0,
+            last_scan: None,
+            settled: false,
+        };
+        let mut session = session_from_thread(&json!({}));
+        std::fs::write(watch.join("new.png"), b"picture").unwrap();
+        assert!(!pictures.collect(&request, &mut session).unwrap(), "waits one scan");
+        pictures.last_scan = None;
+        assert!(pictures.collect(&request, &mut session).unwrap());
+        assert_eq!(session.bundle.images.len(), 1, "files from before the run stay out");
+        assert_eq!(session.bundle.images[0].task, "vary");
+        assert!(dest.join("run-0.png").is_file());
+        std::fs::write(watch.join("last.png"), b"late").unwrap();
+        pictures.settle();
+        assert!(pictures.collect(&request, &mut session).unwrap());
+        assert_eq!(session.bundle.images.len(), 2);
+        let _ = std::fs::remove_dir_all(root);
     }
 }

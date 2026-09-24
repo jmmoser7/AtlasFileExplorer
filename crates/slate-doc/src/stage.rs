@@ -422,6 +422,7 @@ mod tests {
                 corner: Corner::default(),
                 flip: false,
                 path: None,
+                text: None,
             }),
         )
     }

@@ -1,24 +1,23 @@
 //! Slate's unified bottom dock — one condensed row of floating squircle icons
-//! over the canvas. Board creation tools (Board view only), Document settings,
-//! and Object properties share unlabeled icon-strip capsules; Selection stays
-//! a form. Dock chrome is painted by `atlas_shell::dock`.
+//! over the canvas. Board creation tools (Board view only) share unlabeled
+//! icon-strip capsules. Object properties and selection live on the per-node
+//! strips. Document settings live in the home menu (Preferences). Dock chrome
+//! is painted by `atlas_shell::dock`.
 //!
-//! Ordering: Tools → Actions → Dashboards (see `crates/atlas-shell/DOCK.md`).
+//! Ordering: Tools → Actions (see `crates/atlas-shell/DOCK.md`).
 
 use super::super::board::{BoardTool, FrameCustomDraft, FramePreset};
 use super::super::board_icons::{self, ToolIcon};
-use super::super::chrome::ToolPanel;
 use super::super::SlateApp;
 use atlas_shell::dock::{
     floating_dock, flyout_items, DockIcon, DockItem, DockItemKind, DockOutcome, FlyoutItem,
     FlyoutRole,
 };
-use atlas_shell::sidebar::{sidebar_subtle_divider, SidebarTheme};
-use eframe::egui::{self, Color32, Id, Rect, RichText, Stroke};
-use slate_doc::{GroupId, TagId, ViewKind};
+use atlas_shell::sidebar::SidebarTheme;
+use eframe::egui::{self, Color32, Rect, Stroke};
+use slate_doc::ViewKind;
 
 pub(crate) const DOCK_ID: &str = "slate_tools";
-pub(crate) const SELECTION_PANEL_ID: &str = "selection";
 
 macro_rules! board_dock_icon {
     ($name:ident, $icon:expr) => {
@@ -31,12 +30,17 @@ board_dock_icon!(icon_media, ToolIcon::Media);
 board_dock_icon!(icon_image, ToolIcon::Image);
 board_dock_icon!(icon_model, ToolIcon::Model);
 board_dock_icon!(icon_video, ToolIcon::Video);
+board_dock_icon!(icon_text_doc, ToolIcon::TextDoc);
 board_dock_icon!(icon_frame, ToolIcon::Frame);
 board_dock_icon!(icon_frame_letter, ToolIcon::FrameLetter);
 board_dock_icon!(icon_frame_tabloid, ToolIcon::FrameTabloid);
 board_dock_icon!(icon_frame_wide, ToolIcon::FrameWide);
 board_dock_icon!(icon_frame_custom, ToolIcon::FrameCustom);
 board_dock_icon!(icon_portals, ToolIcon::Portals);
+fn icon_agent(p: &egui::Painter, r: Rect, c: Color32) {
+    // The face is wide, so the shared squircle inset leaves it smaller than its neighbors.
+    board_icons::paint_tool_icon(p, r.expand(r.width() * 0.22), ToolIcon::Agent, c);
+}
 board_dock_icon!(icon_shapes, ToolIcon::Shapes);
 board_dock_icon!(icon_text, ToolIcon::Text);
 board_dock_icon!(icon_sticky, ToolIcon::Sticky);
@@ -82,9 +86,10 @@ fn tool_dock_icon(tool: BoardTool) -> DockIcon {
         BoardTool::Pen => DockIcon::Custom(icon_pen),
         BoardTool::Brush => DockIcon::Custom(icon_brush),
         BoardTool::Eraser => DockIcon::Custom(icon_eraser),
-        BoardTool::AgentPortal => DockIcon::Custom(icon_portals),
+        BoardTool::AgentPortal => DockIcon::Custom(icon_agent),
         BoardTool::WebPortal => DockIcon::Custom(icon_web),
         BoardTool::AtlasPortal => DockIcon::Custom(icon_atlas),
+        BoardTool::SlatePortal => DockIcon::Custom(icon_frame),
         BoardTool::Trim => DockIcon::Custom(icon_trim),
         BoardTool::Split => DockIcon::Custom(icon_split),
         BoardTool::Frame => DockIcon::Custom(icon_frame),
@@ -100,8 +105,10 @@ fn tool_flyout_desc(tool: BoardTool) -> &'static str {
         BoardTool::Ellipse => "Click to place a circle, or drag to size.",
         BoardTool::Line => "Draw a straight line.",
         BoardTool::Pen => "Freehand path.",
-        BoardTool::Brush => "Expressive ink stroke.",
-        BoardTool::Eraser => "Erase path strokes.",
+        BoardTool::Brush => {
+            "Brush — [ ] size, Shift+[ ] softness, Shift+click steps opacity, Shift+right-drag scrubs opacity, Alt+right-drag scrubs size and softness from the press point, Ctrl+right-drag opens the color wheel."
+        }
+        BoardTool::Eraser => "Eraser — erase painted ink; vector strokes go whole. [ ] size, Shift+[ ] softness, Alt+right-drag size and softness, Shift+right-drag strength, Shift+drag or Shift+click for a straight pass.",
         BoardTool::Arc => "Draw an arc.",
         BoardTool::Polyline => "Draw a polyline.",
         BoardTool::BezierSpan => "Draw a bezier span.",
@@ -135,7 +142,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         DockItem {
             id: "tool.media",
             label: "Media",
-            description: "Place images and print media, Rhino 3D models, or video. PowerPoint renders as PDF pages.",
+            description: "Place images and print media, 3D models, or video. PowerPoint renders as PDF pages.",
             icon: DockIcon::Custom(icon_media),
             kind: DockItemKind::Tool,
             active: false,
@@ -155,12 +162,12 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
         DockItem {
             id: "tool.portals",
             label: "Portals",
-            description: "Drop a host portal onto the board (File Atlas, Agent, or Web).",
+            description: "Drop a portal onto the board (File Atlas, Agent, Web, or a nested Slate board).",
             icon: DockIcon::Custom(icon_portals),
             kind: DockItemKind::Tool,
             active: matches!(
                 tool,
-                BoardTool::AgentPortal | BoardTool::WebPortal | BoardTool::AtlasPortal
+                BoardTool::AgentPortal | BoardTool::WebPortal | BoardTool::AtlasPortal | BoardTool::SlatePortal
             ),
             visible: board,
             gap_before: false,
@@ -195,39 +202,6 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             visible: board,
             gap_before: true,
         },
-        DockItem {
-            id: "document.settings",
-            label: "Document settings",
-            description: "Board grid, object snaps, and smart-guide reach.",
-            icon: DockIcon::DocumentSettings,
-            kind: DockItemKind::Tool,
-            active: app.board_show_grid
-                || app.board_snap_grid
-                || app.board_smart_guides
-                || app.board_osnap.any_kind_on(),
-            visible: board,
-            gap_before: false,
-        },
-        DockItem {
-            id: "object.properties",
-            label: "Object properties",
-            description: "Ink / paper colors and the workbook’s faceted tag groups.",
-            icon: DockIcon::ObjectProperties,
-            kind: DockItemKind::Dashboard,
-            active: false,
-            visible: board,
-            gap_before: board,
-        },
-        DockItem {
-            id: SELECTION_PANEL_ID,
-            label: "Selection",
-            description: "F3 — properties of the selected objects.",
-            icon: DockIcon::Selection,
-            kind: DockItemKind::Inspector,
-            active: !app.board_sel.is_empty(),
-            visible: app.chrome().tool(ToolPanel::Selection),
-            gap_before: false,
-        },
     ];
 
     let palette = app.palette();
@@ -258,9 +232,6 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             "tool.shapes" => shapes_flyout(app, ui, theme),
             "tool.text" => text_flyout(app, ui, theme),
             "tool.actions" => actions_flyout(app, ui, theme),
-            "object.properties" => object_properties_body(app, ui, theme),
-            "document.settings" => document_settings_body(app, ui, theme),
-            SELECTION_PANEL_ID => super::inspector::selection_body(app, ui, theme),
             _ => {}
         },
     );
@@ -449,84 +420,6 @@ fn shapes_flyout(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
     }
 }
 
-fn object_properties_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let _ = theme;
-    let board = app.doc().view.active_view == ViewKind::Board;
-    object_properties_icons(app, ui, board);
-}
-
-fn object_properties_icons(app: &mut SlateApp, ui: &mut egui::Ui, board: bool) {
-    let _ = board;
-    let tags_id = Id::new("slate_object_properties_tags");
-    let mut show_tags = ui
-        .ctx()
-        .data(|data| data.get_temp::<bool>(tags_id).unwrap_or(false));
-    let items = palette_strip_items(app, "object.properties", &[]);
-    if let Some(id) = flyout_items(ui, &items) {
-        let ctx = ui.ctx().clone();
-        match id {
-            "prop.swap" => {
-                app.dispatch(
-                    &ctx,
-                    atlas_commands::CommandId("board.colors.swap"),
-                    Some("dock".into()),
-                );
-            }
-            "prop.reset" => {
-                app.dispatch(
-                    &ctx,
-                    atlas_commands::CommandId("board.colors.default"),
-                    Some("dock".into()),
-                );
-            }
-            "prop.tags" => show_tags = !show_tags,
-            _ => {}
-        }
-    }
-    ui.ctx()
-        .data_mut(|data| data.insert_temp(tags_id, show_tags));
-    if show_tags {
-        let theme = app.palette().sidebar_theme();
-        tags_body(app, ui, theme);
-    }
-}
-
-fn document_settings_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let _ = theme;
-    document_settings_icons(app, ui);
-}
-
-fn document_settings_icons(app: &mut SlateApp, ui: &mut egui::Ui) {
-    use slate_doc::SnapKind;
-    let items = palette_strip_items(app, "document.settings", &[]);
-    if let Some(id) = flyout_items(ui, &items) {
-        let ctx = ui.ctx().clone();
-        let cmd = match id {
-            "settings.grid" => "board.grid",
-            "settings.snap_grid" => "board.snap_grid",
-            "settings.osnap" => "board.osnap",
-            "settings.smart_guides" => "board.smart_guides",
-            "settings.reach.tight" => "board.snap_reach.tight",
-            "settings.reach.nearby" => "board.snap_reach.nearby",
-            "settings.reach.wide" => "board.snap_reach.wide",
-            "settings.wire.bezier" => "board.wire.bezier",
-            "settings.wire.orthogonal" => "board.wire.orthogonal",
-            other => {
-                if let Some(kind) = SnapKind::ALL
-                    .iter()
-                    .copied()
-                    .find(|k| osnap_item_id(*k) == other)
-                {
-                    osnap_command_id(kind)
-                } else {
-                    return;
-                }
-            }
-        };
-        app.dispatch(&ctx, atlas_commands::CommandId(cmd), Some("dock".into()));
-    }
-}
-
 fn snap_dock_icon(kind: slate_doc::SnapKind) -> DockIcon {
     match kind {
         slate_doc::SnapKind::End => DockIcon::SnapEnd,
@@ -553,7 +446,7 @@ fn osnap_item_id(kind: slate_doc::SnapKind) -> &'static str {
     }
 }
 
-fn osnap_command_id(kind: slate_doc::SnapKind) -> &'static str {
+pub(crate) fn osnap_command_id(kind: slate_doc::SnapKind) -> &'static str {
     match kind {
         slate_doc::SnapKind::End => "board.osnap.end",
         slate_doc::SnapKind::Mid => "board.osnap.mid",
@@ -563,192 +456,6 @@ fn osnap_command_id(kind: slate_doc::SnapKind) -> &'static str {
         slate_doc::SnapKind::Quadrant => "board.osnap.quad",
         slate_doc::SnapKind::Perpendicular => "board.osnap.perp",
         slate_doc::SnapKind::Tangent => "board.osnap.tan",
-    }
-}
-
-fn tags_body(app: &mut SlateApp, ui: &mut egui::Ui, theme: SidebarTheme) {
-    let groups: Vec<(GroupId, String)> = app
-        .doc()
-        .groups
-        .iter()
-        .map(|g| (g.id, g.name.clone()))
-        .collect();
-
-    let mut structure_changed = false;
-
-    for (gi, (group_id, group_name)) in groups.iter().enumerate() {
-        if gi > 0 {
-            sidebar_subtle_divider(ui, theme);
-        }
-        group_rows(
-            app,
-            ui,
-            theme,
-            *group_id,
-            group_name,
-            &mut structure_changed,
-        );
-    }
-
-    if !groups.is_empty() {
-        sidebar_subtle_divider(ui, theme);
-    }
-
-    if let Some((None, buf)) = &mut app.new_tag_edit {
-        let resp = ui.add(
-            egui::TextEdit::singleline(buf)
-                .hint_text("Group name…")
-                .desired_width(ui.available_width()),
-        );
-        resp.request_focus();
-        if resp.lost_focus() {
-            let name = buf.trim().to_string();
-            app.new_tag_edit = None;
-            if !name.is_empty() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                app.doc_mut().add_group(name);
-                structure_changed = true;
-            }
-        }
-    } else if ui
-        .button(RichText::new("＋ Add tag group").small())
-        .on_hover_text(
-            "A tag group holds mutually exclusive tags (e.g. Big / Medium / Small). \
-             A file can hold one tag from each group.",
-        )
-        .clicked()
-    {
-        app.new_tag_edit = Some((None, String::new()));
-    }
-
-    if structure_changed {
-        app.publish_session_tags();
-    }
-}
-
-fn group_rows(
-    app: &mut SlateApp,
-    ui: &mut egui::Ui,
-    theme: SidebarTheme,
-    group_id: GroupId,
-    group_name: &str,
-    structure_changed: &mut bool,
-) {
-    let header =
-        ui.horizontal(|ui| ui.label(RichText::new(group_name).small().strong().color(theme.ink)));
-    header.inner.context_menu(|ui| {
-        let dark = app.dark_mode;
-        atlas_shell::menu::prepare(ui, dark);
-        if atlas_shell::menu::item_danger(
-            ui,
-            atlas_shell::menu::MenuIcon::Trash,
-            "Delete group",
-            dark,
-        )
-        .clicked()
-        {
-            app.doc_mut().remove_group(group_id);
-            *structure_changed = true;
-            ui.close_menu();
-        }
-    });
-
-    let tags: Vec<(TagId, String, [u8; 3], usize)> = app
-        .doc()
-        .groups
-        .iter()
-        .find(|g| g.id == group_id)
-        .map(|g| {
-            g.tags
-                .iter()
-                .map(|t| {
-                    let count = app.doc().items_with_tag(t.id).len();
-                    (t.id, t.name.clone(), t.color, count)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let selected: Vec<slate_doc::ItemId> = app
-        .doc()
-        .scene
-        .nodes
-        .iter()
-        .filter(|node| app.board_sel.contains(&node.id))
-        .filter_map(|node| match &node.kind {
-            slate_doc::scene::NodeKind::Image(image) => Some(image.item),
-            _ => None,
-        })
-        .collect();
-    for (tag_id, name, color, count) in &tags {
-        let focused = !selected.is_empty()
-            && selected.iter().all(|id| {
-                app.doc()
-                    .item(*id)
-                    .is_some_and(|item| item.assignments.get(&group_id) == Some(tag_id))
-            });
-        let row = ui.horizontal(|ui| {
-            let accent = Color32::from_rgb(color[0], color[1], color[2]);
-            ui.label(RichText::new("●").color(if focused {
-                accent
-            } else {
-                accent.gamma_multiply(0.35)
-            }));
-            let resp = ui.selectable_label(focused, RichText::new(name).small());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(format!("{count}")).small().color(theme.sub));
-            });
-            resp
-        });
-        let resp = row
-            .inner
-            .on_hover_text("Assign this tag to selected media objects · right-click for actions");
-        if resp.clicked() {
-            app.assign_tag(&selected, *tag_id);
-        }
-        resp.context_menu(|ui| {
-            let dark = app.dark_mode;
-            atlas_shell::menu::prepare(ui, dark);
-            if atlas_shell::menu::item_danger(
-                ui,
-                atlas_shell::menu::MenuIcon::Trash,
-                "Remove tag",
-                dark,
-            )
-            .clicked()
-            {
-                app.doc_mut().remove_tag(*tag_id);
-                *structure_changed = true;
-                ui.close_menu();
-            }
-        });
-    }
-
-    if let Some((Some(g), buf)) = &mut app.new_tag_edit {
-        if *g == group_id {
-            let resp = ui.add(
-                egui::TextEdit::singleline(buf)
-                    .hint_text("Tag name…")
-                    .desired_width(ui.available_width()),
-            );
-            resp.request_focus();
-            if resp.lost_focus() {
-                let name = buf.trim().to_string();
-                app.new_tag_edit = None;
-                if !name.is_empty() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    let color = app.next_tag_color();
-                    app.doc_mut().add_tag(group_id, name, color);
-                    *structure_changed = true;
-                }
-            }
-            return;
-        }
-    }
-    if ui
-        .button(RichText::new("＋ tag").small().color(theme.sub))
-        .on_hover_text("Add a tag to this group (exclusive with its siblings)")
-        .clicked()
-    {
-        app.new_tag_edit = Some((Some(group_id), String::new()));
     }
 }
 
@@ -764,7 +471,7 @@ pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &s
             apply_frame_choice(app, id);
             return;
         }
-        "portal.agent" | "portal.web" | "portal.atlas" => {
+        "portal.agent" | "portal.web" | "portal.atlas" | "portal.slate" => {
             apply_portal_choice(app, id);
             return;
         }
@@ -818,6 +525,7 @@ pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &s
         "media.image" => Some("board.media.image"),
         "media.model" => Some("board.media.model"),
         "media.video" => Some("board.media.video"),
+        "media.text" => Some("board.media.text"),
         "prop.swap" => Some("board.colors.swap"),
         "prop.reset" => Some("board.colors.default"),
         "settings.grid" => Some("board.grid"),
@@ -864,9 +572,10 @@ pub(crate) fn palette_strip_items<'a>(
 ) -> Vec<FlyoutItem<'a>> {
     let mut items = match palette_id {
         "tool.media" => vec![
-            FlyoutItem { id: "media.image", label: "Image", description: "Images and print media: JPG, PNG, PDF, PowerPoint, and document previews.", hotkey: None, icon: DockIcon::Custom(icon_image), active: false, group: Some("media"), role: FlyoutRole::Icon },
-            FlyoutItem { id: "media.model", label: "3D", description: "Place a Rhino .3dm file using the existing interactive 3D viewer.", hotkey: None, icon: DockIcon::Custom(icon_model), active: false, group: Some("media"), role: FlyoutRole::Icon },
-            FlyoutItem { id: "media.video", label: "Video", description: "Place a video poster with trim controls. Supported videos play in the HTML artifact.", hotkey: None, icon: DockIcon::Custom(icon_video), active: false, group: Some("media"), role: FlyoutRole::Icon },
+            FlyoutItem { id: "media.image", label: "Image", description: "Images and print media: JPG, PNG, PDF, and PowerPoint.", hotkey: None, icon: DockIcon::Custom(icon_image), active: false, group: Some("media"), role: FlyoutRole::Icon },
+            FlyoutItem { id: "media.model", label: "3D", description: "Place a 3D model. OBJ, STL, glTF, and Rhino preview in the viewport. Blender, DWG, and SketchUp use the same card.", hotkey: None, icon: DockIcon::Custom(icon_model), active: false, group: Some("media"), role: FlyoutRole::Icon },
+            FlyoutItem { id: "media.video", label: "Video", description: "Place a video. Hover across it to scrub the whole clip; click to play. mp4, mov, webm, and other types the system can open.", hotkey: None, icon: DockIcon::Custom(icon_video), active: false, group: Some("media"), role: FlyoutRole::Icon },
+            FlyoutItem { id: "media.text", label: "Text", description: "Word, Excel, CSV, spreadsheets, and source code. Shows an excerpt when the file can be read.", hotkey: None, icon: DockIcon::Custom(icon_text_doc), active: false, group: Some("media"), role: FlyoutRole::Icon },
         ],
         "tool.frame" => {
             let preset = app.board_frame_preset;
@@ -884,7 +593,7 @@ pub(crate) fn palette_strip_items<'a>(
                 FlyoutItem {
                     id: "frame.tabloid",
                     label: FramePreset::Tabloid.label(),
-                    description: "Tabloid slide frame (11 × 17).",
+                    description: "Tabloid slide frame, landscape (17 × 11).",
                     hotkey: None,
                     icon: DockIcon::Custom(icon_frame_tabloid),
                     active: preset == FramePreset::Tabloid,
@@ -921,7 +630,7 @@ pub(crate) fn palette_strip_items<'a>(
                     label: "Agent portal",
                     description: "Host portal for a local Cursor agent session.",
                     hotkey: None,
-                    icon: DockIcon::Custom(icon_portals),
+                    icon: DockIcon::Custom(icon_agent),
                     active: tool == BoardTool::AgentPortal && app.armed_kit_id.is_none(),
                     group: Some("portals"),
                     role: FlyoutRole::Icon,
@@ -944,6 +653,16 @@ pub(crate) fn palette_strip_items<'a>(
                     hotkey: None,
                     icon: DockIcon::Custom(icon_atlas),
                     active: tool == BoardTool::AtlasPortal && app.armed_kit_id.is_none(),
+                    group: Some("portals"),
+                    role: FlyoutRole::Icon,
+                },
+                FlyoutItem {
+                    id: "portal.slate",
+                    label: "Slate board",
+                    description: "Load another workbook's board inside this frame.",
+                    hotkey: None,
+                    icon: DockIcon::Custom(icon_frame),
+                    active: tool == BoardTool::SlatePortal && app.armed_kit_id.is_none(),
                     group: Some("portals"),
                     role: FlyoutRole::Icon,
                 },
@@ -1104,18 +823,6 @@ pub(crate) fn palette_strip_items<'a>(
                     icon: DockIcon::Reset,
                     active: false,
                     group: Some("colors"),
-                    role: FlyoutRole::Icon,
-                });
-            }
-            {
-                items.push(FlyoutItem {
-                    id: "prop.tags",
-                    label: "Tags",
-                    description: "Edit tag groups and assign tags to selected media objects.",
-                    hotkey: None,
-                    icon: DockIcon::Tags,
-                    active: !app.doc().groups.is_empty(),
-                    group: Some("tags"),
                     role: FlyoutRole::Icon,
                 });
             }

@@ -478,7 +478,10 @@ fn v2_document() -> SlateDoc {
             title: "Cover".into(),
             order: 2,
             fill: Rgba::opaque(246, 246, 244),
+            fill_authored: false,
             assignments: BTreeMap::from([(chapter, intro)]),
+            stroke: Stroke::none(),
+            corner: Corner::Square,
         }),
     );
 
@@ -520,6 +523,8 @@ fn v2_document() -> SlateDoc {
                 closed: false,
                 ..Default::default()
             }),
+
+            text: None,
         }),
     );
     shape.group = Some(group);
@@ -529,11 +534,12 @@ fn v2_document() -> SlateDoc {
         WorldRect::new(640.0, 460.0, 420.0, 120.0),
         NodeKind::Text(TextNode {
             text: "Harbour frontage — draft".into(),
-            family: FontChoice::Serif,
+            family: Typeface::Serif,
             size: 34.0,
             color: Rgba::opaque(20, 20, 40),
             align: TextAlign::Center,
             fill: Some(Rgba([255, 244, 200, 255])),
+            agent: None,
         }),
     );
     text.rotation_deg = -6.0;

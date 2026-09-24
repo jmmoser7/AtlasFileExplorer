@@ -21,10 +21,13 @@ const SNIPPET_MAX_LINES: usize = 30;
 #[derive(Debug, Default, Clone)]
 pub struct AssetMap {
     agent_images: BTreeMap<u64, Vec<String>>,
+    agent_replies: BTreeMap<u64, String>,
     urls: BTreeMap<String, String>,
     thumbs: BTreeMap<String, String>,
     item_thumbs: BTreeMap<ItemId, String>,
     snippets: BTreeMap<String, String>,
+    /// CSV / Excel grids for text cards, including authored cell fills.
+    sheets: BTreeMap<String, Vec<Vec<atlas_core::office::SheetCell>>>,
     /// Frozen-camera poster URLs for 3D model nodes, keyed by node id (one
     /// placed model = one saved perspective = one poster).
     model_posters: BTreeMap<u64, String>,
@@ -40,6 +43,12 @@ impl AssetMap {
     }
     pub fn insert_agent_images(&mut self, node: NodeId, images: Vec<String>) {
         self.agent_images.insert(node.0, images);
+    }
+    pub fn agent_reply(&self, node: NodeId) -> Option<&str> {
+        self.agent_replies.get(&node.0).map(String::as_str)
+    }
+    pub fn insert_agent_reply(&mut self, node: NodeId, text: String) {
+        self.agent_replies.insert(node.0, text);
     }
     pub fn get(&self, path: &Path) -> Option<&str> {
         self.urls.get(&path_to_key(path)).map(String::as_str)
@@ -70,6 +79,10 @@ impl AssetMap {
 
     pub fn insert_snippet(&mut self, path: PathBuf, text: String) {
         self.snippets.insert(path_to_key(&path), text);
+    }
+
+    pub fn sheet(&self, path: &Path) -> Option<&[Vec<atlas_core::office::SheetCell>]> {
+        self.sheets.get(&path_to_key(path)).map(Vec::as_slice)
     }
 
     pub fn model_poster(&self, node: NodeId) -> Option<&str> {
@@ -130,6 +143,7 @@ pub fn build_assets(
 
     let copy_file =
         |path: &Path, assets_dir_ready: &mut bool, copied: &mut usize| -> io::Result<String> {
+            refuse_machine_private(path)?;
             if !*assets_dir_ready {
                 fs::create_dir_all(&assets_dir)?;
                 *assets_dir_ready = true;
@@ -180,7 +194,10 @@ pub fn build_assets(
 
         if kind == MediaKind::Text {
             if let Some(snippet) = read_snippet(&path) {
-                map.snippets.insert(key, snippet);
+                map.snippets.insert(key.clone(), snippet);
+            }
+            if let Some(sheet) = atlas_core::table::read_sheet_card(&path) {
+                map.sheets.insert(key, sheet);
             }
         }
     }
@@ -234,6 +251,9 @@ pub fn build_assets(
         }
         map.insert_agent_images(*id, urls);
     }
+    for (id, text) in &opts.agent_replies {
+        map.insert_agent_reply(*id, text.clone());
+    }
 
     // Web portals. Local material is copied whole — a dashboard is its entry
     // file plus the scripts and data beside it — and the copy records its
@@ -247,7 +267,11 @@ pub fn build_assets(
             continue;
         }
         if let Some(source) = opts.web_sources.get(&node.id) {
-            if source.exists() {
+            if atlas_core::secrets::is_machine_private(source) {
+                // Sign-in state stays on this machine. The portal exports as
+                // a poster when the caller supplied one.
+                missing += 1;
+            } else if source.exists() {
                 if !assets_dir_ready {
                     fs::create_dir_all(&assets_dir)?;
                     assets_dir_ready = true;
@@ -297,7 +321,19 @@ pub fn build_assets(
 
 /// Copy a dashboard folder whole: its entry file is useless without the
 /// scripts, styles, and data files beside it.
+fn refuse_machine_private(path: &Path) -> io::Result<()> {
+    if atlas_core::secrets::is_machine_private(path) {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "refusing to package machine sign-in state",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn copy_tree(from: &Path, to: &Path, copied: &mut usize) -> io::Result<()> {
+    refuse_machine_private(from)?;
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;
@@ -305,6 +341,7 @@ fn copy_tree(from: &Path, to: &Path, copied: &mut usize) -> io::Result<()> {
         if entry.file_type()?.is_dir() {
             copy_tree(&entry.path(), &target, copied)?;
         } else {
+            refuse_machine_private(&entry.path())?;
             fs::copy(entry.path(), target)?;
             *copied += 1;
         }
@@ -313,19 +350,28 @@ fn copy_tree(from: &Path, to: &Path, copied: &mut usize) -> io::Result<()> {
 }
 
 fn data_uri(path: &Path) -> io::Result<String> {
+    refuse_machine_private(path)?;
     let bytes = fs::read(path)?;
     let mime = mime_for_path(path);
     Ok(format!("data:{mime};base64,{}", base64_encode(&bytes)))
 }
 
 /// First ~[`SNIPPET_MAX_CHARS`] chars / [`SNIPPET_MAX_LINES`] lines of a text
-/// file, lossy-decoded. `None` if unreadable or empty. Public so the live
-/// board renders the *same* excerpt the artifact will.
+/// file. Word, Excel, OpenDocument, and RTF are extracted first; their raw
+/// bytes are not the excerpt. `None` if unreadable or empty. Public so the
+/// live board renders the *same* excerpt the artifact will.
 pub fn read_snippet(path: &Path) -> Option<String> {
+    if slate_doc::media::structured_text_package(path) {
+        return atlas_core::office::document_excerpt(path).and_then(|text| clamp_snippet(&text));
+    }
     let bytes = fs::read(path).ok()?;
     // Read a bounded prefix; 4x chars is enough for any UTF-8 encoding.
     let prefix_len = bytes.len().min(SNIPPET_MAX_CHARS * 4);
     let text = String::from_utf8_lossy(&bytes[..prefix_len]);
+    clamp_snippet(&text)
+}
+
+fn clamp_snippet(text: &str) -> Option<String> {
     let mut out = String::new();
     let mut chars = 0usize;
     let mut lines = 1usize;
@@ -449,6 +495,7 @@ pub fn base64_encode(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slate_doc::scene::{NodeKind, PortalNode, SceneCmd, WorldRect};
 
     #[test]
     fn fnv1a_is_deterministic() {
@@ -470,6 +517,43 @@ mod tests {
     fn base64_round_trip_length() {
         let encoded = base64_encode(b"Man");
         assert_eq!(encoded, "TWFu");
+    }
+
+    #[test]
+    fn office_excerpt_extensions_are_structured_text() {
+        for ext in atlas_core::office::EXCERPT_EXTENSIONS {
+            let path = PathBuf::from(format!("file.{ext}"));
+            assert!(
+                slate_doc::media::structured_text_package(&path),
+                "{ext} would fall through to raw bytes"
+            );
+            assert_eq!(media_kind(&path), MediaKind::Text, "{ext}");
+        }
+    }
+
+    #[test]
+    fn docx_snippet_is_the_document_text() {
+        let dir = std::env::temp_dir().join(format!(
+            "slate-docx-snippet-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("note.docx");
+        let file = fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.start_file("word/document.xml", opts).unwrap();
+        use std::io::Write;
+        zip.write_all(
+            br#"<w:document><w:body><w:p><w:r><w:t>Quarterly note</w:t></w:r></w:p></w:body></w:document>"#,
+        )
+        .unwrap();
+        zip.finish().unwrap();
+        assert_eq!(read_snippet(&path).as_deref(), Some("Quarterly note"));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -498,5 +582,36 @@ mod tests {
         assert!(read_snippet(&empty).is_none());
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn packaging_skips_a_portal_aimed_at_the_webview_folder() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("slate-priv-{nanos}"));
+        let page = root.join("NativeFileAtlas").join("webview2");
+        fs::create_dir_all(&page).unwrap();
+        fs::write(page.join("index.html"), b"<p>session-cookie</p>").unwrap();
+
+        let mut doc = SlateDoc::default();
+        let node = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 320.0, 180.0),
+            NodeKind::Portal(PortalNode::bound_web("Bank", "https://bank.example/")),
+        );
+        let id = node.id;
+        doc.scene.apply(&SceneCmd::Add { index: 0, node });
+        let out = std::env::temp_dir().join(format!("slate-priv-out-{nanos}"));
+        let _ = fs::remove_dir_all(&out);
+        fs::create_dir_all(&out).unwrap();
+        let mut opts = ExportOptions::default();
+        opts.web_sources.insert(id, page.clone());
+        let report = build_assets(&doc, &out, &opts).unwrap();
+        assert_eq!(report.copied, 0);
+        assert!(report.missing >= 1);
+        assert!(report.map.web_page(id).is_none());
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&out);
     }
 }

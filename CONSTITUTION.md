@@ -48,7 +48,7 @@ portals, commands, sources).
 
 **I.1 — The renderer-agnostic rule (the substrate hedge).** No document model,
 geometry, or capability logic may depend on `egui` or any renderer. Pure
-crates (`slate-doc`, `circle-pack`, `code-lens`, `rhino-mesh`, and their
+crates (`slate-doc`, `circle-pack`, `code-lens`, `rhino-mesh`, `model-preview`, and their
 successors) hold the durable logic; apps are thin interpreters that paint
 pure models and forward input as commands. This is what makes the rendering
 substrate (egui today; GPU vector rendering such as Vello later; other

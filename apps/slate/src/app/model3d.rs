@@ -1,9 +1,10 @@
-//! Interactive 3D viewports for placed Rhino models (`MediaKind::Model`).
+//! Interactive 3D viewports for placed models (`MediaKind::Model`).
 //!
-//! A `.3dm` item placed on the board is a **viewport node**: its saved
+//! Any recognized 3D file placed on the board is a **viewport node**: its saved
 //! [`ModelCamera`] pose (journaled document state on the `ImageNode`) decides
-//! which view of the model the node shows. The lifecycle keeps big models
-//! cheap by default:
+//! which view of the model the node shows. Format readers live in
+//! `model-preview` and all return one [`model_preview::PreviewScene`]. The
+//! lifecycle keeps big models cheap by default:
 //!
 //! - **Locked (default).** The node paints a *poster* — a PNG rendered from
 //!   the saved camera pose, cached on disk next to the thumbnail cache. No
@@ -12,8 +13,8 @@
 //!   perspectives across slides.
 //! - **Unlocked (double-click the node, or hover → padlock).** The mesh is
 //!   parsed off-thread
-//!   (`rhino-mesh` reads the render meshes Rhino cached into the file),
-//!   uploaded to the GPU, and rendered live with Rhino-style controls:
+//!   (`model-preview` reads the file), uploaded to the GPU, and rendered
+//!   live with orbit / pan / zoom:
 //!   drag = orbit, Shift+drag = pan, scroll = zoom. At most [`MAX_LIVE`]
 //!   viewports stay live; unlocking more locks the least-recently-used one.
 //! - **Auto-lock.** A live viewport idle for [`AUTO_LOCK`] locks itself:
@@ -42,6 +43,7 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{self, TextureHandle};
 use eframe::glow::{self, HasContext};
+use model_preview::{PreviewMesh, PreviewScene};
 use slate_doc::scene::{ModelCamera, NodeKind};
 use slate_doc::NodeId;
 
@@ -167,6 +169,37 @@ fn perspective(aspect: f32, near: f32, far: f32) -> [f32; 16] {
     m
 }
 
+/// Nearest and farthest view depth of the model's bounding box, for the depth pass.
+fn view_depth_range(view: &[f32; 16], min: [f32; 3], max: [f32; 3]) -> (f32, f32) {
+    let mut near = f32::INFINITY;
+    let mut far = 0.0f32;
+    for i in 0..8 {
+        let p = [
+            if i & 1 == 0 { min[0] } else { max[0] },
+            if i & 2 == 0 { min[1] } else { max[1] },
+            if i & 4 == 0 { min[2] } else { max[2] },
+        ];
+        // Column-major: view-space z is row 2.
+        let z = view[2] * p[0] + view[6] * p[1] + view[10] * p[2] + view[14];
+        let d = -z;
+        near = near.min(d);
+        far = far.max(d);
+    }
+    let far = far.max(1e-3);
+    let near = near.clamp(far * 1e-3, far * 0.999);
+    (near, far)
+}
+
+/// Capture size near 512² at the node's aspect, in multiples of 8.
+pub fn capture_size(w: f32, h: f32) -> (u32, u32) {
+    let aspect = (w / h.max(1.0)).clamp(0.5, 2.0);
+    let area = 512.0 * 512.0;
+    let cw = (area * aspect).sqrt();
+    let ch = cw / aspect;
+    let snap = |v: f32| ((v / 8.0).round() as u32 * 8).clamp(256, 1024);
+    (snap(cw), snap(ch))
+}
+
 fn mat_mul(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
     let mut out = [0.0f32; 16];
     for col in 0..4 {
@@ -208,11 +241,11 @@ pub fn resolve_camera(cam: &ModelCamera, min: [f32; 3], max: [f32; 3]) -> ModelC
     out
 }
 
-/// Rhino-style orbit: dragging moves the *camera* around the target (drag
-/// right = your head moves right; the model appears to swing left).
+/// Rhino-style orbit: the model turns with the drag (drag right = the model
+/// swings right; drag down = its top tips toward you).
 pub fn orbit(cam: &mut ModelCamera, dx: f32, dy: f32) {
-    cam.yaw += dx * ORBIT_PER_PX;
-    cam.pitch = (cam.pitch - dy * ORBIT_PER_PX).clamp(-1.55, 1.55);
+    cam.yaw -= dx * ORBIT_PER_PX;
+    cam.pitch = (cam.pitch + dy * ORBIT_PER_PX).clamp(-1.55, 1.55);
     // Keep yaw bounded so poses stay serialization-friendly.
     if cam.yaw.abs() > std::f32::consts::TAU {
         cam.yaw %= std::f32::consts::TAU;
@@ -272,14 +305,10 @@ pub fn ray_from_viewport_uv(
 }
 
 /// Closest triangle hit along a ray (Möller–Trumbore). Returns world hit point.
-pub fn raycast_model(
-    model: &rhino_mesh::Model,
-    origin: [f32; 3],
-    dir: [f32; 3],
-) -> Option<[f32; 3]> {
+pub fn raycast_model(model: &PreviewScene, origin: [f32; 3], dir: [f32; 3]) -> Option<[f32; 3]> {
     let mut best_t = f32::INFINITY;
     let mut best = None;
-    for part in &model.parts {
+    for part in &model.meshes {
         let idx = &part.indices;
         let pos = &part.positions;
         for tri in idx.as_chunks::<3>().0 {
@@ -397,6 +426,14 @@ pub fn poster_path(cache_key: &str, cam: &ModelCamera, aspect_q: u32) -> PathBuf
     poster_dir().join(poster_file_name(cache_key, cam, aspect_q))
 }
 
+fn enscape_poster_name(cache_key: &str) -> String {
+    format!("enscape-{cache_key}")
+}
+
+fn enscape_poster_path(cache_key: &str) -> PathBuf {
+    poster_dir().join(format!("{}.png", enscape_poster_name(cache_key)))
+}
+
 /// Poster pixel size for a node aspect (long edge = [`POSTER_LONG_EDGE`]).
 fn poster_size(aspect_q: u32) -> (u32, u32) {
     let aspect = aspect_q as f32 / 100.0;
@@ -426,7 +463,7 @@ const PARSE_CHECKPOINT: f32 = 0.9;
 
 /// Progress shared between the parse worker and the paint pass. The file
 /// read is measured exactly (bytes copied vs file size); the mesh parse has
-/// no incremental hook in `rhino-mesh`, so it reports a fixed checkpoint and
+/// no incremental hook in `model-preview`, so it reports a fixed checkpoint and
 /// the UI eases the bar between checkpoints.
 pub struct ParseProgress {
     /// File size in bytes (0 until stat'd).
@@ -479,10 +516,13 @@ impl ParseProgress {
 
 /// Worker-side parse: read the file in chunks (updating `progress` so the
 /// UI bar tracks real bytes), then hand the buffer to the mesh parser.
-fn parse_with_progress(path: &Path, progress: &ParseProgress) -> Result<rhino_mesh::Model, String> {
+fn parse_with_progress(path: &Path, progress: &ParseProgress) -> Result<PreviewScene, String> {
+    if let Some(msg) = model_preview::gap_message(path) {
+        return Err(msg.to_string());
+    }
     let bytes = read_counted(path, progress).map_err(|e| e.to_string())?;
     progress.set_stage(STAGE_PARSING);
-    let result = rhino_mesh::read_render_meshes_from(&bytes).map_err(|e| e.to_string());
+    let result = model_preview::load_preview(path, &bytes).map_err(|e| e.to_string());
     progress.set_stage(STAGE_DONE);
     result
 }
@@ -515,9 +555,12 @@ fn read_counted(path: &Path, progress: &ParseProgress) -> std::io::Result<Vec<u8
 /// which already encodes path + size + mtime).
 pub enum ModelState {
     Loading,
-    Ready(Arc<rhino_mesh::Model>),
-    /// Message shown in the node placeholder ("no cached render meshes…").
+    Ready(Arc<PreviewScene>),
+    /// Message shown in the node placeholder.
     Failed(String),
+    /// Enscape standalone (or another external runtime). The message is the
+    /// card; opening the program is a separate explicit action.
+    External(String),
 }
 
 /// One live (unlocked) viewport.
@@ -530,7 +573,7 @@ pub struct LiveViewport {
     pub before: ModelCamera,
     pub last_interact: Instant,
     tex: Option<TextureHandle>,
-    rendered: Option<(u64, u32, u32)>,
+    pub(crate) rendered: Option<(u64, u32, u32)>,
     /// Bounds radius once known (zoom clamps, pan scale).
     pub radius: f32,
     /// Left-edge tool palette (Miro-style expandable strip).
@@ -586,14 +629,60 @@ pub struct ModelSpace {
     /// Bounds by cache key (kept even after CPU mesh eviction — needed to
     /// resolve auto-fit cameras cheaply, e.g. for artifact export).
     pub bounds: HashMap<String, ([f32; 3], [f32; 3])>,
-    parse_tx: Sender<(String, Result<rhino_mesh::Model, String>)>,
-    parse_rx: Receiver<(String, Result<rhino_mesh::Model, String>)>,
+    parse_tx: Sender<(String, Result<PreviewScene, String>)>,
+    parse_rx: Receiver<(String, Result<PreviewScene, String>)>,
+    /// Confirmed Enscape standalones, by item cache key. Never written into
+    /// the workbook. A received file stays a normal card until this sniff
+    /// finishes, and nothing here starts the program.
+    pub(crate) external: std::collections::HashSet<String>,
+    sniffed: std::collections::HashSet<String>,
+    sniff_tx: Sender<(String, bool)>,
+    sniff_rx: Receiver<(String, bool)>,
     engine_toast_shown: bool,
+    /// The one Enscape process for this Slate session. Hidden while standby
+    /// so the next click shows the same window instead of launching again.
+    pub(crate) enscape: Option<EnscapeSession>,
+    /// Last grabbed frame, so the card and the image generator don't reread
+    /// the PNG on the UI thread.
+    enscape_grabs: HashMap<String, EnscapeGrab>,
+    pub(crate) enscape_stamps: HashMap<String, u64>,
+}
+
+struct EnscapeGrab {
+    w: u32,
+    h: u32,
+    rgba: std::sync::Arc<Vec<u8>>,
+}
+
+pub struct ModelCapture {
+    pub view: PathBuf,
+    pub depth: Option<PathBuf>,
+}
+
+enum EnscapePhase {
+    #[cfg(windows)]
+    Starting {
+        since: Instant,
+        rx: Receiver<Result<super::enscape_host::Live, super::enscape_host::LaunchError>>,
+    },
+    #[cfg(windows)]
+    Ready(super::enscape_host::Live),
+    #[cfg(not(windows))]
+    Absent,
+}
+
+pub(crate) struct EnscapeSession {
+    key: String,
+    node: NodeId,
+    /// Window is on the card. False keeps the process and shows the grab.
+    shown: bool,
+    phase: EnscapePhase,
 }
 
 impl Default for ModelSpace {
     fn default() -> Self {
         let (parse_tx, parse_rx) = unbounded();
+        let (sniff_tx, sniff_rx) = unbounded();
         ModelSpace {
             engine: EngineSlot::Untried,
             models: HashMap::new(),
@@ -604,7 +693,14 @@ impl Default for ModelSpace {
             bounds: HashMap::new(),
             parse_tx,
             parse_rx,
+            external: std::collections::HashSet::new(),
+            sniffed: std::collections::HashSet::new(),
+            sniff_tx,
+            sniff_rx,
             engine_toast_shown: false,
+            enscape: None,
+            enscape_grabs: HashMap::new(),
+            enscape_stamps: HashMap::new(),
         }
     }
 }
@@ -612,7 +708,18 @@ impl Default for ModelSpace {
 impl ModelSpace {
     /// Kick off (or re-poll) the off-thread parse of a model file.
     fn request_model(&mut self, cache_key: &str, path: &Path) {
-        if self.models.contains_key(cache_key) {
+        if self.external.contains(cache_key) || self.models.contains_key(cache_key) {
+            return;
+        }
+        if let Some(msg) = model_preview::gap_message(path) {
+            self.models.insert(
+                cache_key.to_string(),
+                CpuEntry {
+                    state: ModelState::Failed(msg.to_string()),
+                    last_used: Instant::now(),
+                    progress: Arc::new(ParseProgress::new()),
+                },
+            );
             return;
         }
         let progress = Arc::new(ParseProgress::new());
@@ -653,12 +760,34 @@ impl ModelSpace {
         any
     }
 
+    fn drain_sniffs(&mut self) -> bool {
+        let mut any = false;
+        while let Ok((key, enscape)) = self.sniff_rx.try_recv() {
+            any = true;
+            self.sniffed.insert(key.clone());
+            if enscape {
+                self.external.insert(key.clone());
+                self.models.insert(
+                    key,
+                    CpuEntry {
+                        state: ModelState::External(
+                            super::enscape_host::resting_line().to_string(),
+                        ),
+                        last_used: Instant::now(),
+                        progress: Arc::new(ParseProgress::new()),
+                    },
+                );
+            }
+        }
+        any
+    }
+
     /// Parsed CPU mesh when ready (for picking / measurement).
-    pub fn mesh_for_key(&mut self, cache_key: &str) -> Option<Arc<rhino_mesh::Model>> {
+    pub fn mesh_for_key(&mut self, cache_key: &str) -> Option<Arc<PreviewScene>> {
         self.ready_model(cache_key)
     }
 
-    fn ready_model(&mut self, cache_key: &str) -> Option<Arc<rhino_mesh::Model>> {
+    fn ready_model(&mut self, cache_key: &str) -> Option<Arc<PreviewScene>> {
         let entry = self.models.get_mut(cache_key)?;
         entry.last_used = Instant::now();
         match &entry.state {
@@ -731,6 +860,25 @@ impl ModelSpace {
         engine.render(&gpu.model, cam, w, h)
     }
 
+    fn render_capture_image(
+        &mut self,
+        gl: &Arc<glow::Context>,
+        cache_key: &str,
+        cam: &ModelCamera,
+        w: u32,
+        h: u32,
+        depth: bool,
+    ) -> Option<egui::ColorImage> {
+        if !self.ensure_gpu(gl, cache_key) {
+            return None;
+        }
+        let EngineSlot::Ready(engine) = &self.engine else {
+            return None;
+        };
+        let gpu = self.gpu.get(cache_key)?;
+        engine.render_capture(&gpu.model, cam, w, h, depth)
+    }
+
     /// Free GPU/CPU entries nothing is using (called once per frame).
     fn evict(&mut self) {
         let live_keys: std::collections::HashSet<&String> =
@@ -788,9 +936,9 @@ impl SlateApp {
             return None;
         };
         let item = self.doc().item(img.item)?;
-        if slate_doc::media_kind(&item.path) != slate_doc::MediaKind::Model
-            || item.cache_key.is_empty()
-        {
+        let recognized = slate_doc::media_kind(&item.path) == slate_doc::MediaKind::Model
+            || self.model3d.external.contains(&item.cache_key);
+        if !recognized || item.cache_key.is_empty() {
             return None;
         }
         Some(ModelNodeInfo {
@@ -826,6 +974,14 @@ impl SlateApp {
         let Some(info) = self.model_node_info(id) else {
             return;
         };
+        if self.model3d.external.contains(&info.cache_key) {
+            self.open_enscape_node(id);
+            return;
+        }
+        if model_preview::gap_message(&info.path).is_some() {
+            self.model3d.request_model(&info.cache_key, &info.path);
+            return;
+        }
         if self.gl.is_none() {
             self.toast("3D viewports need GPU rendering (unavailable here)");
             return;
@@ -938,11 +1094,48 @@ impl SlateApp {
         }
     }
 
+    /// Look at `.exe` items once. A hit becomes the same model card as any
+    /// other 3D file, with copy that says to double-click. The sniff never
+    /// starts the program. A dehydrated cloud file is left as a normal file
+    /// card for this session so we do not download it to classify it.
+    fn queue_executable_sniffs(&mut self) {
+        let mut pending = Vec::new();
+        for item in &self.doc().items {
+            if item.cache_key.is_empty() || self.model3d.sniffed.contains(&item.cache_key) {
+                continue;
+            }
+            let exe = item
+                .path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("exe"));
+            if !exe {
+                continue;
+            }
+            pending.push((item.cache_key.clone(), item.path.clone()));
+        }
+        for (key, path) in pending {
+            self.model3d.sniffed.insert(key.clone());
+            let tx = self.model3d.sniff_tx.clone();
+            std::thread::spawn(move || {
+                let yes = if atlas_core::cloud::is_dehydrated(&path) {
+                    false
+                } else {
+                    model_preview::read_enscape_sample(&path)
+                        .is_ok_and(|bytes| model_preview::sample_is_enscape(&bytes))
+                };
+                let _ = tx.send((key, yes));
+            });
+        }
+    }
+
     /// Per-frame upkeep: parse results, auto-lock, eviction, repaint ticks.
     pub fn model3d_frame(&mut self, ctx: &egui::Context) {
-        if self.model3d.drain_parses() {
+        if self.model3d.drain_parses() | self.model3d.drain_sniffs() {
             ctx.request_repaint();
         }
+        self.queue_executable_sniffs();
+        self.maintain_enscape();
 
         // Live viewports whose node vanished (undo, delete) just drop.
         let dead: Vec<NodeId> = self
@@ -1004,8 +1197,8 @@ impl SlateApp {
         self.model3d.request_model(&info.cache_key, &info.path);
         match self.model3d.models.get(&info.cache_key).map(|e| &e.state) {
             Some(ModelState::Ready(_)) => {}
-            Some(ModelState::Failed(_)) => return true, // fallback thumb stays
-            _ => return false,                          // still parsing
+            Some(ModelState::Failed(_) | ModelState::External(_)) => return true,
+            _ => return false, // still parsing
         }
         let Some((min, max)) = self.model3d.bounds.get(&info.cache_key).copied() else {
             return true;
@@ -1064,8 +1257,17 @@ impl SlateApp {
             return;
         }
         if let Some(info) = self.model_node_info(id) {
+            if self.model3d.external.contains(&info.cache_key) {
+                return;
+            }
             self.model3d.request_model(&info.cache_key, &info.path);
-            self.model3d.want_poster.insert(id);
+            let blocked = matches!(
+                self.model3d.models.get(&info.cache_key).map(|e| &e.state),
+                Some(ModelState::Failed(_) | ModelState::External(_))
+            );
+            if !blocked {
+                self.model3d.want_poster.insert(id);
+            }
         }
     }
 
@@ -1238,6 +1440,333 @@ impl SlateApp {
         self.last_board_edit = None;
     }
 
+    /// Show this Enscape card. The first time starts the program off the UI
+    /// thread. Clicking away only hides it; the same session shows the window
+    /// again. A different Enscape file replaces the one kept on standby.
+    pub(crate) fn open_enscape_node(&mut self, id: NodeId) {
+        let Some(info) = self.model_node_info(id) else {
+            return;
+        };
+        if self
+            .model3d
+            .enscape
+            .as_ref()
+            .is_some_and(|session| session.key == info.cache_key && session.node == id)
+        {
+            if self.model3d.enscape.as_ref().is_some_and(|s| s.shown) {
+                self.park_enscape();
+            } else {
+                self.show_enscape_session();
+            }
+            return;
+        }
+        let rotated = self
+            .doc()
+            .scene
+            .node(id)
+            .is_some_and(|n| n.rotation_deg.abs() > 0.5);
+        let blocked = super::enscape_host::refusal(super::enscape_host::OpenFacts {
+            windows: cfg!(windows),
+            exists: info.path.is_file(),
+            cloud_only: atlas_core::cloud::is_dehydrated(&info.path),
+            rotated,
+            already_open: false,
+        });
+        if let Some(msg) = blocked {
+            self.show_enscape_block(&info.cache_key, msg);
+            return;
+        }
+        if self
+            .model3d
+            .enscape
+            .as_ref()
+            .is_some_and(|session| session.key == info.cache_key)
+        {
+            if let Some(session) = self.model3d.enscape.as_mut() {
+                session.node = id;
+                session.shown = true;
+            }
+            self.set_enscape_line(&info.cache_key, super::enscape_host::resting_line());
+            return;
+        }
+        if cfg!(test) {
+            return;
+        }
+        #[cfg(windows)]
+        {
+            if self.frame_hwnd == 0 {
+                self.show_enscape_block(&info.cache_key, super::enscape_host::NO_HOST);
+                return;
+            }
+            self.discard_enscape();
+            let (tx, rx) = unbounded();
+            let path = info.path.clone();
+            let node = id;
+            let key = info.cache_key.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(super::enscape_host::launch(&path, node, key));
+            });
+            self.set_enscape_line(&info.cache_key, super::enscape_host::OPENING);
+            self.model3d.enscape = Some(EnscapeSession {
+                key: info.cache_key,
+                node: id,
+                shown: true,
+                phase: EnscapePhase::Starting {
+                    since: Instant::now(),
+                    rx,
+                },
+            });
+        }
+    }
+
+    /// Hide the window and keep the process. The card shows the last frame.
+    pub(crate) fn park_enscape(&mut self) {
+        let Some(session) = self.model3d.enscape.as_mut() else {
+            return;
+        };
+        if !session.shown {
+            return;
+        }
+        session.shown = false;
+        let key = session.key.clone();
+        #[cfg(windows)]
+        let grabbed = match &session.phase {
+            EnscapePhase::Ready(live) => {
+                let frame = super::enscape_host::capture(live);
+                super::enscape_host::place(live, None);
+                frame
+            }
+            EnscapePhase::Starting { .. } => None,
+        };
+        #[cfg(not(windows))]
+        let grabbed: Option<(u32, u32, Vec<u8>)> = None;
+        if let Some((w, h, rgba)) = grabbed {
+            self.remember_enscape_frame(key.clone(), w, h, rgba, true);
+        }
+        self.set_enscape_line(&key, super::enscape_host::resting_line());
+    }
+
+    fn show_enscape_session(&mut self) {
+        if let Some(session) = self.model3d.enscape.as_mut() {
+            session.shown = true;
+        }
+    }
+
+    pub(crate) fn enscape_shown_node(&self) -> Option<NodeId> {
+        let session = self.model3d.enscape.as_ref()?;
+        session.shown.then_some(session.node)
+    }
+
+    pub(crate) fn enscape_shown_for(&self) -> std::time::Duration {
+        let Some(session) = self.model3d.enscape.as_ref().filter(|s| s.shown) else {
+            return std::time::Duration::ZERO;
+        };
+        #[cfg(windows)]
+        {
+            return match &session.phase {
+                EnscapePhase::Starting { since, .. } => since.elapsed(),
+                EnscapePhase::Ready(live) => live.since.elapsed(),
+            };
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = session;
+            std::time::Duration::ZERO
+        }
+    }
+
+    pub(crate) fn place_active_enscape(&self, rect: Option<(i32, i32, i32, i32)>) {
+        #[cfg(windows)]
+        if let Some(session) = self.model3d.enscape.as_ref().filter(|s| s.shown) {
+            if let EnscapePhase::Ready(live) = &session.phase {
+                super::enscape_host::place(live, rect);
+            }
+        }
+        #[cfg(not(windows))]
+        let _ = rect;
+    }
+
+    /// End the standby process. Used when another file replaces it, the card
+    /// is deleted, or Slate exits.
+    pub(crate) fn close_enscape(&mut self) {
+        self.discard_enscape();
+    }
+
+    fn discard_enscape(&mut self) {
+        let Some(session) = self.model3d.enscape.take() else {
+            return;
+        };
+        #[cfg(windows)]
+        match session.phase {
+            EnscapePhase::Ready(live) => drop(live),
+            EnscapePhase::Starting { rx, .. } => {
+                std::thread::spawn(move || {
+                    if let Ok(Ok(live)) = rx.recv() {
+                        drop(live);
+                    }
+                });
+            }
+        }
+        #[cfg(not(windows))]
+        let _ = session;
+    }
+
+    fn remember_enscape_frame(&mut self, key: String, w: u32, h: u32, rgba: Vec<u8>, bump: bool) {
+        if bump {
+            let stamp = self.model3d.enscape_stamps.get(&key).copied().unwrap_or(0) + 1;
+            self.model3d.enscape_stamps.insert(key.clone(), stamp);
+        }
+        let bytes = std::sync::Arc::new(rgba);
+        self.model3d.enscape_grabs.insert(
+            key.clone(),
+            EnscapeGrab {
+                w,
+                h,
+                rgba: bytes.clone(),
+            },
+        );
+        self.model3d.posters.remove(&enscape_poster_name(&key));
+        let path = enscape_poster_path(&key);
+        std::thread::spawn(move || {
+            let _ = std::fs::create_dir_all(poster_dir());
+            let _ = image::save_buffer_with_format(
+                path,
+                bytes.as_slice(),
+                w,
+                h,
+                image::ColorType::Rgba8,
+                image::ImageFormat::Png,
+            );
+        });
+    }
+
+    /// Attach a window once the background launch finishes, and hide it if
+    /// the card was already parked.
+    pub(crate) fn maintain_enscape(&mut self) {
+        let Some(session) = self.model3d.enscape.as_ref() else {
+            return;
+        };
+        let node = session.node;
+        let key = session.key.clone();
+        let left = self.doc().view.active_view != slate_doc::ViewKind::Board
+            || self.model_node_info(node).is_none();
+        if self.model_node_info(node).is_none() {
+            self.discard_enscape();
+            return;
+        }
+        if left {
+            self.park_enscape();
+        }
+        #[cfg(windows)]
+        {
+            let failed = self.poll_enscape_launch();
+            if let Some(msg) = failed {
+                self.discard_enscape();
+                self.show_enscape_block(&key, &msg);
+                return;
+            }
+            let shown = self.model3d.enscape.as_ref().is_some_and(|s| s.shown);
+            if let Some(session) = self.model3d.enscape.as_mut() {
+                if let EnscapePhase::Ready(live) = &mut session.phase {
+                    let had = live.has_window();
+                    super::enscape_host::poll(live, self.frame_hwnd);
+                    if !shown && live.has_window() {
+                        super::enscape_host::place(live, None);
+                    }
+                    if !had && live.has_window() && shown {
+                        // First pixels are grabbed when the user parks.
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    fn poll_enscape_launch(&mut self) -> Option<String> {
+        let incoming = {
+            let session = self.model3d.enscape.as_ref()?;
+            match &session.phase {
+                EnscapePhase::Ready(live) => {
+                    if !live.has_window() && live.timed_out() {
+                        return Some(super::enscape_host::NO_WINDOW.to_string());
+                    }
+                    return None;
+                }
+                EnscapePhase::Starting { since, rx } => {
+                    let timed_out = since.elapsed() > super::enscape_host::OPEN_TIMEOUT;
+                    match rx.try_recv() {
+                        Ok(result) => Some(result),
+                        Err(_) if timed_out => {
+                            return Some(super::enscape_host::NO_WINDOW.to_string())
+                        }
+                        Err(_) => return None,
+                    }
+                }
+            }
+        };
+        let Some(session) = self.model3d.enscape.as_mut() else {
+            return None;
+        };
+        match incoming {
+            Some(Ok(live)) => {
+                session.phase = EnscapePhase::Ready(live);
+                None
+            }
+            Some(Err(super::enscape_host::LaunchError::WrongMachine)) => {
+                Some(super::enscape_host::WRONG_MACHINE.to_string())
+            }
+            Some(Err(super::enscape_host::LaunchError::Other(err))) => {
+                Some(format!("Enscape didn't start on this computer. {err}"))
+            }
+            None => None,
+        }
+    }
+
+    pub(crate) fn enscape_poster_texture(
+        &mut self,
+        ctx: &egui::Context,
+        cache_key: &str,
+    ) -> Option<TextureHandle> {
+        let name = enscape_poster_name(cache_key);
+        if let Some(tex) = self.model3d.posters.get(&name) {
+            return Some(tex.clone());
+        }
+        if let Some(grab) = self.model3d.enscape_grabs.get(cache_key) {
+            let color = egui::ColorImage::from_rgba_unmultiplied(
+                [grab.w as usize, grab.h as usize],
+                grab.rgba.as_slice(),
+            );
+            let tex = ctx.load_texture(
+                format!("slate-enscape-{name}"),
+                color,
+                egui::TextureOptions::LINEAR,
+            );
+            self.model3d.posters.insert(name, tex.clone());
+            return Some(tex);
+        }
+        let img = image::open(enscape_poster_path(cache_key)).ok()?.to_rgba8();
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        let color = egui::ColorImage::from_rgba_unmultiplied([w, h], img.as_raw());
+        let tex = ctx.load_texture(
+            format!("slate-enscape-{name}"),
+            color,
+            egui::TextureOptions::LINEAR,
+        );
+        self.model3d.posters.insert(name, tex.clone());
+        Some(tex)
+    }
+
+    fn show_enscape_block(&mut self, cache_key: &str, msg: &str) {
+        self.toast(msg);
+        self.set_enscape_line(cache_key, msg);
+    }
+
+    fn set_enscape_line(&mut self, cache_key: &str, msg: &str) {
+        if let Some(entry) = self.model3d.models.get_mut(cache_key) {
+            entry.state = ModelState::External(msg.to_string());
+        }
+    }
+
     /// Load-bar checkpoint (0..=1) while a model file is still parsing.
     /// `None` once the parse finished (ready or failed) or never started.
     pub fn model_parse_progress(&self, cache_key: &str) -> Option<f32> {
@@ -1248,9 +1777,121 @@ impl SlateApp {
     /// Parse-failure message for a model file, if it failed.
     pub fn model_failure(&self, cache_key: &str) -> Option<&str> {
         match self.model3d.models.get(cache_key).map(|e| &e.state) {
-            Some(ModelState::Failed(msg)) => Some(msg.as_str()),
+            Some(ModelState::Failed(msg) | ModelState::External(msg)) => Some(msg.as_str()),
             _ => None,
         }
+    }
+
+    /// Shaded view and exact depth from the node's current camera, written for an
+    /// image generator. `Ok(None)` means the mesh is still loading; call again.
+    pub fn capture_model_inputs(
+        &mut self,
+        id: NodeId,
+        dir: &std::path::Path,
+    ) -> Result<Option<ModelCapture>, String> {
+        let info = self
+            .model_node_info(id)
+            .ok_or("That node is not a 3D model.")?;
+        if let Some(message) = model_preview::gap_message(&info.path) {
+            return Err(message.to_string());
+        }
+        if self.model3d.external.contains(&info.cache_key) {
+            return self.capture_enscape_view(id, &info.cache_key, dir);
+        }
+        if let Some(message) = self.model_failure(&info.cache_key) {
+            return Err(message.to_string());
+        }
+        let gl = self
+            .gl
+            .clone()
+            .ok_or("3D viewports need GPU rendering (unavailable here).")?;
+        let cam = self
+            .model3d
+            .live
+            .get(&id)
+            .map(|vp| vp.cam)
+            .unwrap_or(info.cam);
+        let (w, h) = capture_size(info.rect.w, info.rect.h);
+        let Some(view) = self
+            .model3d
+            .render_capture_image(&gl, &info.cache_key, &cam, w, h, false)
+        else {
+            self.model3d.request_model(&info.cache_key, &info.path);
+            return Ok(None);
+        };
+        let depth = self
+            .model3d
+            .render_capture_image(&gl, &info.cache_key, &cam, w, h, true)
+            .ok_or("The depth pass failed.")?;
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let view_path = dir.join(format!("node-{}-view.png", id.0));
+        let depth_path = dir.join(format!("node-{}-depth.png", id.0));
+        write_fast_png(&view_path, &view, false)?;
+        write_fast_png(&depth_path, &depth, true)?;
+        Ok(Some(ModelCapture {
+            view: view_path,
+            depth: Some(depth_path),
+        }))
+    }
+
+    /// The Enscape card's last frame is the picture the generator sees.
+    /// There is no depth buffer in the standalone, so this is a source image
+    /// rather than a mesh render. `Ok(None)` while the first launch is still
+    /// starting and no frame exists yet.
+    fn capture_enscape_view(
+        &mut self,
+        id: NodeId,
+        key: &str,
+        dir: &std::path::Path,
+    ) -> Result<Option<ModelCapture>, String> {
+        #[cfg(windows)]
+        {
+            let fresh = self.model3d.enscape.as_ref().and_then(|session| {
+                if session.key != key || !session.shown {
+                    return None;
+                }
+                match &session.phase {
+                    EnscapePhase::Ready(live) => super::enscape_host::capture(live),
+                    EnscapePhase::Starting { .. } => None,
+                }
+            });
+            if let Some((w, h, rgba)) = fresh {
+                self.remember_enscape_frame(key.to_string(), w, h, rgba, false);
+            }
+        }
+        #[cfg(windows)]
+        let starting = self.model3d.enscape.as_ref().is_some_and(|session| {
+            session.key == key && matches!(session.phase, EnscapePhase::Starting { .. })
+        });
+        #[cfg(not(windows))]
+        let starting = false;
+        if starting && !self.model3d.enscape_grabs.contains_key(key) {
+            return Ok(None);
+        }
+        let stored = if let Some(grab) = self.model3d.enscape_grabs.get(key) {
+            Some((grab.w, grab.h, grab.rgba.clone()))
+        } else if let Ok(img) = image::open(enscape_poster_path(key)) {
+            let rgba = img.to_rgba8();
+            let (w, h) = (rgba.width(), rgba.height());
+            Some((w, h, std::sync::Arc::new(rgba.into_raw())))
+        } else {
+            None
+        };
+        let Some((w, h, rgba)) = stored else {
+            return Err("Open this Enscape card once so the generator has a view of it.".into());
+        };
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let view = dir.join(format!("node-{id}-view.png", id = id.0));
+        image::save_buffer_with_format(
+            &view,
+            rgba.as_slice(),
+            w,
+            h,
+            image::ColorType::Rgba8,
+            image::ImageFormat::Png,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(Some(ModelCapture { view, depth: None }))
     }
 
     /// One-time toast when shader setup failed (very old GPUs).
@@ -1260,6 +1901,38 @@ impl SlateApp {
             self.toast("3D viewport unavailable — GPU shader setup failed");
         }
     }
+}
+
+/// Fast compression: these captures are rewritten every live frame.
+pub(crate) fn write_fast_png(
+    path: &Path,
+    img: &egui::ColorImage,
+    luma: bool,
+) -> Result<(), String> {
+    use image::ImageEncoder;
+    let (w, h) = (img.size[0] as u32, img.size[1] as u32);
+    let (bytes, color): (Vec<u8>, image::ExtendedColorType) = if luma {
+        (
+            img.pixels.iter().map(|p| p.r()).collect(),
+            image::ExtendedColorType::L8,
+        )
+    } else {
+        (
+            img.pixels
+                .iter()
+                .flat_map(|p| [p.r(), p.g(), p.b()])
+                .collect(),
+            image::ExtendedColorType::Rgb8,
+        )
+    };
+    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    image::codecs::png::PngEncoder::new_with_quality(
+        std::io::BufWriter::new(file),
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::Sub,
+    )
+    .write_image(&bytes, w, h, color)
+    .map_err(|e| e.to_string())
 }
 
 fn save_poster(path: &Path, img: &egui::ColorImage) {
@@ -1302,18 +1975,40 @@ const MODEL_FS: &str = r#"#version 330 core
 in vec3 v_nrm;
 in vec3 v_pos;
 uniform vec3 u_color;
+uniform vec3 u_mask;
+// 0 shaded, 1 arctic (white clay), 2 material mask, 3 z-buffer.
+uniform float u_mode;
+// y, z are 1/near and 1/far of the model. Used by the z-buffer pass.
+uniform vec3 u_depth;
 out vec4 frag;
 void main() {
     vec3 n = normalize(v_nrm);
     vec3 v = normalize(-v_pos);
     if (dot(n, v) < 0.0) n = -n;
+    if (u_mode > 2.5) {
+        float z = max(-v_pos.z, 1e-4);
+        float d = clamp((1.0 / z - u_depth.z) / max(u_depth.y - u_depth.z, 1e-9), 0.0, 1.0);
+        frag = vec4(vec3(d), 1.0);
+        return;
+    }
+    if (u_mode > 1.5) {
+        float edge = fwidth(n.x) + fwidth(n.y) + fwidth(n.z);
+        vec3 mask = mix(u_mask, vec3(0.0), clamp(edge * 1.6, 0.0, 1.0));
+        frag = vec4(mask, 1.0);
+        return;
+    }
     vec3 l = normalize(vec3(0.25, 0.4, 1.0));
-    vec3 base = pow(u_color, vec3(2.2));
+    vec3 base = u_mode > 0.5 ? vec3(0.96) : pow(u_color, vec3(2.2));
     float ndl = max(dot(n, l), 0.0);
     float hemi = 0.5 + 0.5 * n.y;
-    vec3 col = base * (0.22 + 0.16 * hemi) + base * ndl * 0.72;
-    vec3 hv = normalize(l + v);
-    col += vec3(0.18) * pow(max(dot(n, hv), 0.0), 48.0);
+    float amb = u_mode > 0.5 ? 0.42 : 0.22;
+    float wrap = u_mode > 0.5 ? 0.28 : 0.16;
+    float key = u_mode > 0.5 ? 0.38 : 0.72;
+    vec3 col = base * (amb + wrap * hemi) + base * ndl * key;
+    if (u_mode < 0.5) {
+        vec3 hv = normalize(l + v);
+        col += vec3(0.18) * pow(max(dot(n, hv), 0.0), 48.0);
+    }
     frag = vec4(pow(col, vec3(1.0 / 2.2)), 1.0);
 }
 "#;
@@ -1342,12 +2037,41 @@ void main() {
 /// `rhino-mesh` docs).
 const DEFAULT_PART_COLOR: [f32; 3] = [0.78, 0.78, 0.76];
 
+/// Stable saturated color for a mesh part that has no authored color.
+/// Adjacent parts land far apart on the hue wheel.
+pub fn mask_palette(index: usize) -> [f32; 3] {
+    let h = (index as f32 * 0.618_034).fract();
+    let s = 0.72;
+    let v = 0.92;
+    let i = (h * 6.0).floor();
+    let f = h * 6.0 - i;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - s * f);
+    let t = v * (1.0 - s * (1.0 - f));
+    match i as i32 % 6 {
+        0 => [v, t, p],
+        1 => [q, v, p],
+        2 => [p, v, t],
+        3 => [p, q, v],
+        4 => [t, p, v],
+        _ => [v, p, q],
+    }
+}
+
+/// Generator captures stand the model on a ground this many radii wide.
+const GROUND_EXTENT: f32 = 60.0;
+/// Slightly darker than parts, so edges separate a model from its ground.
+const GROUND_COLOR: [u8; 3] = [150, 153, 150];
+
 /// One `glDrawElements` range with its uniform color.
 struct DrawRange {
     /// Byte offset into the index buffer.
     offset: i32,
     count: i32,
     color: [f32; 3],
+    /// Flat segmentation color. Authored part colors stay shared; parts
+    /// without a color get a stable palette entry.
+    mask: [f32; 3],
 }
 
 pub struct GpuModel {
@@ -1366,6 +2090,9 @@ pub struct ModelEngine {
     u_mvp: glow::UniformLocation,
     u_view: glow::UniformLocation,
     u_color: glow::UniformLocation,
+    u_mask: glow::UniformLocation,
+    u_mode: glow::UniformLocation,
+    u_depth: glow::UniformLocation,
     bg_program: glow::Program,
     bg_vao: glow::VertexArray,
 }
@@ -1416,6 +2143,9 @@ impl ModelEngine {
             let u_mvp = gl.get_uniform_location(program, "u_mvp")?;
             let u_view = gl.get_uniform_location(program, "u_view")?;
             let u_color = gl.get_uniform_location(program, "u_color")?;
+            let u_mask = gl.get_uniform_location(program, "u_mask")?;
+            let u_mode = gl.get_uniform_location(program, "u_mode")?;
+            let u_depth = gl.get_uniform_location(program, "u_depth")?;
             // Core profiles need a bound VAO even for bufferless draws.
             let bg_vao = gl.create_vertex_array().ok()?;
             Some(ModelEngine {
@@ -1424,6 +2154,9 @@ impl ModelEngine {
                 u_mvp,
                 u_view,
                 u_color,
+                u_mask,
+                u_mode,
+                u_depth,
                 bg_program,
                 bg_vao,
             })
@@ -1433,23 +2166,28 @@ impl ModelEngine {
     /// Upload a parsed model: one interleaved (pos, normal) vertex buffer,
     /// one index buffer, per-color draw ranges (brep faces usually share a
     /// color, so most files collapse to a single draw call).
-    pub fn upload(&self, model: &rhino_mesh::Model) -> Option<GpuModel> {
+    pub fn upload(&self, model: &PreviewScene) -> Option<GpuModel> {
         let gl = &self.gl;
 
         // Group parts by color to minimize draw calls.
-        let mut order: Vec<usize> = (0..model.parts.len()).collect();
-        let color_of = |p: &rhino_mesh::MeshPart| -> [u8; 3] { p.color.unwrap_or([255, 255, 255]) };
-        order.sort_by_key(|i| (model.parts[*i].color.is_some(), color_of(&model.parts[*i])));
+        let mut order: Vec<usize> = (0..model.meshes.len()).collect();
+        let color_of = |p: &PreviewMesh| -> [u8; 3] { p.color.unwrap_or([255, 255, 255]) };
+        order.sort_by_key(|i| {
+            (
+                model.meshes[*i].color.is_some(),
+                color_of(&model.meshes[*i]),
+            )
+        });
 
-        let total_verts: usize = model.parts.iter().map(|p| p.positions.len()).sum();
-        let total_idx: usize = model.parts.iter().map(|p| p.indices.len()).sum();
+        let total_verts: usize = model.meshes.iter().map(|p| p.positions.len()).sum();
+        let total_idx: usize = model.meshes.iter().map(|p| p.indices.len()).sum();
         let mut verts: Vec<f32> = Vec::with_capacity(total_verts * 6);
         let mut indices: Vec<u32> = Vec::with_capacity(total_idx);
         let mut draws: Vec<DrawRange> = Vec::new();
         let mut base_vertex: u32 = 0;
 
         for i in order {
-            let part = &model.parts[i];
+            let part = &model.meshes[i];
             if part.positions.is_empty() || part.indices.is_empty() {
                 continue;
             }
@@ -1463,6 +2201,16 @@ impl ModelEngine {
                     ]
                 })
                 .unwrap_or(DEFAULT_PART_COLOR);
+            let mask = part
+                .color
+                .map(|c| {
+                    [
+                        c[0] as f32 / 255.0,
+                        c[1] as f32 / 255.0,
+                        c[2] as f32 / 255.0,
+                    ]
+                })
+                .unwrap_or_else(|| mask_palette(i));
             let start_index = indices.len();
             for (p, n) in part.positions.iter().zip(part.normals.iter()) {
                 verts.extend_from_slice(p);
@@ -1476,11 +2224,12 @@ impl ModelEngine {
             // Extend the previous range when the color repeats.
             let count = (indices.len() - start_index) as i32;
             match draws.last_mut() {
-                Some(last) if last.color == color => last.count += count,
+                Some(last) if last.color == color && last.mask == mask => last.count += count,
                 _ => draws.push(DrawRange {
                     offset: (start_index * 4) as i32,
                     count,
                     color,
+                    mask,
                 }),
             }
         }
@@ -1544,6 +2293,66 @@ impl ModelEngine {
         w: u32,
         h: u32,
     ) -> Option<egui::ColorImage> {
+        self.render_pass(model, None, cam, w, h, cam.display)
+    }
+
+    /// A generator capture: the model standing on a ground plane at its base,
+    /// shaded, or as inverse depth (nearest geometry white, sky black).
+    pub fn render_capture(
+        &self,
+        model: &GpuModel,
+        cam: &ModelCamera,
+        w: u32,
+        h: u32,
+        depth: bool,
+    ) -> Option<egui::ColorImage> {
+        let ground = self.ground_for(model);
+        let mode = if depth {
+            slate_doc::scene::ModelDisplay::Depth
+        } else {
+            slate_doc::scene::ModelDisplay::Shaded
+        };
+        let image = self.render_pass(model, ground.as_ref(), cam, w, h, mode);
+        if let Some(ground) = ground {
+            self.free(ground);
+        }
+        image
+    }
+
+    /// Massing models rarely include a site; a render needs somewhere to stand.
+    fn ground_for(&self, model: &GpuModel) -> Option<GpuModel> {
+        let (center, radius) = bounds_sphere(model.bounds_min, model.bounds_max);
+        let z = model.bounds_min[2] - radius * 1e-3;
+        let s = radius * GROUND_EXTENT;
+        let (x, y) = (center[0], center[1]);
+        self.upload(&PreviewScene {
+            format: "ground",
+            meshes: vec![PreviewMesh {
+                positions: vec![
+                    [x - s, y - s, z],
+                    [x + s, y - s, z],
+                    [x + s, y + s, z],
+                    [x - s, y + s, z],
+                ],
+                normals: vec![[0.0, 0.0, 1.0]; 4],
+                indices: vec![0, 1, 2, 0, 2, 3],
+                color: Some(GROUND_COLOR),
+            }],
+            bounds_min: model.bounds_min,
+            bounds_max: model.bounds_max,
+            notes: Vec::new(),
+        })
+    }
+
+    fn render_pass(
+        &self,
+        model: &GpuModel,
+        ground: Option<&GpuModel>,
+        cam: &ModelCamera,
+        w: u32,
+        h: u32,
+        mode: slate_doc::scene::ModelDisplay,
+    ) -> Option<egui::ColorImage> {
         let gl = &self.gl;
         let (w, h) = (w.clamp(16, 4096) as i32, h.clamp(16, 4096) as i32);
 
@@ -1554,9 +2363,34 @@ impl ModelEngine {
         let near = (cam.distance - radius * 2.0)
             .max(cam.distance * 0.01)
             .max(radius * 1e-3);
-        let far = cam.distance + radius * 4.0;
+        let far = cam.distance
+            + radius
+                * if ground.is_some() {
+                    GROUND_EXTENT * 1.5
+                } else {
+                    4.0
+                };
         let proj = perspective(w as f32 / h as f32, near, far);
         let mvp = mat_mul(&proj, &view);
+        let (depth_near, depth_far) = view_depth_range(&view, model.bounds_min, model.bounds_max);
+        // With a ground, the fade runs from the nearest visible ground at the
+        // frame's bottom edge past the model toward the horizon.
+        let (depth_near, depth_far) = match ground {
+            Some(ground) => {
+                let height = eye[2] - ground.bounds_min[2];
+                let down = cam.pitch + FOV_Y * 0.5;
+                let nearest = if height > 0.0 && down > 0.01 {
+                    height / down.sin() * (FOV_Y * 0.5).cos()
+                } else {
+                    depth_near
+                };
+                (
+                    nearest.clamp(depth_near * 0.05, depth_near),
+                    depth_far * 4.0,
+                )
+            }
+            None => (depth_near, depth_far),
+        };
 
         unsafe {
             // MSAA target.
@@ -1602,15 +2436,23 @@ impl ModelEngine {
                 gl.disable(glow::SCISSOR_TEST);
                 gl.disable(glow::BLEND);
                 gl.disable(glow::CULL_FACE);
-                gl.clear_color(0.0, 0.0, 0.0, 1.0);
+                let arctic = mode == slate_doc::scene::ModelDisplay::Arctic;
+                if arctic {
+                    gl.clear_color(0.93, 0.93, 0.91, 1.0);
+                } else {
+                    gl.clear_color(0.0, 0.0, 0.0, 1.0);
+                }
                 gl.clear_depth_f64(1.0);
                 gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
 
-                // Background gradient (no depth).
+                // Background gradient for the shaded view. Arctic is a light
+                // field; material and z-buffer stay on a black field.
                 gl.disable(glow::DEPTH_TEST);
-                gl.use_program(Some(self.bg_program));
-                gl.bind_vertex_array(Some(self.bg_vao));
-                gl.draw_arrays(glow::TRIANGLES, 0, 3);
+                if mode == slate_doc::scene::ModelDisplay::Shaded {
+                    gl.use_program(Some(self.bg_program));
+                    gl.bind_vertex_array(Some(self.bg_vao));
+                    gl.draw_arrays(glow::TRIANGLES, 0, 3);
+                }
 
                 // Model.
                 gl.enable(glow::DEPTH_TEST);
@@ -1618,15 +2460,36 @@ impl ModelEngine {
                 gl.use_program(Some(self.program));
                 gl.uniform_matrix_4_f32_slice(Some(&self.u_mvp), false, &mvp);
                 gl.uniform_matrix_4_f32_slice(Some(&self.u_view), false, &view);
-                gl.bind_vertex_array(Some(model.vao));
-                for draw in &model.draws {
-                    gl.uniform_3_f32(
-                        Some(&self.u_color),
-                        draw.color[0],
-                        draw.color[1],
-                        draw.color[2],
-                    );
-                    gl.draw_elements(glow::TRIANGLES, draw.count, glow::UNSIGNED_INT, draw.offset);
+                let mode_id = match mode {
+                    slate_doc::scene::ModelDisplay::Shaded => 0.0,
+                    slate_doc::scene::ModelDisplay::Arctic => 1.0,
+                    slate_doc::scene::ModelDisplay::Material => 2.0,
+                    slate_doc::scene::ModelDisplay::Depth => 3.0,
+                };
+                gl.uniform_1_f32(Some(&self.u_mode), mode_id);
+                gl.uniform_3_f32(Some(&self.u_depth), 0.0, 1.0 / depth_near, 1.0 / depth_far);
+                for part in std::iter::once(model).chain(ground) {
+                    gl.bind_vertex_array(Some(part.vao));
+                    for draw in &part.draws {
+                        gl.uniform_3_f32(
+                            Some(&self.u_color),
+                            draw.color[0],
+                            draw.color[1],
+                            draw.color[2],
+                        );
+                        gl.uniform_3_f32(
+                            Some(&self.u_mask),
+                            draw.mask[0],
+                            draw.mask[1],
+                            draw.mask[2],
+                        );
+                        gl.draw_elements(
+                            glow::TRIANGLES,
+                            draw.count,
+                            glow::UNSIGNED_INT,
+                            draw.offset,
+                        );
+                    }
                 }
                 gl.bind_vertex_array(None);
                 gl.use_program(None);
@@ -1739,7 +2602,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let model = rhino_mesh::read_render_meshes(&source).unwrap();
+        let model = model_preview::load_preview(&source, &std::fs::read(&source).unwrap()).unwrap();
         let items = h.app.add_paths(&[source]);
         h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
         h.app.place_items_on_board(&items, egui::Pos2::ZERO);
@@ -1770,6 +2633,18 @@ mod tests {
             },
         );
         (h, id)
+    }
+
+    #[test]
+    fn live_model_drops_the_selection_cast_until_it_locks() {
+        let (mut h, id) = live_model("model_cast");
+        h.app.board_sel.clear();
+        h.app.board_sel.insert(id);
+        assert!(h.app.frame_chrome_suppressed(id));
+        assert!(h.app.selection_stringers_suppressed());
+        h.app.lock_model(id);
+        assert!(!h.app.frame_chrome_suppressed(id));
+        assert!(!h.app.selection_stringers_suppressed());
     }
 
     #[test]
@@ -1924,12 +2799,24 @@ mod tests {
         assert_eq!(h.app.model_node_info(id).unwrap().cam, cam);
     }
 
+    #[test]
+    fn display_mode_changes_the_poster_key() {
+        let shaded = cam(0.2, 0.3, 8.0);
+        let mut arctic = shaded;
+        arctic.display = slate_doc::scene::ModelDisplay::Arctic;
+        assert_ne!(shaded.cache_hash(), arctic.cache_hash());
+        let a = mask_palette(0);
+        let b = mask_palette(1);
+        assert_ne!(a, b);
+    }
+
     fn cam(yaw: f32, pitch: f32, distance: f32) -> ModelCamera {
         ModelCamera {
             target: [0.0, 0.0, 0.0],
             yaw,
             pitch,
             distance,
+            display: slate_doc::scene::ModelDisplay::Shaded,
         }
     }
 
@@ -1946,6 +2833,32 @@ mod tests {
         // Already-resolved cameras pass through untouched.
         let again = resolve_camera(&resolved, [-1.0, -1.0, -1.0], [3.0, 3.0, 3.0]);
         assert_eq!(resolved, again);
+    }
+
+    #[test]
+    fn generator_captures_keep_the_card_aspect_near_512_square() {
+        assert_eq!(capture_size(400.0, 400.0), (512, 512));
+        let (w, h) = capture_size(1600.0, 900.0);
+        assert_eq!((w % 8, h % 8), (0, 0));
+        assert!((w as f32 / h as f32 - 16.0 / 9.0).abs() < 0.05);
+        assert!(((w * h) as f32 - 262_144.0).abs() / 262_144.0 < 0.05);
+        let (w, h) = capture_size(100.0, 1000.0);
+        assert!(w >= 256 && h <= 1024, "extreme aspects are clamped");
+    }
+
+    #[test]
+    fn depth_range_spans_the_model_bounds_in_front_of_the_camera() {
+        let cam = ModelCamera {
+            target: [0.0, 0.0, 0.0],
+            yaw: 0.3,
+            pitch: 0.2,
+            distance: 10.0,
+            display: slate_doc::scene::ModelDisplay::Shaded,
+        };
+        let view = look_at(eye_of(&cam), cam.target);
+        let (near, far) = view_depth_range(&view, [-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]);
+        assert!(near > 7.0 && near < 10.0, "near {near}");
+        assert!(far > 10.0 && far < 13.0, "far {far}");
     }
 
     #[test]
@@ -2070,9 +2983,22 @@ mod tests {
     }
 
     #[test]
+    fn every_model_extension_has_one_preview_owner() {
+        let mut preview: Vec<_> = model_preview::extensions().collect();
+        preview.sort_unstable();
+        let mut media = slate_doc::media::MediaGroup::Model.extensions();
+        media.sort_unstable();
+        assert_eq!(
+            preview, media,
+            "slate-doc model extensions and model-preview readers drifted"
+        );
+    }
+
+    #[test]
     fn raycast_hits_a_simple_triangle() {
-        let model = rhino_mesh::Model {
-            parts: vec![rhino_mesh::MeshPart {
+        let model = PreviewScene {
+            format: "test",
+            meshes: vec![PreviewMesh {
                 positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
                 normals: vec![[0.0, 0.0, 1.0]; 3],
                 indices: vec![0, 1, 2],
@@ -2080,6 +3006,7 @@ mod tests {
             }],
             bounds_min: [0.0, 0.0, 0.0],
             bounds_max: [1.0, 1.0, 0.0],
+            notes: Vec::new(),
         };
         let origin = [0.2, 0.2, 5.0];
         let dir = [0.0, 0.0, -1.0];

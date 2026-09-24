@@ -112,10 +112,8 @@ impl SlateApp {
                     }
                 }
             }
-            NodeKind::Frame(f) => {
-                if let Some(fill) = self.board_last_style.fill {
-                    f.fill = fill;
-                }
+            NodeKind::Frame(_) => {
+                // A new frame keeps the theme plate until Fill is edited.
             }
             NodeKind::Image(i) => {
                 if let Some(stroke) = self.board_last_style.stroke {

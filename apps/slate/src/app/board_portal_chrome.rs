@@ -156,11 +156,7 @@ pub fn layout_for_portal(
     } else {
         let mut layout = layout_portal_frame(frame, maximized, zoom);
         if kind == PortalKind::Agent {
-            let z = if maximized { 1.0 } else { zoom };
-            layout.maximize = Rect::from_min_size(
-                Pos2::new(frame.right() - 36.0 * z, frame.top() + 2.0 * z),
-                egui::vec2(20.0, 20.0) * z,
-            );
+            layout.maximize = Rect::NOTHING;
         }
         layout
     }
@@ -468,6 +464,7 @@ impl SlateApp {
                 PortalKind::Web => "Web portal",
                 PortalKind::Agent => "Agent",
                 PortalKind::FileAtlas => "File Atlas",
+                PortalKind::Slate => "Slate board",
             }
         } else {
             title
@@ -526,7 +523,8 @@ impl SlateApp {
             layout.maximize,
             id.0,
             self.portal_is_maximized(id),
-        ) {
+        ) && !self.board_align_eat_press
+        {
             self.portal_toggle_maximize(id);
         }
     }
@@ -593,6 +591,9 @@ impl SlateApp {
     /// Fill colour the host shell paints. File Atlas without an authored fill
     /// uses the card slot so the window sits slightly above the board.
     pub(crate) fn portal_frame_fill_color(&self, portal: &PortalNode) -> Color32 {
+        if portal.slate_fill_follows_theme() {
+            return self.palette().card;
+        }
         if portal.fill_follows_theme() {
             self.palette().card
         } else {
@@ -619,10 +620,14 @@ impl SlateApp {
         let _ = (border, focused);
     }
 
-    /// Punch square leftover corners to the canvas fill (`palette.bg` — the
-    /// same colour `canvas` paints) so every portal kind shares one rounded
-    /// footprint (P2.PortalHost.shell / P1.portal.clip). Not `board_colors.bg`:
-    /// that is the ink-tool paper swatch and is often white on a dark board.
+    /// No portal kind covers its fillet with the canvas color. That mask
+    /// hides whatever the frame overlaps — another frame, or a frame with
+    /// its own fill. The footprint is the rounded fill and, where the body
+    /// is a texture, the rounded content mesh (P1.portal.clip).
+    pub(crate) fn portal_masks_fillet_with_canvas(_kind: PortalKind) -> bool {
+        false
+    }
+
     pub(crate) fn paint_portal_fillet_punch(
         &self,
         painter: &egui::Painter,
@@ -646,8 +651,14 @@ impl SlateApp {
         focused: bool,
         zoom: f32,
     ) {
-        self.paint_portal_fillet_punch(painter, layout);
-        self.paint_portal_identity_chrome(ui, layout, id, portal, visiting);
+        if Self::portal_masks_fillet_with_canvas(portal.kind) {
+            self.paint_portal_fillet_punch(painter, layout);
+        }
+        // Maximized, the overlay paints the one restore control. A second
+        // glyph here sits on a different rect and steals the click.
+        if !self.portal_is_maximized(id) {
+            self.paint_portal_identity_chrome(ui, layout, id, portal, visiting);
+        }
         // An agent portal paints its own card outline in `board_agent.rs`.
         if portal.kind != PortalKind::Agent {
             self.paint_portal_frame_stroke(painter, layout, portal, border, focused, zoom);
@@ -689,14 +700,19 @@ impl SlateApp {
             );
             return;
         }
+        // Contents focus is nested editing: no highlight border on the frame.
+        // Edge hover still draws the minimalist stroke while the board owns it.
+        if focused {
+            return;
+        }
         let hit = portal_frame_tokens().border_hit_px * z;
         let edge_hover = painter.ctx().pointer_latest_pos().is_some_and(|p| {
             layout.frame.expand(hit).contains(p) && !layout.frame.shrink(hit).contains(p)
         });
-        if !focused && (!edge_hover || !self.settings.hover_highlight("portal")) {
+        if !edge_hover || !self.settings.hover_highlight("portal") {
             return;
         }
-        let width = if focused { 2.0_f32 } else { 1.0_f32 } * z;
+        let width = 1.0_f32 * z;
         painter.rect_stroke(
             layout.frame,
             layout.radius,
@@ -722,7 +738,10 @@ impl SlateApp {
         let screen = ui.max_rect();
         self.canvas_rect = screen;
         let collapsed = self.portal_chrome_collapsed(id);
-        let mut layout = layout_for_portal(portal.kind, screen, collapsed, true, 1.0);
+        // Non-web portals letterbox inside the window. The restore glyph has
+        // to sit on that visible card, not in the empty margin.
+        let host = maximized_host_rect(portal.kind, node.rect, screen);
+        let mut layout = layout_for_portal(portal.kind, host, collapsed, true, 1.0);
         if portal.kind == PortalKind::Web {
             layout.retract_when_idle(ui.ctx(), id, self.web.focused == Some(id));
         }
@@ -749,6 +768,10 @@ impl SlateApp {
                 let xf = fit_xf(node.rect, layout.body);
                 self.atlas_input_frame(ui, &xf, pointer);
                 self.paint_atlas_portal(ui, &painter, &xf, &node, &portal);
+            }
+            PortalKind::Slate => {
+                let xf = fit_xf(node.rect, layout.body);
+                self.paint_slate_portal(ui, &painter, &xf, &node, &portal);
             }
         }
 
@@ -780,6 +803,16 @@ impl SlateApp {
         if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
             self.board_align_eat_press = false;
         }
+    }
+}
+
+/// Screen rect a maximized portal actually occupies. Web fills the window
+/// so its tab stays a caption bar. Other kinds keep their aspect.
+pub(crate) fn maximized_host_rect(kind: PortalKind, node: WorldRect, screen: Rect) -> Rect {
+    if kind == PortalKind::Web {
+        screen
+    } else {
+        fit_xf(node, screen).rect_w2s(node)
     }
 }
 
@@ -821,10 +854,35 @@ mod tests {
     use eframe::egui::{pos2, Rect};
 
     #[test]
+    fn no_portal_fillet_is_masked_with_the_canvas() {
+        for kind in [
+            PortalKind::Web,
+            PortalKind::FileAtlas,
+            PortalKind::Slate,
+            PortalKind::Agent,
+        ] {
+            assert!(
+                !SlateApp::portal_masks_fillet_with_canvas(kind),
+                "{kind:?} must not cover its fillet with the canvas color"
+            );
+        }
+    }
+
+    #[test]
     fn every_portal_kind_uses_the_same_fillet() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
         let expected = portal_frame_tokens().corner_radius;
-        for kind in [PortalKind::Web, PortalKind::Agent, PortalKind::FileAtlas] {
+        assert_eq!(
+            slate_doc::media::TEXT_CARD_FILLET,
+            atlas_shell::tokens::PortalFrameTokens::default().corner_radius,
+            "text documents use the portal frame's designed fillet"
+        );
+        for kind in [
+            PortalKind::Web,
+            PortalKind::Agent,
+            PortalKind::FileAtlas,
+            PortalKind::Slate,
+        ] {
             let layout = layout_for_portal(kind, frame, false, false, 1.0);
             assert!(
                 (layout.radius - expected).abs() < 1e-4,
@@ -956,6 +1014,20 @@ mod tests {
         assert!((layout.maximize.top() - bar.top()).abs() < 0.5);
         assert!(layout.maximize.center().x > bar.center().x);
         assert!(bar.contains(layout.maximize.center()));
+    }
+
+    #[test]
+    fn maximized_non_web_restore_sits_on_the_letterboxed_card() {
+        let screen = Rect::from_min_max(pos2(0.0, 0.0), pos2(1440.0, 900.0));
+        let node = slate_doc::scene::WorldRect::new(0.0, 0.0, 960.0, 540.0);
+        let host = maximized_host_rect(PortalKind::FileAtlas, node, screen);
+        assert!(host.height() < screen.height() - 1.0);
+        assert!((host.width() - screen.width()).abs() < 1.0);
+        let layout = layout_for_portal(PortalKind::FileAtlas, host, false, true, 1.0);
+        assert!(host.contains(layout.maximize.center()));
+        assert!(layout.maximize.top() > screen.top() + 20.0);
+        let web = maximized_host_rect(PortalKind::Web, node, screen);
+        assert_eq!(web, screen);
     }
 
     #[test]

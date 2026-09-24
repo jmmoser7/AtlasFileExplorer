@@ -22,7 +22,10 @@ fn smoke_full_feature_export() {
             title: "Intro".into(),
             order: 0,
             fill: Rgba::WHITE,
+            fill_authored: false,
             assignments: BTreeMap::new(),
+            stroke: Stroke::none(),
+            corner: Corner::Square,
         }),
     );
     let fidx = doc.scene.nodes.len();
@@ -54,19 +57,22 @@ fn smoke_full_feature_export() {
                 overlay: Some(Rgba([255, 0, 0, 60])),
                 ..Default::default()
             },
+            sheet: Default::default(),
             video: Default::default(),
             model: Default::default(),
+            agent: None,
         }),
     );
     let text = doc.scene.build_node(
         WorldRect::new(480.0, 80.0, 400.0, 120.0),
         NodeKind::Text(TextNode {
             text: "Hello <world> & friends".into(),
-            family: FontChoice::Serif,
+            family: Typeface::Serif,
             size: 36.0,
             color: Rgba::opaque(10, 10, 40),
             align: TextAlign::Center,
             fill: None,
+            agent: None,
         }),
     );
     let shape = doc.scene.build_node(
@@ -83,6 +89,8 @@ fn smoke_full_feature_export() {
             corner: Corner::Chamfer { cut: 20.0 },
             flip: false,
             path: None,
+
+            text: None,
         }),
     );
     for n in [image, text, shape] {

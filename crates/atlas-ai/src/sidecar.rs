@@ -69,6 +69,89 @@ or set ATLAS_CURSOR_SIDECAR to index.mjs."
     )
 }
 
+/// Stop the sidecar recorded in `<link_dir>/sidecar.pid` (the newest watcher
+/// for that link folder writes its pid there). Only a live `node` process is
+/// killed, so a stale file whose pid the OS has reused is left alone. Returns
+/// whether a process was stopped. Spawns system tools: call from a worker.
+/// Whether a live sidecar already watches this link folder.
+pub fn alive(link_dir: &Path) -> bool {
+    std::fs::read_to_string(link_dir.join("sidecar.pid"))
+        .ok()
+        .and_then(|t| t.trim().parse::<u32>().ok())
+        .is_some_and(|pid| pid != std::process::id() && node_is_alive(pid))
+}
+
+pub fn stop(link_dir: &Path) -> Result<bool, String> {
+    let record = link_dir.join("sidecar.pid");
+    let Ok(text) = std::fs::read_to_string(&record) else {
+        return Ok(false);
+    };
+    let Ok(pid) = text.trim().parse::<u32>() else {
+        let _ = std::fs::remove_file(&record);
+        return Ok(false);
+    };
+    if pid == std::process::id() || !node_is_alive(pid) {
+        let _ = std::fs::remove_file(&record);
+        return Ok(false);
+    }
+    kill(pid)?;
+    let _ = std::fs::remove_file(&record);
+    Ok(true)
+}
+
+#[cfg(windows)]
+fn node_is_alive(pid: u32) -> bool {
+    use std::os::windows::process::CommandExt;
+    let Ok(out) = Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .creation_flags(0x0800_0000)
+        .output()
+    else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&out.stdout).to_ascii_lowercase();
+    text.lines()
+        .any(|l| l.starts_with("\"node") && l.contains(&format!("\"{pid}\"")))
+}
+
+#[cfg(not(windows))]
+fn node_is_alive(pid: u32) -> bool {
+    Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().contains("node"))
+        .unwrap_or(false)
+}
+
+fn kill(pid: u32) -> Result<(), String> {
+    let mut cmd;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd = Command::new("taskkill");
+        cmd.args(["/PID", &pid.to_string(), "/T", "/F"])
+            .creation_flags(0x0800_0000);
+    }
+    #[cfg(not(windows))]
+    {
+        cmd = Command::new("kill");
+        cmd.arg(pid.to_string());
+    }
+    let out = cmd
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("Could not stop the sidecar: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Could not stop the sidecar (pid {pid}): {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}
+
 /// Human setup steps next to the sidecar script, when we can find them.
 pub fn setup_doc() -> Option<PathBuf> {
     let script = sidecar_script()?;
@@ -78,19 +161,33 @@ pub fn setup_doc() -> Option<PathBuf> {
 
 /// SDK catalog/history access on a worker; never scrape IDE databases to imply attach.
 pub fn query_cursor(cwd: &Path, channel: Option<&str>) -> Result<serde_json::Value, String> {
+    let mut args = vec![
+        if channel.is_some() {
+            "--read".to_string()
+        } else {
+            "--list".to_string()
+        },
+        cwd.to_string_lossy().into_owned(),
+    ];
+    if let Some(id) = channel {
+        args.push(id.to_string());
+    }
+    run_sidecar_query(&args)
+}
+
+/// Account model catalog. Worker only; the portal caches the result.
+pub fn query_cursor_models() -> Result<serde_json::Value, String> {
+    run_sidecar_query(&["--models".to_string()])
+}
+
+fn run_sidecar_query(args: &[String]) -> Result<serde_json::Value, String> {
     let script = sidecar_script().ok_or("Cursor sidecar is unavailable")?;
     let node = resolve_node()?;
     ensure_sidecar_deps(&node, script.parent().unwrap())?;
     let mut cmd = Command::new(&node);
-    cmd.arg(&script)
-        .arg(if channel.is_some() {
-            "--read"
-        } else {
-            "--list"
-        })
-        .arg(cwd);
-    if let Some(id) = channel {
-        cmd.arg(id);
+    cmd.arg(&script);
+    for arg in args {
+        cmd.arg(arg);
     }
     if let Some(key) = crate::cursor_key::resolve() {
         cmd.env("CURSOR_API_KEY", key);
@@ -191,6 +288,15 @@ fn spawn_node(
         .env("ATLAS_AGENT_SESSION", session)
         .env("ATLAS_AGENT_CWD", project_cwd)
         .env("ATLAS_AGENT_LINK_DIR", link_dir)
+        .env("ATLAS_PARENT_PID", std::process::id().to_string())
+        .env(
+            "ATLAS_AGENT_FULL_ACCESS",
+            if crate::access::granted(session) {
+                "1"
+            } else {
+                "0"
+            },
+        )
         .env("CURSOR_API_KEY", api_key)
         .stdout(log_file)
         .stderr(err_file);
@@ -240,19 +346,27 @@ fn node_candidates() -> Vec<PathBuf> {
         }
         for key in ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"] {
             if let Ok(root) = std::env::var(key) {
-                push_unique(
-                    &mut out,
-                    PathBuf::from(root).join("nodejs").join("node.exe"),
-                );
+                let root = PathBuf::from(root);
+                push_unique(&mut out, root.join("nodejs").join("node.exe"));
+                push_unique(&mut out, cursor_helpers_node(&root.join("cursor")));
+                push_unique(&mut out, cursor_helpers_node(&root.join("Cursor")));
             }
         }
         if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            let local = PathBuf::from(local);
             push_unique(
                 &mut out,
-                PathBuf::from(local)
-                    .join("Programs")
-                    .join("nodejs")
-                    .join("node.exe"),
+                local.join("Programs").join("nodejs").join("node.exe"),
+            );
+            // Cursor's desktop install bundles Node here. A Slate window
+            // started outside Cursor does not inherit that folder on PATH.
+            push_unique(
+                &mut out,
+                cursor_helpers_node(&local.join("Programs").join("cursor")),
+            );
+            push_unique(
+                &mut out,
+                cursor_helpers_node(&local.join("Programs").join("Cursor")),
             );
         }
         if let Ok(home) = std::env::var("USERPROFILE") {
@@ -304,6 +418,16 @@ fn push_atlas_node(out: &mut Vec<PathBuf>, raw: Option<&str>) {
         push_unique(out, p.join("node.exe"));
         push_unique(out, p.join("node"));
     }
+}
+
+#[cfg(windows)]
+fn cursor_helpers_node(install: &Path) -> PathBuf {
+    install
+        .join("resources")
+        .join("app")
+        .join("resources")
+        .join("helpers")
+        .join("node.exe")
 }
 
 #[cfg(windows)]
@@ -435,6 +559,20 @@ mod tests {
                     .any(|p| p == Path::new(r"C:\Program Files\nodejs\node.exe")),
                 "hardcoded Program Files path must not depend on ProgramFiles: {hits:?}"
             );
+            if let Ok(local) = std::env::var("LOCALAPPDATA") {
+                let bundled = PathBuf::from(local)
+                    .join("Programs")
+                    .join("cursor")
+                    .join("resources")
+                    .join("app")
+                    .join("resources")
+                    .join("helpers")
+                    .join("node.exe");
+                assert!(
+                    hits.iter().any(|p| p == &bundled),
+                    "Cursor's bundled node must be a candidate: {hits:?}"
+                );
+            }
         }
         #[cfg(not(windows))]
         {
@@ -521,6 +659,35 @@ mod tests {
             "{}",
             script.display()
         );
+    }
+
+    #[test]
+    fn sidecar_guide_twin_matches_the_rust_guide() {
+        let script = sidecar_script().expect("docs/agent/cursor-sidecar/index.mjs must ship");
+        let js = std::fs::read_to_string(script.with_file_name("artifacts.mjs")).unwrap();
+        let guide = atlas_agent::artifact_guide(Some("{DIR}"));
+        let (head, rest) = guide.split_once("Save new files").unwrap();
+        let (folder, rest) = rest.split_once("Edit existing").unwrap();
+        let (_, tail) = rest.split_once("return.json beside session.json").unwrap();
+        for part in [head, folder.split_once("{DIR}").unwrap().1, tail] {
+            assert!(
+                js.contains(part),
+                "artifacts.mjs drifted from artifact_guide: {part}"
+            );
+        }
+    }
+
+    #[test]
+    fn stop_leaves_stale_or_foreign_pids_alone() {
+        let dir = std::env::temp_dir().join(format!("atlas-sidecar-stop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(stop(&dir), Ok(false), "no record");
+        for text in ["not a pid", &std::process::id().to_string(), "4294967"] {
+            std::fs::write(dir.join("sidecar.pid"), text).unwrap();
+            assert_eq!(stop(&dir), Ok(false), "{text}");
+            assert!(!dir.join("sidecar.pid").exists(), "{text}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

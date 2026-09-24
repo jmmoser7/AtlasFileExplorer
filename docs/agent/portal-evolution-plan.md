@@ -28,10 +28,13 @@ round-trip acceptance are still pending; concept images are design studies.
 
 ### Remaining product work
 
-Dedicated Ollama/ComfyUI adapters, connection setup UI, model/preset discovery,
-Rhino/frame image capture as direct wire inputs, stale-input indicators, and
-measured native hover/album tuning remain follow-up slices. The current custom
-image program is an external JSON sidecar configured through `programs.json`.
+Connection setup UI, stale-input indicators, masked edit, upscale, transformer
+image checkpoints, and measured native hover/album tuning remain follow-up
+slices. Ollama text chat (18 September) and the ComfyUI image adapter with
+Generate, Vary, Render from a wired 3D model, and Live (22 September) have
+landed; see the agent portal contract for their rows and validation record.
+Other image programs use an external JSON sidecar configured through
+`programs.json`.
 Codex uses its installed model configuration and read-only portal conversations;
 structured Codex-to-stage proposal tools and attaching this desktop task are
 not implemented. Existing Cursor staging remains intact.
@@ -272,7 +275,7 @@ Preserve proposal-by-default (Art. VII.6). Generation authorization and board ac
 
 Adapters must enforce source-write restrictions and a bounded output/staging area. Prompt instructions alone are not enforcement. Prefer read-only source access plus mediated context/proposal tools. The first Codex proof must demonstrate the Windows permission boundary without access to `.slate` writes or File Atlas mutation paths. If that boundary cannot be enforced, stop short of exposing an autonomous editing connection and refine the integration.
 
-No workbook-supplied scripts, arbitrary loops, or native in-process extensions. A user-run external ComfyUI server is an allowed extension boundary; a workbook must not silently install or execute custom nodes. Secrets stay in the provider's credential store or machine credential storage, not documents, context, logs, or exported artifacts.
+No workbook-supplied scripts, arbitrary loops, or native in-process extensions. A user-run external ComfyUI server is an allowed extension boundary; a workbook must not silently install or execute custom nodes. Secrets stay in the provider's credential store or machine credential storage (`atlas_core::secrets`), not documents, context, logs, or exported artifacts. Web sign-in is the per-user WebView2 profile for that origin, not a field on the portal.
 
 ## 6. Small, reviewable implementation sequence
 

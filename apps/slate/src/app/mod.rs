@@ -26,11 +26,14 @@ pub mod board;
 mod board_agent;
 mod board_align;
 mod board_atlas;
+mod board_bumper;
 mod board_color;
 pub mod board_crop;
+mod board_deck;
 mod board_direct;
 mod board_dock_embed;
 mod board_flags;
+mod board_flow;
 mod board_forcefield;
 mod board_handles;
 pub mod board_icons;
@@ -42,10 +45,12 @@ mod board_place;
 mod board_portal;
 mod board_portal_chrome;
 mod board_properties;
+mod board_slate;
 mod board_snap;
 mod board_style;
 mod board_transform;
 mod board_trim;
+mod board_video;
 pub mod board_web;
 #[cfg(windows)]
 mod board_web_win;
@@ -55,6 +60,7 @@ pub mod chrome;
 mod clipboard;
 pub mod commands;
 mod dispatch;
+mod enscape_host;
 mod external_drop;
 pub mod imagefx;
 pub mod kits;
@@ -125,6 +131,9 @@ pub struct SlateTab {
     pub grid_fade_armed: bool,
     /// Board undo/redo history (session-local, not saved with the doc).
     pub journal: SceneJournal,
+    /// Ctrl+Z order for this session, including spreadsheet file writes.
+    pub(crate) edits: Vec<board::BoardMark>,
+    pub(crate) edit_redo: Vec<board::BoardMark>,
 }
 
 impl SlateTab {
@@ -145,6 +154,8 @@ impl SlateTab {
             grid_fade: atlas_shell::grid_fade::GridFade::default(),
             grid_fade_armed: false,
             journal: SceneJournal::default(),
+            edits: Vec::new(),
+            edit_redo: Vec::new(),
         }
     }
 
@@ -211,6 +222,11 @@ pub enum PickerMsg {
     },
     /// Folder picked as a File Atlas lens source (D19).
     AtlasPortalSource {
+        portal: NodeId,
+        path: Option<PathBuf>,
+    },
+    /// Workbook picked as a Slate board portal source.
+    SlatePortalSource {
         portal: NodeId,
         path: Option<PathBuf>,
     },
@@ -302,6 +318,8 @@ pub struct SlateApp {
 
     /// Shared contents-focus slot for host portals (web, agent, File Atlas).
     pub portals: board_portal::PortalRuntime,
+    /// Nested workbook boards. Derived; never journaled.
+    pub(crate) slate_boards: board_slate::SlateBoards,
     /// Agent portal runtime (derived sessions/proposals; never journaled).
     pub agents: board_agent::AgentRuntime,
     /// Web portal runtime: live pool, poster cache, per-origin consent. All
@@ -325,6 +343,8 @@ pub struct SlateApp {
     /// Selected scene nodes (board view). Disjoint from `selection` (pool items).
     pub board_sel: HashSet<NodeId>,
     pub board_tool: board::BoardTool,
+    /// Frames explicitly ordered by the Deck tool, oldest arming included.
+    pub deck: board_deck::DeckState,
     /// Last-used navigation tool (Select or Pan) shown on the combined dock button.
     pub board_nav_tool: board::BoardTool,
     pub board_frame_preset: board::FramePreset,
@@ -335,6 +355,24 @@ pub struct SlateApp {
     pub board_crop: Option<NodeId>,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
+    /// Fitted sticky font sizes. Derived from text and box; not journaled.
+    sticky_fit: HashMap<NodeId, board::StickyFit>,
+    /// Cell editor on a CSV / Excel card.
+    pub(crate) sheet_edit: Option<board::SheetEdit>,
+    /// Spreadsheet entered by a double-click. Scroll and cell edits stay off
+    /// until this is set.
+    pub(crate) sheet_open: Option<NodeId>,
+    sheet_dirty: bool,
+    sheet_baseline: Option<Vec<Vec<atlas_core::office::SheetCell>>>,
+    sheet_prompt: bool,
+    /// Cell and add-column hits from the previous paint.
+    sheet_hits: Vec<board::SheetHit>,
+    sheet_grips: Vec<board::SheetGrip>,
+    sheet_save_hit: Option<egui::Rect>,
+    sheet_resize: Option<board::SheetResize>,
+    /// Scroll offset, in world units, for a spreadsheet card. Derived from
+    /// the pointer; not part of the document.
+    sheet_scroll: HashMap<NodeId, Vec2>,
     /// Board right-click menu: (node, screen position).
     pub board_menu: Option<(NodeId, egui::Pos2)>,
     pub presenting: Option<present::Present>,
@@ -342,8 +380,14 @@ pub struct SlateApp {
     pub thumb_pixels: HashMap<String, egui::ColorImage>,
     /// Cached text-file excerpts for board snippet cards (`None` = unreadable).
     pub snippets: HashMap<ItemId, Option<String>>,
-    /// Adjusted-texture cache keyed by (cache_key, adjust hash).
-    pub fx_textures: HashMap<(String, u64), TextureHandle>,
+    /// Cached CSV / Excel grids for the same cards (`None` = not a spreadsheet).
+    sheets: HashMap<ItemId, Option<Vec<Vec<atlas_core::office::SheetCell>>>>,
+    /// Adjusted-texture cache keyed by (cache_key, adjust hash, source tier).
+    /// Tier 0 is the thumbnail; a committed filter upgrades when the full-resolution preview lands.
+    pub fx_textures: HashMap<(String, u64, u32), TextureHandle>,
+    /// 32px center crops used as photo-filter radio faces.
+    filter_swatch_src: HashMap<String, egui::ColorImage>,
+    filter_swatch_tex: HashMap<(String, u64), TextureHandle>,
     /// Export artifact with base64-inlined assets (single portable file).
     pub export_inline: bool,
     /// Coalescing anchor for continuous board edits (node, last edit time).
@@ -359,8 +403,13 @@ pub struct SlateApp {
     /// The glow GL context, for offscreen 3D viewport rendering. `None` in
     /// the headless test harness (3D stays poster/thumbnail-only there).
     pub gl: Option<std::sync::Arc<eframe::glow::Context>>,
+    /// Native frame window. `0` in the headless harness. Enscape's walkthrough
+    /// is parented here on double-click.
+    frame_hwnd: isize,
     /// Interactive 3D model viewport state (see `model3d.rs`).
     pub model3d: model3d::ModelSpace,
+    /// Canvas video scrub and playback. Derived; not journaled.
+    video: board_video::VideoBoard,
     /// Transient smart-guide lines shown during board move/resize (cleared each frame).
     pub board_snap_guides: Vec<board_snap::SnapGuide>,
     /// Live forcefield pulses (outlive the guide that spawned them).
@@ -453,6 +502,10 @@ pub struct SlateApp {
     pub(crate) pending_paste_text: Option<String>,
     /// Successive Ctrl+V pastes of one payload step +24,+24 each.
     pub(crate) board_paste_count: u32,
+    /// Ctrl+V was down on the previous frame. egui never emits the V key
+    /// for a paste chord, so image paste watches the key itself.
+    #[cfg(windows)]
+    paste_chord_down: bool,
     /// Cheap content generation: bumped on journal commits / undo / redo /
     /// tab switches. Keys the minimap texture cache and search recompute.
     pub(crate) scene_gen: u64,
@@ -461,6 +514,8 @@ pub struct SlateApp {
     /// Shared fg/bg color pair (Brush strokes, wires, eyedropper targets).
     /// Persisted in `SlateSettings`; `D` resets to theme defaults, `X` swaps.
     pub shape_properties: board_properties::ShapeProperties,
+    /// Live bumper-cars drag and glide replay (derived, never journaled).
+    pub(crate) bumper: board_bumper::BumperState,
     pub desktop_sample: Option<board_color::DesktopSample>,
     pub desktop_alt_latched: bool,
     pub board_colors: board_color::BoardColors,
@@ -469,8 +524,40 @@ pub struct SlateApp {
     pub(crate) board_last_style: board_style::BoardLastStyle,
     /// Brush stroke width, world units (persisted; `[`/`]` step it).
     pub brush_width: f32,
+    /// Brush edge falloff 0..=1 (persisted; `Shift+[` / `Shift+]` and the size HUD).
+    pub brush_softness: f32,
+    /// Brush paint opacity 0.1..=1 (persisted; Shift+click steps it).
+    pub brush_opacity: f32,
+    /// Live Alt+right size HUD, Shift+right opacity HUD, or Ctrl+right color wheel.
+    pub(crate) brush_hud: Option<board_color::BrushHud>,
+    /// Tool settings when the right-button HUD opened, for Ctrl+Z.
+    pub(crate) brush_hud_before: Option<board_color::BrushSettingUndo>,
+    /// Alt or Shift primary press waiting for a short click (sample / opacity).
+    pub(crate) brush_mod_click: Option<board_color::BrushModClick>,
+    /// Swatch pick: (press point, where that color sits on the wheel). The
+    /// pointer moves; the wheel does not.
+    pub(crate) brush_cursor_warp: Option<(egui::Pos2, egui::Pos2)>,
+    /// Shift+drag straight line, from the press tip.
+    pub(crate) brush_straight: Option<board_color::BrushStraight>,
+    /// End of the last brush mark, where the next Shift segment starts.
+    pub(crate) brush_line_anchor: Option<board_color::BrushAnchor>,
+    /// Size, color, and opacity edits undone by Ctrl+Z until another action.
+    pub(crate) brush_setting_undo: Vec<board_color::BrushSettingUndo>,
+    /// The brush drag's screen-aligned canvas (freehand or Shift preview).
+    pub(crate) brush_live: Option<board_path::BrushLiveCanvas>,
+    /// Committed radial stamps, keyed by node. The bitmap is derived.
+    pub(crate) brush_stamps: HashMap<NodeId, (u64, board_path::BrushStampGpu)>,
+    /// Stamp resolution upgrades spent this frame.
+    pub(crate) brush_stamp_rebuilds: u32,
     /// Eraser pick-circle width, world units (persisted; `[`/`]` while E).
     pub eraser_width: f32,
+    /// Eraser falloff and strength on painted strokes (persisted).
+    pub eraser_softness: f32,
+    pub eraser_opacity: f32,
+    /// End of the last eraser pass, where a Shift pass starts.
+    pub(crate) eraser_anchor: Option<egui::Pos2>,
+    /// Painted strokes under the eraser this drag, shown with the pass applied.
+    pub(crate) erase_live: HashMap<NodeId, board_path::EraseLive>,
     /// Last brush stroke end — Shift+click chains a straight segment from
     /// it; cleared whenever the Brush tool re-arms or changes.
     pub(crate) brush_chain: Option<egui::Pos2>,
@@ -478,8 +565,6 @@ pub struct SlateApp {
     pub(crate) direct: board_direct::DirectState,
     /// Per-frame connector grip hover (Select tool near a node edge).
     pub(crate) wire_grips: Option<board_wire::GripHover>,
-    /// Wire released on empty canvas: the palette placement auto-connects.
-    pub(crate) wire_pending: Option<board_wire::PendingWire>,
     /// Inline connector label editor: (connector node, live buffer).
     pub(crate) wire_label_edit: Option<(NodeId, String)>,
     /// Right-click on empty board: "show/unlock all" menu position.
@@ -503,7 +588,9 @@ impl SlateApp {
         association::ensure_file_association();
         let mut app = Self::with_ctx(&cc.egui_ctx, initial_doc);
         app.gl = cc.gl.clone();
+        app.store_frame_hwnd(cc);
         app.install_web_host(cc);
+        app.install_local_grants();
         #[cfg(windows)]
         match external_drop::win::Registration::install(cc, app.external_drop.clone()) {
             Ok(registration) => app.drop_registration = Some(registration),
@@ -511,6 +598,21 @@ impl SlateApp {
         }
         app
     }
+
+    #[cfg(windows)]
+    fn store_frame_hwnd(&mut self, cc: &eframe::CreationContext<'_>) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let Ok(handle) = cc.window_handle() else {
+            return;
+        };
+        let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+            return;
+        };
+        self.frame_hwnd = win32.hwnd.get() as isize;
+    }
+
+    #[cfg(not(windows))]
+    fn store_frame_hwnd(&mut self, _cc: &eframe::CreationContext<'_>) {}
 
     /// Give web portals a real browser when this machine has one. Without it
     /// the null host stays and portals report `NoRuntime` (D29).
@@ -524,6 +626,8 @@ impl SlateApp {
             return;
         };
         let hwnd = windows::Win32::Foundation::HWND(win32.hwnd.get() as *mut std::ffi::c_void);
+        // Per-user, never beside the workbook. Profiles inside this folder
+        // partition cookies by origin (`web_profile_name`).
         let user_data = atlas_core::index::data_dir().join("webview2");
         let _ = std::fs::create_dir_all(&user_data);
         if let Some(host) = board_web_win::Webview2Host::new(hwnd, &user_data, cc.egui_ctx.clone())
@@ -608,6 +712,7 @@ impl SlateApp {
             atlas: None,
             ai: atlas_ai::AiPanel::new(),
             portals: board_portal::PortalRuntime::default(),
+            slate_boards: board_slate::SlateBoards::new(),
             agents: board_agent::AgentRuntime::default(),
             web: board_web::WebRuntime::default(),
             atlas_lenses: board_atlas::AtlasRuntime::default(),
@@ -616,24 +721,41 @@ impl SlateApp {
             armed_kit_id: None,
             board_sel: HashSet::new(),
             board_tool: board::BoardTool::default(),
+            deck: board_deck::DeckState::default(),
             board_nav_tool: board::BoardTool::Select,
             board_frame_preset: board::FramePreset::default(),
             board_frame_custom: None,
             board_drag: None,
             board_crop: None,
             text_edit: None,
+            sticky_fit: HashMap::new(),
+            sheet_edit: None,
+            sheet_open: None,
+            sheet_dirty: false,
+            sheet_baseline: None,
+            sheet_prompt: false,
+            sheet_hits: Vec::new(),
+            sheet_grips: Vec::new(),
+            sheet_save_hit: None,
+            sheet_resize: None,
+            sheet_scroll: HashMap::new(),
             board_menu: None,
             presenting: None,
             thumb_pixels: HashMap::new(),
             snippets: HashMap::new(),
+            sheets: HashMap::new(),
             fx_textures: HashMap::new(),
+            filter_swatch_src: HashMap::new(),
+            filter_swatch_tex: HashMap::new(),
             export_inline: false,
             last_board_edit: None,
             alt_down: false,
             shift_down: false,
             ctrl_down: false,
             gl: None,
+            frame_hwnd: 0,
             model3d: model3d::ModelSpace::default(),
+            video: board_video::VideoBoard::default(),
             board_snap_guides: Vec::new(),
             board_forcefield: board_forcefield::Forcefield::default(),
             board_show_grid: true,
@@ -678,18 +800,36 @@ impl SlateApp {
             board_clipboard: Vec::new(),
             pending_paste_text: None,
             board_paste_count: 0,
+            #[cfg(windows)]
+            paste_chord_down: false,
             scene_gen: 0,
             shape_properties: board_properties::ShapeProperties::default(),
+            bumper: Default::default(),
             desktop_sample: None,
             desktop_alt_latched: false,
             board_colors: board_color::BoardColors::theme_default(true),
             board_last_style: board_style::BoardLastStyle::default(),
             brush_width: settings::BRUSH_WIDTH_DEFAULT,
+            brush_softness: 0.0,
+            brush_opacity: 1.0,
+            brush_hud: None,
+            brush_hud_before: None,
+            brush_mod_click: None,
+            brush_cursor_warp: None,
+            brush_straight: None,
+            brush_line_anchor: None,
+            brush_setting_undo: Vec::new(),
+            brush_live: None,
+            brush_stamps: HashMap::new(),
+            brush_stamp_rebuilds: 0,
             eraser_width: settings::ERASER_WIDTH_DEFAULT,
+            eraser_softness: 0.0,
+            eraser_opacity: 1.0,
+            eraser_anchor: None,
+            erase_live: HashMap::new(),
             brush_chain: None,
             direct: board_direct::DirectState::default(),
             wire_grips: None,
-            wire_pending: None,
             wire_label_edit: None,
             board_empty_menu: None,
             hide_ghosts: Vec::new(),
@@ -705,7 +845,11 @@ impl SlateApp {
         app.board_wire_routing = app.settings.board_wire_routing;
         app.board_colors = board_color::BoardColors::from_settings(&app.settings, app.dark_mode);
         app.brush_width = app.settings.brush_width;
+        app.brush_softness = app.settings.brush_softness;
+        app.brush_opacity = app.settings.brush_opacity;
         app.eraser_width = app.settings.eraser_width;
+        app.eraser_softness = app.settings.eraser_softness;
+        app.eraser_opacity = app.settings.eraser_opacity;
         debug_assert!(
             app.registry.validate().is_ok(),
             "SPECS table inconsistent: {:?}",
@@ -775,7 +919,44 @@ impl SlateApp {
             vec!["slate-serif".into()],
         );
         Self::install_courier_new(&mut fonts);
+        Self::install_typefaces(&mut fonts);
         ctx.set_fonts(fonts);
+    }
+
+    /// Optional system faces for shape text. Missing files fall back to the
+    /// built-in family; the HTML artifact still names the intended stack.
+    fn install_typefaces(fonts: &mut egui::FontDefinitions) {
+        for face in slate_doc::scene::Typeface::ALL {
+            let (Some(file), Some(key)) = (face.font_file(), face.egui_family()) else {
+                continue;
+            };
+            let Some(bytes) = Self::windows_font_bytes(file) else {
+                continue;
+            };
+            fonts.font_data.insert(
+                key.into(),
+                std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+            );
+            let mut stack = vec![key.to_string()];
+            if let Some(proportional) = fonts.families.get(&egui::FontFamily::Proportional) {
+                stack.extend(proportional.iter().cloned());
+            }
+            fonts
+                .families
+                .insert(egui::FontFamily::Name(key.into()), stack);
+        }
+    }
+
+    fn windows_font_bytes(file: &str) -> Option<Vec<u8>> {
+        let mut paths = Vec::new();
+        if let Some(windir) = std::env::var_os("WINDIR") {
+            paths.push(PathBuf::from(windir).join("Fonts").join(file));
+        }
+        paths.push(PathBuf::from(r"C:\Windows\Fonts").join(file));
+        paths
+            .into_iter()
+            .find(|path| path.is_file())
+            .and_then(|path| std::fs::read(path).ok())
     }
 
     /// Courier New for agent album title-faces. Windows ships it; elsewhere
@@ -878,6 +1059,7 @@ impl SlateApp {
             self.tabs.push(tab);
             self.active_tab = 0;
             self.fallback_tab.chrome = self.home_chrome.clone();
+            self.sync_agent_doc();
         }
     }
 
@@ -939,20 +1121,25 @@ impl SlateApp {
 
     pub fn new_tab(&mut self) {
         self.lock_all_models();
+        self.sync_agent_doc();
         let mut tab = SlateTab::empty();
         tab.chrome = self.chrome().clone();
         self.tabs.push(tab);
         self.active_tab = self.tabs.len() - 1;
         self.selection.clear();
+        self.sync_agent_doc();
     }
 
     pub fn switch_tab(&mut self, i: usize) {
+        self.finish_bumper_glide();
         if i < self.tabs.len() {
             if i != self.active_tab {
                 // Live 3D viewports are keyed by node id, which is per-document:
                 // freeze them before another doc's ids can collide.
                 self.lock_all_models();
+                self.sync_agent_doc();
                 self.active_tab = i;
+                self.sync_agent_doc();
                 self.selection.clear();
                 self.note_scene_change();
                 self.publish_session_tags();
@@ -963,6 +1150,7 @@ impl SlateApp {
     }
 
     pub fn close_tab(&mut self, i: usize) {
+        self.finish_bumper_glide();
         if i >= self.tabs.len() {
             return;
         }
@@ -982,6 +1170,7 @@ impl SlateApp {
         if i >= self.tabs.len() {
             return;
         }
+        self.release_agent_doc(i);
         if let Some(lease) = self.tabs[i].lease.take() {
             lease.release();
         }
@@ -1256,6 +1445,8 @@ impl SlateApp {
                 } else if !self.tab().is_blank() {
                     self.new_tab();
                 }
+                // A reused blank tab keeps its id; its old board's runtime must not.
+                self.release_agent_doc(self.active_tab);
                 self.record_recent_workbook(&path, &doc);
                 let (lease, read_only, holder, held_toast) = match Lease::acquire(&path) {
                     Ok(LeaseState::Acquired(lease)) => (Some(lease), false, None, None),
@@ -1381,6 +1572,37 @@ impl SlateApp {
     /// `.slate` files are diverted: a workbook can't be an item of a workbook
     /// (that road leads to a board embedding itself), so they're queued to
     /// open as tabs instead — see [`Self::drain_pending_workbooks`].
+    /// One pool item for a file already on disk. Workbooks are queued as tabs.
+    pub(crate) fn item_for_path(&mut self, path: &std::path::Path) -> Option<ItemId> {
+        if !path.is_file() {
+            return None;
+        }
+        if slate_doc::media_kind(path) == slate_doc::MediaKind::Workbook {
+            self.pending_workbooks.push(path.to_path_buf());
+            return None;
+        }
+        let (size, mtime) = std::fs::metadata(path)
+            .map(|m| {
+                let mtime = m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                (m.len(), mtime)
+            })
+            .unwrap_or((0, 0));
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let key = cache_key(&path.to_string_lossy(), size, mtime);
+        Some(
+            self.doc_mut()
+                .add_item(path.to_path_buf(), name, size, mtime, key),
+        )
+    }
+
     pub fn add_paths(&mut self, paths: &[PathBuf]) -> Vec<ItemId> {
         let mut added = Vec::new();
         let mut workbooks = 0usize;
@@ -1388,28 +1610,11 @@ impl SlateApp {
             if !p.is_file() {
                 continue;
             }
-            if slate_doc::media_kind(p) == slate_doc::MediaKind::Workbook {
-                self.pending_workbooks.push(p.clone());
+            if let Some(item) = self.item_for_path(p) {
+                added.push(item);
+            } else if slate_doc::media_kind(p) == slate_doc::MediaKind::Workbook {
                 workbooks += 1;
-                continue;
             }
-            let (size, mtime) = std::fs::metadata(p)
-                .map(|m| {
-                    let mtime = m
-                        .modified()
-                        .ok()
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs() as i64)
-                        .unwrap_or(0);
-                    (m.len(), mtime)
-                })
-                .unwrap_or((0, 0));
-            let name = p
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let key = cache_key(&p.to_string_lossy(), size, mtime);
-            added.push(self.doc_mut().add_item(p.clone(), name, size, mtime, key));
         }
         if !added.is_empty() {
             self.toast(format!("Added {} file(s)", added.len()));
@@ -1658,18 +1863,29 @@ impl SlateApp {
         let out = dir.join(format!("{}-slides", safe.trim_matches('-')));
         let mut opts = slate_artifact::ExportOptions {
             agent_images: self.export_agent_images(),
+            agent_replies: self.export_agent_replies(),
             inline_assets: self.export_inline,
             thumbs: self.export_thumb_map(),
             model_posters: self.export_model_poster_map(),
             web_sources,
             web_posters,
             wire_routing: self.board_wire_routing,
+            ..Default::default()
         };
         let doc = self.doc().clone();
+        let workbook = self.tab().path.clone();
         let (tx, rx) = crossbeam_channel::bounded(1);
         self.export_rx = Some(rx);
         self.toast("Exporting artifact…");
         std::thread::spawn(move || {
+            let loaded = board_slate::collect_slate_boards(&doc, workbook.as_deref());
+            opts.workbook = workbook;
+            opts.slate_boards = loaded
+                .into_iter()
+                .map(|(key, (path, child))| {
+                    (key, slate_artifact::ExportedBoard { path, doc: child })
+                })
+                .collect();
             let mut cloud_only = 0;
             for images in opts.agent_images.values_mut() {
                 images.retain(|path| {
@@ -1726,7 +1942,7 @@ impl SlateApp {
 
     // ----- frame loop ---------------------------------------------------------
 
-    fn drain_pickers(&mut self) {
+    fn drain_pickers(&mut self, ctx: &egui::Context) {
         let Some(rx) = &self.picker_rx else { return };
         match rx.try_recv() {
             Ok(msg) => {
@@ -1772,6 +1988,10 @@ impl SlateApp {
                         portal,
                         path: Some(path),
                     } => self.bind_atlas_folder(portal, path),
+                    PickerMsg::SlatePortalSource {
+                        portal,
+                        path: Some(path),
+                    } => self.bind_slate_workbook(ctx, portal, path),
                     _ => {}
                 }
             }
@@ -1855,9 +2075,9 @@ impl SlateApp {
         self.preview_reqs_this_frame = 0;
         self.alt_down = ctx.input(|i| i.modifiers.alt);
         self.shift_down = ctx.input(|i| i.modifiers.shift);
-        self.ctrl_down = ctx.input(|i| i.modifiers.command);
+        self.ctrl_down = ctx.input(|i| i.modifiers.ctrl || i.modifiers.command);
         self.frame_time = ctx.input(|i| i.time);
-        self.drain_pickers();
+        self.drain_pickers(ctx);
         self.resume_unsaved_close_if_ready(ctx);
         self.documents.poll(ctx);
         self.poll_artifact_export(ctx);
@@ -1871,12 +2091,14 @@ impl SlateApp {
             self.drain_previews(ctx);
         }
         self.model3d_frame(ctx);
+        self.video_pump(ctx);
         self.note_engine_failure();
         self.session_pump(ctx);
         self.ai.poll();
         self.agent_pump(ctx);
         self.web_pump(ctx);
         self.atlas_pump(ctx);
+        self.slate_pump(ctx);
         self.ai_context_frame();
 
         // Dropped files land in the active workbook, uncategorized. On the
@@ -1915,19 +2137,7 @@ impl SlateApp {
             // An HTML page dropped on the board is a portal, not a snippet card
             // (D01). Alt keeps the old text card, which is the only way back.
             let alt = drop_alt.unwrap_or_else(|| ctx.input(|i| i.modifiers.alt));
-            let on_board = self.doc().view.active_view == ViewKind::Board;
-            let dropped = if on_board && !alt {
-                let after_web = self.divert_web_drops(&dropped, at);
-                self.queue_folder_drop_choosers(&after_web, at)
-            } else {
-                dropped
-            };
-            if !dropped.is_empty() {
-                let items = self.add_paths(&dropped);
-                if on_board && !items.is_empty() {
-                    self.place_items_on_board(&items, at);
-                }
-            }
+            self.ingest_dropped_paths(dropped, at, alt);
         }
         // Dropped/added .slate files open as tabs, after placement above.
         self.drain_pending_workbooks();
@@ -1989,6 +2199,7 @@ impl SlateApp {
             self.board_action_menu(ctx);
         }
         self.paint_folder_drop_chooser(ctx);
+        self.paint_workbook_drop_chooser(ctx);
         if self.presenting.is_none() {
             self.history_frame(ctx);
         }
@@ -2188,6 +2399,8 @@ impl eframe::App for SlateApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.close_enscape();
+        self.stop_agent_sidecars();
         self.release_all_leases();
     }
 }

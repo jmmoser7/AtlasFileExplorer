@@ -602,6 +602,112 @@ pub fn snap_resize_rect_scoped(
     (r, guides)
 }
 
+/// Snap a rect that stays centered on `center`. Each axis applies the nearer
+/// edge snap to both sides so the press point does not walk. `square` keeps
+/// a circle or square by taking the snap that moves the side length less.
+pub fn snap_centered_rect_scoped(
+    center: Pos2,
+    proposed: WorldRect,
+    exclude: &[NodeId],
+    all: &[(NodeId, WorldRect)],
+    scope: SnapScope,
+    square: bool,
+) -> (WorldRect, Vec<SnapGuide>) {
+    let targets = collect_targets(exclude, all);
+    if targets.is_empty() {
+        return (proposed, Vec::new());
+    }
+    let moving = SnapLines::from_rect(proposed);
+    let x = nearer_half_snap(
+        center.x,
+        proposed.w * 0.5,
+        &moving,
+        &targets,
+        &scope,
+        GuideAxis::Vertical,
+    );
+    let y = nearer_half_snap(
+        center.y,
+        proposed.h * 0.5,
+        &moving,
+        &targets,
+        &scope,
+        GuideAxis::Horizontal,
+    );
+    let mut hw = x.map(|(h, _, _)| h).unwrap_or(proposed.w * 0.5);
+    let mut hh = y.map(|(h, _, _)| h).unwrap_or(proposed.h * 0.5);
+    let mut guides = Vec::new();
+    if square {
+        let orig = (proposed.w.max(proposed.h) * 0.5).max(0.5);
+        let side = match (&x, &y) {
+            (Some((hx, _, _)), Some((hy, _, _))) => {
+                if (hx - orig).abs() <= (hy - orig).abs() {
+                    *hx
+                } else {
+                    *hy
+                }
+            }
+            (Some((h, _, _)), None) | (None, Some((h, _, _))) => *h,
+            (None, None) => orig,
+        };
+        hw = side;
+        hh = side;
+    }
+    let rect = WorldRect::new(center.x - hw, center.y - hh, hw * 2.0, hh * 2.0);
+    let lines = SnapLines::from_rect(rect);
+    let x_won = x.as_ref().is_some_and(|(h, _, _)| (*h - hw).abs() < 0.01);
+    let y_won = y.as_ref().is_some_and(|(h, _, _)| (*h - hh).abs() < 0.01);
+    if let Some((_, edge, target)) = x.filter(|_| x_won) {
+        guides.push(guide_between(GuideAxis::Vertical, edge, &lines, &target));
+    }
+    if let Some((_, edge, target)) = y.filter(|_| y_won) {
+        guides.push(guide_between(GuideAxis::Horizontal, edge, &lines, &target));
+    }
+    if guides.is_empty() {
+        return (proposed, guides);
+    }
+    (rect, guides)
+}
+
+/// Corner of a center-drawn rect that sits in the cursor's quadrant.
+pub fn center_corner(center: Pos2, cursor: Pos2, rect: WorldRect) -> Pos2 {
+    let sx = if cursor.x >= center.x { 1.0 } else { -1.0 };
+    let sy = if cursor.y >= center.y { 1.0 } else { -1.0 };
+    let (cx, cy) = rect.center();
+    Pos2::new(cx + sx * rect.w * 0.5, cy + sy * rect.h * 0.5)
+}
+
+/// `(new_half, snapped_edge, target)`.
+fn nearer_half_snap(
+    center: f32,
+    half: f32,
+    moving: &SnapLines,
+    targets: &[SnapLines],
+    scope: &SnapScope,
+    axis: GuideAxis,
+) -> Option<(f32, f32, SnapLines)> {
+    let mut best: Option<(f32, f32, f32, SnapLines)> = None;
+    let consider = |delta: f32,
+                    new_half: f32,
+                    edge: f32,
+                    target: SnapLines,
+                    best: &mut Option<(f32, f32, f32, SnapLines)>| {
+        let dist = delta.abs();
+        if best.as_ref().map(|b| dist < b.0).unwrap_or(true) {
+            *best = Some((dist, new_half.max(0.5), edge, target));
+        }
+    };
+    if let Some((d, t)) = nearest_edge_from(moving, center + half, targets, scope, axis) {
+        let new_half = (half + d).max(0.5);
+        consider(d, new_half, center + new_half, t, &mut best);
+    }
+    if let Some((d, t)) = nearest_edge_from(moving, center - half, targets, scope, axis) {
+        let new_half = (half - d).max(0.5);
+        consider(d, new_half, center - new_half, t, &mut best);
+    }
+    best.map(|(_, h, e, t)| (h, e, t))
+}
+
 /// Opposite corner of `rect` from `start` — the DragScale end after an
 /// edge snap, so `place_rect(start, end)` reconstructs the snapped box.
 pub fn draw_end_from_rect(start: Pos2, rect: WorldRect) -> Pos2 {
@@ -1064,6 +1170,28 @@ pub fn constrain_draw_rect(raw: WorldRect, tool_square: bool, shift: bool) -> Wo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn centered_snap_keeps_the_press_point() {
+        let all = vec![(NodeId(1), WorldRect::new(54.0, -30.0, 40.0, 80.0))];
+        let proposed = WorldRect::new(-50.0, -20.0, 100.0, 40.0);
+        let (snapped, guides) = snap_centered_rect_scoped(
+            Pos2::new(0.0, 0.0),
+            proposed,
+            &[],
+            &all,
+            SnapScope::open(8.0),
+            false,
+        );
+        assert!(!guides.is_empty(), "right edge should snap to 54");
+        let (cx, cy) = snapped.center();
+        assert!(
+            cx.abs() < 0.01 && cy.abs() < 0.01,
+            "center walked to {cx},{cy}"
+        );
+        assert!((snapped.w - 108.0).abs() < 0.01, "w={}", snapped.w);
+        assert!((snapped.x + 54.0).abs() < 0.01, "x={}", snapped.x);
+    }
 
     #[test]
     fn snap_aligns_left_edges() {

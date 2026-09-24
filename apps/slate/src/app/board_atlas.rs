@@ -1074,6 +1074,7 @@ impl SlateApp {
                             label: fam.label(),
                             fill: [c.r(), c.g(), c.b()],
                             fill_b: None,
+                            thumb: None,
                         }
                     })
                     .collect();
@@ -1635,11 +1636,12 @@ impl SlateApp {
             WorldRect::new(rect.x, rect.y + rect.h + 8.0, rect.w.max(120.0), 20.0),
             NodeKind::Text(slate_doc::scene::TextNode {
                 text: format!("{locator} · {count} files · File Atlas lens"),
-                family: slate_doc::scene::FontChoice::Sans,
+                family: slate_doc::scene::Typeface::Sans,
                 size: 12.0,
                 color: slate_doc::scene::Rgba::opaque(198, 208, 224),
                 align: slate_doc::scene::TextAlign::Left,
                 fill: None,
+                agent: None,
             }),
         );
         let ids = self.add_nodes(vec![image, note]);
@@ -1718,35 +1720,27 @@ impl SlateApp {
         let options = front.options.clone();
         let path = front.path.clone();
         let at = front.at;
-        let mut choice: Option<FolderDropKind> = None;
-        let mut cancel = false;
-        egui::Window::new("Open folder")
-            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-            .collapsible(false)
-            .resizable(false)
-            .show(ctx, |ui| {
-                ui.label(format!("How should “{name}” land on the board?"));
-                ui.add_space(8.0);
-                for opt in options.iter().copied() {
-                    let btn = ui
-                        .add(egui::Button::new(opt.label()).min_size(Vec2::new(280.0, 28.0)))
-                        .on_hover_text(opt.hint());
-                    if btn.clicked() {
-                        choice = Some(opt);
-                    }
+        let choices: Vec<super::board_portal::DropChoice> = options
+            .iter()
+            .copied()
+            .map(|opt| super::board_portal::DropChoice {
+                label: opt.label(),
+                hint: opt.hint(),
+            })
+            .collect();
+        let prompt = format!("How should “{name}” land on the board?");
+        let choice = super::board_portal::paint_drop_chooser(ctx, "Open folder", &prompt, &choices);
+        match choice {
+            Some(super::board_portal::DropChooserResult::Cancelled) => {
+                self.atlas_lenses.pending_drops.pop_front();
+            }
+            Some(super::board_portal::DropChooserResult::Picked(index)) => {
+                self.atlas_lenses.pending_drops.pop_front();
+                if let Some(kind) = options.get(index).copied() {
+                    self.apply_folder_drop(kind, path, at);
                 }
-                ui.add_space(6.0);
-                if ui.button("Cancel").clicked() {
-                    cancel = true;
-                }
-            });
-        if cancel {
-            self.atlas_lenses.pending_drops.pop_front();
-            return;
-        }
-        if let Some(kind) = choice {
-            self.atlas_lenses.pending_drops.pop_front();
-            self.apply_folder_drop(kind, path, at);
+            }
+            None => {}
         }
     }
 
@@ -2100,7 +2094,10 @@ mod tests {
             title: "Drop".into(),
             order: 0,
             fill: slate_doc::scene::Rgba::opaque(240, 240, 240),
+            fill_authored: false,
             assignments: std::collections::BTreeMap::from([(group, tag)]),
+            stroke: slate_doc::scene::Stroke::none(),
+            corner: slate_doc::scene::Corner::Square,
         };
         let node = h.app.doc_mut().scene.build_node(
             WorldRect::new(world.x - 250.0, world.y - 200.0, 500.0, 400.0),

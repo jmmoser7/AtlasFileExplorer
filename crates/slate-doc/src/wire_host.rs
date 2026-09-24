@@ -60,6 +60,9 @@ pub struct WireHost {
     pub rect: WorldRect,
     pub rotation_deg: f32,
     kind: HostKind,
+    /// Typed inputs of a generator or text block. When present, the host's
+    /// ports are these on the left edge plus one output at the right middle.
+    flow: &'static [crate::agent_inputs::InputPort],
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +86,7 @@ impl WireHost {
             rect,
             rotation_deg: 0.0,
             kind: HostKind::Oriented { ellipse: false },
+            flow: &[],
         }
     }
 
@@ -92,6 +96,7 @@ impl WireHost {
             rect,
             rotation_deg: 0.0,
             kind: HostKind::Oriented { ellipse: true },
+            flow: &[],
         }
     }
 
@@ -101,6 +106,7 @@ impl WireHost {
                 rect: node.rect,
                 rotation_deg: node.rotation_deg,
                 kind: HostKind::Open(stroke),
+                flow: &[],
             };
         }
         let ellipse = matches!(
@@ -111,7 +117,13 @@ impl WireHost {
             rect: node.rect,
             rotation_deg: node.rotation_deg,
             kind: HostKind::Oriented { ellipse },
+            flow: crate::agent_inputs::input_ports_of(node),
         }
+    }
+
+    /// A generator or text block: typed input ports and one output.
+    pub fn is_flow(&self) -> bool {
+        !self.flow.is_empty()
     }
 
     pub fn is_open(&self) -> bool {
@@ -126,8 +138,26 @@ impl WireHost {
         matches!(self.kind, HostKind::Oriented { ellipse: true })
     }
 
-    /// Default spawn handles. Three on an open stroke, four on an area.
+    /// Default spawn handles. Three on an open stroke, four on an area. A flow
+    /// node has its inputs down the left edge and one output on the right.
     pub fn ports(&self) -> Vec<WirePort> {
+        if self.is_flow() {
+            let mut ports: Vec<WirePort> = self
+                .flow
+                .iter()
+                .map(|p| WirePort {
+                    side: Side::Left,
+                    t: p.t,
+                    point: self.anchor(Side::Left, p.t),
+                })
+                .collect();
+            ports.push(WirePort {
+                side: Side::Right,
+                t: crate::agent_inputs::OUTPUT_T,
+                point: self.anchor(Side::Right, crate::agent_inputs::OUTPUT_T),
+            });
+            return ports;
+        }
         match &self.kind {
             HostKind::Oriented { .. } => Side::BOX
                 .into_iter()
@@ -547,10 +577,10 @@ fn norm(v: [f32; 2]) -> [f32; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::{FontChoice, TextAlign};
     use crate::scene::{
         NodeId, NodeKind, PathData, PathSeg, ShapeKind, ShapeNode, Stroke, TextNode,
     };
+    use crate::scene::{TextAlign, Typeface};
 
     fn shape_node(kind: ShapeKind, rect: WorldRect, rot: f32, path: Option<PathData>) -> Node {
         Node {
@@ -562,6 +592,7 @@ mod tests {
             hidden: false,
             group: None,
             clip: None,
+            bumper: None,
             kind: NodeKind::Shape(ShapeNode {
                 shape: kind,
                 fill: None,
@@ -569,6 +600,7 @@ mod tests {
                 corner: Default::default(),
                 flip: false,
                 path,
+                text: None,
             }),
         }
     }
@@ -676,13 +708,15 @@ mod tests {
             hidden: false,
             group: None,
             clip: None,
+            bumper: None,
             kind: NodeKind::Text(TextNode {
                 text: "hi".into(),
-                family: FontChoice::Sans,
+                family: Typeface::Sans,
                 size: 14.0,
                 color: crate::scene::Rgba::BLACK,
                 align: TextAlign::Left,
                 fill: None,
+                agent: None,
             }),
         };
         let a = WireHost::from_node(&text).anchor(Side::Top, 0.5);

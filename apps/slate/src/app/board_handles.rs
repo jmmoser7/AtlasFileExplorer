@@ -79,6 +79,133 @@ pub fn selection_geom(xf: &BoardXf, rect: WorldRect, rotation_deg: f32) -> Selec
     }
 }
 
+/// Photoshop crop chrome, in screen px before `canvas_scale`.
+pub const CROP_ARM_PX: f32 = 12.0;
+pub const CROP_BAR_LEN_PX: f32 = 18.0;
+pub const CROP_BAR_THICK_PX: f32 = 5.0;
+/// Extra hit outside the painted bracket or bar.
+pub const CROP_HIT_PAD_PX: f32 = 4.0;
+
+fn union_points(points: &[Pos2]) -> Rect {
+    let mut rect = Rect::from_center_size(points[0], Vec2::ZERO);
+    for p in &points[1..] {
+        rect = rect.union(Rect::from_center_size(*p, Vec2::ZERO));
+    }
+    rect
+}
+
+/// Screen hit for one Photoshop crop handle: the painted graphic plus
+/// [`CROP_HIT_PAD_PX`].
+pub fn crop_handle_hits(geom: &SelectionGeom) -> [(ResizeHandle, Rect); 8] {
+    let z = geom.zoom;
+    let arm = canvas_scale::px(CROP_ARM_PX, z);
+    let half_len = canvas_scale::px(CROP_BAR_LEN_PX, z) * 0.5;
+    let half_thick = canvas_scale::px(CROP_BAR_THICK_PX, z) * 0.5;
+    let pad = canvas_scale::px(CROP_HIT_PAD_PX, z);
+    let corner_handles = [
+        ResizeHandle::Nw,
+        ResizeHandle::Ne,
+        ResizeHandle::Se,
+        ResizeHandle::Sw,
+    ];
+    let edge_handles = [
+        ResizeHandle::N,
+        ResizeHandle::E,
+        ResizeHandle::S,
+        ResizeHandle::W,
+    ];
+    let mut out = [(ResizeHandle::Nw, Rect::NOTHING); 8];
+    for i in 0..4 {
+        let corner = geom.corners[i];
+        let prev = geom.corners[(i + 3) % 4];
+        let next = geom.corners[(i + 1) % 4];
+        let a = corner + unit(prev - corner) * arm;
+        let b = corner + unit(next - corner) * arm;
+        out[i * 2] = (corner_handles[i], union_points(&[corner, a, b]).expand(pad));
+        let mid = geom.edges[i];
+        let along = unit(next - corner);
+        let normal = Vec2::new(-along.y, along.x);
+        let bar = [
+            mid + along * half_len + normal * half_thick,
+            mid - along * half_len + normal * half_thick,
+            mid - along * half_len - normal * half_thick,
+            mid + along * half_len - normal * half_thick,
+        ];
+        out[i * 2 + 1] = (edge_handles[i], union_points(&bar).expand(pad));
+    }
+    out
+}
+
+pub fn crop_handle_at(screen: Pos2, geom: &SelectionGeom) -> Option<ResizeHandle> {
+    crop_handle_hits(geom)
+        .into_iter()
+        .find(|(_, rect)| rect.contains(screen))
+        .map(|(handle, _)| handle)
+}
+
+/// White corner brackets and edge bars, with a dark edge so they read on the picture.
+pub fn paint_crop_handles(
+    painter: &egui::Painter,
+    geom: &SelectionGeom,
+    hot: Option<ResizeHandle>,
+) {
+    let z = geom.zoom;
+    let arm = canvas_scale::px(CROP_ARM_PX, z);
+    let half_len = canvas_scale::px(CROP_BAR_LEN_PX, z) * 0.5;
+    let half_thick = canvas_scale::px(CROP_BAR_THICK_PX, z) * 0.5;
+    let white = Color32::WHITE;
+    let ink = Color32::from_black_alpha(200);
+    let stroke = canvas_scale::px(2.0, z);
+    let under = canvas_scale::px(3.5, z);
+    for i in 0..4 {
+        let corner = geom.corners[i];
+        let prev = geom.corners[(i + 3) % 4];
+        let next = geom.corners[(i + 1) % 4];
+        let a = corner + unit(prev - corner) * arm;
+        let b = corner + unit(next - corner) * arm;
+        let handle = [
+            ResizeHandle::Nw,
+            ResizeHandle::Ne,
+            ResizeHandle::Se,
+            ResizeHandle::Sw,
+        ][i];
+        let color = if hot == Some(handle) {
+            Color32::from_rgb(210, 230, 255)
+        } else {
+            white
+        };
+        for end in [a, b] {
+            painter.line_segment([corner, end], egui::Stroke::new(under, ink));
+            painter.line_segment([corner, end], egui::Stroke::new(stroke, color));
+        }
+        let mid = geom.edges[i];
+        let along = unit(next - corner);
+        let normal = Vec2::new(-along.y, along.x);
+        let bar = vec![
+            mid + along * half_len + normal * half_thick,
+            mid - along * half_len + normal * half_thick,
+            mid - along * half_len - normal * half_thick,
+            mid + along * half_len - normal * half_thick,
+        ];
+        let edge = [
+            ResizeHandle::N,
+            ResizeHandle::E,
+            ResizeHandle::S,
+            ResizeHandle::W,
+        ][i];
+        let fill = if hot == Some(edge) {
+            Color32::from_rgb(210, 230, 255)
+        } else {
+            white
+        };
+        painter.add(egui::Shape::convex_polygon(
+            bar,
+            fill,
+            egui::Stroke::new(canvas_scale::px(1.0, z), ink),
+        ));
+    }
+}
+
 fn handle_rects(geom: &SelectionGeom) -> [(ResizeHandle, Rect); 8] {
     let h = Vec2::splat(canvas_scale::px(HANDLE_PX, geom.zoom));
     [
@@ -117,8 +244,8 @@ fn handle_rects(geom: &SelectionGeom) -> [(ResizeHandle, Rect); 8] {
     ]
 }
 
-/// Handle-only hit test (no rotate zones) — used by crop mode, where the
-/// eight handles move the crop window edges and rotation is unavailable.
+/// Square handle hit (no rotate zones, no edge bands). Crop blisters use
+/// their own midpoint test; this remains the tight square.
 pub fn hit_test_resize_handles(screen: Pos2, geom: &SelectionGeom) -> Option<ResizeHandle> {
     handle_rects(geom)
         .into_iter()
@@ -428,6 +555,15 @@ mod tests {
         // Midway along the top edge, well outside the N handle square.
         let on_edge = Pos2::new(25.0, 0.0);
         assert_eq!(hit_test_resize_bands(on_edge, &geom), Some(ResizeHandle::N));
+        assert_eq!(hit_test_resize_handles(on_edge, &geom), None);
+        let hits = crop_handle_hits(&geom);
+        let north = hits.iter().find(|(h, _)| *h == ResizeHandle::N).unwrap().1;
+        assert!(north.contains(geom.edges[0]));
+        assert!(!north
+            .expand(1.0)
+            .contains(geom.edges[0] + Vec2::new(0.0, -40.0)));
+        let corner = hits.iter().find(|(h, _)| *h == ResizeHandle::Nw).unwrap().1;
+        assert!(corner.contains(geom.corners[0]));
         assert_eq!(
             hit_test_chrome(on_edge, &geom, true),
             Some(BoardHitTarget::Resize(ResizeHandle::N))

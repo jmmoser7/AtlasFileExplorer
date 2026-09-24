@@ -1445,6 +1445,78 @@ fn norm(a: [f32; 2]) -> [f32; 2] {
 fn lerp(a: [f32; 2], b: [f32; 2], t: f32) -> [f32; 2] {
     [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
 }
+/// Move each anchored end along the host's outward normal by up to
+/// `distance` (half the drawn stroke). A centered stroke and its round cap
+/// then sit outside the host instead of painting across its face. Free ends
+/// stay put. The retreat never eats more than 45% of the span, so a short
+/// wire cannot flip inside-out.
+pub fn retreat_off_hosts(
+    path: ConnectorPath,
+    a: &ConnectorEnd,
+    b: &ConnectorEnd,
+    host_of: impl Fn(NodeId) -> Option<WireHost>,
+    distance: f32,
+) -> ConnectorPath {
+    if distance <= EPS {
+        return path;
+    }
+    let d0 = retreat_delta(a, &host_of, distance, &path, true);
+    let d1 = retreat_delta(b, &host_of, distance, &path, false);
+    match path {
+        ConnectorPath::Bezier(mut bez) => {
+            bez.p0 = add(bez.p0, d0);
+            bez.c1 = add(bez.c1, d0);
+            bez.p3 = add(bez.p3, d1);
+            bez.c2 = add(bez.c2, d1);
+            ConnectorPath::Bezier(bez)
+        }
+        ConnectorPath::Orthogonal(mut pts) => {
+            if let Some(p) = pts.first_mut() {
+                *p = add(*p, d0);
+            }
+            if pts.len() > 1 {
+                let last = pts.len() - 1;
+                pts[last] = add(pts[last], d1);
+            }
+            ConnectorPath::Orthogonal(pts)
+        }
+    }
+}
+
+fn retreat_delta(
+    end: &ConnectorEnd,
+    host_of: &impl Fn(NodeId) -> Option<WireHost>,
+    distance: f32,
+    path: &ConnectorPath,
+    at_start: bool,
+) -> [f32; 2] {
+    let ConnectorEnd::Anchored { node, side, t } = *end else {
+        return [0.0, 0.0];
+    };
+    let Some(host) = host_of(node) else {
+        return [0.0, 0.0];
+    };
+    let outward = norm(host.outward(side, t));
+    if outward == [0.0, 0.0] {
+        return [0.0, 0.0];
+    }
+    let span = match path {
+        ConnectorPath::Bezier(b) => len(sub(b.p3, b.p0)),
+        ConnectorPath::Orthogonal(pts) => {
+            if pts.len() < 2 {
+                return [0.0, 0.0];
+            }
+            if at_start {
+                len(sub(pts[1], pts[0]))
+            } else {
+                let n = pts.len();
+                len(sub(pts[n - 2], pts[n - 1]))
+            }
+        }
+    };
+    scale(outward, distance.min(span * 0.45))
+}
+
 fn nearly(a: [f32; 2], b: [f32; 2]) -> bool {
     (a[0] - b[0]).abs() <= EPS && (a[1] - b[1]).abs() <= EPS
 }
@@ -1453,6 +1525,45 @@ fn nearly(a: [f32; 2], b: [f32; 2]) -> bool {
 mod tests {
     use super::*;
     use crate::scene::Side;
+
+    #[test]
+    fn retreat_moves_an_anchored_end_outside_the_host() {
+        let a = WorldRect::new(0.0, 0.0, 100.0, 80.0);
+        let b = WorldRect::new(300.0, 0.0, 100.0, 80.0);
+        let ends = (
+            ConnectorEnd::Anchored {
+                node: NodeId(1),
+                side: Side::Right,
+                t: 0.5,
+            },
+            ConnectorEnd::Anchored {
+                node: NodeId(2),
+                side: Side::Left,
+                t: 0.5,
+            },
+        );
+        let path = connector_route(
+            &ends.0,
+            &ends.1,
+            host_of(a, b),
+            WireRouting::Bezier,
+            &[],
+            OrthoLane::default(),
+        )
+        .unwrap();
+        let start = path.start();
+        let drawn = retreat_off_hosts(path, &ends.0, &ends.1, host_of(a, b), 4.0);
+        assert!(
+            drawn.start()[0] > start[0] + 3.0,
+            "right-side end should step outside the host, {:?} → {:?}",
+            start,
+            drawn.start()
+        );
+        assert!(
+            a.x + a.w < drawn.start()[0],
+            "the stroked end must clear the host's right edge"
+        );
+    }
 
     fn host_of(a: WorldRect, b: WorldRect) -> impl Fn(NodeId) -> Option<WireHost> {
         move |id| match id.0 {
@@ -1621,6 +1732,7 @@ mod tests {
             hidden: false,
             group: None,
             clip: None,
+            bumper: None,
             kind: NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Rect,
                 fill: None,
@@ -1628,6 +1740,7 @@ mod tests {
                 corner: Default::default(),
                 flip: false,
                 path: None,
+                text: None,
             }),
         }
     }
@@ -1643,6 +1756,7 @@ mod tests {
             hidden: false,
             group: None,
             clip: None,
+            bumper: None,
             kind: NodeKind::Connector(ConnectorNode {
                 routing: None,
                 binding: None,

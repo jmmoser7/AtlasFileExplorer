@@ -303,6 +303,8 @@ mod tests {
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
                 path: None,
+
+                text: None,
             }),
         );
         let id = n.id;

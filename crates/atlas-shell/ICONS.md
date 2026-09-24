@@ -28,14 +28,15 @@ The design preview reads the same JSON. Never hand-copy glyphs into an app.
 ## Media family
 
 Media uses stacked sheets as a stable primary family icon. Image uses a landscape
-frame for flat/print media, Model uses a cube for the existing Rhino viewer, and
-Video uses a play frame. All four share the 24-unit catalog and 1.5-unit outline;
-there are no optical exceptions or per-app copies.
+frame for flat/print media, Model uses a cube for the existing model viewer,
+Video uses a play frame, and TextDoc is a portrait page with three text lines
+for Word, spreadsheets, CSV, and source files. All five share the 24-unit
+catalog and 1.5-unit outline; there are no optical exceptions or per-app copies.
 
 ## Frame sizes
 
 The Frame family icon is the same page-and-dog-ear sheet as the nested
-sizes. Letter (8.5×11), Tabloid (11×17), Wide (16:9), and Custom (1:1
+sizes. Letter (8.5×11 portrait), Tabloid (17×11 landscape), Wide (16:9), and Custom (1:1
 with a plus) share one path language at that preset's true aspect. The
 dock primary shows the current proposed size. They map from `frame.letter`
 / `frame.tabloid` / `frame.wide` / `frame.custom`. Do not reuse Document
@@ -79,6 +80,15 @@ changes require actual-size visual review, not just enlarged artwork.
 
 The shape-selection strip uses the catalog Fill bucket, Ellipse stroke ring, Corners outline, Filters funnel, Pages grid, and Display for File Atlas Formatting. These share the same path stroke and squircle chrome as the primary dock; applications do not paint private substitute glyphs. [DYNAMIC_PANELS.md](DYNAMIC_PANELS.md) owns the surrounding panel composition and distinguishes squircle icon buttons from circular color swatches, filter radios, and rail handles.
 
+## Bumper
+
+`Bumper` is two pucks touching at one point, with three short impact marks above
+the contact. It maps to the selection-strip squircle for Bumper cars
+(`board.shape.edit`, `contracts/bumper-cars.md`), shown only when Preferences →
+Configure → Tools → Bumper cars is on. The pucks deliberately touch, so the
+2-unit internal gap rule gives way at that one point: contact is the metaphor.
+It is not Ellipse (one ring) or Join.
+
 ## Pages
 
 `Pages` is a 2×2 grid of sheets: the poster-page album and `board.media.unbundle` (spread a PDF/PowerPoint deck onto the board). It is not Media (stacked family sheets), Image (landscape frame), or Frame (dog-eared page). Command mapping: selection-strip squircle → album browse (`board.media.page`) and Unbundle (`board.media.unbundle`).
@@ -86,6 +96,16 @@ The shape-selection strip uses the catalog Fill bucket, Ellipse stroke ring, Cor
 ## Conversation presentation glyphs
 
 ChatTrain uses two separated linked cards; ChatWindow uses a single tall transcript with alternating lines. ChatBundle encloses miniature cards in one container, matching the supplied bundle reference. ChatUnbundle separates those cards with outward arrows. Bundle/Unbundle map to the agent selection strip; Train/Window accompany the contextual presentation menu. These use the shared 24-unit outline catalog and avoid reusing the unrelated geometric Join/Split tools.
+
+ChatPairs is the ChatWindow card holding one pair: a short message bubble at the upper right and two reply lines below it. Stop is an open rounded square, the outline form of the composer's stop button. The chat card's ellipsis menu gives every row a glyph through `menu::Row::glyph`: ChatWindow, ChatTrain, ChatPairs, TextDoc (full conversation), Agent (choose program), Stop, Fit, with the menu family's Lock and Trash for full access and deletion.
+
+## Agent portal
+
+`Agent` is the agent-portal tool glyph: a robot face with two side antennae,
+hollow ear loops, a rounded head, two eyes, and a short mouth. Stroke is 1.25
+so those loops and the face stay open at dock size; other glyphs stay at 1.5.
+It is not the Portals family mark (nested rounded openings) and not a provider
+tile. Command mapping: `board.portal.agent` and the Portals flyout row.
 
 ## Agent provider identity (21 September 2026)
 

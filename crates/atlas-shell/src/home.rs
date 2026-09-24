@@ -166,6 +166,16 @@ pub struct AlbumImage {
     pub size: Vec2,
 }
 
+/// Which gestures browse the album. Anything not claimed stays with the canvas.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AlbumInput {
+    pub drag: bool,
+    pub wheel: bool,
+    /// The host paints the shown image at rest (with its own crop, corners
+    /// and filters); the album paints only while it is browsed.
+    pub host_paints_rest: bool,
+}
+
 /// Image-only presentation of the shared album motion. At rest the active image
 /// fills its portal; browsing reveals neighbors and then settles back to full bleed.
 pub fn image_album(
@@ -174,15 +184,16 @@ pub fn image_album(
     rect: Rect,
     images: &[AlbumImage],
     focus: usize,
-    interactive: bool,
+    input: AlbumInput,
 ) -> usize {
     if images.is_empty() {
         return 0;
     }
+    let several = images.len() > 1;
     let response = ui.interact(
         rect,
         id.with("album-hit"),
-        if interactive && images.len() > 1 {
+        if input.drag && several {
             Sense::click_and_drag()
         } else {
             Sense::hover()
@@ -201,15 +212,24 @@ pub fn image_album(
         &mut flow,
         images.len(),
         focus,
-        interactive && images.len() > 1,
+        FlowInput {
+            drag: input.drag && several,
+            wheel: input.wheel && several,
+        },
         &tuning,
     );
     let resting = flow.phase == InteractionPhase::Idle;
     let expansion =
         ui.ctx()
             .animate_bool_with_time(id.with("album-settle"), resting, ALBUM_SETTLE_SECONDS);
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(id.with("album-expansion"), expansion));
     let painter = ui.painter_at(rect);
     if resting && expansion > 0.999 {
+        if input.host_paints_rest {
+            ui.ctx().data_mut(|d| d.insert_temp(state_id, flow));
+            return focus;
+        }
         if let Some(texture) = images[focus].texture {
             painter.image(
                 texture,
@@ -270,6 +290,124 @@ pub fn image_album(
     }
     ui.ctx().data_mut(|d| d.insert_temp(state_id, flow));
     focus
+}
+
+/// How far the album with this `id` is from rest: 0 settled, 1 browsing.
+pub fn album_browsing(ctx: &egui::Context, id: Id) -> f32 {
+    1.0 - ctx
+        .data(|d| d.get_temp::<f32>(id.with("album-expansion")))
+        .unwrap_or(1.0)
+}
+
+/// Designed size of one album index square and the gap between them.
+const STRIP_SQUARE: f32 = 22.0;
+const STRIP_GAP: f32 = 5.0;
+/// A wider gap separates pictures from different runs.
+const STRIP_RUN_GAP: f32 = 12.0;
+const STRIP_OFFSET: f32 = 10.0;
+/// At most this many squares show, centered on the shown picture.
+const STRIP_MAX: usize = 24;
+
+/// Where the index strip sits under an album, in the album's board units.
+pub fn album_strip_rect(album: Rect, count: usize, zoom: f32) -> Rect {
+    let n = count.min(STRIP_MAX) as f32;
+    let width = n * STRIP_SQUARE + (n - 1.0).max(0.0) * STRIP_RUN_GAP;
+    Rect::from_center_size(
+        Pos2::new(
+            album.center().x,
+            album.bottom() + (STRIP_OFFSET + STRIP_SQUARE * 0.5) * zoom,
+        ),
+        Vec2::new(width, STRIP_SQUARE) * zoom,
+    )
+}
+
+/// Square thumbnails under an album while it is browsed (or `shown`), marking
+/// the picture on display among every picture the album holds. `runs[i]` names
+/// the run that made picture `i`; a wider gap separates runs. Returns a square
+/// the pointer clicked.
+#[allow(clippy::too_many_arguments)]
+pub fn album_index_strip(
+    ui: &egui::Ui,
+    id: Id,
+    album: Rect,
+    images: &[AlbumImage],
+    runs: &[&str],
+    focus: usize,
+    shown: bool,
+    zoom: f32,
+    theme: crate::theme::Palette,
+) -> Option<usize> {
+    if images.len() < 2 {
+        return None;
+    }
+    let fade = album_browsing(ui.ctx(), id).max(ui.ctx().animate_bool_with_time(
+        id.with("album-strip"),
+        shown,
+        ALBUM_SETTLE_SECONDS,
+    ));
+    if fade <= 0.01 {
+        return None;
+    }
+    let side = STRIP_SQUARE * zoom;
+    if side < 2.0 {
+        return None;
+    }
+    let start = focus
+        .saturating_sub(STRIP_MAX / 2)
+        .min(images.len().saturating_sub(STRIP_MAX));
+    let end = (start + STRIP_MAX).min(images.len());
+    let gaps: Vec<f32> = (start..end)
+        .map(|i| {
+            if i == start {
+                0.0
+            } else if runs.get(i) != runs.get(i - 1) {
+                STRIP_RUN_GAP * zoom
+            } else {
+                STRIP_GAP * zoom
+            }
+        })
+        .collect();
+    let width = side * (end - start) as f32 + gaps.iter().sum::<f32>();
+    let top = album.bottom() + STRIP_OFFSET * zoom;
+    let mut x = album.center().x - width * 0.5;
+    let mut painter = ui.painter().clone();
+    painter.multiply_opacity(fade);
+    let mut clicked = None;
+    for (offset, i) in (start..end).enumerate() {
+        x += gaps[offset];
+        let square = Rect::from_min_size(Pos2::new(x, top), Vec2::splat(side));
+        x += side;
+        let response = ui.interact(square, id.with(("album-index", i)), egui::Sense::click());
+        if response.clicked() {
+            clicked = Some(i);
+        }
+        let radius = 3.0 * zoom;
+        let image = images[i];
+        match image.texture {
+            Some(texture) => painter.add(
+                egui::epaint::RectShape::filled(square, radius, Color32::WHITE)
+                    .with_texture(texture, album_uv(image.size, square.size())),
+            ),
+            None => painter.add(egui::epaint::RectShape::filled(square, radius, theme.card)),
+        };
+        let active = i == focus;
+        painter.rect_stroke(
+            square,
+            radius,
+            egui::Stroke::new(
+                (if active { 1.6 } else { 0.8 }) * zoom,
+                if active {
+                    theme.select
+                } else if response.hovered() {
+                    theme.ink
+                } else {
+                    theme.border_strong
+                },
+            ),
+            egui::StrokeKind::Outside,
+        );
+    }
+    clicked
 }
 
 fn album_uv(source: Vec2, host: Vec2) -> Rect {
@@ -635,6 +773,13 @@ fn normalize_position(position: &mut f32, count: usize) {
     *position -= (*position / n).floor() * n;
 }
 
+/// Gestures one flow may claim. The home rack claims both.
+#[derive(Clone, Copy)]
+struct FlowInput {
+    drag: bool,
+    wheel: bool,
+}
+
 /// Draw the Cover Flow home into `ui`'s full available rect.
 /// Shared gesture/motion owner for home covers and in-portal image albums.
 fn advance_flow(
@@ -643,9 +788,10 @@ fn advance_flow(
     flow: &mut CoverFlowState,
     count: usize,
     app_focus: usize,
-    interactive: bool,
+    input: FlowInput,
     tuning: &CoverFlowTuning,
 ) -> (usize, Option<HomeAction>, bool) {
+    let interactive = input.drag;
     let mut action = None;
     if flow.cover_count != count {
         flow.position = if count == 0 {
@@ -691,10 +837,10 @@ fn advance_flow(
         flow.stop_gesture = true;
     }
 
-    if interactive && count > 0 {
+    if (interactive || input.wheel) && count > 0 {
         // Wheel / trackpad: accumulate px, then step the target one detent at
         // a time so every advance is spring-animated (never a teleport).
-        if resp.hovered() {
+        if input.wheel && resp.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.x + i.smooth_scroll_delta.y);
             if scroll.abs() > 0.01 && flow.phase != InteractionPhase::Dragging {
                 flow.wheel_accum += -scroll / tuning.wheel_px_per_album;
@@ -739,9 +885,14 @@ fn advance_flow(
         }
 
         // Keyboard: animated single-detent steps (repeat presses queue up).
-        let arrow = ui.input(|i| {
-            i.key_pressed(egui::Key::ArrowRight) as i32 - i.key_pressed(egui::Key::ArrowLeft) as i32
-        });
+        let arrow = if interactive {
+            ui.input(|i| {
+                i.key_pressed(egui::Key::ArrowRight) as i32
+                    - i.key_pressed(egui::Key::ArrowLeft) as i32
+            })
+        } else {
+            0
+        };
         if arrow != 0 {
             let base = if flow.phase == InteractionPhase::Snapping {
                 flow.target
@@ -752,7 +903,7 @@ fn advance_flow(
             flow.phase = InteractionPhase::Snapping;
             flow.stop_gesture = false;
         }
-        if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        if interactive && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             let focus = mod_index(flow.position.round() as i32, count);
             action = Some(HomeAction::Open(focus));
         }
@@ -837,7 +988,10 @@ pub fn cover_flow_home(ui: &Ui, palette: &Palette, model: HomeModel<'_>) -> Home
         &mut flow,
         count,
         model.focus,
-        model.interactive,
+        FlowInput {
+            drag: model.interactive,
+            wheel: model.interactive,
+        },
         &tuning,
     );
     let mut action = keyboard_action;

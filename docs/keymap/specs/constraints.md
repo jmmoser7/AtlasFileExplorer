@@ -51,7 +51,9 @@ pub fn effective_ortho(c: &BoardConstraints, shift_down: bool) -> bool {
 - **Ctrl+X** `board.cut`: copy + journaled delete.
 - **Ctrl+V** `board.paste`: paste at **pointer** (canvas hovered) else view
   center, preserving the group's relative layout; fresh NodeIds/GroupKeys;
-  repeated pastes step +24,+24. One journal group of Adds.
+  repeated pastes step +24,+24. One journal group of Adds. A clipboard
+  image or a copied file list is placed as board items instead (the image
+  is written to a file the workbook links to).
 - **Ctrl+Shift+V** `board.paste_in_place`: paste at source world coords
   (PS §11 — essential across tabs).
 - Atlas: **Ctrl+C** `atlas.copy_paths` — selected files' absolute paths to

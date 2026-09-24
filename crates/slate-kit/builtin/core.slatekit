@@ -32,7 +32,11 @@ doc = "A slide. Drag holds the frame preset's aspect; Shift draws freely."
   # `{n}` is the 1-based slide number — a named substitution, not an
   # expression. Click-to-place size comes from the app's frame preset, which
   # is why this recipe names no `default_size`.
+  # Radius 8 is the designed fillet (`slate_doc::media::TEXT_CARD_FILLET`,
+  # the same length as a portal frame). No stroke: a border is opt-in.
+  # White with no later edit follows the light/dark card color.
   frame = { title = "Slide {n}", fill = "#ffffff" }
+  corner = { rounded = { radius = 8.0 } }
 
 [[tool]]
 id = "rect"
@@ -73,6 +77,19 @@ doc = "A host portal onto a local folder, drawn with File Atlas's map language."
   title = "File Atlas"
   default_size = [960.0, 540.0]
   # No `source`: bind a folder after placement (Art. IX.2).
+
+[[tool]]
+id = "portal-slate"
+name = "Slate board"
+grammar = "drag_rect"
+icon = "frame"
+doc = "A document portal onto another workbook's board."
+
+  [tool.recipe]
+  kind = "portal"
+  portal = "slate"
+  title = "Board"
+  default_size = [960.0, 540.0]
 
 [[tool]]
 id = "portal-web"

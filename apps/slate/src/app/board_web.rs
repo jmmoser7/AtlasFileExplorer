@@ -222,6 +222,9 @@ pub struct WebRequest {
     /// rasters at this size so a 2× display is not a 1× bitmap stretched.
     pub raster_w: u32,
     pub raster_h: u32,
+    /// Runs in the page after load so a wired spreadsheet can feed a chart.
+    /// Empty for remote pages.
+    pub link_script: String,
 }
 
 impl WebRequest {
@@ -283,6 +286,14 @@ pub trait WebHost {
     fn take_escape(&mut self) -> bool {
         false
     }
+    /// Give native keyboard focus back to the board window. A native page keeps
+    /// the keyboard after a click lands elsewhere, so a chat field would look
+    /// unresponsive until something else took it back.
+    fn release_keyboard(&self) {}
+    /// PNG exports a page asked to drop on the board, each `(portal, file)`.
+    fn take_canvas_drops(&mut self) -> Vec<(NodeId, PathBuf)> {
+        Vec::new()
+    }
     /// Whether a runtime exists at all. `false` puts every portal in
     /// [`WebState::NoRuntime`] rather than stalling (D29).
     fn available(&self) -> bool;
@@ -328,6 +339,17 @@ pub trait WebHost {
     /// Navigate this derived view without changing the authored locator.
     fn navigate(&mut self, _id: NodeId, _target: &str) -> bool {
         false
+    }
+    /// Start reading the page's visible text once, read-only, for an agent
+    /// run the human started (D15 / D27 amendment, 24 September 2026). Only
+    /// `innerText`: never cookies, storage, or a channel the page can call.
+    /// `false` when the page has no live view to read.
+    fn request_text(&mut self, _id: NodeId) -> bool {
+        false
+    }
+    /// The text `request_text` asked for, once it arrives.
+    fn take_text(&mut self, _id: NodeId) -> Option<Result<String, String>> {
+        None
     }
 }
 
@@ -437,13 +459,30 @@ struct SourcePoll {
     mtime: Option<SystemTime>,
 }
 
+/// `web-consent.json` in the per-user Atlas data folder.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedConsent {
+    #[serde(default)]
+    version: u32,
+    #[serde(default)]
+    workbooks: HashMap<String, HashSet<String>>,
+}
+
 /// Board-wide web portal state. One per app, not per portal.
 pub struct WebRuntime {
     views: HashMap<NodeId, WebView>,
     /// Origins the human has permitted this session, keyed `scheme://host`.
-    /// Deliberately not journaled and not saved: a workbook you receive must
-    /// never arrive already trusting a host (D26, D32).
+    /// Never journaled and never written into the `.slate`: a workbook you
+    /// receive must not arrive already trusting a host (D26, D32).
     consent: HashSet<String>,
+    /// Grants kept for later sessions, keyed (workbook, origin), in the
+    /// per-user Atlas data folder. None in tests and tools.
+    consent_file: Option<std::path::PathBuf>,
+    saved_consent: HashMap<String, HashSet<String>>,
+    /// The active workbook and its saved origins, swapped only on change so
+    /// the per-frame check never allocates.
+    consent_workbook: Option<std::path::PathBuf>,
+    workbook_consent: HashSet<String>,
     /// The one portal receiving pointer and keyboard, if any (D22).
     pub focused: Option<NodeId>,
     /// Whether the pointer was inside the focused page last frame, so the page
@@ -465,6 +504,10 @@ pub struct WebRuntime {
     /// frame loop; a share can take seconds).
     poll_tx: crossbeam_channel::Sender<SourcePoll>,
     poll_rx: crossbeam_channel::Receiver<SourcePoll>,
+    /// Parsed tables for dashboard wires, refreshed at most once a second.
+    link_cache: HashMap<std::path::PathBuf, (std::time::Instant, i64, u64, serde_json::Value)>,
+    /// Pages whose text an agent run is waiting on.
+    text_pending: HashSet<NodeId>,
 }
 
 impl Default for WebRuntime {
@@ -473,6 +516,10 @@ impl Default for WebRuntime {
         Self {
             views: HashMap::new(),
             consent: HashSet::new(),
+            consent_file: None,
+            saved_consent: HashMap::new(),
+            consent_workbook: None,
+            workbook_consent: HashSet::new(),
             focused: None,
             pointer_inside: false,
             pointer_down: 0,
@@ -483,6 +530,8 @@ impl Default for WebRuntime {
             last_page_input: None,
             poll_tx,
             poll_rx,
+            link_cache: HashMap::new(),
+            text_pending: HashSet::new(),
         }
     }
 }
@@ -536,17 +585,81 @@ impl WebRuntime {
     }
 
     pub fn has_consent(&self, origin: &str) -> bool {
-        self.consent.contains(origin)
+        self.consent.contains(origin) || self.workbook_consent.contains(origin)
     }
 
-    /// Permit one origin for this session. Local state only — never a journal
-    /// command, never saved into the workbook (D32).
+    /// Permit one origin: for this session, and for the active saved workbook
+    /// in later sessions. Local state only — never a journal command, never
+    /// saved into the workbook (D32).
     pub fn grant_consent(&mut self, origin: impl Into<String>) {
-        self.consent.insert(origin.into());
+        let origin = origin.into();
+        self.consent.insert(origin.clone());
+        if let Some(key) = self.consent_key() {
+            self.workbook_consent.insert(origin.clone());
+            self.saved_consent.entry(key).or_default().insert(origin);
+            self.save_consent();
+        }
     }
 
     pub fn revoke_consent(&mut self, origin: &str) {
         self.consent.remove(origin);
+        if let Some(key) = self.consent_key() {
+            self.workbook_consent.remove(origin);
+            if let Some(origins) = self.saved_consent.get_mut(&key) {
+                origins.remove(origin);
+            }
+            self.save_consent();
+        }
+    }
+
+    /// Keep grants across sessions in `path`, loading what is already there.
+    pub fn use_consent_file(&mut self, path: std::path::PathBuf) {
+        self.saved_consent = std::fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<SavedConsent>(&bytes).ok())
+            .map(|saved| saved.workbooks)
+            .unwrap_or_default();
+        self.consent_file = Some(path);
+        self.workbook_consent = self.saved_for_active();
+    }
+
+    /// Follow the active tab. Cheap when unchanged.
+    pub fn set_consent_workbook(&mut self, workbook: Option<&std::path::Path>) {
+        if self.consent_workbook.as_deref() == workbook {
+            return;
+        }
+        self.consent_workbook = workbook.map(std::path::Path::to_path_buf);
+        self.workbook_consent = self.saved_for_active();
+    }
+
+    fn consent_key(&self) -> Option<String> {
+        self.consent_file.as_ref()?;
+        Some(
+            self.consent_workbook
+                .as_ref()?
+                .to_string_lossy()
+                .into_owned(),
+        )
+    }
+
+    fn saved_for_active(&self) -> HashSet<String> {
+        self.consent_key()
+            .and_then(|key| self.saved_consent.get(&key).cloned())
+            .unwrap_or_default()
+    }
+
+    fn save_consent(&self) {
+        let Some(path) = &self.consent_file else {
+            return;
+        };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let saved = SavedConsent {
+            version: 1,
+            workbooks: self.saved_consent.clone(),
+        };
+        let _ = atlas_ai::agent::atomic_write_json(path, &saved);
     }
 
     fn generation(&mut self) -> u64 {
@@ -620,24 +733,12 @@ fn size_keeps_slot(c: &Candidate) -> bool {
 /// Workbook-relative first, absolute as fallback (Art. IX.2). Remote locators
 /// pass through untouched.
 pub fn resolve_web_source(workbook: Option<&Path>, locator: &str) -> PathBuf {
-    let p = PathBuf::from(locator);
-    if p.is_absolute() {
-        return p;
-    }
-    if let Some(wb) = workbook.and_then(|p| p.parent()) {
-        return wb.join(p);
-    }
-    p
+    super::board_portal::resolve_source(workbook, locator)
 }
 
 /// The inverse: store a path relative to the workbook when it lives under it.
 pub fn web_source_locator(workbook: Option<&Path>, path: &Path) -> String {
-    if let Some(wb) = workbook.and_then(|p| p.parent()) {
-        if let Ok(rel) = path.strip_prefix(wb) {
-            return rel.to_string_lossy().replace('\\', "/");
-        }
-    }
-    path.to_string_lossy().into_owned()
+    super::board_portal::source_locator(workbook, path)
 }
 
 // ---------------------------------------------------------------------------
@@ -658,10 +759,87 @@ impl SlateApp {
             .collect()
     }
 
+    /// Drop each exported PNG on the board directly under its dashboard, then
+    /// under the previous export, and pan just enough to show the new one.
+    fn place_canvas_exports(&mut self, drops: Vec<(NodeId, PathBuf)>) {
+        if self.refuse_read_only_edit() {
+            return;
+        }
+        for (portal_id, path) in drops {
+            if !path.is_file() {
+                continue;
+            }
+            let Some(portal_node) = self.doc().scene.node(portal_id) else {
+                continue;
+            };
+            let portal = portal_node.rect;
+            let Some(item) = self.item_for_path(&path) else {
+                continue;
+            };
+            let (pw, ph) = image::image_dimensions(&path).unwrap_or((1600, 1000));
+            let occupied: Vec<slate_doc::scene::WorldRect> = self
+                .doc()
+                .scene
+                .nodes
+                .iter()
+                .filter(|n| {
+                    n.id != portal_id
+                        && !matches!(n.kind, NodeKind::Connector(_))
+                        && !rect_contains(n.rect, portal)
+                })
+                .map(|n| n.rect)
+                .collect();
+            let rect = canvas_export_rect(portal, pw, ph, &occupied);
+            let node = self.doc_mut().scene.build_node(
+                rect,
+                NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+            );
+            let ids = self.add_nodes(vec![node]);
+            if ids.is_empty() {
+                continue;
+            }
+            self.inherit_frame_tags_after_move(&ids);
+            self.reveal_world_rect(rect);
+        }
+    }
+
+    /// Shift the camera so `rect` sits inside the canvas, without changing zoom.
+    fn reveal_world_rect(&mut self, rect: slate_doc::scene::WorldRect) {
+        let xf = self.board_xf();
+        if xf.z <= 0.0 {
+            return;
+        }
+        let screen = xf.rect_w2s(rect);
+        let canvas = self.canvas_rect;
+        let margin = 24.0;
+        let dy = if screen.max.y > canvas.max.y - margin {
+            screen.max.y - (canvas.max.y - margin)
+        } else if screen.min.y < canvas.min.y + margin {
+            screen.min.y - (canvas.min.y + margin)
+        } else {
+            0.0
+        };
+        if dy != 0.0 {
+            self.tab_mut().cam.offset.y += dy / xf.z;
+        }
+    }
+
     /// Per-frame web portal work: resolve state, run the pool, spend the upload
     /// budget. Nothing here blocks, and nothing here reaches the network.
     pub(crate) fn web_pump(&mut self, ctx: &egui::Context) {
         let _span = atlas_core::session_log::span("slate.web.pump");
+        let workbook = if self.tabs.is_empty() {
+            self.fallback_tab.path.as_deref()
+        } else {
+            self.tabs[self.active_tab.min(self.tabs.len() - 1)]
+                .path
+                .as_deref()
+        };
+        self.web.set_consent_workbook(workbook);
+        let drops = self.web.host.take_canvas_drops();
+        if !drops.is_empty() {
+            self.place_canvas_exports(drops);
+        }
         if self.web.host.take_escape() {
             ctx.input_mut(|i| {
                 if !i.key_pressed(egui::Key::Escape) {
@@ -962,7 +1140,7 @@ impl SlateApp {
 
         if kind == WebSourceKind::Remote {
             if let Some(origin) = web_origin(&locator) {
-                if !self.web.consent.contains(&origin) {
+                if !self.web.has_consent(&origin) {
                     return (WebState::Blocked { origin }, false);
                 }
             }
@@ -1047,7 +1225,7 @@ impl SlateApp {
     }
 
     fn web_request(
-        &self,
+        &mut self,
         ctx: &egui::Context,
         id: NodeId,
         portal: &PortalNode,
@@ -1079,6 +1257,11 @@ impl SlateApp {
             .filter(|v| v.width_px > 2.0 && v.height_px > 2.0)
             .map(|v| raster_for(width_css, height_css, v.width_px, v.height_px, display))
             .unwrap_or_else(|| raster_for(width_css, height_css, 0.0, 0.0, display));
+        let link_script = if matches!(kind, WebSourceKind::Remote) {
+            String::new()
+        } else {
+            self.dashboard_link_script(id)
+        };
         Some(WebRequest {
             target,
             kind,
@@ -1086,7 +1269,102 @@ impl SlateApp {
             height_css,
             raster_w,
             raster_h,
+            link_script,
         })
+    }
+
+    /// Tables wired into this page, as the script the host runs after load.
+    fn dashboard_link_script(&mut self, id: NodeId) -> String {
+        use slate_doc::agent_inputs::{endpoint_node, InputKind};
+        use slate_doc::scene::NodeKind;
+        let mut wires = Vec::new();
+        for node in &self.doc().scene.nodes {
+            let NodeKind::Connector(conn) = &node.kind else {
+                continue;
+            };
+            let Some(binding) = &conn.binding else {
+                continue;
+            };
+            if binding.kind != InputKind::Table {
+                continue;
+            }
+            let (source, target) = if binding.input_b {
+                (&conn.a, &conn.b)
+            } else {
+                (&conn.b, &conn.a)
+            };
+            if endpoint_node(target) != Some(id) {
+                continue;
+            }
+            let Some(source_id) = endpoint_node(source) else {
+                continue;
+            };
+            let slot = binding
+                .slot
+                .clone()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "data".into());
+            let order = if binding.order.is_empty() {
+                vec![node.id.0]
+            } else {
+                binding.order.clone()
+            };
+            wires.push((order, slot, source_id));
+        }
+        wires.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut inputs = serde_json::Map::new();
+        let mut used = std::collections::HashSet::new();
+        for (_, mut slot, source_id) in wires {
+            if used.contains(&slot) {
+                slot = format!("{slot}-{}", used.len() + 1);
+            }
+            used.insert(slot.clone());
+            let value = self.linked_table_value(source_id).unwrap_or_else(
+                || serde_json::json!({ "health": "missing", "columns": [], "rows": [] }),
+            );
+            inputs.insert(slot, value);
+        }
+        atlas_agent::slate_link_script(&serde_json::Value::Object(inputs))
+    }
+
+    fn linked_table_value(
+        &mut self,
+        source: slate_doc::scene::NodeId,
+    ) -> Option<serde_json::Value> {
+        let path = {
+            let doc = self.doc();
+            let node = doc.scene.node(source)?;
+            let slate_doc::scene::NodeKind::Image(image) = &node.kind else {
+                return None;
+            };
+            doc.item(image.item)?.path.clone()
+        };
+        if atlas_core::cloud::is_dehydrated(&path) {
+            return Some(serde_json::json!({ "health": "missing", "columns": [], "rows": [] }));
+        }
+        let meta = std::fs::metadata(&path).ok()?;
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let len = meta.len();
+        if let Some((checked, cached_mtime, cached_len, value)) = self.web.link_cache.get(&path) {
+            if checked.elapsed().as_secs() < 1 && *cached_mtime == mtime && *cached_len == len {
+                return Some(value.clone());
+            }
+        }
+        let table = atlas_core::table::read_linked_table(&path)?;
+        let value = serde_json::json!({
+            "health": "ok",
+            "columns": table.columns,
+            "rows": table.rows,
+        });
+        self.web
+            .link_cache
+            .insert(path, (std::time::Instant::now(), mtime, len, value.clone()));
+        Some(value)
     }
 
     /// While maximized the page is laid out at the screen's aspect, not the
@@ -1279,8 +1557,14 @@ impl SlateApp {
                 self.web.host.send_input(id, WebInput::Leave);
             }
             self.web.pointer_down = 0;
+            self.web.host.release_keyboard();
         }
         had.is_some()
+    }
+
+    /// A board text field is taking the caret; the keyboard must come with it.
+    pub(crate) fn web_release_keyboard(&self) {
+        self.web.host.release_keyboard();
     }
 
     /// `portal.web.back` / `portal.web.forward` — in-page history for the
@@ -1415,6 +1699,65 @@ impl SlateApp {
     }
 
     /// Request another capture while retaining the last good poster (D21).
+    /// The page a web portal shows, as a picture for an agent run: the newest
+    /// frame, else a one-off capture. Pixels only; the page's DOM, cookies and
+    /// storage stay out of reach (D15, D27). `Ok(None)` while nothing is
+    /// captured yet.
+    pub(crate) fn capture_web_page(
+        &mut self,
+        id: NodeId,
+        dir: &std::path::Path,
+    ) -> Result<Option<PathBuf>, String> {
+        let frame = self
+            .web
+            .host
+            .last_frame(id)
+            .or_else(|| self.web.host.capture_poster(id));
+        let Some(frame) = frame else {
+            if !self.web.host.available() {
+                return Err(
+                    "This page cannot be captured: the WebView2 runtime is not available.".into(),
+                );
+            }
+            return Ok(None);
+        };
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("web-{}.png", id.0));
+        super::model3d::write_fast_png(&path, &frame, false)?;
+        Ok(Some(path))
+    }
+
+    /// The page's visible text for an agent run the human started, read once
+    /// and read-only (D15 / D27 amendment). `Ok(None)` while it is being read.
+    pub(crate) fn read_web_text(&mut self, id: NodeId) -> Result<Option<String>, String> {
+        /// Enough for a long article; a local model's context is the limit.
+        const MAX_CHARS: usize = 30_000;
+        if let Some(read) = self.web.host.take_text(id) {
+            self.web.text_pending.remove(&id);
+            let text = read?;
+            let text = text.trim();
+            if text.is_empty() {
+                return Err("The page shows no text to read.".into());
+            }
+            let mut out: String = text.chars().take(MAX_CHARS).collect();
+            if text.chars().count() > MAX_CHARS {
+                out.push_str("\n\n[The page continues; the rest was left out.]");
+            }
+            return Ok(Some(out));
+        }
+        if self.web.text_pending.contains(&id) {
+            return Ok(None);
+        }
+        if !self.web.host.available() {
+            return Err("This page cannot be read: the WebView2 runtime is not available.".into());
+        }
+        if !self.web.host.request_text(id) {
+            return Err("Bring the page on screen so it loads, then run again.".into());
+        }
+        self.web.text_pending.insert(id);
+        Ok(None)
+    }
+
     pub(crate) fn web_recapture(&mut self, id: NodeId) {
         if let Some(v) = self.web.views.get_mut(&id) {
             v.last_frame_probe = None;
@@ -1538,7 +1881,9 @@ impl SlateApp {
             };
             if web_origin(&locator).is_none() {
                 let path = resolve_web_source(workbook.as_deref(), &locator);
-                if path.exists() {
+                // The webview folder and the secret store are this user's
+                // sign-in, not workbook material (Art. IX.1).
+                if path.exists() && !atlas_core::secrets::is_machine_private(&path) {
                     sources.insert(id, path);
                 }
             }
@@ -1770,11 +2115,12 @@ impl SlateApp {
             ),
             NodeKind::Text(slate_doc::scene::TextNode {
                 text: format!("{locator} · {kind} · captured {captured}"),
-                family: slate_doc::scene::FontChoice::Sans,
+                family: slate_doc::scene::Typeface::Sans,
                 size: 12.0,
                 color: slate_doc::scene::Rgba::opaque(198, 208, 224),
                 align: slate_doc::scene::TextAlign::Left,
                 fill: None,
+                agent: None,
             }),
         );
         let ids = self.add_nodes(vec![image, note]);
@@ -2437,9 +2783,126 @@ pub fn raster_for(
     )
 }
 
+fn rect_contains(outer: slate_doc::scene::WorldRect, inner: slate_doc::scene::WorldRect) -> bool {
+    outer.x <= inner.x + 0.5
+        && outer.y <= inner.y + 0.5
+        && outer.x + outer.w >= inner.x + inner.w - 0.5
+        && outer.y + outer.h >= inner.y + inner.h - 0.5
+}
+
+/// The next export: the portal's width, the picture's aspect, directly under
+/// the portal, then under whatever already occupies that column.
+pub(crate) fn canvas_export_rect(
+    portal: slate_doc::scene::WorldRect,
+    pixel_w: u32,
+    pixel_h: u32,
+    occupied: &[slate_doc::scene::WorldRect],
+) -> slate_doc::scene::WorldRect {
+    use slate_doc::scene::WorldRect;
+    const GAP: f32 = 28.0;
+    let aspect = if pixel_w == 0 {
+        0.62
+    } else {
+        (pixel_h as f32 / pixel_w as f32).clamp(0.15, 4.0)
+    };
+    let w = portal.w.max(80.0);
+    let h = (w * aspect).max(40.0);
+    let mut y = portal.y + portal.h + GAP;
+    for _ in 0..64 {
+        let mut bottom = None;
+        for r in occupied {
+            let overlaps = r.x < portal.x + w - 1.0
+                && r.x + r.w > portal.x + 1.0
+                && r.y < y + h - 1.0
+                && r.y + r.h > y + 1.0;
+            if overlaps {
+                let b = r.y + r.h;
+                bottom = Some(bottom.map_or(b, |a: f32| a.max(b)));
+            }
+        }
+        let Some(b) = bottom else {
+            break;
+        };
+        let next = b + GAP;
+        if next <= y + 0.5 {
+            break;
+        }
+        y = next;
+    }
+    WorldRect::new(portal.x, y, w, h)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canvas_exports_stack_under_the_portal() {
+        use slate_doc::scene::WorldRect;
+        let portal = WorldRect::new(100.0, 40.0, 640.0, 400.0);
+        let first = canvas_export_rect(portal, 1600, 900, &[]);
+        assert!((first.x - 100.0).abs() < 0.1);
+        assert!((first.y - (40.0 + 400.0 + 28.0)).abs() < 0.1);
+        assert!((first.w - 640.0).abs() < 0.1);
+        assert!((first.h - 640.0 * 900.0 / 1600.0).abs() < 0.5);
+        let second = canvas_export_rect(portal, 1600, 900, &[first]);
+        assert!((second.y - (first.y + first.h + 28.0)).abs() < 0.5);
+        // A frame wrapped around the portal is not passed in as occupied;
+        // a picture already to the side does not push the stack down.
+        let aside = WorldRect::new(900.0, first.y, 200.0, 200.0);
+        let third = canvas_export_rect(portal, 1600, 900, &[first, aside]);
+        assert!((third.y - second.y).abs() < 0.5);
+    }
+
+    #[test]
+    fn consent_returns_for_the_same_workbook_in_a_later_session_only() {
+        let dir = std::env::temp_dir().join(format!(
+            "slate_web_consent_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let file = dir.join("web-consent.json");
+        let board = dir.join("board.slate");
+        let other = dir.join("other.slate");
+        let origin = "https://en.wikipedia.org";
+
+        let mut first = WebRuntime::default();
+        first.use_consent_file(file.clone());
+        first.set_consent_workbook(Some(&board));
+        first.grant_consent(origin);
+        assert!(first.has_consent(origin));
+
+        let mut later = WebRuntime::default();
+        later.use_consent_file(file.clone());
+        later.set_consent_workbook(Some(&board));
+        assert!(
+            later.has_consent(origin),
+            "the same user reopening the board"
+        );
+        later.set_consent_workbook(Some(&other));
+        assert!(
+            !later.has_consent(origin),
+            "grants never spread to other boards"
+        );
+
+        let mut elsewhere = WebRuntime::default();
+        elsewhere.set_consent_workbook(Some(&board));
+        assert!(
+            !elsewhere.has_consent(origin),
+            "no store, no inherited trust"
+        );
+
+        later.set_consent_workbook(Some(&board));
+        later.revoke_consent(origin);
+        let mut after = WebRuntime::default();
+        after.use_consent_file(file);
+        after.set_consent_workbook(Some(&board));
+        assert!(!after.has_consent(origin));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn capture_tiers_match_high_dpi_displays_and_bound_deep_zoom() {

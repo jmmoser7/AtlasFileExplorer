@@ -17,6 +17,12 @@ Stroke uses the shared color editor with its extra width rail, not a copied
 color form. Do not import dock pinning/stacked-inspector conventions into
 object-attached editors.
 
+The fillet capsule is the default capsule. Height is `CORNER_HEIGHT`
+(1.3 × the 17-unit baseline), radius is half that height, stroke is 0.8,
+and the fill is `theme.panel`. A thicker or thinner capsule is allowed only
+when `DYNAMIC_PANELS.md` names it (wire baseline, photo-filter double height,
+File Atlas formatting).
+
 Keep behavior in P1.shape.properties and the selection contract. Use the
 guide's native light/dark review procedure before claiming visual parity;
 generated references and successful compilation are not runtime verification.

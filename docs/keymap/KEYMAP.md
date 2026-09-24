@@ -87,6 +87,10 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Delete | Rhino | **Delete object / file** | Board + Atlas | ✅ exists | Atlas: Edit mode only; acts on the selection, or on the item under the cursor when nothing is selected. Warns before the Recycle Bin delete; Shift+Delete is permanent and always confirms. |
 | Arrows | Miro | **Nudge selection / pan canvas** | Both | 🔵 adapt | Board nudge exists (Shift = ×10). New: with nothing selected, arrows pan the canvas — and this is the Atlas behavior. |
 | [ / ] | Photoshop | **Brush width − / +** | Board | ✅ exists | Live width-circle cursor preview while stepping. Also steps the eraser while E is armed. |
+| Shift+[ / Shift+] | Photoshop | **Brush softer / harder** | Board | ✅ exists | 25% softness steps while Brush is armed. Shift+[ is softer. |
+| Alt+right-drag | Photoshop | **Scrub brush size and softness** | Board | ✅ exists | The circle stays on the press point and scales about that center. Horizontal changes diameter by 1 screen px per pixel. Vertical changes Brush softness (up softer). Eraser shares the size axis. Esc restores the press. |
+| Shift+right-drag | — | **Scrub brush opacity** | Board | ✅ exists | Brush only, and only when Ctrl and Alt are up. The circle stays on the press point. Up raises opacity. 100 screen px covers the range. Does not pan or open the context menu. |
+| Ctrl+right-drag | Photoshop | **Brush color wheel** | Board | ✅ exists | Opens with the pointer on the current color. 24 recent colors, equal slots clockwise from 6 o'clock. A repeat moves to 6 o'clock. Choosing a dot leaves the wheel in place and moves the pointer onto that color. Editors still show the first 6. |
 | , / . | Photoshop | **Previous / next brush preset** | Board | 🟡 adopt-P2 | Presets are user-space data assets (Art. VII.3). |
 | Page Up / Down | Miro | **Bring to front / send to back** | Board | ✅ exists | `reorder_nodes` exists; this adds keys. Present mode owns its own keyboard (no conflict). |
 
@@ -136,7 +140,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Ctrl+S | Rhino | Save | Slate | ✅ exists | ⛔ for Atlas — no document to save (index persists itself). |
 | Ctrl+T | Rhino | **Trim** — pick cutters, click the part to delete | Board | ✅ exists | 2D Rhino flow. New-tab moved to Ctrl+N only. See `contracts/trim.md`. |
 | Ctrl+U | Photoshop | **Hue/Saturation** — adjust popover for selected images | Board | ✅ exists | Opens the existing `ImageAdjust` controls (CSS-filter math already shipped); slider scrubs coalesce in the journal. |
-| Ctrl+V | Rhino | **Paste** (at pointer, offset on repeat) | Board | ✅ exists | |
+| Ctrl+V | Rhino | **Paste** (at pointer, offset on repeat) | Board | ✅ exists | Nodes, or a copied image / file list from outside Slate. |
 | Ctrl+W | Rhino | Zoom Window | — | ⛔ reject | Absorbed by `Z`-drag (zoom window). `Ctrl+W` reserved for close-tab. |
 | Ctrl+X | Rhino | **Cut** | Board | ✅ exists | Copy + journaled delete. |
 | Ctrl+Y / Ctrl+Z | Rhino | Redo / Undo | Both | ✅ exists | Never-repeatable (see repeat rules). |
@@ -169,7 +173,7 @@ typing or presenting (existing convention). "Both" = Slate all views + Atlas.
 | Ctrl+click | Rhino | Remove from selection | Both | ✅ exists | Ctrl+click toggles — removal included. |
 | Ctrl+MMB drag | Rhino | Pan | Board | ✅ exists | Middle-drag pans. |
 | Ctrl+Shift+click | Rhino | **Select sub-object** — member inside a group; also force-selects a locked node | Board | ✅ exists | Landed with groups + direct selection. |
-| Drag from edge grip | Grasshopper/Miro | **Draw connector (wire)** | Board | ✅ exists | See connector spec — hover a side-midpoint grip (only that grip previews); drag to another node's grip/edge; release on empty opens the palette to place-and-connect. |
+| Drag from edge grip | Grasshopper/Miro | **Draw connector (wire)** | Board | ✅ exists | See connector spec — hover a side-midpoint grip (only that grip previews); drag to another node's grip/edge; release on empty keeps the wire with a free end there. |
 | Ctrl+drag (wire) | Grasshopper | **Remove/redraw a wire** | Board | ✅ exists | Drag an existing wire end off its grip to disconnect; drop elsewhere to rewire (or drag a selected connector's endpoint dot). |
 | Shift+drag (wire) | Grasshopper | **Add wire without erasing** | Board | ✅ exists | Multiple connectors per grip are always legal on a whiteboard; Shift keeps the *gesture grammar* parity so muscle memory transfers. |
 | Ctrl+Shift+drag (wire) | Grasshopper | **Move all wires to another grip** | Board | ✅ exists | Grab every connector on a grip and re-anchor them in one journaled step. |

@@ -5,7 +5,9 @@
 //! board preview matches the exported HTML artifact.
 
 use eframe::egui::{Color32, ColorImage};
-use slate_doc::scene::{ImageAdjust, Rgba};
+use image::GenericImageView;
+use slate_doc::scene::{Crop, ImageAdjust, Rgba};
+use std::path::{Path, PathBuf};
 
 /// 3×3 row-major color matrix (W3C Filter Effects).
 #[derive(Clone, Copy)]
@@ -166,6 +168,69 @@ pub fn adjusted(src: &ColorImage, adjust: &ImageAdjust) -> ColorImage {
         *pix = Color32::from_rgba_unmultiplied(to_u8(r), to_u8(g), to_u8(b), alpha);
     }
 
+    out
+}
+
+/// Longest edge of a filter-radio thumbnail. Small on purpose: the swatch is
+/// a preview of the photo, not a second full-resolution decode.
+pub const SWATCH_EDGE: usize = 32;
+
+/// Center-cropped square. Nearest sampling keeps the radio a low-resolution
+/// view of the source.
+/// PNG of the visible crop window. The hidden part of `path` is not in the file.
+/// A full crop, a cloud placeholder, or a file that will not decode returns nothing.
+pub(crate) fn visible_crop_file(path: &Path, crop: Crop) -> Option<PathBuf> {
+    if crop.is_full() || atlas_core::cloud::is_dehydrated(path) {
+        return None;
+    }
+    let img = image::open(path).ok()?;
+    let c = crop.clamped();
+    let w = img.width().max(1);
+    let h = img.height().max(1);
+    let x = ((c.x * w as f32).round() as u32).min(w - 1);
+    let y = ((c.y * h as f32).round() as u32).min(h - 1);
+    let cw = ((c.w * w as f32).round() as u32).clamp(1, w - x);
+    let ch = ((c.h * h as f32).round() as u32).clamp(1, h - y);
+    let cropped = img.crop_imm(x, y, cw, ch);
+    let dir = std::env::temp_dir().join("slate-crop");
+    std::fs::create_dir_all(&dir).ok()?;
+    let key = format!(
+        "{:016x}-{:.4}-{:.4}-{:.4}-{:.4}.png",
+        path_key(path),
+        c.x,
+        c.y,
+        c.w,
+        c.h
+    );
+    let out = dir.join(key);
+    cropped.save(&out).ok()?;
+    Some(out)
+}
+
+fn path_key(path: &Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    hasher.finish()
+}
+
+pub fn square_swatch(src: &ColorImage, edge: usize) -> ColorImage {
+    let edge = edge.max(1);
+    let (w, h) = (src.size[0], src.size[1]);
+    let mut out = ColorImage::new([edge, edge], Color32::TRANSPARENT);
+    if w == 0 || h == 0 {
+        return out;
+    }
+    let side = w.min(h);
+    let x0 = (w - side) / 2;
+    let y0 = (h - side) / 2;
+    for y in 0..edge {
+        let sy = y0 + y * side / edge;
+        for x in 0..edge {
+            let sx = x0 + x * side / edge;
+            out.pixels[y * edge + x] = src.pixels[sy * w + sx];
+        }
+    }
     out
 }
 
@@ -362,5 +427,44 @@ mod tests {
         approx_eq(r, to_u8(er), 2);
         approx_eq(g, to_u8(eg), 2);
         approx_eq(b, to_u8(eb), 2);
+    }
+
+    #[test]
+    fn square_swatch_is_a_center_crop_and_takes_a_filter() {
+        let mut src = ColorImage::new([8, 4], Color32::from_rgb(20, 40, 200));
+        src.pixels[0] = Color32::from_rgb(255, 0, 0);
+        let swatch = square_swatch(&src, SWATCH_EDGE);
+        assert_eq!(swatch.size, [SWATCH_EDGE, SWATCH_EDGE]);
+        assert_eq!(swatch.pixels[0], Color32::from_rgb(20, 40, 200));
+        let mono = adjusted(&swatch, &slate_doc::scene::PhotoFilter::Mono.at(1.0));
+        let p = mono.pixels[0];
+        assert!((p.r() as i16 - p.g() as i16).abs() <= 2);
+        assert!((p.g() as i16 - p.b() as i16).abs() <= 2);
+    }
+
+    #[test]
+    fn visible_crop_file_keeps_only_the_window() {
+        let dir = std::env::temp_dir().join(format!("slate-crop-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("full.png");
+        let mut img = image::RgbaImage::new(4, 2);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            *px = image::Rgba([x as u8, y as u8, 0, 255]);
+        }
+        img.save(&src).unwrap();
+        let crop = Crop {
+            x: 0.5,
+            y: 0.0,
+            w: 0.5,
+            h: 1.0,
+        };
+        let out = visible_crop_file(&src, crop).unwrap();
+        let cropped = image::open(&out).unwrap();
+        assert_eq!(cropped.width(), 2);
+        assert_eq!(cropped.height(), 2);
+        let px = cropped.get_pixel(0, 0);
+        assert_eq!(px.0[0], 2);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&out);
     }
 }

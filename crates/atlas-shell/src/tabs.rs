@@ -145,6 +145,9 @@ pub struct TabSpec {
     /// clicking the active empty tab yields [`TabAction::ActivateEmpty`]
     /// instead of a switch.
     pub is_empty: bool,
+    /// Visible bubble height relative to a primary tab. `1.0` is full size.
+    /// Shorter tabs stay bottom-aligned on the bar.
+    pub height_scale: f32,
 }
 
 pub enum TabAction {
@@ -381,7 +384,10 @@ pub fn tab_strip(
                     0.0
                 };
             let w = base_w.clamp(metrics.tab_min_width, metrics.tab_max_width);
-            let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, metrics.height), Sense::click());
+            let full_paint = (metrics.height - metrics.tab_top_inset).max(1.0);
+            let scale = spec.height_scale.clamp(0.5, 1.0);
+            let alloc_h = full_paint * scale + metrics.tab_top_inset;
+            let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, alloc_h), Sense::click());
             let hovered = resp.hovered() && !active;
             let paint = tab_paint_rect(rect, metrics);
 
@@ -574,18 +580,37 @@ pub fn portal_maximize_button(
     if rect.width() < 4.0 || rect.height() < 4.0 {
         return false;
     }
-    let resp = ui.interact(rect, ui.id().with(("portal_max", id_salt)), Sense::click());
+    let resp = ui.interact(
+        rect,
+        ui.id().with(("portal_max", id_salt, maximized)),
+        Sense::click(),
+    );
+    paint_portal_max_hover(ui, palette, rect, &resp, maximized);
+    resp.clicked()
+}
+
+/// Hover wash, hand cursor, and tooltip for the portal maximize / restore slot.
+fn paint_portal_max_hover(
+    ui: &Ui,
+    palette: &Palette,
+    rect: Rect,
+    resp: &egui::Response,
+    maximized: bool,
+) {
+    let hovered = resp.hovered();
+    if hovered {
+        let colors = TabChromeColors::from_palette(palette, &crate::tokens::current().topbar);
+        ui.painter().rect_filled(rect, 0.0, colors.inactive_hover);
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
     paint_maximize_glyph(
         ui.painter(),
         rect,
-        if resp.hovered() {
-            palette.ink
-        } else {
-            palette.sub
-        },
+        if hovered { palette.ink } else { palette.sub },
         maximized,
     );
-    resp.clicked()
+    resp.clone()
+        .on_hover_text(if maximized { "Restore" } else { "Maximize" });
 }
 
 /// Paint a plain, centered portal title bar, plus the maximize hit.
@@ -611,8 +636,6 @@ pub fn portal_tab_bar(
         return None;
     }
     paint_vertical_gradient_top_fillet(painter, bar, colors.bar_top, colors.bar, frame_radius);
-    let pointer = ui.ctx().pointer_latest_pos();
-    let over_maximize = pointer.is_some_and(|p| maximize.contains(p));
     // Symmetric clearance keeps the title centered on the whole bar, not
     // centered in whatever space is left of the window control.
     let inset = (bar.right() - maximize.left())
@@ -636,25 +659,15 @@ pub fn portal_tab_bar(
     }
     let tab_slot = Rect::from_min_max(bar.min, Pos2::new(maximize.left(), bar.bottom()));
 
-    paint_maximize_glyph(
-        painter,
-        maximize,
-        if over_maximize {
-            palette.ink
-        } else {
-            palette.sub
-        },
-        model.maximized,
-    );
-
     let tab_id = ui.id().with(("portal_tab", id_salt));
     let tab_resp = ui.interact(tab_slot, tab_id, Sense::click());
     tab_resp.clone().on_hover_text(model.tooltip);
     let max_resp = ui.interact(
         maximize,
-        ui.id().with(("portal_max", id_salt)),
+        ui.id().with(("portal_max", id_salt, model.maximized)),
         Sense::click(),
     );
+    paint_portal_max_hover(ui, palette, maximize, &max_resp, model.maximized);
     if max_resp.clicked() {
         return Some(PortalTabAction::ToggleMaximize);
     }

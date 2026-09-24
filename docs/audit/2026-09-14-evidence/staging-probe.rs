@@ -11,8 +11,10 @@ fn frame(scene: &mut Scene, title: &str) -> Node {
     scene.build_node(
         WorldRect::new(0.0, 0.0, 100.0, 80.0),
         NodeKind::Frame(FrameNode {
-            title: title.into(), order: 0, fill: Rgba::WHITE,
+            title: title.into(), order: 0, fill: Rgba::WHITE, fill_authored: false,
             assignments: BTreeMap::new(),
+            stroke: slate_doc::scene::Stroke::none(),
+            corner: slate_doc::scene::Corner::Square,
         }),
     )
 }

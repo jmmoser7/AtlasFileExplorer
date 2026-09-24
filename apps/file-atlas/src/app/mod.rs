@@ -6066,9 +6066,12 @@ impl AtlasApp {
         // Zoom tool (Z): while armed, the primary button belongs to the tool
         // (click = step, drag = zoom window); the secondary button still pans.
         let zoom_tool = self.zoom_armed;
+        // Tool palettes sit above the canvas, so egui will not report the
+        // canvas as hovered. Wheel and pan still belong to the camera there.
+        let dock_nav = atlas_shell::dock::dock_pointer_nav(ui.ctx());
 
         // --- input: zoom (wheel & pinch) ---
-        if resp.hovered() {
+        if resp.hovered() || dock_nav.canvas_wheel() {
             let (scroll, zoom_delta) = ui.input(|i| (i.raw_scroll_delta, i.zoom_delta()));
             if let Some(p) = pointer {
                 if scroll.y.abs() > 0.0 && !shift {
@@ -6136,10 +6139,19 @@ impl AtlasApp {
         // Pan is the right button's whole job, so it has no exceptions to check:
         // no card, no mode, and no other gesture can take it away. Turbo pan is
         // the same button with Ctrl and moves the camera itself.
+        let through_palette = atlas_shell::commands::chrome_pass_pan_delta(
+            ui.ctx(),
+            &resp,
+            rect,
+            !turbo_pan_active,
+            dock_nav.canvas_pan(),
+            false,
+        );
         let pan_drag = resp.dragged_by(egui::PointerButton::Secondary)
-            || resp.dragged_by(egui::PointerButton::Middle);
+            || resp.dragged_by(egui::PointerButton::Middle)
+            || through_palette.is_some();
         if pan_drag && !turbo_pan_active {
-            self.cam.offset += resp.drag_delta();
+            self.cam.offset += through_palette.unwrap_or_else(|| resp.drag_delta());
             canvas_nav = true;
         }
         if canvas_nav {

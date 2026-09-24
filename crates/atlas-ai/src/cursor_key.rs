@@ -1,9 +1,14 @@
 //! Local Cursor user API key — so the sidecar can start without a system env var.
 //!
-//! The key is never journaled and never written into a workbook. Environment
-//! `CURSOR_API_KEY` still wins when set.
+//! The key is a machine secret ([`atlas_core::secrets`]), never journaled and
+//! never written into a workbook. On Windows it is stored in Credential
+//! Manager for this user. `CURSOR_API_KEY` still wins when set. A plaintext
+//! file left by an older build is copied into that store on the next read
+//! and then deleted.
 
 use std::path::PathBuf;
+
+use atlas_core::secrets::{self, SecretHealth};
 
 /// Cursor dashboard page that mints a user API key.
 pub const DASHBOARD_URL: &str = "https://cursor.com/dashboard/api";
@@ -11,13 +16,29 @@ pub const DASHBOARD_URL: &str = "https://cursor.com/dashboard/api";
 /// Official write-up of how the key is used.
 pub const AUTH_DOCS_URL: &str = "https://cursor.com/docs/cli/reference/authentication";
 
-/// Env, then the per-user file next to `ai-config.json`.
+/// Slot name inside [`atlas_core::secrets`]. Not a secret by itself.
+pub const SLOT: &str = "cursor-api-key";
+
+/// Env, then the per-user secret store.
 pub fn resolve() -> Option<String> {
-    env_key().or_else(load_stored)
+    if let Some(key) = env_key() {
+        return Some(key);
+    }
+    if let Some(path) = override_path() {
+        return read_file(&path);
+    }
+    if let Some(key) = secrets::load(SLOT) {
+        let _ = std::fs::remove_file(legacy_path());
+        return Some(key);
+    }
+    migrate_legacy()
 }
 
 pub fn is_configured() -> bool {
-    env_key().is_some() || key_path().is_file()
+    env_key().is_some()
+        || override_path().is_some_and(|path| path.is_file())
+        || secrets::health(SLOT) == SecretHealth::Ok
+        || legacy_path().is_file()
 }
 
 pub fn save(key: &str) -> Result<(), String> {
@@ -25,16 +46,20 @@ pub fn save(key: &str) -> Result<(), String> {
     if key.is_empty() {
         return Err("Paste the API key first.".into());
     }
-    let path = key_path();
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    if let Some(path) = override_path() {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&path, key).map_err(|e| format!("Could not save API key: {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+        return Ok(());
     }
-    std::fs::write(&path, key).map_err(|e| format!("Could not save API key: {e}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
+    secrets::store(SLOT, key)?;
+    let _ = std::fs::remove_file(legacy_path());
     Ok(())
 }
 
@@ -45,19 +70,35 @@ fn env_key() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn load_stored() -> Option<String> {
-    let text = std::fs::read_to_string(key_path()).ok()?;
+fn override_path() -> Option<PathBuf> {
+    let path = std::env::var_os("ATLAS_CURSOR_KEY_PATH")?;
+    if path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(path))
+    }
+}
+
+fn legacy_path() -> PathBuf {
+    atlas_core::index::data_dir().join("cursor-api-key")
+}
+
+fn read_file(path: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
     let key = text.trim();
     (!key.is_empty()).then(|| key.to_string())
 }
 
-fn key_path() -> PathBuf {
-    if let Ok(p) = std::env::var("ATLAS_CURSOR_KEY_PATH") {
-        if !p.is_empty() {
-            return PathBuf::from(p);
+fn migrate_legacy() -> Option<String> {
+    let path = legacy_path();
+    let key = read_file(&path)?;
+    match secrets::store(SLOT, &key) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(path);
+            Some(key)
         }
+        Err(_) => Some(key),
     }
-    atlas_core::index::data_dir().join("cursor-api-key")
 }
 
 #[cfg(test)]
@@ -80,8 +121,8 @@ mod tests {
         let path = unique_path("roundtrip");
         std::env::set_var("ATLAS_CURSOR_KEY_PATH", &path);
         save("cursor_test_key").unwrap();
-        let loaded = load_stored().expect("stored key");
-        assert_eq!(loaded, "cursor_test_key");
+        let loaded = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(loaded.trim(), "cursor_test_key");
         let _ = std::fs::remove_file(path);
         std::env::remove_var("ATLAS_CURSOR_KEY_PATH");
     }

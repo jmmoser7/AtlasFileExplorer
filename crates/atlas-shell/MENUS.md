@@ -8,6 +8,12 @@ The icon-portal flyout (`menubar.rs`) uses the same language. Portal tokens
 under `[topbar.portal]` only place the flyout (width, gap, offset, close
 delay). Look — fill, type, icons, dividers, shadow — is `[menu]`.
 
+A `MenuItem` with `children` is a chevron row that opens one more flyout
+beside it, at the same `submenu_width` and `submenu_gap`, to any depth
+(Slate: Preferences → Configure → Tools → Bumper cars). Hovering a plain row
+closes deeper levels; the menu stays open while the pointer is over any open
+level. Apps pass the tree; they never paint their own flyout.
+
 ## Visual invariants
 
 - Filleted rectangle. No visible outer border; the panel is fill + a soft
@@ -42,6 +48,12 @@ panel (radius, shadow, fill, no border) from `menu::apply_style`, called
 from each app's `apply_theme`. Inside the menu closure, call
 `menu::prepare(ui, dark)` so row hover and type match. Prefer `menu::item*`
 over `ui.button` for new rows.
+
+Every row in a menu carries an icon so labels share one left edge after the
+icon column. `menu::Row::glyph(icons::Icon, label)` puts a tool-catalog glyph
+in that column for rows that name presentations or tools; a checked glyph
+row keeps its glyph and shows the check at the right edge. Separate groups
+with `menu::separator`.
 
 ## Tuner
 

@@ -5,5 +5,10 @@ edition.workspace = true
 description = "HTML artifact writer for Slate boards: frames become slides, styles become CSS, export is serialization"
 
 [dependencies]
+atlas-core = { workspace = true }
 slate-doc = { workspace = true }
 vector-ink = { workspace = true }
+image = { workspace = true }
+
+[dev-dependencies]
+zip = { workspace = true }

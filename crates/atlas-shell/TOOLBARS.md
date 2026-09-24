@@ -14,11 +14,11 @@ reflow below do not apply to those editors.
 |---------|--------|
 | **Hover** | Translucent title chip (tool / dashboard / action name). No body. |
 | **Linger** | After `dashboard_describe_delay`, the chip expands with `DockItem.description` (any kind that sets one). |
-| **Single click** | **Volatile** body — use it, move away, it collapses after `close_delay` (or Escape / outside click). On an already-pinned icon, the same click **collapses** that palette (unpin). |
+| **Single click** | **Volatile** body in the same centered slot a double click would pin. The pointer can cross from the icon to that slot (their bounding corridor does not start `close_delay`). After it leaves, the body waits `close_delay` — long enough to finish the move — then collapses (or on Escape / outside click). On an already-pinned icon, the same click **collapses** that palette (unpin). |
 | **Double click** | **Pin** — body joins the centered stack and persists until minimize or icon unpin. |
 | **Minimize** | First dot of the group (horizontal ellipsis on stacked captions, top of the two-dot column on the icon strip). Dismisses volatile, or unpins a pinned panel back to its icon. |
 
-Hover previews must never reshuffle the pinned stack. Pins persist across
+Hover never opens a body and must not reshuffle the pinned stack. A single-click preview does take its pin slot, so neighbors shift until it closes. Pins persist across
 sessions via `ChromePrefs.pinned_panels` where apps wire that up.
 
 **Hover chip rules:** a pin / click immediately suppresses the title chip

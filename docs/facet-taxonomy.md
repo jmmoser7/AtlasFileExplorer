@@ -92,4 +92,8 @@ on it. That enum is the seed of this taxonomy, and it evolves in Phase 5:
    (Constitution Art. IV).
 
 Until that refactor lands, `MediaKind` remains the single taxonomy both
-renderers must agree on — do not fork it per-app in the interim.
+renderers must agree on — do not fork it per-app in the interim. Word,
+spreadsheets, CSV, and source code are `Text` (one excerpt card). PDF and
+PowerPoint stay paged print (`Pdf` / `Doc`). The 3D
+row is the whole model list in `media.rs`; which of those extensions
+decode to a mesh is owned by `crates/model-preview` (`docs/model-preview.md`).

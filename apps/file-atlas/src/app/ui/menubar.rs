@@ -118,6 +118,7 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
                 closable: app.tabs.len() > 1 || tab.root.is_some(),
                 content_action_label: Some("Change directory…"),
                 is_empty,
+                height_scale: 1.0,
             }
         })
         .collect();

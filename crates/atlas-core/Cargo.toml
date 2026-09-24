@@ -30,12 +30,17 @@ features = [
     "Win32_Storage_FileSystem",
     "Win32_Security",
     "Win32_Security_Authorization",
+    "Win32_Security_Credentials",
     # Dragging files out to other applications (shell_drag.rs): the OLE drag
     # source. `IDropSource_Impl` itself is gated on SystemServices, which is
     # also where the MK_* button flags live.
     "Win32_System_Ole",
     "Win32_System_SystemServices",
     "Win32_System_Com_StructuredStorage",
+    # Canvas video scrub / playback (video.rs). Variant is required for the
+    # presentation-time PROPVARIANT on the source reader.
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Variant",
 ]
 
 # `#[implement]` expands to `windows_core::` paths, so the crate must be nameable.

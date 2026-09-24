@@ -6,6 +6,7 @@ use std::collections::HashSet;
 
 pub const CARD_WIDTH: f32 = 320.0;
 pub const CARD_HEIGHT: f32 = 200.0;
+pub const PAIR_HEIGHT: f32 = 280.0;
 pub const CARD_GAP: f32 = 96.0;
 pub const LANE_GAP: f32 = 72.0;
 pub const RAIL_INSET: f32 = 10.0;
@@ -24,6 +25,8 @@ pub enum Detail {
     #[default]
     Summary,
     Full,
+    /// One user message and the reply that follows, on the same card.
+    Pair,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -48,6 +51,12 @@ pub struct ChatView {
     pub draft: bool,
     /// Single-window viewport ceiling captured at conversion; shorter content shrinks.
     pub window_height: Option<u32>,
+    /// Three-line capsule: the header, the first three lines, and the tail's composer.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub collapsed: bool,
+    /// World size a person gave the card by resizing it. Text rewraps and scrolls inside.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<[f32; 2]>,
 }
 
 impl ChatView {
@@ -108,10 +117,32 @@ pub fn segments(scene: &Scene, id: NodeId) -> Vec<Vec<NodeId>> {
     result
 }
 
+/// The agent bound to a node: a chat card's portal binding, or the agent an
+/// image or a text note was summoned with. The one owner of that lookup.
 pub fn agent(node: &Node) -> Option<&AgentPortalRef> {
     match &node.kind {
         NodeKind::Portal(p) => p.agent.as_deref(),
+        NodeKind::Image(i) => i.agent.as_deref(),
+        NodeKind::Text(t) => t.agent.as_deref(),
         _ => None,
+    }
+}
+
+pub fn agent_mut(node: &mut Node) -> Option<&mut AgentPortalRef> {
+    match &mut node.kind {
+        NodeKind::Portal(p) => p.agent.as_deref_mut(),
+        NodeKind::Image(i) => i.agent.as_deref_mut(),
+        NodeKind::Text(t) => t.agent.as_deref_mut(),
+        _ => None,
+    }
+}
+
+/// An agent card of any kind: a chat portal, a generating image, a text note
+/// an agent writes, or a not-yet-converted generator or text block.
+pub fn is_agent_node(node: &Node) -> bool {
+    match &node.kind {
+        NodeKind::Portal(p) => p.kind == crate::scene::PortalKind::Agent,
+        _ => agent(node).is_some(),
     }
 }
 

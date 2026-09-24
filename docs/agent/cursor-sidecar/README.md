@@ -8,7 +8,13 @@ This is a minimal local sidecar for Slate Agent portals. It reads:
 and writes:
 
 - `<ai-workspace>/.atlas-ai/agent/<session>/session.json`
+- `<ai-workspace>/.atlas-ai/agent/<session>/sidecar.pid` (its own pid)
 - optional proposals under `<ai-workspace>/.atlas-ai/stage/`
+
+Only one sidecar watches a link folder: the newest one writes `sidecar.pid`,
+and an older one that finds another pid there exits. When Slate starts it,
+`ATLAS_PARENT_PID` names the Slate process, and the sidecar also exits once
+that process is gone. See "Sidecar supervision" in `../../agent-link-contract.md`.
 
 ## Run
 

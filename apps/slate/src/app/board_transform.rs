@@ -256,12 +256,24 @@ impl SlateApp {
                     .iter()
                     .filter_map(|i| self.doc().scene.node(*i).cloned())
                     .collect();
+                if self.alt_scale_copies() {
+                    let (ids, before) = self.stage_unjournaled_duplicates(&before);
+                    let gb = self.board_group_bounds().unwrap_or(gb);
+                    return Some(BoardDrag::GroupResize {
+                        ids,
+                        before,
+                        group_before: gb,
+                        handle: h as u8,
+                        dup: true,
+                    });
+                }
                 let ids: Vec<NodeId> = before.iter().map(|n| n.id).collect();
                 Some(BoardDrag::GroupResize {
                     ids,
                     before,
                     group_before: gb,
                     handle: h as u8,
+                    dup: false,
                 })
             }
             (None, board_handles::BoardHitTarget::Rotate(_)) => {
@@ -293,10 +305,21 @@ impl SlateApp {
                     self.board_sel.clear();
                     self.board_sel.insert(id);
                 }
+                if self.alt_scale_copies() {
+                    let (ids, before) = self.stage_unjournaled_duplicates(std::slice::from_ref(&n));
+                    let (id, before) = (ids.into_iter().next()?, before.into_iter().next()?);
+                    return Some(BoardDrag::Resize {
+                        id,
+                        before,
+                        handle: h as u8,
+                        dup: true,
+                    });
+                }
                 Some(BoardDrag::Resize {
                     id,
                     before: n,
                     handle: h as u8,
+                    dup: false,
                 })
             }
             (Some(id), board_handles::BoardHitTarget::Rotate(_)) => {

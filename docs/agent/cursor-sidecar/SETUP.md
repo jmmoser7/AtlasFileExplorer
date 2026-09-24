@@ -16,18 +16,25 @@ Background: [Cursor CLI authentication](https://cursor.com/docs/cli/reference/au
 Pick one:
 
 - **In the portal** (preferred): click **Paste key**, paste, press Enter.
-  Slate stores it next to `ai-config.json` on this machine and retries the
-  send. You do not need a system environment variable.
+  Slate stores it in Windows Credential Manager for this Windows user
+  (`atlas_core::secrets`, slot `cursor-api-key`) and retries the send.
+  You do not need a system environment variable. Another person opening
+  the same workbook does not receive the key.
 - **Environment variable:** set `CURSOR_API_KEY` for your user, then restart
-  Slate. The sidecar also reads this if it is already set.
+  Slate. The sidecar also reads this if it is already set. The environment
+  variable wins over the stored key.
 
-The key is never written into a `.slate` workbook.
+The key is never written into a `.slate` workbook, a journal entry, an
+export, or the agent context beacon. A plaintext file left by an older
+build is moved into Credential Manager on the next read and then deleted.
 
 ## 3. Node sidecar (only if the portal asks for it)
 
 The portal talks to Cursor through `docs/agent/cursor-sidecar` (out of
 process). On Send, Slate looks for `node.exe` in this order: `ATLAS_NODE`,
-`C:\Program Files\nodejs\node.exe`, other well-known folders, then `PATH`.
+`C:\Program Files\nodejs\node.exe`, Cursor's bundled runtime
+(`%LOCALAPPDATA%\Programs\cursor\resources\app\resources\helpers\node.exe`),
+other well-known folders, then `PATH`.
 A GUI launch often misses a terminal-only PATH, so "Node not found" does
 not always mean Node is missing. If discovery fails, the portal lists the
 paths it tried.

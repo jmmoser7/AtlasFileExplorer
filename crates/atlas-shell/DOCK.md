@@ -36,7 +36,7 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
 
 | Kind | Hover | Single click | Double click |
 |------|-------|--------------|--------------|
-| **Tool** / **Dashboard** | Title chip only | Volatile body (on-icon) | Pin → centered stack |
+| **Tool** / **Dashboard** | Title chip only | Volatile body in the centered stack (same slot as a pin) | Pin → that same slot stays |
 | **Action** | Title chip | Fire action | — |
 
 - **Minimize** dismisses a volatile body or unpins a pinned one back
@@ -78,11 +78,23 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   fade when their icon is hovered. Tune under **Readout blister**.
   Side / below zones still collapse the bar. Pinned palettes stay and
   drop down.
-- Hover never joins the pinned stack. Volatile bodies retire after
-  `close_delay` when abandoned, or on Escape / outside click. A
+- A single click opens the flyout in the slot a double click would pin,
+  so the two gestures do not place the palette in different places.
+  Already-pinned neighbors shift to make that slot, and shift back when
+  the preview closes. The pointer can travel from the icon to the flyout
+  through their bounding corridor without the close timer starting.
+  After the pointer leaves that corridor, the body waits `close_delay`
+  (long enough to finish a normal move) before it retires, or it retires
+  on Escape / outside click. A
   right-drag or middle-drag pan is not abandonment: the body stays
   through the gesture and afterward, until a later outside click or
   Escape. A right-click that does not drag is still an outside click.
+- Hovering the icon bar, a palette, or a hover chip does not eat canvas
+  navigation. Wheel zoom, Shift+wheel pan, pinch zoom, and right-drag /
+  middle-drag (and Space / Hand primary-drag) still move the camera.
+  Clicks on icons stay with the palette. A body that is actually
+  overflowing keeps the wheel, and only in the direction it can still
+  scroll. Shift+wheel keeps panning the canvas.
 - Title chips are suppressed on pin/click until the pointer leaves, and never
   shown for icons that already have a pinned or volatile body open.
 - Title chips appear **only** while the pointer is on the icon itself. An

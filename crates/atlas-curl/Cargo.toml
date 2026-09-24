@@ -1,0 +1,8 @@
+[package]
+name = "atlas-curl"
+version.workspace = true
+edition.workspace = true
+description = "The one curl transport for Atlas model adapters"
+
+[dependencies]
+serde_json.workspace = true

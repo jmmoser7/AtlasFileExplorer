@@ -1,14 +1,21 @@
-//! Embedded thumbnails from Office Open XML files (.pptx, .docx, .xlsx, ...).
+//! Office files: embedded thumbnails, and a short text excerpt for Word,
+//! Excel, OpenDocument, and RTF.
 //!
-//! These files are zip archives; when the document was saved with "save
-//! preview picture" (PowerPoint's default), a ready-made image sits at
-//! `docProps/thumbnail.{jpeg,png,...}`. Reading it costs a few KB of I/O —
-//! no Office installation required, network-friendly.
+//! Thumbnails live in the zip at `docProps/thumbnail.{jpeg,png,...}` when the
+//! document was saved with a preview picture. Reading that image costs a few
+//! KB and does not need Office installed. Text excerpts are the same idea
+//! for the document body: one capped read, no Office process.
 
 use std::io::Read;
 use std::path::Path;
 
 pub mod powerpoint;
+mod text;
+
+pub use text::{
+    clear_xlsx_cell, document_excerpt, set_xlsx_cell, xlsx_next_column, xlsx_sheet, xlsx_table,
+    PriorCell, SheetCell, EXCERPT_EXTENSIONS,
+};
 
 const CANDIDATES: [&str; 4] = [
     "docProps/thumbnail.jpeg",

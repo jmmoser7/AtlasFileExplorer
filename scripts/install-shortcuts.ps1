@@ -40,16 +40,19 @@ function Update-Shortcut {
     Write-Host "Updated $Path -> $Executable"
 }
 
-function Get-LauncherRoots {
-    $candidates = @(
-        $desktop,
-        $programs,
-        [Environment]::GetFolderPath("CommonDesktopDirectory"),
-        [Environment]::GetFolderPath("CommonPrograms"),
-        (Join-Path $env:APPDATA "Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"),
-        (Join-Path $env:APPDATA "Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu")
+function Get-LauncherScan {
+    # Do not recurse Start Menu Programs: vendor installers nest paths past MAX_PATH.
+    # Named Desktop/Start shortcuts are already written above. Scan pins and the
+    # desktop/start roots for extra copies that still launch these exes.
+    $scans = @(
+        @{ Path = $desktop; Recurse = $false },
+        @{ Path = $programs; Recurse = $false },
+        @{ Path = [Environment]::GetFolderPath("CommonDesktopDirectory"); Recurse = $false },
+        @{ Path = [Environment]::GetFolderPath("CommonPrograms"); Recurse = $false },
+        @{ Path = (Join-Path $env:APPDATA "Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"); Recurse = $true },
+        @{ Path = (Join-Path $env:APPDATA "Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu"); Recurse = $true }
     )
-    $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
+    $scans | Where-Object { $_.Path -and (Test-Path -LiteralPath $_.Path) }
 }
 
 function Update-AppLaunchers {
@@ -69,12 +72,17 @@ function Update-AppLaunchers {
     }
 
     $fileName = [System.IO.Path]::GetFileName($Executable)
-    foreach ($folder in Get-LauncherRoots) {
-        Get-ChildItem -LiteralPath $folder -Filter *.lnk -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-            $existing = $shell.CreateShortcut($_.FullName)
+    foreach ($scan in Get-LauncherScan) {
+        $items = Get-ChildItem -LiteralPath $scan.Path -Filter *.lnk -File -Recurse:$scan.Recurse -ErrorAction SilentlyContinue
+        foreach ($item in $items) {
+            try {
+                $existing = $shell.CreateShortcut($item.FullName)
+            } catch {
+                continue
+            }
             $targetName = [System.IO.Path]::GetFileName($existing.TargetPath)
             if ($targetName -and ($targetName -ieq $fileName)) {
-                Update-Shortcut -Path $_.FullName -Executable $Executable -Description $Description -IconLocation $icon
+                Update-Shortcut -Path $item.FullName -Executable $Executable -Description $Description -IconLocation $icon
             }
         }
     }

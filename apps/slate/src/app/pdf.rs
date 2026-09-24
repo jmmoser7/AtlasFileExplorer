@@ -371,7 +371,11 @@ impl SlateApp {
                     layout.album,
                     &images,
                     focus as usize,
-                    count > 1,
+                    atlas_shell::home::AlbumInput {
+                        drag: count > 1,
+                        wheel: count > 1,
+                        host_paints_rest: false,
+                    },
                 ) as u16;
                 unbundle = atlas_shell::selection_tools::button(
                     ui,

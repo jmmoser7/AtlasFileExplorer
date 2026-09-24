@@ -24,6 +24,7 @@ pub struct UiTokens {
     pub activity_heatmap: ActivityHeatmapTokens,
     pub portal_frame: PortalFrameTokens,
     pub board_preview: BoardPreviewTokens,
+    pub board_marquee: BoardMarqueeTokens,
     pub board_forcefield: BoardForcefieldTokens,
     pub menu: MenuTokens,
     pub theme: ThemeTokens,
@@ -42,6 +43,7 @@ impl Default for UiTokens {
             activity_heatmap: ActivityHeatmapTokens::default(),
             portal_frame: PortalFrameTokens::default(),
             board_preview: BoardPreviewTokens::default(),
+            board_marquee: BoardMarqueeTokens::default(),
             board_forcefield: BoardForcefieldTokens::default(),
             menu: MenuTokens::default(),
             theme: ThemeTokens::default(),
@@ -200,6 +202,46 @@ impl BoardPreviewTokens {
         ] {
             *value = (*value * 1_000.0).round() / 1_000.0;
         }
+    }
+}
+
+/// Board selection sweep. Window uses `Palette::select`. Crossing uses these
+/// greens and a dashed stroke (select-sweep contract).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BoardMarqueeTokens {
+    pub crossing_light: [u8; 4],
+    pub crossing_dark: [u8; 4],
+    pub dash_on: f32,
+    pub dash_off: f32,
+    pub fill_alpha: f32,
+}
+
+impl Default for BoardMarqueeTokens {
+    fn default() -> Self {
+        Self {
+            crossing_light: [61, 154, 74, 255],
+            crossing_dark: [125, 222, 160, 255],
+            dash_on: 6.0,
+            dash_off: 4.0,
+            fill_alpha: 0.12,
+        }
+    }
+}
+
+impl BoardMarqueeTokens {
+    pub fn normalize(&mut self) {
+        self.dash_on = self.dash_on.clamp(1.0, 24.0);
+        self.dash_off = self.dash_off.clamp(1.0, 24.0);
+        self.fill_alpha = self.fill_alpha.clamp(0.0, 1.0);
+    }
+
+    pub fn crossing_color(&self, dark_mode: bool) -> Color32 {
+        rgba(if dark_mode {
+            self.crossing_dark
+        } else {
+            self.crossing_light
+        })
     }
 }
 
@@ -1078,9 +1120,9 @@ impl Default for DockTokens {
             shadow_blur: 20.0,
             shadow_spread: 1.0,
             shadow_opacity: 0.26,
-            // Grace window for the pointer to travel icon → preview panel
-            // (and across brief canvas excursions) before hovers retire.
-            close_delay: 0.45,
+            // Grace after the pointer leaves the icon→palette corridor.
+            // Long enough to finish a normal move onto a bottom-dock flyout.
+            close_delay: 1.0,
             left_margin: 10.0,
             bottom_margin: 14.0,
             stack_gap: 8.0,
@@ -2541,6 +2583,7 @@ fn parse_embedded() -> UiTokens {
     tokens.activity_heatmap.normalize();
     tokens.portal_frame.normalize();
     tokens.board_preview.normalize();
+    tokens.board_marquee.normalize();
     tokens.board_forcefield.normalize();
     tokens.menu.normalize();
     tokens
@@ -2567,6 +2610,7 @@ pub fn replace(mut tokens: UiTokens) {
     tokens.activity_heatmap.normalize();
     tokens.portal_frame.normalize();
     tokens.board_preview.normalize();
+    tokens.board_marquee.normalize();
     tokens.board_forcefield.normalize();
     tokens.menu.normalize();
     *store().write().expect("UI token lock poisoned") = tokens;

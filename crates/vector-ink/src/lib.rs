@@ -5,6 +5,7 @@
 //! See `DESIGN.md`.
 
 mod clean;
+pub mod collide;
 mod dash;
 mod edit;
 mod fit;
@@ -12,6 +13,7 @@ mod flatten;
 mod geom;
 mod hit;
 mod mesh;
+mod stamp;
 mod stroke;
 mod trim;
 
@@ -70,6 +72,11 @@ pub use edit::{
 pub use fit::fit_polyline;
 pub use flatten::{flatten, flatten_contours};
 pub use hit::hit_stroke;
+pub use stamp::{
+    apply_erase, default_pixel, erase_coverage_at, multiply_by_mask, stamp_contours,
+    stamp_contours_at, stamp_line, stamp_polyline, stamp_segment, stamp_tipped, tip_coverage,
+    tipped_contours, StampImage, StampStyle, TipPoint,
+};
 pub use stroke::{stroke_bounds, stroke_mesh, stroke_outline, stroke_ribbon};
 pub use trim::{
     boolean_difference, boolean_intersection, boolean_union, boolean_union_all,

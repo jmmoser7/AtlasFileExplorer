@@ -1,5 +1,86 @@
 # Canvas command project — change log
 
+## 2026-09-24 — Spot eraser and color wheel gap
+
+- The Eraser erases painted brush ink under the pass instead of deleting
+  the stroke. Soft, partial, dab, and Shift-straight passes work like the
+  Brush, with the same size, softness, and strength controls and Ctrl+Z.
+  Vector strokes are still removed whole.
+- The color wheel's hue ring meets the saturation/value disc. Anywhere on
+  the wheel keeps the current color; only moving past the wheel samples.
+
+## 2026-09-24 — Bumper cars (optional tool) and Preferences → Snaps
+
+- New contract `bumper-cars`. Off until Preferences → Configure → Tools →
+  Bumper cars. Shapes and sticky notes get a Bumper squircle (On/Off, buffer,
+  friction from Puck to Anchor). Filled closed shapes collide as solids,
+  unfilled ones as rings, open curves as walls. Pushes and the release glide
+  journal with the drag as one undo; the glide itself is a replay.
+- Every snap row moves into Preferences → Snaps, with the same commands and
+  F9. The shared top-bar menu gains nested flyouts for both apps.
+
+## 2026-09-23 — Brush opacity and color dots
+
+- Shift+right-drag scrubs brush opacity and keeps the right button from panning.
+  Ctrl and Alt still win when they are held with Shift.
+- Choosing a recent color leaves the wheel where it is and moves the pointer
+  onto that color. Strokes composite in Normal mode, opacity on the whole stroke.
+
+## 2026-09-23 — Brush stamp
+
+- A brush stroke is a radial bitmap of its centerline, shared by the board
+  and the HTML artifact. Softness fades inside the diameter. Overlaps keep
+  the maximum, so the stroke matches one dab of the tip.
+- Alt+right-drag, Ctrl+right-drag, and Shift+click read the modifiers on
+  the press and keep the right button from panning.
+
+## 2026-09-23 — Sticky note place
+
+- A sticky places once and returns to Select. The place ghost does not
+  stay, and the text/color capsule does not open.
+- The note is center-aligned. Place and double-click open a black blinking
+  caret in the middle. Clicking off commits the text.
+- The default fill is white, with a subtle drop shadow.
+- Sticky text stays center-aligned and shrinks so a long note still fits
+  inside the card. The authored size is the ceiling.
+
+## 2026-09-22 — Frame deck
+
+- Select a frame and the Deck squircle appears on its strip. Click it,
+  then click frames or draw a stroke through them to set the presentation
+  order. It is not a tools-dock icon.
+  New frames use an 8-unit fillet and no border.
+
+## 2026-09-22 — Slate board portal
+
+- A document portal loads another workbook's board into a frame.
+  Place it from the Portals flyout. Double-click or Enter opens that
+  workbook as a tab.
+- Dropping a `.slate` file on a blank board still opens it. Dropping one
+  on a board that already has content asks whether to open it or insert it.
+
+## 2026-09-22 — Brush tip mesh and Ctrl+right-drag color wheel
+
+- The size circle stays on the press point and scales about that center.
+- The in-progress stroke previews at the brush width instead of a hairline.
+- Soft tips use a multi-band fringe and a rounder cap, so the halo is not a spike.
+- Ctrl+right-drag opens the color wheel. Alt+right-drag still scrubs size and softness.
+
+## 2026-09-22 — Brush size, softness, and color wheel
+
+- Alt+right-drag scrubs brush diameter and softness. Shift+Alt+right-drag
+  opens a color wheel centered so the pointer starts on the current color.
+- The document stores 24 recent colors. They fill equal slots clockwise from
+  6 o'clock; a repeat moves to 6 o'clock; a full ring drops the oldest.
+  Fill, Stroke, and text editors still show the first six.
+- Shift+[ / Shift+] step softness. A soft stroke feathers on the board and
+  exports as an SVG gaussian blur.
+
+## 2026-09-22 — Wire drop on empty canvas
+
+- Dragging a new wire onto blank canvas commits it with a free end at
+  the release point. The tool-search palette no longer opens.
+
 ## 2026-09-21 — File Atlas portal fill, stroke, formatting, marquee
 
 - File Atlas Fill authors the portal window. Unauthored fill follows

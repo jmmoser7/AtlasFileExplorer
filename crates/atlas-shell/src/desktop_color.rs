@@ -41,6 +41,19 @@ impl Drop for DesktopColorPicker {
     }
 }
 
+/// One screen pixel under the cursor. `None` off Windows and in tests, so a
+/// headless alt-click falls through to the modal sampler.
+pub fn sample_cursor() -> Option<[u8; 3]> {
+    #[cfg(all(windows, not(test)))]
+    {
+        platform::sample_cursor()
+    }
+    #[cfg(not(all(windows, not(test))))]
+    {
+        None
+    }
+}
+
 #[cfg(not(windows))]
 mod platform {
     use super::*;
@@ -227,6 +240,22 @@ mod platform {
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
+    }
+
+    pub fn sample_cursor() -> Option<[u8; 3]> {
+        unsafe {
+            let mut p = POINT::default();
+            if GetCursorPos(&mut p).is_err() {
+                return None;
+            }
+            let dc = GetDC(None);
+            if dc.is_invalid() {
+                return None;
+            }
+            let color = GetPixel(dc, p.x, p.y).0;
+            ReleaseDC(None, dc);
+            (color != 0xffffffff).then_some([color as u8, (color >> 8) as u8, (color >> 16) as u8])
         }
     }
 

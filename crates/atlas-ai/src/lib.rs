@@ -19,16 +19,22 @@
 //!
 //! Both apps hold one [`AiPanel`] and call [`AiPanel::poll`] every frame.
 
+pub mod access;
 pub mod agent;
 pub mod config;
 pub mod context;
 pub mod cursor_chats;
 pub mod cursor_key;
 pub mod cursor_recents;
+pub mod deliverables;
+pub mod feedback;
 pub mod launch;
+pub mod outputs;
 pub mod runtime;
+pub mod schedule;
 pub mod sidecar;
 pub mod ui;
+pub mod versions;
 
 pub use config::AiConfig;
 pub use context::AiAppContext;

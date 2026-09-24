@@ -52,6 +52,9 @@ pub enum MenuIcon {
 /// One painted row. Prefer the `item*` helpers; use this for mixed states.
 pub struct Row<'a> {
     pub icon: MenuIcon,
+    /// A catalog glyph (`icons.rs`) painted in the icon column instead of
+    /// `icon`, for menus whose rows name tools or presentations.
+    pub glyph: Option<crate::icons::Icon>,
     pub label: &'a str,
     pub shortcut: Option<&'a str>,
     pub chevron: bool,
@@ -63,9 +66,19 @@ pub struct Row<'a> {
 }
 
 impl<'a> Row<'a> {
+    /// A row whose icon is a catalog glyph. A checked glyph row keeps its
+    /// glyph and shows the check at the right edge.
+    pub fn glyph(glyph: crate::icons::Icon, label: &'a str) -> Self {
+        Self {
+            glyph: Some(glyph),
+            ..Self::new(MenuIcon::None, label)
+        }
+    }
+
     pub fn new(icon: MenuIcon, label: &'a str) -> Self {
         Self {
             icon,
+            glyph: None,
             label,
             shortcut: None,
             chevron: false,
@@ -203,6 +216,57 @@ pub fn frame(dark: bool) -> Frame {
             color: Color32::from_black_alpha((tokens.shadow_opacity.clamp(0.0, 1.0) * 255.0) as u8),
         })
         .inner_margin(Margin::same(tokens.panel_padding.clamp(0.0, 127.0) as i8))
+}
+
+/// A menu panel anchored at a screen point, over everything else.
+///
+/// With `armed`, the menu dismisses itself: the flag turns true once the press
+/// that opened it is released, and a later press outside the panel sets
+/// `dismissed`. Callers without it close the menu themselves.
+pub fn anchored<R>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    at: Pos2,
+    dark: bool,
+    max_width: f32,
+    armed: Option<&mut bool>,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> Anchored<R> {
+    let shown = egui::Area::new(id)
+        .fixed_pos(at)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            frame(dark)
+                .show(ui, |ui| {
+                    prepare(ui, dark);
+                    ui.set_max_width(max_width);
+                    add_contents(ui)
+                })
+                .inner
+        });
+    let rect = shown.response.rect;
+    let dismissed = armed.is_some_and(|armed| {
+        if !ctx.input(|i| i.pointer.any_down()) {
+            *armed = true;
+        }
+        *armed
+            && ctx.input(|i| i.pointer.any_pressed())
+            && !ctx
+                .input(|i| i.pointer.interact_pos())
+                .is_some_and(|p| rect.contains(p))
+    });
+    Anchored {
+        inner: shown.inner,
+        rect,
+        dismissed,
+    }
+}
+
+pub struct Anchored<R> {
+    pub inner: R,
+    pub rect: Rect,
+    /// An outside press closed an armed menu this frame.
+    pub dismissed: bool,
 }
 
 pub fn tokens() -> MenuTokens {
@@ -372,6 +436,26 @@ pub fn row(ui: &mut Ui, spec: Row<'_>, dark: bool) -> egui::Response {
                 icon_c,
                 tokens.icon_size * 0.42,
                 Stroke::new(tokens.icon_stroke, icon_color),
+            );
+        }
+    } else if let Some(glyph) = spec.glyph {
+        crate::icons::paint(
+            ui.painter(),
+            Rect::from_center_size(icon_c, Vec2::splat(tokens.icon_size)),
+            glyph,
+            icon_color,
+        );
+        if spec.checked == Some(true) {
+            paint_icon(
+                ui.painter(),
+                MenuIcon::Check,
+                Pos2::new(
+                    rect.right() - tokens.row_pad_x - tokens.icon_size * 0.5,
+                    rect.center().y,
+                ),
+                tokens.icon_size,
+                tokens.icon_stroke,
+                icon_color,
             );
         }
     } else {

@@ -60,18 +60,44 @@ pub fn constraint_for(tool: BoardTool, frame_aspect: f32) -> Option<PlaceConstra
             ratio: frame_aspect.max(0.001),
         }),
         BoardTool::RectShape | BoardTool::Ellipse => Some(PlaceConstraint::SquareOnShift),
-        BoardTool::AgentPortal | BoardTool::WebPortal | BoardTool::AtlasPortal => {
-            Some(PlaceConstraint::ShiftLocksAspect { ratio: 16.0 / 9.0 })
-        }
+        BoardTool::AgentPortal
+        | BoardTool::WebPortal
+        | BoardTool::AtlasPortal
+        | BoardTool::SlatePortal => Some(PlaceConstraint::ShiftLocksAspect { ratio: 16.0 / 9.0 }),
         _ => None,
     }
 }
 
+/// Rectangle and ellipse honor Ctrl as draw-from-center. Other DragRect
+/// tools ignore it (their aspect chords stay corner-anchored).
+pub fn draws_from_center(tool: BoardTool, ctrl: bool) -> bool {
+    ctrl && matches!(tool, BoardTool::RectShape | BoardTool::Ellipse)
+}
+
 /// World rect for a press-at-`start` / cursor-at-`end` DragScale.
+///
+/// `from_center` keeps `start` as the center and treats `end` as a corner.
+/// Only [`PlaceConstraint::Free`] and [`PlaceConstraint::SquareOnShift`]
+/// honor it; frame and portal constraints stay corner-anchored.
 ///
 /// The origin and aspect rules match the drag helpers this replaced so
 /// existing click/drag tests stay honest.
-pub fn place_rect(start: Pos2, end: Pos2, constraint: PlaceConstraint, shift: bool) -> WorldRect {
+pub fn place_rect(
+    start: Pos2,
+    end: Pos2,
+    constraint: PlaceConstraint,
+    shift: bool,
+    from_center: bool,
+) -> WorldRect {
+    if from_center
+        && matches!(
+            constraint,
+            PlaceConstraint::Free | PlaceConstraint::SquareOnShift
+        )
+    {
+        let square = shift && matches!(constraint, PlaceConstraint::SquareOnShift);
+        return centered_rect(start, end, square);
+    }
     let dx = end.x - start.x;
     let dy = end.y - start.y;
     match constraint {
@@ -92,6 +118,18 @@ pub fn place_rect(start: Pos2, end: Pos2, constraint: PlaceConstraint, shift: bo
             }
         }
     }
+}
+
+/// Press point is the center; the cursor is one corner. Shift makes a square.
+fn centered_rect(center: Pos2, end: Pos2, square: bool) -> WorldRect {
+    let mut hw = (end.x - center.x).abs();
+    let mut hh = (end.y - center.y).abs();
+    if square {
+        let side = hw.max(hh);
+        hw = side;
+        hh = side;
+    }
+    WorldRect::new(center.x - hw, center.y - hh, hw * 2.0, hh * 2.0)
 }
 
 fn square_or_free(start: Pos2, dx: f32, dy: f32, square: bool) -> WorldRect {
@@ -131,9 +169,10 @@ pub fn ghost_kind(tool: BoardTool) -> Option<GhostKind> {
     match tool {
         BoardTool::Frame | BoardTool::RectShape => Some(GhostKind::RoundedRect),
         BoardTool::Ellipse => Some(GhostKind::Ellipse),
-        BoardTool::AgentPortal | BoardTool::WebPortal | BoardTool::AtlasPortal => {
-            Some(GhostKind::Portal)
-        }
+        BoardTool::AgentPortal
+        | BoardTool::WebPortal
+        | BoardTool::AtlasPortal
+        | BoardTool::SlatePortal => Some(GhostKind::Portal),
         BoardTool::Text => Some(GhostKind::TextBox),
         BoardTool::Sticky => Some(GhostKind::Sticky),
         _ => None,
@@ -256,6 +295,7 @@ mod tests {
             Pos2::new(120.0, 40.0),
             PlaceConstraint::SquareOnShift,
             true,
+            false,
         );
         assert!((r.w - r.h).abs() < 0.01);
         assert!((r.w - 120.0).abs() < 0.01);
@@ -270,6 +310,7 @@ mod tests {
             Pos2::new(10.0 + 160.0, 20.0 + 10.0),
             PlaceConstraint::PresetAspect { ratio: aspect },
             false,
+            false,
         );
         assert!((r.w - 160.0).abs() < 0.01);
         assert!((r.h - 90.0).abs() < 0.01);
@@ -283,6 +324,7 @@ mod tests {
             Pos2::new(80.0, 20.0),
             PlaceConstraint::PresetAspect { ratio: 16.0 / 9.0 },
             true,
+            false,
         );
         assert!((r.w - r.h).abs() < 0.01);
         assert!((r.w - 80.0).abs() < 0.01);
@@ -295,6 +337,7 @@ mod tests {
             Pos2::new(320.0, 20.0),
             PlaceConstraint::ShiftLocksAspect { ratio: 16.0 / 9.0 },
             true,
+            false,
         );
         assert!((r.w - 320.0).abs() < 0.01);
         assert!((r.h - 180.0).abs() < 0.01);
@@ -306,6 +349,7 @@ mod tests {
             Pos2::new(0.0, 0.0),
             Pos2::new(100.0, 40.0),
             PlaceConstraint::ShiftLocksAspect { ratio: 16.0 / 9.0 },
+            false,
             false,
         );
         assert!((r.w - 100.0).abs() < 0.01);
@@ -319,6 +363,7 @@ mod tests {
             Pos2::new(40.0, 5.0),
             PlaceConstraint::Free,
             true,
+            false,
         );
         assert!((r.x - 10.0).abs() < 0.01);
         assert!((r.y - 5.0).abs() < 0.01);
@@ -333,10 +378,57 @@ mod tests {
             Pos2::new(40.0, 50.0),
             PlaceConstraint::SquareOnShift,
             false,
+            false,
         );
         assert!((r.x - 40.0).abs() < 0.01);
         assert!((r.y - 50.0).abs() < 0.01);
         assert!((r.w - 60.0).abs() < 0.01);
         assert!((r.h - 50.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn ctrl_draws_a_rect_from_the_press_point() {
+        let r = place_rect(
+            Pos2::new(10.0, 20.0),
+            Pos2::new(70.0, 50.0),
+            PlaceConstraint::SquareOnShift,
+            false,
+            true,
+        );
+        assert!((r.x - (10.0 - 60.0)).abs() < 0.01);
+        assert!((r.y - (20.0 - 30.0)).abs() < 0.01);
+        assert!((r.w - 120.0).abs() < 0.01);
+        assert!((r.h - 60.0).abs() < 0.01);
+        let (cx, cy) = r.center();
+        assert!((cx - 10.0).abs() < 0.01 && (cy - 20.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn ctrl_shift_draws_a_circle_about_the_press_point() {
+        let r = place_rect(
+            Pos2::new(0.0, 0.0),
+            Pos2::new(40.0, -15.0),
+            PlaceConstraint::SquareOnShift,
+            true,
+            true,
+        );
+        assert!((r.w - r.h).abs() < 0.01);
+        assert!((r.w - 80.0).abs() < 0.01);
+        let (cx, cy) = r.center();
+        assert!(cx.abs() < 0.01 && cy.abs() < 0.01);
+    }
+
+    #[test]
+    fn from_center_does_not_apply_to_portals() {
+        let r = place_rect(
+            Pos2::new(0.0, 0.0),
+            Pos2::new(100.0, 40.0),
+            PlaceConstraint::ShiftLocksAspect { ratio: 16.0 / 9.0 },
+            false,
+            true,
+        );
+        assert!((r.x).abs() < 0.01 && (r.y).abs() < 0.01);
+        assert!((r.w - 100.0).abs() < 0.01);
+        assert!((r.h - 40.0).abs() < 0.01);
     }
 }

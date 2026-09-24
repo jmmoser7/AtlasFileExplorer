@@ -199,8 +199,6 @@ impl SlateApp {
     /// canvas so the popup floats above it.
     pub(crate) fn palette_frame(&mut self, ctx: &egui::Context) {
         if !self.palette_state.open {
-            // A wire-pending connect only survives while its palette is up.
-            self.wire_pending = None;
             return;
         }
         let rows: Vec<PaletteRow> = self
@@ -219,10 +217,7 @@ impl SlateApp {
             .collect();
         match palette_ui(ctx, &mut self.palette_state, &rows) {
             PaletteAction::None => {}
-            PaletteAction::Dismiss => {
-                // Wire released on empty + palette dismissed = no connector.
-                self.wire_pending = None;
-            }
+            PaletteAction::Dismiss => {}
             PaletteAction::QueryChanged => self.refresh_palette_items(),
             PaletteAction::Execute(i) => {
                 if let Some(item) = self.palette_items.get(i).cloned() {
@@ -240,54 +235,33 @@ impl SlateApp {
         match item.id.0 {
             "board.tool.rect" => {
                 self.place_default_at(super::board::BoardTool::RectShape, world);
-                self.connect_pending_wire_to_selection();
             }
             "board.tool.ellipse" => {
                 self.place_default_at(super::board::BoardTool::Ellipse, world);
-                self.connect_pending_wire_to_selection();
             }
             "board.tool.frame" => {
                 self.place_frame_at(world);
                 self.push_history(item.id, Some("placed".into()));
-                self.connect_pending_wire_to_selection();
             }
             "board.portal.web" => {
                 self.place_web_portal_at(world);
-                self.connect_pending_wire_to_selection();
             }
             "board.portal.agent" => {
                 self.place_agent_portal_at(world);
-                self.connect_pending_wire_to_selection();
+            }
+            "board.portal.slate" => {
+                self.place_slate_portal_at(world);
             }
             "board.tool.text" => {
                 self.place_text_at(world);
                 self.push_history(item.id, Some("placed".into()));
-                self.connect_pending_wire_to_selection();
             }
             "board.tool.sticky" => {
                 self.place_sticky_at(world);
-                self.connect_pending_wire_to_selection();
             }
             _ => {
                 self.dispatch(ctx, item.id, None);
-                // Non-placing commands drop a pending wire connect (only
-                // an immediately placed node can auto-connect).
-                self.wire_pending = None;
             }
-        }
-    }
-
-    /// If a wire drag ended on empty canvas and the palette just placed a
-    /// node (it becomes the selection), auto-connect to its nearest side.
-    fn connect_pending_wire_to_selection(&mut self) {
-        if self.wire_pending.is_none() {
-            return;
-        }
-        if self.board_sel.len() == 1 {
-            let placed = *self.board_sel.iter().next().unwrap();
-            self.resolve_pending_wire(placed);
-        } else {
-            self.wire_pending = None;
         }
     }
 

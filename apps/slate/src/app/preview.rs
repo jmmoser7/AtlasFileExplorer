@@ -29,6 +29,11 @@ use super::pdf;
 /// Don't start a full-res decode until the thumbnail is visibly upscaled.
 const UPGRADE_FACTOR: f32 = 1.15;
 
+/// The preview-cache key a linked generated asset is stored under.
+pub(crate) fn linked_image_key(path: &std::path::Path, revision: &str) -> String {
+    format!("agent-image:{revision}:{}", path.to_string_lossy())
+}
+
 /// New full-resolution decodes allowed to start per frame. Combined with the
 /// pool's LIFO order this bounds latency for what's actually on screen while
 /// a big scene streams in gradually.
@@ -41,6 +46,9 @@ pub(crate) const PX_EXACT: u32 = u32::MAX;
 /// One GPU-resident full-resolution preview.
 pub struct PreviewEntry {
     pub tex: TextureHandle,
+    /// Decoded pixels, so a committed photo filter can run once on the sharp
+    /// preview instead of locking the image to its thumbnail.
+    pub pixels: egui::ColorImage,
     /// Ladder tier this texture satisfies ([`PX_EXACT`] = native size).
     pub px: u32,
     /// Decoded RGBA footprint, the unit of the memory budget.
@@ -96,7 +104,7 @@ impl SlateApp {
         revision: &str,
         desired_px: f32,
     ) -> Option<TextureHandle> {
-        let key = format!("agent-image:{revision}:{}", path.to_string_lossy());
+        let key = linked_image_key(&path, revision);
         self.path_preview(key, path, None, desired_px, true, true)
     }
 
@@ -174,13 +182,14 @@ impl SlateApp {
                         egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
                     let tex = ctx.load_texture(
                         format!("slate-preview-{key}-{px}"),
-                        img,
+                        img.clone(),
                         egui::TextureOptions::LINEAR,
                     );
                     self.preview_cache.insert(
                         key,
                         PreviewEntry {
                             tex,
+                            pixels: img,
                             px,
                             bytes: (w as usize) * (h as usize) * 4,
                             last_used: self.frame_no,

@@ -1,0 +1,10 @@
+[package]
+name = "model-preview"
+version.workspace = true
+edition.workspace = true
+description = "Format-agnostic 3D preview scenes for the Slate board viewport"
+
+[dependencies]
+base64 = "0.22"
+gltf = { workspace = true }
+rhino-mesh = { workspace = true }

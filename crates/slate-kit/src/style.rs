@@ -144,6 +144,9 @@ impl StrokeSpec {
             cap: self.cap.into(),
             join: self.join.into(),
             profile: self.profile.into(),
+            softness: 0.0,
+            stamp: false,
+            tween_from: None,
         }
     }
 }

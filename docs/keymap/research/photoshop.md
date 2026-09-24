@@ -97,6 +97,18 @@ Every feature is broken into:
 | Opacity / Flow digits | Map to **stroke opacity** and **ink deposition rate** (multi-pass alpha within one stroke for flow-like buildup). |
 | Preset cycling `,` `.` | Cycle **stroke presets** (width profile + opacity + blend), not raster brush tips. |
 
+### On-canvas HUD (verified 2026-09-22)
+
+Windows, with a painting tool armed. Sources: Photoshop Essentials’ brush HUD guide, Julieanne Kost’s color tips, and CreativePro’s HUD color-picker note.
+
+- **Alt + right-click drag** opens the brush HUD and holds it until the right button is released. Dragging right increases diameter; dragging left decreases it, about 1 px per pixel of travel. Dragging up decreases hardness (softer edge); dragging down increases hardness. The preview ring is a preference color (default red), separate from the paint color. Diameter, hardness, and opacity read out beside it.
+- **Shift + [ / ]** changes hardness in 25% steps on round brushes. **[ / ]** alone remain the size tiers above.
+- **Shift + Alt + right-click** opens the HUD color picker until the button is released. Edit → Preferences → General → HUD Color Picker chooses Hue Strip or Hue Wheel, each Small, Medium, or Large. The hue wheel is a hue ring plus a saturation/brightness field. Holding Space while the button stays down freezes the part under the pointer so the pointer can move to the other part.
+- The color HUD is placed at the cursor. The current foreground is marked inside the control. The pointer does not open already sitting on that color.
+- **0–9** set opacity for the painting tool and do not run other commands. A second digit typed quickly sets an exact percent (5 then 4 = 54%).
+
+Mac: the size HUD is Control + Option + drag. The color HUD is Control + Option + Command + click.
+
 ---
 
 ## 2. Eraser tool (E) — raster vs vector

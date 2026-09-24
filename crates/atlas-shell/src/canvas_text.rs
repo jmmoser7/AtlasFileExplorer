@@ -314,6 +314,23 @@ pub fn layout(
     Scaled { galley, scale }
 }
 
+/// [`layout`] limited to `max_rows`, ending in an ellipsis when text remains.
+pub fn layout_rows(
+    painter: &Painter,
+    text: String,
+    font: FontId,
+    color: Color32,
+    wrap_width: f32,
+    max_rows: usize,
+) -> Scaled {
+    let (font, scale) = on_ladder(painter, font);
+    let mut job = egui::text::LayoutJob::simple(text, font, color, wrap_width / scale);
+    job.wrap.max_rows = max_rows;
+    job.wrap.overflow_character = Some('…');
+    let galley = painter.ctx().fonts(|fonts| fonts.layout_job(job));
+    Scaled { galley, scale }
+}
+
 /// [`Painter::layout_no_wrap`] on the ladder.
 pub fn layout_no_wrap(painter: &Painter, text: String, font: FontId, color: Color32) -> Scaled {
     let (font, scale) = on_ladder(painter, font);
