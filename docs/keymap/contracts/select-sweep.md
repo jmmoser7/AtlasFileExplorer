@@ -1,6 +1,6 @@
 # Select sweep — interaction contract
 
-Status: shipped
+Status: draft
 Family: tool
 Reference: AutoCAD / Rhino window vs crossing marquee
 Command: board.marquee · Key: none (Select tool, V) · Palette: n/a

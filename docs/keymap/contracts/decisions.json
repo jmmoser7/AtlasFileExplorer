@@ -4199,7 +4199,7 @@
       }
     },
     "select-sweep": {
-      "status": "shipped",
+      "status": "draft",
       "family": "tool",
       "reference": "AutoCAD / Rhino window vs crossing marquee",
       "inherits": [
