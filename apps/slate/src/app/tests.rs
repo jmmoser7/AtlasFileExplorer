@@ -4399,10 +4399,42 @@ fn maximized_restore_glyph_click_leaves_maximize() {
     let (id, _) = only_portal(&web);
     click_restore(&mut web, slate_doc::scene::PortalKind::Web, id);
 
+    // D33: agent cards do not offer maximize, so the restore glyph is absent.
+    // D34: Esc still leaves maximize.
     let mut agent = web_board("restore_agent");
     agent.app.place_agent_portal_at(Pos2::ZERO);
     let id = agent.app.doc().scene.nodes[0].id;
-    click_restore(&mut agent, slate_doc::scene::PortalKind::Agent, id);
+    agent.app.portal_maximize(id);
+    agent.frame();
+    let screen = agent.app.canvas_rect;
+    let node = agent.app.doc().scene.node(id).unwrap().rect;
+    let host =
+        board_portal_chrome::maximized_host_rect(slate_doc::scene::PortalKind::Agent, node, screen);
+    let layout = board_portal_chrome::layout_for_portal(
+        slate_doc::scene::PortalKind::Agent,
+        host,
+        false,
+        true,
+        1.0,
+    );
+    assert_eq!(
+        layout.maximize,
+        egui::Rect::NOTHING,
+        "agent cards omit the maximize glyph"
+    );
+    agent.frame_with(|input| {
+        input.events.push(egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        })
+    });
+    assert_eq!(
+        agent.app.portal_chrome.maximized, None,
+        "Esc restores a maximized agent portal"
+    );
 
     let mut atlas = web_board("restore_atlas");
     atlas.app.place_atlas_portal_at(Pos2::ZERO);
