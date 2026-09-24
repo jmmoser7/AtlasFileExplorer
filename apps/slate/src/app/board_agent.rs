@@ -5310,6 +5310,31 @@ impl SlateApp {
         Some(resolve_source(self.tab().path.as_deref(), &image.source))
     }
 
+    fn agent_background_pending(&self) -> bool {
+        self.agents.programs_rx.is_some()
+            || self.agents.recents_rx.is_some()
+            || self.agents.ide_inflight
+            || self.agents.chats_rx.is_some()
+            || self.agents.connection_rx.is_some()
+            || self.agents.connection_pending.is_some()
+            || self.agents.models_rx.is_some()
+            || !self.agents.live_run.is_empty()
+            || !self.agents.comfy_queue.is_empty()
+            || self.agents.awaiting.values().any(|state| {
+                matches!(
+                    state,
+                    AgentAwait::Sent { .. }
+                        | AgentAwait::Thinking { .. }
+                        | AgentAwait::Responding { .. }
+                )
+            })
+            || self
+                .agents
+                .sessions
+                .values()
+                .any(|session| session.status == AgentStatus::Thinking)
+    }
+
     pub(crate) fn agent_pump(&mut self, ctx: &egui::Context) {
         self.sync_agent_doc();
         let mut existing: HashSet<String> = self
@@ -5334,7 +5359,6 @@ impl SlateApp {
             .codex
             .retain(|session, _| existing.contains(session));
         self.ensure_agent_programs();
-        ctx.request_repaint_after(Duration::from_millis(250));
         self.ensure_agent_recents(ctx);
         self.pump_cursor_ide(ctx);
         self.pump_agent_chats(ctx);
@@ -5344,6 +5368,12 @@ impl SlateApp {
         self.rejoin_agent_chats();
         self.refresh_agent_connection();
         self.pump_agent_models();
+        // Idle Home was waking ~4 Hz: this used to request 250 ms every frame,
+        // and egui subtracts a predicted frame (~16 ms) so the gap logged as
+        // ~234 ms. Poll only while a background result is actually in flight.
+        if self.agent_background_pending() {
+            ctx.request_repaint_after(Duration::from_millis(250));
+        }
         if let Some(id) = self.agents.focused {
             if !self.board_sel.contains(&id) && self.portal_chrome.maximized != Some(id) {
                 self.agent_blur();

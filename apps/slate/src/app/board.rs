@@ -2371,6 +2371,7 @@ impl SlateApp {
     /// Cached excerpt for text-file snippet cards (same clamping as the
     /// artifact's `read_snippet`, so board and export show identical text).
     pub(crate) fn snippet_for(&mut self, item: ItemId, path: &std::path::Path) -> Option<String> {
+        let _span = atlas_core::session_log::span("slate.snippet");
         self.snippets
             .entry(item)
             .or_insert_with(|| slate_artifact::read_snippet(path))
@@ -2382,6 +2383,7 @@ impl SlateApp {
         item: ItemId,
         path: &std::path::Path,
     ) -> Option<Vec<Vec<atlas_core::office::SheetCell>>> {
+        let _span = atlas_core::session_log::span("slate.sheet");
         self.sheets
             .entry(item)
             .or_insert_with(|| atlas_core::table::read_sheet_card(path))
@@ -4413,7 +4415,7 @@ impl SlateApp {
         // but drops this cast. The crop-mode node draws its own adornment
         // (below). Locked nodes force-selected via Ctrl+Shift+click show a
         // grayed outline.
-        let preview = atlas_shell::tokens::current().board_preview;
+        let preview = atlas_shell::tokens::current().board_preview.clone();
         let select_tint = if self.selection_has_locked() {
             palette.select.gamma_multiply(0.45 * preview.select_opacity)
         } else {
@@ -4550,7 +4552,7 @@ impl SlateApp {
         // Smart guides: forcefield pulse from the impact, then fade.
         let guide_color = palette.accent;
         let now = ui.input(|i| i.time);
-        let ff = atlas_shell::tokens::current().board_forcefield;
+        let ff = atlas_shell::tokens::current().board_forcefield.clone();
         if atlas_shell::tuning::forcefield_preview_locked() {
             let world = xf.s2w(rect.center());
             board_forcefield::sync_preview(&mut self.board_forcefield, world, now, ff);
@@ -4753,7 +4755,7 @@ impl SlateApp {
             let r = Rect::from_two_pos(start_screen, p);
             let node_marquee = matches!(self.board_drag, Some(BoardDrag::Marquee { .. }));
             let crossing = node_marquee && p.x < start_screen.x;
-            let tokens = atlas_shell::tokens::current().board_marquee;
+            let tokens = atlas_shell::tokens::current().board_marquee.clone();
             let color = if crossing {
                 tokens.crossing_color(palette.dark_mode)
             } else {

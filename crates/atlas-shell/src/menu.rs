@@ -136,7 +136,7 @@ impl<'a> Row<'a> {
 /// [`crate::theme`] so inspector buttons and the rest of the chrome do not
 /// pick up menu hover fills.
 pub fn apply_style(ctx: &egui::Context, dark: bool) {
-    let tokens = tokens::current().menu;
+    let tokens = tokens::current().menu.clone();
     let theme = tokens.theme(dark);
     ctx.style_mut(|style| {
         let r = tokens.corner_radius.clamp(0.0, 255.0) as u8;
@@ -193,7 +193,7 @@ pub fn prepare(ui: &mut Ui, dark: bool) {
 
 /// Frame for a hand-built menu panel (right-click, portal flyout).
 pub fn frame(dark: bool) -> Frame {
-    let tokens = tokens::current().menu;
+    let tokens = tokens::current().menu.clone();
     let theme = tokens.theme(dark);
     let stroke = if tokens.border_width <= 0.01 {
         Stroke::NONE
@@ -270,7 +270,7 @@ pub struct Anchored<R> {
 }
 
 pub fn tokens() -> MenuTokens {
-    tokens::current().menu
+    tokens::current().menu.clone()
 }
 
 pub fn theme(dark: bool) -> MenuThemeTokens {
@@ -945,7 +945,7 @@ mod tests {
 
     #[test]
     fn menu_tokens_match_the_style_reference() {
-        let t = tokens::current().menu;
+        let t = tokens::current().menu.clone();
         assert!(t.border_width <= 0.01);
         assert!(t.corner_radius >= 4.0);
         assert!(t.divider_inset > 0.0);

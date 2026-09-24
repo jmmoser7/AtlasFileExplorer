@@ -382,7 +382,7 @@ pub fn status_bar(app: &mut AtlasApp, ctx: &egui::Context) {
         return;
     }
 
-    let rk = atlas_shell::tokens::current().readouts;
+    let rk = atlas_shell::tokens::current().readouts.clone();
     egui::TopBottomPanel::bottom("readouts").show(ctx, |ui| {
         let palette = app.palette();
         ui.add_space(rk.pad_top);

@@ -18,7 +18,7 @@ use slate_doc::NodeId;
 const CANVAS_STRIP_BUDGET: f32 = 16_384.0;
 
 fn dock_tokens() -> DockTokens {
-    let mut tokens = atlas_shell::tokens::current().dock;
+    let mut tokens = atlas_shell::tokens::current().dock.clone();
     tokens.normalize();
     tokens
 }

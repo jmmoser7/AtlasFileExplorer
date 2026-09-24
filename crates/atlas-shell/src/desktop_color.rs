@@ -360,6 +360,8 @@ mod platform {
             return Err("Cannot start desktop sampling input session".into());
         }
         let mut msg = MSG::default();
+        // `done` is written from `window_proc` through the user-data pointer.
+        #[allow(clippy::while_immutable_condition)]
         while !state.done {
             if GetMessageW(&mut msg, None, 0, 0).0 <= 0 {
                 break;

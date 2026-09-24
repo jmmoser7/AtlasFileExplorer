@@ -16,7 +16,7 @@
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Frames retained — a couple of seconds at 60 Hz, the window a hitch lives in.
@@ -31,8 +31,12 @@ const STALL_APP_MS: f32 = 33.0;
 const STALL_DELIVERED_MS: f32 = 50.0;
 /// Named work that ate half a frame is worth a line even without a stall.
 const SLOW_SPAN_MS: f32 = 8.0;
-const STACK: usize = 8;
-const COMPLETED: usize = 16;
+/// Nested paint (canvas → board → portal) stays inside this. A dropped
+/// enter is silent, so the cap has to cover the deepest real stack.
+const STACK: usize = 16;
+/// Every named span in one frame. Overflow drops the name from stall lines,
+/// so this is sized for a full Slate frame plus the board's own spans.
+const COMPLETED: usize = 64;
 const PENDING_CAP: usize = 64;
 const STALL_CAP: usize = 16;
 const MARK_CAP: usize = 8;
@@ -71,6 +75,79 @@ pub struct Stall {
     pub nodes: u32,
 }
 
+/// Why this frame ran, for stall classification.
+///
+/// A long gap between frames is a stall only when the user did something or
+/// the previous pass asked to paint again immediately (animation). An idle
+/// timer (`request_repaint_after`) that fires on schedule is not a stall.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FrameWake {
+    pub had_input: bool,
+    /// Previous pass called `request_repaint` (immediate), including egui
+    /// animations.
+    pub eager: bool,
+}
+
+/// One-shot phase clock from process start through the first frame.
+///
+/// Call [`note_process_start`] at the top of `main`. Each [`Startup::phase`]
+/// records the milliseconds since the previous mark (the first mark includes
+/// everything since process start).
+pub struct Startup {
+    last: Instant,
+    phases: Vec<(&'static str, f32)>,
+}
+
+impl Startup {
+    pub fn begin() -> Self {
+        Self {
+            last: process_start(),
+            phases: Vec::new(),
+        }
+    }
+
+    pub fn phase(&mut self, name: &'static str) {
+        let now = Instant::now();
+        let ms = now.saturating_duration_since(self.last).as_secs_f32() * 1000.0;
+        self.phases.push((name, ms));
+        self.last = now;
+    }
+
+    pub fn total_ms(&self) -> f32 {
+        self.phases.iter().map(|(_, ms)| *ms).sum()
+    }
+
+    fn detail(&self) -> String {
+        let mut s = String::new();
+        for (name, ms) in &self.phases {
+            if !s.is_empty() {
+                s.push(',');
+            }
+            s.push_str(name);
+            s.push(':');
+            s.push_str(&format!("{ms:.1}"));
+        }
+        s
+    }
+}
+
+static PROCESS_START: OnceLock<Instant> = OnceLock::new();
+
+/// Capture process start. The first call wins; later calls are ignored.
+pub fn note_process_start() {
+    let _ = PROCESS_START.set(Instant::now());
+}
+
+pub fn process_start() -> Instant {
+    *PROCESS_START.get_or_init(Instant::now)
+}
+
+/// App time always counts. A long delivered interval counts only when this
+/// frame had input or the previous pass requested an immediate repaint.
+pub fn is_stall(app_ms: f32, delivered_ms: f32, wake: FrameWake) -> bool {
+    app_ms >= STALL_APP_MS || (delivered_ms >= STALL_DELIVERED_MS && (wake.had_input || wake.eager))
+}
+
 /// Frame-time ring + activity writer shared by File Atlas and Slate.
 pub struct SessionLog {
     inner: Arc<Mutex<Inner>>,
@@ -98,6 +175,14 @@ struct Inner {
     last_flush: Instant,
     last_latest: Instant,
     last_stall_app_ms: Option<f32>,
+    startup: Option<StartupSnap>,
+    repaint_causes: String,
+    last_repaint_note: Instant,
+}
+
+struct StartupSnap {
+    ms: f32,
+    phases: Vec<(&'static str, f32)>,
 }
 
 #[derive(Clone, Serialize)]
@@ -134,6 +219,22 @@ struct LatestFile<'a> {
     now: NowSummary,
     last_stalls: &'a [StallFile],
     marks: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    startup: Option<StartupFile<'a>>,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    repaint_causes: &'a str,
+}
+
+#[derive(Serialize)]
+struct StartupFile<'a> {
+    ms: f32,
+    phases: &'a [PhaseFile<'a>],
+}
+
+#[derive(Serialize)]
+struct PhaseFile<'a> {
+    name: &'a str,
+    ms: f32,
 }
 
 #[derive(Serialize)]
@@ -215,9 +316,33 @@ impl SessionLog {
         }
     }
 
-    pub fn end_frame(&self, app_time: Duration, delivered: f32) {
+    pub fn end_frame(&self, app_time: Duration, delivered: f32, wake: FrameWake) {
         if let Ok(mut g) = self.inner.lock() {
-            g.end_frame(app_time, delivered);
+            g.end_frame(app_time, delivered, wake, None);
+        }
+    }
+
+    /// Same as [`Self::end_frame`], plus a repaint-cause summary.
+    ///
+    /// `repaint` is recorded on a stall immediately, and otherwise at most
+    /// once every two seconds, so the idle-repaint hunt has a named source
+    /// without a line per frame.
+    pub fn end_frame_with(
+        &self,
+        app_time: Duration,
+        delivered: f32,
+        wake: FrameWake,
+        repaint: Option<&str>,
+    ) {
+        if let Ok(mut g) = self.inner.lock() {
+            g.end_frame(app_time, delivered, wake, repaint);
+        }
+    }
+
+    /// Write the one startup record (jsonl + latest). Safe to call once.
+    pub fn record_startup(&self, startup: &Startup) {
+        if let Ok(mut g) = self.inner.lock() {
+            g.record_startup(startup);
         }
     }
 
@@ -410,7 +535,25 @@ impl Inner {
             last_flush: now,
             last_latest: now.checked_sub(LATEST_EVERY).unwrap_or(now),
             last_stall_app_ms: None,
+            startup: None,
+            repaint_causes: String::new(),
+            last_repaint_note: now.checked_sub(Duration::from_secs(2)).unwrap_or(now),
         }
+    }
+
+    fn record_startup(&mut self, startup: &Startup) {
+        let ms = startup.total_ms();
+        self.startup = Some(StartupSnap {
+            ms,
+            phases: startup.phases.clone(),
+        });
+        let mut line = self.base_line();
+        line.kind = "startup";
+        line.name = "startup";
+        line.ms = ms;
+        line.detail = Some(startup.detail());
+        self.queue(line);
+        self.flush(true);
     }
 
     fn enter(&mut self, name: &'static str) {
@@ -468,7 +611,13 @@ impl Inner {
         self.flush(true);
     }
 
-    fn end_frame(&mut self, app_time: Duration, delivered: f32) {
+    fn end_frame(
+        &mut self,
+        app_time: Duration,
+        delivered: f32,
+        wake: FrameWake,
+        repaint: Option<&str>,
+    ) {
         let app_ms = app_time.as_secs_f32() * 1000.0;
         let delivered_ms = delivered * 1000.0;
         self.delivered[self.next] = delivered_ms;
@@ -476,7 +625,10 @@ impl Inner {
         self.next = (self.next + 1) % WINDOW;
         self.filled = (self.filled + 1).min(WINDOW);
 
-        let stall = app_ms >= STALL_APP_MS || delivered_ms >= STALL_DELIVERED_MS;
+        let stall = is_stall(app_ms, delivered_ms, wake);
+        if let Some(causes) = repaint.filter(|s| !s.is_empty()) {
+            self.note_repaint(causes, stall);
+        }
         let slow = (0..self.completed_len).any(|i| self.completed[i].1 >= SLOW_SPAN_MS);
 
         if stall {
@@ -501,6 +653,9 @@ impl Inner {
             line.ms = app_ms;
             line.delivered_ms = delivered_ms;
             line.spans = Some(spans);
+            if !self.repaint_causes.is_empty() {
+                line.detail = Some(self.repaint_causes.clone());
+            }
             self.queue(line);
         } else if slow {
             for i in 0..self.completed_len {
@@ -529,6 +684,20 @@ impl Inner {
         if due {
             self.flush(stall);
         }
+    }
+
+    fn note_repaint(&mut self, summary: &str, force: bool) {
+        self.repaint_causes = summary.to_string();
+        let due = self.last_repaint_note.elapsed() >= Duration::from_secs(2);
+        if !force && !due {
+            return;
+        }
+        let mut line = self.base_line();
+        line.kind = "repaint";
+        line.name = "causes";
+        line.detail = Some(self.repaint_causes.clone());
+        self.queue(line);
+        self.last_repaint_note = Instant::now();
     }
 
     fn base_line(&self) -> Line {
@@ -650,6 +819,20 @@ impl Inner {
                 nodes: s.nodes,
             })
             .collect();
+        let startup_phases: Vec<PhaseFile> = self
+            .startup
+            .as_ref()
+            .map(|s| {
+                s.phases
+                    .iter()
+                    .map(|(name, ms)| PhaseFile { name, ms: *ms })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let startup = self.startup.as_ref().map(|s| StartupFile {
+            ms: s.ms,
+            phases: &startup_phases,
+        });
         let file = LatestFile {
             app: self.app,
             pid: self.pid,
@@ -678,6 +861,8 @@ impl Inner {
             },
             last_stalls: &stalls,
             marks: &self.marks,
+            startup,
+            repaint_causes: &self.repaint_causes,
         };
         if let Ok(json) = serde_json::to_string_pretty(&file) {
             let tmp = self.latest_path.with_extension("json.tmp");
@@ -755,10 +940,10 @@ mod tests {
     fn the_tail_survives_a_sea_of_good_frames() {
         let s = SessionLog::memory("test");
         for _ in 0..100 {
-            s.end_frame(ms(2.0), GOOD);
+            s.end_frame(ms(2.0), GOOD, FrameWake::default());
         }
         for _ in 0..10 {
-            s.end_frame(ms(40.0), BAD);
+            s.end_frame(ms(40.0), BAD, FrameWake::default());
         }
         assert_eq!(s.dropped(), 10);
         assert!(s.max_ms() > 45.0, "max was {}", s.max_ms());
@@ -771,11 +956,11 @@ mod tests {
     fn the_window_forgets_old_frames() {
         let s = SessionLog::memory("test");
         for _ in 0..WINDOW {
-            s.end_frame(ms(40.0), BAD);
+            s.end_frame(ms(40.0), BAD, FrameWake::default());
         }
         assert_eq!(s.dropped(), WINDOW);
         for _ in 0..WINDOW {
-            s.end_frame(ms(2.0), GOOD);
+            s.end_frame(ms(2.0), GOOD, FrameWake::default());
         }
         assert_eq!(s.dropped(), 0, "a recovered board stops reporting stutter");
         assert_eq!(s.frames(), WINDOW);
@@ -796,7 +981,7 @@ mod tests {
             scan_active: true,
             ..Snapshot::default()
         });
-        s.end_frame(ms(40.0), BAD);
+        s.end_frame(ms(40.0), BAD, FrameWake::default());
         let stalls = s.last_stalls();
         assert_eq!(stalls.len(), 1);
         assert!(
@@ -824,7 +1009,7 @@ mod tests {
             ..Snapshot::default()
         });
         mark("after opening the share");
-        s.end_frame(ms(80.0), 0.090);
+        s.end_frame(ms(80.0), 0.090, FrameWake::default());
         let jsonl = std::fs::read_to_string(dir.join("test-app.jsonl")).unwrap();
         assert!(jsonl.contains("\"kind\":\"mark\""));
         assert!(jsonl.contains("after opening the share"));
@@ -832,6 +1017,72 @@ mod tests {
         let latest = std::fs::read_to_string(dir.join("test-app-latest.json")).unwrap();
         assert!(latest.contains("test-app"));
         assert!(latest.contains("last_stalls"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_idle_repaint_gap_is_not_a_stall() {
+        let s = SessionLog::memory("test");
+        s.end_frame(ms(2.0), 0.234, FrameWake::default());
+        assert!(s.last_stalls().is_empty());
+    }
+
+    #[test]
+    fn a_delivered_gap_with_input_is_a_stall() {
+        let s = SessionLog::memory("test");
+        s.end_frame(
+            ms(2.0),
+            0.234,
+            FrameWake {
+                had_input: true,
+                eager: false,
+            },
+        );
+        assert_eq!(s.last_stalls().len(), 1);
+        assert!(s.last_stalls()[0].app_ms < 33.0);
+    }
+
+    #[test]
+    fn a_delivered_gap_after_an_eager_repaint_is_a_stall() {
+        let s = SessionLog::memory("test");
+        s.end_frame(
+            ms(2.0),
+            0.234,
+            FrameWake {
+                had_input: false,
+                eager: true,
+            },
+        );
+        assert_eq!(s.last_stalls().len(), 1);
+    }
+
+    #[test]
+    fn app_time_is_a_stall_even_when_the_frame_was_idle() {
+        let s = SessionLog::memory("test");
+        s.end_frame(ms(40.0), GOOD, FrameWake::default());
+        assert_eq!(s.last_stalls().len(), 1);
+    }
+
+    #[test]
+    fn startup_is_one_record_in_the_log_and_the_snapshot() {
+        let dir = std::env::temp_dir().join(format!(
+            "atlas_session_startup_{}_{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = SessionLog::persist_at("test-app", dir.clone());
+        let mut boot = Startup::begin();
+        boot.phase("fonts");
+        boot.phase("first_frame");
+        s.record_startup(&boot);
+        let jsonl = std::fs::read_to_string(dir.join("test-app.jsonl")).unwrap();
+        assert!(jsonl.contains("\"kind\":\"startup\""));
+        assert!(jsonl.contains("fonts:"));
+        let latest = std::fs::read_to_string(dir.join("test-app-latest.json")).unwrap();
+        assert!(latest.contains("\"startup\""));
+        assert!(latest.contains("first_frame"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

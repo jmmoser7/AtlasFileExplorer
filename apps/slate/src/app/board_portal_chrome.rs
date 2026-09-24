@@ -106,7 +106,7 @@ impl PortalChromeLayout {
 }
 
 pub fn portal_frame_tokens() -> atlas_shell::tokens::PortalFrameTokens {
-    atlas_shell::tokens::current().portal_frame
+    atlas_shell::tokens::current().portal_frame.clone()
 }
 
 pub fn tab_bar_height() -> f32 {

@@ -1626,7 +1626,7 @@ fn interact_blister(
         TabHost::Bottom
     };
 
-    let topbar = crate::tokens::current().topbar;
+    let topbar = crate::tokens::current().topbar.clone();
     let chrome = TabChromeColors::from_palette(palette, &topbar);
     let k = p.blister_fill.clamp(0.0, 1.0);
     let host = ctx.style().visuals.panel_fill;
@@ -1985,7 +1985,7 @@ fn flyout_icon_strip(ui: &mut egui::Ui, items: &[FlyoutItem<'_>]) -> Option<&'st
             shown.iter().map(|item| item.id.to_owned()).collect(),
         );
     }
-    let mut tokens = crate::tokens::current().dock;
+    let mut tokens = crate::tokens::current().dock.clone();
     tokens.normalize();
     let th = if ui.visuals().dark_mode {
         &tokens.dark
@@ -2255,7 +2255,7 @@ pub(crate) fn paint_catalog_drop_overlay(ctx: &egui::Context, items: &[FlyoutIte
     if catalog_strip_painted(ctx) {
         return;
     }
-    let mut tokens = crate::tokens::current().dock;
+    let mut tokens = crate::tokens::current().dock.clone();
     tokens.normalize();
     let dark = ctx.style().visuals.dark_mode;
     let th = if dark { &tokens.dark } else { &tokens.light };
@@ -2332,7 +2332,7 @@ fn catalog_fallback_dest(ctx: &egui::Context, size: Vec2, side: DockSide) -> Rec
 }
 
 pub(crate) fn paint_catalog_ghost(ctx: &egui::Context, item: &FlyoutItem<'_>, pointer: Pos2) {
-    let mut tokens = crate::tokens::current().dock;
+    let mut tokens = crate::tokens::current().dock.clone();
     tokens.normalize();
     let th = if ctx.style().visuals.dark_mode {
         &tokens.dark
@@ -3000,7 +3000,7 @@ pub fn floating_dock(
 ) -> DockOutcome {
     surrender_shift_wheel(ctx);
     nav_begin(ctx);
-    let mut tokens = crate::tokens::current().dock;
+    let mut tokens = crate::tokens::current().dock.clone();
     tokens.normalize();
     let th = theme(palette, &tokens);
     let state_id = egui::Id::new(("floating_dock", id));

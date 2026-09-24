@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() -> eframe::Result {
+    atlas_core::session_log::note_process_start();
     let _install_guard = match atlas_update::startup() {
         Ok(guard) => guard,
         Err(error) => {

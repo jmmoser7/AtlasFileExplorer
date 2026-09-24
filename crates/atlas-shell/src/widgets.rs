@@ -659,7 +659,7 @@ pub fn canvas_mini_menu(
     model: MiniMenuModel,
 ) -> Option<MiniMenuAction> {
     let mut action = None;
-    let t = tokens::current().readouts;
+    let t = tokens::current().readouts.clone();
     let hit = t.chevron_hit.max(t.chevron_size);
     let pos = canvas.left_bottom() + Vec2::new(t.chevron_inset_x, -t.chevron_inset_y);
     egui::Area::new(Id::new(("readout_chevron", id)))
