@@ -1344,26 +1344,29 @@ impl SlateApp {
             SceneCmd::Add { node, .. } => Some((None, node)),
             SceneCmd::Patch { before, after } => Some((Some(before.as_ref()), after.as_ref())),
             SceneCmd::Remove { .. } => None,
-            SceneCmd::LayerNodeAdd { node, .. }
-            | SceneCmd::LayerNodeRemove { node, .. } => Some((None, node)),
+            SceneCmd::LayerNodeAdd { node, .. } | SceneCmd::LayerNodeRemove { node, .. } => {
+                Some((None, node))
+            }
             SceneCmd::LayerNodePatch { before, after, .. } => {
                 Some((Some(before.as_ref()), after.as_ref()))
             }
         }));
-        self.brush_tiles.note_ids(cmds.iter().filter_map(|c| match c {
-            SceneCmd::Add { node, .. } | SceneCmd::Remove { node, .. } => Some(node.id),
-            SceneCmd::Patch { after, .. } => Some(after.id),
-            SceneCmd::LayerNodeAdd { node, .. } | SceneCmd::LayerNodeRemove { node, .. } => {
-                Some(node.id)
-            }
-            SceneCmd::LayerNodePatch { after, .. } => Some(after.id),
-        }));
+        self.brush_tiles
+            .note_ids(cmds.iter().filter_map(|c| match c {
+                SceneCmd::Add { node, .. } | SceneCmd::Remove { node, .. } => Some(node.id),
+                SceneCmd::Patch { after, .. } => Some(after.id),
+                SceneCmd::LayerNodeAdd { node, .. } | SceneCmd::LayerNodeRemove { node, .. } => {
+                    Some(node.id)
+                }
+                SceneCmd::LayerNodePatch { after, .. } => Some(after.id),
+            }));
         let tab = self.tab_mut();
         tab.dirty = true;
         let doc = &mut tab.doc;
         let ok = tab.journal.commit_as(&mut doc.scene, cmds, author);
         if ok {
             self.remember_document_colors(colors);
+            self.paint_layer_world_cache = None;
             let tab = self.tab_mut();
             tab.edits.push(BoardMark::Scene);
             tab.edit_redo.clear();
@@ -3117,6 +3120,66 @@ impl SlateApp {
         painter.add(egui::Shape::convex_polygon(pts, color, EStroke::NONE));
     }
 
+    /// Paint one layer-owned node clipped to the host image trim outline.
+    pub(crate) fn paint_layer_node_clipped(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        _host: &Node,
+        _host_img: &slate_doc::scene::ImageNode,
+        clip: &slate_doc::scene::PathData,
+        node: &Node,
+    ) {
+        match &node.kind {
+            NodeKind::Image(img) => {
+                let desired_px = node.rect.w.max(node.rect.h) * ui.ctx().pixels_per_point();
+                if let Some(tex) =
+                    self.board_texture(ui.ctx(), node.id, img.item, &img.adjust, desired_px)
+                {
+                    let tint = Color32::WHITE.gamma_multiply(node.opacity.clamp(0.0, 1.0));
+                    paint_clipped_texture(painter, xf, &tex, node, clip, img.crop, tint);
+                    return;
+                }
+            }
+            _ => {}
+        }
+        self.paint_board_node(ui, painter, xf, node, false);
+    }
+
+    /// Clip in-progress ink to the hosted image outline (D09).
+    pub(crate) fn image_paint_draft_painter(
+        &self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+    ) -> egui::Painter {
+        let Some(session) = self.image_paint.as_ref() else {
+            return painter.clone();
+        };
+        let Some(host) = self.doc().scene.node(session.image) else {
+            return painter.clone();
+        };
+        let outline = self.node_screen_outline(ctx, xf, host);
+        if outline.len() < 3 {
+            return painter.clone();
+        }
+        let min_x = outline.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
+        let min_y = outline.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+        let max_x = outline
+            .iter()
+            .map(|p| p.x)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let max_y = outline
+            .iter()
+            .map(|p| p.y)
+            .fold(f32::NEG_INFINITY, f32::max);
+        painter.with_clip_rect(
+            egui::Rect::from_min_max(Pos2::new(min_x, min_y), Pos2::new(max_x, max_y))
+                .intersect(painter.clip_rect()),
+        )
+    }
+
     /// Paint one node through a transform. `chrome` adds board-only adornment
     /// (frame titles/badges) that presentation mode and exports leave out.
     pub fn paint_board_node(
@@ -3337,6 +3400,9 @@ impl SlateApp {
                                     palette.sub,
                                 );
                             }
+                            self.paint_image_paint_layers(
+                                ui, painter, xf, node, img, &outline, srect, alpha, z,
+                            );
                         }
                     }
                 }
@@ -4085,7 +4151,8 @@ impl SlateApp {
         // --- clicks (the armed zoom tool owns the primary button) ---
         if resp.clicked() && !ate_plus && !zoom_tool && !web_capture && !self.board_align_eat_press
         {
-            if self.sheet_open.is_some() && self.sheet_prompt {
+            if self.try_commit_image_drop_click() {
+            } else if self.sheet_open.is_some() && self.sheet_prompt {
                 // The save reminder owns the pointer until it is answered.
             } else if let Some(p) = pointer {
                 if self.sheet_save_hit.is_some_and(|r| r.contains(p)) {
@@ -4650,6 +4717,7 @@ impl SlateApp {
             }
         }
 
+        let draft_painter = self.image_paint_draft_painter(ui.ctx(), &painter, &xf);
         if let Some(draft) = &self.board_path_draft {
             let cursor = self.board_osnap_hit.map(|h| h.point).or_else(|| {
                 if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
@@ -4662,12 +4730,12 @@ impl SlateApp {
                 }
                 wp
             });
-            board_path::paint_path_draft(&painter, &xf, draft, cursor, palette.accent);
+            board_path::paint_path_draft(&draft_painter, &xf, draft, cursor, palette.accent);
         }
         // Line draft: rubber band in the fg color the committed stroke will
         // use (D09) + the Tab-lock padlock beside the pointer (D10).
         if self.board_tool == BoardTool::Line && self.line_draft.is_some() {
-            self.paint_line_draft(&painter, &xf);
+            self.paint_line_draft(&draft_painter, &xf);
             if let Some(p) = pointer {
                 if resp.hovered() {
                     self.paint_line_lock_glyph(&painter, p);
@@ -4676,7 +4744,7 @@ impl SlateApp {
         }
         if let (Some(BoardDrag::FreehandPen { points, .. }), Some(w)) = (&self.board_drag, wp) {
             if !points.is_empty() {
-                board_path::paint_polyline_preview(&painter, &xf, points, w, palette.accent);
+                board_path::paint_polyline_preview(&draft_painter, &xf, points, w, palette.accent);
             }
         }
         // Brush drag preview: the screen-aligned canvas holds the same radial
@@ -4695,14 +4763,14 @@ impl SlateApp {
                 let tip = self.tip_now().stamp();
                 let canvas = board_path::BrushLiveCanvas::ensure(
                     &mut self.brush_live,
-                    &painter,
+                    &draft_painter,
                     &xf,
                     rect,
                     None,
                     Vec::new,
                 );
                 canvas.add_freehand(&points, tip);
-                canvas.paint(&painter, &xf);
+                canvas.paint(&draft_painter, &xf);
             }
             (None, Some((press, press_tip)), Some(w)) => {
                 let end = self.tip_now();
@@ -4717,7 +4785,7 @@ impl SlateApp {
                 let anchor_node = anchor_id.and_then(|id| scene.node(id).cloned());
                 let canvas = board_path::BrushLiveCanvas::ensure(
                     &mut self.brush_live,
-                    &painter,
+                    &draft_painter,
                     &xf,
                     rect,
                     anchor_id,
@@ -4739,7 +4807,7 @@ impl SlateApp {
                         tip: end.stamp(),
                     },
                 );
-                canvas.paint(&painter, &xf);
+                canvas.paint(&draft_painter, &xf);
             }
             _ => {
                 if let Some(canvas) = self.brush_live.as_mut() {

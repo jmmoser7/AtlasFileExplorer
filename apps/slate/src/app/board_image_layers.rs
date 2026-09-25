@@ -25,6 +25,37 @@ pub struct ImagePaintSession {
     pub focus: ImageStripFocus,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct PaintLayerWorldCache {
+    key: u128,
+    layers: Vec<Vec<Node>>,
+}
+
+fn paint_layer_cache_key(host: &Node, img: &ImageNode, gen: u64) -> u128 {
+    let c = img.crop.clamped();
+    let mut key = host.id.0 as u128;
+    key = key.wrapping_mul(31).wrapping_add(gen as u128);
+    key = key
+        .wrapping_mul(31)
+        .wrapping_add(host.rect.x.to_bits() as u128);
+    key = key
+        .wrapping_mul(31)
+        .wrapping_add(host.rect.y.to_bits() as u128);
+    key = key
+        .wrapping_mul(31)
+        .wrapping_add(host.rect.w.to_bits() as u128);
+    key = key
+        .wrapping_mul(31)
+        .wrapping_add(host.rect.h.to_bits() as u128);
+    key = key
+        .wrapping_mul(31)
+        .wrapping_add(host.rotation_deg.to_bits() as u128);
+    key = key.wrapping_mul(31).wrapping_add(c.x.to_bits() as u128);
+    key = key.wrapping_mul(31).wrapping_add(c.y.to_bits() as u128);
+    key = key.wrapping_mul(31).wrapping_add(c.w.to_bits() as u128);
+    key.wrapping_mul(31).wrapping_add(c.h.to_bits() as u128)
+}
+
 pub fn tool_hosts_on_image(tool: BoardTool) -> bool {
     matches!(
         tool,
@@ -381,7 +412,7 @@ impl SlateApp {
         xf: &BoardXf,
         host: &Node,
         img: &ImageNode,
-        _outline: &[Pos2],
+        outline: &[Pos2],
         srect: egui::Rect,
         host_alpha: f32,
         _z: f32,
@@ -389,16 +420,60 @@ impl SlateApp {
         if img.paint_layers.is_empty() {
             return;
         }
-        let clip = srect.intersect(painter.clip_rect());
+        let key = paint_layer_cache_key(host, img, self.scene_gen);
+        if self
+            .paint_layer_world_cache
+            .as_ref()
+            .is_none_or(|c| c.key != key)
+        {
+            let layers = img
+                .paint_layers
+                .iter()
+                .map(|layer| {
+                    layer
+                        .nodes
+                        .iter()
+                        .map(|local| layer_node_to_world(host, img, local))
+                        .collect()
+                })
+                .collect();
+            self.paint_layer_world_cache = Some(PaintLayerWorldCache { key, layers });
+        }
+        let world_layers = self
+            .paint_layer_world_cache
+            .as_ref()
+            .map(|c| c.layers.clone())
+            .unwrap_or_default();
+        let clip = if outline.len() >= 3 {
+            let min_x = outline.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
+            let min_y = outline.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+            let max_x = outline
+                .iter()
+                .map(|p| p.x)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let max_y = outline
+                .iter()
+                .map(|p| p.y)
+                .fold(f32::NEG_INFINITY, f32::max);
+            egui::Rect::from_min_max(Pos2::new(min_x, min_y), Pos2::new(max_x, max_y))
+                .intersect(painter.clip_rect())
+        } else {
+            srect.intersect(painter.clip_rect())
+        };
         let sub = painter.with_clip_rect(clip);
-        for layer in &img.paint_layers {
+        let host_clip = host.clip.as_ref();
+        for (layer, world_nodes) in img.paint_layers.iter().zip(&world_layers) {
             if !layer.visible {
                 continue;
             }
-            for local in &layer.nodes {
-                let mut world = layer_node_to_world(host, img, local);
+            for world in world_nodes {
+                let mut world = world.clone();
                 world.opacity = (world.opacity * layer.opacity * host_alpha).clamp(0.0, 1.0);
-                self.paint_board_node(ui, &sub, xf, &world, false);
+                if let Some(clip) = host_clip {
+                    self.paint_layer_node_clipped(ui, &sub, xf, host, img, clip, &world);
+                } else {
+                    self.paint_board_node(ui, &sub, xf, &world, false);
+                }
             }
         }
     }
@@ -806,6 +881,24 @@ impl SlateApp {
         });
     }
 
+    pub(crate) fn image_drop_target_at(&self, world: Pos2) -> Option<NodeId> {
+        self.image_under_point(world, NodeId(u64::MAX))
+    }
+
+    pub(crate) fn offer_image_file_drop(
+        &mut self,
+        target: NodeId,
+        item: slate_doc::ItemId,
+        screen: Pos2,
+    ) {
+        self.image_drop = Some(ImageDropOffer {
+            target,
+            source: ImageDropSource::Item(item),
+            highlight: None,
+        });
+        self.image_drop_screen = Some(screen);
+    }
+
     fn image_under_point(&self, world: Pos2, skip: NodeId) -> Option<NodeId> {
         let pick = super::board_path::board_pick_node_routed(
             &self.doc().scene,
@@ -832,10 +925,11 @@ impl SlateApp {
     }
 
     pub(crate) fn paint_image_drop_capsules(&mut self, ui: &egui::Ui, painter: &egui::Painter) {
-        let Some(offer) = self.image_drop.clone() else {
+        if self.image_drop.is_none() {
             return;
-        };
-        let Some(pointer) = ui.ctx().pointer_latest_pos() else {
+        }
+        let pointer = ui.ctx().pointer_latest_pos().or(self.image_drop_screen);
+        let Some(pointer) = pointer else {
             return;
         };
         let z = self.tab().cam.z;
@@ -922,14 +1016,28 @@ impl SlateApp {
             }
         };
         if ok {
-            // Revert the move gesture — drop choice owns the mutation.
-            let scene = &mut self.doc_mut().scene;
-            for (id, b) in ids.iter().zip(before.iter()) {
-                if let Some(n) = scene.node_mut(*id) {
-                    *n = b.clone();
+            self.image_drop_screen = None;
+            if !ids.is_empty() {
+                // Revert the move gesture — drop choice owns the mutation.
+                let scene = &mut self.doc_mut().scene;
+                for (id, b) in ids.iter().zip(before.iter()) {
+                    if let Some(n) = scene.node_mut(*id) {
+                        *n = b.clone();
+                    }
                 }
             }
             return true;
+        }
+        false
+    }
+
+    pub(crate) fn try_commit_image_drop_click(&mut self) -> bool {
+        let ready = self
+            .image_drop
+            .as_ref()
+            .is_some_and(|o| matches!(o.source, ImageDropSource::Item(_)) && o.highlight.is_some());
+        if ready {
+            return self.try_commit_image_drop(&[], &[]);
         }
         false
     }
