@@ -685,6 +685,7 @@ impl SlateApp {
         }
         let gap = atlas_shell::canvas_scale::px(6.0, z);
         let radius = atlas_shell::canvas_scale::px(8.0, z);
+        let ring = self.palette().border_strong;
         let row_w = n as f32 * (radius * 2.0 + gap) - gap;
         let center = egui::pos2(srect.center().x, srect.bottom() + gap + radius);
         let x = center.x - row_w * 0.5 + radius;
@@ -696,7 +697,7 @@ impl SlateApp {
             painter.circle_stroke(
                 at,
                 radius,
-                egui::Stroke::new(atlas_shell::canvas_scale::px(1.0, z), egui::Color32::WHITE),
+                egui::Stroke::new(atlas_shell::canvas_scale::px(1.0, z), ring),
             );
             if pointer.is_some_and(|p| (p - at).length() <= radius * 1.2)
                 && ui.input(|i| i.pointer.primary_clicked())
