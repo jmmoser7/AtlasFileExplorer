@@ -4194,6 +4194,7 @@ fn a_failed_agent_send_names_the_failure() {
 
 #[test]
 fn sending_a_prompt_shows_thinking_not_silence() {
+    use slate_doc::scene::NodeKind;
     let mut h = agent_board("agent_thinking");
     h.app.place_agent_portal_at(Pos2::ZERO);
     let id = h.app.doc().scene.nodes[0].id;
@@ -4201,6 +4202,13 @@ fn sending_a_prompt_shows_thinking_not_silence() {
     let ws = h.base.join("ai-ws");
     std::fs::create_dir_all(&ws).unwrap();
     h.app.ai.config.workspace_dir = Some(ws);
+    h.app.patch_nodes(&[id], |n| {
+        if let NodeKind::Portal(p) = &mut n.kind {
+            let a = p.agent.as_mut().unwrap();
+            a.model = Some("test-model".into());
+            a.chat.detail = slate_doc::agent_chat::Detail::Summary;
+        }
+    });
     *h.app.agents.prompt_mut(id) = "what is 2+2?".into();
     h.app.send_agent_prompt(id);
     assert!(

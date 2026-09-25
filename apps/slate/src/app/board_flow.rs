@@ -548,11 +548,11 @@ impl SlateApp {
             },
         );
         self.doc_mut().scene.apply(&plan.inverted());
+        if kind == SpawnKind::Text {
+            self.seed_agent_text_output_on_node(&mut node);
+        }
         if self.add_nodes(vec![node, wire]).is_empty() {
             return false;
-        }
-        if kind == SpawnKind::Text {
-            self.seed_agent_text_output(id);
         }
         self.board_sel = std::iter::once(id).collect();
         if !run {
@@ -570,7 +570,8 @@ impl SlateApp {
     }
 
     /// Link a fresh `response.txt` under slate-outputs for a text-language-model window.
-    fn seed_agent_text_output(&mut self, id: NodeId) -> bool {
+    fn seed_agent_text_output_on_node(&mut self, node: &mut slate_doc::scene::Node) -> bool {
+        let id = node.id;
         let Some(ws) = self.ai.config.valid_workspace().map(|p| p.to_path_buf()) else {
             return false;
         };
@@ -581,14 +582,15 @@ impl SlateApp {
             return false;
         };
         let path = std::path::PathBuf::from(&output_dir).join("response.txt");
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         let item = self
             .doc_mut()
             .add_item(path.clone(), "response.txt", 0, 0, "txt");
-        self.patch_nodes(&[id], |n| {
-            if let NodeKind::Image(i) = &mut n.kind {
-                i.item = item;
-            }
-        });
+        if let NodeKind::Image(i) = &mut node.kind {
+            i.item = item;
+        }
         self.snippets.insert(item, Some(String::new()));
         self.agents
             .text_output
@@ -1961,7 +1963,7 @@ mod tests {
         // under it. The model lives on the Agent squircle.
         assert!(matches!(
             h.app.doc().scene.node(block).map(|n| &n.kind),
-            Some(NodeKind::Text(t)) if t.agent.is_some()
+            Some(NodeKind::Image(i)) if i.agent.is_some()
         ));
         h.app.board_sel = std::iter::once(block).collect();
         let selected = painted(&mut h, Pos2::new(2.0, 890.0));

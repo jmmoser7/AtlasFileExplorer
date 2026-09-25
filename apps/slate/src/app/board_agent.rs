@@ -10574,6 +10574,11 @@ mod agent_await_tests {
         std::fs::create_dir_all(&ws).unwrap();
         h.app.ai.config.workspace_dir = Some(ws);
         h.frame();
+        h.app.patch_nodes(&[first], |n| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                p.agent.as_mut().unwrap().chat.detail = slate_doc::agent_chat::Detail::Summary;
+            }
+        });
         *h.app.agents.prompt_mut(first) = "first question".into();
         h.app.agents.composer_editing = Some(first);
         h.app.send_agent_prompt(first);
