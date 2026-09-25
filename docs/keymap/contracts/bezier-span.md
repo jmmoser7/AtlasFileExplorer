@@ -16,25 +16,25 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 |----|-----------|-------------------|--------|------|
 | D01 | Initiation & arming | Arm through board.tool.bezier or the Shapes flyout; no new default shortcut. | guess | 55 |
 | D02 | Stickiness & repeat | One-shot creation; return to Select. Repeat follows P0.4. | pattern | 85 |
-| D03 | Gesture grammar | Retain the existing anchor/handle creation grammar. This refinement adds capability-aware property editing and tight-bounds dimensions to the committed curve. | guess | 55 |
-| D04 | Click vs drag rule | Existing Bezier handle drag recognition is unchanged; the moving-click fix in this revision applies to Line, Polyline and Arc. | guess | 55 |
-| D05 | Modifiers | Retain tool-specific creation modifiers and P1.node.transform for selected objects. | pattern | 85 |
+| D03 | Gesture grammar | Illustrator-style draft: a click places a corner anchor; press-drag places an anchor and pulls a symmetric outgoing handle. Handle-less neighbors join with a straight segment. Capability-aware property editing and tight-bounds dimensions apply to the committed curve. | stated | 100 |
+| D04 | Click vs drag rule | `draft.drag_threshold` (4 screen px) splits click from drag: a stationary click places a corner anchor with zero handles. The tool reads ordered pointer press/release like Polyline, so a click reaches it. Two quick clicks in different places are two anchors; a double-click finishes only when its second press lands on a placed anchor. | stated | 100 |
+| D05 | Modifiers | Alt while pulling a new handle, or on an existing handle (drawing or selected), breaks symmetry. Without Alt a smooth anchor keeps its opposite handle collinear at its own length. P1.node.transform for selected objects. | stated | 100 |
 | D06 | Constraints & snapping | P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority. | pattern | 85 |
 | D07 | Direction / value locks | No new lock binding. Preserve existing locks; numeric property editing is separate from drawing. | pattern | 85 |
 | D08 | Numeric / manual entry | tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds. Scale anchors and handles together about bounds center. Alternative: actual curve length L with uniform scaling, not endpoint chord length. | guess | 55 |
 | D09 | Preview & readouts | P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip. | pattern | 85 |
 | D10 | Cursor | Retain existing armed-tool cursor; controls use shell hover and focus feedback. | pattern | 85 |
-| D11 | Commit | P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | pattern | 85 |
-| D12 | Cancel | P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged. | pattern | 85 |
-| D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |
-| D14 | Post-edit | Circular Stroke and, only for a closed path, Fill. Handle editing remains on-canvas. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler. | guess | 55 |
+| D11 | Commit | Enter, a double-click on a placed anchor, or Esc commits a span of two or more anchors as exactly one journaled add, then returns to Select. P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | stated | 100 |
+| D12 | Cancel | Esc while drawing **commits** with two or more anchors and cancels with fewer (a stated deviation from P2.RhinoDraft.esc). Ctrl+Z while drawing removes the last placed anchor; Ctrl+Y / Ctrl+Shift+Z re-adds it. Neither touches the document journal. Ctrl+Z with zero anchors exits drawing, and document undo resumes once drawing ends. Esc during a live press drops the anchor being placed or restores the anchor being edited. P1.shape.properties: Esc cancels the pending property edit and preserves selection. | stated | 100 |
+| D13 | Selected presentation | **Decision: automatic edit affordance**, not Direct Select only. A single selected open curve with a cubic segment shows every anchor and every non-zero handle with the Select tool (extends P1.curve.grips). Each anchor or handle drag is one journaled Patch. P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | stated | 100 |
+| D14 | Post-edit | Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas through the selected-span grips (D13) and Direct Selection. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler. | stated | 100 |
 | D15 | Non-goals | P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip. | pattern | 85 |
 | D16 | Create-style inheritance | **Open-form** create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0 | stated | 100 |
-| D17 | Hit-testing & pick | P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed. | pattern | 85 |
+| D17 | Hit-testing & pick | While drawing, a press on a placed anchor or handle knob drags it instead of placing an anchor (draft state, never journaled). Draft, selected-span, and Direct Selection grips share one hit rule (`path_edit_overlay::path_edit_hit`): only painted grips, nearest within 7 screen px, and an anchor wins a tie. An open span offers no wire ports and takes no new wire ends (P1.wire.ports). P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed. | stated | 100 |
 
 ## Geometry capabilities
 
-Circular Stroke and, only for a closed path, Fill. Handle editing remains on-canvas. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler. Stringers: Propose tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds. Scale anchors and handles together about bounds center. Alternative: actual curve length L with uniform scaling, not endpoint chord length.
+Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas (D13). No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler. Stringers: Propose tight local W/H stringers from actual curve extrema, excluding off-curve handle bounds. Scale anchors and handles together about bounds center. Alternative: actual curve length L with uniform scaling, not endpoint chord length.
 
 See [shape property editing](../specs/shape-property-editing.md) for the approved rectangle baseline, corner formula, per-geometry recommendations and alternatives, and proposed acceptance scripts. [Desktop color sampling](../specs/desktop-color-sampling.md) owns the project-wide eyedropper scope. These replace the earlier toolbar size/opacity/Geometry/More proposal.
 
@@ -54,10 +54,16 @@ These are interaction acceptance scripts; automated coverage is listed below. Na
 - **GP3:** Select mixed straight line + cubic -> common stroke/opacity controls only; no meaningless common fillet.
 - **GP4:** After the first anchor, hover shows a rubber-band cubic to the snapped cursor; anchor squares appear on press before pointer movement.
 - **GP5:** Alt while dragging splits handles into a corner; Shift/F8 ortho constrains the outgoing handle like polyline segments.
+- **GP6:** Place three anchors -> Ctrl+Z, Ctrl+Z -> one anchor left, no history added -> Ctrl+Shift+Z -> two anchors -> Esc -> one open curve, one undo step.
+- **GP7:** While drawing, press a placed anchor or handle knob and drag -> that grip moves; no anchor is added.
+- **GP8:** Select a committed span -> anchors and handles show -> drag a handle -> the opposite handle mirrors; Alt-drag -> it stays. Each drag is one undo step.
+- **GP9:** Hover an open span with the Select tool -> no wire grips; a wire dragged over it does not attach. A closed polyline still offers its grips.
 
 ## Implementation notes
 
-Draft anchor/handle adornment is shared with Direct Selection via `path_edit_overlay::paint_path_edit_anchors`. Regression: `bezier_drag_threshold_is_screen_px`, `bezier_symmetric_and_corner_handles`.
+Draft anchor/handle adornment is shared with Direct Selection via `path_edit_overlay::paint_path_edit_anchors`; picking uses `path_edit_overlay::path_edit_hit` on the same painted overlay, so a grip is pickable exactly when it is drawn. Draft undo lives on the draft (`BoardPathDraft::Bezier::redo`) and is consulted before the journal in `board_undo` / `board_redo`. Selected-span grips reuse Direct Selection's `DirectDrag` (one Patch per drag). The open-shape wire gate is `slate_doc::is_open_shape`, applied inside `WireHost::ports` and the wire snap target.
+
+Regression: `bezier_drag_threshold_is_screen_px`, `bezier_symmetric_and_corner_handles`, `bezier_stationary_click_places_a_corner_anchor_without_handles`, `bezier_double_click_on_the_placed_anchor_finishes_the_span`, `bezier_press_drag_still_authors_symmetric_handles`, `bezier_ctrl_z_while_drawing_removes_anchors_without_journaling`, `bezier_press_on_a_draft_anchor_or_handle_edits_it_instead_of_placing`, `bezier_single_selection_grips_edit_the_curve_one_patch_per_drag`, `bezier_escape_commits_an_open_curve_as_one_journaled_add`, `bezier_escape_with_one_anchor_cancels`, `open_shapes_offer_no_wire_ports_while_a_closed_polyline_keeps_them`, and `slate-doc` `open_shapes_offer_no_ports_while_closed_shapes_keep_them`.
 
 The native selection strip is implemented in `board_properties`; shell painting and desktop sampling are shared in atlas-shell. Model corner semantics live in slate-doc and are interpreted by both board and artifact renderers. Geometry-based capability gating applies to paths whose original tool provenance is not stored.
 

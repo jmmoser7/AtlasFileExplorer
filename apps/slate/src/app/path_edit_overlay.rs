@@ -1,10 +1,70 @@
-//! Shared path-edit anchor / handle adornment (Direct Selection + draft tools).
+//! Shared path-edit anchor / handle adornment and its hit rules (Direct
+//! Selection, selected Bézier grips, and draft tools).
 
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke as EStroke, Vec2};
+use vector_ink::HandleEnd;
 
 /// Screen-constant anchor square half-size (~7 px squares). Path-edit handles
 /// are a named P0.9 exception (see canvas-scale.mdc).
 pub const ANCHOR_PX: f32 = 3.5;
+
+/// Anchor / handle-knob pick radius (screen px).
+pub const HIT_PX: f32 = 7.0;
+
+/// What a press landed on in a painted path-edit overlay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathEditHit {
+    Handle(usize, HandleEnd),
+    Anchor(usize),
+}
+
+/// Only what is painted can be picked, within [`HIT_PX`]. The nearest
+/// anchor square or handle knob wins; an anchor wins a tie, so a short
+/// handle never hides its own anchor.
+pub fn path_edit_hit(anchors: &[PathEditAnchorPaint], screen: Pos2) -> Option<PathEditHit> {
+    match (
+        nearest_handle(anchors, screen),
+        nearest_anchor(anchors, screen),
+    ) {
+        (Some((dh, i, end)), Some((da, _))) if dh < da => Some(PathEditHit::Handle(i, end)),
+        (_, Some((_, i))) => Some(PathEditHit::Anchor(i)),
+        (Some((_, i, end)), None) => Some(PathEditHit::Handle(i, end)),
+        (None, None) => None,
+    }
+}
+
+/// Nearest anchor square within [`HIT_PX`].
+pub fn hit_anchor(anchors: &[PathEditAnchorPaint], screen: Pos2) -> Option<usize> {
+    nearest_anchor(anchors, screen).map(|(_, i)| i)
+}
+
+fn nearest_handle(
+    anchors: &[PathEditAnchorPaint],
+    screen: Pos2,
+) -> Option<(f32, usize, HandleEnd)> {
+    let mut best: Option<(f32, usize, HandleEnd)> = None;
+    for (i, a) in anchors.iter().enumerate() {
+        for (knob, end) in [(a.handle_in, HandleEnd::In), (a.handle_out, HandleEnd::Out)] {
+            let Some(knob) = knob else { continue };
+            let d = knob.distance(screen);
+            if d <= HIT_PX && best.is_none_or(|(bd, ..)| d < bd) {
+                best = Some((d, i, end));
+            }
+        }
+    }
+    best
+}
+
+fn nearest_anchor(anchors: &[PathEditAnchorPaint], screen: Pos2) -> Option<(f32, usize)> {
+    let mut best: Option<(f32, usize)> = None;
+    for (i, a) in anchors.iter().enumerate() {
+        let d = a.point.distance(screen);
+        if d <= HIT_PX && best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, i));
+        }
+    }
+    best
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct PathEditAnchorColors {

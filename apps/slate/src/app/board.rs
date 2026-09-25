@@ -679,6 +679,13 @@ pub enum BoardDrag {
     Direct(super::board_direct::DirectDrag),
     /// Bezier tool: dragging the out-handle for a new anchor.
     BezierAnchor { press: Pos2 },
+    /// Bezier tool: dragging a placed draft anchor or handle. Draft state,
+    /// never journaled; Esc restores `anchors0`.
+    BezierEdit {
+        hit: super::path_edit_overlay::PathEditHit,
+        start: Pos2,
+        anchors0: Vec<(Pos2, board_path::BezierHandles)>,
+    },
     /// Rubber-band selection. `frame` confines hits to that slide when the
     /// press landed on a frame that fills the viewport.
     Marquee {
@@ -1527,6 +1534,9 @@ impl SlateApp {
         if self.refuse_read_only_edit() {
             return;
         }
+        if self.bezier_draft_undo() {
+            return;
+        }
         if self.undo_brush_setting() {
             return;
         }
@@ -1557,6 +1567,9 @@ impl SlateApp {
     pub fn board_redo(&mut self) {
         let _span = atlas_core::session_log::span("slate.scene.redo");
         if self.refuse_read_only_edit() {
+            return;
+        }
+        if self.bezier_draft_redo() {
             return;
         }
         self.sheet_edit = None;
@@ -4123,6 +4136,7 @@ impl SlateApp {
             BoardTool::Line
                 | BoardTool::Polyline
                 | BoardTool::Arc
+                | BoardTool::BezierSpan
                 | BoardTool::Pen
                 | BoardTool::Brush
                 | BoardTool::Eraser
@@ -4158,6 +4172,9 @@ impl SlateApp {
                             }
                             BoardTool::Polyline | BoardTool::Arc => {
                                 self.path_tool_click(world);
+                            }
+                            BoardTool::BezierSpan => {
+                                self.board_drag = self.begin_gesture(pos, world, modifiers);
                             }
                             BoardTool::Eraser | BoardTool::Smooth if self.brush_hud.is_none() => {
                                 self.board_drag = self.begin_gesture(pos, world, modifiers);
@@ -5055,7 +5072,9 @@ impl SlateApp {
                 if board_snap::effective_ortho(self.board_ortho, self.shift_down) {
                     let from = match draft {
                         board_path::BoardPathDraft::Polyline { points } => points.last().copied(),
-                        board_path::BoardPathDraft::Bezier { anchors, placing } => anchors
+                        board_path::BoardPathDraft::Bezier {
+                            anchors, placing, ..
+                        } => anchors
                             .last()
                             .map(|(p, _)| *p)
                             .or_else(|| placing.map(|(p, _)| p)),
@@ -5184,6 +5203,9 @@ impl SlateApp {
         // Direct-selection anchor adornment (A tool).
         if self.board_tool == BoardTool::DirectSelect {
             self.paint_direct_overlay(&painter, &xf);
+        }
+        if self.board_tool == BoardTool::Select {
+            self.paint_bezier_grips(&painter, &xf);
         }
 
         // Ortho feedback: subtle hash ticks through the drag origin along
@@ -5883,6 +5905,10 @@ impl SlateApp {
                         }
                     }
                 }
+                // Anchor / handle grips on a selected open Bézier curve.
+                if let Some(drag) = self.begin_bezier_grip_drag(screen, world) {
+                    return Some(BoardDrag::Direct(drag));
+                }
                 // Match hover priority: the visible fillet grip wins any
                 // overlap with wire/resize bands.
                 if let Some(drag) = self.begin_fillet_drag(screen, world) {
@@ -6025,6 +6051,18 @@ impl SlateApp {
                 .begin_direct_drag(screen, world, mods)
                 .map(BoardDrag::Direct),
             BoardTool::BezierSpan => {
+                if let Some(hit) = self.bezier_draft_hit(screen) {
+                    self.bezier_note_edit_press();
+                    if let Some(board_path::BoardPathDraft::Bezier { anchors, .. }) =
+                        &self.board_path_draft
+                    {
+                        return Some(BoardDrag::BezierEdit {
+                            hit,
+                            start: world,
+                            anchors0: anchors.clone(),
+                        });
+                    }
+                }
                 let from = match &self.board_path_draft {
                     Some(board_path::BoardPathDraft::Bezier { anchors, .. }) => {
                         anchors.last().map(|(a, _)| *a)
@@ -6137,6 +6175,16 @@ impl SlateApp {
                 w = board_snap::ortho_snap_point(*press, world);
             }
             self.bezier_anchor_move(*press, w, mods.alt);
+            return;
+        }
+        if let Some(BoardDrag::BezierEdit {
+            hit,
+            start,
+            anchors0,
+        }) = &self.board_drag
+        {
+            let (hit, start, anchors0) = (*hit, *start, anchors0.clone());
+            self.bezier_draft_edit(hit, start, &anchors0, world, mods.alt);
             return;
         }
         if matches!(self.board_drag, Some(BoardDrag::LineDraw { .. })) {
@@ -6843,6 +6891,7 @@ impl SlateApp {
             Some(BoardDrag::BezierAnchor { press }) => {
                 self.bezier_anchor_release(press, world, mods.alt);
             }
+            Some(BoardDrag::BezierEdit { .. }) => {}
             Some(BoardDrag::LineDraw { started }) => {
                 self.line_release(world, started, mods.shift);
             }
@@ -7758,6 +7807,9 @@ impl SlateApp {
                 self.enter_sheet(id);
                 return;
             }
+        }
+        if self.board_tool == BoardTool::BezierSpan && !self.bezier_double_click_finishes() {
+            return;
         }
         if self.board_tool.is_path_tool() && self.path_tool_try_finish() {
             return;

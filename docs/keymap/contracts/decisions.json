@@ -3473,21 +3473,21 @@
           "decided": "2026-09-17"
         },
         "D03": {
-          "behavior": "Illustrator-style draft: paint anchor squares on press; rubber-band cubic from the last anchor to the snapped cursor while hovering; dragging shows the outgoing handle with symmetric in/out unless Alt splits to a corner.",
+          "behavior": "Illustrator-style draft: paint anchor squares on press; rubber-band cubic from the last anchor to the snapped cursor while hovering; a click places a corner anchor, and dragging shows the outgoing handle with symmetric in/out unless Alt splits to a corner. Handle-less neighbors join with a straight segment.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D04": {
-          "behavior": "Handle drag uses draft.drag_threshold = 4 screen px (world travel = px/zoom); shorter release commits a corner anchor with zero handles.",
+          "behavior": "Handle drag uses draft.drag_threshold = 4 screen px (world travel = px/zoom); a stationary click (shorter travel) places a corner anchor with zero handles. The tool reads ordered pointer press/release like Polyline, so a click reaches it. Two quick clicks in different places are two anchors; a double-click finishes only when its second press lands on a placed anchor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D05": {
-          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Other creation modifiers unchanged.",
+          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Alt on an existing handle, while drawing or on a selected span, also breaks symmetry; without Alt a smooth anchor keeps its opposite handle collinear at its own length. Other creation modifiers unchanged.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3529,32 +3529,32 @@
           "decided": "2026-09-17"
         },
         "D11": {
-          "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Enter, a double-click on a placed anchor, or Esc commits a span of two or more anchors as exactly one journaled add, then returns to Select. P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D12": {
-          "behavior": "P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Esc while drawing commits the open curve with two or more anchors and cancels with fewer (deviates from P2.RhinoDraft.esc). Ctrl+Z while drawing removes the last placed anchor and Ctrl+Y / Ctrl+Shift+Z re-adds it; neither touches the document journal. Ctrl+Z with zero anchors exits drawing; document undo resumes once drawing ends. Esc during a live press drops the anchor being placed or restores the anchor being edited. P1.shape.properties: Esc cancels the pending property edit and preserves selection.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Decision: automatic edit affordance, not Direct Select only. A single selected open curve with a cubic segment shows every anchor and every non-zero handle with the Select tool (extends P1.curve.grips). Each anchor or handle drag is one journaled Patch. P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D14": {
-          "behavior": "Circular Stroke and, only for a closed path, Fill. Handle editing remains on-canvas. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Circular Stroke and, only for a closed path, Fill. Handle editing is on-canvas through the selected-span grips (D13) and Direct Selection. No rectangle Corners or dimensional toolbar fields. Color editors use the shared desktop sampler.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D15": {
           "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
@@ -3571,11 +3571,11 @@
           "decided": "2026-09-25"
         },
         "D17": {
-          "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "While drawing, a press on a placed anchor or handle knob drags it instead of placing an anchor (draft state, never journaled). Draft, selected-span, and Direct Selection grips share one hit rule (path_edit_overlay::path_edit_hit): only painted grips, nearest within 7 screen px, an anchor wins a tie. An open span offers no wire ports and takes no new wire ends (P1.wire.ports). P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         }
       }
     },

@@ -72,14 +72,18 @@ Rules:
 
 Ports sit on **object features**, not the world AABB (**P1.wire.ports**):
 
-- **Area objects** (rect, ellipse, text, image, frame, portal, dock strip,
-  closed path): four ports at the midpoints of the **local** edges, then
+- **Area objects** (rect, ellipse, text, image, frame, portal, dock
+  strip): four ports at the midpoints of the **local** edges, then
   rotated about the node center. An ellipse's local-axis extrema lie on
   the curve; rotating the ellipse moves those ports with it.
-- **Open strokes** (line, arc, polyline, bezier, pen): three ports at
-  arclength `t = 0`, `0.5`, `1` (start / mid / end). Old files that stored
-  a box side on a line snap that AABB point onto the nearest of those
-  three.
+- **Closed strokes** (closed polyline or path): three ports at arclength
+  `t = 0`, `0.5`, `1` on the path itself, including the closing seam.
+- **Open shapes** (line, open arc, polyline, Bézier span, unclosed pen
+  stroke): no ports, and a dragged wire does not attach to them. One
+  predicate at the port owner decides (`slate_doc::is_open_shape`). Wires
+  saved earlier still resolve onto start / mid / end, and old files that
+  stored a box side on a line snap that AABB point onto the nearest of
+  those three.
 - Connectors themselves have no ports.
 
 With the **Select tool**, a grip previews when the pointer is within
@@ -160,6 +164,7 @@ wires; with no wire selected they set the creation/legacy default.
 - slate-doc: connector serde roundtrip; degrade-to-Free on node delete
   (command group inverts cleanly); bezier derivation is deterministic and
   side-perpendicular at both ends on unrotated boxes; `WireHost` ports
-  follow a rotated rect/ellipse and an open stroke's start/mid/end.
+  follow a rotated rect/ellipse; open shapes offer none while their saved
+  anchors still resolve to start/mid/end.
 - slate-artifact: golden SVG snippet for an anchored + a free-ended
   connector with arrowhead + label.

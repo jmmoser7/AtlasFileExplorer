@@ -11,23 +11,24 @@
 
 use super::board::{BoardXf, MIN_DRAW};
 use super::path_edit_overlay::{
-    paint_path_edit_anchors, PathEditAnchorColors, PathEditAnchorPaint,
+    hit_anchor, paint_path_edit_anchors, path_edit_hit, PathEditAnchorColors, PathEditAnchorPaint,
+    PathEditHit,
 };
 use super::{board_path, SlateApp};
 use eframe::egui::{self, Pos2, Rect, Stroke as EStroke, Vec2};
-use slate_doc::scene::{Node, NodeKind, SceneCmd, ShapeKind, WorldRect};
+use slate_doc::scene::{Node, NodeKind, PathSeg, SceneCmd, ShapeKind, WorldRect};
 use slate_doc::NodeId;
 use std::collections::HashSet;
 use vector_ink::kurbo::{Point, Vec2 as KVec2};
 use vector_ink::{
-    anchor_hit, anchors_from_bezpath, bezpath_from_anchors, join_endpoints, move_anchor,
-    move_handle, segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
+    anchors_from_bezpath, bezpath_from_anchors, join_endpoints, move_anchor, move_handle,
+    segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
 };
 
-/// Anchor / handle pick radius (screen px).
-const ANCHOR_HIT_PX: f32 = 7.0;
 /// Segment pick radius (screen px).
 const SEGMENT_HIT_PX: f32 = 6.0;
+/// World length below which a handle is its anchor.
+const HANDLE_EPS: f64 = 1e-3;
 
 /// Direct-selection state: the target path node + selected anchor indices.
 #[derive(Default)]
@@ -143,30 +144,97 @@ impl SlateApp {
         }
     }
 
-    /// Anchor index under a screen point on the target path.
-    fn direct_anchor_at(&self, screen: Pos2, xf: &BoardXf) -> Option<usize> {
+    /// The target path's painted adornment: handles show on selected
+    /// anchors only.
+    fn direct_overlay(&self, xf: &BoardXf) -> Option<Vec<PathEditAnchorPaint>> {
         let id = self.direct.node?;
         let (anchors, _) = self.direct_anchors_of(id)?;
-        let world = xf.s2w(screen);
-        let radius = (ANCHOR_HIT_PX / xf.z.max(0.05)) as f64;
-        anchor_hit(&anchors, to_point(world), radius)
+        Some(anchor_overlay(
+            &anchors,
+            xf,
+            |i| self.direct.anchors.contains(&i),
+            false,
+        ))
     }
 
-    /// (anchor index, which handle) under a screen point — selected smooth
-    /// anchors only (only their handles are shown).
-    fn direct_handle_at(&self, screen: Pos2, xf: &BoardXf) -> Option<(usize, HandleEnd)> {
-        let id = self.direct.node?;
-        let (anchors, _) = self.direct_anchors_of(id)?;
-        for idx in &self.direct.anchors {
-            let Some(a) = anchors.get(*idx) else { continue };
-            for (h, end) in [(a.handle_in, HandleEnd::In), (a.handle_out, HandleEnd::Out)] {
-                let Some(h) = h else { continue };
-                if xf.w2s(from_point(h)).distance(screen) <= ANCHOR_HIT_PX {
-                    return Some((*idx, end));
-                }
-            }
+    /// Anchor index under a screen point on the target path.
+    fn direct_anchor_at(&self, screen: Pos2, xf: &BoardXf) -> Option<usize> {
+        hit_anchor(&self.direct_overlay(xf)?, screen)
+    }
+
+    /// Single-selected open curve with at least one cubic segment: the Select
+    /// tool shows every anchor and handle on it (P1.curve.grips). Geometry,
+    /// not tool provenance, qualifies a path.
+    pub(crate) fn bezier_grip_target(&self) -> Option<NodeId> {
+        if self.board_sel.len() != 1 {
+            return None;
         }
-        None
+        let id = *self.board_sel.iter().next()?;
+        let n = self.doc().scene.node(id)?;
+        if n.locked || n.hidden {
+            return None;
+        }
+        let NodeKind::Shape(s) = &n.kind else {
+            return None;
+        };
+        if s.shape != ShapeKind::Path || s.stroke.paints_as_stamp() {
+            return None;
+        }
+        let path = s.path.as_ref()?;
+        let cubic = path
+            .segs
+            .iter()
+            .any(|seg| matches!(seg, PathSeg::Cubic { .. }));
+        (!path.closed && path.extra.is_empty() && cubic).then_some(id)
+    }
+
+    /// Press on a grip of the selected Bézier curve: one anchor or one handle
+    /// drag, journaled as one Patch on release like any direct edit.
+    pub(crate) fn begin_bezier_grip_drag(&self, screen: Pos2, world: Pos2) -> Option<DirectDrag> {
+        let id = self.bezier_grip_target()?;
+        let (anchors, closed) = self.direct_anchors_of(id)?;
+        let xf = self.board_xf();
+        let hit = path_edit_hit(&anchor_overlay(&anchors, &xf, |_| false, true), screen)?;
+        let before = self.doc().scene.node(id)?.clone();
+        Some(match hit {
+            PathEditHit::Handle(idx, end) => DirectDrag::Handle {
+                node: id,
+                before,
+                anchors0: anchors,
+                closed,
+                idx,
+                end,
+            },
+            PathEditHit::Anchor(idx) => DirectDrag::Anchors {
+                node: id,
+                before,
+                anchors0: anchors,
+                closed,
+                indices: vec![idx],
+                start: world,
+            },
+        })
+    }
+
+    pub(crate) fn paint_bezier_grips(&self, painter: &egui::Painter, xf: &BoardXf) {
+        let Some(id) = self.bezier_grip_target() else {
+            return;
+        };
+        let Some((anchors, _)) = self.direct_anchors_of(id) else {
+            return;
+        };
+        let palette = self.palette();
+        paint_path_edit_anchors(
+            painter,
+            None,
+            &anchor_overlay(&anchors, xf, |_| false, true),
+            PathEditAnchorColors {
+                select: palette.select,
+                bg: palette.bg,
+                accent: palette.accent,
+                sub: palette.sub,
+            },
+        );
     }
 
     // ---------- input routing ----------
@@ -186,8 +254,11 @@ impl SlateApp {
             };
             let before = self.doc().scene.node(id)?.clone();
 
-            // Handles of selected smooth anchors win first.
-            if let Some((idx, end)) = self.direct_handle_at(screen, &xf) {
+            // Shared path-edit hit: handles of selected anchors, then anchors.
+            let hit = self
+                .direct_overlay(&xf)
+                .and_then(|overlay| path_edit_hit(&overlay, screen));
+            if let Some(PathEditHit::Handle(idx, end)) = hit {
                 return Some(DirectDrag::Handle {
                     node: id,
                     before,
@@ -199,7 +270,7 @@ impl SlateApp {
             }
             // Anchor press: select (replace unless Shift/already selected)
             // and drag the selected set.
-            if let Some(idx) = self.direct_anchor_at(screen, &xf) {
+            if let Some(PathEditHit::Anchor(idx)) = hit {
                 if mods.shift {
                     // Shift+press toggles; a subsequent drag moves the set.
                     if !self.direct.anchors.remove(&idx) {
@@ -679,28 +750,7 @@ impl SlateApp {
         } else {
             None
         };
-        let mut overlay: Vec<PathEditAnchorPaint> = Vec::with_capacity(anchors.len());
-        for (i, a) in anchors.iter().enumerate() {
-            let selected = self.direct.anchors.contains(&i);
-            let ap = xf.w2s(from_point(a.point));
-            let show_handles = selected;
-            overlay.push(PathEditAnchorPaint {
-                point: ap,
-                handle_in: show_handles
-                    .then(|| a.handle_in)
-                    .flatten()
-                    .map(from_point)
-                    .map(|p| xf.w2s(p)),
-                handle_out: show_handles
-                    .then(|| a.handle_out)
-                    .flatten()
-                    .map(from_point)
-                    .map(|p| xf.w2s(p)),
-                selected,
-                smooth_hint: a.kind == AnchorKind::Smooth,
-                close_hint: false,
-            });
-        }
+        let overlay = anchor_overlay(&anchors, xf, |i| self.direct.anchors.contains(&i), false);
         paint_path_edit_anchors(
             painter,
             path_line.as_deref(),
@@ -713,6 +763,36 @@ impl SlateApp {
             },
         );
     }
+}
+
+/// Screen adornment for world anchors. Handles show on selected anchors, or
+/// on every anchor when `all_handles`. A zero-length handle (a control point
+/// on its own anchor) is not shown, so it cannot be picked.
+fn anchor_overlay(
+    anchors: &[Anchor],
+    xf: &BoardXf,
+    selected: impl Fn(usize) -> bool,
+    all_handles: bool,
+) -> Vec<PathEditAnchorPaint> {
+    anchors
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let selected = selected(i);
+            let shown = |h: Option<Point>| {
+                h.filter(|p| (all_handles || selected) && (*p - a.point).hypot() > HANDLE_EPS)
+                    .map(|p| xf.w2s(from_point(p)))
+            };
+            PathEditAnchorPaint {
+                point: xf.w2s(from_point(a.point)),
+                handle_in: shown(a.handle_in),
+                handle_out: shown(a.handle_out),
+                selected,
+                smooth_hint: a.kind == AnchorKind::Smooth,
+                close_hint: false,
+            }
+        })
+        .collect()
 }
 
 /// World endpoints of a Line shape (same convention as the painter).
