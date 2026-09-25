@@ -45,8 +45,10 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 /// Frame cadence while a dialog is up: re-enable the owner the dialog just
-/// disabled, and deliver the result promptly.
-const POLL_INTERVAL: Duration = Duration::from_millis(33);
+/// disabled, and deliver the result promptly. egui wakes one predicted frame
+/// (~17 ms) early, so a value near two frames polls at the display rate for
+/// the dialog's whole life; the tab strip's busy spinner brings frames sooner.
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// A cancel posted before the dialog window exists is repeated at this rate.
 const CANCEL_RETRY: Duration = Duration::from_millis(150);
 
@@ -361,9 +363,12 @@ impl DialogGate {
         if core.window != self.window {
             return false;
         }
-        core.gated.store(true, Ordering::Release);
+        let first = !core.gated.swap(true, Ordering::AcqRel);
         if core.attention_due(swallow_input(raw)) {
             win::attention(core.thread());
+        }
+        if first && raw.events.last() != Some(&egui::Event::PointerGone) {
+            raw.events.push(egui::Event::PointerGone);
         }
         true
     }
@@ -580,6 +585,7 @@ impl<M> Drop for FilePicker<M> {
 /// `true` when the user tried to act: a press, a key, or a close request.
 pub fn swallow_input(raw: &mut egui::RawInput) -> bool {
     let mut attempted = false;
+    let before = raw.events.len();
     raw.events.retain(|event| match event {
         egui::Event::WindowFocused(_) | egui::Event::Screenshot { .. } => true,
         egui::Event::PointerButton { pressed, .. } | egui::Event::Key { pressed, .. }
@@ -597,7 +603,11 @@ pub fn swallow_input(raw: &mut egui::RawInput) -> bool {
         }
         _ => false,
     });
-    raw.events.push(egui::Event::PointerGone);
+    // Any event makes egui repaint at once; an unconditional PointerGone
+    // would spin the window for as long as the dialog stays open.
+    if raw.events.len() != before {
+        raw.events.push(egui::Event::PointerGone);
+    }
     if let Some(viewport) = raw.viewports.get_mut(&raw.viewport_id) {
         let before = viewport.events.len();
         viewport
@@ -863,6 +873,20 @@ mod tests {
             .push(egui::ViewportEvent::Close);
         assert!(swallow_input(&mut raw));
         assert!(raw.viewports[&raw.viewport_id].events.is_empty());
+    }
+
+    #[test]
+    fn an_idle_gated_window_gets_no_events_after_the_first_frame() {
+        let gate = DialogGate::new();
+        let mut picker = gate.picker::<u32>();
+        let (_tx, rx) = crossbeam_channel::unbounded();
+        assert!(picker.adopt(rx));
+        let mut first = egui::RawInput::default();
+        assert!(gate.gate_input(&mut first));
+        assert_eq!(first.events, vec![egui::Event::PointerGone]);
+        let mut idle = egui::RawInput::default();
+        assert!(gate.gate_input(&mut idle));
+        assert!(idle.events.is_empty(), "nothing for egui to repaint for");
     }
 
     #[test]
