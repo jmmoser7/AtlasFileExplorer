@@ -1366,7 +1366,7 @@ impl SlateApp {
         let ok = tab.journal.commit_as(&mut doc.scene, cmds, author);
         if ok {
             self.remember_document_colors(colors);
-            self.paint_layer_world_cache = None;
+            self.paint_layer_texture_cache.clear();
             let tab = self.tab_mut();
             tab.edits.push(BoardMark::Scene);
             tab.edit_redo.clear();
@@ -2215,7 +2215,7 @@ fn paint_clip_fill(
     painter.add(egui::Shape::mesh(mesh));
 }
 
-fn paint_clipped_texture(
+pub(crate) fn paint_clipped_texture(
     painter: &egui::Painter,
     xf: &BoardXf,
     tex: &egui::TextureHandle,
@@ -2233,11 +2233,10 @@ fn paint_clipped_texture(
     let crop = crop.clamped();
     let mut mesh = egui::Mesh::with_texture(tex.id());
     for v in &verts {
-        let fx = ((v[0] - node.rect.x) / node.rect.w.max(0.001)).clamp(0.0, 1.0);
-        let fy = ((v[1] - node.rect.y) / node.rect.h.max(0.001)).clamp(0.0, 1.0);
+        let uv = host_texture_uv(node.rect, node.rotation_deg, crop, (v[0], v[1]));
         mesh.vertices.push(egui::epaint::Vertex {
             pos: xf.w2s(Pos2::new(v[0], v[1])),
-            uv: Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h),
+            uv,
             color: tint,
         });
     }
@@ -2280,7 +2279,7 @@ fn paint_clipped_galley(
     }
 }
 
-fn textured_polygon_world(
+pub(crate) fn textured_polygon_world(
     painter: &egui::Painter,
     tex: &egui::TextureHandle,
     outline_screen: &[Pos2],
@@ -2288,15 +2287,14 @@ fn textured_polygon_world(
     rect: WorldRect,
     crop: Crop,
     tint: Color32,
+    rotation_deg: f32,
 ) {
     let crop = crop.clamped();
     let mut mesh = egui::Mesh::with_texture(tex.id());
     for (p, (wx, wy)) in outline_screen.iter().zip(outline_world.iter()) {
-        let fx = ((wx - rect.x) / rect.w.max(0.001)).clamp(0.0, 1.0);
-        let fy = ((wy - rect.y) / rect.h.max(0.001)).clamp(0.0, 1.0);
         mesh.vertices.push(egui::epaint::Vertex {
             pos: *p,
-            uv: Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h),
+            uv: host_texture_uv(rect, rotation_deg, crop, (*wx, *wy)),
             color: tint,
         });
     }
@@ -2304,6 +2302,20 @@ fn textured_polygon_world(
         mesh.indices.extend_from_slice(&[0, i, i + 1]);
     }
     painter.add(mesh);
+}
+
+fn host_texture_uv(rect: WorldRect, rotation_deg: f32, crop: Crop, world: (f32, f32)) -> Pos2 {
+    let crop = crop.clamped();
+    let (lx, ly) = slate_doc::geom::world_to_local_about(
+        world.0,
+        world.1,
+        rect.center().0,
+        rect.center().1,
+        rotation_deg,
+    );
+    let fx = ((lx - rect.x) / rect.w.max(0.001)).clamp(0.0, 1.0);
+    let fy = ((ly - rect.y) / rect.h.max(0.001)).clamp(0.0, 1.0);
+    Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h)
 }
 
 fn stroke_outline(
@@ -3120,33 +3132,6 @@ impl SlateApp {
         painter.add(egui::Shape::convex_polygon(pts, color, EStroke::NONE));
     }
 
-    /// Paint one layer-owned node clipped to the host image trim outline.
-    pub(crate) fn paint_layer_node_clipped(
-        &mut self,
-        ui: &egui::Ui,
-        painter: &egui::Painter,
-        xf: &BoardXf,
-        _host: &Node,
-        _host_img: &slate_doc::scene::ImageNode,
-        clip: &slate_doc::scene::PathData,
-        node: &Node,
-    ) {
-        match &node.kind {
-            NodeKind::Image(img) => {
-                let desired_px = node.rect.w.max(node.rect.h) * ui.ctx().pixels_per_point();
-                if let Some(tex) =
-                    self.board_texture(ui.ctx(), node.id, img.item, &img.adjust, desired_px)
-                {
-                    let tint = Color32::WHITE.gamma_multiply(node.opacity.clamp(0.0, 1.0));
-                    paint_clipped_texture(painter, xf, &tex, node, clip, img.crop, tint);
-                    return;
-                }
-            }
-            _ => {}
-        }
-        self.paint_board_node(ui, painter, xf, node, false);
-    }
-
     /// Clip in-progress ink to the hosted image outline (D09).
     pub(crate) fn image_paint_draft_painter(
         &self,
@@ -3366,6 +3351,7 @@ impl SlateApp {
                                     node.rect,
                                     img.crop,
                                     tint,
+                                    node.rotation_deg,
                                 );
                             } else {
                                 textured_polygon(painter, &tex, &outline, srect, img.crop, tint);
@@ -5731,6 +5717,7 @@ impl SlateApp {
                 content,
                 Crop::full(),
                 Color32::WHITE.gamma_multiply(0.35),
+                node.rotation_deg,
             );
         }
 
@@ -8957,6 +8944,23 @@ mod tests {
         assert_eq!(rects.len(), 1);
         let (cx, cy) = rects[0].center();
         assert!((cx - 10.0).abs() < 1e-3 && (cy - 20.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn rotated_host_texture_maps_outline_to_full_uv() {
+        let rect = WorldRect::new(10.0, 20.0, 100.0, 50.0);
+        let corners = rect.corners_rotated(90.0);
+        let expected = [
+            Pos2::new(0.0, 0.0),
+            Pos2::new(1.0, 0.0),
+            Pos2::new(1.0, 1.0),
+            Pos2::new(0.0, 1.0),
+        ];
+        for (corner, expected) in corners.into_iter().zip(expected) {
+            let uv = host_texture_uv(rect, 90.0, Crop::full(), corner);
+            assert!((uv.x - expected.x).abs() < 1e-4);
+            assert!((uv.y - expected.y).abs() < 1e-4);
+        }
     }
 
     #[test]

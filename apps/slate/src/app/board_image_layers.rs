@@ -25,13 +25,13 @@ pub struct ImagePaintSession {
     pub focus: ImageStripFocus,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct PaintLayerWorldCache {
+#[derive(Clone)]
+pub(crate) struct PaintLayerTextureCache {
     key: u128,
-    layers: Vec<Vec<Node>>,
+    texture: egui::TextureHandle,
 }
 
-fn paint_layer_cache_key(host: &Node, img: &ImageNode, gen: u64) -> u128 {
+fn paint_layer_cache_key(host: &Node, img: &ImageNode, gen: u64, zoom_bucket: u32) -> u128 {
     let c = img.crop.clamped();
     let mut key = host.id.0 as u128;
     key = key.wrapping_mul(31).wrapping_add(gen as u128);
@@ -50,6 +50,7 @@ fn paint_layer_cache_key(host: &Node, img: &ImageNode, gen: u64) -> u128 {
     key = key
         .wrapping_mul(31)
         .wrapping_add(host.rotation_deg.to_bits() as u128);
+    key = key.wrapping_mul(31).wrapping_add(zoom_bucket as u128);
     key = key.wrapping_mul(31).wrapping_add(c.x.to_bits() as u128);
     key = key.wrapping_mul(31).wrapping_add(c.y.to_bits() as u128);
     key = key.wrapping_mul(31).wrapping_add(c.w.to_bits() as u128);
@@ -413,68 +414,79 @@ impl SlateApp {
         host: &Node,
         img: &ImageNode,
         outline: &[Pos2],
-        srect: egui::Rect,
+        _srect: egui::Rect,
         host_alpha: f32,
         _z: f32,
     ) {
         if img.paint_layers.is_empty() {
             return;
         }
-        let key = paint_layer_cache_key(host, img, self.scene_gen);
-        if self
-            .paint_layer_world_cache
-            .as_ref()
-            .is_none_or(|c| c.key != key)
-        {
-            let layers = img
-                .paint_layers
-                .iter()
-                .map(|layer| {
-                    layer
-                        .nodes
-                        .iter()
-                        .map(|local| layer_node_to_world(host, img, local))
-                        .collect()
-                })
-                .collect();
-            self.paint_layer_world_cache = Some(PaintLayerWorldCache { key, layers });
+        let ppp = ui.ctx().pixels_per_point();
+        let longest_px = (host.rect.w.max(host.rect.h) * xf.z * ppp)
+            .ceil()
+            .clamp(1.0, 4096.0);
+        let zoom_bucket = (longest_px as u32).max(1).next_power_of_two();
+        let key = paint_layer_cache_key(host, img, self.scene_gen, zoom_bucket);
+        let stale = self
+            .paint_layer_texture_cache
+            .get(&host.id)
+            .is_none_or(|entry| entry.key != key);
+        if stale {
+            let aspect = host.rect.w.max(1e-6) / host.rect.h.max(1e-6);
+            let (w, h) = if aspect >= 1.0 {
+                (zoom_bucket, (zoom_bucket as f32 / aspect).ceil() as u32)
+            } else {
+                ((zoom_bucket as f32 * aspect).ceil() as u32, zoom_bucket)
+            };
+            let svg = slate_artifact::paint_layers_svg_with_doc(host, img, w, h, self.doc());
+            if let Some(rgba) = slate_artifact::rasterize_paint_layers_svg(&svg, w, h) {
+                let image =
+                    egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+                let texture = ui.ctx().load_texture(
+                    format!("paint-layer-{}", host.id.0),
+                    image,
+                    egui::TextureOptions::LINEAR,
+                );
+                self.paint_layer_texture_cache
+                    .insert(host.id, PaintLayerTextureCache { key, texture });
+            }
         }
-        let world_layers = self
-            .paint_layer_world_cache
-            .as_ref()
-            .map(|c| c.layers.clone())
-            .unwrap_or_default();
-        let clip = if outline.len() >= 3 {
-            let min_x = outline.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
-            let min_y = outline.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
-            let max_x = outline
-                .iter()
-                .map(|p| p.x)
-                .fold(f32::NEG_INFINITY, f32::max);
-            let max_y = outline
-                .iter()
-                .map(|p| p.y)
-                .fold(f32::NEG_INFINITY, f32::max);
-            egui::Rect::from_min_max(Pos2::new(min_x, min_y), Pos2::new(max_x, max_y))
-                .intersect(painter.clip_rect())
-        } else {
-            srect.intersect(painter.clip_rect())
+        let Some(texture) = self
+            .paint_layer_texture_cache
+            .get(&host.id)
+            .map(|entry| entry.texture.clone())
+        else {
+            return;
         };
-        let sub = painter.with_clip_rect(clip);
-        let host_clip = host.clip.as_ref();
-        for (layer, world_nodes) in img.paint_layers.iter().zip(&world_layers) {
-            if !layer.visible {
-                continue;
-            }
-            for world in world_nodes {
-                let mut world = world.clone();
-                world.opacity = (world.opacity * layer.opacity * host_alpha).clamp(0.0, 1.0);
-                if let Some(clip) = host_clip {
-                    self.paint_layer_node_clipped(ui, &sub, xf, host, img, clip, &world);
-                } else {
-                    self.paint_board_node(ui, &sub, xf, &world, false);
-                }
-            }
+        let tint = Color32::WHITE.gamma_multiply(host_alpha.clamp(0.0, 1.0));
+        if let Some(clip) = &host.clip {
+            super::board::paint_clipped_texture(
+                painter,
+                xf,
+                &texture,
+                host,
+                clip,
+                slate_doc::scene::Crop::full(),
+                tint,
+            );
+        } else if outline.len() >= 3 {
+            let outline_world = outline
+                .iter()
+                .map(|point| {
+                    let world = xf.s2w(*point);
+                    (world.x, world.y)
+                })
+                .collect::<Vec<_>>();
+            super::board::textured_polygon_world(
+                painter,
+                &texture,
+                outline,
+                &outline_world,
+                host.rect,
+                slate_doc::scene::Crop::full(),
+                tint,
+                host.rotation_deg,
+            );
         }
     }
 

@@ -370,7 +370,8 @@ pub struct SlateApp {
     pub board_crop: Option<NodeId>,
     /// Trace-paper session: drawing tools commit into the active paint layer.
     pub(crate) image_paint: Option<board_image_layers::ImagePaintSession>,
-    pub(crate) paint_layer_world_cache: Option<board_image_layers::PaintLayerWorldCache>,
+    pub(crate) paint_layer_texture_cache:
+        HashMap<NodeId, board_image_layers::PaintLayerTextureCache>,
     pub(crate) image_drop: Option<board_image_layers::ImageDropOffer>,
     /// Screen anchor for external-file drop capsules (Replace / Add as layer).
     pub(crate) image_drop_screen: Option<egui::Pos2>,
@@ -767,7 +768,7 @@ impl SlateApp {
             board_drag: None,
             board_crop: None,
             image_paint: None,
-            paint_layer_world_cache: None,
+            paint_layer_texture_cache: HashMap::new(),
             image_drop: None,
             image_drop_screen: None,
             text_edit: None,
