@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-09-24",
+  "updated": "2026-09-25",
   "tools": {
     "bumper-cars": {
       "status": "shipped",
@@ -236,11 +236,11 @@
           "decided": "2026-09-15"
         },
         "D13": {
-          "behavior": "P1.node.transform. Reuse existing image/PDF selection and the existing Rhino node presentation.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "P1.node.transform and P1.node.corner-grip on every placed linked-media card (all media types). Reuse existing image/PDF selection and the existing Rhino node presentation.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-25"
         },
         "D14": {
           "behavior": "Selected PDF/PowerPoint images expose a Pages squircle. The same control opens a miniature image_album pallet over the document for the poster page (board.media.page) and Unbundle (board.media.unbundle) lays the deck on the board as a selected grid. Existing image controls and Rhino camera controls are unchanged. On the Select tool, moving the pointer horizontally across a video node scrubs that node's full trim window without playing (Frame.io hover pan). The playhead stays where the pan stopped. A 96-frame filmstrip makes the pan a lookup; the playhead and timecode are derived and not journaled. A click with no modifiers toggles silent playback from that frame; click-drag still moves the node. One video decodes at a time. Windows Media Foundation plays mp4, m4v, mov, wmv, avi, mpg, and mpeg, and also webm, mkv, and ogv when that codec is installed. A file it cannot open, or a cloud placeholder, keeps the poster, play badge, and extension badge. HTML export is unchanged.",
@@ -768,11 +768,11 @@
           "decided": "2026-09-15"
         },
         "D13": {
-          "behavior": "Double-click the title to edit the name across its maximal linear branch segment, including hidden members. Codex and Cursor titles combine the custom conversation name with a model dropdown populated by the installed provider; the menu also offers Rename. Only the tail card (or an unsent draft) offers the dropdown; a card that has a child shows \"Title · Model\" as canvas text and refuses a model change. Model choice is journaled per card and inherited by new continuations. Renaming a fork does not rename its siblings or upstream prefix.",
+          "behavior": "Double-click the title to edit the name across its maximal linear branch segment, including hidden members. Codex and Cursor titles combine the custom conversation name with a model dropdown populated by the installed provider; the menu also offers Rename. Only the tail card (or an unsent draft) offers the dropdown; a card that has a child shows \"Title · Model\" as canvas text and refuses a model change. Model choice is journaled per card and inherited by new continuations. Renaming a fork does not rename its siblings or upstream prefix. Outer PortalNode frame: P1.node.transform and P1.node.corner-grip (not on chat cards).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-23"
+          "decided": "2026-09-25"
         },
         "D14": {
           "behavior": "Switch presentation only through the contextual menu. Single chat window converts each maximal linear segment, keeps the current viewport height as its ceiling and shrinks shorter content. Chat train restores message views and forks. Single windows only show full conversation, and never offer Unbundle.",
@@ -845,7 +845,7 @@
           "decided": "2026-09-23"
         },
         "D24": {
-          "behavior": "Chat exports remain honest host posters and source identity; derived history rails serialize with the same cubic geometry. No live controls, credentials or inference are exported. A picture an agent makes exports as a plain image of the result it shows (the pick, else the newest); a note an agent writes exports the words it shows (its own, else the finished reply). A chat image bundle keeps its bundle export.",
+          "behavior": "Chat exports remain honest host posters and source identity; derived history rails serialize with the same cubic geometry. No live controls, credentials or inference are exported. A picture an agent makes exports as a plain image of the result it shows (the pick, else the newest); a note an agent writes exports the words it shows (its own, else the finished reply). A chat image bundle keeps its bundle export. Portal frame fillet: portal_frame_corner; journal Corner::Square -> PORTAL_FRAME_DEFAULT_FILLET.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1158,11 +1158,11 @@
           "decided": "2026-08-15"
         },
         "D13": {
-          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Portals stay axis-aligned: no rotate chrome, including in a mixed group rotate.",
-          "source": "pattern",
-          "confidence": 80,
+          "behavior": "Windows-style hover resize on the frame (P1.node.transform) — no prior selection. P1.node.corner-grip on the portal frame (custom fillet radius). Contents expose no grips. Resize scales the rendered page (D20 zoom Fit); it does not reflow unless viewport is Auto. Portals stay axis-aligned: no rotate chrome, including in a mixed group rotate.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-08"
+          "decided": "2026-09-25"
         },
         "D14": {
           "behavior": "Portal sidebar section when selected, mirrored by portal.web.* commands. Journaled Patches: source (URL field / Choose file... / Choose folder + entry), viewport width and zoom mode, export mode, Package into workbook folder (Art. IX.4). Derived actions: Home (navigate back to the authored locator), Reload, Recapture poster, Open in system browser, and Allow this origin (local trust, not journaled - D32).",
@@ -1235,7 +1235,7 @@
           "decided": "2026-09-15"
         },
         "D24": {
-          "behavior": "Two modes, journaled per portal, defaulting by source kind (OQ2 = A). Local file/folder: packaged iframe - build_assets copies the entry file and its folder into assets/ and rewrites the locator (Art. IX.4 fork, origin recorded in the manifest), and the writer emits <iframe src=\"assets/...\" sandbox=\"allow-scripts allow-same-origin\" title=...> plus a caption naming the origin. Remote URL: poster + pointer (Art. V.3) - <a href=url><img poster></a> with a caption reading \"Live page, captured <date>\", and an honesty note where the site would refuse framing. export_mode: Iframe is opt-in for remote and says in its caption that the frame loads live from the network. Machine-private paths (the WebView2 folder, the secret store, a legacy API-key file) are never packaged; those portals export as a poster.",
+          "behavior": "Two modes, journaled per portal, defaulting by source kind (OQ2 = A). Local file/folder: packaged iframe - build_assets copies the entry file and its folder into assets/ and rewrites the locator (Art. IX.4 fork, origin recorded in the manifest), and the writer emits <iframe src=\"assets/...\" sandbox=\"allow-scripts allow-same-origin\" title=...> plus a caption naming the origin. Remote URL: poster + pointer (Art. V.3) - <a href=url><img poster></a> with a caption reading \"Live page, captured <date>\", and an honesty note where the site would refuse framing. export_mode: Iframe is opt-in for remote and says in its caption that the frame loads live from the network. Machine-private paths (the WebView2 folder, the secret store, a legacy API-key file) are never packaged; those portals export as a poster. Portal frame fillet: portal_frame_corner; journal Corner::Square -> PORTAL_FRAME_DEFAULT_FILLET (shipped portal_frame.corner_radius).",
           "source": "stated",
           "confidence": 95,
           "verdict": "approved",
@@ -2082,11 +2082,11 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.portal.pick / P1.node.transform. Hover resize. No board grips on contents. Axis-aligned. Maximize square per P1.portal.chrome.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "P1.portal.pick / P1.node.transform. Windows-style hover resize - no prior selection. P1.node.corner-grip on the portal frame. Contents expose no board grips. Portals stay axis-aligned: no rotate chrome. Maximize square per P1.portal.chrome (D33/D34)",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-21"
+          "decided": "2026-09-25"
         },
         "D14": {
           "behavior": "Rebind and authored query knobs through the Portal inspector or portal.atlas.* as journaled Patch. Camera/collapse/selection are surface edits.",
@@ -2159,7 +2159,7 @@
           "decided": "2026-09-16"
         },
         "D24": {
-          "behavior": "Host: slate-artifact emits a poster plus a pointer to the folder locator. Unbound/Missing export the state card. Not a regenerated SVG of every thumbnail.",
+          "behavior": "Host: slate-artifact emits a poster plus a pointer to the folder locator. Unbound/Missing export the state card. Not a regenerated SVG of every thumbnail. Portal frame fillet: portal_frame_corner; journal Corner::Square -> PORTAL_FRAME_DEFAULT_FILLET.",
           "source": "pattern",
           "confidence": 80,
           "verdict": "approved",
@@ -2342,7 +2342,7 @@
           "decided": null
         },
         "D13": {
-          "behavior": "P1.portal.pick / P1.node.transform. Hover resize. Contents expose no grips. Resize re-lays-out. Axis-aligned. Maximize square.",
+          "behavior": "P1.portal.pick / P1.node.transform. Windows-style hover resize - no prior selection. P1.node.corner-grip on the portal frame. Contents expose no grips. Resize re-lays-out. Portals stay axis-aligned: no rotate chrome. Maximize square per P1.portal.chrome.",
           "source": "pattern",
           "confidence": 90,
           "verdict": "proposed",
@@ -2419,7 +2419,7 @@
           "decided": null
         },
         "D24": {
-          "behavior": "P1.portal.export. slate-artifact emits regenerated SVG from the same layout_* function, plus a provenance caption. No script, no fetch, no poster of a browser. Unbound or Missing exports the state card.",
+          "behavior": "P1.portal.export. slate-artifact emits regenerated SVG from the same layout_* function, plus a provenance caption. No script, no fetch, no poster of a browser. Unbound or Missing exports the state card. Portal frame fillet: portal_frame_corner; journal Corner::Square -> PORTAL_FRAME_DEFAULT_FILLET.",
           "source": "pattern",
           "confidence": 90,
           "verdict": "proposed",
@@ -2598,11 +2598,11 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel; Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. Shared light/dark theme tokens apply throughout.",
+          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel; Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. P1.node.corner-grip on single-select corner-capable hosts; Corners squircle and grip share one Corner field. Shared light/dark theme tokens apply throughout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-18"
+          "decided": "2026-09-25"
         },
         "D14": {
           "behavior": "Every eyedropper in the project must sample anywhere on the desktop, including outside Slate. The existing standalone and temporary Brush paths and new property editors share the desktop-color-sampling.md requirement.",
@@ -2728,11 +2728,11 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on single-select rectangles (square grip for custom fillet radius).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D14": {
           "behavior": "Fill, Stroke, Corners: three circular icons matching the primary toolbar. Fill opens opacity then RGB/eyedropper upward; Corners opens Fillet/Chamfer and Board units/Percent. Confirmed percent amount = p/100 × min(W,H)/2; 100% makes a square a circle/diamond. See shape-property-editing.md.",
@@ -3904,11 +3904,11 @@
           "decided": "2026-09-22"
         },
         "D13": {
-          "behavior": "P1.portal.pick and P1.node.transform. Hover resize, axis-aligned, no rotate chrome. Child nodes are not grips. Maximize square per P1.portal.chrome.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "P1.portal.pick and P1.node.transform. Hover resize, axis-aligned, no rotate chrome. P1.node.corner-grip on the portal frame. Child nodes are not grips. Maximize square per P1.portal.chrome.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-25"
         },
         "D14": {
           "behavior": "Rebind is `portal.slate.source`, a journaled Patch that drops the cached child. Resize refits the same child (D20). Edits to the board happen in the child tab and stay on the child journal.",
@@ -3981,7 +3981,7 @@
           "decided": "2026-09-22"
         },
         "D24": {
-          "behavior": "Document class: `slate-artifact` renders the child's Board into the frame with the same fit function (Art. IV). A caption names the relative locator and health. Unbound, Missing, cycle, and empty export that state card. Depth cap matches D29. The child secret store and WebView profile are not packaged.",
+          "behavior": "Document class: `slate-artifact` renders the child's Board into the frame with the same fit function (Art. IV). A caption names the relative locator and health. Unbound, Missing, cycle, and empty export that state card. Depth cap matches D29. The child secret store and WebView profile are not packaged. Portal frame fillet: portal_frame_corner; journal Corner::Square -> PORTAL_FRAME_DEFAULT_FILLET.",
           "source": "pattern",
           "confidence": 85,
           "verdict": "approved",
@@ -4162,11 +4162,11 @@
           "decided": "2026-09-22"
         },
         "D13": {
-          "behavior": "The tool does not select frames and does not show resize grips. Deck index badges are the only added chrome, and only while armed. Leaving the tool restores ordinary frame selection.",
-          "source": "pattern",
-          "confidence": 80,
+          "behavior": "The tool does not select frames and does not show resize grips. Deck index badges are the only added chrome, and only while armed. Leaving the tool restores ordinary frame selection (P1.node.transform + P1.node.corner-grip on frames).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-25"
         },
         "D14": {
           "behavior": "Frame-strip Prev and Next still swap one selected frame with its neighbor. Re-arming Deck continues the same document order: further clicks and strokes append frames not yet in the session. Playback stays F5, View → Present, and the frame-strip Present squircle.",

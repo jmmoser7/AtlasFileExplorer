@@ -160,6 +160,29 @@ is searchable.
   (corners included, same 45° cursor as a single node). Shift+click on
   an unselected node's hover-resize band adds it to the selection
   instead of starting a resize.
+- **P1.node.corner-grip** (Select tool): a **square** grip on every node
+  that `supports_corners` — rectangle, frame, placed linked-media card,
+  and portal frame — so the person can set a **custom fillet radius**
+  by dragging (**stated** user scope). The selection-strip **Corners**
+  squircle edits the same authored `Corner` field (**stated**). Grip
+  drag stores fillet radius in world units as `Corner::Rounded { radius }`
+  (chamfer / percent modes stay strip-only until extended). **Proposals**
+  (implementation detail, not re-litigated per contract): **single-select
+  only**; grip at the host **NW** corner; diagonal inset
+  `max(resolved_radius_world, FILLET_GRIP_MIN_INSET_PX)` and painted
+  size `FILLET_GRIP_PX` via `canvas_scale` (P0.9); hidden in image crop
+  mode, multi-select, and when portal chrome suppresses the ordinary
+  selection cast; drag projects on the NW→SE diagonal with clamp
+  `[0, min(w,h)/2]`; live preview, **one** journaled `SceneCmd::Patch`
+  on release (`board.shape.fillet`); Esc mid-drag restores press-time
+  radius (ActiveOperation); Shift → integer world units; radius readout
+  at the pointer during drag (`canvas_text`). **Frame:** members are not
+  clipped by the frame fillet. **Pick:** click and marquee still use the
+  node AABB. **Portal `Corner::Square`:** live paint uses
+  `tokens.current().portal_frame.corner_radius`; HTML export uses
+  `slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET` (must equal shipped
+  `PortalFrameTokens::default().corner_radius`); a grip drag journals an
+  explicit `Rounded` radius. Owner: `board_handles` + `board_transform`.
 - **P1.node.zorder / clipboard** PageUp/PageDown/Ctrl+B; Ctrl+C/X/V,
   Ctrl+Shift+V in place.
 
