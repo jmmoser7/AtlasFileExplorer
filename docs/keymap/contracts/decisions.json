@@ -4134,7 +4134,7 @@
           "decided": "2026-09-22"
         },
         "D09": {
-          "behavior": "While armed, every frame shows its deck index (1-based position in frames_in_order) above its top-left, through canvas_text at 14 world units, dropped when illegible (P0.9). The in-progress stroke paints in Palette::accent at width 2 world units. A frame lights as the stroke enters it. The dock readout shows n slides.",
+          "behavior": "While armed, every frame shows its deck index (1-based position in frames_in_order) above the left end of its upper edge (the edge facing up on screen, so a rotated frame keeps the badge on top, like the frame title), through canvas_text at 14 world units, dropped when illegible (P0.9). The in-progress stroke paints in Palette::accent at width 2 world units. A frame lights as the stroke enters it. The dock readout shows n slides.",
           "source": "guess",
           "confidence": 60,
           "verdict": "approved",

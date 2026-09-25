@@ -2044,6 +2044,54 @@ pub(crate) fn fillet_overhangs(rect: Rect, radius: f32) -> [Vec<Pos2>; 4] {
     })
 }
 
+/// The edge of a rotated rect that faces up on screen, ordered left to right.
+/// Corners wind clockwise, so an edge's outward normal is `(d.y, -d.x)`: the
+/// edge running most nearly rightward faces most nearly up. Ties keep the
+/// local top edge.
+pub(crate) fn upper_edge(rect: WorldRect, rotation_deg: f32) -> [Pos2; 2] {
+    let c = rect
+        .corners_rotated(rotation_deg)
+        .map(|(x, y)| Pos2::new(x, y));
+    let mut best = [c[0], c[1]];
+    let mut best_dx = (c[1] - c[0]).normalized().x;
+    for i in 1..4 {
+        let edge = [c[i], c[(i + 1) % 4]];
+        let dx = (edge[1] - edge[0]).normalized().x;
+        if dx > best_dx + 1e-4 {
+            best = edge;
+            best_dx = dx;
+        }
+    }
+    best
+}
+
+/// A frame's board-only label, just outside its upper edge and rotated with
+/// it, so a portrait frame turned to landscape keeps its title on top.
+/// `inset` runs along the edge from the anchored end; `lift` rises off it.
+/// Both are world units.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_frame_label(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    node: &Node,
+    at_right_end: bool,
+    inset: f32,
+    lift: f32,
+    text: String,
+    font: FontId,
+    color: Color32,
+) {
+    let [a, b] = upper_edge(node.rect, node.rotation_deg).map(|p| xf.w2s(p));
+    let along = (b - a).normalized();
+    let up = Vec2::new(along.y, -along.x);
+    let laid = canvas_text::layout_no_wrap(painter, text, font, color);
+    let size = laid.size();
+    let run = along * (canvas_scale::px(inset, xf.z) + size.x * 0.5);
+    let rise = up * (canvas_scale::px(lift, xf.z) + size.y * 0.5);
+    let center = if at_right_end { b - run } else { a + run } + rise;
+    laid.paint_rotated(painter, center, along.angle(), color);
+}
+
 pub(crate) fn paint_fillet_masks(painter: &egui::Painter, frame: Rect, radius: f32, fill: Color32) {
     if radius < 0.5 || fill.a() == 0 {
         return;
@@ -3147,10 +3195,13 @@ impl SlateApp {
                         .unwrap_or(0);
                     let title = canvas_scale::px(12.0, z);
                     if canvas_text::legible(title) {
-                        canvas_text::text(
+                        paint_frame_label(
                             painter,
-                            srect.left_top() + Vec2::new(2.0 * z, -6.0 * z),
-                            Align2::LEFT_BOTTOM,
+                            xf,
+                            node,
+                            false,
+                            2.0,
+                            6.0,
                             format!("{order} · {}", f.title),
                             FontId::proportional(title),
                             palette.sub,
@@ -3166,10 +3217,13 @@ impl SlateApp {
                             .collect();
                         let tag_px = canvas_scale::px(10.5, z);
                         if canvas_text::legible(tag_px) {
-                            canvas_text::text(
+                            paint_frame_label(
                                 painter,
-                                srect.right_top() + Vec2::new(-2.0 * z, -6.0 * z),
-                                Align2::RIGHT_BOTTOM,
+                                xf,
+                                node,
+                                true,
+                                2.0,
+                                6.0,
                                 format!("⬦ {}", tags.join(", ")),
                                 FontId::proportional(tag_px),
                                 palette.accent,
@@ -8831,6 +8885,41 @@ pub(crate) mod brush_prof {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rotated_frame_keeps_its_title_edge_on_top() {
+        // Letter portrait, 8.5 × 11 at 72 u per inch.
+        let rect = WorldRect::new(100.0, 50.0, 612.0, 792.0);
+        let [a, b] = upper_edge(rect, 0.0);
+        assert_eq!((a, b), (Pos2::new(100.0, 50.0), Pos2::new(712.0, 50.0)));
+        for rotation in [90.0, -90.0, 180.0, 270.0, 30.0, -30.0, 135.0] {
+            let [a, b] = upper_edge(rect, rotation);
+            let bounds = rect.rotated_bounds(rotation);
+            let top = a.y.min(b.y);
+            assert!((top - bounds.y).abs() < 0.01, "{rotation}° edge is the top");
+            assert!(b.x > a.x, "{rotation}° label reads left to right");
+            let corners = rect.corners_rotated(rotation);
+            let mid = a.lerp(b, 0.5);
+            let center = Pos2::new(rect.center().0, rect.center().1);
+            let up = Vec2::new((b - a).y, -(b - a).x).normalized();
+            assert!(
+                (mid - center).dot(up) > 0.0,
+                "{rotation}° normal is outward"
+            );
+            assert!(
+                corners
+                    .iter()
+                    .all(|&(x, y)| (Pos2::new(x, y) - center).dot(up)
+                        <= (mid - center).dot(up) + 0.01)
+            );
+        }
+        // Turned to landscape, the title runs along the long 792 u side.
+        for rotation in [90.0, -90.0] {
+            let [a, b] = upper_edge(rect, rotation);
+            assert!(((b - a).length() - 792.0).abs() < 0.01);
+            assert!((a.y - b.y).abs() < 0.01);
+        }
+    }
 
     #[test]
     fn sheet_viewport_shows_a_dozen_and_scrolls_the_rest() {

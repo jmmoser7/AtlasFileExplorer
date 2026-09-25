@@ -212,11 +212,13 @@ impl SlateApp {
         let badge = canvas_scale::px(deck_tokens::BADGE_PX, z);
         for (i, node) in visible.iter().enumerate() {
             if canvas_text::legible(badge) {
-                let srect = xf.rect_w2s(node.rect);
-                canvas_text::text(
+                board::paint_frame_label(
                     painter,
-                    srect.left_top() + egui::vec2(2.0 * z, -22.0 * z),
-                    egui::Align2::LEFT_BOTTOM,
+                    xf,
+                    node,
+                    false,
+                    2.0,
+                    22.0,
                     format!("{}", i + 1),
                     canvas_scale::font(deck_tokens::BADGE_PX, z),
                     accent,
