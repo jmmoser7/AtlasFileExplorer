@@ -4517,7 +4517,7 @@ pub fn agent_card_as_media(node: &mut Node) -> bool {
         Some(atlas_agent::PortalView::Text) => p
             .agent
             .take()
-            .map(|a| NodeKind::Text(TextNode::agent_note(*a))),
+            .map(|a| NodeKind::Image(ImageNode::generated(*a))),
         _ => None,
     };
     match media {

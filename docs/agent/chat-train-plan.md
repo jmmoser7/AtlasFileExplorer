@@ -155,7 +155,8 @@ Acceptance examples: fork A→B into C and D; C never sees D. Bundle A→B→C a
 
 ## Remaining design choices
 
-- Recommended: one message per card; alternative: one human/assistant exchange per card.
+- **Stated (25 September 2026):** default presentation is one human/assistant exchange per card (message pairs); one message per card and single-chat window remain commands.
+- Recommended: one message per card; alternative: one human/assistant exchange per card (**chosen**).
 - Recommended: contiguous, single-branch bundles first; alternative: arbitrary subtrees with multiple boundary ports.
 - Recommended: manual detail plus automatic content culling; alternative: zoom-driven expansion that also changes layout.
 - Recommended: Codex, Cursor and Ollama first; clarify whether a separate direct OpenAI chat adapter is also desired.

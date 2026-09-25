@@ -245,10 +245,11 @@ impl SlateApp {
                 return 1;
             }
         }
-        let payload = self.paste_payload(os_text);
+        let mut payload = self.paste_payload(os_text);
         if payload.is_empty() {
             return 0;
         }
+        self.fork_agent_train_payload(&mut payload);
         let (dx, dy) = match at {
             Some(p) => {
                 let Some((min_x, min_y, max_x, max_y)) = payload_bounds(&payload) else {

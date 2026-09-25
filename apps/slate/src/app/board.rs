@@ -1305,6 +1305,7 @@ impl SlateApp {
         deleted.extend(orphans);
         let ids: Vec<_> = deleted.iter().copied().collect();
         self.stop_pruned_agent_runs(&ids);
+        self.agents.text_output.retire(&ids);
         // Surviving connectors anchored to a deleted node degrade to `Free`
         // at their last world position — same command group, so undo
         // restores the anchor (connectors spec).
@@ -3480,7 +3481,15 @@ impl SlateApp {
                 }
                 stroke_outline(painter, &outline, &img.stroke, z);
                 if img.agent.is_some() && !nested {
-                    self.paint_agent_picture(ui, painter, &xf, node, srect);
+                    let text_agent = img
+                        .agent
+                        .as_ref()
+                        .is_some_and(|a| a.view == atlas_ai::agent::PortalView::Text);
+                    if text_agent {
+                        self.paint_agent_text_window(ui, painter, &xf, node, srect);
+                    } else {
+                        self.paint_agent_picture(ui, painter, &xf, node, srect);
+                    }
                 }
             }
             NodeKind::Shape(s) => {
