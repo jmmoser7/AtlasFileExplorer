@@ -736,14 +736,19 @@ impl SlateApp {
             return false;
         };
         img.item = item;
-        if !self.commit_scene(vec![SceneCmd::Patch {
+        let mut cmds = vec![SceneCmd::Patch {
             before: Box::new(before),
             after: Box::new(after),
-        }]) {
-            return false;
-        }
+        }];
         if let Some(id) = remove_source.filter(|id| *id != target) {
-            self.delete_board_nodes(&[id]);
+            if let Some(index) = self.doc().scene.nodes.iter().position(|node| node.id == id) {
+                if let Some(node) = self.doc().scene.node(id).cloned() {
+                    cmds.push(SceneCmd::Remove { index, node });
+                }
+            }
+        }
+        if !self.commit_scene(cmds) {
+            return false;
         }
         self.push_history(
             atlas_commands::CommandId("board.image.replace"),
@@ -761,39 +766,65 @@ impl SlateApp {
         if self.refuse_read_only_edit() {
             return false;
         }
-        self.ensure_paint_layer(target);
-        let session = self.image_paint.clone().unwrap();
         let Some(host) = self.doc().scene.node(target).cloned() else {
             return false;
         };
         let NodeKind::Image(ref host_img) = host.kind else {
             return false;
         };
-        let child = self.doc_mut().scene.build_node(
+        let mut child = self.doc_mut().scene.build_node(
             WorldRect::new(host.rect.x, host.rect.y, host.rect.w, host.rect.h),
             NodeKind::Image(ImageNode::new(item)),
         );
-        let locals = vec![layer_node_from_world(&host, host_img, &child)];
-        let Some(before) = self.doc().scene.node(target).cloned() else {
-            return false;
+        child.rotation_deg = host.rotation_deg;
+        let local = layer_node_from_world(&host, host_img, &child);
+        let mut cmds = Vec::new();
+        let (layer_id, layer_index) = if host_img.paint_layers.is_empty() {
+            let layer_id = Self::next_paint_layer_id(host_img);
+            let mut after = host.clone();
+            let NodeKind::Image(ref mut img) = after.kind else {
+                return false;
+            };
+            img.paint_layers.push(PaintLayer::new(layer_id));
+            cmds.push(SceneCmd::Patch {
+                before: Box::new(host.clone()),
+                after: Box::new(after),
+            });
+            (layer_id, 0)
+        } else {
+            let index = self
+                .image_paint
+                .as_ref()
+                .filter(|session| session.image == target)
+                .map(|session| session.layer_index)
+                .unwrap_or(host_img.paint_layers.len() - 1)
+                .min(host_img.paint_layers.len() - 1);
+            (host_img.paint_layers[index].id, index)
         };
-        let mut after = before.clone();
-        let NodeKind::Image(ref mut img) = after.kind else {
-            return false;
-        };
-        let Some(layer) = img.paint_layers.get_mut(session.layer_index) else {
-            return false;
-        };
-        layer.nodes.extend(locals);
-        if !self.commit_scene(vec![SceneCmd::Patch {
-            before: Box::new(before),
-            after: Box::new(after),
-        }]) {
-            return false;
-        }
+        cmds.push(SceneCmd::LayerNodeAdd {
+            host: target,
+            layer: layer_id,
+            index: host_img
+                .paint_layers
+                .get(layer_index)
+                .map_or(0, |layer| layer.nodes.len()),
+            node: local,
+        });
         if let Some(id) = remove_source.filter(|id| *id != target) {
-            self.delete_board_nodes(&[id]);
+            if let Some(index) = self.doc().scene.nodes.iter().position(|node| node.id == id) {
+                if let Some(node) = self.doc().scene.node(id).cloned() {
+                    cmds.push(SceneCmd::Remove { index, node });
+                }
+            }
         }
+        if !self.commit_scene(cmds) {
+            return false;
+        }
+        self.image_paint = Some(ImagePaintSession {
+            image: target,
+            layer_index,
+            focus: ImageStripFocus::Layer(layer_index),
+        });
         self.push_history(
             atlas_commands::CommandId("board.image.layer.add_image"),
             Some("add as layer".into()),
@@ -878,6 +909,11 @@ impl SlateApp {
         let Some(pointer) = pointer else {
             return;
         };
+        if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            self.image_drop = None;
+            self.image_drop_screen = None;
+            return;
+        }
         let z = self.tab().cam.z;
         let labels = [
             ("Replace", ImageDropChoice::Replace),
@@ -887,16 +923,31 @@ impl SlateApp {
         let h = atlas_shell::canvas_scale::px(22.0, z);
         let gap = atlas_shell::canvas_scale::px(6.0, z);
         let palette = self.palette();
+        let target = self
+            .image_drop
+            .as_ref()
+            .and_then(|offer| self.doc().scene.node(offer.target));
+        let anchor = if let Some(screen) = self.image_drop_screen {
+            screen
+        } else if let Some(target) = target {
+            let edge = target.rect.rotate_point(
+                [target.rect.x + target.rect.w, target.rect.center().1],
+                target.rotation_deg,
+            );
+            self.board_xf().w2s(Pos2::new(edge[0], edge[1]))
+        } else {
+            pointer
+        };
         let mut rects = Vec::new();
-        let mut x = pointer.x + pad;
-        let y = pointer.y + pad;
+        let mut x = anchor.x + pad;
+        let y = anchor.y;
         let mut highlight = None;
         for (label, choice) in labels {
-            let galley = painter.layout(
+            let galley = atlas_shell::canvas_text::layout_no_wrap(
+                painter,
                 label.to_string(),
                 atlas_shell::canvas_scale::font(12.0, z),
                 palette.ink,
-                f32::INFINITY,
             );
             let w = galley.size().x + pad * 2.0;
             let rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h));
@@ -906,23 +957,44 @@ impl SlateApp {
             rects.push((rect, label, choice));
             x += w + gap;
         }
+        if self.image_drop_screen.is_some() {
+            let over_capsule = rects.iter().any(|(rect, _, _)| rect.contains(pointer));
+            let over_target = target.is_some_and(|target| {
+                let local = slate_doc::geom::world_to_local(
+                    self.board_xf().s2w(pointer).x,
+                    self.board_xf().s2w(pointer).y,
+                    target.rect,
+                    target.rotation_deg,
+                );
+                (0.0..=1.0).contains(&local.0) && (0.0..=1.0).contains(&local.1)
+            });
+            if !over_capsule && !over_target {
+                self.image_drop = None;
+                self.image_drop_screen = None;
+                return;
+            }
+        }
         if let Some(d) = &mut self.image_drop {
             d.highlight = highlight;
         }
         for (rect, label, choice) in rects {
             let hot = highlight == Some(choice);
-            painter.rect_filled(
-                rect,
-                h * 0.5,
-                if hot { palette.accent } else { palette.card },
-            );
-            atlas_shell::canvas_text::text(
+            atlas_shell::selection_tools::paint_capsule_row(
                 painter,
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                label,
-                atlas_shell::canvas_scale::font(12.0, z),
-                if hot { Color32::WHITE } else { palette.ink },
+                rect,
+                &atlas_shell::selection_tools::Capsule {
+                    label,
+                    chip: None,
+                    badge: None,
+                    selected: hot,
+                    spawned: false,
+                    disabled: false,
+                    dim: false,
+                },
+                hot,
+                false,
+                z,
+                palette,
             );
         }
     }
@@ -934,6 +1006,16 @@ impl SlateApp {
         let Some(choice) = offer.highlight else {
             return false;
         };
+        if !ids.is_empty() {
+            // Rewind the live drag preview before building the one journal
+            // group that owns both target and source mutations (P0.2).
+            let scene = &mut self.doc_mut().scene;
+            for (id, baseline) in ids.iter().zip(before.iter()) {
+                if let Some(node) = scene.node_mut(*id) {
+                    *node = baseline.clone();
+                }
+            }
+        }
         let item = match offer.source {
             ImageDropSource::Node(id) => {
                 let Some(node) = self.doc().scene.node(id) else {
@@ -963,15 +1045,6 @@ impl SlateApp {
         };
         if ok {
             self.image_drop_screen = None;
-            if !ids.is_empty() {
-                // Revert the move gesture — drop choice owns the mutation.
-                let scene = &mut self.doc_mut().scene;
-                for (id, b) in ids.iter().zip(before.iter()) {
-                    if let Some(n) = scene.node_mut(*id) {
-                        *n = b.clone();
-                    }
-                }
-            }
             return true;
         }
         false
