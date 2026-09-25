@@ -1883,15 +1883,7 @@ impl SlateApp {
                 outline_w,
             );
             if self.node_supports_fillet_grip(n) {
-                let radius = self.node_fillet_radius_world(n);
-                let geom = board_handles::selection_geom(xf, n.rect, n.rotation_deg);
-                let grip = board_handles::fillet_grip_screen(xf, n.rect, n.rotation_deg, radius);
-                if board_handles::fillet_grip_separated_from_nw_corner(&geom, grip)
-                    && !canvas_scale::too_small(canvas_scale::px(
-                        board_handles::FILLET_GRIP_PX,
-                        xf.z,
-                    ))
-                {
+                if let Some(grip) = self.fillet_grip_at(n, xf) {
                     let hot = matches!(
                         self.board_hover_hit,
                         Some(board_handles::BoardHitTarget::FilletRadius)
@@ -1932,12 +1924,8 @@ impl SlateApp {
                 ShapeKind::Line | ShapeKind::Path => return aabb(),
             },
             NodeKind::Image(img) => {
-                let corner = self
-                    .viewed_doc()
-                    .item(img.item)
-                    .map(|it| slate_doc::media::text_card_corner(&it.path, img.corner))
-                    .unwrap_or(img.corner);
-                corner_outline(srect, corner, z)
+                let path = self.viewed_doc().item(img.item).map(|it| it.path.as_path());
+                corner_outline(srect, slate_doc::scene::resolved_corner(node, path), z)
             }
             NodeKind::Portal(p) => corner_outline(srect, self.node_resolved_corner(node), z),
             NodeKind::DockStrip(strip) => {
@@ -4585,6 +4573,11 @@ impl SlateApp {
             }
             Some(BoardDrag::FilletRadius { id, .. }) => {
                 if let Some(n) = self.doc().scene.node(*id) {
+                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+                    ui.ctx().set_cursor_icon(board_handles::cursor_for_resize(
+                        board_handles::ResizeHandle::Nw,
+                        &geom,
+                    ));
                     if let Some(p) = pointer {
                         let r = self.node_fillet_radius_world(n);
                         let label = format!("{} u", atlas_shell::selection_tools::number(r));
@@ -5845,10 +5838,10 @@ impl SlateApp {
                 if let Some(wd) = self.try_begin_wire_drag(screen, world, mods) {
                     return Some(BoardDrag::Wire(wd));
                 }
-                if let Some(drag) = self.begin_transform_drag(screen, world) {
+                if let Some(drag) = self.begin_fillet_drag(screen) {
                     return Some(drag);
                 }
-                if let Some(drag) = self.begin_fillet_drag(screen) {
+                if let Some(drag) = self.begin_transform_drag(screen, world) {
                     return Some(drag);
                 }
                 // Dragging inside an unlocked 3D viewport orbits its camera
@@ -6544,13 +6537,26 @@ impl SlateApp {
             }
             Some(BoardDrag::FilletRadius { id, before }) => {
                 let node_id = *id;
+                let before = before.clone();
+                let image_path = match &before.kind {
+                    NodeKind::Image(i) => {
+                        self.viewed_doc().item(i.item).map(|it| it.path.clone())
+                    }
+                    _ => None,
+                };
                 let radius = board_handles::fillet_radius_from_world_point(
                     before.rect,
                     before.rotation_deg,
                     world,
                 );
                 if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
-                    Self::apply_fillet_radius_world(n, radius, mods.shift);
+                    SlateApp::apply_fillet_radius_to_node(
+                        n,
+                        &before,
+                        radius,
+                        mods.shift,
+                        image_path.as_deref(),
+                    );
                 }
             }
             _ => {}

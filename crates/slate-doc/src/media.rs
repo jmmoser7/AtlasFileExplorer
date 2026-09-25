@@ -15,8 +15,7 @@ use crate::scene::Corner;
 pub const TEXT_CARD_FILLET: f32 = 8.0;
 
 /// Portal frame fillet when the journal still holds [`Corner::Square`].
-/// Must stay equal to shipped `PortalFrameTokens::default().corner_radius`
-/// (`atlas-shell` / `portal_frame.corner_radius` in `ui-tokens.toml`).
+/// Same value as [`PORTAL_FRAME_DEFAULT_FILLET`] in board and artifact export.
 pub const PORTAL_FRAME_DEFAULT_FILLET: f32 = 8.0;
 
 /// Square text documents pick up [`TEXT_CARD_FILLET`]. An authored fillet or

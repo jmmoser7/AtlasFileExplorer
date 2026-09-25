@@ -11,8 +11,8 @@ pub const HANDLE_PX: f32 = 5.0;
 pub const FILLET_GRIP_PX: f32 = 4.0;
 /// Minimum inset of the fillet grip from the host corner along the diagonal.
 pub const FILLET_GRIP_MIN_INSET_PX: f32 = 10.0;
-/// Hover fill for the live fillet grip.
-pub const FILLET_GRIP_HOT: Color32 = Color32::from_rgb(210, 230, 255);
+/// Hover fill shared by the live fillet grip and crop handles.
+pub const GRIP_HANDLE_HOT: Color32 = Color32::from_rgb(210, 230, 255);
 /// Windows-style corner hit (diagonal resize).
 pub const CORNER_HIT_PX: f32 = 12.0;
 /// Windows-style edge-band hit (axis resize).
@@ -178,7 +178,7 @@ pub fn paint_crop_handles(
             ResizeHandle::Sw,
         ][i];
         let color = if hot == Some(handle) {
-            Color32::from_rgb(210, 230, 255)
+            GRIP_HANDLE_HOT
         } else {
             white
         };
@@ -202,7 +202,7 @@ pub fn paint_crop_handles(
             ResizeHandle::W,
         ][i];
         let fill = if hot == Some(edge) {
-            Color32::from_rgb(210, 230, 255)
+            GRIP_HANDLE_HOT
         } else {
             white
         };
@@ -322,7 +322,8 @@ pub fn fillet_grip_screen(
     rotation_deg: f32,
     radius_world: f32,
 ) -> Pos2 {
-    let local = [rect.x + radius_world, rect.y + radius_world];
+    let display_r = radius_world.max(FILLET_GRIP_MIN_INSET_PX);
+    let local = [rect.x + display_r, rect.y + display_r];
     let [wx, wy] = rect.rotate_point(local, rotation_deg);
     xf.w2s(Pos2::new(wx, wy))
 }
@@ -343,7 +344,7 @@ pub fn hit_test_fillet_grip(screen: Pos2, geom: &SelectionGeom, grip: Pos2) -> b
 
 pub fn paint_fillet_grip(painter: &egui::Painter, grip: Pos2, zoom: f32, ink: Color32, hot: bool) {
     let half = canvas_scale::px(FILLET_GRIP_PX, zoom);
-    let fill = if hot { FILLET_GRIP_HOT } else { Color32::WHITE };
+    let fill = if hot { GRIP_HANDLE_HOT } else { Color32::WHITE };
     painter.rect(
         Rect::from_center_size(grip, Vec2::splat(half * 2.0)),
         0.0,
@@ -711,9 +712,14 @@ mod tests {
                     let grip = fillet_grip_screen(&xf, rect, rot, r);
                     let world = xf.s2w(grip);
                     let read = fillet_radius_from_world_point(rect, rot, world);
+                    let expected = if r < FILLET_GRIP_MIN_INSET_PX {
+                        FILLET_GRIP_MIN_INSET_PX
+                    } else {
+                        r
+                    };
                     assert!(
-                        (read - r).abs() < 0.08,
-                        "w={w} h={h} rot={rot} r={r}: read {read}"
+                        (read - expected).abs() < 0.08,
+                        "w={w} h={h} rot={rot} r={r}: read {read}, expected {expected}"
                     );
                 }
             }

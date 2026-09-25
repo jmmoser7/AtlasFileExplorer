@@ -936,13 +936,7 @@ impl SlateApp {
                     .unwrap_or_else(|| {
                         slate_doc::media::portal_frame_corner(slate_doc::scene::Corner::Square)
                     });
-                let r = self
-                    .doc()
-                    .scene
-                    .node(*id)
-                    .map(|n| self.node_fillet_radius_world(n))
-                    .unwrap_or(slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET);
-                let layout = layout_portal_chrome(screen, collapsed, true, corner, r, 1.0);
+                let layout = layout_portal_chrome(screen, collapsed, true, corner, 1.0);
                 if let Some(v) = self.web.views.get_mut(id) {
                     let ppp = ctx.pixels_per_point().max(0.01);
                     v.width_px = layout.body.width() * ppp;
@@ -1407,20 +1401,8 @@ impl SlateApp {
             .unwrap_or_else(|| {
                 slate_doc::media::portal_frame_corner(slate_doc::scene::Corner::Square)
             });
-        let r = self
-            .doc()
-            .scene
-            .node(id)
-            .map(|n| self.node_fillet_radius_world(n))
-            .unwrap_or(slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET);
-        let layout = layout_portal_chrome(
-            screen,
-            self.portal_chrome_collapsed(id),
-            true,
-            corner,
-            r,
-            1.0,
-        );
+        let layout =
+            layout_portal_chrome(screen, self.portal_chrome_collapsed(id), true, corner, 1.0);
         slate_doc::scene::WorldRect::new(
             0.0,
             0.0,
@@ -2279,7 +2261,6 @@ impl SlateApp {
             self.portal_chrome_collapsed(id),
             false,
             self.node_resolved_corner(&node),
-            self.node_fillet_radius_world(&node),
             xf.z,
         );
         layout.retract_when_idle(ui.ctx(), id, true);
@@ -2482,7 +2463,6 @@ impl SlateApp {
             collapsed,
             false,
             self.node_resolved_corner(node),
-            self.node_fillet_radius_world(node),
             xf.z,
         );
         layout.retract_when_idle(ui.ctx(), node.id, self.web.focused == Some(node.id));

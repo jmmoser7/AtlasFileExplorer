@@ -384,9 +384,12 @@ duplication. New portal contracts reference these and add only deviations.
   fill (rounded rect) → contents (textured or vector, clipped to the rounded
   outline) → identity tab (when the kind has one) → stroke last. No kind
   paints the square leftover corners in the canvas fill: that mask covers a
-  frame the portal overlaps, including one with its own fill. On the canvas,
-  radius and stroke follow **P0.9** (`portal_frame.corner_radius × zoom`).
-  Maximized, radius is 0. Web portal pixels are visually full-bleed to the
+  frame the portal overlaps, including one with its own fill. Board and export
+  share the one `slate-doc` corner model (`portal_frame_corner`,
+  `PORTAL_FRAME_DEFAULT_FILLET`); on the canvas, effective radius and stroke
+  follow **P0.9** (authored corner × zoom). Host bodies that cannot
+  polygon-clip inset their axis-aligned clip by the painted radius
+  (`portal_body_content_clip`). Maximized, radius is 0. Web portal pixels are visually full-bleed to the
   frame/body outline; the invisible focused-page border hit band is
   input-only, never a bezel. A square `clip_rect` / `painter.image` of the
   AABB still **deviates** where a body has not yet been meshed to the outline.

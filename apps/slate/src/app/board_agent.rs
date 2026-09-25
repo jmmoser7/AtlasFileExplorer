@@ -6679,7 +6679,6 @@ impl SlateApp {
             false,
             false,
             self.node_resolved_corner(node),
-            self.node_fillet_radius_world(node),
             xf.z,
         );
         if layout.pointer_on_chrome(p) {
@@ -6954,7 +6953,6 @@ impl SlateApp {
             false,
             maximized,
             self.node_resolved_corner(node),
-            self.node_fillet_radius_world(node),
             xf.z,
         );
         atlas_shell::selection_tools::agent_card(painter, layout.frame, layout.radius, xf.z, {
