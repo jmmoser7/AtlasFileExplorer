@@ -538,45 +538,46 @@ fn texture_key(a: u32, b: u32) -> u64 {
     (u64::from(a) << 32) | u64::from(b)
 }
 
-/// Hue columns in the color square. RGB is piecewise linear in hue with
-/// corners at sixths, so a multiple of six puts every corner on a texel and
-/// filtering between texels draws the hue axis exactly.
-const SQUARE_HUE_STEPS: usize = 48;
-
 fn color_field(rect: Rect, zoom: f32) -> Rect {
     Rect::from_min_size(
         rect.min + Vec2::splat(5.0 * zoom),
-        Vec2::new(396.0, 86.0) * zoom,
+        Vec2::new(396.0, 70.0) * zoom,
     )
 }
 
 fn color_rail(rect: Rect, index: usize, zoom: f32) -> Rect {
     Rect::from_min_size(
-        rect.min + Vec2::new(12.0, 112.0 + index as f32 * 16.0) * zoom,
+        rect.min + Vec2::new(12.0, 96.0 + index as f32 * 16.0) * zoom,
         Vec2::new(396.0, 7.0) * zoom,
     )
 }
 
-/// Hue across the color square and value down it, for a position given as
-/// a fraction of the square from its top-left corner.
-fn square_hue_value(fraction: Vec2) -> (f32, f32) {
+/// Saturation across the color field and value down it, for a position given
+/// as a fraction of the field from its top-left corner.
+fn field_saturation_value(fraction: Vec2) -> (f32, f32) {
     (
         fraction.x.clamp(0.0, 1.0),
         (1.0 - fraction.y).clamp(0.0, 1.0),
     )
 }
 
-/// Where `hsv` sits in the color square, as a fraction from its top-left.
-fn square_fraction(hsv: egui::ecolor::Hsva) -> Vec2 {
-    Vec2::new(hsv.h, 1.0 - hsv.v)
+/// Where `hsv` sits in the color field, as a fraction from its top-left.
+fn field_fraction(hsv: egui::ecolor::Hsva) -> Vec2 {
+    Vec2::new(hsv.s, 1.0 - hsv.v)
 }
 
-/// The color square at saturation `s`: full value across the hue range on the
-/// top row, black on the bottom. RGB is linear in value, so two rows suffice.
-fn square_texels(s: f32) -> Vec<Color32> {
-    (0..=SQUARE_HUE_STEPS)
-        .map(|i| egui::ecolor::Hsva::new(i as f32 / SQUARE_HUE_STEPS as f32, s, 1.0, 1.0).into())
-        .chain(std::iter::repeat_n(Color32::BLACK, SQUARE_HUE_STEPS + 1))
+/// The color field at hue `h`: white to the full hue along the top, black
+/// along the bottom. RGB is bilinear in saturation and value, so two by two
+/// texels are exact.
+fn field_texels(h: f32) -> Vec<Color32> {
+    let hue = egui::ecolor::Hsva::new(h, 1.0, 1.0, 1.0).into();
+    vec![Color32::WHITE, hue, Color32::BLACK, Color32::BLACK]
+}
+
+/// The hue rail: the full spectrum at full saturation and value.
+fn hue_texels() -> Vec<Color32> {
+    (0..=48)
+        .map(|i| egui::ecolor::Hsva::new(i as f32 / 48.0, 1.0, 1.0, 1.0).into())
         .collect()
 }
 
@@ -748,25 +749,24 @@ pub fn color_editor(
         state.rgb = Some(rgb);
     }
     let field = color_field(rect, zoom);
-    let saturation = state.hsv.s;
-    let size = [SQUARE_HUE_STEPS + 1, 2];
+    let hue = state.hsv.h;
     let texture = state.texture(
         ui,
         "shape-color-field",
-        size,
-        u64::from(saturation.to_bits()),
-        || square_texels(saturation),
+        [2, 2],
+        u64::from(hue.to_bits()),
+        || field_texels(hue),
     );
-    texture_rect(ui, field, texture, size, 3.0 * zoom);
+    texture_rect(ui, field, texture, [2, 2], 3.0 * zoom);
     let response = ui.interact(field, ui.id().with("color_field"), Sense::click_and_drag());
     let mut rgb_changed = false;
     if response.is_pointer_button_down_on() || response.dragged() {
         if let Some(p) = response.interact_pointer_pos() {
-            (state.hsv.h, state.hsv.v) = square_hue_value((p - field.min) / field.size());
+            (state.hsv.s, state.hsv.v) = field_saturation_value((p - field.min) / field.size());
             rgb_changed = true;
         }
     }
-    let cursor = field.min + square_fraction(state.hsv) * field.size();
+    let cursor = field.min + field_fraction(state.hsv) * field.size();
     ui.painter().circle_stroke(
         cursor,
         4.0 * zoom,
@@ -843,8 +843,25 @@ pub fn color_editor(
         theme,
         false,
     );
+    let tex = state.texture(ui, "shape-hue", [49, 1], 0, hue_texels);
+    texture_rect(ui, rail(2), tex, [49, 1], 3.5 * zoom);
+    let hue_deg = (state.hsv.h * 360.0).round();
+    rgb_changed |= buffer(
+        ui,
+        ui.id().with("hue"),
+        rail(2),
+        &mut state.hsv.h,
+        hue_deg,
+        0.0..=360.0,
+        "°",
+        |v| v / 360.0,
+        |v| format!("{}°", number((v * 360.0).round())),
+        zoom,
+        theme,
+        false,
+    );
     if let Some(width) = width {
-        let r = rail(2);
+        let r = rail(3);
         ui.painter().rect_filled(r, 3.5 * zoom, theme.card_hover);
         ui.painter().line_segment(
             [r.left_center(), r.right_center()],
@@ -1933,7 +1950,25 @@ fn filter_chip_metrics(height: f32, zoom: f32) -> (f32, f32, f32) {
     (pad, inner_h, pitch)
 }
 
-/// One paint-layer chip after the filter radios (`+` or index label).
+/// Board-unit diameter of the circled `+` that adds a paint layer.
+const FILTER_ADD_DIAMETER: f32 = 9.0;
+/// Board-unit gap between the filter capsule's right end and the `+`.
+const FILTER_ADD_GAP: f32 = 6.0;
+
+/// The circled `+` that adds a paint layer: just outside the right end of
+/// the filter `capsule`, on its vertical center. Callers that route clicks
+/// by the editor rect must count this rect as editor chrome.
+pub fn filter_add_rect(capsule: Rect, zoom: f32) -> Rect {
+    let d = canvas_scale::px(FILTER_ADD_DIAMETER, zoom);
+    let gap = canvas_scale::px(FILTER_ADD_GAP, zoom);
+    Rect::from_center_size(
+        Pos2::new(capsule.right() + gap + d * 0.5, capsule.center().y),
+        Vec2::splat(d),
+    )
+}
+
+/// One paint-layer chip after the filter radios: an index label in the chip
+/// row, or (`is_add`) the circled `+` at [`filter_add_rect`].
 #[derive(Clone)]
 pub struct LayerChip {
     pub label: std::borrow::Cow<'static, str>,
@@ -2016,9 +2051,9 @@ fn filter_capsule_with_layers(
     paint_capsule(ui, rect, zoom, theme);
     let (pad, inner_h, radio_pitch) = filter_chip_metrics(rect.height(), zoom);
     let filter_count = radios.len().max(1) as f32;
-    let layer_count = layer_chips.len() as f32;
+    let layer_count = layer_chips.iter().filter(|c| !c.is_add).count() as f32;
     const LAYER_CHIP_GAP: f32 = 8.0;
-    let layer_gap = if layer_chips.is_empty() {
+    let layer_gap = if layer_count == 0.0 {
         0.0
     } else {
         canvas_scale::px(LAYER_CHIP_GAP, zoom)
@@ -2055,19 +2090,31 @@ fn filter_capsule_with_layers(
         );
     }
     let layer_base_x = radio_row.left() + filter_count * radio_pitch + layer_gap;
+    let mut slot = 0.0;
     for (i, chip) in layer_chips.iter().enumerate() {
+        if chip.is_add {
+            let add = filter_add_rect(rect, zoom);
+            let response = ui
+                .interact(add, ui.id().with(("layer_chip", i)), Sense::click())
+                .on_hover_text("Add paint layer");
+            if response.hovered() {
+                layer_out.hovered = Some(i);
+            }
+            if response.clicked() {
+                layer_out.clicked = Some(i);
+            }
+            paint_filter_add(ui.painter(), add, response.hovered(), zoom, theme);
+            continue;
+        }
         let center = Pos2::new(
-            layer_base_x + (i as f32 + 0.5) * radio_pitch,
+            layer_base_x + (slot + 0.5) * radio_pitch,
             radio_row.center().y,
         );
+        slot += 1.0;
         let hit = Rect::from_center_size(center, Vec2::splat(radius * 2.0));
         let response = ui
             .interact(hit, ui.id().with(("layer_chip", i)), Sense::click())
-            .on_hover_text(if chip.is_add {
-                "Add paint layer"
-            } else {
-                chip.label.as_ref()
-            });
+            .on_hover_text(chip.label.as_ref());
         if response.hovered() {
             layer_out.hovered = Some(i);
         }
@@ -2090,15 +2137,7 @@ fn filter_capsule_with_layers(
             zoom,
             theme,
         );
-        if chip.is_add {
-            ui.painter().text(
-                center,
-                Align2::CENTER_CENTER,
-                "+",
-                egui::FontId::proportional(radius * 1.1),
-                theme.ink,
-            );
-        } else if chip.thumb.is_none() {
+        if chip.thumb.is_none() {
             ui.painter().text(
                 center,
                 Align2::CENTER_CENTER,
@@ -2181,7 +2220,7 @@ fn paint_filter_radio(
         }
     }
     let ring = if selected {
-        theme.select
+        theme.accent
     } else if hovered {
         theme.ink
     } else {
@@ -2192,6 +2231,17 @@ fn paint_filter_radio(
         radius,
         Stroke::new((if selected { 1.4 } else { 0.8 }) * zoom, ring),
     );
+}
+
+fn paint_filter_add(painter: &egui::Painter, rect: Rect, hovered: bool, zoom: f32, theme: Palette) {
+    let ink = if hovered { theme.ink } else { theme.sub };
+    let stroke = Stroke::new(canvas_scale::px(0.8, zoom), ink);
+    let radius = rect.width() * 0.5;
+    painter.circle(rect.center(), radius, theme.panel, stroke);
+    let arm = radius * 0.5;
+    let c = rect.center();
+    painter.line_segment([c - Vec2::new(arm, 0.0), c + Vec2::new(arm, 0.0)], stroke);
+    painter.line_segment([c - Vec2::new(0.0, arm), c + Vec2::new(0.0, arm)], stroke);
 }
 
 #[derive(Clone, Copy, Default)]
@@ -2822,6 +2872,198 @@ mod tests {
         assert_eq!(clicked, Some(1));
     }
 
+    fn two_filter_radios() -> [FilterRadio; 2] {
+        [
+            FilterRadio {
+                label: "None",
+                fill: [210, 210, 210],
+                fill_b: None,
+                thumb: None,
+            },
+            FilterRadio {
+                label: "B&W",
+                fill: [148, 148, 148],
+                fill_b: None,
+                thumb: None,
+            },
+        ]
+    }
+
+    fn paint_layer_chips() -> Vec<LayerChip> {
+        vec![
+            LayerChip {
+                label: "1".into(),
+                thumb: None,
+                is_add: false,
+            },
+            LayerChip {
+                label: "2".into(),
+                thumb: None,
+                is_add: false,
+            },
+            LayerChip {
+                label: "+".into(),
+                thumb: None,
+                is_add: true,
+            },
+        ]
+    }
+
+    /// Runs the photo-filter editor with two filters and two paint layers,
+    /// clicking at `p`, and returns the painted shapes and edits.
+    fn filter_click(
+        p: Option<Pos2>,
+        selected: Option<usize>,
+        layer_selected: Option<usize>,
+    ) -> (Vec<egui::epaint::ClippedShape>, FilterEdit, LayerStripEdit) {
+        let ctx = egui::Context::default();
+        let rect = Rect::from_min_size(
+            Pos2::new(40.0, 40.0),
+            Vec2::new(EDITOR_WIDTH, FILTER_HEIGHT),
+        );
+        let radios = two_filter_radios();
+        let chips = paint_layer_chips();
+        let mut events = vec![vec![]];
+        if let Some(p) = p {
+            let button = |pressed| egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            events.extend([
+                vec![egui::Event::PointerMoved(p)],
+                vec![button(true)],
+                vec![button(false)],
+            ]);
+        }
+        let mut result = (Vec::new(), FilterEdit::default(), LayerStripEdit::default());
+        for events in events {
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 200.0))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            let (edit, layers) = filter_editor(
+                                ui,
+                                rect,
+                                &radios,
+                                selected,
+                                0.5,
+                                &chips,
+                                layer_selected,
+                                1.0,
+                                Palette::dark(),
+                            );
+                            if layers.clicked.is_some() || result.2.clicked.is_none() {
+                                result.2 = layers;
+                            }
+                            if edit.clicked.is_some() || result.1.clicked.is_none() {
+                                result.1 = edit;
+                            }
+                        });
+                },
+            );
+            result.0 = output.shapes;
+        }
+        result
+    }
+
+    fn filter_chip_centers() -> (Rect, Vec<Pos2>) {
+        let rect = Rect::from_min_size(
+            Pos2::new(40.0, 40.0),
+            Vec2::new(EDITOR_WIDTH, FILTER_HEIGHT),
+        );
+        let pad = rect.height() * (2.0 / CAPSULE_HEIGHT);
+        let inner_h = rect.height() * (13.0 / CAPSULE_HEIGHT);
+        let radius = inner_h * 0.36 * 0.8;
+        let pitch = radius * 2.0 + 6.0;
+        let y = rect.top() + pad + inner_h * 0.5;
+        let filters = (0..2).map(|i| Pos2::new(rect.left() + pad + (i as f32 + 0.5) * pitch, y));
+        let layers = (0..2).map(|i| {
+            Pos2::new(
+                rect.left() + pad + 2.0 * pitch + 8.0 + (i as f32 + 0.5) * pitch,
+                y,
+            )
+        });
+        (rect, filters.chain(layers).collect())
+    }
+
+    #[test]
+    fn paint_layer_add_sits_just_outside_the_capsule_right_end() {
+        let (rect, _) = filter_chip_centers();
+        let plus = Pos2::new(rect.right() + 10.5, rect.center().y);
+        let (_, edit, layers) = filter_click(Some(plus), Some(0), None);
+        assert_eq!(layers.clicked, Some(2), "the + chip is outside the capsule");
+        assert_eq!(edit.clicked, None);
+        let inside = Pos2::new(rect.right() - 4.0, rect.center().y);
+        let (_, _, layers) = filter_click(Some(inside), Some(0), None);
+        assert_ne!(layers.clicked, Some(2), "no + inside the capsule");
+    }
+
+    #[test]
+    fn filter_add_rect_is_outside_right_of_the_capsule_and_vertically_centered() {
+        let capsule = Rect::from_min_size(
+            Pos2::new(40.0, 40.0),
+            Vec2::new(EDITOR_WIDTH, FILTER_HEIGHT),
+        );
+        for z in [0.25, 1.0, 3.0] {
+            let scaled = Rect::from_min_size(capsule.min * z, capsule.size() * z);
+            let add = filter_add_rect(scaled, z);
+            assert!(add.left() > scaled.right(), "outside the right end");
+            assert!(!scaled.intersects(add));
+            assert!((add.center().y - scaled.center().y).abs() < 1e-4);
+            assert!((add.width() - add.height()).abs() < 1e-4, "circle");
+            assert!(add.height() < scaled.height() * 0.5, "small");
+            let unit = filter_add_rect(capsule, 1.0);
+            assert!((add.width() - unit.width() * z).abs() < 1e-4, "P0.9");
+            assert!(
+                (add.left() - scaled.right() - (unit.left() - capsule.right()) * z).abs() < 1e-4
+            );
+        }
+    }
+
+    #[test]
+    fn paint_layers_join_the_filter_chip_row() {
+        let (rect, centers) = filter_chip_centers();
+        for (i, center) in centers[2..].iter().enumerate() {
+            assert!(rect.contains(*center));
+            assert_eq!(center.y, centers[0].y, "same row as the filter chips");
+            let (_, edit, layers) = filter_click(Some(*center), Some(0), None);
+            assert_eq!(layers.clicked, Some(i));
+            assert_eq!(edit.clicked, None);
+        }
+    }
+
+    #[test]
+    fn only_the_active_chip_rings_in_accent() {
+        let theme = Palette::dark();
+        assert_ne!(theme.accent, theme.select);
+        let (_, centers) = filter_chip_centers();
+        let accent_rings = |shapes: &[egui::epaint::ClippedShape]| -> Vec<Pos2> {
+            shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Circle(c)
+                        if c.stroke.color == theme.accent && c.fill == Color32::TRANSPARENT =>
+                    {
+                        Some(c.center)
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let (shapes, _, _) = filter_click(None, Some(1), None);
+        assert_eq!(accent_rings(&shapes), vec![centers[1]]);
+        let (shapes, _, _) = filter_click(None, None, Some(1));
+        assert_eq!(accent_rings(&shapes), vec![centers[3]]);
+    }
+
     #[test]
     fn atlas_format_editor_reports_zoom_to_fit() {
         let ctx = egui::Context::default();
@@ -3063,30 +3305,24 @@ mod tests {
     }
 
     #[test]
-    fn square_maps_hue_across_and_value_down_at_the_current_saturation() {
-        assert_eq!(square_hue_value(Vec2::new(0.0, 0.0)), (0.0, 1.0));
-        assert_eq!(square_hue_value(Vec2::new(1.0, 1.0)), (1.0, 0.0));
-        assert_eq!(square_hue_value(Vec2::new(-0.5, 2.0)), (0.0, 0.0));
-        let (h, v) = square_hue_value(Vec2::new(0.25, 0.4));
-        assert!((h - 0.25).abs() < 1e-6 && (v - 0.6).abs() < 1e-6);
-        let back = square_fraction(Hsva::new(h, 0.5, v, 1.0));
+    fn field_maps_saturation_across_and_value_down_at_the_current_hue() {
+        assert_eq!(field_saturation_value(Vec2::new(0.0, 0.0)), (0.0, 1.0));
+        assert_eq!(field_saturation_value(Vec2::new(1.0, 1.0)), (1.0, 0.0));
+        assert_eq!(field_saturation_value(Vec2::new(-0.5, 2.0)), (0.0, 0.0));
+        let (s, v) = field_saturation_value(Vec2::new(0.25, 0.4));
+        assert!((s - 0.25).abs() < 1e-6 && (v - 0.6).abs() < 1e-6);
+        let back = field_fraction(Hsva::new(0.7, s, v, 1.0));
         assert!((back - Vec2::new(0.25, 0.4)).length() < 1e-6);
 
-        assert_eq!(SQUARE_HUE_STEPS % 6, 0, "hue corners fall on texels");
-        for s in [0.0, 0.35, 1.0] {
-            let texels = square_texels(s);
-            assert_eq!(texels.len(), (SQUARE_HUE_STEPS + 1) * 2);
-            let (top, bottom) = texels.split_at(SQUARE_HUE_STEPS + 1);
-            for (i, c) in top.iter().enumerate() {
-                let h = i as f32 / SQUARE_HUE_STEPS as f32;
-                assert_eq!(*c, Color32::from(Hsva::new(h, s, 1.0, 1.0)));
-            }
-            assert_eq!(top[0], top[SQUARE_HUE_STEPS], "both edges are red");
-            assert!(bottom.iter().all(|c| *c == Color32::BLACK));
+        for h in [0.0, 0.3, 0.8] {
+            let hue = Color32::from(Hsva::new(h, 1.0, 1.0, 1.0));
+            assert_eq!(
+                field_texels(h),
+                [Color32::WHITE, hue, Color32::BLACK, Color32::BLACK]
+            );
         }
-        assert!(square_texels(0.0)[..=SQUARE_HUE_STEPS]
-            .iter()
-            .all(|c| *c == Color32::WHITE));
+        assert_eq!(hue_texels().len(), 49);
+        assert_eq!(hue_texels()[0], hue_texels()[48], "both ends are red");
     }
 
     #[test]
@@ -3174,47 +3410,30 @@ mod tests {
     }
 
     #[test]
-    fn square_sets_hue_and_value_and_the_rail_sets_saturation() {
+    fn saturation_rail_to_gray_and_back_keeps_the_hue() {
         let mut host = Host::new([45, 212, 191, 255]);
-        let s0 = host.state.hsv.s;
-        let field = color_field(color_editor_rect(), 1.0);
+        let h0 = host.state.hsv.h;
+        let v0 = host.state.hsv.v;
         let saturation = color_rail(color_editor_rect(), 1, 1.0);
-        let at = |x: f32, y: f32| field.min + Vec2::new(x, y) * field.size();
-
-        let edit = host.press(at(0.25, 0.4));
-        let hsv = host.state.hsv;
-        assert!((hsv.h - 0.25).abs() < 1e-4 && (hsv.v - 0.6).abs() < 1e-4);
-        assert_eq!(hsv.s, s0, "the square leaves saturation alone");
-        assert_eq!(edit.rgb, Some(rgb_of(hsv)));
-        assert_eq!(edit.alpha, None);
-
         let edit = host.press(saturation.left_center());
         assert_eq!(host.state.hsv.s, 0.0);
         let [r, g, b] = edit.rgb.unwrap();
         assert!(r == g && g == b, "zero saturation is gray");
         let edit = host.press(saturation.right_center());
         assert_eq!(host.state.hsv.s, 1.0);
-        assert!((host.state.hsv.h - 0.25).abs() < 1e-4, "hue survives gray");
-        assert_eq!(
-            edit.rgb,
-            Some(rgb_of(Hsva::new(host.state.hsv.h, 1.0, 0.6, 1.0)))
-        );
-
-        let edit = host.press(at(0.25, 1.0));
-        assert_eq!(edit.rgb, Some([0, 0, 0]));
-        host.press(at(0.25, 0.5));
-        let hsv = host.state.hsv;
-        assert!(
-            (hsv.h - 0.25).abs() < 1e-4 && hsv.s == 1.0,
-            "black keeps hue and saturation"
-        );
+        assert_eq!(host.state.hsv.h, h0, "hue survives gray");
+        assert_eq!(edit.rgb, Some(rgb_of(Hsva::new(h0, 1.0, v0, 1.0))));
     }
 
     #[test]
     fn idle_frames_rebuild_no_color_textures() {
         let mut host = Host::new([45, 212, 191, 255]);
         host.run(vec![]);
-        assert_eq!(host.state.textures.len(), 3, "square, opacity, saturation");
+        assert_eq!(
+            host.state.textures.len(),
+            4,
+            "field, opacity, saturation, hue"
+        );
         let (idle, _) = host.run(vec![]);
         let font_atlas = egui::TextureId::default();
         assert!(idle
@@ -3222,6 +3441,161 @@ mod tests {
             .set
             .iter()
             .all(|(id, _)| *id == font_atlas));
+    }
+
+    #[test]
+    fn color_field_and_rails_keep_the_original_geometry() {
+        let rect = color_editor_rect();
+        let field = color_field(rect, 1.0);
+        assert_eq!(field.min, rect.min + Vec2::splat(5.0));
+        assert_eq!(field.size(), Vec2::new(396.0, 70.0));
+        for i in 0..4 {
+            let rail = color_rail(rect, i, 1.0);
+            assert_eq!(rail.min, rect.min + Vec2::new(12.0, 96.0 + i as f32 * 16.0));
+            assert_eq!(rail.size(), Vec2::new(396.0, 7.0));
+        }
+        let stroke = Rect::from_min_size(rect.min, Vec2::new(EDITOR_WIDTH, STROKE_HEIGHT));
+        assert!(color_rail(rect, 2, 1.0).bottom() < rect.bottom() - 30.0);
+        assert!(color_rail(stroke, 3, 1.0).bottom() < stroke.bottom() - 30.0);
+    }
+
+    #[test]
+    fn field_sets_saturation_across_and_value_down_at_the_current_hue() {
+        let mut host = Host::new([45, 212, 191, 255]);
+        let h0 = host.state.hsv.h;
+        let field = color_field(color_editor_rect(), 1.0);
+        let at = |x: f32, y: f32| field.min + Vec2::new(x, y) * field.size();
+
+        let edit = host.press(at(0.25, 0.4));
+        let hsv = host.state.hsv;
+        assert!((hsv.s - 0.25).abs() < 1e-4 && (hsv.v - 0.6).abs() < 1e-4);
+        assert_eq!(hsv.h, h0, "the field keeps the current hue");
+        assert_eq!(edit.rgb, Some(rgb_of(hsv)));
+        assert_eq!(edit.alpha, None);
+
+        let edit = host.press(at(1.0, 0.0));
+        assert_eq!(edit.rgb, Some(rgb_of(Hsva::new(h0, 1.0, 1.0, 1.0))));
+        let edit = host.press(at(0.0, 0.0));
+        assert_eq!(edit.rgb, Some([255, 255, 255]));
+        let edit = host.press(at(0.6, 1.0));
+        assert_eq!(edit.rgb, Some([0, 0, 0]));
+        assert_eq!(host.state.hsv.h, h0);
+    }
+
+    fn color_images(output: &egui::FullOutput) -> Vec<std::sync::Arc<egui::ColorImage>> {
+        output
+            .textures_delta
+            .set
+            .iter()
+            .filter_map(|(_, delta)| match &delta.image {
+                egui::ImageData::Color(image) => Some(image.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn field_runs_white_to_hue_and_down_to_black_and_the_hue_rail_is_the_spectrum() {
+        let ctx = egui::Context::default();
+        let mut state = ColorState::default();
+        let (output, _) = frame(&ctx, &mut state, Palette::light(), vec![]);
+        let images = color_images(&output);
+        let hue: Color32 = Hsva::new(state.hsv.h, 1.0, 1.0, 1.0).into();
+        assert!(
+            images.iter().any(|c| c.size == [2, 2]
+                && c.pixels == [Color32::WHITE, hue, Color32::BLACK, Color32::BLACK]),
+            "field: white to the current hue across, black along the bottom"
+        );
+        let spectrum: Vec<Color32> = (0..=48)
+            .map(|i| Hsva::new(i as f32 / 48.0, 1.0, 1.0, 1.0).into())
+            .collect();
+        assert!(
+            images
+                .iter()
+                .any(|c| c.size == [49, 1] && c.pixels == spectrum),
+            "hue rail is the full spectrum"
+        );
+    }
+
+    #[test]
+    fn rails_run_opacity_saturation_then_hue() {
+        let mut host = Host::new([45, 212, 191, 255]);
+        let at = |i: usize, t: f32| {
+            let r = color_rail(color_editor_rect(), i, 1.0);
+            Pos2::new(egui::lerp(r.x_range(), t), r.center().y)
+        };
+        let before = host.state.hsv;
+
+        let edit = host.press(at(0, 0.5));
+        assert!(edit.alpha.is_some_and(|a| (a as i32 - 128).abs() <= 1));
+        assert_eq!(edit.rgb, None);
+        let hsv = host.state.hsv;
+        assert_eq!((hsv.h, hsv.s, hsv.v), (before.h, before.s, before.v));
+
+        let edit = host.press(at(1, 0.25));
+        let hsv = host.state.hsv;
+        assert!((hsv.s - 0.25).abs() < 1e-3, "second rail is saturation");
+        assert_eq!((hsv.h, hsv.v), (before.h, before.v), "only S changes");
+        assert_eq!(edit.rgb, Some(rgb_of(hsv)));
+        assert_eq!(edit.alpha, None);
+
+        let edit = host.press(at(2, 0.8));
+        let after = host.state.hsv;
+        assert!((after.h - 0.8).abs() < 1e-3, "third rail is hue");
+        assert_eq!((after.s, after.v), (hsv.s, hsv.v), "only H changes");
+        assert_eq!(edit.rgb, Some(rgb_of(after)));
+    }
+
+    #[test]
+    fn stroke_width_is_the_fourth_rail() {
+        let ctx = egui::Context::default();
+        let mut state = ColorState::default();
+        let rect = Rect::from_min_size(
+            color_editor_rect().min,
+            Vec2::new(EDITOR_WIDTH, STROKE_HEIGHT),
+        );
+        let r = color_rail(rect, 3, 1.0);
+        let p = Pos2::new(egui::lerp(r.x_range(), 0.9), r.center().y);
+        let mut edits = Vec::new();
+        let button = |pressed| egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        for events in [
+            vec![],
+            vec![egui::Event::PointerMoved(p)],
+            vec![button(true)],
+            vec![button(false)],
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        edits.push(color_editor(
+                            ui,
+                            rect,
+                            [45, 212, 191, 255],
+                            Some(4.0),
+                            false,
+                            &[],
+                            &mut state,
+                            1.0,
+                            Palette::light(),
+                        ));
+                    });
+                },
+            );
+        }
+        let press = &edits[2];
+        assert!(press.width.is_some_and(|w| w > 4.0));
+        assert_eq!(press.rgb, None);
+        assert_eq!(press.alpha, None);
     }
 
     #[test]

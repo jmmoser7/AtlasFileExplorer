@@ -2633,7 +2633,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a hue-by-value color square plus opacity and saturation rails, so hue, saturation and value each have exactly one control; Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. P1.node.corner-grip appears on single-select corner-capable hosts; the Corners squircle and grip share one Corner field. Shared light/dark theme tokens apply throughout.",
+          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a saturation/value color field at the current hue, then opacity, saturation and hue rails (saturation replaced the neutral value rail, user decision 25 September 2026); Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. P1.node.corner-grip appears on single-select corner-capable hosts; the Corners squircle and grip share one Corner field. Shared light/dark theme tokens apply throughout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -4771,7 +4771,7 @@
       "canvas": "image-paint-layers-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "On a selected raster image, the photo-filter capsule gains a + circle after the filter radios. Click + to append a paint layer, select it, and arm the current drawing tool. With an image selected, activating any drawing tool (including Eraser) assumes drawing on the active layer (create one if empty). Agent pictures with a picked raster result are eligible.",
+          "behavior": "On a selected raster image, a small circled + sits just outside the right end of the photo-filter capsule. Click + to append a paint layer, select it, and arm the current drawing tool. With an image selected, activating any drawing tool (including Eraser) assumes drawing on the active layer (create one if empty). Agent pictures with a picked raster result are eligible.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -4855,7 +4855,7 @@
           "decided": null
         },
         "D13": {
-          "behavior": "Filter capsule gains layer radios and + after filter radios; same dot sizing and track thickness.",
+          "behavior": "Filter capsule gains layer circles after the filter radios, same dot sizing and track thickness; the circled + sits just outside the capsule's right end on its vertical center. Only the active chip carries the accent ring.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
