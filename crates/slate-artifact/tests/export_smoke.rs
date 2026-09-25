@@ -106,7 +106,7 @@ fn smoke_full_feature_export() {
     println!("=== HTML ===\n{html}");
 }
 
-/// 3D model nodes export their frozen-camera poster (per node â€” the same
+/// 3D model nodes export their frozen-camera poster (per node — the same
 /// model placed twice can show two perspectives); nodes without a rendered
 /// poster fall back to a labeled card. Both link to the copied original.
 #[test]
@@ -148,7 +148,7 @@ fn model_nodes_export_per_node_posters() {
         html.contains("poster-a"),
         "poster asset referenced:\n{html}"
     );
-    // Node B: no poster â†’ labeled file card, still linking to the model.
+    // Node B: no poster → labeled file card, still linking to the model.
     assert!(
         html.contains("class=\"filecard\""),
         "fallback card:\n{html}"

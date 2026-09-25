@@ -31,7 +31,7 @@ const GRIP_RADIUS: f32 = 3.0;
 /// selected connector's endpoint dots (screen px).
 pub const GRIP_HIT_PX: f32 = 8.0;
 /// Outward press-hit radius: 500% larger than [`GRIP_HIT_PX`] (six times).
-/// The extra reach is the outward half-plane only â€” inside the node the
+/// The extra reach is the outward half-plane only — inside the node the
 /// hit stays [`GRIP_HIT_PX`].
 pub const GRIP_HIT_OUT_PX: f32 = GRIP_HIT_PX * 6.0;
 /// Snap radius while dragging a wire (screen px) to a grip or edge.
@@ -87,7 +87,7 @@ fn port_point(node: &Node, side: Side, t: f32) -> Pos2 {
 
 /// Grip under the pointer. The inner disk is [`GRIP_HIT_PX`] on every side.
 /// Past that, the pointer must sit in the outward half-plane and within
-/// [`GRIP_HIT_OUT_PX`] â€” the enlargement does not reach into the node.
+/// [`GRIP_HIT_OUT_PX`] — the enlargement does not reach into the node.
 pub(crate) fn grip_hit(screen: Pos2, grip: Pos2, outward: Vec2) -> bool {
     let delta = screen - grip;
     let dist = delta.length();
@@ -156,7 +156,7 @@ pub(crate) fn connector_path_kurbo(path: &ConnectorPath) -> BezPath {
 
 /// Mesh-cache key: the *geometry* + routing + stroke + display + zoom
 /// bucket, so a moved endpoint or a style toggle invalidates the cache
-/// (Art. II â€” tessellate on change only).
+/// (Art. II — tessellate on change only).
 pub(crate) fn connector_cache_key(
     path: &ConnectorPath,
     routing: WireRouting,
@@ -176,7 +176,7 @@ pub(crate) fn connector_cache_key(
 }
 
 /// Stroke hit-test for connectors (used by the shared point pick). Skips
-/// connectors whose anchored node is hidden â€” they are not painted either.
+/// connectors whose anchored node is hidden — they are not painted either.
 pub fn hit_connector_routed(
     scene: &Scene,
     id: NodeId,
@@ -372,7 +372,7 @@ impl SlateApp {
 
     /// Per-frame grip hover: with the Select tool, only the grip whose
     /// midpoint is within the grip hit of the pointer previews (locked
-    /// nodes included â€” wires may anchor to them). An edge between grips
+    /// nodes included — wires may anchor to them). An edge between grips
     /// is inert. A node body under the pointer occludes grips behind it.
     pub(crate) fn update_wire_grips(&mut self, pointer: Option<Pos2>, xf: &BoardXf) {
         self.wire_grips = None;
@@ -468,7 +468,7 @@ impl SlateApp {
             }
         }
 
-        // Press origin on a side-midpoint grip â€” not the live hover cache.
+        // Press origin on a side-midpoint grip — not the live hover cache.
         let (node_id, side, t) = self.wire_grip_at(screen, &xf)?;
         let from = (node_id, side, t);
 
@@ -960,7 +960,7 @@ impl SlateApp {
     // ----- painting -----
 
     /// Wire-drag preview: rubber-band bezier (solid when snapped), the snap
-    /// highlight ring, and the modifier glyph (+ add / âˆ’ detach).
+    /// highlight ring, and the modifier glyph (+ add / − detach).
     pub(crate) fn paint_wire_drag(
         &self,
         painter: &egui::Painter,
@@ -1011,7 +1011,7 @@ impl SlateApp {
         }
         // Modifier glyph near the pointer.
         let glyph = if mods.ctrl && !mods.shift {
-            Some("âˆ’")
+            Some("−")
         } else if mods.shift && !mods.ctrl {
             Some("+")
         } else {
@@ -1125,7 +1125,7 @@ impl SlateApp {
     }
 
     /// Selection adornment for a connector: curve highlight + endpoint dots
-    /// (draggable â€” detach), instead of the rect outline/handles.
+    /// (draggable — detach), instead of the rect outline/handles.
     pub(crate) fn paint_connector_selection(
         &self,
         painter: &egui::Painter,
@@ -1251,7 +1251,7 @@ impl SlateApp {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     let resp = ui.add(
                         egui::TextEdit::singleline(&mut buf)
-                            .hint_text("Labelâ€¦")
+                            .hint_text("Label…")
                             .desired_width(140.0),
                     );
                     resp.request_focus();
@@ -1369,9 +1369,9 @@ mod tests {
         let a = ConnectorPath::Bezier(bez([0.0, 0.0], [100.0, 0.0]));
         let k1 = connector_cache_key(&a, WireRouting::Bezier, &stroke(), WireDisplay::Default, 8);
         let k2 = connector_cache_key(&a, WireRouting::Bezier, &stroke(), WireDisplay::Default, 8);
-        assert_eq!(k1, k2, "same geometry â†’ same key (cache hit)");
+        assert_eq!(k1, k2, "same geometry → same key (cache hit)");
 
-        // An endpoint node's rect moved â†’ different endpoint â†’ new key.
+        // An endpoint node's rect moved → different endpoint → new key.
         let moved = ConnectorPath::Bezier(bez([0.0, 0.0], [120.0, 5.0]));
         assert_ne!(
             k1,

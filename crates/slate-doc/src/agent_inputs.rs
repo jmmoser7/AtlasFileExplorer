@@ -614,7 +614,7 @@ fn shape_brief(node: &Node, shape: &ShapeNode) -> String {
         ShapeKind::Path => "path",
     };
     let mut lines = vec![format!(
-        "Sketch {kind} {:.0}Ã—{:.0} at ({:.0}, {:.0})",
+        "Sketch {kind} {:.0}×{:.0} at ({:.0}, {:.0})",
         node.rect.w, node.rect.h, node.rect.x, node.rect.y
     )];
     if let Some(text) = &shape.text {
@@ -646,7 +646,7 @@ fn path_brief(path: &PathData) -> String {
     format!(
         "path {}{}",
         body,
-        if path.segs.len() > 80 { " â€¦" } else { "" }
+        if path.segs.len() > 80 { " …" } else { "" }
     )
 }
 

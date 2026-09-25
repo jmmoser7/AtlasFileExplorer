@@ -1,7 +1,7 @@
 ﻿//! Derived connector geometry: the bezier span and an obstacle-aware
 //! orthogonal (PCB-trace) router.
 //!
-//! Geometry is never stored â€” both interpreters (the egui board painter and
+//! Geometry is never stored — both interpreters (the egui board painter and
 //! the artifact writer) call [`connector_route`] with the current [`WireHost`]
 //! pose of each anchored node and its effective [`WireRouting`]. Orthogonal
 //! paths take a 50/50 three-leg jive when that corridor is clear, then an
@@ -44,7 +44,7 @@ impl WireRouting {
     }
 }
 
-/// Corner fillet for orthogonal wires, in world units (P0.9 â€” scales with zoom).
+/// Corner fillet for orthogonal wires, in world units (P0.9 — scales with zoom).
 pub const ORTHO_CORNER_RADIUS: f32 = 8.0;
 /// Preferred gutter past a host edge, in world units.
 pub const ORTHO_CLEARANCE: f32 = 12.0;
@@ -58,8 +58,8 @@ pub const ORTHO_EXIT_GAP: f32 = 8.0;
 const LANE_LOCK: f32 = 12.0;
 
 /// One node's contribution to the orthogonal obstacle set. Collision uses
-/// the oriented silhouette (`rect` rotated by `rotation_deg`) â€” a box, or
-/// the oval when `ellipse` is set â€” not the world AABB.
+/// the oriented silhouette (`rect` rotated by `rotation_deg`) — a box, or
+/// the oval when `ellipse` is set — not the world AABB.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WireObstacle {
     pub id: NodeId,
@@ -79,7 +79,7 @@ impl WireObstacle {
     }
 }
 
-/// Derived bundle offsets for one connector. Not journaled â€” recomputed
+/// Derived bundle offsets for one connector. Not journaled — recomputed
 /// from the current scene so sibling wires stay spaced (P1.wire.rails).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct OrthoLane {
@@ -167,7 +167,7 @@ impl ConnectorPath {
     }
 }
 
-/// Visible non-connector hosts â€” the obstacle set for orthogonal routing.
+/// Visible non-connector hosts — the obstacle set for orthogonal routing.
 pub fn scene_wire_obstacles(scene: &Scene) -> Vec<WireObstacle> {
     scene
         .nodes
@@ -181,7 +181,7 @@ pub fn scene_wire_obstacles(scene: &Scene) -> Vec<WireObstacle> {
 /// that edge and take parallel mid-span rails so they do not stack.
 ///
 /// Each dest claims the fan side it already sits on (the sign of its
-/// projection on the port tangent). That is the no-crossover rule â€”
+/// projection on the port tangent). That is the no-crossover rule —
 /// an upper dest never takes the lower rail. A dead zone around the
 /// port centre keeps the sign from flipping while a dest is dragged
 /// across the mid. Connector id only breaks a true tie.
@@ -265,7 +265,7 @@ pub fn scene_ortho_lanes(scene: &Scene) -> HashMap<NodeId, OrthoLane> {
             } else if dot < -LANE_LOCK {
                 neg.push((-dot, *cid, *end_b));
             }
-            // |dot| â‰¤ LANE_LOCK: leave on the port mid. No sign to flip.
+            // |dot| ≤ LANE_LOCK: leave on the port mid. No sign to flip.
         }
         // Longest run first (File Atlas) so nested rails stay crossing-free;
         // id is the tie-break when two dests share a breadth.
@@ -485,7 +485,7 @@ pub fn connector_ortho_path(
         }
     }
 
-    // Last resort: the preferred 50/50 even if it clips â€” a visible
+    // Last resort: the preferred 50/50 even if it clips — a visible
     // wire beats a missing one.
     tiers
         .into_iter()
@@ -680,7 +680,7 @@ fn escape_stub(anchor: [f32; 2], dir: Option<[f32; 2]>, solids: &[Solid]) -> [f3
 // ---------- candidates ----------
 
 /// World units of axis dominance before we flip the 50/50 orientation.
-/// Stops the path twitching when dx â‰ˆ dy during a drag.
+/// Stops the path twitching when dx ≈ dy during a drag.
 const AXIS_LOCK: f32 = 8.0;
 
 struct PathTier {
@@ -690,7 +690,7 @@ struct PathTier {
     cands: Vec<Vec<[f32; 2]>>,
 }
 
-/// Ordered families. The first family with a clear member wins â€” stairs
+/// Ordered families. The first family with a clear member wins — stairs
 /// never compete with a legal 50/50 on cost (they share Manhattan length).
 #[allow(clippy::too_many_arguments)] // Both endpoints supply an anchor, stub and direction.
 fn path_tiers(
@@ -728,7 +728,7 @@ fn path_tiers(
     let leave_horz =
         |d: Option<[f32; 2]>| d.map(|d| d[0].abs() > d[1].abs() + 0.1).unwrap_or(false);
     // When both ends leave vertically, a vertical mid-trunk cannot
-    // swallow the stubs â€” the path reads as a 5-leg stair. Prefer the
+    // swallow the stubs — the path reads as a 5-leg stair. Prefer the
     // horizontal trunk so leave + approach collapse into three legs.
     let prefer_vhv = (leave_vert(dir_a) && leave_vert(dir_b))
         || (!(leave_horz(dir_a) && leave_horz(dir_b)) && dy > dx + AXIS_LOCK);
@@ -973,7 +973,7 @@ fn hanan_route(start: [f32; 2], end: [f32; 2], solids: &[Solid]) -> Option<Vec<[
             let euclid = (dx * dx + dy * dy).sqrt();
             let diag = dx.abs() > EPS && dy.abs() > EPS;
             let mut c = self;
-            // Diagonals are allowed when they help, but cost 1.5Ã— so a
+            // Diagonals are allowed when they help, but cost 1.5× so a
             // clear orthogonal run still wins (P1.wire.rails).
             let billed = if diag { euclid * 1.5 } else { euclid };
             c.length = c.length.saturating_add(quant(billed));
@@ -1025,8 +1025,8 @@ fn hanan_route(start: [f32; 2], end: [f32; 2], solids: &[Solid]) -> Option<Vec<[
     };
     dist[start_i] = zero;
 
-    // 8-neighbor Dijkstra: ortho first, then 45Â°. Neighbor order is the
-    // tie-break when costs compare equal â€” first parent wins.
+    // 8-neighbor Dijkstra: ortho first, then 45°. Neighbor order is the
+    // tie-break when costs compare equal — first parent wins.
     let mut heap = std::collections::BinaryHeap::new();
     heap.push(std::cmp::Reverse((zero, start_i)));
     let deltas = [
@@ -1555,7 +1555,7 @@ mod tests {
         let drawn = retreat_off_hosts(path, &ends.0, &ends.1, host_of(a, b), 4.0);
         assert!(
             drawn.start()[0] > start[0] + 3.0,
-            "right-side end should step outside the host, {:?} â†’ {:?}",
+            "right-side end should step outside the host, {:?} → {:?}",
             start,
             drawn.start()
         );
@@ -1623,7 +1623,7 @@ mod tests {
     #[test]
     fn stacked_bottom_to_bottom_wraps_hosts() {
         // B directly above A. Wire from A's base to B's base must leave A
-        // downward and wrap around â€” never climb through either rect.
+        // downward and wrap around — never climb through either rect.
         let a = WorldRect::new(0.0, 100.0, 80.0, 60.0);
         let b = WorldRect::new(0.0, 0.0, 80.0, 60.0);
         let (ea, eb) = bottom_to_bottom(a, b);
@@ -1656,7 +1656,7 @@ mod tests {
             point: [40.0, 40.0],
         };
         let pts = connector_ortho_path(&a, &b, |_| None, &[], OrthoLane::default()).unwrap();
-        // Equal travel: 50/50 HVH (vertical trunk at mid_x) â€” not an L and
+        // Equal travel: 50/50 HVH (vertical trunk at mid_x) — not an L and
         // not a stair. Right-first when the axes are tied.
         assert_eq!(
             pts,
@@ -1853,7 +1853,7 @@ mod tests {
 
     #[test]
     fn stacked_dests_do_not_cross_on_a_shared_right_port() {
-        // Upper dest gets the higher connector id â€” id-order would cross.
+        // Upper dest gets the higher connector id — id-order would cross.
         let mut scene = crate::scene::Scene::default();
         scene.nodes = vec![
             rect_node(1, WorldRect::new(0.0, 80.0, 80.0, 80.0), 0.0),
@@ -1937,7 +1937,7 @@ mod tests {
             ),
         ];
         // Two wires share A's right, but dest 2's left is only 4px above
-        // A's right-port centre (y=40 vs y=36) â€” inside LANE_LOCK.
+        // A's right-port centre (y=40 vs y=36) — inside LANE_LOCK.
         let lanes = scene_ortho_lanes(&scene);
         let near = lanes[&NodeId(10)];
         assert!(
@@ -2034,7 +2034,7 @@ mod tests {
         let a = ConnectorEnd::Free { point: [0.0, 0.0] };
         let b = ConnectorEnd::Free { point: [0.0, 80.0] };
         let pts = connector_ortho_path(&a, &b, |_| None, &[], OrthoLane::default()).unwrap();
-        // Vertical run â€” a single segment, or a midpoint jive that stays on x=0.
+        // Vertical run — a single segment, or a midpoint jive that stays on x=0.
         assert!(
             pts.iter().all(|p| (p[0] - 0.0).abs() < 0.5),
             "clear vertical corridor should stay on the line: {pts:?}"
@@ -2063,7 +2063,7 @@ mod tests {
     #[test]
     fn offset_ellipses_take_three_leg_mid_jive() {
         // Screenshot case: large oval bottom-left, small oval top-right.
-        // The AABB of each oval is fat at the corners â€” a box collider
+        // The AABB of each oval is fat at the corners — a box collider
         // would reject the 50/50 and stair around it.
         let a = WorldRect::new(40.0, 220.0, 200.0, 100.0);
         let b = WorldRect::new(280.0, 40.0, 80.0, 36.0);

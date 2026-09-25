@@ -10,7 +10,7 @@
 //! group. The pasted bitmap is a file the workbook links to, never bytes
 //! stored in the `.slate` (Art. IX).
 //!
-//! Connector rules (`docs/keymap/specs/constraints.md` Â§3):
+//! Connector rules (`docs/keymap/specs/constraints.md` §3):
 //! - connectors whose *both* anchored ends are inside the selection ride
 //!   along automatically, even when not selected themselves;
 //! - a copied connector's anchored end that points *outside* the copied set
@@ -171,7 +171,7 @@ fn payload_bounds(payload: &[Node]) -> Option<(f32, f32, f32, f32)> {
 // ---------- app-side commands ----------
 
 impl SlateApp {
-    /// Ctrl+C: payload from the board selection â†’ app clipboard + OS text.
+    /// Ctrl+C: payload from the board selection → app clipboard + OS text.
     /// Returns the number of copied nodes (0 = nothing to copy).
     pub(crate) fn board_copy(&mut self, ctx: &eframe::egui::Context) -> usize {
         let selected: HashSet<NodeId> = self.board_sel.iter().copied().collect();
@@ -556,7 +556,7 @@ fn png_within_limits(bytes: &[u8]) -> bool {
 }
 
 /// Turn a clipboard DIB, DIBV5, or BMP file into a PNG. 24- and 32-bit
-/// uncompressed bitmaps only â€” that is what screenshots and "Copy image"
+/// uncompressed bitmaps only — that is what screenshots and "Copy image"
 /// actually put on the clipboard.
 pub(crate) fn decode_clipboard_bitmap(data: &[u8]) -> Option<Vec<u8>> {
     const BI_RGB: u32 = 0;
@@ -840,7 +840,7 @@ mod tests {
         )
     }
 
-    /// Copy 2 nodes + their connector â†’ paste â†’ fresh ids, same relative
+    /// Copy 2 nodes + their connector → paste → fresh ids, same relative
     /// geometry; a connector end anchored outside the set became Free.
     #[test]
     fn payload_includes_bridging_connector_and_degrades_outside_anchor() {
@@ -855,15 +855,15 @@ mod tests {
         let (wab, wbc) = (wire_ab.id, wire_bc.id);
         scene.nodes.extend([wire_ab, wire_bc]);
 
-        // Select a, b, and the bâ†’c wire (c itself stays out).
+        // Select a, b, and the b→c wire (c itself stays out).
         let selected: HashSet<NodeId> = [ida, idb, wbc].into_iter().collect();
         let payload = clipboard_payload(&scene, &selected);
 
-        // a, b, the auto-included aâ†’b wire, and the selected bâ†’c wire.
+        // a, b, the auto-included a→b wire, and the selected b→c wire.
         let ids: HashSet<NodeId> = payload.iter().map(|n| n.id).collect();
         assert_eq!(ids, [ida, idb, wab, wbc].into_iter().collect());
 
-        // The bâ†’c wire's far end degraded to Free at c's left-mid anchor.
+        // The b→c wire's far end degraded to Free at c's left-mid anchor.
         let bc = payload.iter().find(|n| n.id == wbc).unwrap();
         let NodeKind::Connector(cn) = &bc.kind else {
             panic!("connector expected")
@@ -876,7 +876,7 @@ mod tests {
             _ => panic!("outside anchor must degrade to Free"),
         }
 
-        // The aâ†’b wire stays fully anchored.
+        // The a→b wire stays fully anchored.
         let ab = payload.iter().find(|n| n.id == wab).unwrap();
         let NodeKind::Connector(cn) = &ab.kind else {
             panic!("connector expected")
@@ -981,7 +981,7 @@ mod tests {
             -10.0,
         );
 
-        // One shared source key â†’ one shared fresh key.
+        // One shared source key → one shared fresh key.
         assert_eq!(out[0].group, out[1].group);
         assert_eq!(out[0].group, Some(GroupKey(101)));
         assert_eq!(groups, 1);
@@ -1023,7 +1023,7 @@ mod tests {
     #[test]
     fn dib_32_zero_alpha_pastes_as_opaque_color() {
         let mut dib = dib_header(1, 1, 32);
-        dib.extend_from_slice(&[0, 0, 255, 0]); // B, G, R, unused alpha â†’ red
+        dib.extend_from_slice(&[0, 0, 255, 0]); // B, G, R, unused alpha → red
         let png = decode_clipboard_bitmap(&dib).unwrap();
         assert_eq!(png_pixel(&png), [255, 0, 0, 255]);
     }
