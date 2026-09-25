@@ -8,3 +8,10 @@ description = "Format-agnostic 3D preview scenes for the Slate board viewport"
 base64 = "0.22"
 gltf = { workspace = true }
 rhino-mesh = { workspace = true }
+slate-doc = { workspace = true }
+png = "0.18"
+sha2 = "0.10"
+roxmltree = "0.21"
+image = { workspace = true }
+image-webp = "0.2"
+chrono = { workspace = true }

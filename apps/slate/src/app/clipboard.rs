@@ -371,6 +371,9 @@ impl SlateApp {
         if paths.is_empty() {
             return true;
         }
+        if on_board && self.maybe_intercept_image_drop_on_model(&paths, at) {
+            return true;
+        }
         let items = self.add_paths(&paths);
         if on_board && !items.is_empty() {
             self.place_items_on_board(&items, at);

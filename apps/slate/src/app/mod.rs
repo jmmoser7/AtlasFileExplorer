@@ -69,6 +69,7 @@ mod external_drop;
 pub mod imagefx;
 pub mod kits;
 pub mod model3d;
+mod model_screenshot;
 mod overlays;
 pub mod pdf;
 pub mod present;
@@ -232,6 +233,11 @@ pub enum PickerMsg {
     /// Workbook picked as a Slate board portal source.
     SlatePortalSource {
         portal: NodeId,
+        path: Option<PathBuf>,
+    },
+    /// Save-file result for a viewport screenshot export.
+    ModelScreenshotSave {
+        node: NodeId,
         path: Option<PathBuf>,
     },
 }
@@ -421,6 +427,8 @@ pub struct SlateApp {
     frame_hwnd: isize,
     /// Interactive 3D model viewport state (see `model3d.rs`).
     pub model3d: model3d::ModelSpace,
+    pub(crate) model_shot_popup: Option<model_screenshot::ModelScreenshotPopup>,
+    pending_view_drop: Option<model_screenshot::PendingViewDrop>,
     /// Canvas video scrub and playback. Derived; not journaled.
     video: board_video::VideoBoard,
     /// Transient smart-guide lines shown during board move/resize (cleared each frame).
@@ -786,6 +794,8 @@ impl SlateApp {
             gl: None,
             frame_hwnd: 0,
             model3d: model3d::ModelSpace::default(),
+            model_shot_popup: None,
+            pending_view_drop: None,
             video: board_video::VideoBoard::default(),
             board_snap_guides: Vec::new(),
             board_forcefield: board_forcefield::Forcefield::default(),
@@ -2096,6 +2106,10 @@ impl SlateApp {
                         portal,
                         path: Some(path),
                     } => self.bind_slate_workbook(ctx, portal, path),
+                    PickerMsg::ModelScreenshotSave {
+                        node,
+                        path: Some(path),
+                    } => self.finish_model_screenshot_save(node, path),
                     _ => {}
                 }
             }

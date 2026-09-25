@@ -50,6 +50,8 @@ enum StripItem {
     Agent(bool),
     /// Arms point-to-point measure in a 3D viewport, like Deck arms a tool.
     ModelMeasure,
+    /// Viewport screenshot export menu (pointer-attached).
+    ModelScreenshot,
 }
 
 /// Display passes offered on a 3D viewport, in strip order.
@@ -385,6 +387,7 @@ fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
         items.extend([
             StripItem::Panel(Panel::ModelDisplay),
             StripItem::ModelMeasure,
+            StripItem::ModelScreenshot,
         ]);
     }
     if nodes.len() == 1 && image_has_pages(app, &nodes[0]) {
@@ -1019,6 +1022,7 @@ impl SlateApp {
         let mut requested_frame = None;
         let mut requested_agent = None;
         let mut requested_measure = false;
+        let mut requested_screenshot = false;
         let mut captures = false;
         for (index, item) in items.iter().enumerate() {
             let r = chrome::strip_button_rect(strip, index, z);
@@ -1088,6 +1092,11 @@ impl SlateApp {
                         .first()
                         .is_some_and(|id| self.model_measuring(*id)),
                 ),
+                StripItem::ModelScreenshot => (
+                    "Screenshot: export the current viewport",
+                    Icon::View,
+                    self.model_shot_popup.is_some(),
+                ),
                 StripItem::Panel(Panel::Bumper) => (
                     "Bumper cars",
                     Icon::Bumper,
@@ -1131,6 +1140,7 @@ impl SlateApp {
                     StripItem::Frame(action) => requested_frame = Some(*action),
                     StripItem::Agent(expand) => requested_agent = Some(*expand),
                     StripItem::ModelMeasure => requested_measure = true,
+                    StripItem::ModelScreenshot => requested_screenshot = true,
                 }
             }
             captures |= ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
@@ -1181,6 +1191,16 @@ impl SlateApp {
                     CommandId("board.model_measure"),
                     Some(id.0.to_string()),
                 );
+            }
+        }
+        if requested_screenshot {
+            self.apply_shape_preview(&ctx, true);
+            self.shape_properties.number = None;
+            if let (Some(id), Some(p)) = (
+                self.shape_properties.ids.first().copied(),
+                ctx.pointer_latest_pos(),
+            ) {
+                self.open_model_screenshot_menu(id, p);
             }
         }
         // The inline editor is attached to a dimension kind, never a cached screen position.
@@ -2536,6 +2556,7 @@ mod tests {
                 StripItem::Panel(Panel::Bumper) => "bumper",
                 StripItem::Panel(Panel::ModelDisplay) => "display",
                 StripItem::ModelMeasure => "measure",
+                StripItem::ModelScreenshot => "screenshot",
                 StripItem::Frame(FrameAction::Prev) => "prev",
                 StripItem::Frame(FrameAction::Next) => "next",
                 StripItem::Frame(FrameAction::Present) => "present",
@@ -2672,7 +2693,14 @@ mod tests {
         let node = |h: &Harness, id| h.app.doc().scene.node(id).unwrap().clone();
         assert_eq!(
             item_kinds(&live_property_strip_items(&h.app, &[node(&h, tower)])),
-            ["stroke", "corners", "display", "measure", "agent"]
+            [
+                "stroke",
+                "corners",
+                "display",
+                "measure",
+                "screenshot",
+                "agent"
+            ]
         );
         // A recognized format with no reader has no viewport to drive.
         let kinds = item_kinds(&live_property_strip_items(&h.app, &[node(&h, blend)]));
@@ -2709,6 +2737,31 @@ mod tests {
             .app
             .dispatch(&h.ctx, CommandId("board.model_display"), None));
         assert_eq!(display(&h), scene::ModelDisplay::Arctic);
+    }
+
+    #[test]
+    fn view_drop_restores_camera_in_one_undo_step() {
+        let mut h = board();
+        let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);
+        let tower = model_node(&mut h, "tower.3dm", rect);
+        let before = h.app.model_node_info(tower).unwrap().cam;
+        let mut restored = before;
+        restored.yaw = before.yaw + 0.5;
+        restored.display = scene::ModelDisplay::Arctic;
+        h.app.apply_view_drop(
+            tower,
+            model_preview::view_meta::ViewMetaParsed {
+                camera: restored,
+                model_name: "tower.3dm".into(),
+                model_path: "tower.3dm".into(),
+                model_hash: String::new(),
+                model_size: 0,
+                node_id: tower.0,
+            },
+        );
+        assert_eq!(h.app.model_node_info(tower).unwrap().cam, restored);
+        h.app.board_undo();
+        assert_eq!(h.app.model_node_info(tower).unwrap().cam, before);
     }
 
     fn pdf_node(h: &mut Harness, rect: WorldRect) -> NodeId {

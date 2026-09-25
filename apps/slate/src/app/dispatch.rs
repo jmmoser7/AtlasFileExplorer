@@ -212,6 +212,29 @@ impl SlateApp {
                 };
                 node.is_some_and(|id| self.toggle_model_measure(id))
             }
+            "board.model_screenshot" => self
+                .selected_model_viewport()
+                .zip(ctx.pointer_latest_pos())
+                .map(|(id, p)| {
+                    self.open_model_screenshot_menu(id, p);
+                    true
+                })
+                .unwrap_or(false),
+            "board.model_screenshot_canvas" => self
+                .selected_model_viewport()
+                .map(|id| {
+                    self.export_model_screenshot_canvas(id);
+                    true
+                })
+                .unwrap_or(false),
+            "board.model_screenshot_save" => self
+                .selected_model_viewport()
+                .map(|id| {
+                    self.export_model_screenshot_dialog(id);
+                    true
+                })
+                .unwrap_or(false),
+            "board.model_view_restore" => false,
             "board.media.unbundle" => {
                 let (node, focus) = if let Some(detail) = detail.as_deref() {
                     let mut parts = detail.split(':');

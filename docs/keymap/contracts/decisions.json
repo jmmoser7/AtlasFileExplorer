@@ -236,7 +236,7 @@
           "decided": "2026-09-15"
         },
         "D13": {
-          "behavior": "P1.node.transform. Reuse existing image/PDF selection. A 3D model node paints only its render (or its gap card), as clean as a picture: no file-type badge (on the board or in the HTML export, which keeps the poster and the link), no padlock, no in-viewport tool strip. A single selected mesh model adds two squircles to the shared selection strip (P1.shape.properties): Viewport display (Model cube) opens one segmented default capsule with Shaded, Arctic, Material mask and Z-buffer; Measure (Ruler) is an action that stays highlighted while armed, like Deck. Enscape standalones and formats with no reader show neither.",
+          "behavior": "P1.node.transform. Reuse existing image/PDF selection. A 3D model node paints only its render (or its gap card), as clean as a picture: no file-type badge (on the board or in the HTML export, which keeps the poster and the link), no padlock, no in-viewport tool strip. A single selected mesh model adds three squircles to the shared selection strip (P1.shape.properties): Viewport display (Model cube) opens one segmented default capsule with Shaded, Arctic, Material mask and Z-buffer; Measure (Ruler) is an action that stays highlighted while armed, like Deck; Screenshot (View) opens the export menu (D18). Enscape standalones and formats with no reader show neither.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -250,10 +250,31 @@
           "decided": "2026-09-25"
         },
         "D15": {
-          "behavior": "PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. No new 3D formats in this change. JPG and other supported image formats remain native previews. The board video viewer does not edit a timeline, cut clips, play audio, or shuttle with JKL. Photo filters on a 3D viewport, viewport screenshots with camera metadata, and switchable saved views are later work.",
+          "behavior": "PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. No new 3D formats in this change. JPG and other supported image formats remain native previews. The board video viewer does not edit a timeline, cut clips, play audio, or shuttle with JKL. Photo filters on a 3D viewport and switchable saved views (Cover-Flow style) are later work. Viewport screenshots with embedded camera metadata are in scope via D18–D20.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D18": {
+          "behavior": "Selection strip Screenshot opens a pointer-attached menu (P2) under the cursor. Export to canvas (default, centered under the pointer) renders via render_capture, writes PNG with slateview XMP under slate-outputs, links the file, and places one image node beside the model in one journaled add. Export to folder uses picker_rx / PickerMsg for PNG, JPEG, or WebP.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D19": {
+          "behavior": "One slateview XMP packet per export in model-preview::view_meta; version 1; relative modelPath; modelHash SHA-256; reject newer versions.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D20": {
+          "behavior": "Drop raster image onto 3D model restores ModelCamera from XMP as one undo step; hash mismatch toasts but still applies; missing XMP toasts and skips placement on the model.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
           "decided": "2026-09-25"
         },
         "D16": {

@@ -652,8 +652,10 @@ pub struct ModelSpace {
     /// Bounds by cache key (kept even after CPU mesh eviction — needed to
     /// resolve auto-fit cameras cheaply, e.g. for artifact export).
     pub bounds: HashMap<String, ([f32; 3], [f32; 3])>,
-    parse_tx: Sender<(String, Result<PreviewScene, String>)>,
-    parse_rx: Receiver<(String, Result<PreviewScene, String>)>,
+    /// SHA-256 hex of model file bytes, keyed by item cache key.
+    pub model_hashes: HashMap<String, String>,
+    parse_tx: Sender<(String, Option<String>, Result<PreviewScene, String>)>,
+    parse_rx: Receiver<(String, Option<String>, Result<PreviewScene, String>)>,
     /// Confirmed Enscape standalones, by item cache key. Never written into
     /// the workbook. A received file stays a normal card until this sniff
     /// finishes, and nothing here starts the program.
@@ -714,6 +716,7 @@ impl Default for ModelSpace {
             posters: HashMap::new(),
             want_poster: std::collections::HashSet::new(),
             bounds: HashMap::new(),
+            model_hashes: HashMap::new(),
             parse_tx,
             parse_rx,
             external: std::collections::HashSet::new(),
@@ -758,15 +761,19 @@ impl ModelSpace {
         let key = cache_key.to_string();
         let path = path.to_path_buf();
         std::thread::spawn(move || {
+            let hash = model_preview::view_meta::hash_file_bytes(&path).ok();
             let result = parse_with_progress(&path, &progress);
-            let _ = tx.send((key, result));
+            let _ = tx.send((key, hash, result));
         });
     }
 
     fn drain_parses(&mut self) -> bool {
         let mut any = false;
-        while let Ok((key, result)) = self.parse_rx.try_recv() {
+        while let Ok((key, hash, result)) = self.parse_rx.try_recv() {
             any = true;
+            if let Some(h) = hash {
+                self.model_hashes.insert(key.clone(), h);
+            }
             let state = match result {
                 Ok(model) => {
                     self.bounds
@@ -883,7 +890,7 @@ impl ModelSpace {
         engine.render(&gpu.model, cam, w, h)
     }
 
-    fn render_capture_image(
+    pub(crate) fn render_capture_image(
         &mut self,
         gl: &Arc<glow::Context>,
         cache_key: &str,
@@ -1158,6 +1165,7 @@ impl SlateApp {
         }
         self.queue_executable_sniffs();
         self.maintain_enscape();
+        self.maintain_view_drop();
 
         // Live viewports whose node vanished (undo, delete) just drop.
         let dead: Vec<NodeId> = self

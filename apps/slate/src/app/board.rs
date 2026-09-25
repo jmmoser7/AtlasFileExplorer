@@ -3551,7 +3551,9 @@ impl SlateApp {
         // Object chrome runs before gestures so it can capture clicks.
         let agent_controls_capture = self.agent_spawn_input(ui, &xf);
         let other_toolbar_captures = self.shape_properties_ui(ui, &xf);
-        let model_toolbar_captures = agent_controls_capture || other_toolbar_captures;
+        let shot_captures = self.paint_model_screenshot_popup(ui.ctx());
+        let model_toolbar_captures =
+            agent_controls_capture || other_toolbar_captures || shot_captures;
         self.lock_models_pressed_outside(ui, &xf, pointer, model_toolbar_captures);
 
         let now = ui.input(|i| i.time);
@@ -6143,6 +6145,19 @@ impl SlateApp {
                 ids, before, dup, ..
             }) if self.bumper.dragging() => {
                 self.bumper_release(&ids, &before, dup);
+            }
+            Some(BoardDrag::Move {
+                ids, before, dup, ..
+            }) if pointer.is_some_and(|p| {
+                let world = self.board_xf().s2w(p);
+                self.maybe_intercept_node_drop_on_model(&ids, world)
+            }) =>
+            {
+                for (id, b) in ids.iter().zip(before.iter()) {
+                    if let Some(live) = self.doc_mut().scene.node_mut(*id) {
+                        *live = b.clone();
+                    }
+                }
             }
             Some(BoardDrag::Move {
                 ids, before, dup, ..
