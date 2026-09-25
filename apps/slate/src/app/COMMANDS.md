@@ -57,7 +57,7 @@ drag the address-bar URL or a page link instead.
 | Advanced settings panel | `ui/advanced.rs` |
 | Canvas entry and camera helpers | `canvas.rs` |
 | Board gestures (tools, move/resize, Alt-drag duplicate, marquee) | `board.rs` |
-| 3D viewport gestures (orbit / pan / zoom, padlock) | `board.rs` routes into `model3d.rs` |
+| 3D viewport gestures (orbit / pan / zoom, measure picks, Esc / click-outside lock) | `board.rs` and `dispatch.rs` route into `model3d.rs` |
 | Presentation navigation | `present.rs` |
 
 ## Keymap wave 2a bindings (registry, overlays, small commands)
@@ -418,11 +418,16 @@ Camera-only — never journaled, never repeatable.
   *unlocked*: drag = orbit, Shift+drag = pan, scroll = zoom — Rhino
   semantics inside the node. **Double-click a locked viewport to unlock it**
   (double-click enters crop mode for croppable images and opens the file for
-  the remaining kinds); the padlock
-  (hover, top-right) toggles the live state too. Orbit drags also select the
+  the remaining kinds). Esc or a primary press outside the node locks it
+  again. Orbit drags also select the
   node, so its resize handles stay available while live — handle presses
   always beat orbit. Camera poses journal as one undo step when the viewport
-  locks (padlock click, 30 s idle, tab switch, present, or export).
+  locks (Esc, a click outside, 30 s idle, tab switch, present, or export).
+  The node carries no in-frame chrome: its selection strip adds **Viewport
+  display** (`board.model_display`, one undo step) and **Measure**
+  (`board.model_measure`, enters the viewport, two picks, then back to
+  Navigate). Esc inside a live viewport peels the pending point, then
+  Measure, then the shown measurements, then the viewport.
 
 ## Board portals
 
@@ -498,7 +503,7 @@ in one journal group. Without PowerPoint, place an exported PDF.
 See `docs/keymap/contracts/media.md`.
 
 
-Selection strip: squircle Fill/Stroke/Corners/Filters/Pages/Formatting (and wire) controls dispatch `board.shape.edit` / `board.wire.edit` / `portal.atlas.fit` for any node those scene helpers support — shapes, frames, text fills, portals, images and wires. File Atlas Formatting is the Display squircle and the filter+fit editor in `selection_tools`. Image Filters is the photo-filter capsule (low-resolution filtered thumbnails, hover preview, intensity slider). Frame deck/tags/images/present actions share that strip. External dimension stringers dispatch `board.shape.dimension`. Palette previews commit on icon change/outside click; an empty-canvas click also deselects. Esc cancels. Numeric dimensions edit directly in their rotated stringers and commit on Enter/outside click. RGB percentages also edit in place; slider metrics appear only during adjustment. All eyedroppers use `board.color.desktop` / the shared desktop sampler (RGB only; existing alpha preserved). Polyline, Arc and Bezier are also discoverable as `board.tool.polyline`, `board.tool.arc`, and `board.tool.bezier`, without new default shortcuts.
+Selection strip: squircle Fill/Stroke/Corners/Filters/Pages/Formatting (and wire) controls dispatch `board.shape.edit` / `board.wire.edit` / `portal.atlas.fit` for any node those scene helpers support — shapes, frames, text fills, portals, images and wires. File Atlas Formatting is the Display squircle and the filter+fit editor in `selection_tools`. Image Filters is the photo-filter capsule (low-resolution filtered thumbnails, hover preview, intensity slider). A 3D model's Viewport display and Measure squircles dispatch `board.model_display` / `board.model_measure`. Frame deck/tags/images/present actions share that strip. External dimension stringers dispatch `board.shape.dimension`. Palette previews commit on icon change/outside click; an empty-canvas click also deselects. Esc cancels. Numeric dimensions edit directly in their rotated stringers and commit on Enter/outside click. RGB percentages also edit in place; slider metrics appear only during adjustment. All eyedroppers use `board.color.desktop` / the shared desktop sampler (RGB only; existing alpha preserved). Polyline, Arc and Bezier are also discoverable as `board.tool.polyline`, `board.tool.arc`, and `board.tool.bezier`, without new default shortcuts.
 
 Agent chat titles support double-click editing (`portal.agent.rename`) across the current linear branch segment. The output handle invokes `portal.agent.continue` by click or drag; Escape cancels placement. `portal.agent.chat` presents the complete train as a single chat window per fork segment; `portal.agent.train` restores exchange cards. Bundle/expand actions appear in the shared selection toolbar only when applicable.
 

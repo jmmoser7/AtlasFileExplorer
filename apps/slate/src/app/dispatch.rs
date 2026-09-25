@@ -175,6 +175,43 @@ impl SlateApp {
                     false
                 }
             }
+            "board.model_display" => {
+                // "<node>:<mode>" from the strip; bare (palette) cycles the
+                // single selected model to its next pass.
+                let target = match detail.as_deref().and_then(|s| s.split_once(':')) {
+                    Some((node, mode)) => node
+                        .parse::<u64>()
+                        .ok()
+                        .map(slate_doc::NodeId)
+                        .zip(super::model3d::display_from_key(mode)),
+                    None => self.selected_model_viewport().and_then(|id| {
+                        let now = self.model_display_of(id)?;
+                        let next = match now {
+                            slate_doc::scene::ModelDisplay::Shaded => {
+                                slate_doc::scene::ModelDisplay::Arctic
+                            }
+                            slate_doc::scene::ModelDisplay::Arctic => {
+                                slate_doc::scene::ModelDisplay::Material
+                            }
+                            slate_doc::scene::ModelDisplay::Material => {
+                                slate_doc::scene::ModelDisplay::Depth
+                            }
+                            slate_doc::scene::ModelDisplay::Depth => {
+                                slate_doc::scene::ModelDisplay::Shaded
+                            }
+                        };
+                        Some((id, next))
+                    }),
+                };
+                target.is_some_and(|(id, mode)| self.set_model_display(id, mode))
+            }
+            "board.model_measure" => {
+                let node = match detail.as_deref() {
+                    Some(s) => s.parse::<u64>().ok().map(slate_doc::NodeId),
+                    None => self.selected_model_viewport(),
+                };
+                node.is_some_and(|id| self.toggle_model_measure(id))
+            }
             "board.media.unbundle" => {
                 let (node, focus) = if let Some(detail) = detail.as_deref() {
                     let mut parts = detail.split(':');
@@ -905,6 +942,11 @@ impl SlateApp {
         }
         if self.doc().view.active_view == ViewKind::Board && self.atlas_lenses.focused.is_some() {
             return self.atlas_blur();
+        }
+        // A live 3D viewport is entered contents: its measure state, then
+        // the viewport itself, peel before the board's own layers.
+        if self.doc().view.active_view == ViewKind::Board && self.model_cancel_step() {
+            return true;
         }
         let board = self.doc().view.active_view == ViewKind::Board;
         let mut live: Vec<CancelLayer> = Vec::new();

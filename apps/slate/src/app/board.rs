@@ -3324,7 +3324,11 @@ impl SlateApp {
                     }
                     self.paint_video_chrome(painter, &xf, node);
                 }
-                if !(matches!(kind, slate_doc::MediaKind::Image) || show_excerpt) {
+                // A 3D model card is kept as clean as a picture: its render,
+                // or its gap message, says what it is.
+                let model_card =
+                    kind == slate_doc::MediaKind::Model || self.model_node_info(node.id).is_some();
+                if !(matches!(kind, slate_doc::MediaKind::Image) || show_excerpt || model_card) {
                     paint_ext_badge(painter, srect, &slate_doc::media::ext_badge(&path), z);
                 }
                 stroke_outline(painter, &outline, &img.stroke, z);
@@ -3544,11 +3548,11 @@ impl SlateApp {
         let wp = pointer.map(|p| xf.s2w(p));
         let editing_text = self.text_edit.is_some();
 
-        // Live viewport tool strip (before gestures so it can capture clicks).
+        // Object chrome runs before gestures so it can capture clicks.
         let agent_controls_capture = self.agent_spawn_input(ui, &xf);
-        let other_toolbar_captures =
-            self.shape_properties_ui(ui, &xf) || self.model_viewport_toolbar(ui.ctx(), &xf);
+        let other_toolbar_captures = self.shape_properties_ui(ui, &xf);
         let model_toolbar_captures = agent_controls_capture || other_toolbar_captures;
+        self.lock_models_pressed_outside(ui, &xf, pointer, model_toolbar_captures);
 
         let now = ui.input(|i| i.time);
         let mut canvas_nav = false;
@@ -4817,8 +4821,8 @@ impl SlateApp {
             }
         }
 
-        // 3D viewport padlocks (hover to reveal; always shown while live).
-        self.model_lock_buttons(ui, &xf);
+        // 3D viewport captions (double-click hint, measure prompt, auto-lock).
+        self.model_status_hints(ui, &xf);
         self.place_enscape_window(ui, &xf);
 
         // In-viewport measurement overlays (live only).
@@ -4930,14 +4934,12 @@ impl SlateApp {
         }
     }
 
-    /// Padlock toggle on each 3D model node: revealed on hover, pinned
-    /// while the viewport is live. Locking freezes the current camera as
-    /// the node's poster; unlocking makes the viewport interactive
-    /// (auto-locks again after 30 s idle — see `model3d::AUTO_LOCK`).
-    /// Enscape standalones skip the padlock and say to double-click.
-    fn model_lock_buttons(&mut self, ui: &mut egui::Ui, xf: &BoardXf) {
+    /// One caption along the bottom of a 3D model node. Frozen and hovered:
+    /// how to enter. Live: the measure prompt, then the auto-lock countdown
+    /// (`model3d::AUTO_LOCK`). The node carries no other in-frame chrome;
+    /// display and measure live on its selection strip.
+    fn model_status_hints(&mut self, ui: &mut egui::Ui, xf: &BoardXf) {
         let pointer = ui.ctx().pointer_latest_pos();
-        let palette = self.palette();
         for info in self.model_nodes() {
             // Hidden nodes show no chrome either.
             if self.doc().scene.node(info.node).is_none_or(|n| n.hidden) {
@@ -4962,359 +4964,45 @@ impl SlateApp {
                 self.paint_model_status_hint(ui, xf, srect, hint);
                 continue;
             }
-            let failed = self.model_failure(&info.cache_key).is_some();
-            if !live && !failed && hovered && self.board_drag.is_none() {
-                let text = if srect.width() >= 150.0 {
-                    "Double-click to enter 3D"
-                } else {
-                    "2×click: 3D"
-                };
-                self.paint_model_status_hint(ui, xf, srect, text);
-            }
-            let side = canvas_scale::px(24.0, xf.z);
-            if srect.width() < side * 2.0 || srect.height() < side * 2.0 {
-                continue; // too small on screen for an in-node button
-            }
-            let btn = Rect::from_min_size(
-                srect.right_top() + Vec2::new(-side - 6.0, 6.0),
-                Vec2::splat(side),
-            );
-            let resp = ui.interact(
-                btn,
-                egui::Id::new(("slate_model_lock", info.node.0)),
-                egui::Sense::click(),
-            );
-            let painter = ui.painter_at(self.canvas_rect);
-            let bg = if resp.hovered() {
-                Color32::from_black_alpha(200)
-            } else {
-                Color32::from_black_alpha(140)
-            };
-            painter.circle_filled(btn.center(), side * 0.5, bg);
-            canvas_text::text(
-                &painter,
-                btn.center(),
-                Align2::CENTER_CENTER,
-                if live { "🔓" } else { "🔒" },
-                canvas_scale::font(13.0, xf.z),
-                Color32::from_white_alpha(235),
-            );
-            if live {
-                // Countdown hint once the idle auto-lock gets close.
-                if let Some(vp) = self.model3d.live.get(&info.node) {
-                    let left = super::model3d::AUTO_LOCK.saturating_sub(vp.last_interact.elapsed());
-                    if left <= std::time::Duration::from_secs(10) {
-                        canvas_text::text(
-                            &painter,
-                            btn.center_bottom() + Vec2::new(0.0, canvas_scale::px(4.0, xf.z)),
-                            Align2::CENTER_TOP,
-                            format!("{}s", left.as_secs().max(1)),
-                            canvas_scale::font(10.0, xf.z),
-                            palette.accent,
-                        );
-                    }
+            if !live {
+                let failed = self.model_failure(&info.cache_key).is_some();
+                if !failed && self.board_drag.is_none() {
+                    let text = if srect.width() >= 150.0 {
+                        "Double-click to enter 3D"
+                    } else {
+                        "2×click: 3D"
+                    };
+                    self.paint_model_status_hint(ui, xf, srect, text);
                 }
+                continue;
             }
-            let hover_hint = if live {
-                "Lock the viewport — freezes this camera angle as the slide image \
-                 (auto-locks after 30 s idle)"
-            } else {
-                "Unlock the 3D viewport (or double-click it) — drag to orbit, \
-                 Shift+drag to pan, scroll to zoom"
+            let Some(vp) = self.model3d.live.get(&info.node) else {
+                continue;
             };
-            if resp.on_hover_text(hover_hint).clicked() {
-                if live {
-                    self.lock_model(info.node);
+            let left = super::model3d::AUTO_LOCK.saturating_sub(vp.last_interact.elapsed());
+            let text = if vp.tool == model3d::ModelViewportTool::MeasureDistance {
+                if vp.measure_first.is_some() {
+                    "Pick the second point".to_string()
                 } else {
-                    self.unlock_model(info.node);
+                    "Pick two points to measure".to_string()
                 }
-            }
+            } else if left <= std::time::Duration::from_secs(10) && vp.rendered.is_some() {
+                format!("Freezes in {} s", left.as_secs().max(1))
+            } else {
+                continue;
+            };
+            self.paint_model_status_hint(ui, xf, srect, &text);
         }
     }
 
-    /// Miro-inspired expandable tool strip on the left edge of each live
-    /// viewport. Collapsed: rounded tab with a chevron; expanded: vertical
-    /// icon palette with hover submenus (measure types).
-    ///
-    /// Returns `true` when the pointer is over any tool strip. Clicks and
-    /// drawing defer to the strip. Wheel and pan still move the camera.
-    fn model_viewport_toolbar(&mut self, ctx: &egui::Context, xf: &BoardXf) -> bool {
-        let palette = self.palette();
-        let ink = palette.ink;
-        let accent = palette.accent;
-        let hover_fill = palette.card_hover;
-        let selected_fill = palette.accent.gamma_multiply(0.22);
-        let live_ids: Vec<NodeId> = self.model3d.live.keys().copied().collect();
-        let mut captures = false;
-
-        for id in live_ids {
-            let Some(n) = self.doc().scene.node(id).cloned() else {
-                continue;
-            };
-            let srect = xf.rect_w2s(n.rect);
-            if !srect.intersects(self.canvas_rect) {
-                continue;
-            }
-            let min_side = 28.0f32;
-            if srect.width() < min_side * 3.0 || srect.height() < min_side * 2.0 {
-                continue;
-            }
-
-            let expanded = self
-                .model3d
-                .live
-                .get(&id)
-                .map(|vp| vp.toolbar_expanded)
-                .unwrap_or(false);
-            let tool = self
-                .model3d
-                .live
-                .get(&id)
-                .map(|vp| vp.tool)
-                .unwrap_or(model3d::ModelViewportTool::Navigate);
-
-            let tab = if expanded {
-                Vec2::new(36.0, 96.0)
-            } else {
-                Vec2::splat(28.0)
-            };
-            let anchor = srect.min + Vec2::new(6.0, 6.0);
-
-            let mut pick_tool: Option<model3d::ModelViewportTool> = None;
-            let mut pick_display: Option<slate_doc::scene::ModelDisplay> = None;
-            let mut toggle_expand = false;
-            let mut clear_measures = false;
-
-            let area_resp = egui::Area::new(egui::Id::new(("slate_model_vptools", id.0)))
-                .fixed_pos(anchor)
-                .order(egui::Order::Foreground)
-                .interactable(true)
-                .show(ctx, |ui| {
-                    egui::Frame::popup(ui.style())
-                        .fill(palette.card)
-                        .corner_radius(egui::CornerRadius {
-                            nw: 8,
-                            ne: 2,
-                            sw: 8,
-                            se: 2,
-                        })
-                        .show(ui, |ui| {
-                            ui.set_min_size(tab);
-                            if !expanded {
-                                let resp = board_icons::tool_icon_button(
-                                    ui,
-                                    board_icons::ToolIcon::ChevronRight,
-                                    false,
-                                    ink,
-                                    accent,
-                                    hover_fill,
-                                    selected_fill,
-                                )
-                                .on_hover_text("Show viewport tools");
-                                if resp.clicked() {
-                                    toggle_expand = true;
-                                }
-                            } else {
-                                ui.vertical(|ui| {
-                                    ui.spacing_mut().item_spacing.y = 2.0;
-                                    let collapse = board_icons::tool_icon_button(
-                                        ui,
-                                        board_icons::ToolIcon::ChevronLeft,
-                                        false,
-                                        ink,
-                                        accent,
-                                        hover_fill,
-                                        selected_fill,
-                                    )
-                                    .on_hover_text("Hide tools");
-                                    if collapse.clicked() {
-                                        toggle_expand = true;
-                                    }
-
-                                    let nav_on = tool == model3d::ModelViewportTool::Navigate;
-                                    if board_icons::tool_icon_button(
-                                        ui,
-                                        board_icons::ToolIcon::Pan,
-                                        nav_on,
-                                        ink,
-                                        accent,
-                                        hover_fill,
-                                        selected_fill,
-                                    )
-                                    .on_hover_text("Navigate — drag to orbit, Shift+drag to pan, scroll to zoom")
-                                    .clicked()
-                                    {
-                                        pick_tool = Some(model3d::ModelViewportTool::Navigate);
-                                    }
-
-                                    let measure_on =
-                                        tool == model3d::ModelViewportTool::MeasureDistance;
-                                    let measure_resp = board_icons::tool_icon_button(
-                                        ui,
-                                        board_icons::ToolIcon::Ruler,
-                                        measure_on,
-                                        ink,
-                                        accent,
-                                        hover_fill,
-                                        selected_fill,
-                                    )
-                                    .on_hover_text("Measure")
-                                    .on_hover_ui(|ui| {
-                                        ui.set_min_width(160.0);
-                                        ui.label(
-                                            egui::RichText::new("Measurement")
-                                                .small()
-                                                .strong(),
-                                        );
-                                        ui.separator();
-                                        if board_icons::tool_menu_row(
-                                            ui,
-                                            board_icons::ToolIcon::Ruler,
-                                            "Point to point",
-                                            None,
-                                            measure_on,
-                                            ink,
-                                            palette.sub,
-                                        )
-                                        .on_hover_text(
-                                            "Rhino Distance — pick two points on the model",
-                                        )
-                                        .clicked()
-                                        {
-                                            pick_tool =
-                                                Some(model3d::ModelViewportTool::MeasureDistance);
-                                        }
-                                        ui.label(
-                                            egui::RichText::new("Length · Area · Volume")
-                                                .small()
-                                                .color(palette.sub),
-                                        );
-                                        ui.label(
-                                            egui::RichText::new("Coming soon — curve/surface/volume sub-selection")
-                                                .small()
-                                                .color(palette.sub),
-                                        );
-                                    });
-                                    if measure_resp.clicked() && pick_tool.is_none() {
-                                        pick_tool =
-                                            Some(model3d::ModelViewportTool::MeasureDistance);
-                                    }
-
-                                    let display = self
-                                        .model3d
-                                        .live
-                                        .get(&id)
-                                        .map(|vp| vp.cam.display)
-                                        .unwrap_or_default();
-                                    let display_on = display != slate_doc::scene::ModelDisplay::Shaded;
-                                    let display_resp = board_icons::tool_icon_button(
-                                        ui,
-                                        board_icons::ToolIcon::Model,
-                                        display_on,
-                                        ink,
-                                        accent,
-                                        hover_fill,
-                                        selected_fill,
-                                    )
-                                    .on_hover_text("Display")
-                                    .on_hover_ui(|ui| {
-                                        ui.set_min_width(168.0);
-                                        ui.label(egui::RichText::new("Display").small().strong());
-                                        ui.separator();
-                                        for (mode, label, hint) in [
-                                            (
-                                                slate_doc::scene::ModelDisplay::Shaded,
-                                                "Shaded",
-                                                "Lit surfaces in their colors",
-                                            ),
-                                            (
-                                                slate_doc::scene::ModelDisplay::Arctic,
-                                                "Arctic",
-                                                "White clay, like Rhino Arctic",
-                                            ),
-                                            (
-                                                slate_doc::scene::ModelDisplay::Material,
-                                                "Material mask",
-                                                "Flat color per part, for segmentation",
-                                            ),
-                                            (
-                                                slate_doc::scene::ModelDisplay::Depth,
-                                                "Z-buffer",
-                                                "Near is white, far is black",
-                                            ),
-                                        ] {
-                                            if board_icons::tool_menu_row(
-                                                ui,
-                                                board_icons::ToolIcon::Model,
-                                                label,
-                                                None,
-                                                display == mode,
-                                                ink,
-                                                palette.sub,
-                                            )
-                                            .on_hover_text(hint)
-                                            .clicked()
-                                            {
-                                                pick_display = Some(mode);
-                                            }
-                                        }
-                                    });
-                                    let _ = display_resp;
-
-                                    if measure_on
-                                        && ui
-                                            .small_button("Clear")
-                                            .on_hover_text("Remove measurement overlays")
-                                            .clicked()
-                                    {
-                                        clear_measures = true;
-                                    }
-                                });
-                            }
-                        });
-                });
-
-            if area_resp.response.contains_pointer() {
-                captures = true;
-            }
-
-            if let Some(vp) = self.model3d.live.get_mut(&id) {
-                if toggle_expand {
-                    vp.toolbar_expanded = !vp.toolbar_expanded;
-                }
-                if let Some(t) = pick_tool {
-                    if vp.tool != t {
-                        vp.tool = t;
-                        vp.measure_first = None;
-                        vp.measure_preview = None;
-                    }
-                }
-                if let Some(mode) = pick_display {
-                    if vp.cam.display != mode {
-                        vp.cam.display = mode;
-                        vp.last_interact = std::time::Instant::now();
-                    }
-                }
-                if clear_measures {
-                    vp.measures.clear();
-                    vp.measure_first = None;
-                    vp.measure_preview = None;
-                }
-            }
-        }
-        captures
-    }
-
-    /// Dimension lines for point-to-point measurements (live session only).
+    /// Dimension lines for point-to-point measurements. Completed ones stay
+    /// on the live viewport after Measure returns to Navigate; lock clears them.
     fn paint_model_measurements(&self, painter: &egui::Painter, xf: &BoardXf) {
         let palette = self.palette();
         let accent = palette.accent;
         let ink = palette.ink;
 
         for (id, vp) in &self.model3d.live {
-            if vp.tool != model3d::ModelViewportTool::MeasureDistance {
-                continue;
-            }
             let Some(n) = self.doc().scene.node(*id) else {
                 continue;
             };
@@ -5369,7 +5057,7 @@ impl SlateApp {
                 let label = if vp.measure_preview.is_some() {
                     format!("{:.3}", len)
                 } else {
-                    "Pick second point".into()
+                    String::new()
                 };
                 draw_segment(a, end, &label);
             }
@@ -7424,7 +7112,8 @@ impl SlateApp {
                         return;
                     }
                     // Locked 3D viewports unlock into live navigation instead
-                    // of opening the file (padlock/auto-lock re-locks them).
+                    // of opening the file (Esc, a click outside, or auto-lock
+                    // re-locks them).
                     if slate_doc::media_kind(&path) == slate_doc::MediaKind::Model {
                         if !self.model3d.live.contains_key(&id) {
                             self.unlock_model(id);

@@ -2,7 +2,7 @@
 //!
 //! Drawn with egui strokes so they stay crisp at any DPI and match the palette.
 
-use eframe::egui::{self, Color32, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2};
+use eframe::egui::{self, Color32, Pos2, Rect, Stroke};
 
 /// Icon glyphs for toolbar buttons and hover submenus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,55 +157,6 @@ pub fn paint_tool_icon(painter: &egui::Painter, r: Rect, icon: ToolIcon, color: 
         ToolIcon::Deck => Icon::Deck,
     };
     icons::paint(painter, r, icon, color);
-}
-
-/// Square toolbar chip with a painted icon.
-pub fn tool_icon_button(
-    ui: &mut Ui,
-    icon: ToolIcon,
-    selected: bool,
-    ink: Color32,
-    accent: Color32,
-    hover_fill: Color32,
-    selected_fill: Color32,
-) -> Response {
-    let size = Vec2::splat(28.0);
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-    if ui.is_rect_visible(rect) {
-        if selected {
-            ui.painter()
-                .rect_filled(rect.shrink(1.0), 5.0, selected_fill);
-        } else if response.hovered() {
-            ui.painter().rect_filled(rect.shrink(1.0), 5.0, hover_fill);
-        }
-        let color = if selected { accent } else { ink };
-        paint_tool_icon(ui.painter(), rect.shrink(5.0), icon, color);
-    }
-    response
-}
-
-/// Submenu row: small icon + label, with an optional right-aligned dim hotkey.
-pub fn tool_menu_row(
-    ui: &mut Ui,
-    icon: ToolIcon,
-    label: &str,
-    hotkey: Option<&str>,
-    selected: bool,
-    ink: Color32,
-    sub: Color32,
-) -> Response {
-    ui.horizontal(|ui| {
-        let (icon_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
-        paint_tool_icon(ui.painter(), icon_rect.shrink(1.0), icon, ink);
-        let resp = ui.selectable_label(selected, label);
-        if let Some(key) = hotkey {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new(key).small().color(sub));
-            });
-        }
-        resp
-    })
-    .inner
 }
 
 /// Tiny bottom-right triangle marking a toolbar button that owns a flyout
