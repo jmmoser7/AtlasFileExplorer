@@ -1438,7 +1438,7 @@ impl SlateApp {
     // ----- document I/O ------------------------------------------------------
 
     pub fn open_doc_dialog(&mut self) {
-        if self.picker_rx.is_some() {
+        if self.file_dialog_pending() {
             return;
         }
         let (tx, rx) = unbounded();
@@ -1464,7 +1464,7 @@ impl SlateApp {
     }
 
     pub fn save_doc_as_dialog(&mut self) {
-        if self.picker_rx.is_some() {
+        if self.file_dialog_pending() {
             return;
         }
         let tab_id = self.tab().id;
@@ -1494,10 +1494,20 @@ impl SlateApp {
         self.pick_linked_files(Some(group));
     }
 
+    /// One native file dialog at a time. Dialogs are not owned by the window,
+    /// so an earlier one can sit behind it; say so instead of ignoring the click.
+    pub(crate) fn file_dialog_pending(&mut self) -> bool {
+        let pending = self.picker_rx.is_some();
+        if pending {
+            self.toast("Finish or close the open file dialog first");
+        }
+        pending
+    }
+
     fn pick_linked_files(&mut self, group: Option<slate_doc::media::MediaGroup>) {
         let tab_id = self.tab().id;
         let at = self.board_xf().s2w(self.canvas_rect.center());
-        if self.picker_rx.is_some() {
+        if self.file_dialog_pending() {
             return;
         }
         let (tx, rx) = unbounded();

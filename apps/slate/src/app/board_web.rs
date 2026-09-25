@@ -1952,7 +1952,7 @@ impl SlateApp {
         let Some(portal) = self.selected_web_portal() else {
             return false;
         };
-        if self.picker_rx.is_some() {
+        if self.file_dialog_pending() {
             return false;
         }
         let (tx, rx) = crossbeam_channel::unbounded();
@@ -1975,7 +1975,7 @@ impl SlateApp {
         let Some(portal) = self.selected_web_portal() else {
             return false;
         };
-        if self.picker_rx.is_some() {
+        if self.file_dialog_pending() {
             return false;
         }
         let (tx, rx) = crossbeam_channel::unbounded();

@@ -78,8 +78,18 @@ fn media_menu_has_four_registered_families() {
         ("media.video", "board.media.video"),
         ("media.text", "board.media.text"),
     ] {
+        h.app.toasts.clear();
         ui::tools::activate_flyout_id(&mut h.app, &h.ctx, icon);
         assert_eq!(h.app.cmd_history.iter().last().unwrap().id.0, command);
+        // A dialog left open behind the window blocks every family alike, and says so.
+        assert!(h.app.picker_rx.is_some());
+        assert!(
+            h.app
+                .toasts
+                .iter()
+                .any(|(m, _)| m.contains("open file dialog")),
+            "{icon}"
+        );
     }
 }
 

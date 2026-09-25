@@ -598,6 +598,11 @@ fn dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
     let circle = nodes.len() == 1
         && matches!(&nodes[0].kind,NodeKind::Shape(s) if s.shape==ShapeKind::Ellipse)
         && (local.w - local.h).abs() < local.w.max(local.h) * 1e-5;
+    let (ends, offset) = stringer_lane(
+        [pts[3], pts[2]],
+        -(pts[2] - pts[3]).normalized().rot90(),
+        [pts[0], pts[1]],
+    );
     let mut result = vec![Dimension {
         kind: if circle {
             DimensionKind::Diameter
@@ -605,18 +610,43 @@ fn dimensions(nodes: &[Node]) -> (Option<WorldRect>, Vec<Dimension>) {
             DimensionKind::Width
         },
         value: local.w,
-        ends: [pts[3], pts[2]],
-        offset: -(pts[2] - pts[3]).normalized().rot90() * chrome::STRINGER_GAP,
+        ends,
+        offset,
     }];
     if !circle {
+        let (ends, offset) = stringer_lane(
+            [pts[1], pts[2]],
+            (pts[2] - pts[1]).normalized().rot90(),
+            [pts[0], pts[3]],
+        );
         result.push(Dimension {
             kind: DimensionKind::Height,
             value: local.h,
-            ends: [pts[1], pts[2]],
-            offset: (pts[2] - pts[1]).normalized().rot90() * chrome::STRINGER_GAP,
+            ends,
+            offset,
         });
     }
     (Some(bounds), result)
+}
+
+/// Which of an axis's two parallel edges carries its stringer. `home` is the
+/// unrotated choice (local bottom for width, local right for height) and
+/// `outward` its exterior normal. On screen a mostly horizontal span sits
+/// below and a mostly vertical one to the right, so rotation never moves a
+/// stringer into the upper lane the selection strip owns. The measured axis,
+/// and so what W and H mean, never changes.
+fn stringer_lane(home: [Pos2; 2], outward: Vec2, opposite: [Pos2; 2]) -> ([Pos2; 2], Vec2) {
+    let along = home[1] - home[0];
+    let lane = if along.x.abs() >= along.y.abs() {
+        Vec2::DOWN
+    } else {
+        Vec2::RIGHT
+    };
+    if outward.dot(lane) < -1e-4 {
+        (opposite, -outward * chrome::STRINGER_GAP)
+    } else {
+        (home, outward * chrome::STRINGER_GAP)
+    }
 }
 
 impl SlateApp {
@@ -2208,6 +2238,107 @@ mod tests {
         for d in dims {
             let midpoint = d.ends[0].lerp(d.ends[1], 0.5);
             assert!((midpoint - center).dot(d.offset) > 0.0);
+        }
+    }
+
+    #[test]
+    fn rotated_frame_stringers_stay_below_and_beside_never_on_top() {
+        let mut h = board();
+        let id = frame_node(&mut h, WorldRect::new(0.0, 0.0, 612.0, 792.0));
+        for rotation in [0.0, 90.0, -90.0, 180.0, 270.0, 30.0, -30.0, 60.0, -120.0] {
+            h.app.patch_nodes(&[id], |n| n.rotation_deg = rotation);
+            let n = h.app.doc().scene.node(id).unwrap();
+            let center = Pos2::new(n.rect.center().0, n.rect.center().1);
+            let (_, dims) = dimensions(std::slice::from_ref(n));
+            assert_eq!(dims[0].kind, DimensionKind::Width, "{rotation}°");
+            assert!((dims[0].value - 612.0).abs() < 0.01, "{rotation}°");
+            assert_eq!(dims[1].kind, DimensionKind::Height, "{rotation}°");
+            assert!((dims[1].value - 792.0).abs() < 0.01, "{rotation}°");
+            for d in &dims {
+                let span = d.ends[1] - d.ends[0];
+                assert!(
+                    (span.length() - d.value).abs() < 0.01,
+                    "{rotation}° measures its own axis"
+                );
+                let midpoint = d.ends[0].lerp(d.ends[1], 0.5);
+                assert!(
+                    (midpoint - center).dot(d.offset) > 0.0,
+                    "{rotation}° exterior"
+                );
+                let lane = if span.x.abs() >= span.y.abs() {
+                    Vec2::DOWN
+                } else {
+                    Vec2::RIGHT
+                };
+                assert!(
+                    d.offset.normalized().dot(lane) > 0.7,
+                    "{rotation}° {:?}",
+                    d.kind
+                );
+            }
+        }
+        // Portrait turned to landscape: the long side's stringer sits below.
+        h.app.patch_nodes(&[id], |n| n.rotation_deg = -90.0);
+        let (_, dims) = dimensions(std::slice::from_ref(h.app.doc().scene.node(id).unwrap()));
+        assert!(dims[1].offset.y > 0.99, "height runs along the bottom");
+        assert!(dims[0].offset.x > 0.99, "width stands on the right");
+    }
+
+    /// The screenshot case: with a 223.57 × 289.326 portrait frame turned to
+    /// landscape, the 289.326 stringer was drawn along the top, through the
+    /// squircle strip. No stringer baseline may rise above the frame's visual
+    /// top edge, and no stringer's footprint (baseline, witness lines, ticks
+    /// and its 12 u label) may meet the strip rect its owner lays out.
+    #[test]
+    fn landscape_turned_frame_stringers_clear_the_property_strip() {
+        let mut h = board();
+        for (i, (w, h_)) in [(223.57, 289.326), (612.0, 792.0)].into_iter().enumerate() {
+            let id = frame_node(
+                &mut h,
+                WorldRect::new(40.0 + 2000.0 * i as f32, 60.0, w, h_),
+            );
+            for rotation in [0.0, 90.0, -90.0, 180.0, 270.0] {
+                h.app.patch_nodes(&[id], |n| n.rotation_deg = rotation);
+                let node = h.app.doc().scene.node(id).unwrap().clone();
+                let (bounds, dims) = dimensions(std::slice::from_ref(&node));
+                let bounds = bounds.unwrap();
+                let items = live_property_strip_items(&h.app, std::slice::from_ref(&node));
+                assert_eq!(items.len(), 7, "fill, stroke, corners, <, >, present, deck");
+                let strip = chrome::strip_rect(
+                    Pos2::new(bounds.x + bounds.w * 0.5, bounds.y),
+                    items.len(),
+                    1.0,
+                    1.0,
+                );
+                assert_eq!(dims.len(), 2);
+                for d in &dims {
+                    let a = d.ends[0] + d.offset;
+                    let b = d.ends[1] + d.offset;
+                    let label = format!("{w}×{h_} at {rotation}° {:?}", d.kind);
+                    assert!(
+                        a.y >= bounds.y - 0.01 && b.y >= bounds.y - 0.01,
+                        "{label} baseline above the frame"
+                    );
+                    let out = d.offset.normalized() * 4.0;
+                    let footprint =
+                        Rect::from_points(&[a, b, d.ends[0] + out, d.ends[1] + out]).expand(9.0);
+                    assert!(!footprint.intersects(strip), "{label} meets the strip");
+                }
+                let visual_w = bounds.w;
+                let across = dims
+                    .iter()
+                    .find(|d| (d.value - visual_w).abs() < 0.01)
+                    .expect("one stringer measures the visual width");
+                assert!(
+                    across.offset.y > 0.99,
+                    "{w}×{h_} at {rotation}° width is below"
+                );
+                let tall = dims.iter().find(|d| !std::ptr::eq(*d, across)).unwrap();
+                assert!(
+                    tall.offset.x > 0.99,
+                    "{w}×{h_} at {rotation}° height is right"
+                );
+            }
         }
     }
 

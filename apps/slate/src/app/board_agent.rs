@@ -6810,7 +6810,7 @@ impl SlateApp {
     }
 
     pub(crate) fn pick_agent_project(&mut self, portal: NodeId) {
-        if self.picker_rx.is_some() {
+        if self.file_dialog_pending() {
             return;
         }
         let (tx, rx) = unbounded();
