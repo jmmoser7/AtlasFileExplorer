@@ -7,6 +7,7 @@
 //! shows. PDF / PPT exports are future downstream conversions of this HTML.
 
 mod assets;
+mod paint_layers;
 mod render;
 
 use std::collections::BTreeMap;
@@ -17,6 +18,7 @@ use std::path::{Path, PathBuf};
 use slate_doc::{ItemId, SlateDoc, WireRouting};
 
 pub use assets::{read_snippet, AssetMap};
+pub use paint_layers::{paint_layers_svg, rasterize_paint_layers_svg};
 pub use render::render_html;
 
 /// Options controlling how the HTML artifact is written to disk.

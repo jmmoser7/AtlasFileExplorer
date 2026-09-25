@@ -3,7 +3,7 @@
 //! Child nodes store geometry in normalized coordinates relative to the host
 //! image rect (0..1 on each axis), so move/scale/rotate of the host carries ink.
 
-use crate::scene::{Node, NodeKind, WorldRect};
+use crate::scene::{Node, NodeId, NodeKind, WorldRect};
 use serde::{Deserialize, Serialize};
 
 /// Stable id for a paint layer on one image.
@@ -95,9 +95,41 @@ pub fn norm_point_inside_host(u: f32, v: f32) -> bool {
     (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v)
 }
 
-/// Layer strokes we support in this increment (drawing tools → shape/text).
+/// Child kinds allowed on a paint layer (drawing tools + dropped images).
 pub fn layer_node_kind_allowed(kind: &NodeKind) -> bool {
-    matches!(kind, NodeKind::Shape(_) | NodeKind::Text(_))
+    matches!(
+        kind,
+        NodeKind::Shape(_) | NodeKind::Text(_) | NodeKind::Image(_)
+    )
+}
+
+/// Where a layer-owned node lives in the scene graph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LayerNodeRef {
+    pub image: NodeId,
+    pub layer_index: usize,
+    pub node_index: usize,
+}
+
+/// Find a paint-layer child by its stable [`NodeId`].
+pub fn find_layer_node(scene: &crate::scene::Scene, id: NodeId) -> Option<LayerNodeRef> {
+    for host in &scene.nodes {
+        let NodeKind::Image(img) = &host.kind else {
+            continue;
+        };
+        for (layer_index, layer) in img.paint_layers.iter().enumerate() {
+            for (node_index, child) in layer.nodes.iter().enumerate() {
+                if child.id == id {
+                    return Some(LayerNodeRef {
+                        image: host.id,
+                        layer_index,
+                        node_index,
+                    });
+                }
+            }
+        }
+    }
+    None
 }
 
 fn to_local(px: f32, py: f32, cx: f32, cy: f32, rotation_deg: f32) -> (f32, f32) {
@@ -114,7 +146,19 @@ fn to_local(px: f32, py: f32, cx: f32, cy: f32, rotation_deg: f32) -> (f32, f32)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::{NodeId, NodeKind, ShapeKind, ShapeNode, Stroke};
+    use crate::scene::{Corner, NodeId, NodeKind, ShapeKind, ShapeNode, Stroke};
+
+    fn path_shape() -> ShapeNode {
+        ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke: Stroke::default(),
+            corner: Corner::Square,
+            flip: false,
+            path: None,
+            text: None,
+        }
+    }
 
     fn host_node() -> Node {
         let mut scene = crate::scene::Scene::default();
@@ -134,7 +178,7 @@ mod tests {
             shape: ShapeKind::Rect,
             fill: None,
             stroke: Stroke::default(),
-            corner: Default::default(),
+            corner: Corner::Square,
             flip: false,
             path: None,
             text: None,
@@ -150,5 +194,70 @@ mod tests {
         let json = r#"{"item":1,"crop":{"x":0,"y":0,"w":1,"h":1}}"#;
         let img: crate::scene::ImageNode = serde_json::from_str(json).unwrap();
         assert!(img.paint_layers.is_empty());
+    }
+
+    #[test]
+    fn layer_node_kind_allows_drawing_tools_and_layer_images() {
+        use crate::scene::{FrameNode, ImageNode, Rgba, TextNode};
+        assert!(layer_node_kind_allowed(&NodeKind::Text(TextNode {
+            text: String::new(),
+            family: Default::default(),
+            size: 14.0,
+            color: Rgba([0, 0, 0, 255]),
+            align: Default::default(),
+            fill: None,
+            agent: None,
+        })));
+        for shape in [
+            ShapeKind::Path,
+            ShapeKind::Line,
+            ShapeKind::Rect,
+            ShapeKind::Ellipse,
+        ] {
+            let mut s = path_shape();
+            s.shape = shape;
+            assert!(layer_node_kind_allowed(&NodeKind::Shape(s)));
+        }
+        assert!(layer_node_kind_allowed(&NodeKind::Image(ImageNode::new(
+            crate::ItemId(1)
+        ))));
+        assert!(!layer_node_kind_allowed(&NodeKind::Frame(FrameNode {
+            title: String::new(),
+            order: 0,
+            fill: Rgba([255, 255, 255, 255]),
+            fill_authored: false,
+            assignments: Default::default(),
+            stroke: Stroke::none(),
+            corner: Corner::Square,
+        })));
+    }
+
+    #[test]
+    fn find_layer_node_locates_nested_stroke() {
+        let mut scene = crate::scene::Scene::default();
+        let host = scene.build_node(
+            WorldRect::new(10.0, 20.0, 100.0, 50.0),
+            NodeKind::Image(crate::scene::ImageNode::new(crate::ItemId(1))),
+        );
+        let host_id = host.id;
+        scene.apply(&crate::scene::SceneCmd::Add {
+            index: 0,
+            node: host,
+        });
+        let local = scene.build_node(
+            WorldRect::new(0.1, 0.1, 0.2, 0.2),
+            NodeKind::Shape(path_shape()),
+        );
+        let stroke_id = local.id;
+        let host = scene.node_mut(host_id).unwrap();
+        let NodeKind::Image(ref mut img) = host.kind else {
+            unreachable!()
+        };
+        img.paint_layers.push(PaintLayer::new(PaintLayerId(1)));
+        img.paint_layers[0].nodes.push(local);
+        let loc = find_layer_node(&scene, stroke_id).unwrap();
+        assert_eq!(loc.image, host_id);
+        assert_eq!(loc.layer_index, 0);
+        assert_eq!(loc.node_index, 0);
     }
 }

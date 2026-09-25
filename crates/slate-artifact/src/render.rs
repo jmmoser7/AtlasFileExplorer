@@ -1044,7 +1044,7 @@ fn render_file_card(
     }
 }
 
-fn render_shape(
+pub(crate) fn render_shape(
     html: &mut String,
     node: &Node,
     shape: &slate_doc::scene::ShapeNode,
@@ -1894,7 +1894,7 @@ fn push_arrow_head(html: &mut String, conn: &ConnectorNode, tip: (f32, f32), int
     html.push_str(" stroke=\"none\"></path>");
 }
 
-fn render_text(
+pub(crate) fn render_text(
     html: &mut String,
     node: &Node,
     text: &slate_doc::scene::TextNode,

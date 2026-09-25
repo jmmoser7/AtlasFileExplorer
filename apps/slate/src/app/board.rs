@@ -3303,6 +3303,7 @@ impl SlateApp {
                             self.paint_image_paint_layers(
                                 ui, painter, xf, node, img, &outline, srect, alpha, z,
                             );
+                            self.paint_image_paint_recent_colors(ui, painter, xf, node, srect);
                         }
                         None => {
                             let palette = self.palette();
@@ -4410,6 +4411,7 @@ impl SlateApp {
         // Ctrl+H feedback: just-hidden nodes ghost out over 150 ms.
         self.paint_hide_ghosts(ui, &painter, &xf);
         self.paint_context_retract(ui, &painter, &xf);
+        self.paint_image_drop_capsules(ui, &painter);
         // The search hit the camera last flew to gets a select-tint ring.
         if let Some(super::overlays::SearchHit::Node(hit)) = self.search_current_hit() {
             if let Some(n) = self.doc().scene.node(hit) {
@@ -6156,6 +6158,7 @@ impl SlateApp {
                         n.rect = r;
                     }
                 }
+                self.update_image_drop_offer(world, &ids);
             }
             Some(BoardDrag::ModelOrbit { id, last_screen }) => {
                 let id = *id;
@@ -6467,6 +6470,9 @@ impl SlateApp {
             Some(BoardDrag::Move {
                 ids, before, dup, ..
             }) => {
+                if self.try_commit_image_drop(&ids, &before) {
+                    return;
+                }
                 // Whole-node compare: a connector move also translates its
                 // Free endpoints (kind change), not just the rect.
                 let moved = ids

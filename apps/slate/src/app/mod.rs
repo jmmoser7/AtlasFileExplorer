@@ -67,6 +67,7 @@ pub mod commands;
 mod dispatch;
 mod enscape_host;
 mod external_drop;
+mod image_composite;
 pub mod imagefx;
 pub mod kits;
 pub mod model3d;
@@ -369,6 +370,7 @@ pub struct SlateApp {
     pub board_crop: Option<NodeId>,
     /// Trace-paper session: drawing tools commit into the active paint layer.
     pub(crate) image_paint: Option<board_image_layers::ImagePaintSession>,
+    pub(crate) image_drop: Option<board_image_layers::ImageDropOffer>,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
     /// Fitted sticky font sizes. Derived from text and box; not journaled.
@@ -762,6 +764,7 @@ impl SlateApp {
             board_drag: None,
             board_crop: None,
             image_paint: None,
+            image_drop: None,
             text_edit: None,
             sticky_fit: HashMap::new(),
             sheet_edit: None,

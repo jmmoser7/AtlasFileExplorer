@@ -7960,6 +7960,73 @@ fn brush_validation_images() {
 }
 
 #[test]
+fn image_paint_brush_commits_into_active_layer_not_scene() {
+    let mut h = Harness::new("image_paint_brush");
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image_id = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app.board_sel = std::iter::once(image_id).collect();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.sync_image_paint_for_tool();
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(50.0, 50.0), Pos2::new(150.0, 50.0)]);
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "stroke stays on the layer"
+    );
+    let host = h.app.doc().scene.node(image_id).unwrap();
+    let slate_doc::scene::NodeKind::Image(img) = &host.kind else {
+        panic!("image");
+    };
+    assert_eq!(img.paint_layers.len(), 1);
+    assert_eq!(img.paint_layers[0].nodes.len(), 1);
+}
+
+#[test]
+fn image_paint_eraser_spot_hits_layer_strokes() {
+    let mut h = Harness::new("image_paint_eraser");
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image_id = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app.board_sel = std::iter::once(image_id).collect();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.sync_image_paint_for_tool();
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(50.0, 50.0), Pos2::new(150.0, 50.0)]);
+    let stroke_id = h.app.doc().scene.node(image_id).unwrap();
+    let slate_doc::scene::NodeKind::Image(img) = &stroke_id.kind else {
+        panic!("image");
+    };
+    let stroke_id = img.paint_layers[0].nodes[0].id;
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.sync_image_paint_for_tool();
+    h.app.eraser_width = 30.0;
+    h.app.board_drag = Some(h.app.begin_erase(Pos2::new(100.0, 50.0), false));
+    h.app.update_erase(Pos2::new(100.0, 50.0));
+    let Some(board::BoardDrag::Erase { spot, .. }) = h.app.board_drag.take() else {
+        panic!("erase drag");
+    };
+    assert!(spot.contains(&stroke_id));
+}
+
+#[test]
 fn the_eraser_spot_erases_painted_ink_and_keeps_the_stroke() {
     let mut h = Harness::new("eraser_spot");
     h.app.set_board_tool(board::BoardTool::Brush);

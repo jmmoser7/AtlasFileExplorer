@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-09-24",
+  "updated": "2026-09-25",
   "tools": {
     "bumper-cars": {
       "status": "shipped",
@@ -4476,7 +4476,7 @@
       "canvas": "image-paint-layers-tool-contract",
       "decisions": {
         "D01": {
-          "behavior": "On a selected raster image, the photo-filter capsule gains a + circle after the filter radios. Click + to append a paint layer, select it, and arm the current drawing tool. With an image selected, activating any drawing tool assumes drawing on the active layer (create one if empty).",
+          "behavior": "On a selected raster image, the photo-filter capsule gains a + circle after the filter radios. Click + to append a paint layer, select it, and arm the current drawing tool. With an image selected, activating any drawing tool (including Eraser) assumes drawing on the active layer (create one if empty). Agent pictures with a picked raster result are eligible.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -4532,7 +4532,7 @@
           "decided": null
         },
         "D09": {
-          "behavior": "Layer chips show index glyphs; ink previews clip to crop, rotation, and fillet.",
+          "behavior": "Layer chips show index glyphs; ink previews clip to crop, rotation, and fillet. During ImagePaintSession, up to six document recent colors render as canvas-scaled circles below the image; click sets brush/tool color via ViewState.recent_colors. On agent/generator pictures, suppress prompt readout, chips, verb pill, and album strip while hosting; they return when the session ends.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -4546,7 +4546,7 @@
           "decided": null
         },
         "D11": {
-          "behavior": "Layers and opacity patch ImageNode; strokes are child nodes in normalized host space; filters affect base image only; layers composite above.",
+          "behavior": "Layers and opacity patch ImageNode; strokes are child nodes in normalized host space; Eraser affects active layer strokes only; filters affect base image only; layers composite above. Wired generator inputs use a derived PNG composite (filtered base + visible layers) written under slate-composite at send time.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -4567,14 +4567,14 @@
           "decided": null
         },
         "D14": {
-          "behavior": "Image transform carries layer geometry; replace-base-image keeps adjust, crop, and paint_layers.",
+          "behavior": "Image transform carries layer geometry; replace-base-image keeps adjust, crop, and paint_layers. Image-on-image move offers pointer-attached Replace and Add as layer capsules; release on a capsule commits; release elsewhere on the target does nothing.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
           "decided": null
         },
         "D15": {
-          "behavior": "No AI mode, generator composite, recent-colors row, image-on-image replace, or video/3D/text-card layers.",
+          "behavior": "Video/3D/text-card paint layers, layer reorder UI, and external-file drop onto image (without move capsules) remain out of scope.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -4588,7 +4588,7 @@
           "decided": null
         },
         "D17": {
-          "behavior": "Pick layer ink only inside clipped outline; Delete with layer chip selected removes layer (proposal).",
+          "behavior": "Pick layer ink only inside clipped outline; Eraser affects the active layer only; Delete with layer chip selected removes layer (proposal).",
           "source": "guess",
           "confidence": 60,
           "verdict": "proposed",

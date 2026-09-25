@@ -4535,6 +4535,7 @@ impl SlateApp {
                     *slot = clipped.clone();
                 }
             }
+            super::image_composite::replace_wired_image_slots(self, item, NodeId(item.node));
         }
     }
 
@@ -5039,6 +5040,9 @@ impl SlateApp {
         let Some(agent) = slate_doc::agent_chat::agent(node).cloned() else {
             return;
         };
+        if self.agent_picture_draw_mode(node.id) {
+            return;
+        }
         let id = node.id;
         let z = xf.z;
         let images = self.agent_images(id);
