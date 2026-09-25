@@ -48,7 +48,7 @@ Inherits: P0.* (all), P1.node, P1.shape.properties, P1.curve, P1.curve.pick, P2.
 
 ## Open questions
 
-- Layer delete affordance beyond Delete key (proposal D17).
+- Layer delete affordance beyond Delete key (D17 approved 25 September 2026 covers the Delete key only).
 - Reorder layers (explicitly out of scope but not blocked in the model).
 
 ## Implementation reuse

@@ -164,7 +164,8 @@ is searchable.
   that `supports_corners` — rectangle, frame, placed linked-media card,
   and portal frame — so the person can set a **custom fillet radius**
   by dragging (**stated** user scope). The selection-strip **Corners**
-  squircle edits the same authored `Corner` field (**stated**). Grip
+  squircle edits the same authored `Corner` field (**stated**), and it
+  appears on portal strips too (user decision 25 September 2026). Grip
   drag stores fillet radius in world units as `Corner::Rounded { radius }`
   (chamfer / percent modes stay strip-only until extended). **Proposals**
   (implementation detail, not re-litigated per contract): **single-select

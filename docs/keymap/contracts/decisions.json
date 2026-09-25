@@ -3242,10 +3242,10 @@
         },
         "D07": {
           "behavior": "Percentage corner intent persists through resize; absolute values retain the authored distance and clamp only their effective value. Mode conversion is per host and preserves the visible amount.",
-          "source": "guess",
-          "confidence": 55,
-          "verdict": "proposed",
-          "decided": null
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
         },
         "D08": {
           "behavior": "Bounding-box W/H stringers; Sides 3–12 in Corners panel when a regular polygon is selected.",
@@ -4886,8 +4886,8 @@
           "behavior": "Pick layer ink only inside clipped outline; Eraser affects the active layer only; Delete with layer chip selected removes layer via board.image.layer.delete.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-25"
         }
       }
     }

@@ -20,7 +20,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D04 | Click vs drag rule | P2.DragShape: use raw press-to-release travel in screen pixels, independent of snap displacement. | pattern | 85 |
 | D05 | Modifiers | Shift locks equal aspect (regular polygon in a square box, like square/circle). Ctrl during DragScale draws from the press point as center. Later resize is P1.node.transform, including Alt-at-press scale copies. | stated | 100 |
 | D06 | Constraints & snapping | P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority. | pattern | 85 |
-| D07 | Direction / value locks | Percentage corner intent persists through resize; absolute values retain the authored distance and clamp only their effective value. Mode conversion is per host and preserves the visible amount. | guess | 55 |
+| D07 | Direction / value locks | Percentage corner intent persists through resize; absolute values retain the authored distance and clamp only their effective value. Mode conversion is per host and preserves the visible amount. | stated | 100 |
 | D08 | Numeric / manual entry | Local width and height stringers on the bounding box; **Sides** (3–12) in the Corners panel when a regular polygon is selected. No dimensions in the toolbar. | stated | 100 |
 | D09 | Preview & readouts | P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip. | pattern | 85 |
 | D10 | Cursor | Retain existing armed-tool cursor; controls use shell hover and focus feedback. | pattern | 85 |
