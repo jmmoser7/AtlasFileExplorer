@@ -3038,11 +3038,11 @@ mod tests {
         assert_eq!(item_kinds(&property_strip_items(&[node(text)])), ["fill"]);
         assert_eq!(
             item_kinds(&property_strip_items(&[node(portal)])),
-            ["fill", "stroke"]
+            ["fill", "stroke", "corners"]
         );
         assert_eq!(
             item_kinds(&property_strip_items(&[node(atlas)])),
-            ["fill", "stroke", "format"]
+            ["fill", "stroke", "corners", "format"]
         );
         assert_eq!(
             item_kinds(&property_strip_items(&[node(shape)])),
