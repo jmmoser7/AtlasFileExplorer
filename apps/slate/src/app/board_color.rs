@@ -767,9 +767,11 @@ impl SlateApp {
             );
             return;
         }
-        let tol = board_path::FREEHAND_FIT_ERROR_PX / self.tab().cam.z.max(f32::EPSILON);
+        let zoom = self.tab().cam.z.max(f32::EPSILON);
+        let tol = board_path::FREEHAND_FIT_ERROR_PX / zoom;
+        let spacing = board_path::FREEHAND_SAMPLE_SPACING_PX / zoom;
         let flat: Vec<[f32; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
-        let bez = vector_ink::fit_polyline(&flat, tol);
+        let bez = vector_ink::fit_polyline_spaced(&flat, tol, spacing);
         let end = *points.last().expect("len >= 2");
         self.commit_brush_bez(&bez, end);
     }

@@ -3445,11 +3445,11 @@
           "decided": "2026-09-17"
         },
         "D04": {
-          "behavior": "Capture the press and final release points plus all available ordered pointer moves. Use screen-space sample spacing measured at capture, provisionally 0.5px. Do not drop event samples solely because the UI paints once per frame.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Capture press, release, and moves; keep samples ≥ ~1.75 screen px apart during drag; on release merge the final point into the last kept sample when closer than that spacing (no end hook).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D05": {
           "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
@@ -3480,11 +3480,11 @@
           "decided": "2026-09-17"
         },
         "D09": {
-          "behavior": "Keep press/release endpoints and all intermediate events separated by at least 0.5 screen px. Fitter simplification tolerance is 0.5 screen px at capture zoom; this is a tuning parameter, not a proof of a global error bound.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Fit with ~2 screen px error tolerance at capture zoom via Schneider cubics after decimation, light smoothing, and corner detection; handles clamped to chord length with anti-loop guards.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D10": {
           "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",

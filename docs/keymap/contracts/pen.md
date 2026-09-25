@@ -43,7 +43,7 @@ See [shape property editing](../specs/shape-property-editing.md) for the approve
 - Existing `draft.drag_threshold`: 4 screen px; compare unsnapped pointer travel.
 - Existing `osnap.radius` / `draft.osnap_radius`: retain the current shared tolerance and SnapKind priority.
 - `selection_toolbar.gap`: 14 world units, scaled via canvas_scale (P0.9).
-- `pen.sample_spacing_px`: 0.5 screen px; `pen.fit_error_px`: 0.5 screen px. Named constants live in board_path and atlas-shell selection_tools.
+- `pen.sample_spacing_px`: 1.75 screen px (`board_path::FREEHAND_SAMPLE_SPACING_PX`); `pen.fit_error_px`: 2 screen px (`board_path::FREEHAND_FIT_ERROR_PX`). Fitting pipeline: decimate → light smooth → corner split → Schneider cubics (`vector_ink::fit_polyline_spaced`).
 
 ## Golden paths
 
@@ -55,6 +55,8 @@ These are interaction acceptance scripts; automated coverage is listed below. Na
 - **GP4:** Undo removes one stroke; selected stroke controls never expose rectangle fillets.
 
 ## Implementation notes
+
+Pen and brush strokes share `fit_polyline_spaced` with loop guards and endpoint merge on release. Regression tests live in `crates/vector-ink/src/fit.rs`.
 
 The native selection strip is implemented in `board_properties`; shell painting and desktop sampling are shared in atlas-shell. Model corner semantics live in slate-doc and are interpreted by both board and artifact renderers. Geometry-based capability gating applies to paths whose original tool provenance is not stored.
 

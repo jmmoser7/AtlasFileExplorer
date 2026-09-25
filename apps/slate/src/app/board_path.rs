@@ -2095,8 +2095,7 @@ pub fn paint_path_draft(
                 overlay.push(PathEditAnchorPaint {
                     point: pt,
                     handle_in: (h.handle_in.length_sq() > 0.0).then(|| xf.w2s(*a + h.handle_in)),
-                    handle_out: (h.handle_out.length_sq() > 0.0)
-                        .then(|| xf.w2s(*a + h.handle_out)),
+                    handle_out: (h.handle_out.length_sq() > 0.0).then(|| xf.w2s(*a + h.handle_out)),
                     selected: true,
                     smooth_hint: false,
                     close_hint: false,
@@ -2108,9 +2107,16 @@ pub fn paint_path_draft(
 }
 
 /// Capture and fit tolerances are screen-space, independent of board zoom.
-pub const FREEHAND_SAMPLE_SPACING_PX: f32 = 0.5;
-pub const FREEHAND_FIT_ERROR_PX: f32 = 0.5;
-pub(crate) fn append_freehand_endpoint(points: &mut Vec<Pos2>, end: Pos2) {
+pub const FREEHAND_SAMPLE_SPACING_PX: f32 = 1.75;
+pub const FREEHAND_FIT_ERROR_PX: f32 = 2.0;
+pub(crate) fn append_freehand_endpoint(points: &mut Vec<Pos2>, end: Pos2, zoom: f32) {
+    let min = FREEHAND_SAMPLE_SPACING_PX / zoom.max(f32::EPSILON);
+    if let Some(last) = points.last_mut() {
+        if (*last - end).length() < min {
+            *last = end;
+            return;
+        }
+    }
     if points.last().copied() != Some(end) {
         points.push(end);
     }
@@ -2284,9 +2290,7 @@ impl SlateApp {
             self.board_path_draft
                 .as_ref()
                 .and_then(|d| match d {
-                    BoardPathDraft::Bezier { placing, .. } => {
-                        placing.map(|(_, h)| h.handle_in)
-                    }
+                    BoardPathDraft::Bezier { placing, .. } => placing.map(|(_, h)| h.handle_in),
                     _ => None,
                 })
                 .unwrap_or(Vec2::ZERO)
@@ -2314,9 +2318,11 @@ impl SlateApp {
         if points.len() < 2 {
             return;
         }
-        let tol = FREEHAND_FIT_ERROR_PX / self.tab().cam.z.max(f32::EPSILON);
+        let zoom = self.tab().cam.z.max(f32::EPSILON);
+        let tol = FREEHAND_FIT_ERROR_PX / zoom;
+        let spacing = FREEHAND_SAMPLE_SPACING_PX / zoom;
         let flat: Vec<[f32; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
-        let bez = vector_ink::fit_polyline(&flat, tol);
+        let bez = vector_ink::fit_polyline_spaced(&flat, tol, spacing);
         let (rect, data) = bezpath_to_path_data(&bez, false);
         if data.is_empty() {
             return;
@@ -2418,10 +2424,7 @@ mod tests {
             let bez = arc_through_three_points(start, mid, end);
             let flat = flatten(&bez, 0.05);
             let d = min_dist_to_polyline(mid, &flat);
-            assert!(
-                d < 1.5,
-                "through-point should lie on arc (y={y}, d={d})"
-            );
+            assert!(d < 1.5, "through-point should lie on arc (y={y}, d={d})");
             let first = flat.first().copied().unwrap();
             let last = flat.last().copied().unwrap();
             assert!((first[0] - start.x).abs() < 0.5);
@@ -2483,7 +2486,10 @@ mod tests {
         };
         let bez = bezier_anchors_to_bezpath(&[(a, smooth), (b, corner)]);
         assert!(bez.elements().len() >= 2);
-        assert!(matches!(bez.elements().last(), Some(PathEl::CurveTo(_, _, _))));
+        assert!(matches!(
+            bez.elements().last(),
+            Some(PathEl::CurveTo(_, _, _))
+        ));
     }
 
     #[test]

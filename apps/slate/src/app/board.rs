@@ -4646,7 +4646,9 @@ impl SlateApp {
             });
             let close_first = match draft {
                 board_path::BoardPathDraft::Bezier { anchors, .. } if anchors.len() >= 2 => cursor
-                    .is_some_and(|c| (c - anchors[0].0).length() * zoom <= board_snap::SNAP_SCREEN_PX),
+                    .is_some_and(|c| {
+                        (c - anchors[0].0).length() * zoom <= board_snap::SNAP_SCREEN_PX
+                    }),
                 _ => false,
             };
             board_path::paint_path_draft(
@@ -6629,11 +6631,19 @@ impl SlateApp {
                 }
             }
             Some(BoardDrag::FreehandPen { mut points, .. }) => {
-                board_path::append_freehand_endpoint(&mut points, world);
+                board_path::append_freehand_endpoint(
+                    &mut points,
+                    world,
+                    self.tabs[self.active_tab].cam.z,
+                );
                 self.finish_freehand_pen(points);
             }
             Some(BoardDrag::FreehandBrush { mut points, .. }) => {
-                board_path::append_freehand_endpoint(&mut points, world);
+                board_path::append_freehand_endpoint(
+                    &mut points,
+                    world,
+                    self.tabs[self.active_tab].cam.z,
+                );
                 self.finish_freehand_brush(points);
             }
             Some(BoardDrag::Erase {

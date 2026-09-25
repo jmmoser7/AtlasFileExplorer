@@ -70,7 +70,7 @@ pub use edit::{
     anchor_hit, anchors_from_bezpath, bezpath_from_anchors, join_endpoints, move_anchor,
     move_handle, segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
 };
-pub use fit::fit_polyline;
+pub use fit::{fit_polyline, fit_polyline_spaced};
 pub use flatten::{flatten, flatten_contours};
 pub use hit::hit_stroke;
 pub use stamp::{
