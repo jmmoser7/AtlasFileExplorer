@@ -536,12 +536,19 @@ impl SlateApp {
         let palette = self.palette();
         if let Some(bar) = layout.bar {
             let model = self.portal_tab_model(id, portal, visiting);
-            if let Some(action) = tabs::portal_tab_bar(
+            let frame_corner = if layout.radius < 0.5 {
+                tabs::PortalTabCorner::Square
+            } else if layout.corner.parameters().0 {
+                tabs::PortalTabCorner::Chamfer(layout.radius)
+            } else {
+                tabs::PortalTabCorner::Rounded(layout.radius)
+            };
+            if let Some(action) = tabs::portal_tab_bar_corner(
                 ui,
                 &palette,
                 bar,
                 layout.maximize,
-                layout.radius,
+                frame_corner,
                 id.0,
                 &model,
             ) {
@@ -958,13 +965,7 @@ mod tests {
         let painted = ctx.run(egui::RawInput::default(), |ctx| {
             let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("punch"));
             let painter = ctx.layer_painter(layer);
-            board::paint_fillet_masks(
-                &painter,
-                layout.frame,
-                layout.corner,
-                layout.zoom,
-                bg,
-            );
+            board::paint_fillet_masks(&painter, layout.frame, layout.corner, layout.zoom, bg);
         });
         assert!(
             !painted.shapes.is_empty(),

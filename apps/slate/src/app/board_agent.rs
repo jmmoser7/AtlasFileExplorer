@@ -6955,7 +6955,9 @@ impl SlateApp {
             self.node_resolved_corner(node),
             xf.z,
         );
-        atlas_shell::selection_tools::agent_card(painter, layout.frame, layout.radius, xf.z, {
+        let outline =
+            super::board::corner_outline(layout.frame, layout.corner, layout.zoom.max(0.01));
+        atlas_shell::selection_tools::agent_card_outline(painter, &outline, xf.z, {
             let mut palette = self.palette();
             if portal.agent.as_ref().is_some_and(|a| a.chat.custom_fill) {
                 palette.card = super::board::rgba32(portal.fill);
@@ -6968,12 +6970,7 @@ impl SlateApp {
             .and_then(|a| a.chat.stroke)
             .filter(|s| s.width > 0.0)
         {
-            painter.rect_stroke(
-                layout.frame,
-                layout.radius,
-                egui::Stroke::new(stroke.width * xf.z, super::board::rgba32(stroke.color)),
-                egui::StrokeKind::Inside,
-            );
+            super::board::stroke_outline(painter, &outline, &stroke, xf.z);
         }
 
         if portal.agent.as_ref().is_none_or(|a| a.provider.is_empty()) {

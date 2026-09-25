@@ -1882,14 +1882,12 @@ impl SlateApp {
                 self.board_hover_hit,
                 outline_w,
             );
-            if self.node_supports_fillet_grip(n) {
-                if let Some(grip) = self.fillet_grip_at(n, xf) {
-                    let hot = matches!(
-                        self.board_hover_hit,
-                        Some(board_handles::BoardHitTarget::FilletRadius)
-                    ) || matches!(self.board_drag, Some(BoardDrag::FilletRadius { id, .. }) if id == n.id);
-                    board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
-                }
+            if let Some(grip) = self.fillet_grip_at(n, xf) {
+                let hot = matches!(
+                    self.board_hover_hit,
+                    Some(board_handles::BoardHitTarget::FilletRadius)
+                ) || matches!(self.board_drag, Some(BoardDrag::FilletRadius { id, .. }) if id == n.id);
+                board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
             }
         } else {
             painter.add(egui::Shape::closed_line(
@@ -1927,7 +1925,7 @@ impl SlateApp {
                 let path = self.viewed_doc().item(img.item).map(|it| it.path.as_path());
                 corner_outline(srect, slate_doc::scene::resolved_corner(node, path), z)
             }
-            NodeKind::Portal(p) => corner_outline(srect, self.node_resolved_corner(node), z),
+            NodeKind::Portal(_) => corner_outline(srect, self.node_resolved_corner(node), z),
             NodeKind::DockStrip(strip) => {
                 let (card, r) = self.dock_strip_screen_card(ctx, xf, node, strip);
                 rounded_rect_outline(card, r)
@@ -1984,45 +1982,54 @@ pub(crate) fn portal_content_outline(frame: Rect, body: Rect, corner: Corner, z:
     corner_outline(clip, clip_corner, z)
 }
 
-/// Square-corner leftovers outside a rounded rect. Painted in the frame fill
-/// after contents so a square `clip_rect` cannot oversail the fillet
-/// (P1.portal.clip). Fan-triangulate from the outer corner.
-pub(crate) fn fillet_overhangs(rect: Rect, radius: f32) -> [Vec<Pos2>; 4] {
-    let half = rect.width().min(rect.height()) * 0.5;
-    let r = radius.clamp(0.0, half);
+/// Square-corner leftovers outside a treated rect. The inner boundary comes
+/// from the model's adaptive outline, so masks cannot drift from board/export
+/// geometry for chamfers or large fillets.
+pub(crate) fn fillet_overhangs(rect: Rect, corner: Corner, z: f32) -> [Vec<Pos2>; 4] {
+    let (_, world_r) = corner.effective(rect.width() / z, rect.height() / z);
+    let r = world_r * z;
     if r < 0.5 {
         return [vec![], vec![], vec![], vec![]];
     }
-    let steps = 8;
+    let outline = corner_outline(rect, corner, z);
     let corners = [
         (
-            Pos2::new(rect.max.x, rect.min.y),
-            Pos2::new(rect.max.x - r, rect.min.y + r),
-            -90.0f32,
+            rect.right_top(),
+            [rect.right() - r, rect.top(), rect.right(), rect.top() + r],
         ),
         (
-            Pos2::new(rect.max.x, rect.max.y),
-            Pos2::new(rect.max.x - r, rect.max.y - r),
-            0.0,
+            rect.right_bottom(),
+            [
+                rect.right() - r,
+                rect.bottom() - r,
+                rect.right(),
+                rect.bottom(),
+            ],
         ),
         (
-            Pos2::new(rect.min.x, rect.max.y),
-            Pos2::new(rect.min.x + r, rect.max.y - r),
-            90.0,
+            rect.left_bottom(),
+            [
+                rect.left(),
+                rect.bottom() - r,
+                rect.left() + r,
+                rect.bottom(),
+            ],
         ),
         (
-            Pos2::new(rect.min.x, rect.min.y),
-            Pos2::new(rect.min.x + r, rect.min.y + r),
-            180.0,
+            rect.left_top(),
+            [rect.left(), rect.top(), rect.left() + r, rect.top() + r],
         ),
     ];
-    corners.map(|(outer, center, a0)| {
-        let mut pts = Vec::with_capacity(steps + 2);
+    corners.map(|(outer, [left, top, right, bottom])| {
+        let mut pts = Vec::new();
         pts.push(outer);
-        for s in 0..=steps {
-            let a = (a0 + 90.0 * s as f32 / steps as f32).to_radians();
-            pts.push(center + Vec2::new(a.cos() * r, a.sin() * r));
-        }
+        pts.extend(
+            outline
+                .iter()
+                .copied()
+                .filter(|p| p.x >= left - 0.01 && p.x <= right + 0.01)
+                .filter(|p| p.y >= top - 0.01 && p.y <= bottom + 0.01),
+        );
         pts
     })
 }
@@ -2055,86 +2062,11 @@ pub(crate) fn paint_fillet_masks(
     if fill.a() == 0 {
         return;
     }
-    let (chamfer, r) = corner.effective(frame.width() / z, frame.height() / z);
-    if !chamfer {
-        if r < 0.5 {
-            return;
-        }
-        for outline in fillet_overhangs(frame, r) {
-            if outline.len() >= 3 {
-                paint_convex_fan_fill(painter, &outline, fill);
-            }
-        }
-        return;
-    }
-    let outline = corner_outline(frame, corner, z);
-    if outline.len() < 3 {
-        return;
-    }
-    let outers = [
-        frame.left_top(),
-        frame.right_top(),
-        frame.right_bottom(),
-        frame.left_bottom(),
-    ];
-    for outer in outers {
-        if point_in_convex_poly(&outline, outer) {
-            continue;
-        }
-        let wedge = chamfer_mask_wedge(outer, &outline);
-        if wedge.len() >= 3 {
-            paint_convex_fan_fill(painter, &wedge, fill);
+    for outline in fillet_overhangs(frame, corner, z) {
+        if outline.len() >= 3 {
+            paint_convex_fan_fill(painter, &outline, fill);
         }
     }
-}
-
-fn point_in_convex_poly(poly: &[Pos2], p: Pos2) -> bool {
-    if poly.len() < 3 {
-        return false;
-    }
-    let mut sign = 0.0f32;
-    for i in 0..poly.len() {
-        let a = poly[i];
-        let b = poly[(i + 1) % poly.len()];
-        let cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-        if cross.abs() < 1e-3 {
-            continue;
-        }
-        let s = cross.signum();
-        if sign == 0.0 {
-            sign = s;
-        } else if s != sign {
-            return false;
-        }
-    }
-    true
-}
-
-fn chamfer_mask_wedge(outer: Pos2, outline: &[Pos2]) -> Vec<Pos2> {
-    let mut i0 = 0usize;
-    let mut d0 = f32::MAX;
-    let mut i1 = 0usize;
-    let mut d1 = f32::MAX;
-    for (i, p) in outline.iter().enumerate() {
-        let d = (*p - outer).length_sq();
-        if d < d0 {
-            d1 = d0;
-            i1 = i0;
-            d0 = d;
-            i0 = i;
-        } else if d < d1 {
-            d1 = d;
-            i1 = i;
-        }
-    }
-    if i0 == i1 {
-        return vec![];
-    }
-    let (start, end) = if i0 <= i1 { (i0, i1) } else { (i1, i0) };
-    let mut wedge = Vec::with_capacity(end - start + 2);
-    wedge.push(outer);
-    wedge.extend_from_slice(&outline[start..=end]);
-    wedge
 }
 
 /// Outline points for a rect with the given corner treatment (clockwise).
@@ -2354,7 +2286,7 @@ fn textured_polygon_world(
     painter.add(mesh);
 }
 
-fn stroke_outline(
+pub(crate) fn stroke_outline(
     painter: &egui::Painter,
     outline: &[Pos2],
     stroke: &slate_doc::scene::Stroke,
@@ -3268,9 +3200,7 @@ impl SlateApp {
                     slate_doc::media_kind(&path)
                 };
                 let corner = slate_doc::media::text_card_corner(&path, img.corner);
-                let mut outline = if rotated && kind != slate_doc::MediaKind::Text {
-                    outline_s.clone()
-                } else if rotated {
+                let outline = if rotated {
                     rotate_points(
                         &corner_outline(srect, corner, z),
                         srect.center(),
@@ -3299,15 +3229,6 @@ impl SlateApp {
                 if show_excerpt {
                     let pointer = ui.ctx().pointer_hover_pos();
                     if let Some(sheet) = &sheet {
-                        outline = if rotated {
-                            rotate_points(
-                                &corner_outline(srect, corner, z),
-                                srect.center(),
-                                node.rotation_deg,
-                            )
-                        } else {
-                            corner_outline(srect, corner, z)
-                        };
                         self.paint_sheet_card(
                             painter, &outline, srect, node.id, img.item, &path, sheet, pointer, z,
                         );
@@ -3346,11 +3267,24 @@ impl SlateApp {
                                     painter, xf, &tex, node, clip, img.crop, tint,
                                 );
                             } else if rotated {
+                                let local_outline = corner
+                                    .outline(node.rect, 0.25 / z.max(0.01))
+                                    .into_iter()
+                                    .map(|[x, y]| (x, y))
+                                    .collect::<Vec<_>>();
+                                let rotated_outline = local_outline
+                                    .iter()
+                                    .map(|&(x, y)| {
+                                        let [wx, wy] =
+                                            node.rect.rotate_point([x, y], node.rotation_deg);
+                                        xf.w2s(Pos2::new(wx, wy))
+                                    })
+                                    .collect::<Vec<_>>();
                                 textured_polygon_world(
                                     painter,
                                     &tex,
-                                    &outline_s,
-                                    &outline_world,
+                                    &rotated_outline,
+                                    &local_outline,
                                     node.rect,
                                     img.crop,
                                     tint,
@@ -5794,7 +5728,7 @@ impl SlateApp {
 
     // ----- gesture handling ------------------------------------------------------
 
-    fn begin_gesture(
+    pub(crate) fn begin_gesture(
         &mut self,
         screen: Pos2,
         world: Pos2,
@@ -6539,9 +6473,7 @@ impl SlateApp {
                 let node_id = *id;
                 let before = before.clone();
                 let image_path = match &before.kind {
-                    NodeKind::Image(i) => {
-                        self.viewed_doc().item(i.item).map(|it| it.path.clone())
-                    }
+                    NodeKind::Image(i) => self.viewed_doc().item(i.item).map(|it| it.path.clone()),
                     _ => None,
                 };
                 let radius = board_handles::fillet_radius_from_world_point(
@@ -9046,5 +8978,20 @@ mod tests {
                 "chord error {error} exceeds {ELLIPSE_CHORD_PX}"
             );
         }
+    }
+
+    #[test]
+    fn fillet_overhangs_follow_adaptive_corner_outline_for_chamfers_and_large_radii() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 900.0));
+        let rounded = fillet_overhangs(rect, Corner::Rounded { radius: 400.0 }, 1.0);
+        assert!(
+            rounded.iter().all(|wedge| wedge.len() > 10),
+            "large fillets must use the model's adaptive arc, not a fixed-step polygon"
+        );
+        let chamfer = fillet_overhangs(rect, Corner::Chamfer { cut: 80.0 }, 1.0);
+        assert!(
+            chamfer.iter().all(|wedge| wedge.len() == 3),
+            "each chamfer mask is the outer corner plus its two model vertices"
+        );
     }
 }

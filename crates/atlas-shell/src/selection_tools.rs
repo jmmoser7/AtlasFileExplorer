@@ -45,6 +45,27 @@ pub fn agent_card(painter: &egui::Painter, rect: Rect, radius: f32, zoom: f32, p
     painter.add(shadow.as_shape(rect, radius));
     painter.rect_filled(rect, radius, palette.card);
 }
+
+/// Quiet agent-card surface for an arbitrary convex outline. Slate supplies
+/// its renderer-neutral scene outline; shell remains the one owner of the
+/// card's fill and shadow treatment.
+pub fn agent_card_outline(painter: &egui::Painter, outline: &[Pos2], zoom: f32, palette: Palette) {
+    if outline.len() < 3 {
+        return;
+    }
+    let shadow = Color32::BLACK.gamma_multiply(if palette.dark_mode { 0.10 } else { 0.035 });
+    let offset = Vec2::new(0.0, canvas_scale::px(1.0, zoom));
+    painter.add(egui::Shape::convex_polygon(
+        outline.iter().map(|p| *p + offset).collect(),
+        shadow,
+        Stroke::NONE,
+    ));
+    painter.add(egui::Shape::convex_polygon(
+        outline.to_vec(),
+        palette.card,
+        Stroke::NONE,
+    ));
+}
 /// Collapse scale of the icon strip before it expands on selection.
 const STRIP_COLLAPSE: f32 = 0.72;
 

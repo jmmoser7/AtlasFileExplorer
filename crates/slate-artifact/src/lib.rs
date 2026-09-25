@@ -157,7 +157,7 @@ mod tests {
         let html = render_html(&doc, &AssetMap::default());
         assert!(html.contains(&format!("background:{}", Rgba([20, 70, 100, 255]).css())));
         assert!(html.contains(&format!(
-            "border:2px solid {}",
+            "border:2.0px solid {}",
             Rgba([90, 120, 150, 255]).css()
         )));
     }

@@ -186,6 +186,8 @@ is searchable.
   `PortalFrameTokens::default().corner_radius` tracks that constant for chrome
   only); a grip drag journals an
   explicit radius. Owner: `board_handles` + `board_transform`.
+  Where its hit box overlaps a resize edge band, the visible grip wins both
+  hover and press; the NW corner point itself remains the NW resize target.
 - **P1.node.zorder / clipboard** PageUp/PageDown/Ctrl+B; Ctrl+C/X/V,
   Ctrl+Shift+V in place.
 

@@ -40,6 +40,7 @@ impl SlateApp {
         slate_doc::scene::resolved_corner(node, path)
     }
 
+    #[cfg(test)]
     pub(crate) fn apply_fillet_radius_from_drag(
         &self,
         node: &mut Node,
@@ -76,7 +77,11 @@ impl SlateApp {
 
     /// Screen grip for the live fillet control, if it should be shown.
     pub(crate) fn fillet_grip_at(&self, node: &Node, xf: &BoardXf) -> Option<Pos2> {
-        if !self.node_supports_fillet_grip(node) {
+        if self.board_sel.len() != 1
+            || !self.board_sel.contains(&node.id)
+            || self.board_crop.is_some()
+            || !self.node_supports_fillet_grip(node)
+        {
             return None;
         }
         let geom = board_handles::selection_geom(xf, node.rect, node.rotation_deg);
@@ -93,14 +98,8 @@ impl SlateApp {
     }
 
     pub(crate) fn fillet_grip_hit_at(&self, screen: Pos2) -> Option<NodeId> {
-        if self.board_sel.len() != 1 || self.board_crop.is_some() {
-            return None;
-        }
         let id = *self.board_sel.iter().next()?;
         let n = self.doc().scene.node(id)?;
-        if !self.node_supports_fillet_grip(n) {
-            return None;
-        }
         let xf = self.board_xf();
         let grip = self.fillet_grip_at(n, &xf)?;
         let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);

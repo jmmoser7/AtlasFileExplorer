@@ -5406,6 +5406,44 @@ fn bbox_chrome_is_live_without_selection() {
     );
 }
 
+#[test]
+fn fillet_grip_press_beats_edge_band_but_nw_corner_still_resizes() {
+    let mut h = web_board("fillet_press_order");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.patch_nodes(&[id], |node| {
+        slate_doc::scene::set_corner(node, slate_doc::scene::Corner::Rounded { radius: 12.0 });
+    });
+    h.app.board_sel.clear();
+    h.app.board_sel.insert(id);
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    h.app.tab_mut().cam.z = 1.0;
+
+    let xf = h.app.board_xf();
+    let node = h.app.doc().scene.node(id).unwrap().clone();
+    let geom = board_handles::selection_geom(&xf, node.rect, node.rotation_deg);
+    let grip = h.app.fillet_grip_at(&node, &xf).expect("visible grip");
+    let overlap = Pos2::new(
+        grip.x,
+        geom.corners[0].y
+            + atlas_shell::canvas_scale::hit_px(board_handles::EDGE_BAND_PX, geom.zoom),
+    );
+    assert!(board_handles::hit_test_fillet_grip(overlap, &geom, grip));
+    assert!(board_handles::hit_test_resize_bands(overlap, &geom).is_some());
+    assert!(matches!(
+        h.app
+            .begin_gesture(overlap, xf.s2w(overlap), egui::Modifiers::NONE),
+        Some(board::BoardDrag::FilletRadius { id: hit, .. }) if hit == id
+    ));
+
+    let nw = geom.corners[0];
+    assert!(matches!(
+        h.app
+            .begin_gesture(nw, xf.s2w(nw), egui::Modifiers::NONE),
+        Some(board::BoardDrag::Resize { id: hit, handle: 0, .. }) if hit == id
+    ));
+}
+
 /// Edge hover changes the cursor target only — no body highlight (and
 /// therefore no selection-look tab / handle chrome).
 #[test]

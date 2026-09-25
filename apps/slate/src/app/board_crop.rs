@@ -48,12 +48,7 @@ pub fn to_local(px: f32, py: f32, cx: f32, cy: f32, rotation_deg: f32) -> (f32, 
 
 /// Rotate a world-space delta into the node's local axes.
 pub fn delta_local(dx: f32, dy: f32, rotation_deg: f32) -> (f32, f32) {
-    if rotation_deg.abs() < f32::EPSILON {
-        return (dx, dy);
-    }
-    let rad = (-rotation_deg).to_radians();
-    let (sin, cos) = rad.sin_cos();
-    (dx * cos - dy * sin, dx * sin + dy * cos)
+    slate_doc::geom::world_to_local(dx, dy, 0.0, 0.0, rotation_deg)
 }
 
 /// Drag a crop-window edge/corner (`handle` 0–7: Nw N Ne E Se S Sw W, same
