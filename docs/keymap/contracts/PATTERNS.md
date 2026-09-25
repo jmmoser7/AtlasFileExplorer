@@ -184,11 +184,13 @@ is searchable.
   never a jump on grab: travel along the edge is `clamp(start_travel +
   (projected − press_projection), 0, max)`, so the first 1 px move changes a
   box's amount by about 1 unit. The gesture starts on press, not on egui's
-  drag threshold. The grip is drawn at `max(travel, inset)`: while the amount
-  is below the inset the grip holds the inset (not exactly under the
-  pointer), and at or above it the grip sits on the tangent point under the
-  pointer's projection. Dragging back past the corner clamps to square.
-  Chamfer and percent modes are kept (`edit_corner`).
+  drag threshold. While held, the grip is drawn at the pointer's projection
+  onto the edge, clamped to `[0, max travel]` — exactly under the cursor for
+  the whole drag, whatever the amount; dragging back past the corner clamps
+  the amount to square and the grip to the edge start. Idle (hover, rest,
+  and immediately after release) the grip is drawn — and hit-tested — at
+  `max(travel, inset)`, so a release settles it by at most the inset, never
+  during the drag. Chamfer and percent modes are kept (`edit_corner`).
   **Click (stated):** a press and release within
   `place_tokens::DRAG_THRESHOLD` opens an inline numeric field beside the
   grip, inside the edge, using the stringers' `selection_tools::inline_number`;

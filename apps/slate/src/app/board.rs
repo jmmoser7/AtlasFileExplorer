@@ -692,6 +692,9 @@ pub enum BoardDrag {
         start_amount: f32,
         /// The pointer's press-time projection onto the grip edge (world).
         press_travel: f32,
+        /// Where the held grip paints: the pointer's live projection onto
+        /// the edge, clamped to it. Only the idle grip rests at the inset.
+        pointer_travel: f32,
         /// Press position (screen) and the farthest the pointer has moved from
         /// it; a release under the drag threshold is a click.
         press: Pos2,

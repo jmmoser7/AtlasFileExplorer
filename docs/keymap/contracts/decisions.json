@@ -2763,7 +2763,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on single-select rectangles: a square grip on the top edge at the fillet tangent point (the chamfer cut), at a small inset when square; dragging changes the amount continuously from its press-time value (no jump on grab), the grip holds the inset below it and sits under the pointer above it, and a click types the amount.",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on single-select rectangles: a square grip on the top edge at the fillet tangent point (the chamfer cut), at a small inset when square; dragging changes the amount continuously from its press-time value (no jump on grab) while the held grip stays under the pointer, clamped to the edge; idle, the grip rests at the larger of the amount and the inset; a click types the amount.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

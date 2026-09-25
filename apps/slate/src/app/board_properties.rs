@@ -3225,11 +3225,9 @@ mod tests {
         assert!((corner_amount(&h, id) - 34.0).abs() < 0.01);
         let g3 = g0 + Vec2::new(-20.0, 0.0);
         pointer(&mut h, g3, None);
-        let inset = super::super::board_handles::FILLET_GRIP_MIN_INSET_WORLD;
-        let xf = h.app.board_xf();
         assert!(
-            corner_grip(&h, id).distance(xf.w2s(Pos2::new(-90.0 + inset, -60.0))) < 0.01,
-            "below the inset the grip holds the inset"
+            corner_grip(&h, id).distance(g3) < 0.01,
+            "below the inset the held grip is still under the pointer"
         );
         assert!(
             (corner_amount(&h, id) - 4.0).abs() < 0.01,
@@ -3257,24 +3255,30 @@ mod tests {
             corner_amount(&h, id).abs() < 1e-4,
             "the press leaves the corner square"
         );
-        pointer(&mut h, g0 + Vec2::new(1.0, 0.0), None);
+        let g1 = g0 + Vec2::new(1.0, 0.0);
+        pointer(&mut h, g1, None);
         assert!(
             (corner_amount(&h, id) - 1.0).abs() < 0.01,
             "the first pixel changes the radius by one unit, got {}",
             corner_amount(&h, id)
         );
         assert!(
-            corner_grip(&h, id).distance(g0) < 0.01,
-            "below the inset the grip holds the inset"
+            corner_grip(&h, id).distance(g1) < 0.01,
+            "the held grip is under the pointer even below the inset"
         );
-        pointer(&mut h, g0 + Vec2::new(3.0, 0.0), None);
-        assert!((corner_amount(&h, id) - 3.0).abs() < 0.01);
-        // Past the click threshold so the release commits rather than opening
-        // the numeric field.
-        pointer(&mut h, g0 + Vec2::new(6.0, 0.0), None);
-        assert!((corner_amount(&h, id) - 6.0).abs() < 0.01);
-        pointer(&mut h, g0 + Vec2::new(6.0, 0.0), Some(false));
-        assert!((corner_amount(&h, id) - 6.0).abs() < 0.01);
+        let g15 = g0 + Vec2::new(15.0, 0.0);
+        pointer(&mut h, g15, None);
+        assert!((corner_amount(&h, id) - 15.0).abs() < 0.01);
+        assert!(corner_grip(&h, id).distance(g15) < 0.01);
+        pointer(&mut h, g15, Some(false));
+        assert!((corner_amount(&h, id) - 15.0).abs() < 0.01);
+        let inset = super::super::board_handles::FILLET_GRIP_MIN_INSET_WORLD;
+        let xf = h.app.board_xf();
+        assert!(
+            corner_grip(&h, id).distance(xf.w2s(Pos2::new(-90.0 + 15.0_f32.max(inset), -60.0)))
+                < 0.01,
+            "released, the grip rests at max(radius, inset)"
+        );
         h.app.board_undo();
         assert!(corner_amount(&h, id).abs() < 1e-4, "one undo step");
     }
@@ -3302,11 +3306,19 @@ mod tests {
             corner_grip(&h, id).distance(g1) < 0.01,
             "at or above the inset the grip is exactly under the pointer"
         );
-        pointer(&mut h, g1, Some(false));
+        // Past the click threshold so the release commits.
+        let g6 = g0 + Vec2::new(6.0, 0.0);
+        pointer(&mut h, g6, None);
+        assert!((corner_amount(&h, id) - 31.0).abs() < 0.01);
+        pointer(&mut h, g6, Some(false));
+        assert!(
+            corner_grip(&h, id).distance(g6) < 0.01,
+            "above the inset the release does not move the grip"
+        );
     }
 
     #[test]
-    fn corner_grip_dragged_past_the_corner_clamps_to_square_at_the_inset() {
+    fn corner_grip_dragged_past_the_corner_clamps_to_square_then_rests_at_the_inset() {
         let mut h = board();
         let rect = WorldRect::new(-90.0, -60.0, 180.0, 120.0);
         let id = rectangle(&mut h, rect, 0.0);
@@ -3327,11 +3339,15 @@ mod tests {
         let inset = super::super::board_handles::FILLET_GRIP_MIN_INSET_WORLD;
         let xf = h.app.board_xf();
         assert!(
-            corner_grip(&h, id).distance(xf.w2s(Pos2::new(rect.x + inset, rect.y))) < 0.01,
-            "a square corner's grip sits at the inset"
+            corner_grip(&h, id).distance(xf.w2s(Pos2::new(rect.x, rect.y))) < 0.01,
+            "held past the corner, the grip clamps to the edge start"
         );
         pointer(&mut h, past, Some(false));
         assert!(corner_amount(&h, id).abs() < 1e-4);
+        assert!(
+            corner_grip(&h, id).distance(xf.w2s(Pos2::new(rect.x + inset, rect.y))) < 0.01,
+            "released, a square corner's grip rests at the inset"
+        );
         h.app.board_undo();
         assert!((corner_amount(&h, id) - 25.0).abs() < 1e-4);
     }
