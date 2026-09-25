@@ -4198,14 +4198,14 @@ fn sending_a_prompt_shows_thinking_not_silence() {
     let mut h = agent_board("agent_thinking");
     h.app.place_agent_portal_at(Pos2::ZERO);
     let id = h.app.doc().scene.nodes[0].id;
-    h.app.set_agent_program(id, "local");
+    h.app.set_agent_program(id, "ollama");
     let ws = h.base.join("ai-ws");
     std::fs::create_dir_all(&ws).unwrap();
     h.app.ai.config.workspace_dir = Some(ws);
     h.app.patch_nodes(&[id], |n| {
         if let NodeKind::Portal(p) = &mut n.kind {
             let a = p.agent.as_mut().unwrap();
-            a.model = Some("test-model".into());
+            a.model = Some("llama3.1:8b".into());
             a.chat.detail = slate_doc::agent_chat::Detail::Summary;
         }
     });

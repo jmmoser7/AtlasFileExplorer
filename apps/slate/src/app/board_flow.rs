@@ -575,9 +575,10 @@ impl SlateApp {
         let Some(ws) = self.ai.config.valid_workspace().map(|p| p.to_path_buf()) else {
             return false;
         };
-        let Some((session, _)) = self.agent_session_for(id) else {
+        let Some(agent) = slate_doc::agent_chat::agent(node) else {
             return false;
         };
+        let session = agent.session.clone();
         let Some(output_dir) = self.agent_output_dir(id, &ws, &session) else {
             return false;
         };
