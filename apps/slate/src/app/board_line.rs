@@ -408,7 +408,8 @@ impl SlateApp {
     // ----- painting ---------------------------------------------------------------
 
     /// Rubber band from the first point to the resolved cursor, in the
-    /// Line tool's own color, the one the committed stroke will use (D09).
+    /// Line tool's own color and width, the ones the committed stroke will
+    /// use (D09).
     pub(crate) fn paint_line_draft(&self, painter: &egui::Painter, xf: &BoardXf) {
         let Some(d) = &self.line_draft else {
             return;
@@ -425,8 +426,9 @@ impl SlateApp {
             d.start.y as f64,
         ));
         bez.line_to(vector_ink::kurbo::Point::new(c.x as f64, c.y as f64));
-        let ink = super::board::rgba32(self.stroke_for_tool(StrokeTool::Line).color);
-        board_path::paint_path_preview(painter, xf, ink, &bez);
+        let stroke = self.stroke_for_tool(StrokeTool::Line);
+        let ink = super::board::rgba32(stroke.color);
+        board_path::paint_path_preview(painter, xf, ink, stroke.width, &bez);
     }
 
     /// Endpoint grips on the selected simple line — no resize bbox (D13).

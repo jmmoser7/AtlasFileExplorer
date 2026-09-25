@@ -212,6 +212,12 @@ drag the address-bar URL or a page link instead.
   using the Photoshop tiers in **screen px** converted by zoom
   (`<10:±1 · 10–50:±5 · 50–100:±10 · >100:±25`). A width circle (solid core
   + fainter feather ring) tracks the pointer while Brush/Eraser is armed.
+- **Alt+right-drag** (`board.stroke.width_hud`) with Pen, Line, Arc,
+  Polyline, or Bézier armed opens the Brush size HUD for that tool's own
+  width (horizontal only; these strokes are always hard). During a line,
+  arc, polyline, or Bézier draft it changes the shape being drawn. During a
+  Pen stroke the scrub draws nothing and the rest of the stroke takes the
+  new width, stored as one tip per vertex. Esc restores the width.
 - **I — Eyedropper**: samples the topmost node's salient color
   (shape/path stroke → fill → text color → sticky fill → frame fill; image
   nodes yield only their border stroke — raster sampling is P2). Click →

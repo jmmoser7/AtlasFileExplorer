@@ -1383,26 +1383,55 @@ pub fn paint_path_shape(
     );
     let cached = app.path_mesh_cache.get_or_tessellate(node.id, key, || {
         let bez = bez.get_or_insert_with(|| shape_path_world_bez(node, shape, path));
-        let style = stroke_style_world(&shape.stroke, xf.z);
-        let (ink_width, soft) = shape.stroke.paint_profile();
-        let mut style = style;
-        style.width = ink_width;
-        let feather = soft
-            + if soft <= 0.0 {
-                FEATHER_PX / xf.z.max(0.05)
-            } else {
-                0.0
-            };
-        stroke_mesh(bez, &style, feather, curve_tolerance(xf.z))
+        vector_stroke_ink_for(bez, shape, path, xf.z)
     });
     let base = fade(rgba32(shape.stroke.color));
     let mesh = ink_mesh_to_epaint(&cached, xf, base, fade);
     painter.add(Shape::mesh(mesh));
 }
 
-pub fn paint_path_preview(painter: &egui::Painter, xf: &BoardXf, color: Color32, bez: &BezPath) {
+/// World-space mesh of a vector path stroke. A path with per-vertex tips
+/// (`PathData::vector_widths`) paints its varying width.
+#[cfg(test)]
+pub(crate) fn vector_stroke_ink(
+    node: &Node,
+    shape: &ShapeNode,
+    path: &PathData,
+    zoom: f32,
+) -> InkMesh {
+    vector_stroke_ink_for(&shape_path_world_bez(node, shape, path), shape, path, zoom)
+}
+
+fn vector_stroke_ink_for(bez: &BezPath, shape: &ShapeNode, path: &PathData, zoom: f32) -> InkMesh {
+    let mut style = stroke_style_world(&shape.stroke, zoom);
+    let (ink_width, soft) = shape.stroke.paint_profile();
+    style.width = ink_width;
+    let feather = soft
+        + if soft <= 0.0 {
+            FEATHER_PX / zoom.max(0.05)
+        } else {
+            0.0
+        };
+    let tolerance = curve_tolerance(zoom);
+    match path.vector_widths(&shape.stroke) {
+        Some(widths) if soft <= 0.0 => {
+            vector_ink::stroke_mesh_tipped(bez, &style, &widths, feather, tolerance)
+        }
+        _ => stroke_mesh(bez, &style, feather, tolerance),
+    }
+}
+
+/// Draft preview at `width` world units (at least one screen pixel): the
+/// width the committed stroke will have.
+pub fn paint_path_preview(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    color: Color32,
+    width: f32,
+    bez: &BezPath,
+) {
     let style = StrokeStyle {
-        width: 2.0_f32.max(1.0 / xf.z.max(0.05_f32)),
+        width: width.max(1.0 / xf.z.max(0.05_f32)),
         cap: Cap::Round,
         join: Join::Round,
         taper: None,
@@ -1429,6 +1458,7 @@ pub fn paint_polyline_preview(
     pts: &[Pos2],
     cursor: Pos2,
     color: Color32,
+    width: f32,
 ) {
     if pts.is_empty() {
         return;
@@ -1443,7 +1473,7 @@ pub fn paint_polyline_preview(
     for p in &all[1..] {
         bez.line_to(to_k(*p));
     }
-    paint_path_preview(painter, xf, color, &bez);
+    paint_path_preview(painter, xf, color, width, &bez);
 }
 
 /// World units per stamp pixel at `zoom`: one physical screen pixel, snapped
@@ -2123,6 +2153,8 @@ impl EraseLive {
 
 pub struct PathDraftPaintStyle {
     pub stroke: Color32,
+    /// World width of the stroke the draft will commit.
+    pub width: f32,
     pub overlay: PathEditAnchorColors,
     pub zoom: f32,
     /// When true, the first committed anchor draws hollow (close-path hover).
@@ -2140,7 +2172,7 @@ pub fn paint_path_draft(
     match draft {
         BoardPathDraft::Polyline { points } => {
             if let Some(c) = cursor {
-                paint_polyline_preview(painter, xf, points, c, color);
+                paint_polyline_preview(painter, xf, points, c, color, style.width);
             } else if points.len() >= 2 {
                 let (r, _) = points_to_path_data(points, false);
                 let mut bez = BezPath::new();
@@ -2149,7 +2181,7 @@ pub fn paint_path_draft(
                     bez.line_to(to_k(*p));
                 }
                 let _ = r;
-                paint_path_preview(painter, xf, color, &bez);
+                paint_path_preview(painter, xf, color, style.width, &bez);
             }
         }
         BoardPathDraft::Arc { points } => {
@@ -2164,11 +2196,11 @@ pub fn paint_path_draft(
                     let mut bez = BezPath::new();
                     bez.move_to(to_k(*start));
                     bez.line_to(to_k(*end));
-                    paint_path_preview(painter, xf, color, &bez);
+                    paint_path_preview(painter, xf, color, style.width, &bez);
                 }
                 [start, end, mid, ..] => {
                     let bez = arc_through_three_points(*start, *mid, *end);
-                    paint_path_preview(painter, xf, color, &bez);
+                    paint_path_preview(painter, xf, color, style.width, &bez);
                 }
                 _ => {}
             }
@@ -2180,18 +2212,18 @@ pub fn paint_path_draft(
             }
             if span.len() >= 2 {
                 let bez = bezier_anchors_to_bezpath(&span);
-                paint_path_preview(painter, xf, color, &bez);
+                paint_path_preview(painter, xf, color, style.width, &bez);
             } else if let Some(c) = cursor {
                 if let Some((a, h)) = placing {
                     let mut bez = BezPath::new();
                     bez.move_to(to_k(*a));
                     bez.curve_to(to_k(*a + h.handle_out), to_k(c), to_k(c));
-                    paint_path_preview(painter, xf, color, &bez);
+                    paint_path_preview(painter, xf, color, style.width, &bez);
                 } else if let Some((last, lh)) = anchors.last() {
                     let mut bez = BezPath::new();
                     bez.move_to(to_k(*last));
                     bez.curve_to(to_k(*last + lh.handle_out), to_k(c), to_k(c));
-                    paint_path_preview(painter, xf, color, &bez);
+                    paint_path_preview(painter, xf, color, style.width, &bez);
                 }
             }
             let mut overlay: Vec<PathEditAnchorPaint> = anchors
@@ -2295,7 +2327,11 @@ impl SlateApp {
     ) {
         let mut path_data = path_data;
         path_data.closed = closed;
-        let stroke = self.stroke_for_tool(tool);
+        let mut stroke = self.stroke_for_tool(tool);
+        let remembered = stroke.width;
+        if let Some(widest) = path_data.tips.iter().map(|t| t.width).reduce(f32::max) {
+            stroke.width = widest;
+        }
         let fill = if closed {
             self.fill_for_new_shape()
         } else {
@@ -2318,6 +2354,11 @@ impl SlateApp {
         );
         node.opacity = opacity;
         self.note_tool_style(tool, &node);
+        if stroke.width != remembered {
+            // The next stroke starts at the width last chosen, not the widest.
+            self.set_tool_width(tool, remembered);
+            self.flush_create_style_to_doc();
+        }
         let ids = self.commit_created_nodes(vec![node]);
         self.select_created_nodes(ids);
         self.board_tool = super::board::BoardTool::Select;
@@ -2444,7 +2485,16 @@ impl SlateApp {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_freehand_pen(&mut self, points: Vec<Pos2>) {
+        self.finish_freehand_pen_widths(points, &[]);
+    }
+
+    /// `widths` holds the Pen width at each point. Where the width chord
+    /// changed it mid-stroke, each constant-width run is fitted on its own
+    /// and the path stores one tip per vertex; the widest vertex becomes the
+    /// stroke width.
+    pub(crate) fn finish_freehand_pen_widths(&mut self, points: Vec<Pos2>, widths: &[f32]) {
         if points.len() < 2 {
             return;
         }
@@ -2452,11 +2502,48 @@ impl SlateApp {
         let tol = FREEHAND_FIT_ERROR_PX / zoom;
         let spacing = FREEHAND_SAMPLE_SPACING_PX / zoom;
         let flat: Vec<[f32; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
-        let bez = vector_ink::fit_polyline_spaced(&flat, tol, spacing);
-        let (rect, data) = bezpath_to_path_data(&bez, false);
-        if data.is_empty() {
+        let varies = widths.len() == points.len() && widths.windows(2).any(|w| w[0] != w[1]);
+        if !varies {
+            let bez = vector_ink::fit_polyline_spaced(&flat, tol, spacing);
+            let (rect, data) = bezpath_to_path_data(&bez, false);
+            if !data.is_empty() {
+                self.commit_path_node(StrokeTool::Pen, rect, data, false);
+            }
             return;
         }
+        let mut bez = BezPath::new();
+        let mut vertex_widths = vec![widths[0]];
+        let mut start = 0;
+        while start + 1 < flat.len() {
+            let mut end = start + 1;
+            while end + 1 < flat.len() && widths[end + 1] == widths[end] {
+                end += 1;
+            }
+            let run = vector_ink::fit_polyline_spaced(&flat[start..=end], tol, spacing);
+            for el in run.elements().iter().skip(1) {
+                if !matches!(el, PathEl::MoveTo(_) | PathEl::ClosePath) {
+                    if bez.elements().is_empty() {
+                        bez.move_to(to_k(points[0]));
+                    }
+                    bez.push(*el);
+                    vertex_widths.push(widths[end]);
+                }
+            }
+            start = end;
+        }
+        let (rect, mut data) = bezpath_to_path_data(&bez, false);
+        if data.is_empty() || vertex_widths.len() != data.segs.len() + 1 {
+            return;
+        }
+        let color = self.stroke_for_tool(StrokeTool::Pen).color;
+        data.tips = vertex_widths
+            .iter()
+            .map(|&width| StrokeSpan {
+                width,
+                softness: 0.0,
+                color,
+            })
+            .collect();
         self.commit_path_node(StrokeTool::Pen, rect, data, false);
     }
 
@@ -2486,6 +2573,53 @@ mod tests {
             path_fill_hash(&path, rect, 0.0, corner, zoom_bucket(1.0)),
             path_fill_hash(&path, rect, 0.0, corner, zoom_bucket(8.0))
         );
+    }
+
+    /// The board paints a pen stroke's per-vertex tips as varying width,
+    /// the same widths the artifact writer outlines.
+    #[test]
+    fn board_paints_tipped_vector_strokes_at_their_vertex_widths() {
+        let (rect, mut path) = points_to_path_data(
+            &[
+                Pos2::new(0.0, 0.0),
+                Pos2::new(50.0, 0.0),
+                Pos2::new(100.0, 0.0),
+            ],
+            false,
+        );
+        let color = Rgba::BLACK;
+        let tip = |width| StrokeSpan {
+            width,
+            softness: 0.0,
+            color,
+        };
+        path.tips = vec![tip(2.0), tip(2.0), tip(10.0)];
+        let shape = ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke: Stroke {
+                width: 10.0,
+                color,
+                cap: StrokeCap::Butt,
+                ..Default::default()
+            },
+            corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            flip: false,
+            path: Some(std::sync::Arc::new(path.clone())),
+            text: None,
+        };
+        let mut scene = slate_doc::scene::Scene::default();
+        let node = scene.build_node(rect, NodeKind::Shape(shape.clone()));
+        let ink = vector_stroke_ink(&node, &shape, &path, 1.0);
+        let verts: Vec<[f32; 2]> = ink.vertices.iter().map(|v| v.pos).collect();
+        let at = |x: f32, y: f32| {
+            vector_ink::point_in_mesh(&verts, &ink.indices, [rect.x + x, rect.y + y])
+        };
+        let mid_y = 0.0 - rect.y;
+        assert!(at(25.0, mid_y + 0.5));
+        assert!(!at(25.0, mid_y + 3.0), "first span stays narrow");
+        assert!(at(98.0, mid_y + 4.5), "the rest widens");
     }
 
     #[test]

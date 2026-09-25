@@ -1152,6 +1152,59 @@ mod tests {
         assert!(!html.contains("stroke-linecap"));
     }
 
+    /// A pen stroke whose width changed mid-stroke exports its varying width
+    /// as the same filled outline the board paints.
+    #[test]
+    fn tipped_pen_stroke_exports_as_fill_outline() {
+        let stroke_color = Rgba::opaque(30, 60, 90);
+        let tip = |width| slate_doc::scene::StrokeSpan {
+            width,
+            softness: 0.0,
+            color: stroke_color,
+        };
+        let mut doc = SlateDoc::new("PenTips");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+        let node = doc.scene.build_node(
+            WorldRect::new(20.0, 20.0, 120.0, 60.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Path,
+                fill: None,
+                stroke: Stroke {
+                    width: 8.0,
+                    color: stroke_color,
+                    dash: Dash::Solid,
+                    ..Default::default()
+                },
+                corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
+                flip: false,
+                path: Some(std::sync::Arc::new(PathData {
+                    start: [0.0, 0.5],
+                    segs: vec![
+                        PathSeg::Line { to: [0.5, 0.5] },
+                        PathSeg::Line { to: [1.0, 0.5] },
+                    ],
+                    closed: false,
+                    tips: vec![tip(2.0), tip(2.0), tip(8.0)],
+                    ..Default::default()
+                })),
+                text: None,
+            }),
+        );
+        let index = doc.scene.nodes.len();
+        doc.scene.apply(&SceneCmd::Add { index, node });
+
+        let html = render_html(&doc, &AssetMap::default());
+        assert!(
+            html.contains(&format!("fill=\"{}\"", stroke_color.css())),
+            "varying width is a filled outline:\n{html}"
+        );
+        assert!(
+            !html.contains("stroke-width=\"8.0\""),
+            "not a uniform 8 px stroke"
+        );
+    }
+
     #[test]
     fn soft_brush_stroke_blurs_in_the_html_artifact() {
         let mut doc = SlateDoc::new("SoftBrush");

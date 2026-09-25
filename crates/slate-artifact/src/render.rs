@@ -1629,8 +1629,13 @@ fn render_vector_path_d(
         html.push_str("\"/></filter></defs>");
     }
 
-    match shape.stroke.profile {
-        WidthProfile::Uniform => {
+    let taper = match shape.stroke.profile {
+        WidthProfile::Uniform => None,
+        WidthProfile::Taper { start, end } => Some((start, end)),
+    };
+    let widths = path.and_then(|p| p.vector_widths(&shape.stroke));
+    match (taper, widths) {
+        (None, None) => {
             push_path_open(html, d, &fill_css, fill_rule);
             if shape.stroke.is_none() {
                 html.push_str(" stroke=\"none\"");
@@ -1660,7 +1665,7 @@ fn render_vector_path_d(
             }
             html.push_str("></path>");
         }
-        WidthProfile::Taper { start, end } => {
+        (taper, widths) => {
             if shape.fill.is_some() && closed_for_taper {
                 push_path_open(html, d, &fill_css, fill_rule);
                 html.push_str(" stroke=\"none\"></path>");
@@ -1675,10 +1680,13 @@ fn render_vector_path_d(
                     width: ink_width,
                     cap: ink_cap(shape.stroke.cap),
                     join: ink_join(shape.stroke.join),
-                    taper: Some((start, end)),
+                    taper,
                     dash: stroke_dash_ink(&shape.stroke),
                 };
-                let outline = vector_ink::stroke_outline(&bez, &style, 0.25);
+                let outline = match &widths {
+                    Some(widths) => vector_ink::stroke_outline_tipped(&bez, &style, widths, 0.25),
+                    None => vector_ink::stroke_outline(&bez, &style, 0.25),
+                };
                 let outline_d = bezpath_to_d(&outline);
                 if !outline_d.is_empty() {
                     push_path_open(

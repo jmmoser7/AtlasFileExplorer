@@ -2073,6 +2073,34 @@ impl PathData {
         }
     }
 
+    /// Per-vertex widths for a hard vector stroke (a Pen stroke whose width
+    /// changed mid-stroke). Tips are relative: the widest vertex paints at
+    /// `stroke.width`, so editing the stroke width scales the whole stroke.
+    /// `None` paints uniform: no tips, equal tips, or not one tip per vertex.
+    pub fn vector_widths(&self, stroke: &Stroke) -> Option<Vec<f32>> {
+        let vertices =
+            1 + self.segs.len() + self.extra.iter().map(|c| 1 + c.segs.len()).sum::<usize>();
+        if self.tips.len() != vertices {
+            return None;
+        }
+        let widest = self.tips.iter().map(|t| t.width).fold(0.0_f32, f32::max);
+        let narrowest = self
+            .tips
+            .iter()
+            .map(|t| t.width)
+            .fold(f32::INFINITY, f32::min);
+        if widest <= 0.0 || !widest.is_finite() || widest - narrowest <= f32::EPSILON * widest {
+            return None;
+        }
+        let width = stroke.width.max(0.0);
+        Some(
+            self.tips
+                .iter()
+                .map(|t| width * (t.width.max(0.0) / widest))
+                .collect(),
+        )
+    }
+
     pub fn point_count(&self) -> usize {
         let mut n = 1;
         for seg in &self.segs {
@@ -3394,6 +3422,37 @@ impl SceneJournal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vector_widths_scale_tips_with_the_stroke_width() {
+        let tip = |width| StrokeSpan {
+            width,
+            softness: 0.0,
+            color: Rgba::BLACK,
+        };
+        let mut path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [0.5, 0.0] },
+                PathSeg::Line { to: [1.0, 0.0] },
+            ],
+            tips: vec![tip(2.0), tip(2.0), tip(10.0)],
+            ..Default::default()
+        };
+        let mut stroke = Stroke {
+            width: 10.0,
+            ..Default::default()
+        };
+        assert_eq!(path.vector_widths(&stroke), Some(vec![2.0, 2.0, 10.0]));
+        stroke.width = 20.0;
+        assert_eq!(path.vector_widths(&stroke), Some(vec![4.0, 4.0, 20.0]));
+        path.tips = vec![tip(3.0); 3];
+        assert_eq!(path.vector_widths(&stroke), None, "equal tips are uniform");
+        path.tips = vec![tip(2.0), tip(10.0)];
+        assert_eq!(path.vector_widths(&stroke), None, "one tip per vertex");
+        path.tips.clear();
+        assert_eq!(path.vector_widths(&stroke), None);
+    }
 
     fn scene_with_frame_and_image() -> (Scene, NodeId, NodeId) {
         let mut scene = Scene::default();

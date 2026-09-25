@@ -8410,6 +8410,178 @@ fn closed_shapes_still_share_style_memory() {
     assert_eq!(s.fill, Some(Rgba([0, 90, 180, 255])));
 }
 
+const STROKE_TOOLS: [(board::BoardTool, slate_doc::StrokeTool); 5] = [
+    (board::BoardTool::Pen, slate_doc::StrokeTool::Pen),
+    (board::BoardTool::Line, slate_doc::StrokeTool::Line),
+    (board::BoardTool::Arc, slate_doc::StrokeTool::Arc),
+    (board::BoardTool::Polyline, slate_doc::StrokeTool::Polyline),
+    (board::BoardTool::BezierSpan, slate_doc::StrokeTool::Bezier),
+];
+
+/// Open the brush's size HUD with Alt+right-drag and scrub right by `dx`.
+fn width_chord(h: &mut Harness, dx: f32) {
+    h.app.alt_down = true;
+    assert!(
+        h.app
+            .drive_brush_hud(Some(Pos2::new(500.0, 500.0)), true, true),
+        "{:?} opens the size HUD",
+        h.app.board_tool
+    );
+    assert!(matches!(
+        h.app.brush_hud,
+        Some(board_color::BrushHud::Size { .. })
+    ));
+    assert!(h
+        .app
+        .drive_brush_hud(Some(Pos2::new(500.0 + dx, 450.0)), true, false));
+}
+
+fn release_chord(h: &mut Harness) {
+    assert!(h.app.drive_brush_hud(None, false, false));
+    assert!(h.app.brush_hud.is_none());
+    h.app.alt_down = false;
+}
+
+/// Stated: Alt+right-drag sizes the pen, line, arc, polyline, and Bézier
+/// through the brush's size chord. Each changes only its own width, the
+/// vertical drag offers no softness, and the HUD reads the width.
+#[test]
+fn alt_right_drag_sizes_every_stroke_tool() {
+    let mut h = line_board("stroke_size_chord");
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.brush_width = 10.0;
+    for (tool, slot) in STROKE_TOOLS {
+        h.app.set_board_tool(tool);
+        let before = h.app.stroke_for_tool(slot);
+        assert!(h.app.board_tool_takes_width_chord(), "{tool:?}");
+        width_chord(&mut h, 40.0);
+        let during = h.app.stroke_for_tool(slot);
+        assert!(during.width > before.width + 1.0, "{tool:?} got wider");
+        assert_eq!(during.softness, 0.0, "{tool:?} stays hard");
+        let label = h.app.size_hud_label().unwrap_or_default();
+        assert!(label.ends_with(" px"), "{tool:?} HUD reads {label:?}");
+        release_chord(&mut h);
+        assert_eq!(h.app.stroke_for_tool(slot).width, during.width);
+        let saved = h.app.doc().view.create_style.clone().unwrap_or_default();
+        assert_eq!(
+            saved.tool(slot).stroke.map(|s| s.width),
+            Some(during.width),
+            "{tool:?} width is saved with the workbook"
+        );
+    }
+    assert_eq!(h.app.brush_width, 10.0, "the brush size is untouched");
+
+    h.app.set_board_tool(board::BoardTool::Line);
+    let kept = h.app.stroke_for_tool(slate_doc::StrokeTool::Line).width;
+    width_chord(&mut h, 60.0);
+    h.app.cancel_brush_hud();
+    h.app.alt_down = false;
+    assert_eq!(
+        h.app.stroke_for_tool(slate_doc::StrokeTool::Line).width,
+        kept,
+        "Escape restores the width"
+    );
+}
+
+/// Stated: the chord during a line draw changes the line being drawn.
+#[test]
+fn the_width_chord_mid_draw_sets_the_line_being_drawn() {
+    let mut h = line_board("line_chord_mid");
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.set_board_tool(board::BoardTool::Line);
+    assert!(h.app.line_begin(Pos2::new(0.0, 0.0), false));
+    h.app.line_hover(Pos2::new(80.0, 0.0), false);
+    width_chord(&mut h, 40.0);
+    release_chord(&mut h);
+    assert!(h.app.line_draft.is_some(), "the chord keeps the draft");
+    let wide = h.app.stroke_for_tool(slate_doc::StrokeTool::Line).width;
+    h.app.line_release(Pos2::new(100.0, 0.0), false, false);
+    let (_, stroke) = last_stroke(&h);
+    assert_eq!(stroke.width, wide);
+}
+
+/// Stated: the chord mid-draw sets the arc, polyline, or Bézier being drawn.
+#[test]
+fn the_width_chord_mid_draw_sets_the_path_being_drawn() {
+    let mut h = line_board("path_chord_mid");
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.set_board_tool(board::BoardTool::Polyline);
+    h.app.path_tool_click(Pos2::new(0.0, 0.0));
+    h.app.path_tool_click(Pos2::new(60.0, 30.0));
+    width_chord(&mut h, 40.0);
+    release_chord(&mut h);
+    assert!(
+        h.app.board_path_draft.is_some(),
+        "the chord keeps the draft"
+    );
+    let wide = h.app.stroke_for_tool(slate_doc::StrokeTool::Polyline).width;
+    h.app.path_tool_click(Pos2::new(120.0, 0.0));
+    assert!(h.app.finish_path_draft());
+    assert_eq!(last_stroke(&h).1.width, wide);
+}
+
+fn pen_point_count(h: &Harness) -> usize {
+    match &h.app.board_drag {
+        Some(board::BoardDrag::FreehandPen { points, .. }) => points.len(),
+        _ => panic!("the pen stroke is live"),
+    }
+}
+
+/// Stated: the chord mid-stroke changes the pen's width from that point on,
+/// stored as variable width (per-vertex tips). The scrub itself draws nothing.
+#[test]
+fn the_width_chord_mid_stroke_widens_the_rest_of_the_pen_stroke() {
+    let mut h = line_board("pen_chord_mid");
+    h.app.tab_mut().cam.z = 1.0;
+    h.app.set_board_tool(board::BoardTool::Pen);
+    let mods = egui::Modifiers::NONE;
+    let narrow = h.app.stroke_for_tool(slate_doc::StrokeTool::Pen).width;
+    h.app.board_drag = h.app.begin_gesture_for_test(Pos2::ZERO, Pos2::ZERO, mods);
+    for i in 1..=10 {
+        h.app
+            .update_gesture_for_test(Pos2::new(i as f32 * 10.0, 0.0), mods);
+    }
+    width_chord(&mut h, 40.0);
+    let count = pen_point_count(&h);
+    h.app.update_gesture_for_test(Pos2::new(100.0, 60.0), mods);
+    assert_eq!(pen_point_count(&h), count, "the scrub does not draw");
+    release_chord(&mut h);
+    let wide = h.app.stroke_for_tool(slate_doc::StrokeTool::Pen).width;
+    assert!(wide > narrow + 1.0);
+    for i in 11..=20 {
+        h.app
+            .update_gesture_for_test(Pos2::new(i as f32 * 10.0, 0.0), mods);
+    }
+    h.app
+        .end_gesture_for_test(Pos2::new(200.0, 0.0), None, mods);
+
+    let node = h.app.doc().scene.nodes.last().unwrap();
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        panic!("the pen commits a path");
+    };
+    let path = shape.path.as_ref().unwrap();
+    assert_eq!(path.tips.len(), path.segs.len() + 1, "one tip per vertex");
+    assert!((path.tips.first().unwrap().width - narrow).abs() < 1e-3);
+    assert!((path.tips.last().unwrap().width - wide).abs() < 1e-3);
+    assert!(path.tips.iter().all(|t| t.softness == 0.0));
+    assert!((shape.stroke.width - wide).abs() < 1e-3);
+    assert!(
+        !shape.stroke.paints_as_stamp(),
+        "still a hard vector stroke"
+    );
+    let widths = path.vector_widths(&shape.stroke).expect("varying width");
+    assert!((widths[0] - narrow).abs() < 1e-3);
+
+    draw_pen(&mut h, 300.0);
+    let (_, plain) = last_stroke(&h);
+    let node = h.app.doc().scene.nodes.last().unwrap();
+    let slate_doc::scene::NodeKind::Shape(shape) = &node.kind else {
+        unreachable!()
+    };
+    assert!(shape.path.as_ref().unwrap().tips.is_empty());
+    assert_eq!(plain.width, wide, "the next stroke starts at the new width");
+}
+
 #[test]
 fn ctrl_z_reverts_a_brush_size_change_until_another_action() {
     let mut h = Harness::new("brush_undo_size");

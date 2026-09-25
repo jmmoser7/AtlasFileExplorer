@@ -9,6 +9,7 @@ use slate_doc::create_style::{CreateStyleMemory, StrokeTool, StyleMemorySlot};
 use slate_doc::scene::{Node, NodeKind, Rgba, ShapeKind, ShapeNode, Stroke};
 use slate_doc::NodeId;
 
+use super::board::BoardTool;
 use super::board_color::BoardColors;
 use super::board_line;
 use super::board_path;
@@ -193,6 +194,27 @@ impl SlateApp {
             .unwrap_or_else(|| {
                 board_path::default_curve_stroke(BoardColors::theme_default(self.dark_mode).fg)
             })
+    }
+
+    /// Set the width `tool` draws with next. Not flushed to the workbook.
+    pub(crate) fn set_tool_width(&mut self, tool: StrokeTool, width: f32) {
+        let stroke = Stroke {
+            width: width.max(Self::OPEN_STROKE_MIN),
+            ..self.stroke_for_tool(tool)
+        };
+        self.board_last_style.memory.tool_mut(tool).stroke = Some(stroke);
+    }
+
+    /// The stroke tool armed on the board, if any.
+    pub(crate) fn armed_stroke_tool(&self) -> Option<StrokeTool> {
+        match self.board_tool {
+            BoardTool::Pen => Some(StrokeTool::Pen),
+            BoardTool::Line => Some(StrokeTool::Line),
+            BoardTool::Arc => Some(StrokeTool::Arc),
+            BoardTool::Polyline => Some(StrokeTool::Polyline),
+            BoardTool::BezierSpan => Some(StrokeTool::Bezier),
+            _ => None,
+        }
     }
 
     pub(crate) fn opacity_for_tool(&self, tool: StrokeTool) -> f32 {

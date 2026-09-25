@@ -233,6 +233,20 @@ is searchable.
   (`Stroke::hard_vector`): edge softness, stamp, and Gaussian blur are never
   inherited, not even from an edited brush stroke, and those tools offer no
   softness or blur control. Existing documents are not rewritten on load.
+- **P1.curve.width-chord** (stated 2026-09-25) Alt+right-drag with pen,
+  line, arc, polyline, or Bézier armed runs the Brush size HUD
+  (`board_color::drive_brush_hud`, no copy) on that tool's own width:
+  horizontal scrub, no softness, Esc restores, release saves to the tool's
+  memory. It takes the right button from pan and the context menu like the
+  brush chords. Mid-draw it changes the shape being drawn and the draft
+  previews the committed width. Mid-stroke the Pen stops sampling while the
+  HUD is up and the rest of the stroke takes the new width: each
+  constant-width run is fitted on its own and `PathData::tips` stores one
+  tip per vertex. Tips on a hard vector stroke are relative
+  (`PathData::vector_widths`): the widest vertex paints at `Stroke::width`,
+  so a later width edit scales the whole stroke. Both interpreters stroke
+  them through `vector_ink::stroke_mesh_tipped` / `stroke_outline_tipped`
+  (the artifact writes the filled outline, as for a taper).
 - **P1.curve.grips** selected open curves expose their defining points as
   gripable handles (endpoints, on-curve anchors) — **not** a resize bbox.
   Applies to **every** selected simple line in the selection, not only when
