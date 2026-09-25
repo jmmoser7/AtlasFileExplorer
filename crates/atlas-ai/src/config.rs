@@ -5,15 +5,70 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Subfolder of the AI workspace owned by the apps (context beacons, docs).
 pub const LINK_DIR: &str = ".atlas-ai";
+
+/// How long a workspace existence check stays trusted before a background
+/// re-check. The workspace is often a synced or network folder.
+const PROBE_TTL: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AiConfig {
     /// The user-established AI workspace: Cursor's default working directory
     /// when launched from Atlas or Slate, and home of the live-link files.
     pub workspace_dir: Option<PathBuf>,
+    #[serde(skip)]
+    probe: WorkspaceProbe,
+}
+
+/// Whether the workspace folder exists. Callers ask every frame, so only the
+/// first check of a path is synchronous; later ones refresh on a thread.
+#[derive(Clone, Debug, Default)]
+struct WorkspaceProbe(Arc<Mutex<Option<Probe>>>);
+
+#[derive(Debug)]
+struct Probe {
+    path: PathBuf,
+    ok: bool,
+    at: Instant,
+    refreshing: bool,
+}
+
+impl WorkspaceProbe {
+    fn is_dir(&self, dir: &Path) -> bool {
+        let Ok(mut slot) = self.0.lock() else {
+            return dir.is_dir();
+        };
+        if let Some(probe) = slot.as_mut().filter(|p| p.path == dir) {
+            if probe.at.elapsed() >= PROBE_TTL && !probe.refreshing {
+                probe.refreshing = true;
+                let shared = Arc::clone(&self.0);
+                let path = dir.to_path_buf();
+                std::thread::spawn(move || {
+                    let ok = path.is_dir();
+                    if let Ok(mut slot) = shared.lock() {
+                        if let Some(probe) = slot.as_mut().filter(|p| p.path == path) {
+                            probe.ok = ok;
+                            probe.at = Instant::now();
+                            probe.refreshing = false;
+                        }
+                    }
+                });
+            }
+            return probe.ok;
+        }
+        let ok = dir.is_dir();
+        *slot = Some(Probe {
+            path: dir.to_path_buf(),
+            ok,
+            at: Instant::now(),
+            refreshing: false,
+        });
+        ok
+    }
 }
 
 fn config_path() -> PathBuf {
@@ -38,9 +93,11 @@ impl AiConfig {
         }
     }
 
-    /// The workspace, but only when it still exists on disk.
+    /// The workspace, but only when it still exists on disk (checked at most
+    /// every few seconds, off the calling thread after the first time).
     pub fn valid_workspace(&self) -> Option<&Path> {
-        self.workspace_dir.as_deref().filter(|p| p.is_dir())
+        let dir = self.workspace_dir.as_deref()?;
+        self.probe.is_dir(dir).then_some(dir)
     }
 
     /// Establish (or move) the AI workspace: creates the folder, the
@@ -128,6 +185,7 @@ mod tests {
     fn missing_workspace_is_invalid() {
         let cfg = AiConfig {
             workspace_dir: Some(PathBuf::from("/definitely/not/here")),
+            ..AiConfig::default()
         };
         assert_eq!(cfg.valid_workspace(), None);
     }

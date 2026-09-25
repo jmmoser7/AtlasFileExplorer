@@ -7668,6 +7668,9 @@ impl AtlasApp {
     /// (at most one content-hash + write per second, nothing when no AI
     /// workspace is established).
     fn ai_context_frame(&mut self) {
+        if !self.ai.beacon_due() {
+            return;
+        }
         let root = &self.root;
         let entries = &self.entries;
         let file_match = &self.file_match;

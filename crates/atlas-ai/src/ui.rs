@@ -32,6 +32,9 @@ pub struct AiPanel {
     pub status: Option<String>,
     last_fingerprint: u64,
     last_beacon: Option<Instant>,
+    /// The workspace may be a synced or network folder: beacons are written
+    /// on their own thread, newest first.
+    beacon_tx: Option<Sender<(PathBuf, AiAppContext)>>,
 }
 
 impl AiPanel {
@@ -51,6 +54,7 @@ impl AiPanel {
             status: None,
             last_fingerprint: 0,
             last_beacon: None,
+            beacon_tx: None,
         }
     }
 
@@ -131,15 +135,21 @@ impl AiPanel {
     /// Maintain the live-link beacon. `build` is only called when the
     /// throttle window has elapsed; the file is only rewritten when content
     /// actually changed.
+    /// Whether [`AiPanel::update_context`] would build a beacon now. Lets the
+    /// app skip gathering selection and file lists on the frames in between.
+    pub fn beacon_due(&self) -> bool {
+        self.last_beacon.is_none_or(|t| t.elapsed() >= BEACON_INTERVAL)
+    }
+
     pub fn update_context(&mut self, build: impl FnOnce() -> AiAppContext) {
-        let Some(ws) = self.config.valid_workspace().map(PathBuf::from) else {
-            return;
-        };
         if let Some(t) = self.last_beacon {
             if t.elapsed() < BEACON_INTERVAL {
                 return;
             }
         }
+        let Some(ws) = self.config.valid_workspace().map(PathBuf::from) else {
+            return;
+        };
         self.last_beacon = Some(Instant::now());
         let mut ctx = build();
         ctx.generated_at = now_secs();
@@ -147,9 +157,20 @@ impl AiPanel {
         if fp == self.last_fingerprint {
             return;
         }
-        if write_context(&ws, &ctx).is_ok() {
-            self.last_fingerprint = fp;
-        }
+        self.last_fingerprint = fp;
+        let tx = self.beacon_tx.get_or_insert_with(|| {
+            let (tx, rx) = crossbeam_channel::unbounded::<(PathBuf, AiAppContext)>();
+            std::thread::spawn(move || {
+                while let Ok(mut job) = rx.recv() {
+                    while let Ok(newer) = rx.try_recv() {
+                        job = newer;
+                    }
+                    let _ = write_context(&job.0, &job.1);
+                }
+            });
+            tx
+        });
+        let _ = tx.send((ws, ctx));
     }
 }
 

@@ -17,7 +17,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{self, Align2, Color32, FontId, Id, Pos2, Rect, Sense};
 use slate_doc::reject;
 use slate_doc::scene::{AgentContextScope, Node, NodeId, NodeKind, PortalKind, PortalNode};
-use slate_doc::stage::{self, Proposal, ProposalResult, StageWatcher};
+use slate_doc::stage::{self, Proposal, ProposalResult, StageFeed};
 
 use super::board::BoardXf;
 use super::board_portal::resolve_source;
@@ -212,7 +212,7 @@ pub struct AgentRuntime {
     pub(crate) sessions: HashMap<NodeId, std::sync::Arc<AgentSession>>,
     prompts: HashMap<NodeId, String>,
     pending: Vec<Proposal>,
-    stage: StageWatcher,
+    stage: StageFeed,
     /// Sessions this user let act without asking (`atlas_ai::access`). Loaded
     /// at startup from the per-user store; never journaled.
     full_access: std::collections::BTreeSet<String>,
@@ -5337,6 +5337,7 @@ impl SlateApp {
 
     pub(crate) fn agent_pump(&mut self, ctx: &egui::Context) {
         self.sync_agent_doc();
+        let front_span = atlas_core::session_log::span("slate.agents.front");
         let mut existing: HashSet<String> = self
             .tabs
             .iter()
@@ -5373,8 +5374,10 @@ impl SlateApp {
                 self.agent_blur();
             }
         }
+        drop(front_span);
         let ws = self.ai.config.workspace_dir.clone().unwrap_or_default();
 
+        let sessions_span = atlas_core::session_log::span("slate.agents.sessions");
         let portals: Vec<(NodeId, Option<slate_doc::scene::AgentPortalRef>)> = self
             .doc()
             .scene
@@ -5530,6 +5533,8 @@ impl SlateApp {
             }
         }
         self.agents.sources.retain(&live_dirs);
+        drop(sessions_span);
+        let tail_span = atlas_core::session_log::span("slate.agents.tail");
         self.pump_agent_awaits(ctx, &ws);
         self.pump_comfy_queue();
         self.pump_live_generators();
@@ -5537,12 +5542,10 @@ impl SlateApp {
             ctx.request_repaint_after(LIVE_TYPING_SETTLE);
         }
         self.pump_generation_previews(ctx);
+        drop(tail_span);
 
-        let proposals = if ws.as_os_str().is_empty() {
-            Vec::new()
-        } else {
-            self.agents.stage.tick_read(&ws)
-        };
+        let _stage_span = atlas_core::session_log::span("slate.agents.stage");
+        let proposals = self.agents.stage.poll(&ws);
         if !proposals.is_empty() {
             for proposal in proposals {
                 if let Some(existing) = self.agents.pending.iter_mut().find(|p| p.id == proposal.id)

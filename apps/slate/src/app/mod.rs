@@ -2217,9 +2217,13 @@ impl SlateApp {
         }
         {
             let _span = atlas_core::session_log::span("slate.ai");
-            if self.ai.poll() {
-                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            {
+                let _poll = atlas_core::session_log::span("slate.ai.poll");
+                if self.ai.poll() {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                }
             }
+            let _beacon = atlas_core::session_log::span("slate.ai.beacon");
             self.ai_context_frame();
         }
         {
@@ -2452,6 +2456,9 @@ impl SlateApp {
     /// Maintain the AI live-link beacon: which workbook is open, what's
     /// selected, which files it links to. Self-throttled inside `AiPanel`.
     fn ai_context_frame(&mut self) {
+        if !self.ai.beacon_due() {
+            return;
+        }
         let tab = self.tab();
         let selection = self.selection.clone();
         let doc = &tab.doc;

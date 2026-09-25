@@ -308,6 +308,69 @@ pub fn read_result(ai_workspace: &Path, id: &str) -> io::Result<Option<ProposalR
     }
 }
 
+/// [`StageWatcher`] on its own thread. The AI workspace may be a synced or
+/// network folder, so the frame loop only drains a channel.
+#[derive(Debug, Default)]
+pub struct StageFeed {
+    workspace: PathBuf,
+    rx: Option<std::sync::mpsc::Receiver<Vec<Proposal>>>,
+    stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+}
+
+impl StageFeed {
+    /// Proposals that changed since the last call. Restarts the reader when
+    /// the workspace changes; an empty path stops it.
+    pub fn poll(&mut self, ai_workspace: &Path) -> Vec<Proposal> {
+        if ai_workspace != self.workspace {
+            self.halt();
+            self.workspace = ai_workspace.to_path_buf();
+            if !ai_workspace.as_os_str().is_empty() {
+                self.start();
+            }
+        }
+        let mut out = Vec::new();
+        if let Some(rx) = &self.rx {
+            while let Ok(batch) = rx.try_recv() {
+                out.extend(batch);
+            }
+        }
+        out
+    }
+
+    fn start(&mut self) {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = std::sync::Arc::clone(&stop);
+        let workspace = self.workspace.clone();
+        std::thread::spawn(move || {
+            let mut watcher = StageWatcher::new();
+            while !flag.load(Ordering::Relaxed) {
+                let batch = watcher.tick_read(&workspace);
+                if !batch.is_empty() && tx.send(batch).is_err() {
+                    break;
+                }
+                std::thread::sleep(READ_INTERVAL);
+            }
+        });
+        self.rx = Some(rx);
+        self.stop = Some(stop);
+    }
+
+    fn halt(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.rx = None;
+    }
+}
+
+impl Drop for StageFeed {
+    fn drop(&mut self) {
+        self.halt();
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct StageWatcher {
     last_read_attempt: Option<Instant>,
