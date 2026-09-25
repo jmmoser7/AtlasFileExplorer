@@ -4211,11 +4211,22 @@ fn sending_a_prompt_shows_thinking_not_silence() {
     });
     *h.app.agents.prompt_mut(id) = "what is 2+2?".into();
     h.app.send_agent_prompt(id);
+    let awaiting = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .any(|n| h.app.agent_is_awaiting(n.id));
+    assert!(awaiting, "Send must enter Thinking — never a blank wait");
     assert!(
-        h.app.agent_is_awaiting(id),
-        "Send must enter Thinking — never a blank wait"
+        h.app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .all(|n| h.app.agent_failure_reason(n.id).is_none())
     );
-    assert!(h.app.agent_failure_reason(id).is_none());
 }
 
 /// GP2 — dropping an HTML file on the board makes a portal, not a text card,
