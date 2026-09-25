@@ -5226,6 +5226,7 @@ impl SlateApp {
                 z,
                 self.palette(),
                 2,
+                None,
             ) {
                 self.pick_agent_result(id, pick);
             }

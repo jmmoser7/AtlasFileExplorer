@@ -257,16 +257,16 @@
           "decided": "2026-09-25"
         },
         "D39": {
-          "behavior": "Filters reuse the image node's ImageAdjust / CSS-filter model (imagefx on the board, same chain in the HTML artifact on the model poster). The filter applies over the live render or frozen poster, not per idle frame: one CPU pass when the (camera, size, adjust) stamp changes, cached like other board FX. Screenshot export bakes the filter into pixels (WYSIWYG) and may record slateview:imageAdjustHash in XMP for future restore (read ignored today).",
+          "behavior": "Filters reuse the image node's ImageAdjust / CSS-filter model (imagefx colour-matrix builder shared with a GPU fullscreen pass after MSAA resolve; CPU imagefx::adjusted remains for swatches and headless fallback). The filter applies over the live render or frozen poster, not per idle frame: one pass when the (camera, size, adjust) stamp changes, cached like other board FX; poster pixels stay resident in memory. Screenshot export bakes the filter into pixels (WYSIWYG) and may record slateview:imageAdjustHash in XMP for future restore (read ignored today). Enscape standalones omit Filters on the selection strip.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D40": {
-          "behavior": "A mesh model with model_viewport exposes a left View input. Wiring any image node registers a saved view (journaled connector + binding). On connect, slateview XMP is read once on a worker and cached on the connector as cached_slate_view. Preview squares under the viewport reuse atlas-shell::home::album_index_strip (min_images 1); the active square is highlighted. Click applies one journaled ModelCamera patch; a short camera tween is derived (not journaled). Squares without XMP stay visible but disabled with tooltip No saved Slate view. Cover Flow wheel browse for many views is deferred.",
-          "source": "guess",
-          "confidence": 70,
+          "behavior": "A mesh model with a View input port exposes a left View wire. Wiring any image node registers a saved view (journaled connector + binding). On connect, slateview XMP is read once on a worker and cached in runtime ModelSpace.view_wire_meta keyed by item cache key (not journaled). Preview squares under the viewport reuse atlas-shell::home::album_index_strip (min_images 1); the active square is derived from the live ModelCamera. Click applies one journaled ModelCamera patch; a short camera tween is derived (not journaled). Squares without XMP stay visible but disabled; the caller passes the No saved Slate view tooltip into album_index_strip. Cover Flow wheel browse for many views is deferred.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-25"
         },
@@ -285,7 +285,7 @@
           "decided": "2026-09-25"
         },
         "D36": {
-          "behavior": "A selected mesh model adds a third squircle on the selection strip (Screenshot / View icon). Click opens a pointer-attached menu (P2) under the cursor: Export to canvas (default — centered under the pointer for rapid repeat) renders the current camera through the existing render_capture path, writes PNG with Slate XMP under slate-outputs/<board>/…, links the file, and places one image node to the right of the model in a single journaled add. Export to folder… uses the same async save-dialog path as other exports (picker_rx / PickerMsg) for PNG, JPEG, or WebP (TIFF deferred). Every format embeds one slateview XMP packet (model-preview::view_meta).",
+          "behavior": "A selected mesh model adds a third squircle on the selection strip (Screenshot / View icon). Click opens a pointer-attached menu (P2) under the cursor: Export to canvas (default — centered under the pointer for rapid repeat) renders the current camera through the existing render_capture path, writes PNG with Slate XMP beside the workbook under <workbook>/assets/ (or atlas_ai::agent::output_dir when unsaved), links the file, and places one image node to the right of the model in a single journaled add. Export to folder… uses the same async save-dialog path as other exports (picker_rx / PickerMsg) for PNG, JPEG, or WebP (TIFF deferred) and does not add a pool item. Every format embeds one slateview XMP packet (model-preview::view_meta).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

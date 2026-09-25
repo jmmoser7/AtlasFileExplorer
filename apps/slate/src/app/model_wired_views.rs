@@ -38,10 +38,7 @@ struct WiredViewEntry {
 impl SlateApp {
     pub(crate) fn wire_host(&self, node: &slate_doc::scene::Node) -> WireHost {
         let model_view = self.model_has_viewport(node.id);
-        WireHost::from_node_flow(
-            node,
-            agent_inputs::input_ports_of(node, model_view),
-        )
+        WireHost::from_node_flow(node, agent_inputs::input_ports_of(node, model_view))
     }
 
     pub(crate) fn note_view_wires_added(&mut self, ids: &[NodeId]) {
@@ -167,14 +164,10 @@ impl SlateApp {
     }
 
     fn active_view_connector(&self, model: NodeId, views: &[WiredViewEntry]) -> Option<NodeId> {
-        let cam = self
-            .doc()
-            .scene
-            .node(model)
-            .and_then(|n| match &n.kind {
-                NodeKind::Image(i) => Some(i.model),
-                _ => None,
-            })?;
+        let cam = self.doc().scene.node(model).and_then(|n| match &n.kind {
+            NodeKind::Image(i) => Some(i.model),
+            _ => None,
+        })?;
         views
             .iter()
             .find(|v| v.camera == Some(cam))
@@ -231,6 +224,7 @@ impl SlateApp {
             zoom,
             self.palette(),
             1,
+            Some("No saved Slate view"),
         ) {
             self.apply_wired_view_pick(model, views[pick].connector);
         }

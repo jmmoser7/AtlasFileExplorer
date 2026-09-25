@@ -456,6 +456,7 @@ pub fn album_index_strip(
     zoom: f32,
     theme: crate::theme::Palette,
     min_images: usize,
+    disabled_hover: Option<&str>,
 ) -> Option<usize> {
     if images.len() < min_images.max(1) {
         return None;
@@ -508,7 +509,9 @@ pub fn album_index_strip(
             },
         );
         if !enabled {
-            response = response.on_hover_text("No saved Slate view");
+            if let Some(tip) = disabled_hover {
+                response = response.on_hover_text(tip);
+            }
         }
         if enabled && response.clicked() {
             clicked = Some(i);
