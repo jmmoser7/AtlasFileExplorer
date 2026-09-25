@@ -8060,6 +8060,55 @@ fn image_paint_eraser_removes_vector_stroke_and_undo_restores_it() {
 }
 
 #[test]
+fn image_paint_session_clears_before_drawing_off_another_selection() {
+    let mut h = Harness::new("image_paint_session_clear");
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let image = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image_id = image.id;
+    h.app.add_nodes(vec![image]);
+    h.app.board_sel = std::iter::once(image_id).collect();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    assert!(h.app.image_paint_session().is_some());
+
+    let other = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(300.0, 0.0, 20.0, 20.0),
+        slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
+            shape: slate_doc::scene::ShapeKind::Rect,
+            fill: Some(slate_doc::scene::Rgba::opaque(0, 0, 0)),
+            stroke: slate_doc::scene::Stroke::none(),
+            corner: Default::default(),
+            flip: false,
+            path: None,
+            text: None,
+        }),
+    );
+    let other_id = other.id;
+    h.app.add_nodes(vec![other]);
+    h.app.board_sel = std::iter::once(other_id).collect();
+    h.app.set_board_tool(board::BoardTool::RectShape);
+    h.app.finish_draw(
+        Pos2::new(400.0, 200.0),
+        Pos2::new(500.0, 300.0),
+        board::BoardTool::RectShape,
+        egui::Modifiers::NONE,
+    );
+    assert!(h.app.image_paint_session().is_none());
+    assert_eq!(h.app.doc().scene.nodes.len(), 3);
+    let host = h.app.doc().scene.node(image_id).unwrap();
+    let slate_doc::scene::NodeKind::Image(img) = &host.kind else {
+        panic!("image");
+    };
+    assert!(img.paint_layers.is_empty());
+}
+
+#[test]
 fn the_eraser_spot_erases_painted_ink_and_keeps_the_stroke() {
     let mut h = Harness::new("eraser_spot");
     h.app.set_board_tool(board::BoardTool::Brush);

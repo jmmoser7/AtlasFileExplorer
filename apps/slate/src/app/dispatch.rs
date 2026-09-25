@@ -610,17 +610,19 @@ impl SlateApp {
             "board.delete" => {
                 use super::board_image_layers::ImageStripFocus;
                 if let Some(session) = self.image_paint.as_ref() {
-                    if let ImageStripFocus::Layer(idx) = session.focus {
-                        let image = session.image;
-                        if self
-                            .doc()
-                            .scene
-                            .node(image)
-                            .is_some_and(|n| matches!(&n.kind, slate_doc::NodeKind::Image(img) if idx < img.paint_layers.len()))
-                        {
-                            detail = detail.or(Some(format!("layer {idx}")));
-                            self.delete_paint_layer(image, idx);
-                            return true;
+                    if self.board_sel.len() == 1 && self.board_sel.contains(&session.image) {
+                        if let ImageStripFocus::Layer(idx) = session.focus {
+                            let image = session.image;
+                            if self
+                                .doc()
+                                .scene
+                                .node(image)
+                                .is_some_and(|n| matches!(&n.kind, slate_doc::NodeKind::Image(img) if idx < img.paint_layers.len()))
+                            {
+                                detail = detail.or(Some(format!("layer {idx}")));
+                                self.delete_paint_layer(image, idx);
+                                return true;
+                            }
                         }
                     }
                 }

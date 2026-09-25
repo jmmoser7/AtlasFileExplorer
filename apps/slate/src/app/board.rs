@@ -1185,6 +1185,15 @@ impl SlateApp {
         self.add_nodes(nodes)
     }
 
+    pub(crate) fn select_created_nodes(&mut self, ids: Vec<NodeId>) {
+        self.board_sel.clear();
+        if let Some(host) = self.paint_layer_host() {
+            self.board_sel.insert(host);
+        } else {
+            self.board_sel.extend(ids);
+        }
+    }
+
     /// Insert new nodes as one undo group. Returns their ids.
     pub fn add_nodes(&mut self, nodes: Vec<Node>) -> Vec<NodeId> {
         if self.refuse_read_only_edit() {
@@ -3597,6 +3606,7 @@ impl SlateApp {
     // ----- main board entry -----------------------------------------------------
 
     pub fn board_canvas(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        self.validate_image_paint_session();
         self.tick_bumper_glide(ui.ctx());
         self.fit_agent_cards(ui.ctx());
         let _span = atlas_core::session_log::span("slate.board.paint");
@@ -4762,9 +4772,10 @@ impl SlateApp {
                 let end = self.tip_now();
                 let anchor = self.brush_line_anchor;
                 let (from, start) = anchor.map(|a| (a.pos, a.tip)).unwrap_or((press, press_tip));
-                let anchor_id = anchor
-                    .and_then(|a| a.node)
-                    .filter(|id| self.doc().scene.node(*id).is_some_and(|n| !n.hidden));
+                let anchor_id = anchor.and_then(|a| a.node).filter(|id| {
+                    self.doc().scene.node(*id).is_some_and(|n| !n.hidden)
+                        || slate_doc::image_paint::find_layer_node(&self.doc().scene, *id).is_some()
+                });
                 let ppp = ui.ctx().pixels_per_point();
                 let tolerance = (0.5 / (xf.z * ppp).max(1.0e-3)) as f64;
                 let scene = &self.tab().doc.scene;
@@ -7023,8 +7034,8 @@ impl SlateApp {
         if let Some(n) = nodes.first() {
             self.note_last_style(n);
         }
-        let ids = self.add_nodes(nodes);
-        self.board_sel = ids.into_iter().collect();
+        let ids = self.commit_created_nodes(nodes);
+        self.select_created_nodes(ids);
         self.disarm_create();
         if let Some(id) = Self::draw_command_id(tool) {
             self.push_history(atlas_commands::CommandId(id), Some("placed".into()));
@@ -7076,10 +7087,10 @@ impl SlateApp {
             }),
         );
         let id = node.id;
-        self.add_nodes(vec![node]);
-        self.board_sel.clear();
-        self.board_sel.insert(id);
-        self.text_edit = Some((id, "Text".into()));
+        let ids = self.commit_created_nodes(vec![node]);
+        let hosted = self.image_paint.is_some();
+        self.select_created_nodes(ids);
+        self.text_edit = (!hosted).then(|| (id, "Text".into()));
         self.board_tool = BoardTool::Select;
         self.push_history(
             atlas_commands::CommandId("board.tool.text"),
@@ -7117,7 +7128,7 @@ impl SlateApp {
                     self.note_last_style(n);
                 }
                 let ids = self.commit_created_nodes(nodes);
-                self.board_sel = ids.into_iter().collect();
+                self.select_created_nodes(ids);
                 if let Some(id) = Self::draw_command_id(tool) {
                     self.push_history(atlas_commands::CommandId(id), Some("drawn".into()));
                 }
@@ -7148,7 +7159,7 @@ impl SlateApp {
             self.note_last_style(n);
         }
         let ids = self.commit_created_nodes(nodes);
-        self.board_sel = ids.into_iter().collect();
+        self.select_created_nodes(ids);
         if let Some(id) = Self::draw_command_id(tool) {
             self.push_history(atlas_commands::CommandId(id), Some("drawn".into()));
         }

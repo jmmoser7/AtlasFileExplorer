@@ -69,7 +69,6 @@ pub fn tool_hosts_on_image(tool: BoardTool) -> bool {
             | BoardTool::Pen
             | BoardTool::Text
             | BoardTool::Brush
-            | BoardTool::Sticky
             | BoardTool::Eraser
     )
 }
@@ -131,13 +130,16 @@ impl SlateApp {
 
     pub fn sync_image_paint_for_tool(&mut self) {
         if !tool_hosts_on_image(self.board_tool) {
+            self.image_paint = None;
             return;
         }
         if self.board_sel.len() != 1 {
+            self.image_paint = None;
             return;
         }
         let id = *self.board_sel.iter().next().unwrap();
         if !Self::supports_image_paint(id, self) {
+            self.image_paint = None;
             return;
         }
         let Some(node) = self.doc().scene.node(id).cloned() else {
@@ -166,6 +168,18 @@ impl SlateApp {
                 },
                 focus,
             });
+        }
+    }
+
+    pub(crate) fn validate_image_paint_session(&mut self) {
+        let Some(session) = self.image_paint.as_ref() else {
+            return;
+        };
+        if !tool_hosts_on_image(self.board_tool)
+            || self.board_sel.len() != 1
+            || !self.board_sel.contains(&session.image)
+        {
+            self.image_paint = None;
         }
     }
 
