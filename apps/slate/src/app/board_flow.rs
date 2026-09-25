@@ -551,6 +551,9 @@ impl SlateApp {
         if self.add_nodes(vec![node, wire]).is_empty() {
             return false;
         }
+        if kind == SpawnKind::Text {
+            self.seed_agent_text_output(id);
+        }
         self.board_sel = std::iter::once(id).collect();
         if !run {
             self.agents.flow.focus_prompt = Some(id);
@@ -563,6 +566,33 @@ impl SlateApp {
                 SpawnKind::Text => self.queue_text_block(id),
             }
         }
+        true
+    }
+
+    /// Link a fresh `response.txt` under slate-outputs for a text-language-model window.
+    fn seed_agent_text_output(&mut self, id: NodeId) -> bool {
+        let Some(ws) = self.ai.config.valid_workspace().map(|p| p.to_path_buf()) else {
+            return false;
+        };
+        let Some((session, _)) = self.agent_session_for(id) else {
+            return false;
+        };
+        let Some(output_dir) = self.agent_output_dir(id, &ws, &session) else {
+            return false;
+        };
+        let path = std::path::PathBuf::from(&output_dir).join("response.txt");
+        if std::fs::write(&path, "").is_err() {
+            return false;
+        }
+        let item = self
+            .doc_mut()
+            .add_item(path.clone(), "response.txt", 0, 0, "txt");
+        self.patch_nodes(&[id], |n| {
+            if let NodeKind::Image(i) = &mut n.kind {
+                i.item = item;
+            }
+        });
+        let _ = self.snippet_for(item, &path);
         true
     }
 
@@ -772,17 +802,8 @@ impl SlateApp {
             );
             return;
         }
-        // Running again replaces words the person made their own, as one undo.
-        let baked = matches!(
-            self.doc().scene.node(id).map(|n| &n.kind),
-            Some(NodeKind::Text(t)) if !t.text.is_empty()
-        );
-        if baked && !self.tab().read_only {
-            self.patch_nodes(&[id], |n| {
-                if let NodeKind::Text(t) = &mut n.kind {
-                    t.text.clear();
-                }
-            });
+        if self.agent_text_window_owned(id) && !self.tab().read_only {
+            self.clear_agent_text_output_file(id);
         }
         let model = self
             .doc()
@@ -790,6 +811,16 @@ impl SlateApp {
             .node(id)
             .and_then(slate_doc::agent_chat::agent)
             .and_then(|a| a.model.clone());
+        let ws = self
+            .ai
+            .config
+            .valid_workspace()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default();
+        let session = self
+            .agent_session_for(id)
+            .map(|(s, _)| s)
+            .unwrap_or_default();
         let request = AgentRequest {
             id: atlas_ai::agent::request_id(),
             prompt,
@@ -798,10 +829,70 @@ impl SlateApp {
             inputs,
             history: vec![],
             image: None,
-            output_dir: None,
+            output_dir: self.agent_output_dir(id, &ws, &session),
             oneshot: true,
         };
         self.enqueue_generation(id, request);
+    }
+
+    fn agent_text_window_owned(&self, id: NodeId) -> bool {
+        let Some(NodeKind::Image(i)) = self.doc().scene.node(id).map(|n| &n.kind) else {
+            return matches!(
+                self.doc().scene.node(id).map(|n| &n.kind),
+                Some(NodeKind::Text(t)) if !t.text.trim().is_empty()
+            );
+        };
+        self.doc()
+            .item(i.item)
+            .and_then(|it| std::fs::read_to_string(&it.path).ok())
+            .is_some_and(|text| !text.trim().is_empty())
+    }
+
+    fn clear_agent_text_output_file(&mut self, id: NodeId) {
+        let Some(NodeKind::Image(i)) = self.doc().scene.node(id).map(|n| n.kind.clone()) else {
+            return;
+        };
+        let Some(path) = self.doc().item(i.item).map(|it| it.path.clone()) else {
+            return;
+        };
+        let _ = std::fs::write(&path, "");
+        self.snippets.remove(&i.item);
+    }
+
+    /// Derived streaming sync: assistant text mirrors into the linked file.
+    pub(crate) fn sync_agent_text_output(&mut self, id: NodeId) {
+        if !self.is_text_block(id) {
+            return;
+        }
+        let Some((item, path)) = (|| {
+            let node = self.doc().scene.node(id)?;
+            let NodeKind::Image(i) = &node.kind else {
+                return None;
+            };
+            let path = self.doc().item(i.item)?.path.clone();
+            Some((i.item, path))
+        })() else {
+            return;
+        };
+        let Some(text) = self.agent_reply(id) else {
+            return;
+        };
+        if std::fs::write(&path, &text).is_ok() {
+            self.snippets.remove(&item);
+            let _ = self.snippet_for(item, &path);
+        }
+    }
+
+    /// Text-language-model window: linked text document card plus agent chrome.
+    pub(crate) fn paint_agent_text_window(
+        &mut self,
+        ui: &egui::Ui,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+        node: &slate_doc::scene::Node,
+        body: Rect,
+    ) {
+        self.paint_agent_note(ui, painter, xf, node, body);
     }
 
     /// A note an agent writes: its newest reply shows in the note itself (the
@@ -825,13 +916,13 @@ impl SlateApp {
         let running = self.agent_is_running(id);
         let waiting = self.generations_waiting(id);
         let reply = self.agent_reply(id);
-        let own = matches!(&node.kind, NodeKind::Text(t) if !t.text.trim().is_empty());
-        if let (Some(reply), NodeKind::Text(t)) = (&reply, &node.kind) {
+        let own = self.agent_text_window_owned(id);
+        if let Some(reply) = &reply {
             if !own && !running {
                 let laid = canvas_text::layout(
                     painter,
                     reply.clone(),
-                    canvas_scale::font(t.size, z),
+                    canvas_scale::font(BLOCK_TEXT_PX, z),
                     Color32::WHITE,
                     body.width(),
                 );
@@ -940,8 +1031,19 @@ impl SlateApp {
     /// What a note an agent writes shows while the person has not made the
     /// words their own: the agent's reply.
     pub(crate) fn agent_note_reply(&self, id: NodeId) -> Option<String> {
+        if !self.is_text_block(id) {
+            return None;
+        }
         match self.doc().scene.node(id).map(|n| &n.kind) {
-            Some(NodeKind::Text(t)) if t.agent.is_some() && t.text.trim().is_empty() => {
+            Some(NodeKind::Text(t)) if t.text.trim().is_empty() => self.agent_reply(id),
+            Some(NodeKind::Image(i))
+                if i.agent.is_some()
+                    && self
+                        .doc()
+                        .item(i.item)
+                        .and_then(|it| std::fs::read_to_string(&it.path).ok())
+                        .is_none_or(|text| text.trim().is_empty()) =>
+            {
                 self.agent_reply(id)
             }
             _ => None,
@@ -1980,18 +2082,30 @@ mod tests {
         );
     }
 
-    /// The Text choice is a sticky note. It shows the agent's reply until the
-    /// person edits it; running again replaces their words as one undo.
+    /// Text language model spawns a linked text document window wired as output.
     #[test]
     fn the_text_choice_is_a_note_that_shows_its_reply_until_edited() {
         let (mut h, generator) = generator_with_output("media_note");
+        h.app.ai.config.workspace_dir = Some(h.base.join("ai-ws"));
+        std::fs::create_dir_all(h.app.ai.config.workspace_dir.as_ref().unwrap()).unwrap();
         let detail = serde_json::json!({"source": generator.0, "kind": "text"});
         assert!(h.app.spawn_flow_node(Some(&detail.to_string())));
         let note = *h.app.board_sel.iter().next().unwrap();
         assert!(matches!(
             &h.app.doc().scene.node(note).unwrap().kind,
-            NodeKind::Text(t) if t.text.is_empty() && t.fill.is_some()
+            NodeKind::Image(i) if i.agent.is_some()
         ));
+        let path = h
+            .app
+            .doc()
+            .item(match &h.app.doc().scene.node(note).unwrap().kind {
+                NodeKind::Image(i) => i.item,
+                _ => panic!("text window"),
+            })
+            .unwrap()
+            .path
+            .clone();
+        assert_eq!(slate_doc::media_kind(&path), slate_doc::MediaKind::Text);
         let session = atlas_ai::agent::AgentSession {
             approval: None,
             conversation: String::new(),
@@ -2015,26 +2129,10 @@ mod tests {
             h.app.agent_note_reply(note).as_deref(),
             Some("Warm light on stone.")
         );
-
-        // Opening and closing the editor unchanged keeps the words the agent's.
-        let depth = h.app.tab().journal.undo_depth();
-        h.app.text_edit = Some((note, "Warm light on stone.".into()));
-        h.app.commit_text_edit();
-        assert_eq!(h.app.tab().journal.undo_depth(), depth);
-        // Editing makes them the person's own.
-        h.app.text_edit = Some((note, "Warm light on old stone.".into()));
-        h.app.commit_text_edit();
-        assert!(h.app.agent_note_reply(note).is_none());
-        let depth = h.app.tab().journal.undo_depth();
-        *h.app.agents.prompt_mut(note) = "Describe it".into();
-        h.app.queue_text_block(note);
-        assert!(matches!(
-            &h.app.doc().scene.node(note).unwrap().kind,
-            NodeKind::Text(t) if t.text.is_empty()
-        ));
-        assert!(
-            h.app.tab().journal.undo_depth() > depth,
-            "undo brings the words back"
+        h.app.sync_agent_text_output(note);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap().trim(),
+            "Warm light on stone."
         );
     }
 

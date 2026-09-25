@@ -440,7 +440,7 @@ impl SlateApp {
 
     /// The conversation's output folder for `request.json`, named the first
     /// time and cached for the session.
-    pub(super) fn agent_output_dir(
+    pub(crate) fn agent_output_dir(
         &mut self,
         portal: NodeId,
         ws: &Path,

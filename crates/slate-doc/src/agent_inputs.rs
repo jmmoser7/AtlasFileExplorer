@@ -327,6 +327,11 @@ fn source_kind<'a>(
         NodeKind::Text(_) => InputKind::Text,
         NodeKind::Shape(_) => InputKind::Text,
         NodeKind::Image(image)
+            if image.agent.as_ref().is_some_and(|a| a.view == atlas_agent::PortalView::Text) =>
+        {
+            InputKind::Text
+        }
+        NodeKind::Image(image)
             if image.agent.is_none()
                 && item_path(image.item).is_some_and(|p| {
                     crate::media::media_kind(p) == crate::media::MediaKind::Text
@@ -1745,10 +1750,10 @@ mod tests {
         };
         assert!(picture.item.is_none(), "nothing picked yet");
         assert_eq!(picture.agent.as_ref().unwrap().instruction, "watercolor");
-        let NodeKind::Text(written) = &doc.scene.node(block).unwrap().kind else {
-            panic!("a text block opens as a note");
+        let NodeKind::Image(written) = &doc.scene.node(block).unwrap().kind else {
+            panic!("a text block opens as a text document window");
         };
-        assert!(written.text.is_empty() && written.agent.is_some());
+        assert!(written.item.is_none() && written.agent.is_some());
         assert_eq!(input_ports(&doc.scene, generator).len(), 3);
         assert_eq!(input_ports(&doc.scene, block).len(), 2);
         let snap = snapshot(
@@ -1836,15 +1841,12 @@ mod tests {
         if let NodeKind::Image(i) = &mut doc.scene.nodes[g].kind {
             i.item = picked;
         }
-        if let NodeKind::Text(t) = &mut doc.scene.nodes[b].kind {
-            t.text = "My own words.".into();
-        }
         let snap = snapshot(&doc, reader, AgentContextScope::Selection, &[], &outputs).unwrap();
         assert!(snap
             .wired
             .iter()
             .any(|w| w.images.iter().any(|i| i.ends_with("run-1.png"))));
-        assert!(snap.wired.iter().any(|w| w.text == "My own words."));
+        assert!(snap.wired.iter().any(|w| w.text == "A calm harbour."));
 
         let images = [
             ImageOutput {
