@@ -797,7 +797,50 @@ fn render_image(
         html.push_str(";\"></div>");
     }
 
+    render_image_paint_layers(html, node, img, rel);
+
     html.push_str("</div>\n");
+}
+
+fn render_image_paint_layers(
+    html: &mut String,
+    node: &Node,
+    img: &slate_doc::scene::ImageNode,
+    rel: WorldRect,
+) {
+    if img.paint_layers.is_empty() {
+        return;
+    }
+    let clip_id = format!("img-clip-{}", node.id.0);
+    html.push_str("<svg style=\"position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:hidden\"><defs><clipPath id=\"");
+    html.push_str(&clip_id);
+    html.push_str("\"><rect width=\"100%\" height=\"100%\" rx=\"0\" ry=\"0\"/></clipPath></defs>");
+    for (i, layer) in img.paint_layers.iter().enumerate() {
+        if !layer.visible {
+            continue;
+        }
+        html.push_str("<g clip-path=\"url(#");
+        html.push_str(&clip_id);
+        html.push_str(")\" opacity=\"");
+        html.push_str(&format!(
+            "{:.3}",
+            (layer.opacity * node.opacity).clamp(0.0, 1.0)
+        ));
+        html.push_str("\" data-paint-layer=\"");
+        html.push_str(&format!("{}-{}", node.id.0, i));
+        html.push_str("\">");
+        for local in &layer.nodes {
+            let world = slate_doc::image_paint::layer_node_to_world(node, local);
+            let child_rel = world.rect.translated(-rel.x, -rel.y);
+            match &world.kind {
+                NodeKind::Shape(shape) => render_shape(html, &world, shape, child_rel),
+                NodeKind::Text(text) => render_text(html, &world, text, &text.text, child_rel),
+                _ => {}
+            }
+        }
+        html.push_str("</g>");
+    }
+    html.push_str("</svg>");
 }
 
 fn render_img_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNode) {

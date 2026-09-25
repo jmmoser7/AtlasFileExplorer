@@ -41,6 +41,7 @@ mod board_flow;
 mod board_forcefield;
 mod board_handles;
 pub mod board_icons;
+mod board_image_layers;
 mod board_join;
 mod board_line;
 mod board_osnap;
@@ -366,6 +367,8 @@ pub struct SlateApp {
     /// InDesign-style crop mode: the image node whose crop is being edited
     /// directly on the canvas (`None` = normal interaction).
     pub board_crop: Option<NodeId>,
+    /// Trace-paper session: drawing tools commit into the active paint layer.
+    pub(crate) image_paint: Option<board_image_layers::ImagePaintSession>,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
     /// Fitted sticky font sizes. Derived from text and box; not journaled.
@@ -758,6 +761,7 @@ impl SlateApp {
             board_frame_custom: None,
             board_drag: None,
             board_crop: None,
+            image_paint: None,
             text_edit: None,
             sticky_fit: HashMap::new(),
             sheet_edit: None,

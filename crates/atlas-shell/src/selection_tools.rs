@@ -1838,6 +1838,20 @@ pub struct FilterEdit {
     pub amount: Option<f32>,
 }
 
+/// One paint-layer chip after the filter radios (`+` or index label).
+#[derive(Clone, Copy)]
+pub struct LayerChip {
+    pub label: &'static str,
+    pub thumb: Option<egui::TextureId>,
+    pub is_add: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct LayerStripEdit {
+    pub hovered: Option<usize>,
+    pub clicked: Option<usize>,
+}
+
 /// Fillet-style capsule: filter thumbnails + intensity slider.
 pub fn filter_editor(
     ui: &mut egui::Ui,
@@ -1845,22 +1859,29 @@ pub fn filter_editor(
     radios: &[FilterRadio],
     selected: Option<usize>,
     amount: f32,
+    layer_chips: &[LayerChip],
+    layer_selected: Option<usize>,
     zoom: f32,
     theme: Palette,
-) -> FilterEdit {
+) -> (FilterEdit, LayerStripEdit) {
     paint_capsule(ui, rect, zoom, theme);
     let pad = rect.height() * (2.0 / CAPSULE_HEIGHT);
     let inner_h = rect.height() * (13.0 / CAPSULE_HEIGHT);
-    let count = radios.len().max(1) as f32;
+    let filter_count = radios.len().max(1) as f32;
+    let layer_count = layer_chips.len() as f32;
+    let layer_gap = if layer_chips.is_empty() {
+        0.0
+    } else {
+        8.0 * zoom
+    };
     // 80% of the doubled-capsule dot. The intensity track uses this same
     // radius as its thickness so the slider stays a thin capsule.
     let radius = inner_h * 0.36 * 0.8;
     let radio_pitch = radius * 2.0 + 6.0 * zoom;
-    let radio_row = Rect::from_min_size(
-        rect.min + Vec2::splat(pad),
-        Vec2::new(radio_pitch * count, inner_h),
-    );
+    let row_w = filter_count * radio_pitch + layer_gap + layer_count * radio_pitch;
+    let radio_row = Rect::from_min_size(rect.min + Vec2::splat(pad), Vec2::new(row_w, inner_h));
     let mut out = FilterEdit::default();
+    let mut layer_out = LayerStripEdit::default();
     for (i, radio) in radios.iter().enumerate() {
         let center = Pos2::new(
             radio_row.left() + (i as f32 + 0.5) * radio_pitch,
@@ -1886,6 +1907,63 @@ pub fn filter_editor(
             zoom,
             theme,
         );
+    }
+    let layer_base_x = radio_row.left() + filter_count * radio_pitch + layer_gap;
+    for (i, chip) in layer_chips.iter().enumerate() {
+        let center = Pos2::new(
+            layer_base_x + (i as f32 + 0.5) * radio_pitch,
+            radio_row.center().y,
+        );
+        let hit = Rect::from_center_size(center, Vec2::splat(radius * 2.0));
+        let response = ui
+            .interact(hit, ui.id().with(("layer_chip", i)), Sense::click())
+            .on_hover_text(if chip.is_add {
+                "Add paint layer"
+            } else {
+                chip.label
+            });
+        if response.hovered() {
+            layer_out.hovered = Some(i);
+        }
+        if response.clicked() {
+            layer_out.clicked = Some(i);
+        }
+        let radio = FilterRadio {
+            label: chip.label,
+            fill: [48, 48, 52],
+            fill_b: None,
+            thumb: chip.thumb,
+        };
+        paint_filter_radio(
+            ui.painter(),
+            center,
+            radius,
+            &radio,
+            layer_selected == Some(i),
+            response.hovered(),
+            zoom,
+            theme,
+        );
+        let label_px = canvas_scale::px(radius * 1.1, zoom);
+        if chip.is_add && canvas_text::legible(label_px) {
+            canvas_text::text(
+                ui.painter(),
+                center,
+                Align2::CENTER_CENTER,
+                "+",
+                canvas_scale::font(radius * 1.1, zoom),
+                theme.ink,
+            );
+        } else if !chip.is_add && chip.thumb.is_none() {
+            canvas_text::text(
+                ui.painter(),
+                center,
+                Align2::CENTER_CENTER,
+                chip.label,
+                canvas_scale::font(radius * 0.95, zoom),
+                theme.ink,
+            );
+        }
     }
     let track = Rect::from_center_size(
         Pos2::new(
@@ -1917,7 +1995,7 @@ pub fn filter_editor(
     ) {
         out.amount = Some(fraction);
     }
-    out
+    (out, layer_out)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2451,8 +2529,19 @@ mod tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
-                        hovered = filter_editor(ui, rect, &radios, None, 1.0, 1.0, Palette::dark())
-                            .hovered;
+                        hovered = filter_editor(
+                            ui,
+                            rect,
+                            &radios,
+                            None,
+                            1.0,
+                            &[],
+                            None,
+                            1.0,
+                            Palette::dark(),
+                        )
+                        .0
+                        .hovered;
                     });
             });
         }

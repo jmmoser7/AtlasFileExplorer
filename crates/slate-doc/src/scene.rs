@@ -1872,6 +1872,9 @@ pub struct ImageNode {
     /// newest (see [`crate::agent_inputs::newest_image`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<Box<AgentPortalRef>>,
+    /// Trace-paper overlays (brush, pen, shapes, text) clipped to this image.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paint_layers: Vec<crate::image_paint::PaintLayer>,
 }
 
 impl SheetLayout {
@@ -1894,6 +1897,7 @@ impl ImageNode {
             video: VideoOpts::default(),
             model: ModelCamera::default(),
             agent: None,
+            paint_layers: Vec::new(),
         }
     }
 

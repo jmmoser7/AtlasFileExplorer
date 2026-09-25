@@ -234,6 +234,7 @@ mod tests {
                 video: Default::default(),
                 model: Default::default(),
                 agent: None,
+                paint_layers: Vec::new(),
             }),
         );
         let id = node.id;
@@ -531,6 +532,54 @@ mod tests {
         assert!(html.contains("filter:brightness(1.200)"));
         assert!(html.contains("class=\"ovl\""));
         assert!(html.contains("rgba(255,0,0,1.000)"));
+    }
+
+    #[test]
+    fn image_paint_layers_emit_clip_and_opacity() {
+        use slate_doc::image_paint::{layer_node_from_world, PaintLayer, PaintLayerId};
+        let mut doc = SlateDoc::new("PaintLayers");
+        let path = PathBuf::from("/tmp/slate-artifact-paint.png");
+        let item = doc.add_item(path.clone(), "p.png", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 300.0, 200.0));
+        let host = doc.scene.build_node(
+            WorldRect::new(0.0, 0.0, 100.0, 100.0),
+            NodeKind::Image(ImageNode::new(item)),
+        );
+        let id = host.id;
+        let stroke = doc.scene.build_node(
+            WorldRect::new(10.0, 10.0, 30.0, 30.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Rect,
+                fill: None,
+                stroke: Stroke::none(),
+                corner: Corner::Square,
+                flip: false,
+                path: None,
+                text: None,
+            }),
+        );
+        let local = layer_node_from_world(&host, &stroke);
+        let mut img_node = host.clone();
+        let NodeKind::Image(ref mut img) = img_node.kind else {
+            panic!();
+        };
+        img.paint_layers.push(PaintLayer {
+            id: PaintLayerId(1),
+            opacity: 0.5,
+            visible: true,
+            nodes: vec![local],
+        });
+        doc.scene.apply(&SceneCmd::Add {
+            index: 0,
+            node: img_node,
+        });
+        let mut assets = AssetMap::default();
+        assets.insert(path, "assets/p.png".into());
+        let html = render_html(&doc, &assets);
+        assert!(html.contains("clipPath"), "{html}");
+        assert!(html.contains("opacity=\"0.500\""), "{html}");
+        assert!(html.contains("data-paint-layer="), "{html}");
+        let _ = id;
     }
 
     #[test]

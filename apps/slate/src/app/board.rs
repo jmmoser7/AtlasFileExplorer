@@ -1072,6 +1072,7 @@ impl SlateApp {
         } else {
             self.trim = None;
             self.board_tool = tool;
+            self.sync_image_paint_for_tool();
         }
         if tool == BoardTool::Eyedropper {
             self.start_tool_desktop_sample(self.alt_down, false);
@@ -1092,6 +1093,7 @@ impl SlateApp {
     pub(crate) fn disarm_create(&mut self) {
         self.board_tool = BoardTool::Select;
         self.armed_kit_id = None;
+        self.clear_image_paint_session();
     }
 
     fn active_recipe(&self, tool: BoardTool) -> Option<slate_kit::Recipe> {
@@ -1182,6 +1184,9 @@ impl SlateApp {
         }
         if nodes.is_empty() {
             return Vec::new();
+        }
+        if self.try_commit_layer_nodes(nodes.clone()) {
+            return nodes.iter().map(|n| n.id).collect();
         }
         let ids: Vec<NodeId> = nodes.iter().map(|n| n.id).collect();
         let base = self.doc().scene.nodes.len();
@@ -3295,6 +3300,9 @@ impl SlateApp {
                                     EStroke::NONE,
                                 ));
                             }
+                            self.paint_image_paint_layers(
+                                ui, painter, xf, node, img, &outline, srect, alpha, z,
+                            );
                         }
                         None => {
                             let palette = self.palette();

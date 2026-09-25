@@ -995,7 +995,9 @@ impl SlateApp {
                 true
             }
             Some(CancelLayer::Draft) => {
-                if self.board_crop.is_some() {
+                if self.image_paint.is_some() {
+                    self.clear_image_paint_session();
+                } else if self.board_crop.is_some() {
                     // First Escape only exits crop mode; the node stays
                     // selected (press again to clear the selection).
                     self.board_crop = None;
