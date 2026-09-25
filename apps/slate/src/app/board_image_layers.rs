@@ -7,7 +7,7 @@ use slate_doc::{
         find_layer_node, layer_node_from_world, layer_node_kind_allowed, layer_node_to_world,
         LayerNodeRef, PaintLayerId,
     },
-    scene::{ImageNode, Node, NodeKind, Rgba, SceneCmd, ShapeKind, WorldRect},
+    scene::{ImageNode, Node, NodeKind, Rgba, SceneCmd, WorldRect},
     NodeId, PaintLayer, ViewState,
 };
 
@@ -521,48 +521,11 @@ impl SlateApp {
         let mut hits = Vec::new();
         for local in &layer.nodes {
             let n = layer_node_to_world(host, img, local);
-            if n.hidden || n.locked {
-                continue;
-            }
-            if Self::eraser_hits_world_node(&n, world, slop, zoom) {
+            if super::board_color::eraser_hits_node(&n, world, slop, zoom) {
                 hits.push(local.id);
             }
         }
         hits
-    }
-
-    fn eraser_hits_world_node(n: &Node, world: Pos2, slop: f32, zoom: f32) -> bool {
-        let NodeKind::Shape(s) = &n.kind else {
-            return false;
-        };
-        match s.shape {
-            ShapeKind::Path => {
-                let Some(path) = s.path.as_ref() else {
-                    return false;
-                };
-                if path.is_empty() {
-                    return false;
-                }
-                if s.stroke.paints_as_stamp() {
-                    let rect = n.rect.normalized();
-                    let ink = s.stroke.width * 0.5
-                        + path.tips.iter().map(|t| t.width * 0.5).fold(0.0, f32::max);
-                    return world.x >= rect.x - ink - slop
-                        && world.x <= rect.x + rect.w + ink + slop
-                        && world.y >= rect.y - ink - slop
-                        && world.y <= rect.y + rect.h + ink + slop;
-                }
-                let bez = super::board_path::path_data_to_world_bez(path, n.rect, n.rotation_deg);
-                let style = super::board_path::stroke_style_world(&s.stroke, zoom);
-                vector_ink::hit_stroke(&bez, &style, [world.x, world.y], slop)
-            }
-            ShapeKind::Line => {
-                let (a, b) = super::board_color::line_endpoints(n.rect, s.flip, n.rotation_deg);
-                super::board_color::dist_point_segment(world, a, b)
-                    <= slop + s.stroke.width.max(1.0) * 0.5
-            }
-            _ => false,
-        }
     }
 
     pub(crate) fn collect_layer_erase_spot(
@@ -599,35 +562,13 @@ impl SlateApp {
         if !x0.is_finite() {
             return;
         }
-        let ink = super::settings::STROKE_WIDTH_MAX * 0.5;
-        let _reach_pad = ink;
+        let bounds = WorldRect::new(x0, y0, x1 - x0, y1 - y0);
         for local in &layer.nodes {
             if spot.contains(&local.id) {
                 continue;
             }
             let n = layer_node_to_world(host, img, local);
-            let NodeKind::Shape(s) = &n.kind else {
-                continue;
-            };
-            if s.shape != ShapeKind::Path || s.path.is_none() || !s.stroke.paints_as_stamp() {
-                continue;
-            };
-            let ink = s.stroke.width * 0.5
-                + s.path
-                    .as_ref()
-                    .map(|p| p.tips.iter().map(|t| t.width * 0.5).fold(0.0, f32::max))
-                    .unwrap_or(0.0);
-            let rect = n.rect.normalized();
-            let reach = if n.rotation_deg.abs() > 0.01 {
-                ink + rect.w.max(rect.h)
-            } else {
-                ink
-            };
-            if rect.x - reach <= x1
-                && rect.x + rect.w + reach >= x0
-                && rect.y - reach <= y1
-                && rect.y + rect.h + reach >= y0
-            {
+            if super::board_color::spot_reaches(&n, bounds) {
                 spot.push(local.id);
             }
         }
@@ -673,32 +614,11 @@ impl SlateApp {
             else {
                 continue;
             };
-            let mut world = layer_node_to_world(&host, snap_img, &before_local);
-            let NodeKind::Shape(shape) = &mut world.kind else {
+            let world = layer_node_to_world(&host, snap_img, &before_local);
+            let Some((world, gone)) = super::board_color::stamp_erase_mark(&world, points, span)
+            else {
                 continue;
             };
-            let Some(path) = shape.path.as_mut() else {
-                continue;
-            };
-            std::sync::Arc::make_mut(path)
-                .erase
-                .push(slate_doc::scene::EraseMark {
-                    points: points
-                        .iter()
-                        .map(|p| {
-                            super::board_path::world_to_node_norm(
-                                *p,
-                                world.rect,
-                                world.rotation_deg,
-                            )
-                        })
-                        .collect(),
-                    tips: vec![span],
-                });
-            let (ink, gone) = super::board_color::erased_result(&world);
-            if !ink {
-                continue;
-            }
             touched += 1;
             if gone {
                 removes.push((loc, before_local, layer_id));
