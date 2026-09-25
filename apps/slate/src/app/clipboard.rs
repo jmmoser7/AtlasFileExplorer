@@ -2,10 +2,15 @@
 //! or files copied outside Slate.
 //!
 //! Node payload is plain `Vec<Node>` JSON (the same serde model the `.slate`
-//! file uses), kept app-internally *and* mirrored to the OS clipboard as text
-//! so selections round-trip between tabs and Slate instances. A copied image
-//! (screenshot, "Copy image") or a file list is not that JSON: those land as
-//! board items, the same intake as a drop. All mutations go through the
+//! file uses), kept app-internally *and* put on the OS clipboard under
+//! Slate's own registered format, so selections round-trip between tabs and
+//! Slate instances. The same clipboard write offers other apps something they
+//! can paste: copied pictures as a bitmap as shown (CF_DIBV5 and PNG) plus
+//! their linked files, anything else as plain text, never the JSON. Slate's
+//! own format is read before any of those on paste. A copied image
+//! (screenshot, "Copy image") or a file list from elsewhere is not that
+//! payload: those land as board items, the same intake as a drop. All
+//! mutations go through the
 //! journal (Constitution Art. VI): cut = one Remove group, paste = one Add
 //! group. The pasted bitmap is a file the workbook links to, never bytes
 //! stored in the `.slate` (Art. IX).
@@ -19,18 +24,29 @@
 
 use super::SlateApp;
 use eframe::egui::Pos2;
+use image::RgbaImage;
 use slate_doc::scene::{ConnectorEnd, GroupKey, Node, NodeKind, Scene, WireDisplay};
-use slate_doc::NodeId;
 use slate_doc::{connector_anchor_on, WireHost};
+use slate_doc::{NodeId, SlateDoc};
 use std::collections::{HashMap, HashSet};
 #[cfg(windows)]
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Clipboard bitmaps larger than this are refused. A paste is one user
 /// action, not a frame, but it still must not allocate a runaway buffer.
 const MAX_PASTE_PIXELS: u64 = 64 * 1024 * 1024;
 const MAX_PASTE_PNG_BYTES: usize = 80 * 1024 * 1024;
+
+/// A copied bitmap is scaled down past this many pixels or this side length.
+const MAX_COPY_PIXELS: f32 = 40.0 * 1024.0 * 1024.0;
+const MAX_COPY_SIDE: f32 = 16384.0;
+
+/// Slate's own clipboard format: the node payload JSON.
+#[cfg_attr(any(test, not(windows)), allow(dead_code))]
+const SLATE_CLIPBOARD_FORMAT: &str = "Slate.BoardNodes";
 
 /// Step applied to each successive Ctrl+V paste of the same payload.
 const PASTE_STEP: f32 = 24.0;
@@ -171,6 +187,351 @@ fn payload_bounds(payload: &[Node]) -> Option<(f32, f32, f32, f32)> {
     Some((min_x, min_y, max_x, max_y))
 }
 
+/// What a copy offers as plain text to other apps: nothing for pictures
+/// alone (they go as a bitmap), the words of any text nodes, or else a
+/// one-line summary. Never the node JSON.
+pub(crate) fn clipboard_text_fallback(
+    payload: &[Node],
+    is_picture: impl Fn(&Node) -> bool,
+) -> Option<String> {
+    if payload.iter().all(&is_picture) {
+        return None;
+    }
+    let words: Vec<&str> = payload
+        .iter()
+        .filter_map(|n| match &n.kind {
+            NodeKind::Text(t) => Some(t.text.as_str()),
+            NodeKind::Shape(s) => s.text.as_ref().map(|t| t.body.as_str()),
+            _ => None,
+        })
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .collect();
+    if !words.is_empty() {
+        return Some(words.join("\n\n"));
+    }
+    let kinds: [(&str, &str); 8] = [
+        ("picture", "pictures"),
+        ("file card", "file cards"),
+        ("frame", "frames"),
+        ("shape", "shapes"),
+        ("text box", "text boxes"),
+        ("wire", "wires"),
+        ("portal", "portals"),
+        ("dock strip", "dock strips"),
+    ];
+    let mut counts = [0usize; 8];
+    for n in payload {
+        let slot = match &n.kind {
+            NodeKind::Image(_) if is_picture(n) => 0,
+            NodeKind::Image(_) => 1,
+            NodeKind::Frame(_) => 2,
+            NodeKind::Shape(_) => 3,
+            NodeKind::Text(_) => 4,
+            NodeKind::Connector(_) => 5,
+            NodeKind::Portal(_) => 6,
+            NodeKind::DockStrip(_) => 7,
+        };
+        counts[slot] += 1;
+    }
+    let parts: Vec<String> = kinds
+        .iter()
+        .zip(counts)
+        .filter(|(_, n)| *n > 0)
+        .map(|((one, many), n)| format!("{n} {}", if n == 1 { one } else { many }))
+        .collect();
+    Some(format!("Slate selection: {}", parts.join(", ")))
+}
+
+/// Everything one copy puts on the OS clipboard, written in one open.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ClipboardWrite {
+    /// Slate's own format: the node payload JSON.
+    pub(crate) nodes_json: String,
+    /// Plain text for other apps, when there is any. Never the JSON.
+    pub(crate) text: Option<String>,
+    /// The copied pictures as shown, PNG encoded.
+    pub(crate) png: Option<Vec<u8>>,
+    /// The same pixels as a CF_DIBV5 payload.
+    pub(crate) dibv5: Option<Vec<u8>>,
+    /// Linked source files of the copied pictures (CF_HDROP).
+    pub(crate) files: Vec<PathBuf>,
+}
+
+/// A copy waiting for its bitmap. Rendering reads and decodes source files,
+/// so it runs on a worker, never on the frame loop.
+struct ClipboardJob {
+    nodes_json: String,
+    text: Option<String>,
+    pictures: Vec<Node>,
+    files: Vec<PathBuf>,
+    /// Only the items the pictures and their paint layers link to.
+    doc: SlateDoc,
+}
+
+/// The OS-clipboard side of copy: which write is newest, and whether it has
+/// landed yet (until then, paste uses the in-app buffer).
+#[derive(Default)]
+pub(crate) struct OsClipboard {
+    #[cfg_attr(test, allow(dead_code))]
+    generation: Arc<AtomicU64>,
+    writing: Arc<AtomicBool>,
+    #[cfg(test)]
+    last: Option<ClipboardWrite>,
+}
+
+impl OsClipboard {
+    fn writing(&self) -> bool {
+        self.writing.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn last_write(&self) -> Option<&ClipboardWrite> {
+        self.last.as_ref()
+    }
+
+    /// Slate's own payload on the clipboard, if the newest write is there.
+    fn slate_nodes(&self) -> Option<String> {
+        #[cfg(test)]
+        {
+            self.last.as_ref().map(|w| w.nodes_json.clone())
+        }
+        #[cfg(all(windows, not(test)))]
+        {
+            read_slate_clipboard()
+        }
+        #[cfg(all(not(windows), not(test)))]
+        {
+            None
+        }
+    }
+
+    fn submit(&mut self, job: ClipboardJob) {
+        #[cfg(test)]
+        {
+            self.last = Some(render_clipboard(job));
+        }
+        #[cfg(not(test))]
+        {
+            let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
+            self.writing.store(true, Ordering::Release);
+            let newest = Arc::clone(&self.generation);
+            let writing = Arc::clone(&self.writing);
+            let spawned = std::thread::Builder::new()
+                .name("slate-clipboard".into())
+                .spawn(move || {
+                    let write = render_clipboard(job);
+                    if newest.load(Ordering::Acquire) == generation {
+                        write_os_clipboard(&write);
+                    }
+                    if newest.load(Ordering::Acquire) == generation {
+                        writing.store(false, Ordering::Release);
+                    }
+                });
+            if spawned.is_err() {
+                self.writing.store(false, Ordering::Release);
+            }
+        }
+    }
+}
+
+fn render_clipboard(job: ClipboardJob) -> ClipboardWrite {
+    let bitmap = render_pictures(&job.doc, &job.pictures);
+    ClipboardWrite {
+        png: bitmap
+            .as_ref()
+            .and_then(|b| encode_png(b.width(), b.height(), b.as_raw())),
+        dibv5: bitmap.as_ref().map(encode_dibv5),
+        files: job.files.into_iter().filter(|p| p.is_file()).collect(),
+        nodes_json: job.nodes_json,
+        text: job.text,
+    }
+}
+
+/// The copied pictures composed as they sit on the board: each one as shown
+/// (`image_composite::composite_rgba`), scaled so the sharpest keeps its own
+/// resolution, turned by its rotation, faded by its opacity. Transparent
+/// between pictures. Cloud placeholders are skipped, never downloaded.
+fn render_pictures(doc: &SlateDoc, pictures: &[Node]) -> Option<RgbaImage> {
+    let shown: Vec<(&Node, RgbaImage)> = pictures
+        .iter()
+        .filter_map(|node| {
+            let NodeKind::Image(img) = &node.kind else {
+                return None;
+            };
+            let source = &doc.item(img.item)?.path;
+            if atlas_core::cloud::is_dehydrated(source) {
+                return None;
+            }
+            let pixels = super::image_composite::composite_rgba(doc, node, img, source, true)?;
+            Some((node, pixels))
+        })
+        .collect();
+    let (mut min_x, mut min_y) = (f32::INFINITY, f32::INFINITY);
+    let (mut max_x, mut max_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    let mut scale: f32 = 0.0;
+    for (node, pixels) in &shown {
+        for (x, y) in node.rect.corners_rotated(node.rotation_deg) {
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+        scale = scale
+            .max(pixels.width() as f32 / node.rect.w.max(1e-3))
+            .max(pixels.height() as f32 / node.rect.h.max(1e-3));
+    }
+    if shown.is_empty() || scale <= 0.0 {
+        return None;
+    }
+    let (bw, bh) = ((max_x - min_x).max(1e-3), (max_y - min_y).max(1e-3));
+    scale = scale
+        .min((MAX_COPY_PIXELS / (bw * bh)).sqrt())
+        .min(MAX_COPY_SIDE / bw.max(bh));
+    let w = (bw * scale).round().max(1.0) as u32;
+    let h = (bh * scale).round().max(1.0) as u32;
+    let mut canvas = RgbaImage::new(w, h);
+    for (node, pixels) in &shown {
+        let tw = (node.rect.w * scale).round().max(1.0) as u32;
+        let th = (node.rect.h * scale).round().max(1.0) as u32;
+        let resized;
+        let fitted = if pixels.dimensions() == (tw, th) {
+            pixels
+        } else {
+            resized = image::imageops::resize(pixels, tw, th, image::imageops::Triangle);
+            &resized
+        };
+        let (cx, cy) = node.rect.center();
+        let center = ((cx - min_x) * scale, (cy - min_y) * scale);
+        draw_turned(&mut canvas, fitted, center, node.rotation_deg, node.opacity);
+    }
+    Some(canvas)
+}
+
+/// Source-over `src` onto `canvas`, centered at `center` and turned
+/// clockwise by `rotation_deg` (y down), bilinear-sampled.
+fn draw_turned(
+    canvas: &mut RgbaImage,
+    src: &RgbaImage,
+    center: (f32, f32),
+    rotation_deg: f32,
+    opacity: f32,
+) {
+    let (sw, sh) = (src.width() as f32, src.height() as f32);
+    let (hw, hh) = (sw * 0.5, sh * 0.5);
+    let (sin, cos) = rotation_deg.to_radians().sin_cos();
+    let ex = hw * cos.abs() + hh * sin.abs();
+    let ey = hw * sin.abs() + hh * cos.abs();
+    let x0 = (center.0 - ex).floor().max(0.0) as u32;
+    let y0 = (center.1 - ey).floor().max(0.0) as u32;
+    let x1 = ((center.0 + ex).ceil().max(0.0) as u32).min(canvas.width());
+    let y1 = ((center.1 + ey).ceil().max(0.0) as u32).min(canvas.height());
+    let opacity = opacity.clamp(0.0, 1.0);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let dx = x as f32 + 0.5 - center.0;
+            let dy = y as f32 + 0.5 - center.1;
+            let sx = dx * cos + dy * sin + hw - 0.5;
+            let sy = -dx * sin + dy * cos + hh - 0.5;
+            if sx < -0.5 || sy < -0.5 || sx > sw - 0.5 || sy > sh - 0.5 {
+                continue;
+            }
+            let [r, g, b, a] = sample_bilinear(src, sx, sy);
+            let a = a * opacity;
+            if a <= 0.0 {
+                continue;
+            }
+            let dst = canvas.get_pixel_mut(x, y);
+            let da = dst.0[3] as f32 / 255.0;
+            let out_a = a + da * (1.0 - a);
+            for (c, s) in dst.0[..3].iter_mut().zip([r, g, b]) {
+                let d = *c as f32;
+                *c = ((s * a + d * da * (1.0 - a)) / out_a)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+            }
+            dst.0[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+}
+
+/// Straight-alpha color (0–255) and alpha (0–1) at a fractional pixel,
+/// weighting color by alpha so transparent texels do not darken edges.
+fn sample_bilinear(src: &RgbaImage, x: f32, y: f32) -> [f32; 4] {
+    let max_x = src.width() as f32 - 1.0;
+    let max_y = src.height() as f32 - 1.0;
+    let (x, y) = (x.clamp(0.0, max_x), y.clamp(0.0, max_y));
+    let (x0, y0) = (x.floor(), y.floor());
+    let (fx, fy) = (x - x0, y - y0);
+    let (x0, y0) = (x0 as u32, y0 as u32);
+    let x1 = (x0 + 1).min(src.width() - 1);
+    let y1 = (y0 + 1).min(src.height() - 1);
+    let mut acc = [0.0f32; 4];
+    for (px, py, w) in [
+        (x0, y0, (1.0 - fx) * (1.0 - fy)),
+        (x1, y0, fx * (1.0 - fy)),
+        (x0, y1, (1.0 - fx) * fy),
+        (x1, y1, fx * fy),
+    ] {
+        if w <= 0.0 {
+            continue;
+        }
+        let p = src.get_pixel(px, py).0;
+        let a = p[3] as f32 / 255.0 * w;
+        acc[0] += p[0] as f32 * a;
+        acc[1] += p[1] as f32 * a;
+        acc[2] += p[2] as f32 * a;
+        acc[3] += a;
+    }
+    if acc[3] <= 0.0 {
+        return [0.0; 4];
+    }
+    [acc[0] / acc[3], acc[1] / acc[3], acc[2] / acc[3], acc[3]]
+}
+
+/// A CF_DIBV5 payload: BITMAPV5HEADER, 32-bit BGRA with an alpha mask, sRGB,
+/// rows bottom-up (Word rejects a negative height).
+pub(crate) fn encode_dibv5(img: &RgbaImage) -> Vec<u8> {
+    const HEADER: u32 = 124;
+    const BI_BITFIELDS: u32 = 3;
+    const LCS_SRGB: u32 = 0x7352_4742;
+    const LCS_GM_IMAGES: u32 = 4;
+    let (w, h) = img.dimensions();
+    let pixel_bytes = w * h * 4;
+    let mut out = Vec::with_capacity((HEADER + pixel_bytes) as usize);
+    out.extend_from_slice(&HEADER.to_le_bytes());
+    out.extend_from_slice(&(w as i32).to_le_bytes());
+    out.extend_from_slice(&(h as i32).to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&32u16.to_le_bytes());
+    out.extend_from_slice(&BI_BITFIELDS.to_le_bytes());
+    out.extend_from_slice(&pixel_bytes.to_le_bytes());
+    out.extend_from_slice(&[0u8; 16]); // resolution, palette counts
+    for mask in [0x00ff_0000u32, 0x0000_ff00, 0x0000_00ff, 0xff00_0000] {
+        out.extend_from_slice(&mask.to_le_bytes());
+    }
+    out.extend_from_slice(&LCS_SRGB.to_le_bytes());
+    out.extend_from_slice(&[0u8; 48]); // endpoints, gamma
+    out.extend_from_slice(&LCS_GM_IMAGES.to_le_bytes());
+    out.extend_from_slice(&[0u8; 12]); // profile data, profile size, reserved
+    for row in img.rows().rev() {
+        for p in row {
+            out.extend_from_slice(&[p.0[2], p.0[1], p.0[0], p.0[3]]);
+        }
+    }
+    out
+}
+
+/// The linked file behind a copied node, when that node is a picture that
+/// goes on the clipboard as a bitmap.
+fn copy_picture_path(doc: &SlateDoc, node: &Node) -> Option<PathBuf> {
+    let NodeKind::Image(img) = &node.kind else {
+        return None;
+    };
+    let path = &doc.item(img.item)?.path;
+    (slate_doc::media_kind(path) == slate_doc::MediaKind::Image).then(|| path.clone())
+}
+
 // ---------- app-side commands ----------
 
 impl SlateApp {
@@ -204,13 +565,79 @@ impl SlateApp {
                 img.agent = None;
             }
         }
-        if let Ok(json) = serde_json::to_string(&payload) {
-            ctx.copy_text(json);
-        }
+        self.offer_os_clipboard(ctx, &payload);
         let n = payload.len();
         self.board_clipboard = payload;
         self.board_paste_count = 0;
         n
+    }
+
+    /// One OS clipboard write for a copy: Slate's node format, plus a bitmap
+    /// and file list for pictures or plain text for anything else.
+    fn offer_os_clipboard(&mut self, ctx: &eframe::egui::Context, payload: &[Node]) {
+        let doc = self.doc();
+        let picture_paths: Vec<Option<PathBuf>> =
+            payload.iter().map(|n| copy_picture_path(doc, n)).collect();
+        let is_picture = |node: &Node| {
+            payload
+                .iter()
+                .position(|n| n.id == node.id)
+                .is_some_and(|i| picture_paths[i].is_some())
+        };
+        let text = clipboard_text_fallback(payload, is_picture);
+        if !cfg!(windows) {
+            if let Some(text) = &text {
+                ctx.copy_text(text.clone());
+            }
+        }
+        let Ok(nodes_json) = serde_json::to_string(payload) else {
+            return;
+        };
+        let (pictures, files) = if text.is_none() {
+            (
+                payload.to_vec(),
+                picture_paths.into_iter().flatten().collect(),
+            )
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let mut wanted = HashSet::new();
+        let mut stack: Vec<&Node> = pictures.iter().collect();
+        while let Some(node) = stack.pop() {
+            if let NodeKind::Image(img) = &node.kind {
+                wanted.insert(img.item);
+                stack.extend(img.paint_layers.iter().flat_map(|l| l.nodes.iter()));
+            }
+        }
+        let mut job_doc = SlateDoc::new("clipboard");
+        job_doc.items = doc
+            .items
+            .iter()
+            .filter(|item| wanted.contains(&item.id))
+            .cloned()
+            .collect();
+        self.os_clipboard.submit(ClipboardJob {
+            nodes_json,
+            text,
+            pictures,
+            files,
+            doc: job_doc,
+        });
+    }
+
+    /// Ctrl+V from Slate's own clipboard format. `None` when the clipboard
+    /// holds something else (an outside image, files, text), which the
+    /// caller then pastes the usual way. While a copy is still being
+    /// written, the in-app buffer stands in for it.
+    pub(crate) fn paste_slate_clipboard(&mut self, at: Option<Pos2>) -> Option<usize> {
+        if self.os_clipboard.writing() {
+            return Some(self.board_paste(None, at));
+        }
+        let json = self.os_clipboard.slate_nodes()?;
+        match self.board_paste(Some(&json), at) {
+            0 => None,
+            n => Some(n),
+        }
     }
 
     /// Ctrl+X: copy + one journaled Remove group.
@@ -806,6 +1233,53 @@ fn read_clipboard_raw() -> Option<ClipRaw> {
     None
 }
 
+/// Puts one copy on the clipboard in a single open, so every format belongs
+/// to the same copy. Windows synthesizes CF_DIB and CF_BITMAP from CF_DIBV5.
+#[cfg(all(windows, not(test)))]
+fn write_os_clipboard(write: &ClipboardWrite) {
+    use clipboard_win::{formats::CF_DIBV5, options::NoClear, raw};
+    let Ok(_clip) = clipboard_win::Clipboard::new_attempts(10) else {
+        return;
+    };
+    if raw::empty().is_err() {
+        return;
+    }
+    if let Some(fmt) = clipboard_win::register_format(SLATE_CLIPBOARD_FORMAT) {
+        let _ = raw::set_without_clear(fmt.get(), write.nodes_json.as_bytes());
+    }
+    if let Some(dib) = &write.dibv5 {
+        let _ = raw::set_without_clear(CF_DIBV5, dib);
+    }
+    if let (Some(png), Some(fmt)) = (&write.png, clipboard_win::register_format("PNG")) {
+        let _ = raw::set_without_clear(fmt.get(), png);
+    }
+    let files: Vec<&str> = write.files.iter().filter_map(|p| p.to_str()).collect();
+    if !files.is_empty() {
+        let _ = raw::set_file_list_with(&files, NoClear);
+    }
+    if let Some(text) = &write.text {
+        let _ = raw::set_string_with(text, NoClear);
+    }
+}
+
+/// Elsewhere the copy's text went out through egui; there is no bitmap slot.
+#[cfg(all(not(windows), not(test)))]
+fn write_os_clipboard(_write: &ClipboardWrite) {}
+
+#[cfg(all(windows, not(test)))]
+fn read_slate_clipboard() -> Option<String> {
+    use clipboard_win::formats::RawData;
+    use clipboard_win::{Format, Getter};
+    let format = RawData(clipboard_win::register_format(SLATE_CLIPBOARD_FORMAT)?.get());
+    let _clip = clipboard_win::Clipboard::new_attempts(5).ok()?;
+    if !format.is_format_avail() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    format.read_clipboard(&mut bytes).ok()?;
+    String::from_utf8(bytes).ok()
+}
+
 /// `Some(shift)` while Ctrl+V is held and Alt is not. VK_V is the key Windows
 /// uses for the paste chord on the layouts this app ships for.
 #[cfg(windows)]
@@ -1086,6 +1560,53 @@ mod tests {
         bmp.extend_from_slice(&dib);
         let png = decode_clipboard_bitmap(&bmp).unwrap();
         assert_eq!(png_pixel(&png), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn dibv5_round_trips_through_the_paste_decoder() {
+        let img = image::RgbaImage::from_fn(3, 2, |x, y| {
+            image::Rgba([x as u8 * 80, y as u8 * 120, 200, 255 - x as u8 * 100])
+        });
+        let dib = encode_dibv5(&img);
+        assert_eq!(u32::from_le_bytes(dib[0..4].try_into().unwrap()), 124);
+        assert_eq!(i32::from_le_bytes(dib[4..8].try_into().unwrap()), 3);
+        // Bottom-up rows: Word refuses a negative height.
+        assert_eq!(i32::from_le_bytes(dib[8..12].try_into().unwrap()), 2);
+        assert_eq!(dib.len(), 124 + 3 * 2 * 4);
+        let png = decode_clipboard_bitmap(&dib).unwrap();
+        let back = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!(back, img);
+    }
+
+    #[test]
+    fn the_text_fallback_is_never_the_node_json() {
+        let mut scene = Scene::default();
+        let words = text_node(&mut scene, 0.0, 0.0);
+        let rect = scene.build_node(
+            WorldRect::new(0.0, 0.0, 10.0, 10.0),
+            NodeKind::Shape(slate_doc::scene::ShapeNode {
+                shape: slate_doc::scene::ShapeKind::Rect,
+                fill: None,
+                stroke: Stroke::none(),
+                corner: Default::default(),
+                sides: 6,
+                flip: false,
+                path: None,
+                text: None,
+            }),
+        );
+        let no_pictures = |_: &Node| false;
+        assert_eq!(
+            clipboard_text_fallback(&[words.clone(), rect.clone()], no_pictures).as_deref(),
+            Some("t")
+        );
+        let shapes = clipboard_text_fallback(&[rect.clone(), rect.clone()], no_pictures).unwrap();
+        assert_eq!(shapes, "Slate selection: 2 shapes");
+        let json = serde_json::to_string(std::slice::from_ref(&rect)).unwrap();
+        assert_ne!(shapes, json);
+        assert!(!shapes.trim_start().starts_with('['));
+        let all_pictures = |_: &Node| true;
+        assert_eq!(clipboard_text_fallback(&[rect], all_pictures), None);
     }
 
     #[test]

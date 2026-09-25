@@ -10107,3 +10107,427 @@ fn home_startup_constructor_time() {
         h.app.at_home
     );
 }
+
+fn add_picture(h: &mut Harness, rect: slate_doc::scene::WorldRect) -> NodeId {
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    h.app.add_nodes(vec![node])[0]
+}
+
+fn picture_flips(h: &Harness, id: NodeId) -> (bool, bool) {
+    match &h.app.doc().scene.node(id).unwrap().kind {
+        slate_doc::NodeKind::Image(img) => (img.flip_x, img.flip_y),
+        _ => panic!("image"),
+    }
+}
+
+/// Dragging a picture's right edge past its left edge mirrors it: the width
+/// stays positive, the flip is authored state, and one undo restores both.
+#[test]
+fn dragging_a_pictures_edge_past_its_opposite_mirrors_it() {
+    let mut h = web_board("edge_cross_mirror");
+    let id = add_picture(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+    );
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let xf = h.app.board_xf();
+    // Off the edge midpoint so a wire grip does not steal the press.
+    let edge = xf.w2s(Pos2::new(200.0, 12.0));
+    let mods = egui::Modifiers::default();
+    h.app.board_drag = h.app.begin_gesture_for_test(edge, xf.s2w(edge), mods);
+    assert!(matches!(
+        h.app.board_drag,
+        Some(board::BoardDrag::Resize { handle: 3, .. })
+    ));
+    let undo_depth = h.app.tab().journal.undo_depth();
+    // Through the far edge and back out again: the flip follows the pointer.
+    h.app.update_gesture_for_test(Pos2::new(-30.0, 12.0), mods);
+    assert_eq!(picture_flips(&h, id), (true, false));
+    h.app.update_gesture_for_test(Pos2::new(120.0, 12.0), mods);
+    assert_eq!(picture_flips(&h, id), (false, false));
+    let past = Pos2::new(-60.0, 12.0);
+    h.app.update_gesture_for_test(past, mods);
+    h.app.end_gesture_for_test(past, Some(xf.w2s(past)), mods);
+
+    let after = h.app.doc().scene.node(id).unwrap().clone();
+    assert!(
+        (after.rect.x + 60.0).abs() < 0.5 && (after.rect.w - 60.0).abs() < 0.5,
+        "{:?}",
+        after.rect
+    );
+    assert!(after.rect.w > 0.0 && after.rect.h > 0.0);
+    assert_eq!(picture_flips(&h, id), (true, false));
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        undo_depth + 1,
+        "one step per drag"
+    );
+
+    h.app.board_undo();
+    let undone = h.app.doc().scene.node(id).unwrap();
+    assert_eq!(undone.rect, before.rect);
+    assert_eq!(picture_flips(&h, id), (false, false));
+}
+
+/// A shape that cannot mirror keeps the old clamp at the minimum size.
+#[test]
+fn dragging_a_rect_edge_past_its_opposite_still_clamps() {
+    let mut h = web_board("edge_cross_rect");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    let xf = h.app.board_xf();
+    let edge = xf.w2s(Pos2::new(80.0, 12.0));
+    let mods = egui::Modifiers::default();
+    h.app.board_drag = h.app.begin_gesture_for_test(edge, xf.s2w(edge), mods);
+    let past = Pos2::new(-60.0, 12.0);
+    h.app.update_gesture_for_test(past, mods);
+    h.app.end_gesture_for_test(past, Some(xf.w2s(past)), mods);
+    let after = h.app.doc().scene.node(id).unwrap().rect;
+    assert_eq!(after.x, 0.0, "{after:?}");
+}
+
+/// Mirror horizontal / vertical flip pictures and paths across the board
+/// axis through each node's center; rectangles are left alone. Undo restores.
+#[test]
+fn mirror_commands_toggle_pictures_and_paths_and_undo() {
+    use slate_doc::scene::{PathData, PathSeg, ShapeKind, ShapeNode};
+    let mut h = web_board("mirror_commands");
+    let pic = add_picture(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+    );
+    h.app.patch_nodes(&[pic], |n| n.rotation_deg = 30.0);
+    let path = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(300.0, 0.0, 100.0, 100.0),
+        slate_doc::scene::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke: slate_doc::scene::Stroke::default(),
+            corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            flip: false,
+            path: Some(std::sync::Arc::new(PathData {
+                start: [0.1, 0.2],
+                segs: vec![PathSeg::Line { to: [0.9, 0.7] }],
+                ..PathData::default()
+            })),
+            text: None,
+        }),
+    );
+    let path = h.app.add_nodes(vec![path])[0];
+    let rect = add_rect(&mut h.app, 500.0, 0.0);
+    let rect_before = h.app.doc().scene.node(rect).unwrap().clone();
+    h.app.board_sel = [pic, path, rect].into_iter().collect();
+
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.mirror.horizontal"),
+        None
+    ));
+    assert_eq!(picture_flips(&h, pic), (true, false));
+    assert_eq!(h.app.doc().scene.node(pic).unwrap().rotation_deg, -30.0);
+    let start = |h: &Harness| match &h.app.doc().scene.node(path).unwrap().kind {
+        slate_doc::NodeKind::Shape(s) => s.path.as_ref().unwrap().start,
+        _ => panic!("path"),
+    };
+    assert!((start(&h)[0] - 0.9).abs() < 1e-6, "{:?}", start(&h));
+    assert_eq!(h.app.doc().scene.node(rect).unwrap(), &rect_before);
+
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.mirror.vertical"),
+        None
+    ));
+    assert_eq!(picture_flips(&h, pic), (true, true));
+
+    h.app.board_undo();
+    assert_eq!(picture_flips(&h, pic), (true, false));
+    h.app.board_undo();
+    assert_eq!(picture_flips(&h, pic), (false, false));
+    assert_eq!(h.app.doc().scene.node(pic).unwrap().rotation_deg, 30.0);
+    assert!((start(&h)[0] - 0.1).abs() < 1e-6);
+
+    h.app.board_sel = std::iter::once(rect).collect();
+    assert!(!h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.mirror.horizontal"),
+        None
+    ));
+}
+
+const RED: [u8; 4] = [255, 0, 0, 255];
+const BLUE: [u8; 4] = [0, 0, 255, 255];
+
+/// A 40 x 20 PNG, red on the left half and blue on the right, placed at
+/// `rect`.
+fn add_two_tone_picture(
+    h: &mut Harness,
+    name: &str,
+    rect: slate_doc::scene::WorldRect,
+) -> (NodeId, PathBuf) {
+    let p = h.base.join(name);
+    image::RgbaImage::from_fn(40, 20, |x, _| image::Rgba(if x < 20 { RED } else { BLUE }))
+        .save(&p)
+        .unwrap();
+    let item = h.app.add_paths(std::slice::from_ref(&p))[0];
+    let node = h.app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    (h.app.add_nodes(vec![node])[0], p)
+}
+
+fn copied_bitmap(h: &Harness) -> image::RgbaImage {
+    let write = h.app.os_clipboard.last_write().expect("a clipboard write");
+    let png = write.png.as_ref().expect("a PNG on the clipboard");
+    let from_png = image::load_from_memory(png).unwrap().to_rgba8();
+    let dib = write.dibv5.as_ref().expect("a DIBV5 on the clipboard");
+    let from_dib = image::load_from_memory(&clipboard::decode_clipboard_bitmap(dib).unwrap())
+        .unwrap()
+        .to_rgba8();
+    assert_eq!(from_png, from_dib, "PNG and DIBV5 carry the same pixels");
+    from_png
+}
+
+fn copy_selection(h: &mut Harness, ids: &[NodeId]) {
+    h.app.board_sel = ids.iter().copied().collect();
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("board.copy"), None));
+}
+
+/// Copying one picture puts a real bitmap on the clipboard at the picture's
+/// own resolution, plus the linked file and Slate's own format. The text
+/// slot is empty, never the node JSON.
+#[test]
+fn copying_a_picture_puts_its_bitmap_on_the_clipboard() {
+    let mut h = web_board("copy_picture_bitmap");
+    let (id, path) = add_two_tone_picture(
+        &mut h,
+        "two.png",
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+    );
+    copy_selection(&mut h, &[id]);
+    let bitmap = copied_bitmap(&h);
+    assert_eq!(bitmap.dimensions(), (40, 20));
+    assert_eq!(bitmap.get_pixel(5, 10).0, RED);
+    assert_eq!(bitmap.get_pixel(35, 10).0, BLUE);
+
+    let write = h.app.os_clipboard.last_write().unwrap();
+    assert_eq!(write.text, None, "no JSON in the text slot");
+    assert_eq!(write.files, vec![path]);
+    let nodes: Vec<slate_doc::scene::Node> = serde_json::from_str(&write.nodes_json).unwrap();
+    assert_eq!(nodes.len(), 1);
+    assert!(matches!(nodes[0].kind, slate_doc::NodeKind::Image(_)));
+}
+
+/// The bitmap is the picture as displayed: rotation, crop, mirror, filters,
+/// and paint layers all land in the pixels.
+#[test]
+fn a_copied_bitmap_carries_rotation_crop_mirror_filters_and_ink() {
+    use slate_doc::scene::{ShapeKind, ShapeNode, WorldRect};
+    let mut h = web_board("copy_picture_as_shown");
+    let (id, _) = add_two_tone_picture(&mut h, "two.png", WorldRect::new(0.0, 0.0, 200.0, 100.0));
+
+    h.app.patch_nodes(&[id], |n| n.rotation_deg = 90.0);
+    copy_selection(&mut h, &[id]);
+    let turned = copied_bitmap(&h);
+    assert_eq!(turned.dimensions(), (20, 40));
+    // A clockwise quarter turn puts the red left half on top.
+    assert_eq!(turned.get_pixel(10, 5).0, RED);
+    assert_eq!(turned.get_pixel(10, 35).0, BLUE);
+
+    h.app.patch_nodes(&[id], |n| {
+        n.rotation_deg = 0.0;
+        // The crop tool keeps the window's aspect: half the width, half the box.
+        n.rect.w = 100.0;
+        if let slate_doc::NodeKind::Image(img) = &mut n.kind {
+            img.crop = slate_doc::scene::Crop {
+                x: 0.5,
+                y: 0.0,
+                w: 0.5,
+                h: 1.0,
+            };
+        }
+    });
+    copy_selection(&mut h, &[id]);
+    let cropped = copied_bitmap(&h);
+    assert_eq!(cropped.dimensions(), (20, 20));
+    assert!(cropped.pixels().all(|p| p.0 == BLUE));
+
+    h.app.patch_nodes(&[id], |n| {
+        n.rect.w = 200.0;
+        if let slate_doc::NodeKind::Image(img) = &mut n.kind {
+            img.crop = slate_doc::scene::Crop::full();
+            img.flip_x = true;
+            img.adjust.invert = 1.0;
+        }
+    });
+    copy_selection(&mut h, &[id]);
+    let flipped = copied_bitmap(&h);
+    // Mirrored, the blue half is on the left; inverted, blue reads yellow.
+    assert_eq!(flipped.get_pixel(5, 10).0, [255, 255, 0, 255]);
+    assert_eq!(flipped.get_pixel(35, 10).0, [0, 255, 255, 255]);
+
+    let mut scene = slate_doc::scene::Scene::default();
+    let ink = scene.build_node(
+        WorldRect::new(0.0, 0.0, 0.25, 1.0),
+        slate_doc::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Rect,
+            fill: Some(slate_doc::scene::Rgba::opaque(0, 255, 0)),
+            stroke: slate_doc::scene::Stroke::none(),
+            corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            flip: false,
+            path: None,
+            text: None,
+        }),
+    );
+    h.app.patch_nodes(&[id], |n| {
+        if let slate_doc::NodeKind::Image(img) = &mut n.kind {
+            img.flip_x = false;
+            img.adjust.invert = 0.0;
+            let mut layer = slate_doc::PaintLayer::new(slate_doc::PaintLayerId(1));
+            layer.nodes.push(ink.clone());
+            img.paint_layers.push(layer);
+        }
+    });
+    copy_selection(&mut h, &[id]);
+    let inked = copied_bitmap(&h);
+    assert_eq!(
+        inked.get_pixel(3, 10).0,
+        [0, 255, 0, 255],
+        "the paint layer"
+    );
+    assert_eq!(inked.get_pixel(15, 10).0, RED);
+}
+
+/// Several pictures copy as one bitmap laid out as they sit on the board.
+#[test]
+fn copying_several_pictures_composes_one_bitmap() {
+    use slate_doc::scene::WorldRect;
+    let mut h = web_board("copy_two_pictures");
+    let (a, _) = add_two_tone_picture(&mut h, "a.png", WorldRect::new(0.0, 0.0, 200.0, 100.0));
+    let (b, _) = add_two_tone_picture(&mut h, "b.png", WorldRect::new(300.0, 0.0, 200.0, 100.0));
+    copy_selection(&mut h, &[a, b]);
+    let bitmap = copied_bitmap(&h);
+    assert_eq!(bitmap.dimensions(), (100, 20));
+    assert_eq!(bitmap.get_pixel(5, 10).0, RED);
+    assert_eq!(bitmap.get_pixel(50, 10).0[3], 0, "the gap is transparent");
+    assert_eq!(bitmap.get_pixel(95, 10).0, BLUE);
+    assert_eq!(h.app.os_clipboard.last_write().unwrap().files.len(), 2);
+}
+
+/// A mixed selection keeps Slate's own format and offers plain text, not
+/// JSON. Pasting inside Slate still lands the nodes, not the fallback.
+#[test]
+fn a_mixed_copy_offers_plain_text_and_still_pastes_nodes() {
+    use slate_doc::scene::WorldRect;
+    let mut h = web_board("copy_mixed");
+    let (pic, _) = add_two_tone_picture(&mut h, "two.png", WorldRect::new(0.0, 0.0, 200.0, 100.0));
+    let words = h.app.doc_mut().scene.build_node(
+        WorldRect::new(300.0, 0.0, 200.0, 50.0),
+        slate_doc::NodeKind::Text(slate_doc::scene::TextNode {
+            text: "Hello board".into(),
+            family: Default::default(),
+            size: 24.0,
+            color: slate_doc::scene::Rgba::BLACK,
+            align: Default::default(),
+            fill: None,
+            agent: None,
+        }),
+    );
+    let words = h.app.add_nodes(vec![words])[0];
+    copy_selection(&mut h, &[pic, words]);
+    let write = h.app.os_clipboard.last_write().unwrap();
+    assert_eq!(write.text.as_deref(), Some("Hello board"));
+    assert!(write.png.is_none() && write.dibv5.is_none());
+    let json = write.nodes_json.clone();
+    assert_ne!(write.text.as_deref(), Some(json.as_str()));
+
+    let before = h.app.doc().scene.nodes.len();
+    h.app.pending_paste_text = Some("Hello board".into());
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("board.paste"), None));
+    assert_eq!(h.app.doc().scene.nodes.len(), before + 2);
+    let texts = h
+        .app
+        .doc()
+        .scene
+        .nodes
+        .iter()
+        .filter(|n| matches!(&n.kind, slate_doc::NodeKind::Text(t) if t.text == "Hello board"))
+        .count();
+    assert_eq!(texts, 2, "the text node itself, not a pasted string");
+}
+
+/// Copy then paste a picture inside Slate: the node comes back with its
+/// crop and mirror, not as a flattened new bitmap.
+#[test]
+fn a_copied_picture_pastes_back_as_the_same_node() {
+    use slate_doc::scene::WorldRect;
+    let mut h = web_board("copy_paste_picture");
+    let (id, _) = add_two_tone_picture(&mut h, "two.png", WorldRect::new(0.0, 0.0, 200.0, 100.0));
+    h.app.patch_nodes(&[id], |n| {
+        if let slate_doc::NodeKind::Image(img) = &mut n.kind {
+            img.crop.w = 0.5;
+            img.flip_y = true;
+        }
+    });
+    let original = match &h.app.doc().scene.node(id).unwrap().kind {
+        slate_doc::NodeKind::Image(img) => img.clone(),
+        _ => unreachable!(),
+    };
+    copy_selection(&mut h, &[id]);
+    let items = h.app.doc().items.len();
+    assert!(h
+        .app
+        .dispatch(&h.ctx, atlas_commands::CommandId("board.paste"), None));
+    assert_eq!(h.app.doc().items.len(), items, "no new pasted file");
+    let pasted = *h.app.board_sel.iter().next().unwrap();
+    assert_ne!(pasted, id);
+    match &h.app.doc().scene.node(pasted).unwrap().kind {
+        slate_doc::NodeKind::Image(img) => assert_eq!(img, &original),
+        _ => panic!("image"),
+    }
+}
+
+/// The Actions flyout offers both mirrors, and they run the commands.
+#[test]
+fn actions_flyout_offers_mirror() {
+    let mut h = web_board("actions_mirror");
+    let pic = add_picture(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+    );
+    h.app.board_sel = std::iter::once(pic).collect();
+    let items = ui::tools::palette_strip_items(&h.app, "tool.actions", &[]);
+    let ids: Vec<_> = items.iter().map(|i| i.id).collect();
+    assert!(ids.contains(&"action.mirror_h"), "{ids:?}");
+    assert!(ids.contains(&"action.mirror_v"), "{ids:?}");
+    for id in ["board.mirror.horizontal", "board.mirror.vertical"] {
+        assert!(h
+            .app
+            .registry
+            .by_id(atlas_commands::CommandId(id))
+            .is_some());
+    }
+    ui::tools::activate_flyout_id(&mut h.app, &h.ctx, "action.mirror_v");
+    assert_eq!(
+        h.app.cmd_history.iter().last().unwrap().id.0,
+        "board.mirror.vertical"
+    );
+    assert_eq!(picture_flips(&h, pic), (false, true));
+}

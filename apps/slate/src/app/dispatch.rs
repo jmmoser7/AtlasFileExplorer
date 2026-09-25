@@ -626,6 +626,34 @@ impl SlateApp {
                 }
                 ran
             }
+            "board.mirror.horizontal" | "board.mirror.vertical" => {
+                let axis = if id.0 == "board.mirror.horizontal" {
+                    slate_doc::mirror::MirrorAxis::Horizontal
+                } else {
+                    slate_doc::mirror::MirrorAxis::Vertical
+                };
+                let ids: Vec<NodeId> = self
+                    .board_sel
+                    .iter()
+                    .copied()
+                    .filter(|id| {
+                        self.doc()
+                            .scene
+                            .node(*id)
+                            .is_some_and(|n| slate_doc::mirror::node_mirrors(self.doc(), n))
+                    })
+                    .collect();
+                if ids.is_empty() {
+                    false
+                } else {
+                    self.patch_nodes(&ids, move |n| {
+                        slate_doc::mirror::mirror_on_board(n, axis);
+                    });
+                    self.last_board_edit = None; // toggles never coalesce
+                    detail = detail.or(Some(format!("{} node(s)", ids.len())));
+                    true
+                }
+            }
             // ----- scene flags ------------------------------------------------------
             "board.group" => {
                 let n = self.cmd_group_selection();
@@ -913,13 +941,16 @@ impl SlateApp {
                 } else {
                     None
                 };
-                // OS clipboard text (from the platform Paste event, when one
-                // arrived this frame) wins over the app-internal buffer so
-                // selections round-trip between Slate instances. An image or
-                // a copied file list is not text; those land first.
+                // Slate's own clipboard format comes first: a Slate copy also
+                // carries a bitmap, files, or text for other apps. Otherwise
+                // an outside image or file list lands, then OS clipboard text
+                // (JSON from an older Slate still parses), then the buffer.
                 let os_text = self.pending_paste_text.take();
                 let at_media = at.unwrap_or_else(|| self.paste_target_world(ctx));
-                if self.paste_os_clipboard(at_media, os_text.as_deref()) {
+                if let Some(n) = self.paste_slate_clipboard(at) {
+                    detail = detail.or(Some(format!("{n} node(s)")));
+                    n > 0
+                } else if self.paste_os_clipboard(at_media, os_text.as_deref()) {
                     detail = detail.or(Some("from clipboard".into()));
                     true
                 } else {

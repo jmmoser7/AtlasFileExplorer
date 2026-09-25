@@ -4698,10 +4698,11 @@ impl SlateApp {
             let NodeKind::Image(img) = &node.kind else {
                 continue;
             };
-            if img
-                .paint_layers
-                .iter()
-                .any(|layer| layer.visible && !layer.nodes.is_empty())
+            if img.mirror().any()
+                || img
+                    .paint_layers
+                    .iter()
+                    .any(|layer| layer.visible && !layer.nodes.is_empty())
             {
                 super::image_composite::replace_wired_image_slots(self, item, NodeId(item.node));
                 continue;

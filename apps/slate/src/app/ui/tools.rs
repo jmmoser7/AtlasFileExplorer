@@ -62,6 +62,39 @@ board_dock_icon!(icon_trim, ToolIcon::Trim);
 board_dock_icon!(icon_split, ToolIcon::Split);
 board_dock_icon!(icon_join, ToolIcon::Join);
 
+/// Two triangles facing each other across a dashed axis: the filled one is
+/// the original, the outlined one its mirror image.
+fn paint_mirror_glyph(p: &egui::Painter, r: Rect, c: Color32, vertical: bool) {
+    let at = |u: f32, v: f32| {
+        let (u, v) = if vertical { (v, u) } else { (u, v) };
+        egui::pos2(r.left() + r.width() * u, r.top() + r.height() * v)
+    };
+    let stroke = Stroke::new(1.2_f32, c);
+    p.add(egui::Shape::convex_polygon(
+        vec![at(0.44, 0.24), at(0.44, 0.76), at(0.16, 0.76)],
+        c,
+        Stroke::NONE,
+    ));
+    p.add(egui::Shape::closed_line(
+        vec![at(0.56, 0.24), at(0.84, 0.76), at(0.56, 0.76)],
+        stroke,
+    ));
+    p.extend(egui::Shape::dashed_line(
+        &[at(0.5, 0.12), at(0.5, 0.88)],
+        Stroke::new(1.0_f32, c),
+        2.0,
+        2.0,
+    ));
+}
+
+fn icon_mirror_h(p: &egui::Painter, r: Rect, c: Color32) {
+    paint_mirror_glyph(p, r, c, false);
+}
+
+fn icon_mirror_v(p: &egui::Painter, r: Rect, c: Color32) {
+    paint_mirror_glyph(p, r, c, true);
+}
+
 fn icon_reach_tight(p: &egui::Painter, r: Rect, c: Color32) {
     p.circle_stroke(r.center(), r.width() * 0.16, Stroke::new(1.3_f32, c));
 }
@@ -415,6 +448,14 @@ fn apply_action_choice(app: &mut SlateApp, ctx: &egui::Context, id: &str) {
                 Some("dock".into()),
             );
         }
+        "action.mirror_h" | "action.mirror_v" => {
+            let command = if id == "action.mirror_h" {
+                "board.mirror.horizontal"
+            } else {
+                "board.mirror.vertical"
+            };
+            app.dispatch(ctx, atlas_commands::CommandId(command), None);
+        }
         _ => {}
     }
 }
@@ -488,7 +529,7 @@ pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &s
             apply_text_choice(app, id);
             return;
         }
-        "action.trim" | "action.split" | "action.join" => {
+        "action.trim" | "action.split" | "action.join" | "action.mirror_h" | "action.mirror_v" => {
             apply_action_choice(app, ctx, id);
             return;
         }
@@ -811,6 +852,26 @@ pub(crate) fn palette_strip_items<'a>(
                 description: "Join open paths, or union closed regions.",
                 hotkey: Some("Ctrl+J"),
                 icon: DockIcon::Custom(icon_join),
+                active: false,
+                group: Some("actions"),
+                role: FlyoutRole::Icon,
+            },
+            FlyoutItem {
+                id: "action.mirror_h",
+                label: "Mirror horizontal",
+                description: "Flip selected pictures, paths, and lines left to right.",
+                hotkey: None,
+                icon: DockIcon::Custom(icon_mirror_h),
+                active: false,
+                group: Some("actions"),
+                role: FlyoutRole::Icon,
+            },
+            FlyoutItem {
+                id: "action.mirror_v",
+                label: "Mirror vertical",
+                description: "Flip selected pictures, paths, and lines top to bottom.",
+                hotkey: None,
+                icon: DockIcon::Custom(icon_mirror_v),
                 active: false,
                 group: Some("actions"),
                 role: FlyoutRole::Icon,

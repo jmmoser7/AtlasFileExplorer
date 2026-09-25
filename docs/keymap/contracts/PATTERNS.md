@@ -133,6 +133,10 @@ is searchable.
   A rotated resize pins that origin in world space so the grabbed edge
   is the one that moves (local AABB math alone walks the far edge once
   rotation is about the live center; most visible at 180°).
+  Dragging a mirrorable picture's edge or corner past its opposite mirrors
+  it on that local axis (`board_snap::resize_from_handle_mirroring`,
+  `slate-doc::mirror`): the rect stays positive and the flip is authored
+  state in the same undo step. Other kinds clamp at the minimum size.
   Modifier matrix (Select-tool bbox):
 
   | Mods | Corner | Edge |
@@ -151,7 +155,10 @@ is searchable.
   `board_snap::apply_group_box_scale` remaps then `pin_group_union`.
   Rotate is a 90° arc cursor just *outside* a corner, only for
   kinds that rotate (shapes, frames, text, images). Portals, connectors,
-  dock strips, and simple lines stay axis-aligned. A press on a wire-grip midpoint
+  dock strips, and simple lines stay axis-aligned. Rotation is rigid:
+  textured content maps onto the node's unrotated local rect and the
+  whole quad turns (`board::node_texture_vertices`), never re-fit into
+  the rotated bounding box. A press on a wire-grip midpoint
   starts a connector and suppresses edge resize at that point (hit-test
   the press origin, not the live pointer). The rest of the edge is
   resize.   Selection chrome is a silhouette of each selected shape (fillet,

@@ -103,9 +103,15 @@ drag the address-bar URL or a page link instead.
 - **PageUp / PageDown** bring-to-front / send-to-back (**Ctrl+B** = send to
   back) · **C** crop the single selected croppable image · **Ctrl+U** image
   adjust popover · **Ctrl+I** invert image colors (journaled).
-- **Ctrl+C / X / V** board clipboard (JSON on the OS clipboard too;
-  connectors ride along when both ends are copied, outside anchors degrade
-  to Free). Ctrl+V also places a copied image or files at the pointer.
+- **Actions → Mirror horizontal / Mirror vertical** (`board.mirror.horizontal`,
+  `board.mirror.vertical`) — mirror selected pictures, paths, and lines
+  across the board axis through each center, one undo step. Dragging a
+  picture's edge or corner past its opposite also mirrors it (P1.node.transform).
+- **Ctrl+C / X / V** board clipboard (Slate's own format on the OS
+  clipboard; copied pictures also go out as the bitmap shown plus their
+  files, anything else as plain text, never JSON; connectors ride along
+  when both ends are copied, outside anchors degrade to Free). Ctrl+V also
+  places a copied image or files at the pointer.
   **Ctrl+Shift+V** paste in place · repeated pastes step +24,+24.
 - **Select** — click replaces the selection; **Shift+click** or **Ctrl+click**
   adds (a second Shift/Ctrl+click on the same object toggles it off).

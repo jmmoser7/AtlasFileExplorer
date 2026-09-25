@@ -862,6 +862,38 @@ impl Crop {
             h,
         }
     }
+
+    /// Source-texture UV for the point `(fx, fy)` of the displayed window
+    /// (0..1 across it). The window is in displayed coordinates, so a mirror
+    /// reads the source from the far side.
+    pub fn texture_uv(&self, fx: f32, fy: f32, mirror: Mirror) -> [f32; 2] {
+        let u = self.x + fx * self.w;
+        let v = self.y + fy * self.h;
+        [
+            if mirror.x { 1.0 - u } else { u },
+            if mirror.y { 1.0 - v } else { v },
+        ]
+    }
+}
+
+/// Axes on which a picture's pixels are mirrored ([`ImageNode::flip_x`],
+/// [`ImageNode::flip_y`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Mirror {
+    pub x: bool,
+    pub y: bool,
+}
+
+impl Mirror {
+    pub fn any(self) -> bool {
+        self.x || self.y
+    }
+
+    /// CSS / SVG `scale()` arguments, or `None` when nothing is mirrored.
+    pub fn scale(self) -> Option<(i8, i8)> {
+        self.any()
+            .then_some((if self.x { -1 } else { 1 }, if self.y { -1 } else { 1 }))
+    }
 }
 
 /// Typeface choice; maps to a CSS font stack. The board bundles matching
@@ -1914,6 +1946,13 @@ pub struct ImageNode {
     /// Trace-paper overlays (brush, pen, shapes, text) clipped to this image.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paint_layers: Vec<crate::image_paint::PaintLayer>,
+    /// Pixels mirrored left to right inside the crop window. `crop` and the
+    /// paint layers are stored as displayed; see [`crate::mirror`].
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub flip_x: bool,
+    /// Pixels mirrored top to bottom inside the crop window.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub flip_y: bool,
 }
 
 impl SheetLayout {
@@ -1937,6 +1976,15 @@ impl ImageNode {
             model: ModelCamera::default(),
             agent: None,
             paint_layers: Vec::new(),
+            flip_x: false,
+            flip_y: false,
+        }
+    }
+
+    pub fn mirror(&self) -> Mirror {
+        Mirror {
+            x: self.flip_x,
+            y: self.flip_y,
         }
     }
 

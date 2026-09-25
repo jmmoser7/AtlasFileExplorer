@@ -11,10 +11,11 @@ use std::path::{Path, PathBuf};
 /// Decodes and encodes; the context publish runs it off the frame loop.
 pub fn agent_wired_image_file(doc: &SlateDoc, node: &Node, img: &ImageNode) -> Option<PathBuf> {
     let source = doc.item(img.item).map(|i| i.path.clone())?;
-    if img
-        .paint_layers
-        .iter()
-        .all(|l| !l.visible || l.nodes.is_empty())
+    if !img.mirror().any()
+        && img
+            .paint_layers
+            .iter()
+            .all(|l| !l.visible || l.nodes.is_empty())
     {
         return super::imagefx::visible_crop_file(&source, img.crop).or_else(|| {
             if img.crop.is_full() {
@@ -26,7 +27,37 @@ pub fn agent_wired_image_file(doc: &SlateDoc, node: &Node, img: &ImageNode) -> O
     }
     #[cfg(test)]
     super::imagefx::DECODES_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
-    let base = image::open(&source).ok()?;
+    let rgba = composite_rgba(doc, node, img, &source, false)?;
+    let dir = std::env::temp_dir().join("slate-composite");
+    std::fs::create_dir_all(&dir).ok()?;
+    let key = format!(
+        "{:016x}-{}-{}.png",
+        path_key(&source),
+        node.id.0,
+        img.paint_layers.len()
+    );
+    let out = dir.join(key);
+    rgba.save(&out).ok()?;
+    Some(out)
+}
+
+/// The picture as the board shows it before the node's own rotation:
+/// mirrored source, crop window, filters, the color overlay when asked,
+/// then visible paint layers. Pure over `doc`, so it runs off the frame loop.
+pub fn composite_rgba(
+    doc: &slate_doc::SlateDoc,
+    node: &Node,
+    img: &ImageNode,
+    source: &Path,
+    with_overlay: bool,
+) -> Option<RgbaImage> {
+    let mut base = image::open(source).ok()?;
+    if img.flip_x {
+        base = base.fliph();
+    }
+    if img.flip_y {
+        base = base.flipv();
+    }
     let c = img.crop.clamped();
     let w = base.width().max(1);
     let h = base.height().max(1);
@@ -46,26 +77,23 @@ pub fn agent_wired_image_file(doc: &SlateDoc, node: &Node, img: &ImageNode) -> O
     let filtered = super::imagefx::adjusted(&color_img, &img.adjust);
     for (i, px) in filtered.pixels.iter().enumerate() {
         let o = i * 4;
-        rgba.as_mut()[o] = px.r();
-        rgba.as_mut()[o + 1] = px.g();
-        rgba.as_mut()[o + 2] = px.b();
-        rgba.as_mut()[o + 3] = px.a();
+        rgba.as_mut()[o..o + 4].copy_from_slice(&px.to_srgba_unmultiplied());
     }
-    let svg = slate_artifact::paint_layers_svg_with_doc(node, img, cw, ch, doc);
-    if let Some(overlay) = slate_artifact::rasterize_paint_layers_svg(&svg, cw, ch) {
-        blend_rgba(&mut rgba, &overlay, cw, ch);
+    if let Some(ov) = img.adjust.overlay.filter(|_| with_overlay) {
+        let tint: Vec<u8> = ov.0.repeat((cw * ch) as usize);
+        blend_rgba(&mut rgba, &tint, cw, ch);
     }
-    let dir = std::env::temp_dir().join("slate-composite");
-    std::fs::create_dir_all(&dir).ok()?;
-    let key = format!(
-        "{:016x}-{}-{}.png",
-        path_key(&source),
-        node.id.0,
-        img.paint_layers.len()
-    );
-    let out = dir.join(key);
-    rgba.save(&out).ok()?;
-    Some(out)
+    if img
+        .paint_layers
+        .iter()
+        .any(|l| l.visible && !l.nodes.is_empty())
+    {
+        let svg = slate_artifact::paint_layers_svg_with_doc(node, img, cw, ch, doc);
+        if let Some(overlay) = slate_artifact::rasterize_paint_layers_svg(&svg, cw, ch) {
+            blend_rgba(&mut rgba, &overlay, cw, ch);
+        }
+    }
+    Some(rgba)
 }
 
 pub fn replace_wired_image_slots(

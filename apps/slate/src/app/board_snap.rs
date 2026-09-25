@@ -1063,6 +1063,77 @@ pub fn resize_from_handle(
     pin_rotated_resize(before, r, handle, rotation_deg)
 }
 
+/// [`resize_from_handle`] that lets the grabbed edge pass its opposite. The
+/// rect stays positive and on the far side of the anchor; `crossed` reports
+/// per local axis (x, y) that the result is the mirror image, so the caller
+/// mirrors the content (P1.node.transform).
+pub fn resize_from_handle_mirroring(
+    before: WorldRect,
+    pointer: Pos2,
+    handle: u8,
+    min_size: f32,
+    lock_aspect: bool,
+    from_center: bool,
+    rotation_deg: f32,
+) -> (WorldRect, [bool; 2]) {
+    let resize = |pointer| {
+        resize_from_handle(
+            before,
+            pointer,
+            handle,
+            min_size,
+            lock_aspect,
+            from_center,
+            rotation_deg,
+        )
+    };
+    let local = pointer_local(pointer, before, rotation_deg);
+    let (sx, sy) = handle_sides(handle);
+    let (ax, ay) = resize_anchor(before, handle, from_center);
+    let crossed = [
+        sx != 0.0 && (local.x - ax) * sx < 0.0,
+        sy != 0.0 && (local.y - ay) * sy < 0.0,
+    ];
+    // A center resize is already symmetric about the anchor.
+    if from_center || crossed == [false, false] {
+        return (resize(pointer), crossed);
+    }
+    // Resize toward the reflected pointer, then reflect the result across
+    // the anchor edge along the node's own axes.
+    let reflect = |p: (f32, f32)| {
+        (
+            if crossed[0] { 2.0 * ax - p.0 } else { p.0 },
+            if crossed[1] { 2.0 * ay - p.1 } else { p.1 },
+        )
+    };
+    let center = before.center();
+    let (wx, wy) = orbit_point(center, reflect((local.x, local.y)), rotation_deg);
+    let r = resize(Pos2::new(wx, wy));
+    let (rx, ry) = r.center();
+    let r_local = pointer_local(Pos2::new(rx, ry), before, rotation_deg);
+    let (cx, cy) = orbit_point(center, reflect((r_local.x, r_local.y)), rotation_deg);
+    (
+        WorldRect::new(cx - r.w * 0.5, cy - r.h * 0.5, r.w, r.h),
+        crossed,
+    )
+}
+
+/// Which way a handle pushes its edge along each local axis: +1 toward
+/// right / bottom, -1 toward left / top, 0 when that axis is untouched.
+fn handle_sides(handle: u8) -> (f32, f32) {
+    let sx = match handle {
+        2..=4 => 1.0,
+        0 | 6 | 7 => -1.0,
+        _ => 0.0,
+    };
+    let sy = match handle {
+        4..=6 => 1.0,
+        0..=2 => -1.0,
+        _ => 0.0,
+    };
+    (sx, sy)
+}
+
 /// Rotate `p` about `center` by `delta_deg` (clockwise in y-down world
 /// space — same convention as `WorldRect::corners_rotated`).
 pub fn orbit_point(center: (f32, f32), p: (f32, f32), delta_deg: f32) -> (f32, f32) {
@@ -1530,6 +1601,87 @@ mod tests {
             (right1 - (right0 + 20.0)).abs() < 0.05,
             "grabbed visual right should follow the pointer: {right0} → {right1}"
         );
+    }
+
+    #[test]
+    fn dragging_the_right_edge_past_the_left_reports_a_mirror() {
+        let before = WorldRect::new(100.0, 100.0, 200.0, 100.0);
+        let (r, crossed) =
+            resize_from_handle_mirroring(before, Pos2::new(40.0, 150.0), 3, 8.0, false, false, 0.0);
+        assert_eq!(crossed, [true, false]);
+        assert!(
+            (r.x - 40.0).abs() < 1e-3 && (r.w - 60.0).abs() < 1e-3,
+            "{r:?}"
+        );
+        assert_eq!((r.y, r.h), (100.0, 100.0));
+
+        let (r, crossed) = resize_from_handle_mirroring(
+            before,
+            Pos2::new(250.0, 150.0),
+            3,
+            8.0,
+            false,
+            false,
+            0.0,
+        );
+        assert_eq!(crossed, [false, false]);
+        assert_eq!(
+            r,
+            resize_from_handle(before, Pos2::new(250.0, 150.0), 3, 8.0, false, false, 0.0)
+        );
+    }
+
+    #[test]
+    fn a_corner_dragged_past_both_edges_mirrors_both_axes() {
+        let before = WorldRect::new(100.0, 100.0, 200.0, 100.0);
+        let (r, crossed) =
+            resize_from_handle_mirroring(before, Pos2::new(60.0, 40.0), 4, 8.0, false, false, 0.0);
+        assert_eq!(crossed, [true, true]);
+        assert!(
+            (r.x - 60.0).abs() < 1e-3 && (r.w - 40.0).abs() < 1e-3,
+            "{r:?}"
+        );
+        assert!(
+            (r.y - 40.0).abs() < 1e-3 && (r.h - 60.0).abs() < 1e-3,
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn a_rotated_crossing_keeps_the_anchor_edge_in_place() {
+        let before = WorldRect::new(0.0, 0.0, 200.0, 100.0);
+        let rot = 90.0;
+        // After 90° CW, local E (handle 3) is the visual bottom and local W
+        // the visual top. Drag the bottom 60 px above the top.
+        let (_, _, top0, _) = world_aabb(before, rot);
+        let (cx, _) = before.center();
+        let (r, crossed) = resize_from_handle_mirroring(
+            before,
+            Pos2::new(cx, top0 - 60.0),
+            3,
+            8.0,
+            false,
+            false,
+            rot,
+        );
+        assert_eq!(crossed, [true, false]);
+        assert!(
+            (r.w - 60.0).abs() < 1e-2 && (r.h - 100.0).abs() < 1e-3,
+            "{r:?}"
+        );
+        let (_, _, top1, bot1) = world_aabb(r, rot);
+        assert!((bot1 - top0).abs() < 0.05, "anchor walked: {top0} → {bot1}");
+        assert!((top1 - (top0 - 60.0)).abs() < 0.05, "grabbed edge: {top1}");
+    }
+
+    #[test]
+    fn a_center_resize_crossing_the_center_mirrors_in_place() {
+        let before = WorldRect::new(100.0, 100.0, 200.0, 100.0);
+        let (r, crossed) =
+            resize_from_handle_mirroring(before, Pos2::new(160.0, 150.0), 3, 8.0, false, true, 0.0);
+        assert_eq!(crossed, [true, false]);
+        assert_eq!(r.center(), before.center());
+        assert!((r.w - 80.0).abs() < 1e-3, "{r:?}");
     }
 
     #[test]

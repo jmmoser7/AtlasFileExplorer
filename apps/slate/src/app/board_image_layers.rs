@@ -486,6 +486,7 @@ impl SlateApp {
                 host,
                 clip,
                 slate_doc::scene::Crop::full(),
+                slate_doc::scene::Mirror::default(),
                 tint,
             );
         } else if outline.len() >= 3 {

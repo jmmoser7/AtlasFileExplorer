@@ -16,6 +16,7 @@ mod item;
 pub mod lease;
 mod link;
 pub mod media;
+pub mod mirror;
 pub mod osnap;
 pub mod scene;
 mod spatial;

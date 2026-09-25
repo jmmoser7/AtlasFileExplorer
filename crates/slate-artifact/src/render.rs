@@ -871,6 +871,12 @@ fn render_image_paint_layers(
                     if let Some(item) = doc.item(layer_img.item) {
                         if let Some(url) = assets.get(&item.path) {
                             let mut style = geometry_style(child_px, local.rotation_deg);
+                            if let Some((sx, sy)) = layer_img.mirror().scale() {
+                                style.push_str(&format!(
+                                    "transform:rotate({:.3}deg) scale({sx},{sy});",
+                                    local.rotation_deg
+                                ));
+                            }
                             append_opacity(&mut style, child.opacity);
                             html.push_str("<img src=\"");
                             html.push_str(&escape_attr(url));
@@ -893,6 +899,7 @@ fn render_img_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNod
     html.push_str(&escape_attr(url));
     html.push_str("\" alt=\"\" style=\"");
     html.push_str(&crop_style(&img.crop));
+    push_mirror_transform(html, img.mirror());
     let filter = img.adjust.css_filter();
     if !filter.is_empty() {
         html.push_str("filter:");
@@ -900,6 +907,15 @@ fn render_img_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNod
         html.push(';');
     }
     html.push_str("\" draggable=\"false\">");
+}
+
+/// The media element fills the content rect, so scaling about its own
+/// center mirrors the pixels exactly where the board does.
+fn push_mirror_transform(html: &mut String, mirror: slate_doc::scene::Mirror) {
+    if let Some((sx, sy)) = mirror.scale() {
+        use std::fmt::Write;
+        let _ = write!(html, "transform:scale({sx},{sy});");
+    }
 }
 
 fn render_video_tag(
@@ -939,6 +955,7 @@ fn render_video_tag(
     }
     html.push_str(" style=\"");
     html.push_str(&crop_style(&img.crop));
+    push_mirror_transform(html, img.mirror());
     let filter = img.adjust.css_filter();
     if !filter.is_empty() {
         html.push_str("filter:");

@@ -1938,6 +1938,29 @@ pub static SPECS: &[CommandSpec] = &[
         BOARD_SEL,
         &["join", "close path", "merge paths", "union"],
     ),
+    spec(
+        "board.mirror.horizontal",
+        "Board",
+        "Mirror horizontal",
+        "Actions → Mirror horizontal: flips selected pictures, paths, and \
+         lines left to right about their centers. Rectangles, ellipses, \
+         polygons, and text are left as they are.",
+        None,
+        Repeat::Repeatable,
+        BOARD_SEL,
+        &["mirror", "flip horizontal", "flip left right"],
+    ),
+    spec(
+        "board.mirror.vertical",
+        "Board",
+        "Mirror vertical",
+        "Actions → Mirror vertical: flips selected pictures, paths, and \
+         lines top to bottom about their centers.",
+        None,
+        Repeat::Repeatable,
+        BOARD_SEL,
+        &["mirror", "flip vertical", "flip upside down"],
+    ),
     // ----- board: scene flags (wave 2b) --------------------------------------
     spec(
         "board.group",
