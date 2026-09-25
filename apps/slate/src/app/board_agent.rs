@@ -5532,6 +5532,7 @@ impl SlateApp {
                     let count = self.agent_images(id).len();
                     self.agents.cover_focus.insert(id, count.saturating_sub(1));
                 }
+                self.sync_agent_text_output(id);
                 ctx.request_repaint();
             }
         }
@@ -8783,6 +8784,88 @@ impl SlateApp {
         });
     }
 
+    /// Pasting a copied chat train seeds a new linked source per conversation
+    /// session; provider handles are not copied.
+    pub(crate) fn fork_agent_train_payload(&mut self, payload: &mut [Node]) -> bool {
+        use std::collections::HashMap;
+        if !slate_doc::agent_chat::paste_is_train_fork(payload) {
+            return false;
+        }
+        let Some(ws) = self.ai.config.valid_workspace().map(|p| p.to_path_buf()) else {
+            self.toast("Set an AI workspace before pasting a chat train.");
+            return false;
+        };
+        let base = self.tab().path.as_deref();
+        let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+        for (index, node) in payload.iter().enumerate() {
+            let Some(a) = slate_doc::agent_chat::agent(node) else {
+                continue;
+            };
+            if !a.chat.train {
+                continue;
+            }
+            groups.entry(a.session.clone()).or_default().push(index);
+        }
+        for (old_session, indices) in groups {
+            let sample = &payload[indices[0]];
+            let Some(agent) = slate_doc::agent_chat::agent(sample).cloned() else {
+                continue;
+            };
+            let turns = self.fork_source_turns(&agent, base).unwrap_or_default();
+            let new_session = slate_doc::scene::new_agent_session_id();
+            let dir = atlas_ai::agent::agent_dir(&ws, &new_session);
+            let _ = std::fs::create_dir_all(&dir);
+            let session = atlas_ai::agent::AgentSession {
+                approval: None,
+                conversation: String::new(),
+                artifacts: vec![],
+                status: atlas_ai::agent::AgentStatus::Idle,
+                provider: agent.provider.clone(),
+                turns,
+                updated_at: atlas_ai::context::now_secs(),
+                bundle: Default::default(),
+                request: String::new(),
+            };
+            let _ = atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &session);
+            let manifest = slate_doc::SourceUri {
+                locator: super::board_portal::source_locator(base, &dir.join("session.json")),
+            };
+            for index in indices {
+                let node = &mut payload[index];
+                if let Some(a) = slate_doc::agent_chat::agent_mut(node) {
+                    a.session = new_session.clone();
+                    a.channel = None;
+                    a.bundle = Some(manifest.clone());
+                }
+                if slate_doc::agent_chat::agent(node).is_some_and(|a| a.chat.parent.is_none()) {
+                    if let NodeKind::Portal(p) = &mut node.kind {
+                        if !p.title.contains("Forked from") {
+                            let name = p.title.trim();
+                            p.title = if name.is_empty() {
+                                "Forked from conversation · replayed".into()
+                            } else {
+                                format!("Forked from {name} · replayed")
+                            };
+                        }
+                    }
+                }
+            }
+            let _ = old_session;
+        }
+        true
+    }
+
+    fn fork_source_turns(
+        &self,
+        agent: &slate_doc::scene::AgentPortalRef,
+        base: Option<&std::path::Path>,
+    ) -> Option<Vec<AgentTurn>> {
+        let path = agent.bundle.as_ref().map(|uri| resolve_source(base, &uri.locator))?;
+        let text = std::fs::read_to_string(path).ok()?;
+        let session: atlas_ai::agent::AgentSession = serde_json::from_str(&text).ok()?;
+        Some(session.turns)
+    }
+
     /// The shared source resolver owns path semantics; the session manifest owns
     /// the link directory, including after a global AI workspace change.
     fn agent_link_dir(&self, portal: NodeId, workspace: &std::path::Path) -> Option<PathBuf> {
@@ -9150,7 +9233,7 @@ pub(crate) fn bind_program(
     a.view = program.view;
     if program.view == atlas_ai::agent::PortalView::Chat {
         a.chat.train = true;
-        a.chat.detail = slate_doc::agent_chat::Detail::Full;
+        a.chat.detail = slate_doc::agent_chat::Detail::Pair;
     }
     let size = program_card_size(program.view);
     node.rect.w = size.x;

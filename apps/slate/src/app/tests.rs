@@ -7125,7 +7125,7 @@ fn agent_program_choice_is_journaled_and_undo_restores_picker() {
     );
     assert_eq!(
         p.agent.as_ref().unwrap().chat.detail,
-        slate_doc::agent_chat::Detail::Full
+        slate_doc::agent_chat::Detail::Pair
     );
     assert_eq!(h.app.contents_focused(), Some(id));
     h.app.board_undo();
@@ -7523,6 +7523,90 @@ fn agent_output_draft_is_consumed_without_an_extra_empty_car() {
             .chat
             .draft
     );
+}
+
+#[test]
+fn pasted_chat_train_forks_source_and_undo_removes_cards() {
+    let mut h = agent_board("train_fork_paste");
+    h.app.ai.config.workspace_dir = Some(h.base.join("ai-ws"));
+    std::fs::create_dir_all(h.app.ai.config.workspace_dir.as_ref().unwrap()).unwrap();
+    h.app.place_agent_portal_at(Pos2::ZERO);
+    let root = h.app.doc().scene.nodes[0].id;
+    h.app.set_agent_program(root, "local");
+    let session = slate_doc::scene::new_agent_session_id();
+    let dir = atlas_ai::agent::agent_dir(h.app.ai.config.workspace_dir.as_ref().unwrap(), &session);
+    std::fs::create_dir_all(&dir).unwrap();
+    let turns = vec![
+        atlas_ai::agent::AgentTurn {
+            role: "user".into(),
+            text: "hello".into(),
+            at: 0,
+        },
+        atlas_ai::agent::AgentTurn {
+            role: "assistant".into(),
+            text: "hi".into(),
+            at: 1,
+        },
+    ];
+    let state = atlas_ai::agent::AgentSession {
+        approval: None,
+        conversation: "provider-1".into(),
+        artifacts: vec![],
+        status: atlas_ai::agent::AgentStatus::Idle,
+        provider: "local".into(),
+        turns: turns.clone(),
+        updated_at: 0,
+        bundle: Default::default(),
+        request: String::new(),
+    };
+    atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &state).unwrap();
+    let manifest = slate_doc::SourceUri {
+        locator: super::board_portal::source_locator(None, &dir.join("session.json")),
+    };
+    h.app.patch_nodes(&[root], |n| {
+        if let NodeKind::Portal(p) = &mut n.kind {
+            let a = p.agent.as_mut().unwrap();
+            a.session = session.clone();
+            a.channel = Some("provider-1".into());
+            a.bundle = Some(manifest.clone());
+            a.chat.train = true;
+            a.chat.detail = slate_doc::agent_chat::Detail::Pair;
+            p.title = "Courtyard".into();
+        }
+    });
+    let original_session = session;
+    h.app.board_sel.clear();
+    h.app.board_sel.insert(root);
+    assert_eq!(h.app.board_copy(&h.ctx), 1);
+    h.app.board_sel.clear();
+    let before = h.app.doc().scene.nodes.len();
+    assert_eq!(
+        h.app.board_paste(None, Some(egui::Pos2::new(900.0, 0.0))),
+        1
+    );
+    assert_eq!(h.app.doc().scene.nodes.len(), before + 1);
+    let pasted = *h.app.board_sel.iter().next().unwrap();
+    let forked = slate_doc::agent_chat::agent(h.app.doc().scene.node(pasted).unwrap()).unwrap();
+    assert_ne!(forked.session, original_session);
+    assert!(forked.channel.is_none());
+    assert!(forked
+        .bundle
+        .as_ref()
+        .is_some_and(|b| b.locator.contains("session.json")));
+    let NodeKind::Portal(p) = &h.app.doc().scene.node(pasted).unwrap().kind else {
+        panic!("portal")
+    };
+    assert!(p.title.contains("Forked from Courtyard"));
+    let original_turns = std::fs::read_to_string(dir.join("session.json")).unwrap();
+    assert!(original_turns.contains("provider-1"));
+    assert_ne!(
+        slate_doc::agent_chat::agent(h.app.doc().scene.node(root).unwrap())
+            .unwrap()
+            .session,
+        forked.session
+    );
+    h.app.board_undo();
+    assert_eq!(h.app.doc().scene.nodes.len(), before);
 }
 
 #[test]
