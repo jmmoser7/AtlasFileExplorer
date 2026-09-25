@@ -44,6 +44,18 @@ target set can generate additional feature variants with distinct hashes.
   to evade the auditor. Policy changes belong to the user/IT.
 - Report what Cargo attempted, not an unverified claim about the auditor's queue.
 
+## Reclaiming disk from `target`
+
+Cargo never deletes superseded artifacts. Each compiler, feature, or source
+path change leaves another hashed copy in `target\<profile>\deps`, and the
+incremental cache grows with every session; worktrees multiply both. Run
+`scripts\prune-target.ps1` (add `-DryRun` to preview, `-Target` for a worktree).
+It removes the incremental cache and older copies of this workspace's own
+artifacts, and never third-party outputs, build scripts, or proc-macro DLLs,
+so it creates nothing new for the auditor. On 25 September 2026 it took the
+main `target` from 112 GB to 16 GB. Give each worktree its own `target`;
+a shared one returns stale test results across checkouts.
+
 ## Completion checks
 
 After audit blocks clear, require successful exit codes from the build and tests.
