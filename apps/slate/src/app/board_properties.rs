@@ -780,7 +780,11 @@ fn stringer_lane(home: [Pos2; 2], outward: Vec2, opposite: [Pos2; 2]) -> ([Pos2;
 
 impl SlateApp {
     pub(crate) fn sync_shape_properties(&mut self) {
-        let ids: Vec<_> = self.board_sel.iter().copied().collect();
+        // Sorted, so the strip resets on membership only: `board_sel` is a
+        // HashSet whose iteration order can change without its contents
+        // changing (a rehash on insert of an already selected id).
+        let mut ids: Vec<_> = self.board_sel.iter().copied().collect();
+        ids.sort_unstable_by_key(|id| id.0);
         let changed =
             self.shape_properties.tab != self.tab().id || self.shape_properties.ids != ids;
         let keep_text = self.text_edit.as_ref().is_some_and(|(id, _)| {

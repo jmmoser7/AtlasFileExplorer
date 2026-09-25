@@ -9260,75 +9260,98 @@ fn crop_first_press_after_c_key_grabs_the_handle() {
     assert!((crop_of(&h, ids[0]).x - 0.1).abs() < 0.01);
 }
 
-/// Entering crop re-inserts an already selected id, which can rehash the
-/// selection set and reset the strip on the next frame. Reopen the
-/// Corners squircle (it shows Crop on) so the press lands with it up.
-fn keep_corners_panel_open(h: &mut Harness) {
-    h.frame();
-    if h.app.shape_properties.panel.is_none() {
-        h.app.shape_properties.panel = Some(board_properties::Panel::Corners);
-        for _ in 0..4 {
-            h.frame();
-        }
-    }
+/// Crop mode, the whole selection of `n`, and the Corners squircle are all
+/// still up after the frame that just ran.
+fn assert_crop_holds(h: &Harness, n: usize, when: &str) {
     assert_eq!(
         h.app.shape_properties.panel,
-        Some(board_properties::Panel::Corners)
+        Some(board_properties::Panel::Corners),
+        "{when}: Corners panel closed"
     );
-    assert!(h.app.board_crop.is_some());
+    assert!(h.app.board_crop.is_some(), "{when}: crop mode left");
+    assert_eq!(h.app.board_sel.len(), n, "{when}: {:?}", h.app.board_sel);
 }
 
-/// Three selected images stay in crop mode for the whole gesture, the drag
-/// writes the same crop on all three, and one undo restores them.
-#[test]
-fn crop_three_images_stay_in_crop_mode_and_commit_one_group() {
-    let (mut h, ids) = crop_board("crop_multi_three", 3);
-    crop_via_corners_panel(&mut h);
-    keep_corners_panel_open(&mut h);
-    let xf = h.app.board_xf();
-    let west_b = xf.w2s(Pos2::new(260.0, 75.0));
-    crop_pointer(&mut h, west_b, Some(true));
-    for dx in [10.0, 20.0, 30.0] {
-        crop_pointer(&mut h, west_b + EVec2::new(dx, 0.0), None);
-        assert_eq!(h.app.board_sel.len(), 3, "selection kept mid-drag");
-        assert!(h.app.board_crop.is_some(), "crop mode kept mid-drag");
-        assert_eq!(
-            crop_drag_handle(&h),
-            Some((ids[1], board_handles::ResizeHandle::W as u8, 2)),
-            "the grabbed image drives both peers"
-        );
-    }
-    crop_pointer(&mut h, west_b + EVec2::new(30.0, 0.0), Some(false));
-    for id in &ids {
-        let c = crop_of(&h, *id);
-        assert!(
-            (c.x - 0.15).abs() < 0.01 && (c.w - 0.85).abs() < 0.01,
-            "{id:?}: {c:?}"
-        );
-    }
-    assert_eq!(h.app.board_sel.len(), 3);
-    assert!(h.app.board_crop.is_some());
-    h.app.board_undo();
-    for id in &ids {
-        assert!(crop_of(&h, *id).is_full(), "one undo restores {id:?}");
+fn crop_idle_frames(h: &mut Harness, n: usize, when: &str) {
+    for f in 0..6 {
+        h.frame();
+        assert_crop_holds(h, n, &format!("{when}, idle frame {f}"));
     }
 }
 
-/// A click on another selected image during crop mode keeps every image in
-/// crop mode (D17: crop mode does not clear the selection).
+/// Every selected image stays in crop mode for the whole gesture with the
+/// Corners squircle up, the drag writes the same crop on all of them, and
+/// one undo restores them.
 #[test]
-fn crop_click_on_peer_keeps_every_image_in_crop_mode() {
-    let (mut h, ids) = crop_board("crop_multi_click", 3);
-    crop_via_corners_panel(&mut h);
-    keep_corners_panel_open(&mut h);
-    let xf = h.app.board_xf();
-    let inside_c = xf.w2s(Pos2::new(620.0, 75.0));
-    crop_pointer(&mut h, inside_c, Some(true));
-    crop_pointer(&mut h, inside_c, Some(false));
-    assert!(h.app.board_crop.is_some());
-    assert_eq!(h.app.board_sel.len(), 3, "{:?}", h.app.board_sel);
-    for id in &ids {
-        assert!(h.app.board_sel.contains(id));
+fn crop_multi_images_stay_in_crop_mode_and_commit_one_group() {
+    for n in [3, 5] {
+        let (mut h, ids) = crop_board(&format!("crop_multi_{n}"), n);
+        crop_via_corners_panel(&mut h);
+        crop_idle_frames(&mut h, n, "after entering crop");
+        let xf = h.app.board_xf();
+        let west_b = xf.w2s(Pos2::new(260.0, 75.0));
+        crop_pointer(&mut h, west_b, Some(true));
+        assert_crop_holds(&h, n, "press");
+        for dx in [10.0, 20.0, 30.0] {
+            crop_pointer(&mut h, west_b + EVec2::new(dx, 0.0), None);
+            assert_crop_holds(&h, n, "mid-drag");
+            assert_eq!(
+                crop_drag_handle(&h),
+                Some((ids[1], board_handles::ResizeHandle::W as u8, n - 1)),
+                "the grabbed image drives every peer"
+            );
+        }
+        crop_pointer(&mut h, west_b + EVec2::new(30.0, 0.0), Some(false));
+        crop_idle_frames(&mut h, n, "after release");
+        for id in &ids {
+            let c = crop_of(&h, *id);
+            assert!(
+                (c.x - 0.15).abs() < 0.01 && (c.w - 0.85).abs() < 0.01,
+                "{id:?}: {c:?}"
+            );
+        }
+        h.app.board_undo();
+        for id in &ids {
+            assert!(crop_of(&h, *id).is_full(), "one undo restores {id:?}");
+        }
+    }
+}
+
+/// A click on each selected image in turn during crop mode keeps every
+/// image in crop mode and the Corners squircle up (D17: crop mode does not
+/// clear the selection).
+#[test]
+fn crop_click_on_each_peer_keeps_every_image_in_crop_mode() {
+    for n in [3, 5] {
+        let (mut h, ids) = crop_board(&format!("crop_multi_click_{n}"), n);
+        crop_via_corners_panel(&mut h);
+        crop_idle_frames(&mut h, n, "after entering crop");
+        let xf = h.app.board_xf();
+        for i in 0..n {
+            let inside = xf.w2s(Pos2::new(i as f32 * 260.0 + 100.0, 75.0));
+            crop_pointer(&mut h, inside, Some(true));
+            assert_crop_holds(&h, n, &format!("press on image {i}"));
+            crop_pointer(&mut h, inside, Some(false));
+            crop_idle_frames(&mut h, n, &format!("after click on image {i}"));
+        }
+        for id in &ids {
+            assert!(h.app.board_sel.contains(id));
+        }
+    }
+}
+
+/// The strip keys on which nodes are selected, not on the order the
+/// selection set happens to iterate in.
+#[test]
+fn crop_panel_survives_selection_set_reordering() {
+    for n in [3, 5] {
+        let (mut h, _) = crop_board(&format!("crop_multi_reorder_{n}"), n);
+        crop_via_corners_panel(&mut h);
+        for round in 0..24 {
+            h.app.board_sel = h.app.board_sel.iter().copied().collect();
+            h.frame();
+            assert_crop_holds(&h, n, &format!("reordered set, round {round}"));
+        }
     }
 }
 
