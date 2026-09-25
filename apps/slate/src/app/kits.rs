@@ -329,21 +329,22 @@ mod tests {
                 BoardTool::Text => 10,
                 BoardTool::Brush => 11,
                 BoardTool::Eraser => 12,
-                BoardTool::Eyedropper => 13,
-                BoardTool::Sticky => 14,
-                BoardTool::DirectSelect => 15,
-                BoardTool::AgentPortal => 16,
-                BoardTool::WebPortal => 17,
-                BoardTool::AtlasPortal => 18,
-                BoardTool::SlatePortal => 19,
-                BoardTool::Trim => 20,
-                BoardTool::Split => 21,
-                BoardTool::Deck => 22,
+                BoardTool::Smooth => 13,
+                BoardTool::Eyedropper => 14,
+                BoardTool::Sticky => 15,
+                BoardTool::DirectSelect => 16,
+                BoardTool::AgentPortal => 17,
+                BoardTool::WebPortal => 18,
+                BoardTool::AtlasPortal => 19,
+                BoardTool::SlatePortal => 20,
+                BoardTool::Trim => 21,
+                BoardTool::Split => 22,
+                BoardTool::Deck => 23,
             }
         }
         let mut tags: Vec<u8> = BoardTool::ALL.into_iter().map(tag).collect();
         tags.sort_unstable();
-        assert_eq!(tags, (0..23).collect::<Vec<u8>>());
+        assert_eq!(tags, (0..24).collect::<Vec<u8>>());
     }
 
     #[test]

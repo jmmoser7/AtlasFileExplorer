@@ -4,6 +4,7 @@
 //! tessellation, dashing, hit-testing, bounds, and freehand fitting.
 //! See `DESIGN.md`.
 
+mod blur;
 mod clean;
 pub mod collide;
 mod dash;
@@ -13,6 +14,7 @@ mod flatten;
 mod geom;
 mod hit;
 mod mesh;
+mod smooth;
 mod stamp;
 mod stroke;
 mod tile;
@@ -66,6 +68,7 @@ pub struct InkVertex {
     pub alpha: f32,
 }
 
+pub use blur::gaussian_blur_rgba;
 pub use edit::{
     anchor_hit, anchors_from_bezpath, bezpath_from_anchors, join_endpoints, move_anchor,
     move_handle, segment_hit, toggle_anchor_kind, translate_segment, Anchor, AnchorKind, HandleEnd,
@@ -73,6 +76,7 @@ pub use edit::{
 pub use fit::{fit_polyline, fit_polyline_spaced};
 pub use flatten::{flatten, flatten_contours};
 pub use hit::hit_stroke;
+pub use smooth::{curvature_variance, laplacian_smooth_pass, radial_weight};
 pub use stamp::{
     apply_erase, default_pixel, erase_coverage_at, multiply_by_mask, stamp_contours,
     stamp_contours_at, stamp_line, stamp_polyline, stamp_segment, stamp_tipped, tip_coverage,

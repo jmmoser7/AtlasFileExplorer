@@ -54,6 +54,7 @@ board_dock_icon!(icon_bezier, ToolIcon::Bezier);
 board_dock_icon!(icon_pen, ToolIcon::Pen);
 board_dock_icon!(icon_brush, ToolIcon::Brush);
 board_dock_icon!(icon_eraser, ToolIcon::Eraser);
+board_dock_icon!(icon_smooth, ToolIcon::Smooth);
 board_dock_icon!(icon_web, ToolIcon::WebPortal);
 board_dock_icon!(icon_atlas, ToolIcon::AtlasLens);
 board_dock_icon!(icon_trim, ToolIcon::Trim);
@@ -86,6 +87,7 @@ fn tool_dock_icon(tool: BoardTool) -> DockIcon {
         BoardTool::Pen => DockIcon::Custom(icon_pen),
         BoardTool::Brush => DockIcon::Custom(icon_brush),
         BoardTool::Eraser => DockIcon::Custom(icon_eraser),
+        BoardTool::Smooth => DockIcon::Custom(icon_smooth),
         BoardTool::AgentPortal => DockIcon::Custom(icon_agent),
         BoardTool::WebPortal => DockIcon::Custom(icon_web),
         BoardTool::AtlasPortal => DockIcon::Custom(icon_atlas),
@@ -109,6 +111,7 @@ fn tool_flyout_desc(tool: BoardTool) -> &'static str {
             "Brush — [ ] size, Shift+[ ] softness, Shift+click steps opacity, Shift+right-drag scrubs opacity, Alt+right-drag scrubs size and softness from the press point, Ctrl+right-drag opens the color wheel."
         }
         BoardTool::Eraser => "Eraser — erase painted ink; vector strokes go whole. [ ] size, Shift+[ ] softness, Alt+right-drag size and softness, Shift+right-drag strength, Shift+drag or Shift+click for a straight pass.",
+        BoardTool::Smooth => "Smooth — Laplacian on vector strokes; whole-stroke blur on painted ink. [ ] size, Shift+[ ] softness, Alt+right-drag size and softness, Shift+right-drag strength, Shift+drag for a straight pass.",
         BoardTool::Arc => "Draw an arc.",
         BoardTool::Polyline => "Draw a polyline.",
         BoardTool::BezierSpan => "Draw a bezier span.",
@@ -136,6 +139,7 @@ pub fn floating_tools_dock(app: &mut SlateApp, ctx: &egui::Context) {
             | BoardTool::Pen
             | BoardTool::Brush
             | BoardTool::Eraser
+            | BoardTool::Smooth
     );
 
     let items = [
@@ -373,6 +377,7 @@ fn apply_shape_choice(app: &mut SlateApp, id: &str) {
         "shape.pen" => BoardTool::Pen,
         "shape.brush" => BoardTool::Brush,
         "shape.eraser" => BoardTool::Eraser,
+        "shape.smooth" => BoardTool::Smooth,
         _ => return,
     };
     app.set_board_tool(tool);
@@ -505,6 +510,10 @@ pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &s
         }
         "shape.eraser" => {
             app.set_board_tool(BoardTool::Eraser);
+            return;
+        }
+        "shape.smooth" => {
+            app.set_board_tool(BoardTool::Smooth);
             return;
         }
         "shape.arc" => {
@@ -707,6 +716,7 @@ pub(crate) fn palette_strip_items<'a>(
                 (BoardTool::Pen, "shape.pen", Some("P"), "curves"),
                 (BoardTool::Brush, "shape.brush", Some("B"), "ink"),
                 (BoardTool::Eraser, "shape.eraser", Some("E"), "ink"),
+                (BoardTool::Smooth, "shape.smooth", Some("S"), "ink"),
             ];
             let mut items: Vec<FlyoutItem<'_>> = tools
                 .into_iter()

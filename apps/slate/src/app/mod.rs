@@ -45,12 +45,12 @@ mod board_join;
 mod board_line;
 mod board_osnap;
 mod board_path;
-mod path_edit_overlay;
 mod board_place;
 mod board_portal;
 mod board_portal_chrome;
 mod board_properties;
 mod board_slate;
+mod board_smooth;
 mod board_snap;
 mod board_style;
 mod board_transform;
@@ -71,6 +71,7 @@ pub mod imagefx;
 pub mod kits;
 pub mod model3d;
 mod overlays;
+mod path_edit_overlay;
 pub mod pdf;
 pub mod present;
 pub mod preview;
@@ -576,6 +577,14 @@ pub struct SlateApp {
     /// Eraser falloff and strength on painted strokes (persisted).
     pub eraser_softness: f32,
     pub eraser_opacity: f32,
+    /// Smoothing brush width (world units), `[`/`]` while Smooth is armed.
+    pub smooth_width: f32,
+    pub smooth_softness: f32,
+    /// Laplacian / blur strength (0.1..=1).
+    pub smooth_strength: f32,
+    pub(crate) smooth_anchor: Option<egui::Pos2>,
+    pub(crate) smooth_preview: HashMap<NodeId, slate_doc::scene::Node>,
+    pub(crate) smooth_polylines: HashMap<NodeId, board_smooth::SmoothPolyline>,
     /// End of the last eraser pass, where a Shift pass starts.
     pub(crate) eraser_anchor: Option<egui::Pos2>,
     /// Painted strokes under the eraser this drag, shown with the pass applied.
@@ -862,6 +871,12 @@ impl SlateApp {
             eraser_softness: 0.0,
             eraser_opacity: 1.0,
             eraser_anchor: None,
+            smooth_width: settings::ERASER_WIDTH_DEFAULT,
+            smooth_softness: 0.0,
+            smooth_strength: 0.5,
+            smooth_anchor: None,
+            smooth_preview: HashMap::new(),
+            smooth_polylines: HashMap::new(),
             erase_live: HashMap::new(),
             brush_chain: None,
             direct: board_direct::DirectState::default(),

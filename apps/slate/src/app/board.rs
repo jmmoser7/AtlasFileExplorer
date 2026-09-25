@@ -300,6 +300,8 @@ pub enum BoardTool {
     Brush,
     /// Whole-stroke vector erase (E).
     Eraser,
+    /// Smoothing brush (S): Laplacian on vectors, blur on stamped ink.
+    Smooth,
     /// Sample node colors into fg (Alt: bg) (I).
     Eyedropper,
     /// Sticky-note placement (N) — a Text-node preset.
@@ -327,7 +329,7 @@ impl BoardTool {
     /// Every tool, in declaration order. Kept beside [`BoardTool::grammar`],
     /// whose exhaustive match is the compiler-enforced reason a new variant
     /// cannot be added without being considered here too.
-    pub const ALL: [BoardTool; 23] = [
+    pub const ALL: [BoardTool; 24] = [
         BoardTool::Select,
         BoardTool::Pan,
         BoardTool::Frame,
@@ -341,6 +343,7 @@ impl BoardTool {
         BoardTool::Text,
         BoardTool::Brush,
         BoardTool::Eraser,
+        BoardTool::Smooth,
         BoardTool::Eyedropper,
         BoardTool::Sticky,
         BoardTool::DirectSelect,
@@ -368,6 +371,7 @@ impl BoardTool {
             BoardTool::Text => "Text",
             BoardTool::Brush => "Brush",
             BoardTool::Eraser => "Eraser",
+            BoardTool::Smooth => "Smooth",
             BoardTool::Eyedropper => "Eyedropper",
             BoardTool::Sticky => "Sticky note",
             BoardTool::DirectSelect => "Direct select",
@@ -396,6 +400,7 @@ impl BoardTool {
             BoardTool::Text => board_icons::ToolIcon::Text,
             BoardTool::Brush => board_icons::ToolIcon::Brush,
             BoardTool::Eraser => board_icons::ToolIcon::Eraser,
+            BoardTool::Smooth => board_icons::ToolIcon::Smooth,
             BoardTool::Eyedropper => board_icons::ToolIcon::Eyedropper,
             BoardTool::Sticky => board_icons::ToolIcon::Sticky,
             BoardTool::DirectSelect => board_icons::ToolIcon::DirectSelect,
@@ -422,6 +427,7 @@ impl BoardTool {
             BoardTool::Text => "T",
             BoardTool::Brush => "B",
             BoardTool::Eraser => "E",
+            BoardTool::Smooth => "S",
             BoardTool::Eyedropper => "I",
             BoardTool::Sticky => "N",
             BoardTool::DirectSelect => "A",
@@ -452,6 +458,7 @@ impl BoardTool {
             BoardTool::Text => "board.tool.text",
             BoardTool::Brush => "board.tool.brush",
             BoardTool::Eraser => "board.tool.eraser",
+            BoardTool::Smooth => "board.tool.smooth",
             BoardTool::Eyedropper => "board.tool.eyedropper",
             BoardTool::Sticky => "board.tool.sticky",
             BoardTool::DirectSelect => "board.tool.direct_select",
@@ -489,7 +496,7 @@ impl BoardTool {
             BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => G::MultiPoint,
             BoardTool::Pen | BoardTool::Brush => G::Freehand,
             BoardTool::Text | BoardTool::Sticky => G::PlacePoint,
-            BoardTool::Eraser => G::Sweep,
+            BoardTool::Eraser | BoardTool::Smooth => G::Sweep,
             BoardTool::Eyedropper => G::Sample,
             BoardTool::Trim | BoardTool::Split => G::PickThenClick,
             // Deck is not a kit grammar. Click-or-stroke lives in board_deck.
@@ -617,6 +624,14 @@ pub enum BoardDrag {
         points: Vec<Pos2>,
         straight: bool,
         spot: Vec<NodeId>,
+    },
+    /// Smoothing brush drag — live preview, one Patch group on release.
+    Smooth {
+        vectors: Vec<NodeId>,
+        stamps: Vec<NodeId>,
+        points: Vec<Pos2>,
+        straight: bool,
+        before: Vec<Node>,
     },
     /// Connector wire gesture (add / detach / move-all) — see `board_wire`.
     Wire(super::board_wire::WireDrag),
@@ -993,6 +1008,9 @@ impl SlateApp {
                     && r.y - ink <= view.y + view.h
                     && r.y + r.h + ink >= view.y;
                 (visible || n.rotation_deg.abs() > 0.01).then(|| {
+                    if let Some(p) = self.smooth_preview.get(&id) {
+                        return p.clone();
+                    }
                     self.shape_properties
                         .preview
                         .iter()
@@ -3659,7 +3677,10 @@ impl SlateApp {
             || pointer_mods.0.command
             || pointer_mods.1.is_some_and(|(_, m)| m.ctrl || m.command);
         let hud_pointer = pointer.or(pointer_mods.1.map(|(pos, _)| pos));
-        let brush_armed = matches!(self.board_tool, BoardTool::Brush | BoardTool::Eraser);
+        let brush_armed = matches!(
+            self.board_tool,
+            BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
+        );
         let right_held = secondary_down || secondary_pressed;
         // Alt+right is size. Shift+right is opacity. Ctrl+right is the color
         // wheel. Ctrl and Alt beat Shift. Each chord owns the button before
@@ -3755,6 +3776,7 @@ impl SlateApp {
                 | BoardTool::Pen
                 | BoardTool::Brush
                 | BoardTool::Eraser
+                | BoardTool::Smooth
         );
         if ordered_drawing
             && !space
@@ -3787,7 +3809,7 @@ impl SlateApp {
                             BoardTool::Polyline | BoardTool::Arc => {
                                 self.path_tool_click(world);
                             }
-                            BoardTool::Eraser if self.brush_hud.is_none() => {
+                            BoardTool::Eraser | BoardTool::Smooth if self.brush_hud.is_none() => {
                                 self.board_drag = self.begin_gesture(pos, world, modifiers);
                             }
                             BoardTool::Pen | BoardTool::Brush => {
@@ -4838,7 +4860,10 @@ impl SlateApp {
                 if let Some(w) = wp {
                     if self.eyedropper_active() {
                         self.paint_eyedropper_cursor(&painter, p, w);
-                    } else if matches!(self.board_tool, BoardTool::Brush | BoardTool::Eraser) {
+                    } else if matches!(
+                        self.board_tool,
+                        BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
+                    ) {
                         let _cursor = atlas_core::session_log::span("slate.board.brush_cursor");
                         self.paint_width_cursor(&painter, p);
                     }
@@ -5891,6 +5916,7 @@ impl SlateApp {
                 }
             }
             BoardTool::Eraser => Some(self.begin_erase(world, mods.shift)),
+            BoardTool::Smooth => Some(self.begin_smooth(world, mods.shift)),
             BoardTool::Eyedropper | BoardTool::Sticky | BoardTool::Trim | BoardTool::Split => None, // click tools
             BoardTool::Deck => Some(BoardDrag::DeckStroke {
                 start_screen: screen,
@@ -6041,6 +6067,10 @@ impl SlateApp {
         // release; Esc cancels with no journal).
         if matches!(self.board_drag, Some(BoardDrag::Erase { .. })) {
             self.update_erase(world);
+            return;
+        }
+        if matches!(self.board_drag, Some(BoardDrag::Smooth { .. })) {
+            self.update_smooth(world);
             return;
         }
         if matches!(self.board_drag, Some(BoardDrag::Wire(_))) {
@@ -6653,6 +6683,9 @@ impl SlateApp {
                 ..
             }) => {
                 self.finish_erase(touched, points, spot);
+            }
+            Some(drag @ BoardDrag::Smooth { .. }) => {
+                self.finish_smooth(drag);
             }
             Some(BoardDrag::Wire(wd)) => {
                 self.finish_wire_drag(wd);

@@ -380,6 +380,10 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::Eraser);
                 true
             }
+            "board.tool.smooth" => {
+                self.set_board_tool(board::BoardTool::Smooth);
+                true
+            }
             "board.tool.eyedropper" => {
                 self.set_board_tool(board::BoardTool::Eyedropper);
                 true
@@ -521,16 +525,18 @@ impl SlateApp {
             }
             "board.brush.width_down" | "board.brush.width_up" => {
                 let (w, eraser) = self.step_active_width(id.0 == "board.brush.width_up");
-                detail = detail.or(Some(format!(
-                    "{} → {w:.1}u",
-                    if eraser { "eraser" } else { "brush" }
-                )));
+                let label = match self.board_tool {
+                    board::BoardTool::Eraser => "eraser",
+                    board::BoardTool::Smooth => "smooth",
+                    _ => "brush",
+                };
+                detail = detail.or(Some(format!("{label} → {w:.1}u")));
                 true
             }
             "board.brush.softness_down" | "board.brush.softness_up" => {
                 if !matches!(
                     self.board_tool,
-                    board::BoardTool::Brush | board::BoardTool::Eraser
+                    board::BoardTool::Brush | board::BoardTool::Eraser | board::BoardTool::Smooth
                 ) {
                     false
                 } else {
@@ -918,6 +924,7 @@ impl SlateApp {
                 Some(
                     board::BoardDrag::Wire(_)
                         | board::BoardDrag::Erase { .. }
+                        | board::BoardDrag::Smooth { .. }
                         | board::BoardDrag::Direct(_)
                         | board::BoardDrag::DeckStroke { .. }
                         | board::BoardDrag::Marquee { .. }
@@ -987,6 +994,10 @@ impl SlateApp {
                                 *n = peer;
                             }
                         }
+                    }
+                    Some(board::BoardDrag::Smooth { .. }) => {
+                        self.smooth_preview.clear();
+                        self.smooth_polylines.clear();
                     }
                     // Eraser: nothing was mutated — dropping the drag and its
                     // live preview restores the ink.

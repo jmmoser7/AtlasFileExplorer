@@ -517,6 +517,7 @@ fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
         }
     }
     hash_f32(h, stroke.softness);
+    hash_f32(h, stroke.gaussian_blur);
     stroke.stamp.hash(h);
     if let Some(from) = stroke.tween_from {
         hash_f32(h, from.width);
@@ -1154,6 +1155,7 @@ pub fn default_draw_stroke(accent: Rgba) -> Stroke {
         softness: 0.0,
         stamp: false,
         tween_from: None,
+        gaussian_blur: 0.0,
     }
 }
 
@@ -1170,6 +1172,7 @@ pub fn default_curve_stroke(color: Rgba) -> Stroke {
         softness: 0.0,
         stamp: false,
         tween_from: None,
+        gaussian_blur: 0.0,
     }
 }
 
@@ -1483,6 +1486,10 @@ fn paint_stamped_stroke(
                 return;
             };
             vector_ink::apply_erase(&mut stamp, &stamped_erase_marks(node, shape, path));
+            if shape.stroke.gaussian_blur > 0.0 {
+                let sigma = shape.stroke.gaussian_blur * want;
+                vector_ink::gaussian_blur_rgba(&mut stamp.rgba, stamp.width, stamp.height, sigma);
+            }
             let gpu = upload_stamp(painter, &format!("brush-stamp-{}", node.id.0), stamp, want);
             app.brush_stamps.insert(node.id, (key, gpu));
             evict_brush_stamps(&mut app.brush_stamps, app.frame_no);

@@ -1620,6 +1620,28 @@ pub static SPECS: &[CommandSpec] = &[
         &[],
     ),
     spec(
+        "board.tool.smooth",
+        "Board",
+        "Smoothing tool",
+        "S — drag a circular brush over vector strokes (Laplacian smooth + refit) \
+         or painted brush strokes (whole-stroke Gaussian blur). [ ] size; \
+         Shift+right-drag strength; Shift+drag straight pass. Esc cancels",
+        Some(Chord::bare(Key::S)),
+        Repeat::Repeatable,
+        BOARD,
+        &["smooth", "blur", "laplacian"],
+    ),
+    spec(
+        "board.smooth.stroke",
+        "Board",
+        "Smoothing pass",
+        "Drag with the Smoothing tool",
+        None,
+        Repeat::Never,
+        BOARD,
+        &[],
+    ),
+    spec(
         "board.tool.eyedropper",
         "Board",
         "Eyedropper",

@@ -94,6 +94,7 @@ fn stroke_node(scene: &mut slate_doc::scene::Scene, seed: u64) -> Node {
         softness,
         stamp: true,
         tween_from: None,
+        gaussian_blur: 0.0,
     };
     scene.build_node(
         WorldRect::new(x, y, w, h),
