@@ -29,7 +29,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |
 | D14 | Post-edit | Circular Stroke with width, RGB, alpha, dash and appropriate caps/joins; Fill only on a closed path. Preserve authored profile; no unsupported smoothing or rectangle Corners control. | guess | 55 |
 | D15 | Non-goals | P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip. | pattern | 85 |
-| D16 | Create-style inheritance | P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults. | precedent | 90 |
+| D16 | Create-style inheritance | **Open-form** create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Pen ink keeps round-cap kit defaults when pinned | stated | 100 |
 | D17 | Hit-testing & pick | P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed. | pattern | 85 |
 
 ## Geometry capabilities

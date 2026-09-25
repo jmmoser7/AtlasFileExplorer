@@ -10,8 +10,8 @@ use eframe::egui::{self, Id, Pos2, Rect, Vec2};
 use serde::{Deserialize, Serialize};
 use slate_doc::{
     scene::{
-        self, Corner, Dash, ImageAdjust, Node, NodeKind, PhotoFilter, Rgba, ShapeKind, StrokeCap,
-        StrokeJoin, WorldRect,
+        self, clamp_regular_sides, Corner, Dash, ImageAdjust, Node, NodeKind, PhotoFilter, Rgba,
+        ShapeKind, StrokeCap, StrokeJoin, WorldRect,
     },
     NodeId,
 };
@@ -106,6 +106,8 @@ pub enum Property {
     BumperOn(bool),
     BumperBuffer(f32),
     BumperFriction(f32),
+    /// Regular polygon side count (3–12).
+    RegularSides(u8),
 }
 
 impl Property {
@@ -164,6 +166,13 @@ impl Property {
                     _ => {}
                 }
                 scene::set_fill(node, Some(c));
+            }
+            Self::RegularSides(sides) => {
+                if let NodeKind::Shape(s) = &mut node.kind {
+                    if s.shape == ShapeKind::RegularPolygon {
+                        s.sides = scene::clamp_regular_sides(sides);
+                    }
+                }
             }
             Self::CornerTreatment(_) | Self::CornerMode(_) | Self::CornerAmount(_) => {
                 let Some(c) = scene::corner_of(node) else {
@@ -1487,11 +1496,12 @@ impl SlateApp {
 
     fn shape_property_body(&mut self, ui: &mut egui::Ui, rect: Rect, panel: Panel, z: f32) -> bool {
         let theme = self.palette();
-        let nodes = if self.shape_properties.preview.is_empty() {
-            &self.shape_properties.nodes
+        let nodes_owned: Vec<Node> = if self.shape_properties.preview.is_empty() {
+            self.shape_properties.nodes.clone()
         } else {
-            &self.shape_properties.preview
+            self.shape_properties.preview.clone()
         };
+        let nodes = nodes_owned.as_slice();
         let first = &nodes[0];
         if panel == Panel::Agent {
             let Some(id) = self.shape_properties.ids.first().copied() else {
@@ -1696,6 +1706,48 @@ impl SlateApp {
             }
             if let Some(amount) = edit.amount {
                 self.preview_shape_property(Property::CornerAmount(amount));
+            }
+            let all_regular = nodes.iter().all(|n| {
+                matches!(
+                    &n.kind,
+                    NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon
+                )
+            });
+            if all_regular {
+                let sides = nodes
+                    .iter()
+                    .filter_map(|n| match &n.kind {
+                        NodeKind::Shape(s) if s.shape == ShapeKind::RegularPolygon => Some(s.sides),
+                        _ => None,
+                    })
+                    .next()
+                    .unwrap_or(scene::default_regular_sides());
+                let mut sides_y = fillet_rect.max.y + 6.0 * z;
+                if self.corners_include_crop() {
+                    sides_y += (chrome::CORNER_HEIGHT + 6.0) * z;
+                }
+                let row = Rect::from_min_size(
+                    Pos2::new(rect.min.x, sides_y),
+                    Vec2::new(rect.width(), chrome::CORNER_HEIGHT * z),
+                );
+                ui.scope_builder(egui::UiBuilder::new().max_rect(row), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Sides")
+                                .size(canvas_scale::px(12.0, z))
+                                .color(theme.sub),
+                        );
+                        let mut v = sides as i32;
+                        if ui
+                            .add(egui::DragValue::new(&mut v).range(3..=12).speed(0.1))
+                            .changed()
+                        {
+                            self.preview_shape_property(Property::RegularSides(
+                                clamp_regular_sides(v as u8),
+                            ));
+                        }
+                    });
+                });
             }
             return false;
         }
@@ -2119,6 +2171,7 @@ mod tests {
                     ..Default::default()
                 },
                 corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: None,
 

@@ -1205,6 +1205,7 @@ fn path_node_add_undo_via_journal() {
             fill: None,
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: Some(std::sync::Arc::new(PathData {
                 start: [0.0, 0.5],
@@ -1237,6 +1238,7 @@ fn add_stroke(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
             fill: None,
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: Some(std::sync::Arc::new(PathData {
                 start: [0.0, 0.5],
@@ -1262,6 +1264,7 @@ fn add_rect(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
             fill: Some(slate_doc::scene::Rgba::WHITE),
             stroke: slate_doc::scene::Stroke::none(),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: None,
 
@@ -1583,6 +1586,7 @@ fn double_click_closed_shape_opens_text_editor() {
             fill: None,
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: None,
             text: None,
@@ -1623,6 +1627,7 @@ fn double_click_closed_shape_opens_text_editor() {
             fill: None,
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: None,
             text: None,
@@ -2115,6 +2120,7 @@ fn closed_polyline_pick_and_near_ignore_empty_bbox() {
             fill: None,
             stroke: board_path::default_curve_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: Some(data.into()),
 
@@ -2174,6 +2180,7 @@ fn closed_polyline_pick_and_near_ignore_points_outside_the_bbox() {
             fill: None,
             stroke: board_path::default_curve_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: Some(data.into()),
 
@@ -2251,6 +2258,7 @@ fn add_ellipse(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> NodeId {
             fill: None,
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: None,
 
@@ -5633,6 +5641,7 @@ fn selection_outline_follows_silhouette() {
                 fill: Some(slate_doc::scene::Rgba::WHITE),
                 stroke: slate_doc::scene::Stroke::none(),
                 corner: slate_doc::scene::Corner::Rounded { radius: 12.0 },
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: None,
 
@@ -5651,6 +5660,7 @@ fn selection_outline_follows_silhouette() {
                 fill: Some(slate_doc::scene::Rgba::WHITE),
                 stroke: slate_doc::scene::Stroke::none(),
                 corner: slate_doc::scene::Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: None,
 
@@ -6414,6 +6424,7 @@ fn add_seg(app: &mut SlateApp, a: Pos2, b: Pos2) -> NodeId {
             fill: None,
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: Some(path.into()),
 
@@ -6433,6 +6444,7 @@ fn add_filled_rect(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> NodeId
             fill: Some(slate_doc::scene::Rgba::WHITE),
             stroke: slate_doc::scene::Stroke::none(),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: None,
 
@@ -6452,6 +6464,7 @@ fn add_filled_ellipse(app: &mut SlateApp, x: f32, y: f32, w: f32, h: f32) -> Nod
             fill: Some(slate_doc::scene::Rgba::WHITE),
             stroke: slate_doc::scene::Stroke::none(),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: None,
 
@@ -7433,6 +7446,7 @@ fn entered_media_suppresses_the_selection_cast() {
             fill: None,
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: None,
             text: None,

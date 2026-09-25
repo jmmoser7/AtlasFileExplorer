@@ -384,6 +384,10 @@ impl SlateApp {
                 self.set_board_tool(board::BoardTool::Ellipse);
                 true
             }
+            "board.tool.polygon" => {
+                self.set_board_tool(board::BoardTool::Polygon);
+                true
+            }
             "board.tool.line" => {
                 self.set_board_tool(board::BoardTool::Line);
                 true

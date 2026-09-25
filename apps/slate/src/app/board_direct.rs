@@ -513,7 +513,7 @@ impl SlateApp {
                 continue;
             };
             let closed = match s.shape {
-                ShapeKind::Rect | ShapeKind::Ellipse => true,
+                ShapeKind::Rect | ShapeKind::Ellipse | ShapeKind::RegularPolygon => true,
                 ShapeKind::Path => s.path.as_ref().is_some_and(|p| p.closed),
                 ShapeKind::Line => false,
             };

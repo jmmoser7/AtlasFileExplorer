@@ -397,6 +397,16 @@ pub static SPECS: &[CommandSpec] = &[
         &["circle", "oval"],
     ),
     spec(
+        "board.tool.polygon",
+        "Board",
+        "Polygon tool",
+        "Y — regular polygon (default hexagon); click or drag; Shift locks aspect (Board view)",
+        Some(Chord::bare(Key::Y)),
+        Repeat::Repeatable,
+        BOARD,
+        &["hexagon", "ngon", "polygon"],
+    ),
+    spec(
         "board.tool.line",
         "Board",
         "Line tool",

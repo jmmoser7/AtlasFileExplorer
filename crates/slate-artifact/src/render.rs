@@ -989,8 +989,37 @@ fn render_shape(
         ShapeKind::Line => render_line(html, node, shape, rel),
         ShapeKind::Rect => render_rect_shape(html, node, shape, rel, false),
         ShapeKind::Ellipse => render_rect_shape(html, node, shape, rel, true),
+        ShapeKind::RegularPolygon => render_regular_polygon(html, node, shape, rel),
         ShapeKind::Path => render_path(html, node, shape, rel),
     }
+}
+
+fn render_regular_polygon(
+    html: &mut String,
+    node: &Node,
+    shape: &slate_doc::scene::ShapeNode,
+    rel: WorldRect,
+) {
+    let outline = slate_doc::geom::regular_polygon_world_outline(
+        node.rect,
+        node.rotation_deg,
+        shape.sides,
+        shape.corner,
+        0.25,
+    );
+    let w = rel.w;
+    let h = rel.h;
+    let d = world_outline_to_svg_d(&outline, node.rect, w, h);
+    render_vector_path_d(
+        html,
+        node,
+        shape,
+        rel,
+        &d,
+        slate_doc::scene::PathFillRule::NonZero,
+        true,
+        None,
+    );
 }
 
 fn render_rect_shape(
@@ -1267,7 +1296,41 @@ fn render_path(
 
     let w = rel.w;
     let h = rel.h;
-    let d = path_data_d(path, w, h);
+    let d = if slate_doc::geom::path_is_line_polyline(path) {
+        let bez = slate_doc::geom::path_data_to_world_bez_with_fillet(
+            path,
+            node.rect,
+            node.rotation_deg,
+            shape.corner,
+        );
+        bezpath_to_d_local(&bez, node.rect, w, h)
+    } else {
+        path_data_d(path, w, h)
+    };
+    render_vector_path_d(
+        html,
+        node,
+        shape,
+        rel,
+        &d,
+        path.fill_rule,
+        path.closed,
+        Some(path),
+    );
+}
+
+fn render_vector_path_d(
+    html: &mut String,
+    node: &Node,
+    shape: &slate_doc::scene::ShapeNode,
+    rel: WorldRect,
+    d: &str,
+    fill_rule: slate_doc::scene::PathFillRule,
+    closed_for_taper: bool,
+    path: Option<&PathData>,
+) {
+    let w = rel.w;
+    let h = rel.h;
     let fill_css = shape
         .fill
         .map(|f| f.css())
@@ -1304,7 +1367,7 @@ fn render_path(
 
     match shape.stroke.profile {
         WidthProfile::Uniform => {
-            push_path_open(html, &d, &fill_css, path.fill_rule);
+            push_path_open(html, d, &fill_css, fill_rule);
             if shape.stroke.is_none() {
                 html.push_str(" stroke=\"none\"");
             } else {
@@ -1334,11 +1397,15 @@ fn render_path(
             html.push_str("></path>");
         }
         WidthProfile::Taper { start, end } => {
-            if shape.fill.is_some() && path.closed {
-                push_path_open(html, &d, &fill_css, path.fill_rule);
+            if shape.fill.is_some() && closed_for_taper {
+                push_path_open(html, d, &fill_css, fill_rule);
                 html.push_str(" stroke=\"none\"></path>");
             }
             if !shape.stroke.is_none() {
+                let Some(path) = path else {
+                    html.push_str("</svg></div>\n");
+                    return;
+                };
                 let bez = path_data_to_bez(path, w, h);
                 let style = StrokeStyle {
                     width: ink_width,
@@ -1423,6 +1490,91 @@ fn push_path_open(html: &mut String, d: &str, fill: &str, rule: PathFillRule) {
 
 fn denorm_pt(p: [f32; 2], w: f32, h: f32) -> (f32, f32) {
     (p[0] * w, p[1] * h)
+}
+
+fn world_outline_to_svg_d(outline: &[[f32; 2]], rect: WorldRect, w: f32, h: f32) -> String {
+    let mut d = String::new();
+    for (i, p) in outline.iter().enumerate() {
+        let lx = (p[0] - rect.x) / rect.w.max(1e-6) * w;
+        let ly = (p[1] - rect.y) / rect.h.max(1e-6) * h;
+        if i == 0 {
+            d.push_str("M ");
+        } else {
+            d.push_str(" L ");
+        }
+        d.push_str(&fmt_px(lx));
+        d.push(' ');
+        d.push_str(&fmt_px(ly));
+    }
+    d.push_str(" Z");
+    d
+}
+
+fn bezpath_to_d_local(bez: &BezPath, rect: WorldRect, w: f32, h: f32) -> String {
+    let mut d = String::new();
+    for el in bez.elements() {
+        match el {
+            PathEl::MoveTo(p) => {
+                let lx = (p.x as f32 - rect.x) / rect.w.max(1e-6) * w;
+                let ly = (p.y as f32 - rect.y) / rect.h.max(1e-6) * h;
+                d.push_str("M ");
+                d.push_str(&fmt_px(lx));
+                d.push(' ');
+                d.push_str(&fmt_px(ly));
+            }
+            PathEl::LineTo(p) => {
+                let lx = (p.x as f32 - rect.x) / rect.w.max(1e-6) * w;
+                let ly = (p.y as f32 - rect.y) / rect.h.max(1e-6) * h;
+                d.push_str(" L ");
+                d.push_str(&fmt_px(lx));
+                d.push(' ');
+                d.push_str(&fmt_px(ly));
+            }
+            PathEl::QuadTo(p1, p2) => {
+                let (c1x, c1y) = (
+                    (p1.x as f32 - rect.x) / rect.w.max(1e-6) * w,
+                    (p1.y as f32 - rect.y) / rect.h.max(1e-6) * h,
+                );
+                let (x, y) = (
+                    (p2.x as f32 - rect.x) / rect.w.max(1e-6) * w,
+                    (p2.y as f32 - rect.y) / rect.h.max(1e-6) * h,
+                );
+                d.push_str(" Q ");
+                d.push_str(&fmt_px(c1x));
+                d.push(' ');
+                d.push_str(&fmt_px(c1y));
+                d.push(' ');
+                d.push_str(&fmt_px(x));
+                d.push(' ');
+                d.push_str(&fmt_px(y));
+            }
+            PathEl::CurveTo(p1, p2, p3) => {
+                let fmt3 = |p: Point| {
+                    (
+                        (p.x as f32 - rect.x) / rect.w.max(1e-6) * w,
+                        (p.y as f32 - rect.y) / rect.h.max(1e-6) * h,
+                    )
+                };
+                let (c1x, c1y) = fmt3(*p1);
+                let (c2x, c2y) = fmt3(*p2);
+                let (x, y) = fmt3(*p3);
+                d.push_str(" C ");
+                d.push_str(&fmt_px(c1x));
+                d.push(' ');
+                d.push_str(&fmt_px(c1y));
+                d.push(' ');
+                d.push_str(&fmt_px(c2x));
+                d.push(' ');
+                d.push_str(&fmt_px(c2y));
+                d.push(' ');
+                d.push_str(&fmt_px(x));
+                d.push(' ');
+                d.push_str(&fmt_px(y));
+            }
+            PathEl::ClosePath => d.push_str(" Z"),
+        }
+    }
+    d
 }
 
 fn path_data_d(path: &PathData, w: f32, h: f32) -> String {

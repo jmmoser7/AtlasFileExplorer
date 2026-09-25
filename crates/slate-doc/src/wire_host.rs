@@ -598,6 +598,7 @@ mod tests {
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Default::default(),
+                sides: crate::scene::default_regular_sides(),
                 flip: false,
                 path: path.map(std::sync::Arc::new),
                 text: None,

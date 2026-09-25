@@ -527,11 +527,11 @@
           "decided": "2026-07-23"
         },
         "D16": {
-          "behavior": "Yes — last single-node edit seeds stroke + opacity (P1.curve.create-style); default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-07-24"
+          "decided": "2026-09-25"
         },
         "D17": {
           "behavior": "Stroke-precise click + marquee (P1.curve.pick): hit_stroke + pick.slop (4 screen px); never the node AABB alone. Legacy ShapeKind::Line included.",
@@ -1439,11 +1439,11 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "Unchanged. Shapes still consume BoardLastStyle; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Unchanged split: closed shapes consume BoardLastStyle.closed, open curves consume BoardLastStyle.open; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-15"
+          "decided": "2026-09-25"
         },
         "D17": {
           "behavior": "n/a — the ghost is not hittable. Existing node pick unchanged.",
@@ -2749,11 +2749,11 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
-          "source": "precedent",
-          "confidence": 90,
+          "behavior": "Closed-form create-style memory (P1.shape.style): inherit last closed-shape stroke/fill when the kit recipe is inherit. Open-curve edits do not overwrite rectangle defaults.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D17": {
           "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
@@ -2879,11 +2879,11 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
-          "source": "precedent",
-          "confidence": 90,
+          "behavior": "Closed-form create-style memory (P1.shape.style): inherit last closed-shape stroke/fill when the kit recipe is inherit. Open-curve edits do not overwrite ellipse defaults.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D17": {
           "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
@@ -3009,11 +3009,11 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
-          "source": "precedent",
-          "confidence": 90,
+          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D17": {
           "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
@@ -3125,11 +3125,11 @@
           "decided": "2026-09-17"
         },
         "D14": {
-          "behavior": "Open path: circular Stroke button. Closed path: Fill and Stroke. Do not expose Corners until true path filleting/chamfer semantics are supported; stroke joins remain in Stroke. Desktop color sampling is shared. See shape-property-editing.md.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Open line-only polyline: Stroke button plus Corners (one fillet radius at every interior vertex, clamped per vertex; 0 = sharp). Closed line-only polyline: Fill and Stroke plus Corners. Board and artifact share path_data_to_world_bez_with_fillet.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D15": {
           "behavior": "P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip.",
@@ -3139,11 +3139,11 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
-          "source": "precedent",
-          "confidence": 90,
+          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Closed paths with fill use closed memory when committed as closed shapes.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D17": {
           "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
@@ -3151,6 +3151,136 @@
           "confidence": 85,
           "verdict": "approved",
           "decided": "2026-09-17"
+        }
+      }
+    },
+    "polygon": {
+      "status": "agreed",
+      "family": "tool",
+      "reference": "Regular polygon tool authorized 2026-09-25; Y shortcut; default hexagon.",
+      "inherits": [
+        "P0.*, P1.node, P1.shape, P2.DragShape, P2.GhostFollow"
+      ],
+      "canvas": "shapes-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "Arm through board.tool.polygon or the Shapes flyout; Y is the primary chord.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D02": {
+          "behavior": "One-shot creation; return to Select. Repeat follows P0.4.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D03": {
+          "behavior": "P2.DragShape: click default hexagon; drag sizes inscribed regular polygon.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D04": {
+          "behavior": "P2.DragShape: raw press-to-release travel in screen pixels.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D05": {
+          "behavior": "Shift locks equal aspect. Ctrl during DragScale draws from press point as center.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D06": {
+          "behavior": "P1.node.osnap: one resolved point feeds preview and commit.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D07": {
+          "behavior": "Percentage corner intent persists through resize; absolute values retain the authored distance and clamp only their effective value. Mode conversion is per host and preserves the visible amount.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D08": {
+          "behavior": "Bounding-box W/H stringers; Sides 3–12 in Corners panel when a regular polygon is selected.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D09": {
+          "behavior": "P1.shape.properties preview and selection strip.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D10": {
+          "behavior": "Armed-tool cursor; shell hover on controls.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D11": {
+          "behavior": "One property edit → one invertible journal group.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D12": {
+          "behavior": "Esc cancels pending property edit.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D13": {
+          "behavior": "Fill / Stroke / Corners squircles when geometry allows.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D14": {
+          "behavior": "Fill, Stroke, Corners; Corners panel also exposes Sides for regular polygons.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D15": {
+          "behavior": "No irregular polygon or per-vertex strip editing in v1.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D16": {
+          "behavior": "Closed-form create-style memory for new regular polygons.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
+        },
+        "D17": {
+          "behavior": "Fill hit uses filleted outline; controls consume input first.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "approved",
+          "decided": "2026-09-25"
         }
       }
     },
@@ -3269,11 +3399,11 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
-          "source": "precedent",
-          "confidence": 90,
+          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D17": {
           "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
@@ -3399,11 +3529,11 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
-          "source": "precedent",
-          "confidence": 90,
+          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D17": {
           "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",
@@ -3529,11 +3659,11 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults.",
-          "source": "precedent",
-          "confidence": 90,
+          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D17": {
           "behavior": "P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed.",

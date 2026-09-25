@@ -619,6 +619,7 @@ mod tests {
                 fill: Some(Rgba::WHITE),
                 stroke: Stroke::none(),
                 corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: None,
 
@@ -979,6 +980,7 @@ mod tests {
                     ..Default::default()
                 },
                 corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.0],
@@ -1021,6 +1023,7 @@ mod tests {
                     ..Default::default()
                 },
                 corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.0],
@@ -1066,6 +1069,7 @@ mod tests {
                     ..Default::default()
                 },
                 corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.5],
@@ -1110,6 +1114,7 @@ mod tests {
                     ..Default::default()
                 },
                 corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.5],
@@ -1141,6 +1146,7 @@ mod tests {
                 fill: Some(Rgba::BLACK),
                 stroke: Stroke::none(),
                 corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.0],

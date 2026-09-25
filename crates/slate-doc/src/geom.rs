@@ -2,9 +2,97 @@
 //! rotation, and outlines that pick, trim, and bumpers share. The artifact
 //! writer keeps its own reading (a second interpreter of the model).
 
-use crate::scene::{Node, NodeKind, PathData, PathSeg, ShapeKind, WorldRect};
+use crate::scene::{
+    clamp_regular_sides, regular_polygon_vertices, Corner, Node, NodeKind, PathData, PathSeg,
+    ShapeKind, WorldRect,
+};
+use crate::wire::{filleted_vertex_path, PathCmd};
 use vector_ink::kurbo::{BezPath, Point};
 use vector_ink::{flatten_contours, Polygon};
+
+pub fn path_is_line_polyline(path: &PathData) -> bool {
+    path.extra.is_empty()
+        && !path.segs.is_empty()
+        && path.segs.iter().all(|s| matches!(s, PathSeg::Line { .. }))
+}
+
+fn polyline_norm_points(path: &PathData) -> Vec<[f32; 2]> {
+    let mut pts = vec![path.start];
+    for seg in &path.segs {
+        if let PathSeg::Line { to } = *seg {
+            pts.push(to);
+        }
+    }
+    pts
+}
+
+fn path_cmds_to_bez_world(cmds: &[PathCmd]) -> BezPath {
+    let mut bez = BezPath::new();
+    for cmd in cmds {
+        match *cmd {
+            PathCmd::Move(p) => bez.move_to(Point::new(p[0] as f64, p[1] as f64)),
+            PathCmd::Line(p) => bez.line_to(Point::new(p[0] as f64, p[1] as f64)),
+            PathCmd::Cubic { c1, c2, to } => bez.curve_to(
+                Point::new(c1[0] as f64, c1[1] as f64),
+                Point::new(c2[0] as f64, c2[1] as f64),
+                Point::new(to[0] as f64, to[1] as f64),
+            ),
+        }
+    }
+    bez
+}
+
+/// Vertex fillet for line-only polylines (P1.shape.properties Corners on polyline).
+pub fn path_data_to_world_bez_with_fillet(
+    path: &PathData,
+    rect: WorldRect,
+    rotation_deg: f32,
+    corner: Corner,
+) -> BezPath {
+    if path_is_line_polyline(path) {
+        let (_, radius) = corner.effective(rect.w, rect.h);
+        if radius > 0.0 {
+            let world: Vec<[f32; 2]> = polyline_norm_points(path)
+                .into_iter()
+                .map(|p| {
+                    let pt = world_point(p, rect, rotation_deg);
+                    [pt.x as f32, pt.y as f32]
+                })
+                .collect();
+            if world.len() >= 3 || (world.len() >= 2 && !path.closed) {
+                let cmds = filleted_vertex_path(&world, radius, path.closed);
+                return path_cmds_to_bez_world(&cmds);
+            }
+        }
+    }
+    path_data_to_world_bez(path, rect, rotation_deg)
+}
+
+pub fn regular_polygon_world_outline(
+    rect: WorldRect,
+    rotation_deg: f32,
+    sides: u8,
+    corner: Corner,
+    tolerance: f32,
+) -> Vec<[f32; 2]> {
+    let sides = clamp_regular_sides(sides);
+    let verts = regular_polygon_vertices(rect, sides);
+    let (_, radius) = corner.effective(rect.w, rect.h);
+    let outline = if radius <= 0.0 {
+        verts
+    } else {
+        let cmds = filleted_vertex_path(&verts, radius, true);
+        let bez = path_cmds_to_bez_world(&cmds);
+        flatten_contours(&bez, tolerance as f64)
+            .into_iter()
+            .next()
+            .unwrap_or(verts)
+    };
+    outline
+        .into_iter()
+        .map(|p| rect.rotate_point(p, rotation_deg))
+        .collect()
+}
 
 /// A normalized path point placed in `rect` and rotated about its center.
 pub fn world_point(p: [f32; 2], rect: WorldRect, rotation_deg: f32) -> Point {
@@ -86,16 +174,30 @@ pub fn node_closed_poly(n: &Node, tolerance: f32) -> Option<Polygon> {
     }
     match &n.kind {
         NodeKind::Shape(s) => match s.shape {
-            ShapeKind::Rect | ShapeKind::Ellipse => {
-                let outline = if s.shape == ShapeKind::Rect {
-                    s.corner.outline(n.rect, tolerance)
-                } else {
-                    n.rect.ellipse_outline(tolerance)
+            ShapeKind::Rect | ShapeKind::Ellipse | ShapeKind::RegularPolygon => {
+                let outline = match s.shape {
+                    ShapeKind::Rect => s
+                        .corner
+                        .outline(n.rect, tolerance)
+                        .into_iter()
+                        .map(|p| n.rect.rotate_point(p, n.rotation_deg))
+                        .collect(),
+                    ShapeKind::Ellipse => n
+                        .rect
+                        .ellipse_outline(tolerance)
+                        .into_iter()
+                        .map(|p| n.rect.rotate_point(p, n.rotation_deg))
+                        .collect(),
+                    ShapeKind::RegularPolygon => regular_polygon_world_outline(
+                        n.rect,
+                        n.rotation_deg,
+                        s.sides,
+                        s.corner,
+                        tolerance,
+                    ),
+                    _ => unreachable!(),
                 };
-                Some(vec![outline
-                    .into_iter()
-                    .map(|p| n.rect.rotate_point(p, n.rotation_deg))
-                    .collect()])
+                Some(vec![outline])
             }
             ShapeKind::Path => {
                 let path = s.path.as_ref()?;
@@ -115,5 +217,36 @@ pub fn node_closed_poly(n: &Node, tolerance: f32) -> Option<Polygon> {
             .map(|(x, y)| [x, y])
             .collect()]),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scene::{Corner, PathData, PathSeg, WorldRect};
+
+    #[test]
+    fn polyline_fillet_zero_is_sharp_polyline() {
+        let path = PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [0.5, 0.0] },
+                PathSeg::Line { to: [0.5, 0.5] },
+            ],
+            closed: false,
+            ..Default::default()
+        };
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let bez = path_data_to_world_bez_with_fillet(&path, rect, 0.0, Corner::Square);
+        let flat = flatten_contours(&bez, 0.25);
+        assert_eq!(flat.len(), 1);
+        assert!(flat[0].len() >= 3);
+    }
+
+    #[test]
+    fn regular_polygon_default_is_six_sides() {
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
+        let v = crate::scene::regular_polygon_vertices(rect, 6);
+        assert_eq!(v.len(), 6);
     }
 }

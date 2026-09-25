@@ -473,6 +473,7 @@ fn shape_brief(node: &Node, shape: &ShapeNode) -> String {
     let kind = match shape.shape {
         ShapeKind::Rect => "rectangle",
         ShapeKind::Ellipse => "ellipse",
+        ShapeKind::RegularPolygon => "polygon",
         ShapeKind::Line => "line",
         ShapeKind::Path => "path",
     };
@@ -1450,6 +1451,7 @@ mod tests {
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Default::default(),
+                sides: crate::scene::default_regular_sides(),
                 flip: false,
                 path: None,
                 text: Some(ShapeText {

@@ -45,7 +45,7 @@ below is approved in `decisions.json` and is precedent for future tools.
 | D13 | Selected presentation | Endpoint grips only — **no resize bbox**, single **or** multi-select (P1.curve.grips). Homogeneous multi-line selection: grips on every line, **no** per-line outline and **no** group bbox handles. Dragging a grip moves that endpoint; ortho/snap apply | stated | 100 |
 | D14 | Post-edit | Grip drag re-journals as a point edit; Direct Selection (A) sees the same two anchors; Ctrl+J can join endpoints with other curves (P1.curve.style) | pattern | 80 |
 | D15 | Non-goals | Rhino `BothSides`/`Normal`/`Angled` command options; length<angle typed syntax; polyline chaining (that's the Polyline tool) — Art. III | guess | 70 |
-| D16 | Create-style inheritance | **Yes** — last single-node edit seeds stroke + opacity (`P1.curve.create-style`); default stroke = `default_curve_stroke(fg)` (Square cap, 2 px) when none | pattern | 85 |
+| D16 | Create-style inheritance | **Open-form** create-style memory (`P1.curve.create-style`): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = `default_curve_stroke(fg)` (Square cap, 2 px) when none | stated | 100 |
 | D17 | Hit-testing & pick | **Stroke-precise** click + marquee (`P1.curve.pick`): `hit_stroke` + `pick.slop` (4 screen px); never the node AABB alone. Legacy `ShapeKind::Line` included | pattern | 85 |
 
 ## Feel constants

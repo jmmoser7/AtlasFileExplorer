@@ -475,6 +475,7 @@ mod tests {
                 fill: None,
                 stroke: Default::default(),
                 corner: Default::default(),
+                sides: crate::scene::default_regular_sides(),
                 flip: false,
                 path: None,
                 text: None,

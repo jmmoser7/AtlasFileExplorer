@@ -47,6 +47,7 @@ board_dock_icon!(icon_sticky, ToolIcon::Sticky);
 board_dock_icon!(icon_colors, ToolIcon::Colors);
 board_dock_icon!(icon_rect, ToolIcon::Rect);
 board_dock_icon!(icon_ellipse, ToolIcon::Ellipse);
+board_dock_icon!(icon_polygon, ToolIcon::Polygon);
 board_dock_icon!(icon_line, ToolIcon::Line);
 board_dock_icon!(icon_arc, ToolIcon::Arc);
 board_dock_icon!(icon_polyline, ToolIcon::Polyline);
@@ -79,6 +80,7 @@ fn tool_dock_icon(tool: BoardTool) -> DockIcon {
     match tool {
         BoardTool::RectShape => DockIcon::Custom(icon_rect),
         BoardTool::Ellipse => DockIcon::Custom(icon_ellipse),
+        BoardTool::Polygon => DockIcon::Custom(icon_polygon),
         BoardTool::Line => DockIcon::Custom(icon_line),
         BoardTool::Arc => DockIcon::Custom(icon_arc),
         BoardTool::Polyline => DockIcon::Custom(icon_polyline),
@@ -103,6 +105,7 @@ fn tool_flyout_desc(tool: BoardTool) -> &'static str {
     match tool {
         BoardTool::RectShape => "Click to place a rectangle, or drag to size.",
         BoardTool::Ellipse => "Click to place a circle, or drag to size.",
+        BoardTool::Polygon => "Click to place a hexagon, or drag to size; Shift locks aspect.",
         BoardTool::Line => "Draw a straight line.",
         BoardTool::Pen => "Freehand path.",
         BoardTool::Brush => {
@@ -366,6 +369,7 @@ fn apply_shape_choice(app: &mut SlateApp, id: &str) {
     let tool = match id {
         "shape.rect" => BoardTool::RectShape,
         "shape.ellipse" => BoardTool::Ellipse,
+        "shape.polygon" => BoardTool::Polygon,
         "shape.line" => BoardTool::Line,
         "shape.arc" => BoardTool::Arc,
         "shape.polyline" => BoardTool::Polyline,
@@ -489,6 +493,10 @@ pub(crate) fn activate_flyout_id(app: &mut SlateApp, ctx: &egui::Context, id: &s
         }
         "shape.ellipse" => {
             app.set_board_tool(BoardTool::Ellipse);
+            return;
+        }
+        "shape.polygon" => {
+            app.set_board_tool(BoardTool::Polygon);
             return;
         }
         "shape.line" => {
@@ -693,6 +701,12 @@ pub(crate) fn palette_strip_items<'a>(
                     BoardTool::Ellipse,
                     "shape.ellipse",
                     Some(BoardTool::Ellipse.hotkey()),
+                    "shapes",
+                ),
+                (
+                    BoardTool::Polygon,
+                    "shape.polygon",
+                    Some(BoardTool::Polygon.hotkey()),
                     "shapes",
                 ),
                 (

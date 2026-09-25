@@ -309,6 +309,7 @@ pub enum BoardTool {
     Frame,
     RectShape,
     Ellipse,
+    Polygon,
     Line,
     Arc,
     Polyline,
@@ -346,12 +347,13 @@ impl BoardTool {
     /// Every tool, in declaration order. Kept beside [`BoardTool::grammar`],
     /// whose exhaustive match is the compiler-enforced reason a new variant
     /// cannot be added without being considered here too.
-    pub const ALL: [BoardTool; 23] = [
+    pub const ALL: [BoardTool; 24] = [
         BoardTool::Select,
         BoardTool::Pan,
         BoardTool::Frame,
         BoardTool::RectShape,
         BoardTool::Ellipse,
+        BoardTool::Polygon,
         BoardTool::Line,
         BoardTool::Arc,
         BoardTool::Polyline,
@@ -379,6 +381,7 @@ impl BoardTool {
             BoardTool::Frame => "Frame",
             BoardTool::RectShape => "Rectangle",
             BoardTool::Ellipse => "Ellipse",
+            BoardTool::Polygon => "Polygon",
             BoardTool::Line => "Line",
             BoardTool::Arc => "Arc",
             BoardTool::Polyline => "Polyline",
@@ -407,6 +410,7 @@ impl BoardTool {
             BoardTool::Frame => board_icons::ToolIcon::Frame,
             BoardTool::RectShape => board_icons::ToolIcon::Rect,
             BoardTool::Ellipse => board_icons::ToolIcon::Ellipse,
+            BoardTool::Polygon => board_icons::ToolIcon::Polygon,
             BoardTool::Line => board_icons::ToolIcon::Line,
             BoardTool::Arc => board_icons::ToolIcon::Arc,
             BoardTool::Polyline => board_icons::ToolIcon::Polyline,
@@ -435,6 +439,7 @@ impl BoardTool {
             BoardTool::Frame => "F",
             BoardTool::RectShape => "R",
             BoardTool::Ellipse => "O",
+            BoardTool::Polygon => "Y",
             BoardTool::Line => "L",
             BoardTool::Pen => "P",
             BoardTool::Arc | BoardTool::Polyline | BoardTool::BezierSpan => "L",
@@ -463,6 +468,7 @@ impl BoardTool {
             BoardTool::Frame => "board.tool.frame",
             BoardTool::RectShape => "board.tool.rect",
             BoardTool::Ellipse => "board.tool.ellipse",
+            BoardTool::Polygon => "board.tool.polygon",
             BoardTool::Line => "board.tool.line",
             BoardTool::Arc => "board.tool.arc",
             BoardTool::Polyline => "board.tool.polyline",
@@ -500,6 +506,7 @@ impl BoardTool {
             BoardTool::Frame
             | BoardTool::RectShape
             | BoardTool::Ellipse
+            | BoardTool::Polygon
             | BoardTool::AgentPortal
             | BoardTool::WebPortal
             | BoardTool::AtlasPortal
@@ -533,6 +540,7 @@ impl BoardTool {
             BoardTool::Frame => Some("frame"),
             BoardTool::RectShape => Some("rect"),
             BoardTool::Ellipse => Some("ellipse"),
+            BoardTool::Polygon => Some("polygon"),
             BoardTool::AgentPortal => Some("portal-agent"),
             BoardTool::WebPortal => Some("portal-web"),
             BoardTool::AtlasPortal => Some("portal-file-atlas"),
@@ -1882,6 +1890,7 @@ impl SlateApp {
                         painter,
                         xf,
                         n,
+                        s,
                         path,
                         EStroke::new(outline_w, select_tint),
                     );
@@ -1937,6 +1946,19 @@ impl SlateApp {
             NodeKind::Shape(s) => match s.shape {
                 ShapeKind::Ellipse => ellipse_outline(srect),
                 ShapeKind::Rect => corner_outline(srect, s.corner, z),
+                ShapeKind::RegularPolygon => {
+                    let world = slate_doc::geom::regular_polygon_world_outline(
+                        node.rect,
+                        node.rotation_deg,
+                        s.sides,
+                        s.corner,
+                        0.25 / z,
+                    );
+                    return world
+                        .into_iter()
+                        .map(|p| xf.w2s(Pos2::new(p[0], p[1])))
+                        .collect();
+                }
                 ShapeKind::Line | ShapeKind::Path => return aabb(),
             },
             NodeKind::Image(img) => {
@@ -3479,6 +3501,27 @@ impl SlateApp {
                         if !s.stroke.is_none() {
                             stroke_outline(painter, &pts, &s.stroke, z);
                         }
+                    }
+                    ShapeKind::RegularPolygon => {
+                        let world = slate_doc::geom::regular_polygon_world_outline(
+                            node.rect,
+                            node.rotation_deg,
+                            s.sides,
+                            s.corner,
+                            0.25 / z,
+                        );
+                        let pts: Vec<Pos2> = world
+                            .into_iter()
+                            .map(|p| xf.w2s(Pos2::new(p[0], p[1])))
+                            .collect();
+                        if let Some(fill) = s.fill {
+                            painter.add(egui::Shape::convex_polygon(
+                                pts.clone(),
+                                fade(rgba32(fill)),
+                                EStroke::NONE,
+                            ));
+                        }
+                        stroke_outline(painter, &pts, &s.stroke, z);
                     }
                     ShapeKind::Line => {
                         let (mut a, mut b) = if s.flip {
@@ -5678,6 +5721,7 @@ impl SlateApp {
             tool @ (BoardTool::Frame
             | BoardTool::RectShape
             | BoardTool::Ellipse
+            | BoardTool::Polygon
             | BoardTool::AgentPortal
             | BoardTool::WebPortal
             | BoardTool::AtlasPortal
@@ -6556,7 +6600,11 @@ impl SlateApp {
                     &[],
                     &all,
                     self.snap_scope(),
-                    shift && matches!(tool, BoardTool::RectShape | BoardTool::Ellipse),
+                    shift
+                        && matches!(
+                            tool,
+                            BoardTool::RectShape | BoardTool::Ellipse | BoardTool::Polygon
+                        ),
                 );
                 if !guides.is_empty() {
                     self.board_snap_guides = guides;
@@ -6655,6 +6703,7 @@ impl SlateApp {
                     board_place::place_tokens::ELLIPSE_DEFAULT_H,
                 ),
             ),
+            BoardTool::Polygon => self.place_from_recipe(tool, center, (160.0, 160.0)),
             _ => {
                 self.board_tool = BoardTool::Select;
             }
@@ -6764,7 +6813,8 @@ impl SlateApp {
             .map(|s| {
                 let mut node = self.doc_mut().scene.build_node(s.rect, s.kind);
                 if recipe.inherits_create_style() {
-                    self.apply_inherited_style(&mut node);
+                    let closed = recipe.inherits_closed_shape_style();
+                    self.apply_inherited_style(&mut node, closed);
                 }
                 node
             })
@@ -7000,6 +7050,7 @@ impl SlateApp {
             BoardTool::SlatePortal => Some("board.portal.slate"),
             BoardTool::RectShape => Some("board.tool.rect"),
             BoardTool::Ellipse => Some("board.tool.ellipse"),
+            BoardTool::Polygon => Some("board.tool.polygon"),
             _ => None,
         }
     }

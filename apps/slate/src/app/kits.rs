@@ -105,6 +105,7 @@ impl KitState {
             "portal-slate" => Some(BoardTool::SlatePortal),
             "rect" => Some(BoardTool::RectShape),
             "ellipse" => Some(BoardTool::Ellipse),
+            "polygon" => Some(BoardTool::Polygon),
             "frame" => Some(BoardTool::Frame),
             _ => None,
         }
@@ -199,6 +200,7 @@ fn kit_id_for_catalog(catalog_id: &str) -> Option<&'static str> {
         "portal.slate" => Some("portal-slate"),
         "shape.rect" => Some("rect"),
         "shape.ellipse" => Some("ellipse"),
+        "shape.polygon" => Some("polygon"),
         _ => None,
     }
 }
@@ -206,7 +208,7 @@ fn kit_id_for_catalog(catalog_id: &str) -> Option<&'static str> {
 fn group_for_kit(kit_id: &str) -> Option<&'static str> {
     match kit_id {
         "portal-agent" | "portal-web" | "portal-file-atlas" | "portal-slate" => Some("portals"),
-        "rect" | "ellipse" => Some("shapes"),
+        "rect" | "ellipse" | "polygon" => Some("shapes"),
         "frame" => Some("frame"),
         _ => None,
     }
@@ -321,6 +323,7 @@ mod tests {
                 BoardTool::Frame => 2,
                 BoardTool::RectShape => 3,
                 BoardTool::Ellipse => 4,
+                BoardTool::Polygon => 23,
                 BoardTool::Line => 5,
                 BoardTool::Arc => 6,
                 BoardTool::Polyline => 7,
@@ -343,7 +346,7 @@ mod tests {
         }
         let mut tags: Vec<u8> = BoardTool::ALL.into_iter().map(tag).collect();
         tags.sort_unstable();
-        assert_eq!(tags, (0..23).collect::<Vec<u8>>());
+        assert_eq!(tags, (0..24).collect::<Vec<u8>>());
     }
 
     #[test]

@@ -379,6 +379,7 @@ mod tests {
                 fill: Some(Rgba::WHITE),
                 stroke: Stroke::none(),
                 corner: Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: None,
                 text: None,

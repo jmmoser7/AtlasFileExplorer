@@ -537,6 +537,84 @@ pub fn filleted_polyline(pts: &[[f32; 2]], radius: f32) -> Vec<PathCmd> {
     cmds
 }
 
+/// Fillet every vertex of a closed polyline. Radius is clamped per vertex so
+/// adjacent fillets never overlap.
+pub fn filleted_polyline_closed(pts: &[[f32; 2]], radius: f32) -> Vec<PathCmd> {
+    let n = pts.len();
+    if n < 3 {
+        return Vec::new();
+    }
+    if radius <= 0.0 {
+        let mut cmds = vec![PathCmd::Move(pts[0])];
+        for p in &pts[1..] {
+            cmds.push(PathCmd::Line(*p));
+        }
+        cmds.push(PathCmd::Line(pts[0]));
+        return cmds;
+    }
+    let mut cmds = Vec::new();
+    let mut cursor = pts[0];
+    let mut started = false;
+    for i in 0..n {
+        let prev = pts[(i + n - 1) % n];
+        let cur = pts[i];
+        let next = pts[(i + 1) % n];
+        let in_v = sub(cur, prev);
+        let out_v = sub(next, cur);
+        let in_len = len(in_v);
+        let out_len = len(out_v);
+        let r = radius.min(in_len * 0.5).min(out_len * 0.5);
+        if r < 0.5 || in_len < 0.5 || out_len < 0.5 {
+            if !started {
+                cmds.push(PathCmd::Move(cur));
+                started = true;
+                cursor = cur;
+            } else if len(sub(cur, cursor)) >= 0.5 {
+                cmds.push(PathCmd::Line(cur));
+                cursor = cur;
+            }
+            continue;
+        }
+        let a = add(cur, scale(norm(in_v), -r));
+        let b = add(cur, scale(norm(out_v), r));
+        if !started {
+            cmds.push(PathCmd::Move(a));
+            started = true;
+        } else {
+            cmds.push(PathCmd::Line(a));
+        }
+        cmds.push(PathCmd::Cubic {
+            c1: cur,
+            c2: cur,
+            to: b,
+        });
+        cursor = b;
+    }
+    if started {
+        cmds.push(PathCmd::Line(pts[0]));
+    }
+    cmds
+}
+
+/// Line-only path vertices with optional vertex fillet (open or closed).
+pub fn filleted_vertex_path(pts: &[[f32; 2]], radius: f32, closed: bool) -> Vec<PathCmd> {
+    if radius <= 0.0 {
+        let mut cmds = vec![PathCmd::Move(pts[0])];
+        for p in &pts[1..] {
+            cmds.push(PathCmd::Line(*p));
+        }
+        if closed && pts.len() > 2 {
+            cmds.push(PathCmd::Line(pts[0]));
+        }
+        return cmds;
+    }
+    if closed {
+        filleted_polyline_closed(pts, radius)
+    } else {
+        filleted_polyline(pts, radius)
+    }
+}
+
 /// Nearest point on an orthogonal polyline (osnap Near / Perp).
 pub fn nearest_on_polyline(pts: &[[f32; 2]], p: [f32; 2]) -> Option<[f32; 2]> {
     if pts.len() < 2 {
@@ -1721,6 +1799,20 @@ mod tests {
         assert!(cmds.iter().any(|c| matches!(c, PathCmd::Cubic { .. })));
     }
 
+    #[test]
+    fn polyline_fillet_zero_radius_is_sharp() {
+        let pts = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]];
+        let cmds = filleted_polyline(&pts, 0.0);
+        assert!(!cmds.iter().any(|c| matches!(c, PathCmd::Cubic { .. })));
+    }
+
+    #[test]
+    fn polyline_fillet_clamps_on_short_segments() {
+        let pts = [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0]];
+        let cmds = filleted_polyline(&pts, 10.0);
+        assert!(cmds.iter().any(|c| matches!(c, PathCmd::Cubic { .. })));
+    }
+
     fn rect_node(id: u64, rect: WorldRect, rot: f32) -> crate::scene::Node {
         use crate::scene::{Node, NodeKind, ShapeKind, ShapeNode, Stroke};
         Node {
@@ -1738,6 +1830,7 @@ mod tests {
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Default::default(),
+                sides: crate::scene::default_regular_sides(),
                 flip: false,
                 path: None,
                 text: None,

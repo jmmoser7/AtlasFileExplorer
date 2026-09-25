@@ -59,7 +59,9 @@ pub fn constraint_for(tool: BoardTool, frame_aspect: f32) -> Option<PlaceConstra
         BoardTool::Frame => Some(PlaceConstraint::PresetAspect {
             ratio: frame_aspect.max(0.001),
         }),
-        BoardTool::RectShape | BoardTool::Ellipse => Some(PlaceConstraint::SquareOnShift),
+        BoardTool::RectShape | BoardTool::Ellipse | BoardTool::Polygon => {
+            Some(PlaceConstraint::SquareOnShift)
+        }
         BoardTool::AgentPortal
         | BoardTool::WebPortal
         | BoardTool::AtlasPortal
@@ -74,7 +76,10 @@ pub fn constraint_for(tool: BoardTool, frame_aspect: f32) -> Option<PlaceConstra
 /// Rectangle and ellipse honor Ctrl as draw-from-center. Other DragRect
 /// tools ignore it (their aspect chords stay corner-anchored).
 pub fn draws_from_center(tool: BoardTool, ctrl: bool) -> bool {
-    ctrl && matches!(tool, BoardTool::RectShape | BoardTool::Ellipse)
+    ctrl && matches!(
+        tool,
+        BoardTool::RectShape | BoardTool::Ellipse | BoardTool::Polygon
+    )
 }
 
 /// World rect for a press-at-`start` / cursor-at-`end` DragScale.

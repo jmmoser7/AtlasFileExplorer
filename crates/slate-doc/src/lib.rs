@@ -6,6 +6,7 @@
 pub mod agent_chat;
 pub mod agent_inputs;
 pub mod bumper;
+pub mod create_style;
 mod doc;
 mod error;
 pub mod geom;
@@ -23,6 +24,7 @@ mod view;
 pub mod wire;
 pub mod wire_host;
 
+pub use create_style::{CreateStyleMemory, StyleMemorySlot};
 pub use doc::{SlateDoc, SLATE_EXTENSION};
 pub use error::SlateLoadError;
 pub use ids::{GroupId, ItemId, TagId};
@@ -47,8 +49,9 @@ pub use tags::{Tag, TagGroup};
 pub use view::{ViewKind, ViewState};
 pub use wire::{
     connector_aabb_routed, connector_ortho_path, connector_route, connector_route_in_scene,
-    filleted_polyline, nearest_on_polyline, scene_ortho_lanes, scene_wire_hosts,
-    scene_wire_obstacles, ConnectorPath, OrthoLane, PathCmd, WireObstacle, WireRouting,
-    ORTHO_CLEARANCE, ORTHO_CORNER_RADIUS, ORTHO_EXIT_GAP, ORTHO_RAIL_GAP,
+    filleted_polyline, filleted_polyline_closed, filleted_vertex_path, nearest_on_polyline,
+    scene_ortho_lanes, scene_wire_hosts, scene_wire_obstacles, ConnectorPath, OrthoLane, PathCmd,
+    WireObstacle, WireRouting, ORTHO_CLEARANCE, ORTHO_CORNER_RADIUS, ORTHO_EXIT_GAP,
+    ORTHO_RAIL_GAP,
 };
 pub use wire_host::{connector_anchor_on, WireHost, WirePort, WireSnap};

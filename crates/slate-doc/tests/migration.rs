@@ -510,6 +510,7 @@ fn v2_document() -> SlateDoc {
                 ..Default::default()
             },
             corner: Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
             flip: false,
             path: Some(Arc::new(PathData {
                 start: [0.0, 0.0],

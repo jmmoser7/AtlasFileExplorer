@@ -483,6 +483,7 @@ mod tests {
                 fill: Some(Rgba([30, 40, 50, 255])),
                 stroke: Stroke::none(),
                 corner: Corner::default(),
+                sides: crate::scene::default_regular_sides(),
                 flip: false,
                 path: None,
                 text: None,

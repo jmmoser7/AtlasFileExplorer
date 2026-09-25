@@ -289,7 +289,14 @@ impl BrushTiles {
         if let Some(key) = self.keys.get(&node.id) {
             return *key;
         }
-        let key = path_content_hash(path, &shape.stroke, node.rect, node.rotation_deg, 0) ^ 0x57A5;
+        let key = path_content_hash(
+            path,
+            &shape.stroke,
+            node.rect,
+            node.rotation_deg,
+            shape.corner,
+            0,
+        ) ^ 0x57A5;
         self.keys.insert(node.id, key);
         key
     }
