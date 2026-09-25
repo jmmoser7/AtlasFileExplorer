@@ -302,12 +302,12 @@ pub trait WebHost {
     /// Tear down the view for `id`, releasing its slot.
     fn evict(&mut self, id: NodeId);
     /// The newest frame, if one arrived since the last call.
-    fn take_frame(&mut self, id: NodeId) -> Option<egui::ColorImage>;
+    fn take_frame(&mut self, id: NodeId) -> Option<WebFrame>;
     /// A one-off capture for the poster cache (D21). Must not be called from
     /// `web_pump` on demotion — that path retains the accepted poster texture.
-    fn capture_poster(&mut self, id: NodeId) -> Option<egui::ColorImage>;
+    fn capture_poster(&mut self, id: NodeId) -> Option<WebFrame>;
     /// Last uploaded/captured frame, no GPU readback.
-    fn last_frame(&self, _id: NodeId) -> Option<egui::ColorImage> {
+    fn last_frame(&self, _id: NodeId) -> Option<WebFrame> {
         None
     }
     fn send_input(&mut self, id: NodeId, input: WebInput);
@@ -353,6 +353,10 @@ pub trait WebHost {
     }
 }
 
+/// A captured page. Shared, so keeping the latest frame for posters costs a
+/// pointer rather than a copy of every pixel.
+pub type WebFrame = std::sync::Arc<egui::ColorImage>;
+
 /// The host used where no WebView2 runtime is present — every other platform,
 /// and Windows machines without the Evergreen runtime installed. Portals still
 /// place, bind, resolve health, export, and bake; they just say `NoRuntime`
@@ -366,13 +370,13 @@ impl WebHost for NullHost {
     }
     fn admit(&mut self, _id: NodeId, _req: &WebRequest) {}
     fn evict(&mut self, _id: NodeId) {}
-    fn take_frame(&mut self, _id: NodeId) -> Option<egui::ColorImage> {
+    fn take_frame(&mut self, _id: NodeId) -> Option<WebFrame> {
         None
     }
-    fn capture_poster(&mut self, _id: NodeId) -> Option<egui::ColorImage> {
+    fn capture_poster(&mut self, _id: NodeId) -> Option<WebFrame> {
         None
     }
-    fn last_frame(&self, _id: NodeId) -> Option<egui::ColorImage> {
+    fn last_frame(&self, _id: NodeId) -> Option<WebFrame> {
         None
     }
     fn send_input(&mut self, _id: NodeId, _input: WebInput) {}
@@ -1064,7 +1068,8 @@ impl SlateApp {
         }
     }
 
-    fn upload_poster(&mut self, ctx: &egui::Context, id: NodeId, img: egui::ColorImage) {
+    fn upload_poster(&mut self, ctx: &egui::Context, id: NodeId, img: impl Into<WebFrame>) {
+        let img: WebFrame = img.into();
         if !web_frame_has_content(&img) {
             return;
         }
@@ -2130,7 +2135,7 @@ impl SlateApp {
         true
     }
 
-    fn write_poster_png(&mut self, id: NodeId, img: egui::ColorImage) -> Option<PathBuf> {
+    fn write_poster_png(&mut self, id: NodeId, img: WebFrame) -> Option<PathBuf> {
         let dir = self
             .tab()
             .path

@@ -3591,18 +3591,13 @@ impl board_web::WebHost for FakeWebHost {
     fn evict(&mut self, id: slate_doc::NodeId) {
         self.0.borrow_mut().admitted.remove(&id);
     }
-    fn take_frame(&mut self, id: slate_doc::NodeId) -> Option<egui::ColorImage> {
-        self.0
-            .borrow()
-            .admitted
-            .contains(&id)
-            .then(|| egui::ColorImage::new([8, 8], egui::Color32::from_rgb(30, 90, 160)))
+    fn take_frame(&mut self, id: slate_doc::NodeId) -> Option<board_web::WebFrame> {
+        self.0.borrow().admitted.contains(&id).then(|| {
+            egui::ColorImage::new([8, 8], egui::Color32::from_rgb(30, 90, 160)).into()
+        })
     }
-    fn capture_poster(&mut self, _id: slate_doc::NodeId) -> Option<egui::ColorImage> {
-        Some(egui::ColorImage::new(
-            [8, 8],
-            egui::Color32::from_rgb(30, 90, 160),
-        ))
+    fn capture_poster(&mut self, _id: slate_doc::NodeId) -> Option<board_web::WebFrame> {
+        Some(egui::ColorImage::new([8, 8], egui::Color32::from_rgb(30, 90, 160)).into())
     }
     fn send_input(&mut self, _id: slate_doc::NodeId, input: board_web::WebInput) {
         self.0.borrow_mut().inputs.push(input);

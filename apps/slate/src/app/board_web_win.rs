@@ -213,7 +213,7 @@ struct View {
     /// authored origin rebuilds the webview so cookies do not cross sites.
     profile: String,
     /// The most recent readback, kept so a demoted portal still has a poster.
-    last: Option<egui::ColorImage>,
+    last: Option<super::board_web::WebFrame>,
     scrollbar_style: Option<(u64, bool, u32, egui::Color32)>,
     shared: Rc<RefCell<Pending>>,
 }
@@ -546,7 +546,7 @@ impl Webview2Host {
 
     /// Read a completed GPU copy without waiting, then queue the newest frame.
     /// Capture dimensions and the per-frame upload budget bound the CPU work.
-    fn read_frame(&mut self, id: NodeId) -> Option<egui::ColorImage> {
+    fn read_frame(&mut self, id: NodeId) -> Option<super::board_web::WebFrame> {
         let _span = atlas_core::session_log::span("slate.web.readback");
         let view = self.views.get_mut(&id)?;
         let pool = view.pool.as_ref()?;
@@ -568,11 +568,11 @@ impl Webview2Host {
                 )
             }
             .ok()?;
-            image = Some(bgra_to_color_image(
+            image = Some(std::sync::Arc::new(bgra_to_color_image(
                 &mapped,
                 size.0 as usize,
                 size.1 as usize,
-            ));
+            )));
             unsafe {
                 self.context.Unmap(staging, 0);
             }
@@ -614,9 +614,9 @@ impl Webview2Host {
             }
             let _ = frame.Close();
         }
-        let image = image.filter(super::board_web::web_frame_has_content);
+        let image = image.filter(|img| super::board_web::web_frame_has_content(img));
         if let Some(img) = &image {
-            view.last = Some(img.clone());
+            view.last = Some(std::sync::Arc::clone(img));
         }
         image
     }
@@ -800,17 +800,17 @@ impl WebHost for Webview2Host {
         let _ = view.root.SetIsVisible(false);
     }
 
-    fn take_frame(&mut self, id: NodeId) -> Option<egui::ColorImage> {
+    fn take_frame(&mut self, id: NodeId) -> Option<super::board_web::WebFrame> {
         self.start_capture(id);
         self.read_frame(id)
     }
 
-    fn capture_poster(&mut self, id: NodeId) -> Option<egui::ColorImage> {
+    fn capture_poster(&mut self, id: NodeId) -> Option<super::board_web::WebFrame> {
         self.read_frame(id)
             .or_else(|| self.views.get(&id).and_then(|v| v.last.clone()))
     }
 
-    fn last_frame(&self, id: NodeId) -> Option<egui::ColorImage> {
+    fn last_frame(&self, id: NodeId) -> Option<super::board_web::WebFrame> {
         self.views.get(&id).and_then(|v| v.last.clone())
     }
 
@@ -1275,12 +1275,10 @@ fn bgra_to_color_image(mapped: &D3D11_MAPPED_SUBRESOURCE, w: usize, h: usize) ->
     let base = mapped.pData as *const u8;
     for y in 0..h {
         let row = unsafe { std::slice::from_raw_parts(base.add(y * pitch), w * 4) };
-        for x in 0..w {
-            let p = &row[x * 4..x * 4 + 4];
-            pixels.push(egui::Color32::from_rgba_premultiplied(
-                p[2], p[1], p[0], p[3],
-            ));
-        }
+        pixels.extend(
+            row.chunks_exact(4)
+                .map(|p| egui::Color32::from_rgba_premultiplied(p[2], p[1], p[0], p[3])),
+        );
     }
     egui::ColorImage {
         size: [w, h],

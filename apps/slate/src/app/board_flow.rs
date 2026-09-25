@@ -2390,10 +2390,10 @@ mod tests {
             }
             fn admit(&mut self, _: NodeId, _: &super::super::board_web::WebRequest) {}
             fn evict(&mut self, _: NodeId) {}
-            fn take_frame(&mut self, _: NodeId) -> Option<egui::ColorImage> {
+            fn take_frame(&mut self, _: NodeId) -> Option<crate::app::board_web::WebFrame> {
                 None
             }
-            fn capture_poster(&mut self, _: NodeId) -> Option<egui::ColorImage> {
+            fn capture_poster(&mut self, _: NodeId) -> Option<crate::app::board_web::WebFrame> {
                 None
             }
             fn send_input(&mut self, _: NodeId, _: super::super::board_web::WebInput) {}
