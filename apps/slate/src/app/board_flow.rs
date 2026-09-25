@@ -647,7 +647,7 @@ impl SlateApp {
         let labels = canvas_text::legible(font.size);
         let scene = &self.doc().scene;
         for node in &scene.nodes {
-            let ports = agent_inputs::input_ports_of(node, self.model_has_viewport(node.id));
+            let ports = agent_inputs::input_ports_of(node, false);
             if node.hidden || ports.is_empty() {
                 continue;
             }

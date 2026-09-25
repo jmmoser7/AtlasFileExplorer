@@ -1,4 +1,4 @@
-﻿//! The semantic layer of existing board wires. Geometry remains in `wire_host`.
+//! The semantic layer of existing board wires. Geometry remains in `wire_host`.
 //! Resolves one immutable run input; adapters never interpret a scene.
 use crate::{scene::*, SlateDoc};
 use atlas_agent::{ContextItem, ImageOutput, InputSlot, InputSnapshot};
@@ -169,15 +169,8 @@ fn model_view_binding<'a>(
     if !image_model_view_port(path) {
         return None;
     }
-    let ConnectorEnd::Anchored {
-        side: Side::Left,
-        t,
-        ..
-    } = target_end
-    else {
-        return None;
-    };
-    if (*t - MODEL_VIEW_PORT_T).abs() > 0.001 {
+    // Any edge: the port has no resting site, only the wire snap's.
+    if !matches!(target_end, ConnectorEnd::Anchored { .. }) {
         return None;
     }
     let source_id = endpoint_node(source_end)?;
@@ -1046,6 +1039,33 @@ mod tests {
         )
         .expect("view wire");
         assert_eq!(binding.slot.as_deref(), Some(InputSlot::View.id()));
+    }
+
+    #[test]
+    fn a_view_wire_lands_on_any_edge_of_a_model() {
+        let mut doc = SlateDoc::new("views-any-edge");
+        let model_id = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(1))), 0.0);
+        let shot = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(2))), 200.0);
+        let paths = |id: ItemId| match id.0 {
+            1 => Some(std::path::Path::new("box.obj")),
+            2 => Some(std::path::Path::new("view.png")),
+            _ => None,
+        };
+        let shot_end = ConnectorEnd::Anchored {
+            node: shot,
+            side: Side::Right,
+            t: 0.5,
+        };
+        for (side, t) in [(Side::Left, 0.3), (Side::Top, 0.5), (Side::Right, 0.9)] {
+            let model_end = ConnectorEnd::Anchored {
+                node: model_id,
+                side,
+                t,
+            };
+            let binding =
+                infer_binding_with(&doc.scene, &shot_end, &model_end, &paths).expect("view wire");
+            assert_eq!(binding.slot.as_deref(), Some(InputSlot::View.id()));
+        }
     }
 
     #[test]

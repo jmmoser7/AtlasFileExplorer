@@ -504,6 +504,108 @@ mod tests {
         app.add_nodes(vec![node])[0]
     }
 
+    /// A saved workbook with one selected triangle model on its board.
+    fn selected_model(tag: &str) -> (Harness, NodeId) {
+        let mut h = Harness::new(tag);
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        h.app.tab_mut().path = Some(h.base.join("book.slate"));
+        let source = h.base.join("tri.obj");
+        std::fs::write(&source, "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n").unwrap();
+        let items = h.app.add_paths(&[source]);
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        h.app.place_items_on_board(&items, Pos2::ZERO);
+        let id = h.app.doc().scene.nodes.last().unwrap().id;
+        let rect = h.app.doc().scene.node(id).unwrap().rect;
+        h.app.zoom_to_rect(WorldRect::new(
+            rect.x - rect.w,
+            rect.y - rect.h,
+            rect.w * 3.0,
+            rect.h * 3.0,
+        ));
+        h.app.board_sel = std::iter::once(id).collect();
+        for _ in 0..3 {
+            h.frame();
+        }
+        (h, id)
+    }
+
+    #[test]
+    fn a_model_draws_and_hits_no_view_port_at_rest() {
+        use slate_doc::agent_inputs::{input_ports_of, MODEL_VIEW_PORT_T};
+        use slate_doc::scene::Side;
+        let (mut h, model) = selected_model("view_port_rest");
+        let xf = h.app.board_xf();
+        let node = h.app.doc().scene.node(model).unwrap().clone();
+        let old_port = slate_doc::WireHost::from_node_flow(&node, input_ports_of(&node, true))
+            .anchor(Side::Left, MODEL_VIEW_PORT_T);
+        let at = xf.w2s(Pos2::new(old_port[0], old_port[1]));
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(at)));
+        let out = h.ctx.run(Default::default(), |ctx| {
+            let layer = egui::LayerId::new(egui::Order::Foreground, Id::new("ports"));
+            h.app.paint_flow_ports(&ctx.layer_painter(layer), &xf);
+        });
+        assert!(
+            out.shapes.is_empty(),
+            "selected, pointer on the old site: nothing painted"
+        );
+        assert_eq!(h.app.wire_grip_at(at, &xf), None, "and nothing to grab");
+    }
+
+    #[test]
+    fn a_view_wire_snaps_to_the_model_edge_during_a_drag_and_binds() {
+        use slate_doc::scene::Side;
+        let (mut h, model) = selected_model("view_port_drag");
+        let png = h.base.join("shot.png");
+        image::RgbaImage::new(4, 4).save(&png).unwrap();
+        let item = h
+            .app
+            .doc_mut()
+            .add_item(png, "shot.png", 1, 0, "shot-cache");
+        let rect = h.app.doc().scene.node(model).unwrap().rect;
+        let node = h.app.doc_mut().scene.build_node(
+            WorldRect::new(rect.x - rect.w * 0.8, rect.y, rect.w * 0.4, rect.h * 0.4),
+            NodeKind::Image(ImageNode::new(item)),
+        );
+        let shot = h.app.add_nodes(vec![node])[0];
+        h.app.board_sel.clear();
+        h.frame();
+
+        let xf = h.app.board_xf();
+        let shot_rect = h.app.doc().scene.node(shot).unwrap().rect;
+        let grip = xf.w2s(super::super::board_wire::grip_point(shot_rect, Side::Right));
+        let Some(super::super::board::BoardDrag::Wire(mut wd)) =
+            h.app
+                .begin_gesture_for_test(grip, xf.s2w(grip), Default::default())
+        else {
+            panic!("a wire starts at the picture's grip");
+        };
+        let near_edge = Pos2::new(rect.x - 2.0 / xf.z, rect.y + rect.h * 0.7);
+        h.app.wire_drag_update(&mut wd, near_edge, false);
+        let (node, side, t) = wd.snap.expect("near the edge, the model takes the wire");
+        assert_eq!((node, side), (model, Side::Left));
+        assert!(
+            (t - 0.7).abs() < 0.05,
+            "at the pointer, not a fixed port: {t}"
+        );
+        h.app.finish_wire_drag(wd);
+        let binding = h
+            .app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .find_map(|n| match &n.kind {
+                NodeKind::Connector(c) => c.binding.clone(),
+                _ => None,
+            })
+            .expect("the wire is bound");
+        assert_eq!(
+            binding.slot.as_deref(),
+            Some(atlas_agent::InputSlot::View.id())
+        );
+    }
+
     fn parsed(camera: ModelCamera) -> view_meta::ViewMetaParsed {
         view_meta::ViewMetaParsed {
             camera,
