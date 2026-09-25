@@ -28,6 +28,8 @@ pub mod association;
 mod bench_brush;
 #[cfg(test)]
 mod bench_brush_tiles;
+#[cfg(test)]
+mod bench_model3d;
 pub mod board;
 mod board_agent;
 mod board_align;
@@ -2625,6 +2627,7 @@ impl eframe::App for SlateApp {
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.dialogs.set_owner(DialogOwner::from_window(frame));
+        self.model3d.register_live_textures(frame);
         let _attach = self.session_log.attach();
         let t0 = Instant::now();
         let delivered = ctx.input(|i| i.unstable_dt);

@@ -2329,8 +2329,20 @@ pub(crate) fn textured_polygon(
     crop: Crop,
     tint: Color32,
 ) {
+    textured_polygon_id(painter, tex.id(), outline, rect, crop, tint);
+}
+
+/// [`textured_polygon`] for a texture egui does not own (a live 3D slot).
+pub(crate) fn textured_polygon_id(
+    painter: &egui::Painter,
+    tex: egui::TextureId,
+    outline: &[Pos2],
+    rect: Rect,
+    crop: Crop,
+    tint: Color32,
+) {
     let crop = crop.clamped();
-    let mut mesh = egui::Mesh::with_texture(tex.id());
+    let mut mesh = egui::Mesh::with_texture(tex);
     let uv_of = |p: Pos2| {
         let fx = ((p.x - rect.min.x) / rect.width().max(0.001)).clamp(0.0, 1.0);
         let fy = ((p.y - rect.min.y) / rect.height().max(0.001)).clamp(0.0, 1.0);
@@ -2976,16 +2988,32 @@ impl SlateApp {
         let live = self.model3d.live.contains_key(&node_id);
         let adjust = self.model_adjust_for_paint(node_id);
 
-        let rendered = if live {
-            self.model_live_texture(ui.ctx(), node_id, srect.width(), srect.height(), &adjust)
+        let live_tex = live
+            .then(|| {
+                self.model_live_texture(ui.ctx(), node_id, srect.width(), srect.height(), &adjust)
+            })
+            .flatten();
+        // A live frame drawn before its slot reached egui shows next frame;
+        // hold the poster meanwhile.
+        let awaiting_slot = live_tex.is_none()
+            && self
+                .model3d
+                .live
+                .get(&node_id)
+                .is_some_and(|vp| vp.rendered.is_some());
+        if awaiting_slot {
+            ui.ctx().request_repaint();
+        }
+        let rendered = if live && !awaiting_slot {
+            live_tex
         } else {
             let poster = self
                 .model_node_info(node_id)
                 .and_then(|info| self.model_poster_texture(ui.ctx(), &info, &adjust));
-            if poster.is_none() {
+            if poster.is_none() && !live {
                 self.request_model_poster(node_id);
             }
-            poster
+            poster.map(|t| t.id())
         };
         let render_ready = rendered.is_some();
 
@@ -3008,6 +3036,7 @@ impl SlateApp {
                         .contains(&info.cache_key)
                         .then(|| self.enscape_poster_texture(ui.ctx(), &info.cache_key))
                         .flatten()
+                        .map(|t| t.id())
                 })
             })
             .or_else(|| {
@@ -3019,11 +3048,12 @@ impl SlateApp {
                     &adjust,
                     desired_px,
                 )
+                .map(|t| t.id())
             });
 
         match tex {
             Some(tex) => {
-                textured_polygon(painter, &tex, outline, srect, Crop::full(), tint);
+                textured_polygon_id(painter, tex, outline, srect, Crop::full(), tint);
             }
             None => {
                 let palette = self.palette();

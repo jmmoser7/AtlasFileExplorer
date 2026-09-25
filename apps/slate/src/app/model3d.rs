@@ -609,7 +609,11 @@ pub struct LiveViewport {
     /// Document pose at unlock — the `before` of the single patch on lock.
     pub before: ModelCamera,
     pub last_interact: Instant,
+    /// An egui-managed copy of the displayed frame, only where no GL exists
+    /// (the headless harness). GPU viewports paint their live slot instead.
     tex: Option<TextureHandle>,
+    /// The live slot holds a drawn frame.
+    shown: bool,
     pub(crate) rendered: Option<(u64, u32, u32, u64)>,
     /// Bounds radius once known (zoom clamps, pan scale).
     pub radius: f32,
@@ -627,7 +631,7 @@ impl LiveViewport {
     fn idle(&self) -> bool {
         // Loading is not inactivity. Give the user a full idle interval
         // after the first successful frame, even on a slow source.
-        self.tex.is_some() && self.last_interact.elapsed() >= AUTO_LOCK
+        (self.tex.is_some() || self.shown) && self.last_interact.elapsed() >= AUTO_LOCK
     }
 }
 
@@ -695,6 +699,14 @@ pub struct ModelSpace {
     pub view_wire_meta: HashMap<String, Option<ModelCamera>>,
     /// Decoded poster pixels (key = on-disk poster file name).
     poster_pixels: HashMap<String, std::sync::Arc<egui::ColorImage>>,
+    /// Live viewport GPU frames, claimed by node; never more than
+    /// [`MAX_LIVE`].
+    live_slots: Vec<LiveSlot>,
+}
+
+struct LiveSlot {
+    target: LiveTarget,
+    node: Option<NodeId>,
 }
 
 struct EnscapeGrab {
@@ -757,11 +769,89 @@ impl Default for ModelSpace {
             display_swatch_pixels: HashMap::new(),
             view_wire_meta: HashMap::new(),
             poster_pixels: HashMap::new(),
+            live_slots: Vec::new(),
         }
     }
 }
 
 impl ModelSpace {
+    /// Draw a live pose into the node's slot (claiming a free slot, or
+    /// creating one up to [`MAX_LIVE`], on first use). `true` once drawn.
+    #[allow(clippy::too_many_arguments)]
+    fn render_live(
+        &mut self,
+        gl: &Arc<glow::Context>,
+        id: NodeId,
+        cache_key: &str,
+        cam: &ModelCamera,
+        w: u32,
+        h: u32,
+        adjust: Option<&ImageAdjust>,
+    ) -> bool {
+        if !self.ensure_gpu(gl, cache_key) {
+            return false;
+        }
+        let slot = match self.live_slots.iter().position(|s| s.node == Some(id)) {
+            Some(i) => i,
+            None => match self.live_slots.iter().position(|s| s.node.is_none()) {
+                Some(i) => i,
+                None if self.live_slots.len() < MAX_LIVE => {
+                    let EngineSlot::Ready(engine) = &self.engine else {
+                        return false;
+                    };
+                    let Some(target) = engine.new_live_target() else {
+                        return false;
+                    };
+                    self.live_slots.push(LiveSlot { target, node: None });
+                    self.live_slots.len() - 1
+                }
+                None => return false,
+            },
+        };
+        let (EngineSlot::Ready(engine), Some(gpu)) = (&self.engine, self.gpu.get(cache_key)) else {
+            return false;
+        };
+        let slot = &mut self.live_slots[slot];
+        slot.node = Some(id);
+        engine.render_live(&mut slot.target, &gpu.model, cam, w, h, adjust)
+    }
+
+    /// The egui texture a live viewport paints, once its slot is drawn and
+    /// registered.
+    pub(crate) fn live_texture_id(&self, id: NodeId) -> Option<egui::TextureId> {
+        self.live_slots
+            .iter()
+            .find(|s| s.node == Some(id))
+            .and_then(|s| s.target.egui_id)
+    }
+
+    /// Give each new live slot's display texture to egui's painter. Needs the
+    /// frame (only `eframe::App::update` has one); a slot drawn this frame
+    /// shows from the next.
+    pub(crate) fn register_live_textures(&mut self, frame: &mut eframe::Frame) {
+        if frame.gl().is_none() {
+            return;
+        }
+        for slot in &mut self.live_slots {
+            if slot.target.egui_id.is_none() {
+                slot.target.egui_id = Some(frame.register_native_glow_texture(slot.target.display));
+            }
+        }
+    }
+
+    /// Release slots whose viewport stopped being live.
+    fn park_idle_live_slots(&mut self) {
+        let EngineSlot::Ready(engine) = &self.engine else {
+            return;
+        };
+        for slot in &mut self.live_slots {
+            if slot.node.is_some_and(|n| !self.live.contains_key(&n)) {
+                slot.node = None;
+                engine.park_live_target(&mut slot.target);
+            }
+        }
+    }
+
     /// Queue one low-res render per display mode for the stringer. Returns the
     /// generation tag textures must match.
     fn queue_display_swatches(&mut self, doc: u64, id: NodeId, cam_hash: u64) -> u64 {
@@ -994,8 +1084,22 @@ impl ModelSpace {
         engine.render_capture(&gpu.model, cam, w, h, depth, adjust)
     }
 
+    /// Render passes, pixel readbacks, and GL objects created so far.
+    #[cfg(test)]
+    pub(crate) fn gl_counts(&self) -> (u64, u64, u64) {
+        match &self.engine {
+            EngineSlot::Ready(e) => (
+                e.render_passes.load(Ordering::Relaxed),
+                e.readbacks.load(Ordering::Relaxed),
+                e.gl_creates.load(Ordering::Relaxed),
+            ),
+            _ => (0, 0, 0),
+        }
+    }
+
     /// Free GPU/CPU entries nothing is using (called once per frame).
     fn evict(&mut self) {
+        self.park_idle_live_slots();
         let live_keys: std::collections::HashSet<&String> =
             self.live.values().map(|v| &v.cache_key).collect();
         let mut dead_gpu: Vec<String> = self
@@ -1143,6 +1247,7 @@ impl SlateApp {
                 before: info.cam,
                 last_interact: Instant::now(),
                 tex: None,
+                shown: false,
                 rendered: None,
                 radius,
                 tool: ModelViewportTool::Navigate,
@@ -1483,8 +1588,9 @@ impl SlateApp {
         }
     }
 
-    /// Texture for a live viewport, re-rendered when the camera or the
-    /// on-screen size changed. Falls back to `None` while the mesh parses.
+    /// Texture for a live viewport, re-drawn on the GPU (no readback) when
+    /// the camera or the on-screen size changed. `None` while the mesh parses
+    /// or before the live slot is registered with egui.
     pub fn model_live_texture(
         &mut self,
         ctx: &egui::Context,
@@ -1492,7 +1598,10 @@ impl SlateApp {
         screen_w: f32,
         screen_h: f32,
         adjust: &slate_doc::scene::ImageAdjust,
-    ) -> Option<TextureHandle> {
+    ) -> Option<egui::TextureId> {
+        if let Some(tex) = self.model3d.live.get(&id).and_then(|vp| vp.tex.as_ref()) {
+            return Some(tex.id());
+        }
         let gl = self.gl.clone()?;
         // Resolve the camera as soon as bounds exist.
         let (cache_key, mut cam) = {
@@ -1517,26 +1626,23 @@ impl SlateApp {
             .model3d
             .live
             .get(&id)
-            .is_some_and(|vp| vp.rendered == Some(stamp) && vp.tex.is_some());
+            .is_some_and(|vp| vp.rendered == Some(stamp) && vp.shown);
         if !up_to_date {
-            let img = self
+            let adjust = (!adjust.is_identity()).then_some(adjust);
+            if !self
                 .model3d
-                .render_image(&gl, &cache_key, &cam, w, h, Some(adjust))?;
+                .render_live(&gl, id, &cache_key, &cam, w, h, adjust)
+            {
+                return None;
+            }
             let vp = self.model3d.live.get_mut(&id)?;
-            match &mut vp.tex {
-                Some(tex) => tex.set(img, egui::TextureOptions::LINEAR),
-                None => {
-                    vp.last_interact = Instant::now();
-                    vp.tex = Some(ctx.load_texture(
-                        format!("slate-model-live-{}", id.0),
-                        img,
-                        egui::TextureOptions::LINEAR,
-                    ));
-                }
+            if !vp.shown {
+                vp.last_interact = Instant::now();
+                vp.shown = true;
             }
             vp.rendered = Some(stamp);
         }
-        self.model3d.live.get(&id).and_then(|vp| vp.tex.clone())
+        self.model3d.live_texture_id(id)
     }
 
     /// Raycast against a live viewport at a screen point inside the node rect.
@@ -2512,7 +2618,17 @@ void main() {
 }
 "#;
 
-const IMAGE_FX_VS: &str = BG_VS;
+/// `u_flip` turns GL's bottom-up rows into egui's top-down texture rows for
+/// the live display texture, which is sampled without a readback.
+const IMAGE_FX_VS: &str = r#"#version 330 core
+uniform float u_flip;
+out vec2 v_uv;
+void main() {
+    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+    v_uv = vec2(p.x, mix(p.y, 1.0 - p.y, u_flip));
+    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+"#;
 
 const IMAGE_FX_FS: &str = r#"#version 330 core
 in vec2 v_uv;
@@ -2608,6 +2724,16 @@ pub struct ModelEngine {
     u_fx_offset: glow::UniformLocation,
     u_fx_invert: glow::UniformLocation,
     u_fx_overlay: glow::UniformLocation,
+    u_fx_flip: glow::UniformLocation,
+    /// egui's painter decodes textures as sRGB when the driver offers it;
+    /// the live display texture must match (see [`LiveTarget`]).
+    srgb_display: bool,
+    srgb_framebuffer: bool,
+    /// Offscreen passes, pixel readbacks, and GL objects created since
+    /// startup (`bench_model3d`).
+    render_passes: AtomicU64,
+    readbacks: AtomicU64,
+    gl_creates: AtomicU64,
 }
 
 fn compile_program(gl: &glow::Context, vs_src: &str, fs_src: &str) -> Option<glow::Program> {
@@ -2666,6 +2792,11 @@ impl ModelEngine {
             let u_fx_offset = gl.get_uniform_location(fx_program, "u_offset")?;
             let u_fx_invert = gl.get_uniform_location(fx_program, "u_invert")?;
             let u_fx_overlay = gl.get_uniform_location(fx_program, "u_overlay")?;
+            let u_fx_flip = gl.get_uniform_location(fx_program, "u_flip")?;
+            // The same test egui_glow's painter makes for its textures.
+            let extensions = gl.supported_extensions();
+            let srgb_display = extensions.iter().any(|e| e.contains("sRGB"));
+            let srgb_framebuffer = extensions.iter().any(|e| e.contains("framebuffer_sRGB"));
             // Core profiles need a bound VAO even for bufferless draws.
             let bg_vao = gl.create_vertex_array().ok()?;
             Some(ModelEngine {
@@ -2686,6 +2817,12 @@ impl ModelEngine {
                 u_fx_offset,
                 u_fx_invert,
                 u_fx_overlay,
+                u_fx_flip,
+                srgb_display,
+                srgb_framebuffer,
+                render_passes: AtomicU64::new(0),
+                readbacks: AtomicU64::new(0),
+                gl_creates: AtomicU64::new(0),
             })
         }
     }
@@ -2831,6 +2968,7 @@ impl ModelEngine {
     }
 
     fn read_rgba(&self, w: i32, h: i32, flip_rows: bool) -> Option<egui::ColorImage> {
+        self.readbacks.fetch_add(1, Ordering::Relaxed);
         let gl = &self.gl;
         unsafe {
             let mut buf = vec![0u8; (w * h * 4) as usize];
@@ -2857,6 +2995,7 @@ impl ModelEngine {
     ) -> Option<egui::ColorImage> {
         let gl = &self.gl;
         unsafe {
+            self.gl_creates.fetch_add(2, Ordering::Relaxed);
             let out_fbo = gl.create_framebuffer().ok()?;
             let out_tex = gl.create_texture().ok()?;
             gl.bind_texture(glow::TEXTURE_2D, Some(out_tex));
@@ -2891,6 +3030,7 @@ impl ModelEngine {
             gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(glow::TEXTURE_2D, Some(src_tex));
             gl.uniform_1_i32(Some(&self.u_fx_tex), 0);
+            gl.uniform_1_f32(Some(&self.u_fx_flip), 0.0);
             self.bind_image_adjust_uniforms(adjust);
             gl.bind_vertex_array(Some(self.bg_vao));
             gl.draw_arrays(glow::TRIANGLES, 0, 3);
@@ -2923,6 +3063,7 @@ impl ModelEngine {
         }
         let gl = &self.gl;
         unsafe {
+            self.gl_creates.fetch_add(1, Ordering::Relaxed);
             let tex = match gl.create_texture() {
                 Ok(t) => t,
                 Err(_) => return super::imagefx::adjusted(src, adjust),
@@ -3026,47 +3167,13 @@ impl ModelEngine {
         mode: slate_doc::scene::ModelDisplay,
         adjust: Option<&ImageAdjust>,
     ) -> Option<egui::ColorImage> {
+        self.render_passes.fetch_add(1, Ordering::Relaxed);
         let gl = &self.gl;
         let (w, h) = (w.clamp(16, 4096) as i32, h.clamp(16, 4096) as i32);
 
-        let cam = resolve_camera(cam, model.bounds_min, model.bounds_max);
-        let (_, radius) = bounds_sphere(model.bounds_min, model.bounds_max);
-        let eye = eye_of(&cam);
-        let view = look_at(eye, cam.target);
-        let near = (cam.distance - radius * 2.0)
-            .max(cam.distance * 0.01)
-            .max(radius * 1e-3);
-        let far = cam.distance
-            + radius
-                * if ground.is_some() {
-                    GROUND_EXTENT * 1.5
-                } else {
-                    4.0
-                };
-        let proj = perspective(w as f32 / h as f32, near, far);
-        let mvp = mat_mul(&proj, &view);
-        let (depth_near, depth_far) = view_depth_range(&view, model.bounds_min, model.bounds_max);
-        // With a ground, the fade runs from the nearest visible ground at the
-        // frame's bottom edge past the model toward the horizon.
-        let (depth_near, depth_far) = match ground {
-            Some(ground) => {
-                let height = eye[2] - ground.bounds_min[2];
-                let down = cam.pitch + FOV_Y * 0.5;
-                let nearest = if height > 0.0 && down > 0.01 {
-                    height / down.sin() * (FOV_Y * 0.5).cos()
-                } else {
-                    depth_near
-                };
-                (
-                    nearest.clamp(depth_near * 0.05, depth_near),
-                    depth_far * 4.0,
-                )
-            }
-            None => (depth_near, depth_far),
-        };
-
         unsafe {
             // MSAA target.
+            self.gl_creates.fetch_add(3, Ordering::Relaxed);
             let fbo = gl.create_framebuffer().ok()?;
             let color_rb = gl.create_renderbuffer().ok()?;
             let depth_rb = gl.create_renderbuffer().ok()?;
@@ -3105,70 +3212,10 @@ impl ModelEngine {
 
             let mut pixels = None;
             if complete {
-                gl.viewport(0, 0, w, h);
-                gl.disable(glow::SCISSOR_TEST);
-                gl.disable(glow::BLEND);
-                gl.disable(glow::CULL_FACE);
-                let arctic = mode == slate_doc::scene::ModelDisplay::Arctic;
-                if arctic {
-                    gl.clear_color(0.93, 0.93, 0.91, 1.0);
-                } else {
-                    gl.clear_color(0.0, 0.0, 0.0, 1.0);
-                }
-                gl.clear_depth_f64(1.0);
-                gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
-
-                // Background gradient for the shaded view. Arctic is a light
-                // field; material and z-buffer stay on a black field.
-                gl.disable(glow::DEPTH_TEST);
-                if mode == slate_doc::scene::ModelDisplay::Shaded {
-                    gl.use_program(Some(self.bg_program));
-                    gl.bind_vertex_array(Some(self.bg_vao));
-                    gl.draw_arrays(glow::TRIANGLES, 0, 3);
-                }
-
-                // Model.
-                gl.enable(glow::DEPTH_TEST);
-                gl.depth_func(glow::LESS);
-                gl.use_program(Some(self.program));
-                gl.uniform_matrix_4_f32_slice(Some(&self.u_mvp), false, &mvp);
-                gl.uniform_matrix_4_f32_slice(Some(&self.u_view), false, &view);
-                let mode_id = match mode {
-                    slate_doc::scene::ModelDisplay::Shaded => 0.0,
-                    slate_doc::scene::ModelDisplay::Arctic => 1.0,
-                    slate_doc::scene::ModelDisplay::Material => 2.0,
-                    slate_doc::scene::ModelDisplay::Depth => 3.0,
-                };
-                gl.uniform_1_f32(Some(&self.u_mode), mode_id);
-                gl.uniform_3_f32(Some(&self.u_depth), 0.0, 1.0 / depth_near, 1.0 / depth_far);
-                for part in std::iter::once(model).chain(ground) {
-                    gl.bind_vertex_array(Some(part.vao));
-                    for draw in &part.draws {
-                        gl.uniform_3_f32(
-                            Some(&self.u_color),
-                            draw.color[0],
-                            draw.color[1],
-                            draw.color[2],
-                        );
-                        gl.uniform_3_f32(
-                            Some(&self.u_mask),
-                            draw.mask[0],
-                            draw.mask[1],
-                            draw.mask[2],
-                        );
-                        gl.draw_elements(
-                            glow::TRIANGLES,
-                            draw.count,
-                            glow::UNSIGNED_INT,
-                            draw.offset,
-                        );
-                    }
-                }
-                gl.bind_vertex_array(None);
-                gl.use_program(None);
-                gl.disable(glow::DEPTH_TEST);
+                self.draw_scene(model, ground, cam, w, h, mode);
 
                 // Resolve MSAA into a readable texture.
+                self.gl_creates.fetch_add(2, Ordering::Relaxed);
                 let resolve_fbo = gl.create_framebuffer().ok()?;
                 let resolve_tex = gl.create_texture().ok()?;
                 gl.bind_texture(glow::TEXTURE_2D, Some(resolve_tex));
@@ -3230,6 +3277,306 @@ impl ModelEngine {
             pixels
         }
     }
+
+    /// Clear and draw one pose into the bound framebuffer (`w` x `h`).
+    fn draw_scene(
+        &self,
+        model: &GpuModel,
+        ground: Option<&GpuModel>,
+        cam: &ModelCamera,
+        w: i32,
+        h: i32,
+        mode: slate_doc::scene::ModelDisplay,
+    ) {
+        let gl = &self.gl;
+        let cam = resolve_camera(cam, model.bounds_min, model.bounds_max);
+        let (_, radius) = bounds_sphere(model.bounds_min, model.bounds_max);
+        let eye = eye_of(&cam);
+        let view = look_at(eye, cam.target);
+        let near = (cam.distance - radius * 2.0)
+            .max(cam.distance * 0.01)
+            .max(radius * 1e-3);
+        let far = cam.distance
+            + radius
+                * if ground.is_some() {
+                    GROUND_EXTENT * 1.5
+                } else {
+                    4.0
+                };
+        let proj = perspective(w as f32 / h as f32, near, far);
+        let mvp = mat_mul(&proj, &view);
+        let (depth_near, depth_far) = view_depth_range(&view, model.bounds_min, model.bounds_max);
+        // With a ground, the fade runs from the nearest visible ground at the
+        // frame's bottom edge past the model toward the horizon.
+        let (depth_near, depth_far) = match ground {
+            Some(ground) => {
+                let height = eye[2] - ground.bounds_min[2];
+                let down = cam.pitch + FOV_Y * 0.5;
+                let nearest = if height > 0.0 && down > 0.01 {
+                    height / down.sin() * (FOV_Y * 0.5).cos()
+                } else {
+                    depth_near
+                };
+                (
+                    nearest.clamp(depth_near * 0.05, depth_near),
+                    depth_far * 4.0,
+                )
+            }
+            None => (depth_near, depth_far),
+        };
+        unsafe {
+            gl.viewport(0, 0, w, h);
+            gl.disable(glow::SCISSOR_TEST);
+            gl.disable(glow::BLEND);
+            gl.disable(glow::CULL_FACE);
+            let arctic = mode == slate_doc::scene::ModelDisplay::Arctic;
+            if arctic {
+                gl.clear_color(0.93, 0.93, 0.91, 1.0);
+            } else {
+                gl.clear_color(0.0, 0.0, 0.0, 1.0);
+            }
+            gl.clear_depth_f64(1.0);
+            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+
+            // Background gradient for the shaded view. Arctic is a light
+            // field; material and z-buffer stay on a black field.
+            gl.disable(glow::DEPTH_TEST);
+            if mode == slate_doc::scene::ModelDisplay::Shaded {
+                gl.use_program(Some(self.bg_program));
+                gl.bind_vertex_array(Some(self.bg_vao));
+                gl.draw_arrays(glow::TRIANGLES, 0, 3);
+            }
+
+            // Model.
+            gl.enable(glow::DEPTH_TEST);
+            gl.depth_func(glow::LESS);
+            gl.use_program(Some(self.program));
+            gl.uniform_matrix_4_f32_slice(Some(&self.u_mvp), false, &mvp);
+            gl.uniform_matrix_4_f32_slice(Some(&self.u_view), false, &view);
+            let mode_id = match mode {
+                slate_doc::scene::ModelDisplay::Shaded => 0.0,
+                slate_doc::scene::ModelDisplay::Arctic => 1.0,
+                slate_doc::scene::ModelDisplay::Material => 2.0,
+                slate_doc::scene::ModelDisplay::Depth => 3.0,
+            };
+            gl.uniform_1_f32(Some(&self.u_mode), mode_id);
+            gl.uniform_3_f32(Some(&self.u_depth), 0.0, 1.0 / depth_near, 1.0 / depth_far);
+            for part in std::iter::once(model).chain(ground) {
+                gl.bind_vertex_array(Some(part.vao));
+                for draw in &part.draws {
+                    gl.uniform_3_f32(
+                        Some(&self.u_color),
+                        draw.color[0],
+                        draw.color[1],
+                        draw.color[2],
+                    );
+                    gl.uniform_3_f32(Some(&self.u_mask), draw.mask[0], draw.mask[1], draw.mask[2]);
+                    gl.draw_elements(glow::TRIANGLES, draw.count, glow::UNSIGNED_INT, draw.offset);
+                }
+            }
+            gl.bind_vertex_array(None);
+            gl.use_program(None);
+            gl.disable(glow::DEPTH_TEST);
+        }
+    }
+
+    /// GL objects for one live viewport slot, created once.
+    fn new_live_target(&self) -> Option<LiveTarget> {
+        let gl = &self.gl;
+        self.gl_creates.fetch_add(7, Ordering::Relaxed);
+        unsafe {
+            let target = LiveTarget {
+                msaa_fbo: gl.create_framebuffer().ok()?,
+                color_rb: gl.create_renderbuffer().ok()?,
+                depth_rb: gl.create_renderbuffer().ok()?,
+                resolve_fbo: gl.create_framebuffer().ok()?,
+                resolve_tex: gl.create_texture().ok()?,
+                out_fbo: gl.create_framebuffer().ok()?,
+                display: gl.create_texture().ok()?,
+                egui_id: None,
+                size: (0, 0),
+            };
+            self.size_live_target(&target, LIVE_TARGET_IDLE_PX, LIVE_TARGET_IDLE_PX);
+            for (fbo, attach, tex) in [
+                (
+                    target.resolve_fbo,
+                    glow::COLOR_ATTACHMENT0,
+                    target.resolve_tex,
+                ),
+                (target.out_fbo, glow::COLOR_ATTACHMENT0, target.display),
+            ] {
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
+                gl.framebuffer_texture_2d(
+                    glow::FRAMEBUFFER,
+                    attach,
+                    glow::TEXTURE_2D,
+                    Some(tex),
+                    0,
+                );
+            }
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(target.msaa_fbo));
+            gl.framebuffer_renderbuffer(
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::RENDERBUFFER,
+                Some(target.color_rb),
+            );
+            gl.framebuffer_renderbuffer(
+                glow::FRAMEBUFFER,
+                glow::DEPTH_ATTACHMENT,
+                glow::RENDERBUFFER,
+                Some(target.depth_rb),
+            );
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            Some(target)
+        }
+    }
+
+    /// Reallocate a slot's storage (same GL names, so attachments and the
+    /// egui registration stay valid).
+    fn size_live_target(&self, target: &LiveTarget, w: i32, h: i32) {
+        let gl = &self.gl;
+        let display_format = if self.srgb_display {
+            glow::SRGB8_ALPHA8
+        } else {
+            glow::RGBA8
+        };
+        unsafe {
+            gl.bind_renderbuffer(glow::RENDERBUFFER, Some(target.color_rb));
+            gl.renderbuffer_storage_multisample(
+                glow::RENDERBUFFER,
+                MSAA_SAMPLES,
+                glow::RGBA8,
+                w,
+                h,
+            );
+            gl.bind_renderbuffer(glow::RENDERBUFFER, Some(target.depth_rb));
+            gl.renderbuffer_storage_multisample(
+                glow::RENDERBUFFER,
+                MSAA_SAMPLES,
+                glow::DEPTH_COMPONENT24,
+                w,
+                h,
+            );
+            gl.bind_renderbuffer(glow::RENDERBUFFER, None);
+            for (tex, format) in [
+                (target.resolve_tex, glow::RGBA8),
+                (target.display, display_format),
+            ] {
+                gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+                gl.tex_image_2d(
+                    glow::TEXTURE_2D,
+                    0,
+                    format as i32,
+                    w,
+                    h,
+                    0,
+                    glow::RGBA,
+                    glow::UNSIGNED_BYTE,
+                    glow::PixelUnpackData::Slice(None),
+                );
+                for (param, value) in [
+                    (glow::TEXTURE_MIN_FILTER, glow::LINEAR),
+                    (glow::TEXTURE_MAG_FILTER, glow::LINEAR),
+                    (glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE),
+                    (glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE),
+                ] {
+                    gl.tex_parameter_i32(glow::TEXTURE_2D, param, value as i32);
+                }
+            }
+            gl.bind_texture(glow::TEXTURE_2D, None);
+        }
+    }
+
+    /// Render a live pose into its slot's display texture: MSAA draw,
+    /// resolve, then the photo-filter pass (identity when unfiltered) writes
+    /// egui-ready rows. No readback and no GL object creation.
+    fn render_live(
+        &self,
+        target: &mut LiveTarget,
+        model: &GpuModel,
+        cam: &ModelCamera,
+        w: u32,
+        h: u32,
+        adjust: Option<&ImageAdjust>,
+    ) -> bool {
+        self.render_passes.fetch_add(1, Ordering::Relaxed);
+        let gl = &self.gl;
+        let (w, h) = (w.clamp(16, 4096) as i32, h.clamp(16, 4096) as i32);
+        if target.size != (w, h) {
+            self.size_live_target(target, w, h);
+            target.size = (w, h);
+        }
+        unsafe {
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(target.msaa_fbo));
+            if gl.check_framebuffer_status(glow::FRAMEBUFFER) != glow::FRAMEBUFFER_COMPLETE {
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                return false;
+            }
+            if self.srgb_framebuffer {
+                // Store the shader's values as they are; egui decodes.
+                gl.disable(glow::FRAMEBUFFER_SRGB);
+            }
+            self.draw_scene(model, None, cam, w, h, cam.display);
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(target.msaa_fbo));
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(target.resolve_fbo));
+            gl.blit_framebuffer(
+                0,
+                0,
+                w,
+                h,
+                0,
+                0,
+                w,
+                h,
+                glow::COLOR_BUFFER_BIT,
+                glow::NEAREST,
+            );
+
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(target.out_fbo));
+            gl.viewport(0, 0, w, h);
+            gl.disable(glow::DEPTH_TEST);
+            gl.use_program(Some(self.fx_program));
+            gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(glow::TEXTURE_2D, Some(target.resolve_tex));
+            gl.uniform_1_i32(Some(&self.u_fx_tex), 0);
+            gl.uniform_1_f32(Some(&self.u_fx_flip), 1.0);
+            self.bind_image_adjust_uniforms(&adjust.copied().unwrap_or_default());
+            gl.bind_vertex_array(Some(self.bg_vao));
+            gl.draw_arrays(glow::TRIANGLES, 0, 3);
+            gl.bind_vertex_array(None);
+            gl.bind_texture(glow::TEXTURE_2D, None);
+            gl.use_program(None);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+        }
+        true
+    }
+
+    /// Shrink a released slot; its names and egui registration are kept.
+    fn park_live_target(&self, target: &mut LiveTarget) {
+        self.size_live_target(target, LIVE_TARGET_IDLE_PX, LIVE_TARGET_IDLE_PX);
+        target.size = (LIVE_TARGET_IDLE_PX, LIVE_TARGET_IDLE_PX);
+    }
+}
+
+/// Storage a parked live slot keeps (GL names are never deleted: the display
+/// texture is registered with egui, which offers no way to unregister it).
+const LIVE_TARGET_IDLE_PX: i32 = 16;
+
+/// One live viewport slot's GPU frame. Created on first use of the slot,
+/// resized when the on-screen size changes, reused across viewports; at most
+/// [`MAX_LIVE`] exist.
+struct LiveTarget {
+    msaa_fbo: glow::Framebuffer,
+    color_rb: glow::Renderbuffer,
+    depth_rb: glow::Renderbuffer,
+    resolve_fbo: glow::Framebuffer,
+    resolve_tex: glow::Texture,
+    out_fbo: glow::Framebuffer,
+    /// Sampled by egui's painter through `egui_id`.
+    display: glow::Texture,
+    egui_id: Option<egui::TextureId>,
+    size: (i32, i32),
 }
 
 fn color_image_from_readback(rgba: &[u8], w: i32, h: i32, flip_rows: bool) -> egui::ColorImage {
@@ -3306,6 +3653,7 @@ mod tests {
                     egui::ColorImage::new([2, 2], egui::Color32::RED),
                     Default::default(),
                 )),
+                shown: false,
                 rendered: Some((cam.cache_hash(), 2, 2, 0)),
                 radius: bounds_sphere(model.bounds_min, model.bounds_max).1,
                 tool: ModelViewportTool::Navigate,

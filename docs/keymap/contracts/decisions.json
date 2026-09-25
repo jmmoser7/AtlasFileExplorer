@@ -257,7 +257,7 @@
           "decided": "2026-09-25"
         },
         "D39": {
-          "behavior": "Filters reuse the image node's ImageAdjust / CSS-filter model (imagefx colour-matrix builder shared with a GPU fullscreen pass after MSAA resolve; CPU imagefx::adjusted remains for swatches and headless fallback). The filter applies over the live render or frozen poster, not per idle frame: one pass when the (camera, size, adjust) stamp changes, cached like other board FX; poster pixels stay resident in memory. Screenshot export bakes the filter into pixels (WYSIWYG) and may record slateview:imageAdjustHash in XMP for future restore (read ignored today). Enscape standalones omit Filters on the selection strip.",
+          "behavior": "Filters reuse the image node's ImageAdjust / CSS-filter model (imagefx colour-matrix builder shared with a GPU fullscreen pass after MSAA resolve; CPU imagefx::adjusted remains for swatches and headless fallback). The filter applies over the live render or frozen poster, not per idle frame: one pass when the (camera, size, adjust) stamp changes, cached like other board FX; poster pixels stay resident in memory. Screenshot export bakes the filter into pixels (WYSIWYG) and may record slateview:imageAdjustHash in XMP for future restore (read ignored today). Enscape standalones omit Filters on the selection strip. Live frames stay on the GPU: each live viewport draws into a persistent render target whose texture egui paints directly, so orbiting reads nothing back; readback is reserved for posters, stringer swatches, and screenshots, and the freeze poster is PNG-encoded off the frame loop.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
