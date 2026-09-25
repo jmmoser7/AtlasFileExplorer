@@ -43,6 +43,7 @@ mod board_flow;
 mod board_forcefield;
 mod board_handles;
 pub mod board_icons;
+mod board_image_layers;
 mod board_join;
 mod board_line;
 mod board_osnap;
@@ -69,6 +70,7 @@ pub mod commands;
 mod dispatch;
 mod enscape_host;
 mod external_drop;
+mod image_composite;
 pub mod imagefx;
 pub mod kits;
 pub mod model3d;
@@ -382,6 +384,13 @@ pub struct SlateApp {
     /// InDesign-style crop mode: the image node whose crop is being edited
     /// directly on the canvas (`None` = normal interaction).
     pub board_crop: Option<NodeId>,
+    /// Trace-paper session: drawing tools commit into the active paint layer.
+    pub(crate) image_paint: Option<board_image_layers::ImagePaintSession>,
+    pub(crate) paint_layer_texture_cache:
+        HashMap<NodeId, board_image_layers::PaintLayerTextureCache>,
+    pub(crate) image_drop: Option<board_image_layers::ImageDropOffer>,
+    /// Screen anchor for external-file drop capsules (Replace / Add as layer).
+    pub(crate) image_drop_screen: Option<egui::Pos2>,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
     /// Click/drag text-box compose before the first journaled add.
@@ -792,6 +801,10 @@ impl SlateApp {
             board_frame_custom: None,
             board_drag: None,
             board_crop: None,
+            image_paint: None,
+            paint_layer_texture_cache: HashMap::new(),
+            image_drop: None,
+            image_drop_screen: None,
             text_edit: None,
             text_box_draft: None,
             sticky_fit: HashMap::new(),
@@ -2312,7 +2325,8 @@ impl SlateApp {
             // An HTML page dropped on the board is a portal, not a snippet card
             // (D01). Alt keeps the old text card, which is the only way back.
             let alt = drop_alt.unwrap_or_else(|| ctx.input(|i| i.modifiers.alt));
-            self.ingest_dropped_paths(dropped, at, alt);
+            let screen = drop_at.or_else(|| ctx.input(|i| i.pointer.hover_pos()));
+            self.ingest_dropped_paths(dropped, at, alt, screen);
         }
         // Dropped/added .slate files open as tabs, after placement above.
         self.drain_pending_workbooks();

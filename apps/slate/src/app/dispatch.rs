@@ -678,6 +678,23 @@ impl SlateApp {
                 self.apply_align_action(action)
             }
             "board.delete" => {
+                use super::board_image_layers::ImageStripFocus;
+                if let Some(session) = self.image_paint.as_ref() {
+                    if self.board_sel.len() == 1 && self.board_sel.contains(&session.image) {
+                        if let ImageStripFocus::Layer(idx) = session.focus {
+                            let image = session.image;
+                            if self
+                                .doc()
+                                .scene
+                                .node(image)
+                                .is_some_and(|n| matches!(&n.kind, slate_doc::NodeKind::Image(img) if idx < img.paint_layers.len()))
+                            {
+                                self.delete_paint_layer(image, idx);
+                                return true;
+                            }
+                        }
+                    }
+                }
                 let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
                 if ids.is_empty() {
                     false
@@ -1081,7 +1098,9 @@ impl SlateApp {
                 true
             }
             Some(CancelLayer::Draft) => {
-                if self.board_crop.is_some() {
+                if self.image_paint.is_some() {
+                    self.clear_image_paint_session();
+                } else if self.board_crop.is_some() {
                     // First Escape only exits crop mode; the node stays
                     // selected (press again to clear the selection).
                     self.board_crop = None;

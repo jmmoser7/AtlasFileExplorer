@@ -431,6 +431,9 @@ pub fn valid_commands(scene: &Scene, commands: &[crate::scene::SceneCmd]) -> boo
         SceneCmd::Patch { before, after } => {
             agent(before).and_then(|a| a.chat.parent) != agent(after).and_then(|a| a.chat.parent)
         }
+        SceneCmd::LayerNodeAdd { .. }
+        | SceneCmd::LayerNodeRemove { .. }
+        | SceneCmd::LayerNodePatch { .. } => false,
     });
     if !relevant {
         return true;
@@ -460,6 +463,9 @@ pub fn valid_commands(scene: &Scene, commands: &[crate::scene::SceneCmd]) -> boo
                     parents.insert(after.id, agent(after).and_then(|a| a.chat.parent));
                 }
             }
+            SceneCmd::LayerNodeAdd { .. }
+            | SceneCmd::LayerNodeRemove { .. }
+            | SceneCmd::LayerNodePatch { .. } => {}
         }
     }
     let mut checked = HashSet::new();

@@ -1933,6 +1933,20 @@ fn filter_chip_metrics(height: f32, zoom: f32) -> (f32, f32, f32) {
     (pad, inner_h, pitch)
 }
 
+/// One paint-layer chip after the filter radios (`+` or index label).
+#[derive(Clone)]
+pub struct LayerChip {
+    pub label: std::borrow::Cow<'static, str>,
+    pub thumb: Option<egui::TextureId>,
+    pub is_add: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct LayerStripEdit {
+    pub hovered: Option<usize>,
+    pub clicked: Option<usize>,
+}
+
 /// Fillet-style capsule: filter thumbnails + intensity slider.
 pub fn filter_editor(
     ui: &mut egui::Ui,
@@ -1940,15 +1954,19 @@ pub fn filter_editor(
     radios: &[FilterRadio],
     selected: Option<usize>,
     amount: f32,
+    layer_chips: &[LayerChip],
+    layer_selected: Option<usize>,
     zoom: f32,
     theme: Palette,
-) -> FilterEdit {
-    filter_capsule(
+) -> (FilterEdit, LayerStripEdit) {
+    filter_capsule_with_layers(
         ui,
         rect,
         radios,
         selected,
         Some(amount),
+        layer_chips,
+        layer_selected,
         zoom,
         theme,
         FilterCapsuleStyle::WithIntensity,
@@ -1967,15 +1985,49 @@ pub fn filter_capsule(
     theme: Palette,
     style: FilterCapsuleStyle,
 ) -> FilterEdit {
+    filter_capsule_with_layers(
+        ui,
+        rect,
+        radios,
+        selected,
+        amount,
+        &[],
+        None,
+        zoom,
+        theme,
+        style,
+    )
+    .0
+}
+
+#[allow(clippy::too_many_arguments)]
+fn filter_capsule_with_layers(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    radios: &[FilterRadio],
+    selected: Option<usize>,
+    amount: Option<f32>,
+    layer_chips: &[LayerChip],
+    layer_selected: Option<usize>,
+    zoom: f32,
+    theme: Palette,
+    style: FilterCapsuleStyle,
+) -> (FilterEdit, LayerStripEdit) {
     paint_capsule(ui, rect, zoom, theme);
     let (pad, inner_h, radio_pitch) = filter_chip_metrics(rect.height(), zoom);
-    let count = radios.len().max(1) as f32;
-    let radio_row = Rect::from_min_size(
-        rect.min + Vec2::splat(pad),
-        Vec2::new(radio_pitch * count, inner_h),
-    );
+    let filter_count = radios.len().max(1) as f32;
+    let layer_count = layer_chips.len() as f32;
+    const LAYER_CHIP_GAP: f32 = 8.0;
+    let layer_gap = if layer_chips.is_empty() {
+        0.0
+    } else {
+        canvas_scale::px(LAYER_CHIP_GAP, zoom)
+    };
     let radius = inner_h * 0.36 * 0.8;
+    let row_w = filter_count * radio_pitch + layer_gap + layer_count * radio_pitch;
+    let radio_row = Rect::from_min_size(rect.min + Vec2::splat(pad), Vec2::new(row_w, inner_h));
     let mut out = FilterEdit::default();
+    let mut layer_out = LayerStripEdit::default();
     for (i, radio) in radios.iter().enumerate() {
         let center = Pos2::new(
             radio_row.left() + (i as f32 + 0.5) * radio_pitch,
@@ -2002,42 +2054,95 @@ pub fn filter_capsule(
             theme,
         );
     }
-    if style == FilterCapsuleStyle::WithIntensity {
-        let Some(amount) = amount else {
-            return out;
-        };
-        let track = Rect::from_center_size(
-            Pos2::new(
-                rect.left()
-                    + radio_row.width()
-                    + pad * 2.0
-                    + (rect.width() - radio_row.width() - pad * 3.0).max(radius) * 0.5,
-                rect.center().y,
-            ),
-            Vec2::new(
-                (rect.width() - radio_row.width() - pad * 3.0).max(radius),
-                radius,
-            ),
+    let layer_base_x = radio_row.left() + filter_count * radio_pitch + layer_gap;
+    for (i, chip) in layer_chips.iter().enumerate() {
+        let center = Pos2::new(
+            layer_base_x + (i as f32 + 0.5) * radio_pitch,
+            radio_row.center().y,
         );
-        let mut fraction = amount.clamp(0.0, 1.0);
-        let filter_display = (fraction * 100.0).round();
-        if capsule_buffer(
-            ui,
-            ui.id().with("filter_amount"),
-            track,
-            &mut fraction,
-            filter_display,
-            0.0..=100.0,
-            "%",
-            |v| v / 100.0,
-            |v| format!("{}%", number((v * 100.0).round())),
+        let hit = Rect::from_center_size(center, Vec2::splat(radius * 2.0));
+        let response = ui
+            .interact(hit, ui.id().with(("layer_chip", i)), Sense::click())
+            .on_hover_text(if chip.is_add {
+                "Add paint layer"
+            } else {
+                chip.label.as_ref()
+            });
+        if response.hovered() {
+            layer_out.hovered = Some(i);
+        }
+        if response.clicked() {
+            layer_out.clicked = Some(i);
+        }
+        let radio = FilterRadio {
+            label: "",
+            fill: [theme.panel.r(), theme.panel.g(), theme.panel.b()],
+            fill_b: None,
+            thumb: chip.thumb,
+        };
+        paint_filter_radio(
+            ui.painter(),
+            center,
+            radius,
+            &radio,
+            layer_selected == Some(i),
+            response.hovered(),
             zoom,
             theme,
-        ) {
-            out.amount = Some(fraction);
+        );
+        if chip.is_add {
+            ui.painter().text(
+                center,
+                Align2::CENTER_CENTER,
+                "+",
+                egui::FontId::proportional(radius * 1.1),
+                theme.ink,
+            );
+        } else if chip.thumb.is_none() {
+            ui.painter().text(
+                center,
+                Align2::CENTER_CENTER,
+                chip.label.as_ref(),
+                egui::FontId::proportional(radius * 0.95),
+                theme.ink,
+            );
         }
     }
-    out
+    if style == FilterCapsuleStyle::WithIntensity {
+        if let Some(amount) = amount {
+            let track = Rect::from_center_size(
+                Pos2::new(
+                    rect.left()
+                        + radio_row.width()
+                        + pad * 2.0
+                        + (rect.width() - radio_row.width() - pad * 3.0).max(radius) * 0.5,
+                    rect.center().y,
+                ),
+                Vec2::new(
+                    (rect.width() - radio_row.width() - pad * 3.0).max(radius),
+                    radius,
+                ),
+            );
+            let mut fraction = amount.clamp(0.0, 1.0);
+            let filter_display = (fraction * 100.0).round();
+            if capsule_buffer(
+                ui,
+                ui.id().with("filter_amount"),
+                track,
+                &mut fraction,
+                filter_display,
+                0.0..=100.0,
+                "%",
+                |v| v / 100.0,
+                |v| format!("{}%", number((v * 100.0).round())),
+                zoom,
+                theme,
+            ) {
+                out.amount = Some(fraction);
+            }
+        }
+    }
+    (out, layer_out)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2572,8 +2677,19 @@ mod tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
-                        hovered = filter_editor(ui, rect, &radios, None, 1.0, 1.0, Palette::dark())
-                            .hovered;
+                        hovered = filter_editor(
+                            ui,
+                            rect,
+                            &radios,
+                            None,
+                            1.0,
+                            &[],
+                            None,
+                            1.0,
+                            Palette::dark(),
+                        )
+                        .0
+                        .hovered;
                     });
             });
         }

@@ -10,11 +10,94 @@ use super::board::{to_rgba, BoardTool, MIN_DRAW};
 use super::{board_path, SlateApp};
 use eframe::egui::{self, Color32, Pos2, Stroke as EStroke};
 use slate_doc::scene::{
-    NodeKind, Rgba, ShapeKind, ShapeNode, Stroke, StrokeCap, StrokeJoin, TextAlign, TextNode,
-    Typeface, WidthProfile, WorldRect,
+    Node, NodeKind, Rgba, ShapeKind, ShapeNode, Stroke, StrokeCap, StrokeJoin, StrokeSpan,
+    TextAlign, TextNode, Typeface, WidthProfile, WorldRect,
 };
 use slate_doc::NodeId;
 use vector_ink::kurbo::BezPath;
+
+pub(crate) fn eraser_hits_node(node: &Node, world: Pos2, slop: f32, zoom: f32) -> bool {
+    if node.hidden || node.locked {
+        return false;
+    }
+    let NodeKind::Shape(shape) = &node.kind else {
+        return false;
+    };
+    match shape.shape {
+        ShapeKind::Path => {
+            let Some(path) = shape.path.as_ref() else {
+                return false;
+            };
+            if path.is_empty() || shape.stroke.paints_as_stamp() {
+                return false;
+            }
+            let bez = board_path::path_data_to_world_bez(path, node.rect, node.rotation_deg);
+            let style = board_path::stroke_style_world(&shape.stroke, zoom);
+            vector_ink::hit_stroke(&bez, &style, [world.x, world.y], slop)
+        }
+        ShapeKind::Line => {
+            let (a, b) = line_endpoints(node.rect, shape.flip, node.rotation_deg);
+            dist_point_segment(world, a, b) <= slop + shape.stroke.width.max(1.0) * 0.5
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn spot_reaches(node: &Node, bounds: WorldRect) -> bool {
+    if node.hidden || node.locked {
+        return false;
+    }
+    let NodeKind::Shape(shape) = &node.kind else {
+        return false;
+    };
+    if shape.shape != ShapeKind::Path || shape.path.is_none() || !shape.stroke.paints_as_stamp() {
+        return false;
+    }
+    let ink = shape.stroke.width * 0.5
+        + shape
+            .path
+            .as_ref()
+            .map(|path| {
+                path.tips
+                    .iter()
+                    .map(|tip| tip.width * 0.5)
+                    .fold(0.0, f32::max)
+            })
+            .unwrap_or(0.0);
+    let rect = node.rect.normalized();
+    let reach = if node.rotation_deg.abs() > 0.01 {
+        ink + rect.w.max(rect.h)
+    } else {
+        ink
+    };
+    rect.x - reach <= bounds.x + bounds.w
+        && rect.x + rect.w + reach >= bounds.x
+        && rect.y - reach <= bounds.y + bounds.h
+        && rect.y + rect.h + reach >= bounds.y
+}
+
+pub(crate) fn stamp_erase_mark(
+    before: &Node,
+    points: &[Pos2],
+    span: StrokeSpan,
+) -> Option<(Node, bool)> {
+    let mut after = before.clone();
+    let NodeKind::Shape(shape) = &mut after.kind else {
+        return None;
+    };
+    let path = shape.path.as_mut()?;
+    std::sync::Arc::make_mut(path)
+        .erase
+        .push(slate_doc::scene::EraseMark {
+            points: points
+                .iter()
+                .map(|point| board_path::world_to_node_norm(*point, after.rect, after.rotation_deg))
+                .collect(),
+            tips: vec![span],
+        });
+    let (ink, gone) = erased_result(&after);
+    ink.then_some((after, gone))
+}
 
 pub(crate) enum DesktopDestination {
     Tool {
@@ -729,10 +812,10 @@ impl SlateApp {
                 text: None,
             }),
         );
-        let id = node.id;
-        self.add_nodes(vec![node]);
+        let ids = self.commit_created_nodes(vec![node]);
+        let id = ids.first().copied();
         self.brush_chain = Some(end);
-        self.set_brush_anchor(end, Some(id));
+        self.set_brush_anchor(end, id);
         self.push_history(
             atlas_commands::CommandId("board.brush.stroke"),
             Some("stroke".into()),
@@ -768,10 +851,10 @@ impl SlateApp {
                     text: None,
                 }),
             );
-            let id = node.id;
-            self.add_nodes(vec![node]);
+            let ids = self.commit_created_nodes(vec![node]);
+            let id = ids.first().copied();
             self.brush_chain = Some(points[0]);
-            self.set_brush_anchor(points[0], Some(id));
+            self.set_brush_anchor(points[0], id);
             self.push_history(
                 atlas_commands::CommandId("board.brush.stroke"),
                 Some("dab".into()),
@@ -842,9 +925,8 @@ impl SlateApp {
                 text: None,
             }),
         );
-        let id = node.id;
-        self.add_nodes(vec![node]);
-        self.set_brush_anchor(b, Some(id));
+        let ids = self.commit_created_nodes(vec![node]);
+        self.set_brush_anchor(b, ids.first().copied());
         self.push_history(
             atlas_commands::CommandId("board.brush.stroke"),
             Some("line".into()),
@@ -975,31 +1057,7 @@ impl SlateApp {
             let Some(n) = self.doc().scene.node(id) else {
                 continue;
             };
-            if n.hidden || n.locked {
-                continue;
-            }
-            let NodeKind::Shape(s) = &n.kind else {
-                continue;
-            };
-            let hit = match s.shape {
-                ShapeKind::Path => {
-                    let Some(path) = s.path.as_ref() else {
-                        continue;
-                    };
-                    if path.is_empty() || s.stroke.paints_as_stamp() {
-                        continue;
-                    }
-                    let bez = board_path::path_data_to_world_bez(path, n.rect, n.rotation_deg);
-                    let style = board_path::stroke_style_world(&s.stroke, zoom);
-                    vector_ink::hit_stroke(&bez, &style, [world.x, world.y], slop)
-                }
-                ShapeKind::Line => {
-                    let (a, b) = line_endpoints(n.rect, s.flip, n.rotation_deg);
-                    dist_point_segment(world, a, b) <= slop + s.stroke.width.max(1.0) * 0.5
-                }
-                _ => false,
-            };
-            if hit {
+            if eraser_hits_node(n, world, slop, zoom) {
                 hits.push(n.id);
             }
         }
@@ -1074,11 +1132,16 @@ impl SlateApp {
         else {
             return;
         };
-        for h in self.eraser_hits_at(world) {
+        for h in self
+            .eraser_hits_at(world)
+            .into_iter()
+            .chain(self.eraser_hits_active_layer_at(world))
+        {
             if !touched.contains(&h) {
                 touched.push(h);
             }
         }
+        self.collect_layer_erase_spot(spot, points, *straight);
         let tail: &[Pos2] = if *straight || points.len() < 2 {
             points
         } else {
@@ -1107,31 +1170,10 @@ impl SlateApp {
             let Some(n) = self.doc().scene.node(id) else {
                 continue;
             };
-            if n.hidden || n.locked || spot.contains(&n.id) {
+            if spot.contains(&n.id) {
                 continue;
             }
-            let NodeKind::Shape(s) = &n.kind else {
-                continue;
-            };
-            if s.shape != ShapeKind::Path || s.path.is_none() || !s.stroke.paints_as_stamp() {
-                continue;
-            }
-            let ink = s.stroke.width * 0.5
-                + s.path
-                    .as_ref()
-                    .map(|p| p.tips.iter().map(|t| t.width * 0.5).fold(0.0, f32::max))
-                    .unwrap_or(0.0);
-            let rect = n.rect.normalized();
-            let reach = if n.rotation_deg.abs() > 0.01 {
-                ink + rect.w.max(rect.h)
-            } else {
-                ink
-            };
-            if rect.x - reach <= x1
-                && rect.x + rect.w + reach >= x0
-                && rect.y - reach <= y1
-                && rect.y + rect.h + reach >= y0
-            {
+            if spot_reaches(n, WorldRect::new(x0, y0, x1 - x0, y1 - y0)) {
                 spot.push(n.id);
             }
         }
@@ -1157,38 +1199,60 @@ impl SlateApp {
             color: Rgba([0, 0, 0, tip.rgba[3]]),
         };
         let mut cmds = Vec::new();
-        let mut removed: Vec<NodeId> = touched;
-        for id in spot {
+        let mut board_removes = Vec::new();
+        for id in touched {
+            if let Some(loc) = slate_doc::image_paint::find_layer_node(&self.doc().scene, id) {
+                let Some(host) = self.doc().scene.node(loc.image) else {
+                    continue;
+                };
+                let NodeKind::Image(img) = &host.kind else {
+                    continue;
+                };
+                let Some(layer) = img.paint_layers.get(loc.layer_index) else {
+                    continue;
+                };
+                let Some(node) = layer.nodes.get(loc.node_index).cloned() else {
+                    continue;
+                };
+                cmds.push(slate_doc::scene::SceneCmd::LayerNodeRemove {
+                    host: loc.image,
+                    layer: layer.id,
+                    index: loc.node_index,
+                    node,
+                });
+            } else if let Some((index, node)) = self
+                .doc()
+                .scene
+                .nodes
+                .iter()
+                .position(|node| node.id == id)
+                .and_then(|index| self.doc().scene.node(id).cloned().map(|node| (index, node)))
+            {
+                board_removes.push((index, node));
+            }
+        }
+        for id in &spot {
             // Only strokes the pass visibly changed. Without a live preview
             // (headless), fall back to stamping the result.
             if live.get(&id).is_some_and(|l| !l.changed) {
                 continue;
             }
-            let Some(before) = self.doc().scene.node(id).cloned() else {
+            let Some(before) = self.doc().scene.node(*id).cloned() else {
                 continue;
             };
-            let mut after = before.clone();
-            let NodeKind::Shape(shape) = &mut after.kind else {
+            let Some((after, gone)) = stamp_erase_mark(&before, &points, span) else {
                 continue;
             };
-            let Some(path) = shape.path.as_mut() else {
-                continue;
-            };
-            std::sync::Arc::make_mut(path)
-                .erase
-                .push(slate_doc::scene::EraseMark {
-                    points: points
-                        .iter()
-                        .map(|p| board_path::world_to_node_norm(*p, after.rect, after.rotation_deg))
-                        .collect(),
-                    tips: vec![span],
-                });
-            let (ink, gone) = erased_result(&after);
-            if !ink {
-                continue;
-            }
             if gone {
-                removed.push(id);
+                if let Some(index) = self
+                    .doc()
+                    .scene
+                    .nodes
+                    .iter()
+                    .position(|node| node.id == *id)
+                {
+                    board_removes.push((index, before));
+                }
             } else {
                 cmds.push(slate_doc::scene::SceneCmd::Patch {
                     before: Box::new(before),
@@ -1196,13 +1260,18 @@ impl SlateApp {
                 });
             }
         }
-        let n = cmds.len() + removed.len();
+        let (layer_cmds, _) = self.finish_erase_layer_spot(&spot, &points, span, &live);
+        cmds.extend(layer_cmds);
+        board_removes.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+        cmds.extend(
+            board_removes
+                .into_iter()
+                .map(|(index, node)| slate_doc::scene::SceneCmd::Remove { index, node }),
+        );
+        let n = cmds.len();
         if !cmds.is_empty() {
             self.last_board_edit = None;
             self.commit_scene(cmds);
-        }
-        if !removed.is_empty() {
-            self.delete_board_nodes(&removed);
         }
         if n > 0 {
             self.push_history(
@@ -1709,7 +1778,7 @@ impl SlateApp {
 }
 
 /// Stamp an erased painted stroke once: `(pass touched ink, nothing left)`.
-fn erased_result(node: &slate_doc::Node) -> (bool, bool) {
+pub(crate) fn erased_result(node: &slate_doc::Node) -> (bool, bool) {
     let NodeKind::Shape(shape) = &node.kind else {
         return (false, false);
     };
@@ -1744,7 +1813,7 @@ fn erased_result(node: &slate_doc::Node) -> (bool, bool) {
 
 /// World endpoints of a Line shape node (same convention as the painter:
 /// `flip` = ↗ diagonal, else ↘), rotated with the node.
-fn line_endpoints(rect: WorldRect, flip: bool, rotation_deg: f32) -> (Pos2, Pos2) {
+pub(crate) fn line_endpoints(rect: WorldRect, flip: bool, rotation_deg: f32) -> (Pos2, Pos2) {
     let (a, b) = if flip {
         (
             Pos2::new(rect.x, rect.y + rect.h),
@@ -1769,7 +1838,7 @@ fn line_endpoints(rect: WorldRect, flip: bool, rotation_deg: f32) -> (Pos2, Pos2
     (rot(a), rot(b))
 }
 
-fn dist_point_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
+pub(crate) fn dist_point_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
     let ab = b - a;
     let len2 = ab.length_sq();
     if len2 <= f32::EPSILON {

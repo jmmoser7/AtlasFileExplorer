@@ -3965,6 +3965,7 @@ version = "1.0.0"
 dependencies = [
  "atlas-core",
  "image",
+ "resvg",
  "slate-doc",
  "vector-ink",
  "zip 2.4.2",

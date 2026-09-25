@@ -1132,6 +1132,7 @@ impl SlateApp {
         } else {
             self.trim = None;
             self.board_tool = tool;
+            self.sync_image_paint_for_tool();
         }
         if tool == BoardTool::Eyedropper {
             self.start_tool_desktop_sample(self.alt_down, false);
@@ -1152,6 +1153,7 @@ impl SlateApp {
     pub(crate) fn disarm_create(&mut self) {
         self.board_tool = BoardTool::Select;
         self.armed_kit_id = None;
+        self.clear_image_paint_session();
     }
 
     fn active_recipe(&self, tool: BoardTool) -> Option<slate_kit::Recipe> {
@@ -1232,6 +1234,23 @@ impl SlateApp {
         self.note_scene_change();
         if afters.len() == 1 {
             self.note_last_style(&afters[0]);
+        }
+    }
+
+    /// Drawing-tool commit: paint layer when hosting, else z-list `Add`.
+    pub(crate) fn commit_created_nodes(&mut self, nodes: Vec<Node>) -> Vec<NodeId> {
+        if self.image_paint.is_some() {
+            return self.commit_paint_layer_nodes(nodes).unwrap_or_default();
+        }
+        self.add_nodes(nodes)
+    }
+
+    pub(crate) fn select_created_nodes(&mut self, ids: Vec<NodeId>) {
+        self.board_sel.clear();
+        if let Some(host) = self.paint_layer_host() {
+            self.board_sel.insert(host);
+        } else {
+            self.board_sel.extend(ids);
         }
     }
 
@@ -1396,17 +1415,29 @@ impl SlateApp {
             SceneCmd::Add { node, .. } => Some((None, node)),
             SceneCmd::Patch { before, after } => Some((Some(before.as_ref()), after.as_ref())),
             SceneCmd::Remove { .. } => None,
+            SceneCmd::LayerNodeAdd { node, .. } | SceneCmd::LayerNodeRemove { node, .. } => {
+                Some((None, node))
+            }
+            SceneCmd::LayerNodePatch { before, after, .. } => {
+                Some((Some(before.as_ref()), after.as_ref()))
+            }
         }));
-        self.brush_tiles.note_ids(cmds.iter().map(|c| match c {
-            SceneCmd::Add { node, .. } | SceneCmd::Remove { node, .. } => node.id,
-            SceneCmd::Patch { after, .. } => after.id,
-        }));
+        self.brush_tiles
+            .note_ids(cmds.iter().filter_map(|c| match c {
+                SceneCmd::Add { node, .. } | SceneCmd::Remove { node, .. } => Some(node.id),
+                SceneCmd::Patch { after, .. } => Some(after.id),
+                SceneCmd::LayerNodeAdd { node, .. } | SceneCmd::LayerNodeRemove { node, .. } => {
+                    Some(node.id)
+                }
+                SceneCmd::LayerNodePatch { after, .. } => Some(after.id),
+            }));
         let tab = self.tab_mut();
         tab.dirty = true;
         let doc = &mut tab.doc;
         let ok = tab.journal.commit_as(&mut doc.scene, cmds, author);
         if ok {
             self.remember_document_colors(colors);
+            self.paint_layer_texture_cache.clear();
             let tab = self.tab_mut();
             tab.edits.push(BoardMark::Scene);
             tab.edit_redo.clear();
@@ -2344,7 +2375,7 @@ fn paint_clip_fill(
     painter.add(egui::Shape::mesh(mesh));
 }
 
-fn paint_clipped_texture(
+pub(crate) fn paint_clipped_texture(
     painter: &egui::Painter,
     xf: &BoardXf,
     tex: &egui::TextureHandle,
@@ -2362,11 +2393,10 @@ fn paint_clipped_texture(
     let crop = crop.clamped();
     let mut mesh = egui::Mesh::with_texture(tex.id());
     for v in &verts {
-        let fx = ((v[0] - node.rect.x) / node.rect.w.max(0.001)).clamp(0.0, 1.0);
-        let fy = ((v[1] - node.rect.y) / node.rect.h.max(0.001)).clamp(0.0, 1.0);
+        let uv = host_texture_uv(node.rect, node.rotation_deg, crop, (v[0], v[1]));
         mesh.vertices.push(egui::epaint::Vertex {
             pos: xf.w2s(Pos2::new(v[0], v[1])),
-            uv: Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h),
+            uv,
             color: tint,
         });
     }
@@ -2409,7 +2439,7 @@ fn paint_clipped_galley(
     }
 }
 
-fn textured_polygon_world(
+pub(crate) fn textured_polygon_world(
     painter: &egui::Painter,
     tex: &egui::TextureHandle,
     outline_screen: &[Pos2],
@@ -2417,15 +2447,14 @@ fn textured_polygon_world(
     rect: WorldRect,
     crop: Crop,
     tint: Color32,
+    rotation_deg: f32,
 ) {
     let crop = crop.clamped();
     let mut mesh = egui::Mesh::with_texture(tex.id());
     for (p, (wx, wy)) in outline_screen.iter().zip(outline_world.iter()) {
-        let fx = ((wx - rect.x) / rect.w.max(0.001)).clamp(0.0, 1.0);
-        let fy = ((wy - rect.y) / rect.h.max(0.001)).clamp(0.0, 1.0);
         mesh.vertices.push(egui::epaint::Vertex {
             pos: *p,
-            uv: Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h),
+            uv: host_texture_uv(rect, rotation_deg, crop, (*wx, *wy)),
             color: tint,
         });
     }
@@ -2433,6 +2462,20 @@ fn textured_polygon_world(
         mesh.indices.extend_from_slice(&[0, i, i + 1]);
     }
     painter.add(mesh);
+}
+
+fn host_texture_uv(rect: WorldRect, rotation_deg: f32, crop: Crop, world: (f32, f32)) -> Pos2 {
+    let crop = crop.clamped();
+    let (lx, ly) = slate_doc::geom::world_to_local_about(
+        world.0,
+        world.1,
+        rect.center().0,
+        rect.center().1,
+        rotation_deg,
+    );
+    let fx = ((lx - rect.x) / rect.w.max(0.001)).clamp(0.0, 1.0);
+    let fy = ((ly - rect.y) / rect.h.max(0.001)).clamp(0.0, 1.0);
+    Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h)
 }
 
 pub(crate) fn stroke_outline(
@@ -3252,6 +3295,39 @@ impl SlateApp {
         painter.add(egui::Shape::convex_polygon(pts, color, EStroke::NONE));
     }
 
+    /// Clip in-progress ink to the hosted image outline (D09).
+    pub(crate) fn image_paint_draft_painter(
+        &self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        xf: &BoardXf,
+    ) -> egui::Painter {
+        let Some(session) = self.image_paint.as_ref() else {
+            return painter.clone();
+        };
+        let Some(host) = self.doc().scene.node(session.image) else {
+            return painter.clone();
+        };
+        let outline = self.node_screen_outline(ctx, xf, host);
+        if outline.len() < 3 {
+            return painter.clone();
+        }
+        let min_x = outline.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
+        let min_y = outline.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+        let max_x = outline
+            .iter()
+            .map(|p| p.x)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let max_y = outline
+            .iter()
+            .map(|p| p.y)
+            .fold(f32::NEG_INFINITY, f32::max);
+        painter.with_clip_rect(
+            egui::Rect::from_min_max(Pos2::new(min_x, min_y), Pos2::new(max_x, max_y))
+                .intersect(painter.clip_rect()),
+        )
+    }
+
     /// Paint one node through a transform. `chrome` adds board-only adornment
     /// (frame titles/badges) that presentation mode and exports leave out.
     pub fn paint_board_node(
@@ -3446,6 +3522,7 @@ impl SlateApp {
                                     node.rect,
                                     img.crop,
                                     tint,
+                                    node.rotation_deg,
                                 );
                             } else {
                                 textured_polygon(painter, &tex, &outline, srect, img.crop, tint);
@@ -3457,6 +3534,10 @@ impl SlateApp {
                                     EStroke::NONE,
                                 ));
                             }
+                            self.paint_image_paint_layers(
+                                ui, painter, xf, node, img, &outline, srect, alpha, z,
+                            );
+                            self.paint_image_paint_recent_colors(ui, painter, xf, node, srect);
                         }
                         None => {
                             let palette = self.palette();
@@ -3476,6 +3557,9 @@ impl SlateApp {
                                     palette.sub,
                                 );
                             }
+                            self.paint_image_paint_layers(
+                                ui, painter, xf, node, img, &outline, srect, alpha, z,
+                            );
                         }
                     }
                 }
@@ -3717,6 +3801,7 @@ impl SlateApp {
     // ----- main board entry -----------------------------------------------------
 
     pub fn board_canvas(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        self.validate_image_paint_session();
         self.tick_bumper_glide(ui.ctx());
         self.fit_agent_cards(ui.ctx());
         let _span = atlas_core::session_log::span("slate.board.paint");
@@ -4263,7 +4348,8 @@ impl SlateApp {
         // --- clicks (the armed zoom tool owns the primary button) ---
         if resp.clicked() && !ate_plus && !zoom_tool && !web_capture && !self.board_align_eat_press
         {
-            if self.sheet_open.is_some() && self.sheet_prompt {
+            if self.try_commit_image_drop_click() {
+            } else if self.sheet_open.is_some() && self.sheet_prompt {
                 // The save reminder owns the pointer until it is answered.
             } else if let Some(p) = pointer {
                 if self.sheet_save_hit.is_some_and(|r| r.contains(p)) {
@@ -4587,6 +4673,7 @@ impl SlateApp {
         // Ctrl+H feedback: just-hidden nodes ghost out over 150 ms.
         self.paint_hide_ghosts(ui, &painter, &xf);
         self.paint_context_retract(ui, &painter, &xf);
+        self.paint_image_drop_capsules(ui, &painter);
         // The search hit the camera last flew to gets a select-tint ring.
         if let Some(super::overlays::SearchHit::Node(hit)) = self.search_current_hit() {
             if let Some(n) = self.doc().scene.node(hit) {
@@ -4837,6 +4924,7 @@ impl SlateApp {
             self.paint_text_box_draft(&painter, &xf, draft);
         }
 
+        let draft_painter = self.image_paint_draft_painter(ui.ctx(), &painter, &xf);
         if let Some(draft) = &self.board_path_draft {
             let zoom = self.tab().cam.z.max(f32::EPSILON);
             let cursor = self.board_osnap_hit.map(|h| h.point).or_else(|| {
@@ -4863,7 +4951,7 @@ impl SlateApp {
                 _ => false,
             };
             board_path::paint_path_draft(
-                &painter,
+                &draft_painter,
                 &xf,
                 draft,
                 cursor,
@@ -4883,7 +4971,7 @@ impl SlateApp {
         // Line draft: rubber band in the fg color the committed stroke will
         // use (D09) + the Tab-lock padlock beside the pointer (D10).
         if self.board_tool == BoardTool::Line && self.line_draft.is_some() {
-            self.paint_line_draft(&painter, &xf);
+            self.paint_line_draft(&draft_painter, &xf);
             if let Some(p) = pointer {
                 if resp.hovered() {
                     self.paint_line_lock_glyph(&painter, p);
@@ -4892,7 +4980,7 @@ impl SlateApp {
         }
         if let (Some(BoardDrag::FreehandPen { points, .. }), Some(w)) = (&self.board_drag, wp) {
             if !points.is_empty() {
-                board_path::paint_polyline_preview(&painter, &xf, points, w, palette.accent);
+                board_path::paint_polyline_preview(&draft_painter, &xf, points, w, palette.accent);
             }
         }
         // Brush drag preview: the screen-aligned canvas holds the same radial
@@ -4911,29 +4999,30 @@ impl SlateApp {
                 let tip = self.tip_now().stamp();
                 let canvas = board_path::BrushLiveCanvas::ensure(
                     &mut self.brush_live,
-                    &painter,
+                    &draft_painter,
                     &xf,
                     rect,
                     None,
                     Vec::new,
                 );
                 canvas.add_freehand(&points, tip);
-                canvas.paint(&painter, &xf);
+                canvas.paint(&draft_painter, &xf);
             }
             (None, Some((press, press_tip)), Some(w)) => {
                 let end = self.tip_now();
                 let anchor = self.brush_line_anchor;
                 let (from, start) = anchor.map(|a| (a.pos, a.tip)).unwrap_or((press, press_tip));
-                let anchor_id = anchor
-                    .and_then(|a| a.node)
-                    .filter(|id| self.doc().scene.node(*id).is_some_and(|n| !n.hidden));
+                let anchor_id = anchor.and_then(|a| a.node).filter(|id| {
+                    self.doc().scene.node(*id).is_some_and(|n| !n.hidden)
+                        || slate_doc::image_paint::find_layer_node(&self.doc().scene, *id).is_some()
+                });
                 let ppp = ui.ctx().pixels_per_point();
                 let tolerance = (0.5 / (xf.z * ppp).max(1.0e-3)) as f64;
                 let scene = &self.tab().doc.scene;
                 let anchor_node = anchor_id.and_then(|id| scene.node(id).cloned());
                 let canvas = board_path::BrushLiveCanvas::ensure(
                     &mut self.brush_live,
-                    &painter,
+                    &draft_painter,
                     &xf,
                     rect,
                     anchor_id,
@@ -4955,7 +5044,7 @@ impl SlateApp {
                         tip: end.stamp(),
                     },
                 );
-                canvas.paint(&painter, &xf);
+                canvas.paint(&draft_painter, &xf);
             }
             _ => {
                 if let Some(canvas) = self.brush_live.as_mut() {
@@ -5566,6 +5655,7 @@ impl SlateApp {
                 content,
                 Crop::full(),
                 Color32::WHITE.gamma_multiply(0.35),
+                node.rotation_deg,
             );
         }
 
@@ -6098,6 +6188,7 @@ impl SlateApp {
                         n.rect = r;
                     }
                 }
+                self.update_image_drop_offer(world, &ids);
             }
             Some(BoardDrag::ModelOrbit { id, last_screen }) => {
                 let id = *id;
@@ -6444,6 +6535,9 @@ impl SlateApp {
             Some(BoardDrag::Move {
                 ids, before, dup, ..
             }) => {
+                if self.try_commit_image_drop(&ids, &before) {
+                    return;
+                }
                 // Whole-node compare: a connector move also translates its
                 // Free endpoints (kind change), not just the rect.
                 let moved = ids
@@ -6962,8 +7056,8 @@ impl SlateApp {
         if let Some(n) = nodes.first() {
             self.note_last_style(n);
         }
-        let ids = self.add_nodes(nodes);
-        self.board_sel = ids.into_iter().collect();
+        let ids = self.commit_created_nodes(nodes);
+        self.select_created_nodes(ids);
         self.disarm_create();
         if let Some(id) = Self::draw_command_id(tool) {
             self.push_history(atlas_commands::CommandId(id), Some("placed".into()));
@@ -7060,10 +7154,11 @@ impl SlateApp {
             }),
         );
         let id = node.id;
-        self.add_nodes(vec![node]);
-        self.board_sel.clear();
-        self.board_sel.insert(id);
-        self.disarm_create();
+        let ids = self.commit_created_nodes(vec![node]);
+        let hosted = self.image_paint.is_some();
+        self.select_created_nodes(ids);
+        self.text_edit = (!hosted).then(|| (id, "Text".into()));
+        self.board_tool = BoardTool::Select;
         self.push_history(
             atlas_commands::CommandId("board.tool.text"),
             Some("placed".into()),
@@ -7173,8 +7268,8 @@ impl SlateApp {
                 if let Some(n) = nodes.first() {
                     self.note_last_style(n);
                 }
-                let ids = self.add_nodes(nodes);
-                self.board_sel = ids.into_iter().collect();
+                let ids = self.commit_created_nodes(nodes);
+                self.select_created_nodes(ids);
                 if let Some(id) = Self::draw_command_id(tool) {
                     self.push_history(atlas_commands::CommandId(id), Some("drawn".into()));
                 }
@@ -7204,8 +7299,8 @@ impl SlateApp {
         if let Some(n) = nodes.first() {
             self.note_last_style(n);
         }
-        let ids = self.add_nodes(nodes);
-        self.board_sel = ids.into_iter().collect();
+        let ids = self.commit_created_nodes(nodes);
+        self.select_created_nodes(ids);
         if let Some(id) = Self::draw_command_id(tool) {
             self.push_history(atlas_commands::CommandId(id), Some("drawn".into()));
         }
@@ -9197,6 +9292,23 @@ mod tests {
         assert_eq!(rects.len(), 1);
         let (cx, cy) = rects[0].center();
         assert!((cx - 10.0).abs() < 1e-3 && (cy - 20.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn rotated_host_texture_maps_outline_to_full_uv() {
+        let rect = WorldRect::new(10.0, 20.0, 100.0, 50.0);
+        let corners = rect.corners_rotated(90.0);
+        let expected = [
+            Pos2::new(0.0, 0.0),
+            Pos2::new(1.0, 0.0),
+            Pos2::new(1.0, 1.0),
+            Pos2::new(0.0, 1.0),
+        ];
+        for (corner, expected) in corners.into_iter().zip(expected) {
+            let uv = host_texture_uv(rect, 90.0, Crop::full(), corner);
+            assert!((uv.x - expected.x).abs() < 1e-4);
+            assert!((uv.y - expected.y).abs() < 1e-4);
+        }
     }
 
     #[test]

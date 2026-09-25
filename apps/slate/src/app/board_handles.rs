@@ -308,7 +308,8 @@ pub fn hit_test_resize_bands(screen: Pos2, geom: &SelectionGeom) -> Option<Resiz
 /// Fillet radius in world units from a pointer position (local NW corner = min of rx, ry).
 pub fn fillet_radius_from_world_point(rect: WorldRect, rotation_deg: f32, world: Pos2) -> f32 {
     let (cx, cy) = rect.center();
-    let (lx, ly) = slate_doc::geom::world_to_local(world.x, world.y, cx, cy, rotation_deg);
+    let (lx, ly) =
+        slate_doc::geom::world_to_local_about(world.x, world.y, cx, cy, rotation_deg);
     let rx = (lx - rect.x).max(0.0);
     let ry = (ly - rect.y).max(0.0);
     let limit = rect.w.min(rect.h) * 0.5;

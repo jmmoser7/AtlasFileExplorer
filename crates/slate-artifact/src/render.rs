@@ -794,6 +794,8 @@ fn render_image(
         html.push_str(";\"></div>");
     }
 
+    render_image_paint_layers(html, doc, assets, node, img, rel);
+
     html.push_str("</div>\n");
 }
 
@@ -825,6 +827,64 @@ fn render_model_poster_card(
             html.push_str(&escape_html(url.rsplit('/').next().unwrap_or(url)));
             html.push_str("</span></a>");
         }
+    }
+}
+
+fn render_image_paint_layers(
+    html: &mut String,
+    doc: &SlateDoc,
+    assets: &AssetMap,
+    node: &Node,
+    img: &slate_doc::scene::ImageNode,
+    rel: WorldRect,
+) {
+    if img.paint_layers.is_empty() {
+        return;
+    }
+    let hw = rel.w.max(1e-6);
+    let hh = rel.h.max(1e-6);
+    for (i, layer) in img.paint_layers.iter().enumerate() {
+        if !layer.visible {
+            continue;
+        }
+        html.push_str("<div class=\"paint-layer\" style=\"position:absolute;inset:0;pointer-events:none;opacity:");
+        html.push_str(&format!("{:.3}", layer.opacity.clamp(0.0, 1.0)));
+        html.push_str("\" data-paint-layer=\"");
+        html.push_str(&format!("{}-{}", node.id.0, i));
+        html.push_str("\">");
+        for local in &layer.nodes {
+            if !slate_doc::image_paint::layer_node_kind_allowed(&local.kind) {
+                continue;
+            }
+            let child = slate_doc::image_paint::layer_node_to_host_local(node, img, local);
+            let child_px = WorldRect::new(
+                child.rect.x / node.rect.w.max(1e-6) * hw,
+                child.rect.y / node.rect.h.max(1e-6) * hh,
+                child.rect.w / node.rect.w.max(1e-6) * hw,
+                child.rect.h / node.rect.h.max(1e-6) * hh,
+            );
+            html.push_str("<div class=\"paint-layer-node\" style=\"position:absolute;inset:0;pointer-events:none\">");
+            match &child.kind {
+                NodeKind::Shape(shape) => render_shape(html, &child, shape, child_px),
+                NodeKind::Text(text) => render_text(html, &child, text, &text.text, child_px),
+                NodeKind::Image(layer_img) => {
+                    if let Some(item) = doc.item(layer_img.item) {
+                        if let Some(url) = assets.get(&item.path) {
+                            let mut style = geometry_style(child_px, local.rotation_deg);
+                            append_opacity(&mut style, child.opacity);
+                            html.push_str("<img src=\"");
+                            html.push_str(&escape_attr(url));
+                            html.push_str("\" alt=\"\" style=\"");
+                            html.push_str(&style);
+                            html.push_str("\" draggable=\"false\">");
+                        }
+                    }
+                }
+                _ => {}
+            }
+            html.push_str("</div>");
+        }
+        html.push_str("</div>");
     }
 }
 
@@ -1012,7 +1072,7 @@ fn render_file_card(
     }
 }
 
-fn render_shape(
+pub(crate) fn render_shape(
     html: &mut String,
     node: &Node,
     shape: &slate_doc::scene::ShapeNode,
@@ -1053,6 +1113,173 @@ fn render_regular_polygon(
         true,
         None,
     );
+}
+
+pub(crate) fn render_shape_svg(
+    svg: &mut String,
+    node: &Node,
+    shape: &slate_doc::scene::ShapeNode,
+    rel: WorldRect,
+    stroke_scale: f32,
+) {
+    use std::fmt::Write;
+
+    let cx = rel.x + rel.w * 0.5;
+    let cy = rel.y + rel.h * 0.5;
+    let _ = write!(
+        svg,
+        "<g transform=\"rotate({:.3} {:.3} {:.3})\" opacity=\"{:.3}\">",
+        node.rotation_deg,
+        cx,
+        cy,
+        node.opacity.clamp(0.0, 1.0)
+    );
+    let fill = shape
+        .fill
+        .map(|value| value.css())
+        .unwrap_or_else(|| "none".to_owned());
+    let stroke = &shape.stroke;
+    let stroke_width = stroke.width.max(0.0) * stroke_scale;
+    let mut stroke_attrs = String::new();
+    if stroke.is_none() {
+        stroke_attrs.push_str(" stroke=\"none\"");
+    } else {
+        let _ = write!(
+            stroke_attrs,
+            " stroke=\"{}\" stroke-width=\"{:.3}\" stroke-linecap=\"{}\" stroke-linejoin=\"{}\"",
+            stroke.color.css(),
+            stroke_width,
+            stroke_cap_css(stroke.cap),
+            stroke_join_css(stroke.join)
+        );
+        if let Some(dash) = line_dash_attrs(stroke) {
+            let values = dash
+                .split_ascii_whitespace()
+                .filter_map(|value| value.parse::<f32>().ok())
+                .map(|value| format!("{:.3}", value * stroke_scale))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let _ = write!(stroke_attrs, " stroke-dasharray=\"{values}\"");
+        }
+        if stroke.dash == Dash::Dotted {
+            stroke_attrs.push_str(" stroke-linecap=\"round\"");
+        }
+    }
+    match shape.shape {
+        ShapeKind::Line => {
+            let (x1, y1, x2, y2) = if shape.flip {
+                (rel.x, rel.y + rel.h, rel.x + rel.w, rel.y)
+            } else {
+                (rel.x, rel.y, rel.x + rel.w, rel.y + rel.h)
+            };
+            let _ = write!(
+                svg,
+                "<line x1=\"{x1:.3}\" y1=\"{y1:.3}\" x2=\"{x2:.3}\" y2=\"{y2:.3}\"{stroke_attrs}/>"
+            );
+        }
+        ShapeKind::Rect => {
+            let (_, radius) = shape.corner.effective(rel.w, rel.h);
+            let _ = write!(
+                svg,
+                "<rect x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" rx=\"{:.3}\" fill=\"{}\"{stroke_attrs}/>",
+                rel.x, rel.y, rel.w, rel.h, radius, fill
+            );
+        }
+        ShapeKind::Ellipse => {
+            let _ = write!(
+                svg,
+                "<ellipse cx=\"{cx:.3}\" cy=\"{cy:.3}\" rx=\"{:.3}\" ry=\"{:.3}\" fill=\"{}\"{stroke_attrs}/>",
+                rel.w * 0.5,
+                rel.h * 0.5,
+                fill
+            );
+        }
+        ShapeKind::RegularPolygon => {
+            let local = WorldRect::new(0.0, 0.0, rel.w, rel.h);
+            let outline = slate_doc::geom::regular_polygon_world_outline(
+                local,
+                0.0,
+                shape.sides,
+                shape.corner,
+                0.25,
+            );
+            let d = world_outline_to_svg_d(&outline, local, rel.w, rel.h);
+            let _ = write!(
+                svg,
+                "<path transform=\"translate({:.3} {:.3})\" d=\"{}\" fill=\"{}\"{stroke_attrs}/>",
+                rel.x, rel.y, d, fill
+            );
+        }
+        ShapeKind::Path => {
+            if let Some(path) = shape.path.as_ref() {
+                let local_d = path_data_d(path, rel.w, rel.h);
+                let _ = write!(
+                    svg,
+                    "<path transform=\"translate({:.3} {:.3})\" d=\"{}\" fill=\"{}\"",
+                    rel.x, rel.y, local_d, fill
+                );
+                if matches!(path.fill_rule, PathFillRule::EvenOdd) {
+                    svg.push_str(" fill-rule=\"evenodd\"");
+                }
+                svg.push_str(&stroke_attrs);
+                svg.push_str("/>");
+            }
+        }
+    }
+    svg.push_str("</g>");
+}
+
+pub(crate) fn render_text_svg(
+    svg: &mut String,
+    node: &Node,
+    text: &slate_doc::scene::TextNode,
+    shown: &str,
+    rel: WorldRect,
+    scale: f32,
+) {
+    use std::fmt::Write;
+
+    let cx = rel.x + rel.w * 0.5;
+    let cy = rel.y + rel.h * 0.5;
+    let _ = write!(
+        svg,
+        "<g transform=\"rotate({:.3} {:.3} {:.3})\" opacity=\"{:.3}\">",
+        node.rotation_deg,
+        cx,
+        cy,
+        node.opacity.clamp(0.0, 1.0)
+    );
+    if let Some(fill) = text.fill {
+        let _ = write!(
+            svg,
+            "<rect x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" fill=\"{}\"/>",
+            rel.x,
+            rel.y,
+            rel.w,
+            rel.h,
+            fill.css()
+        );
+    }
+    let x = match text.align {
+        TextAlign::Left => rel.x,
+        TextAlign::Center => rel.x + rel.w * 0.5,
+        TextAlign::Right => rel.x + rel.w,
+    };
+    let anchor = match text.align {
+        TextAlign::Left => "start",
+        TextAlign::Center => "middle",
+        TextAlign::Right => "end",
+    };
+    let y = rel.y + rel.h * 0.5;
+    let _ = write!(
+        svg,
+        "<text x=\"{x:.3}\" y=\"{y:.3}\" dominant-baseline=\"middle\" text-anchor=\"{anchor}\" font-family=\"{}\" font-size=\"{:.3}\" fill=\"{}\">{}</text>",
+        escape_attr(text.family.css_stack()),
+        text.size * scale,
+        text.color.css(),
+        escape_html(shown)
+    );
+    svg.push_str("</g>");
 }
 
 fn render_rect_shape(
@@ -2018,7 +2245,7 @@ fn push_arrow_head(html: &mut String, conn: &ConnectorNode, tip: (f32, f32), int
     html.push_str(" stroke=\"none\"></path>");
 }
 
-fn render_text(
+pub(crate) fn render_text(
     html: &mut String,
     node: &Node,
     text: &slate_doc::scene::TextNode,
@@ -2197,7 +2424,7 @@ pub fn escape_html(s: &str) -> String {
     out
 }
 
-fn escape_attr(s: &str) -> String {
+pub(crate) fn escape_attr(s: &str) -> String {
     escape_html(s)
 }
 

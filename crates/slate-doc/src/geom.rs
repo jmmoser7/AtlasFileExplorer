@@ -3,12 +3,99 @@
 //! writer keeps its own reading (a second interpreter of the model).
 
 use crate::scene::{
-    clamp_regular_sides, regular_polygon_vertices, Corner, Node, NodeKind, PathData, PathSeg,
+    clamp_regular_sides, regular_polygon_vertices, Corner, Crop, Node, NodeKind, PathData, PathSeg,
     ShapeKind, WorldRect,
 };
 use crate::wire::{filleted_vertex_path, PathCmd};
 use vector_ink::kurbo::{BezPath, Point};
-use vector_ink::{flatten_contours, Polygon};
+use vector_ink::{flatten_contours, point_in_polygon, Polygon};
+
+/// The world rect the full uncropped image occupies (crop window + UV crop).
+pub fn image_content_rect(rect: WorldRect, crop: Crop) -> WorldRect {
+    let c = crop.clamped();
+    let w = rect.w / c.w.max(1e-4);
+    let h = rect.h / c.h.max(1e-4);
+    WorldRect::new(rect.x - c.x * w, rect.y - c.y * h, w, h)
+}
+
+/// Rotate `p` about `center` by `delta_deg` (clockwise, y-down — same as
+/// [`WorldRect::rotate_point`]).
+pub fn orbit_point(center: (f32, f32), p: (f32, f32), delta_deg: f32) -> (f32, f32) {
+    if delta_deg.abs() <= 0.01 {
+        return p;
+    }
+    let rad = delta_deg.to_radians();
+    let (sin, cos) = rad.sin_cos();
+    let dx = p.0 - center.0;
+    let dy = p.1 - center.1;
+    (
+        center.0 + dx * cos - dy * sin,
+        center.1 + dx * sin + dy * cos,
+    )
+}
+
+/// World point → unrotated local axes about `(cx, cy)`.
+pub fn world_to_local_about(px: f32, py: f32, cx: f32, cy: f32, rotation_deg: f32) -> (f32, f32) {
+    if rotation_deg.abs() <= 0.01 {
+        return (px, py);
+    }
+    orbit_point((cx, cy), (px, py), -rotation_deg)
+}
+
+/// Inverse of [`world_point`]: world coords → normalized 0..1 in `rect`.
+pub fn world_to_local(px: f32, py: f32, rect: WorldRect, rotation_deg: f32) -> (f32, f32) {
+    let (cx, cy) = rect.center();
+    let (lx, ly) = world_to_local_about(px, py, cx, cy, rotation_deg);
+    (
+        (lx - rect.x) / rect.w.max(1e-6),
+        (ly - rect.y) / rect.h.max(1e-6),
+    )
+}
+
+/// Normalized rect in `basis` → world rect; child center orbits `pivot` by
+/// `basis_rot` (paint layers and grouped nodes).
+pub fn child_norm_rect_to_world(
+    basis: WorldRect,
+    basis_rot: f32,
+    pivot: (f32, f32),
+    norm: WorldRect,
+    child_rot: f32,
+) -> (WorldRect, f32) {
+    let local = WorldRect::new(
+        basis.x + norm.x * basis.w,
+        basis.y + norm.y * basis.h,
+        norm.w * basis.w,
+        norm.h * basis.h,
+    );
+    let (cx, cy) = local.center();
+    let (wx, wy) = orbit_point(pivot, (cx, cy), basis_rot);
+    (
+        WorldRect::new(wx - local.w * 0.5, wy - local.h * 0.5, local.w, local.h),
+        child_rot + basis_rot,
+    )
+}
+
+/// Inverse of [`child_norm_rect_to_world`].
+pub fn child_world_rect_to_norm(
+    basis: WorldRect,
+    basis_rot: f32,
+    pivot: (f32, f32),
+    world: WorldRect,
+    world_rot: f32,
+) -> (WorldRect, f32) {
+    let (cx, cy) = world.center();
+    let (ux, uy) = orbit_point(pivot, (cx, cy), -basis_rot);
+    let local = WorldRect::new(ux - world.w * 0.5, uy - world.h * 0.5, world.w, world.h);
+    (
+        WorldRect::new(
+            (local.x - basis.x) / basis.w.max(1e-6),
+            (local.y - basis.y) / basis.h.max(1e-6),
+            local.w / basis.w.max(1e-6),
+            local.h / basis.h.max(1e-6),
+        ),
+        world_rot - basis_rot,
+    )
+}
 
 pub fn path_is_line_polyline(path: &PathData) -> bool {
     path.extra.is_empty()
@@ -103,18 +190,6 @@ pub fn world_point(p: [f32; 2], rect: WorldRect, rotation_deg: f32) -> Point {
     }
     let [x, y] = rect.rotate_point([x, y], rotation_deg);
     Point::new(x as f64, y as f64)
-}
-
-/// Inverse of rotating a world point about `(cx, cy)` by `rotation_deg`.
-pub fn world_to_local(px: f32, py: f32, cx: f32, cy: f32, rotation_deg: f32) -> (f32, f32) {
-    if rotation_deg.abs() < f32::EPSILON {
-        return (px, py);
-    }
-    let rad = (-rotation_deg).to_radians();
-    let (sin, cos) = rad.sin_cos();
-    let dx = px - cx;
-    let dy = py - cy;
-    (cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
 }
 
 /// Normalized path data placed in `rect` and rotated about its center.
@@ -270,11 +345,131 @@ mod tests {
             let wx = rect.x + 0.25 * rect.w;
             let wy = rect.y + 0.75 * rect.h;
             let [rx, ry] = rect.rotate_point([wx, wy], rot);
-            let (lx, ly) = world_to_local(rx, ry, cx, cy, rot);
+            let (lx, ly) = world_to_local_about(rx, ry, cx, cy, rot);
             assert!(
                 (lx - wx).abs() < 1e-4 && (ly - wy).abs() < 1e-4,
                 "rot={rot}"
             );
         }
+    }
+}
+
+fn segments_intersect(a1: [f32; 2], a2: [f32; 2], b1: [f32; 2], b2: [f32; 2]) -> bool {
+    fn orient(p: [f32; 2], q: [f32; 2], r: [f32; 2]) -> f32 {
+        (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    }
+    let d1 = orient(b1, b2, a1);
+    let d2 = orient(b1, b2, a2);
+    let d3 = orient(a1, a2, b1);
+    let d4 = orient(a1, a2, b2);
+    ((d1 > 0.0) != (d2 > 0.0)) && ((d3 > 0.0) != (d4 > 0.0))
+}
+
+/// Any vertex inside, or any segment crossing a ring edge.
+pub fn polyline_intersects_polygon(line: &[[f32; 2]], poly: &Polygon) -> bool {
+    if line.is_empty() || poly.is_empty() {
+        return false;
+    }
+    for p in line {
+        if point_in_polygon(poly, *p) {
+            return true;
+        }
+    }
+    if line.len() < 2 {
+        return false;
+    }
+    for i in 0..line.len() - 1 {
+        let a1 = line[i];
+        let a2 = line[i + 1];
+        for ring in poly {
+            if ring.len() < 2 {
+                continue;
+            }
+            for j in 0..ring.len() {
+                let b1 = ring[j];
+                let b2 = ring[(j + 1) % ring.len()];
+                if segments_intersect(a1, a2, b1, b2) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Flattened centerlines / outlines used to test ink against a host window.
+pub fn node_stroke_polylines(n: &Node, tolerance: f32) -> Vec<Vec<[f32; 2]>> {
+    if let Some(open) = node_open_polyline(n, tolerance) {
+        return vec![open];
+    }
+    if let Some(poly) = node_closed_poly(n, tolerance) {
+        return poly
+            .into_iter()
+            .filter_map(|ring| {
+                if ring.len() < 2 {
+                    return None;
+                }
+                let mut line = ring;
+                line.push(line[0]);
+                Some(line)
+            })
+            .collect();
+    }
+    vec![]
+}
+
+/// Whether world point `p` lies inside the host's visible outline (trim clip when set).
+pub fn point_in_node_outline(host: &Node, px: f32, py: f32, tolerance: f32) -> bool {
+    node_closed_poly(host, tolerance).is_some_and(|poly| point_in_polygon(&poly, [px, py]))
+}
+
+/// Whether any part of `stroke` intersects the host's visible outline.
+pub fn stroke_intersects_node_outline(stroke: &Node, host: &Node, tolerance: f32) -> bool {
+    let Some(host_poly) = node_closed_poly(host, tolerance) else {
+        return false;
+    };
+    node_stroke_polylines(stroke, tolerance)
+        .iter()
+        .any(|line| polyline_intersects_polygon(line, &host_poly))
+}
+
+#[cfg(test)]
+mod paint_window_tests {
+    use super::*;
+    use crate::scene::{Corner, ImageNode, NodeKind, ShapeKind, ShapeNode, Stroke, WorldRect};
+
+    #[test]
+    fn stroke_hits_host_outline_not_far_away() {
+        let mut scene = crate::scene::Scene::default();
+        let host = scene.build_node(
+            WorldRect::new(0.0, 0.0, 100.0, 100.0),
+            NodeKind::Image(ImageNode::new(crate::ItemId(1))),
+        );
+        let line = scene.build_node(
+            WorldRect::new(10.0, 50.0, 80.0, 0.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Line,
+                fill: None,
+                stroke: Stroke::default(),
+                corner: Corner::Square,
+                flip: false,
+                path: None,
+                text: None,
+            }),
+        );
+        assert!(stroke_intersects_node_outline(&line, &host, 0.05));
+        let outside = scene.build_node(
+            WorldRect::new(200.0, 200.0, 50.0, 0.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Line,
+                fill: None,
+                stroke: Stroke::default(),
+                corner: Corner::Square,
+                flip: false,
+                path: None,
+                text: None,
+            }),
+        );
+        assert!(!stroke_intersects_node_outline(&outside, &host, 0.05));
     }
 }

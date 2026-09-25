@@ -61,6 +61,7 @@ fn smoke_full_feature_export() {
             video: Default::default(),
             model: Default::default(),
             agent: None,
+            paint_layers: Vec::new(),
         }),
     );
     let text = doc.scene.build_node(

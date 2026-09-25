@@ -373,6 +373,7 @@ impl SlateDoc {
         // (contracts/line.md migration decision).
         doc.scene.migrate_legacy_lines();
         doc.scene.migrate_agent_cards();
+        crate::image_paint::sanitize_paint_layers(&mut doc.scene);
         Ok(doc)
     }
 

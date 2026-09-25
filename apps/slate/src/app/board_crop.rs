@@ -20,10 +20,7 @@ pub const MIN_CROP_WORLD: f32 = 8.0;
 /// The world rect the full uncropped image occupies, derived from the node
 /// rect (the crop window) and its UV crop.
 pub fn content_rect(rect: WorldRect, crop: Crop) -> WorldRect {
-    let c = crop.clamped();
-    let w = rect.w / c.w.max(1e-4);
-    let h = rect.h / c.h.max(1e-4);
-    WorldRect::new(rect.x - c.x * w, rect.y - c.y * h, w, h)
+    slate_doc::geom::image_content_rect(rect, crop)
 }
 
 /// The UV crop that shows exactly `window` out of `content` (both world
@@ -43,12 +40,12 @@ pub fn crop_from_rects(window: WorldRect, content: WorldRect) -> Crop {
 /// Transform a world-space point into the node's local (unrotated) axes
 /// about `(cx, cy)`.
 pub fn to_local(px: f32, py: f32, cx: f32, cy: f32, rotation_deg: f32) -> (f32, f32) {
-    slate_doc::geom::world_to_local(px, py, cx, cy, rotation_deg)
+    slate_doc::geom::world_to_local_about(px, py, cx, cy, rotation_deg)
 }
 
 /// Rotate a world-space delta into the node's local axes.
 pub fn delta_local(dx: f32, dy: f32, rotation_deg: f32) -> (f32, f32) {
-    slate_doc::geom::world_to_local(dx, dy, 0.0, 0.0, rotation_deg)
+    slate_doc::geom::world_to_local_about(dx, dy, 0.0, 0.0, rotation_deg)
 }
 
 /// Drag a crop-window edge/corner (`handle` 0–7: Nw N Ne E Se S Sw W, same

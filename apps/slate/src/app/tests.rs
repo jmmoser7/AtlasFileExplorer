@@ -8353,6 +8353,226 @@ fn brush_validation_images() {
 }
 
 #[test]
+fn image_paint_brush_commits_into_active_layer_not_scene() {
+    let mut h = Harness::new("image_paint_brush");
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image_id = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app.board_sel = std::iter::once(image_id).collect();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.sync_image_paint_for_tool();
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(50.0, 50.0), Pos2::new(150.0, 50.0)]);
+    assert_eq!(
+        h.app.doc().scene.nodes.len(),
+        1,
+        "stroke stays on the layer"
+    );
+    let host = h.app.doc().scene.node(image_id).unwrap();
+    let slate_doc::scene::NodeKind::Image(img) = &host.kind else {
+        panic!("image");
+    };
+    assert_eq!(img.paint_layers.len(), 1);
+    assert_eq!(img.paint_layers[0].nodes.len(), 1);
+}
+
+#[test]
+fn image_paint_eraser_spot_hits_layer_strokes() {
+    let mut h = Harness::new("image_paint_eraser");
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image_id = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app.board_sel = std::iter::once(image_id).collect();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.sync_image_paint_for_tool();
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(50.0, 50.0), Pos2::new(150.0, 50.0)]);
+    let stroke_id = h.app.doc().scene.node(image_id).unwrap();
+    let slate_doc::scene::NodeKind::Image(img) = &stroke_id.kind else {
+        panic!("image");
+    };
+    let stroke_id = img.paint_layers[0].nodes[0].id;
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.sync_image_paint_for_tool();
+    h.app.eraser_width = 30.0;
+    h.app.board_drag = Some(h.app.begin_erase(Pos2::new(100.0, 50.0), false));
+    h.app.update_erase(Pos2::new(100.0, 50.0));
+    let Some(board::BoardDrag::Erase { spot, .. }) = h.app.board_drag.take() else {
+        panic!("erase drag");
+    };
+    assert!(spot.contains(&stroke_id));
+}
+
+#[test]
+fn image_paint_eraser_removes_vector_stroke_and_undo_restores_it() {
+    let mut h = Harness::new("image_paint_vector_eraser");
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image_id = node.id;
+    h.app.add_nodes(vec![node]);
+    h.app.board_sel = std::iter::once(image_id).collect();
+    h.app.set_board_tool(board::BoardTool::Pen);
+    h.app.sync_image_paint_for_tool();
+    h.app
+        .finish_freehand_pen(vec![Pos2::new(40.0, 50.0), Pos2::new(160.0, 50.0)]);
+    let stroke_id = {
+        let host = h.app.doc().scene.node(image_id).unwrap();
+        let slate_doc::scene::NodeKind::Image(img) = &host.kind else {
+            panic!("image");
+        };
+        img.paint_layers[0].nodes[0].id
+    };
+    h.app
+        .finish_erase(vec![stroke_id], vec![Pos2::new(100.0, 50.0)], Vec::new());
+    assert!(slate_doc::image_paint::find_layer_node(&h.app.doc().scene, stroke_id).is_none());
+    h.app.board_undo();
+    assert!(slate_doc::image_paint::find_layer_node(&h.app.doc().scene, stroke_id).is_some());
+}
+
+#[test]
+fn image_paint_session_clears_before_drawing_off_another_selection() {
+    let mut h = Harness::new("image_paint_session_clear");
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let image = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    let image_id = image.id;
+    h.app.add_nodes(vec![image]);
+    h.app.board_sel = std::iter::once(image_id).collect();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    assert!(h.app.image_paint_session().is_some());
+
+    let other = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(300.0, 0.0, 20.0, 20.0),
+        slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
+            shape: slate_doc::scene::ShapeKind::Rect,
+            fill: Some(slate_doc::scene::Rgba::opaque(0, 0, 0)),
+            stroke: slate_doc::scene::Stroke::none(),
+            corner: Default::default(),
+            flip: false,
+            path: None,
+            text: None,
+        }),
+    );
+    let other_id = other.id;
+    h.app.add_nodes(vec![other]);
+    h.app.board_sel = std::iter::once(other_id).collect();
+    h.app.set_board_tool(board::BoardTool::RectShape);
+    h.app.finish_draw(
+        Pos2::new(400.0, 200.0),
+        Pos2::new(500.0, 300.0),
+        board::BoardTool::RectShape,
+        egui::Modifiers::NONE,
+    );
+    assert!(h.app.image_paint_session().is_none());
+    assert_eq!(h.app.doc().scene.nodes.len(), 3);
+    let host = h.app.doc().scene.node(image_id).unwrap();
+    let slate_doc::scene::NodeKind::Image(img) = &host.kind else {
+        panic!("image");
+    };
+    assert!(img.paint_layers.is_empty());
+}
+
+#[test]
+fn image_drop_replace_is_one_undo_group() {
+    let mut h = Harness::new("image_drop_replace_undo");
+    h.app.ensure_work_tab();
+    let a = h.base.join("a.png");
+    let b = h.base.join("b.png");
+    std::fs::write(&a, b"a").unwrap();
+    std::fs::write(&b, b"b").unwrap();
+    let items = h.app.add_paths(&[a, b]);
+    let target = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(items[0])),
+    );
+    let source = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(150.0, 0.0, 100.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(items[1])),
+    );
+    let (target_id, source_id) = (target.id, source.id);
+    h.app.add_nodes(vec![target, source]);
+    assert!(h
+        .app
+        .replace_image_item_preserve_layers(target_id, items[1], Some(source_id)));
+    assert!(h.app.doc().scene.node(source_id).is_none());
+    h.app.board_undo();
+    assert!(h.app.doc().scene.node(source_id).is_some());
+    let slate_doc::scene::NodeKind::Image(img) = &h.app.doc().scene.node(target_id).unwrap().kind
+    else {
+        panic!("image");
+    };
+    assert_eq!(img.item, items[0]);
+}
+
+#[test]
+fn image_drop_layer_on_rotated_host_is_one_undo_group() {
+    let mut h = Harness::new("image_drop_layer_rotated_undo");
+    h.app.ensure_work_tab();
+    let a = h.base.join("a.png");
+    let b = h.base.join("b.png");
+    std::fs::write(&a, b"a").unwrap();
+    std::fs::write(&b, b"b").unwrap();
+    let items = h.app.add_paths(&[a, b]);
+    let mut target = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(items[0])),
+    );
+    target.rotation_deg = 37.0;
+    let source = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(250.0, 0.0, 100.0, 100.0),
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(items[1])),
+    );
+    let (target_id, source_id) = (target.id, source.id);
+    h.app.add_nodes(vec![target, source]);
+    assert!(h
+        .app
+        .add_dropped_image_as_layer(target_id, items[1], Some(source_id)));
+    assert!(h.app.doc().scene.node(source_id).is_none());
+    let slate_doc::scene::NodeKind::Image(img) = &h.app.doc().scene.node(target_id).unwrap().kind
+    else {
+        panic!("image");
+    };
+    assert_eq!(img.paint_layers.len(), 1);
+    assert!(img.paint_layers[0].nodes[0].rotation_deg.abs() < 1e-4);
+    h.app.board_undo();
+    assert!(h.app.doc().scene.node(source_id).is_some());
+    let slate_doc::scene::NodeKind::Image(img) = &h.app.doc().scene.node(target_id).unwrap().kind
+    else {
+        panic!("image");
+    };
+    assert!(img.paint_layers.is_empty());
+}
+
+#[test]
 fn the_eraser_spot_erases_painted_ink_and_keeps_the_stroke() {
     let mut h = Harness::new("eraser_spot");
     h.app.set_board_tool(board::BoardTool::Brush);

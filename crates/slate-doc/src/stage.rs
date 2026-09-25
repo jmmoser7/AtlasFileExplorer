@@ -150,6 +150,9 @@ fn prepared_cmds(
                 }
                 original.clone()
             }
+            SceneCmd::LayerNodeAdd { .. }
+            | SceneCmd::LayerNodeRemove { .. }
+            | SceneCmd::LayerNodePatch { .. } => original.clone(),
         };
         if !check.apply(&cmd) {
             return Err(StaleReason::CommandRejected);

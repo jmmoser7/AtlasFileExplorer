@@ -2,6 +2,7 @@
 //! A preview never changes the document. A completed edit dispatches one journal group.
 use super::{
     board::{BoardTool, BoardXf},
+    board_image_layers::{self, ImageStripFocus},
     board_line, board_path, board_snap, board_transform, SlateApp,
 };
 use atlas_commands::CommandId;
@@ -100,6 +101,7 @@ pub enum Property {
     WireRouting(slate_doc::WireRouting),
     WireArrows(bool),
     ImageAdjust(ImageAdjust),
+    PaintLayerOpacity { layer_index: usize, opacity: f32 },
     TextFamily(scene::Typeface),
     TextSize(f32),
     TextAlign(scene::TextAlign),
@@ -193,6 +195,16 @@ impl Property {
                 });
             }
             Self::ImageAdjust(adjust) => scene::set_adjust(node, adjust),
+            Self::PaintLayerOpacity {
+                layer_index,
+                opacity,
+            } => {
+                if let NodeKind::Image(ref mut img) = node.kind {
+                    if let Some(layer) = img.paint_layers.get_mut(layer_index) {
+                        layer.opacity = opacity.clamp(0.0, 1.0);
+                    }
+                }
+            }
             Self::TextFamily(family) => {
                 map_text_style(node, |face, _, _, _| *face = family);
             }
@@ -547,6 +559,67 @@ fn photo_filter_gesture(
         return FilterStep::Peek(photo_filter_adjust(index, strength));
     }
     FilterStep::Rest
+}
+
+fn layer_index_label(i: usize) -> std::borrow::Cow<'static, str> {
+    if i < 8 {
+        std::borrow::Cow::Borrowed(match i {
+            0 => "1",
+            1 => "2",
+            2 => "3",
+            3 => "4",
+            4 => "5",
+            5 => "6",
+            6 => "7",
+            _ => "8",
+        })
+    } else {
+        std::borrow::Cow::Owned(format!("{}", i + 1))
+    }
+}
+
+fn paint_layer_strip_state(
+    app: &SlateApp,
+    image: Option<NodeId>,
+) -> (Vec<chrome::LayerChip>, Option<usize>, f32, bool) {
+    let Some(image) = image else {
+        return (Vec::new(), None, 1.0, false);
+    };
+    let Some(node) = app.doc().scene.node(image) else {
+        return (Vec::new(), None, 1.0, false);
+    };
+    let NodeKind::Image(img) = &node.kind else {
+        return (Vec::new(), None, 1.0, false);
+    };
+    let mut chips: Vec<chrome::LayerChip> = img
+        .paint_layers
+        .iter()
+        .enumerate()
+        .map(|(i, _)| chrome::LayerChip {
+            label: layer_index_label(i),
+            thumb: None,
+            is_add: false,
+        })
+        .collect();
+    chips.push(chrome::LayerChip {
+        label: std::borrow::Cow::Borrowed("+"),
+        thumb: None,
+        is_add: true,
+    });
+    let session = app.image_paint.as_ref().filter(|s| s.image == image);
+    let layer_mode = session.is_some_and(|s| matches!(s.focus, ImageStripFocus::Layer(_)));
+    let (layer_selected, slider) = if let Some(s) = session {
+        match s.focus {
+            ImageStripFocus::Layer(i) => (
+                Some(i),
+                img.paint_layers.get(i).map(|l| l.opacity).unwrap_or(1.0),
+            ),
+            ImageStripFocus::Filter => (None, 1.0),
+        }
+    } else {
+        (None, 1.0)
+    };
+    (chips, layer_selected, slider, layer_mode)
 }
 
 fn photo_filter_choice(adjust: &ImageAdjust) -> Option<(usize, f32)> {
@@ -1628,20 +1701,85 @@ impl SlateApp {
             } else {
                 (None, 1.0)
             };
+            let paint_image = committed
+                .len()
+                .eq(&1)
+                .then(|| committed[0].id)
+                .filter(|id| SlateApp::supports_image_paint(*id, self));
+            let (layer_chips, layer_selected, layer_opacity, layer_mode) =
+                paint_layer_strip_state(self, paint_image);
+            let slider_amount = if layer_mode { layer_opacity } else { amount };
             let thumbs = self.filter_swatch_ids(ui.ctx(), amount);
             let radios = photo_filter_radios(thumbs);
-            let edit = chrome::filter_editor(ui, rect, &radios, selected, amount, z, theme);
-            if let Some(index) = edit.hovered {
-                self.shape_properties.filter_aim = Some(index);
+            let (edit, layer_edit) = chrome::filter_editor(
+                ui,
+                rect,
+                &radios,
+                selected,
+                slider_amount,
+                &layer_chips,
+                layer_selected,
+                z,
+                theme,
+            );
+            if let Some(image) = paint_image {
+                if let Some(i) = layer_edit.clicked {
+                    if layer_chips.get(i).is_some_and(|c| c.is_add) {
+                        self.on_image_paint_add_clicked(image);
+                    } else {
+                        self.image_paint = Some(board_image_layers::ImagePaintSession {
+                            image,
+                            layer_index: i,
+                            focus: ImageStripFocus::Layer(i),
+                        });
+                    }
+                }
             }
-            match photo_filter_gesture(selected, amount, self.shape_properties.filter_aim, edit) {
-                FilterStep::Commit(adjust) => {
-                    self.preview_shape_property(Property::ImageAdjust(adjust));
+            if let Some(i) = edit.clicked {
+                let _ = i;
+                if let Some(image) = paint_image {
+                    if let Some(session) = self.image_paint.as_mut() {
+                        if session.image == image {
+                            session.focus = ImageStripFocus::Filter;
+                        }
+                    }
                 }
-                FilterStep::Peek(adjust) => {
-                    self.rebuild_shape_preview(Some(Property::ImageAdjust(adjust)));
+            }
+            if layer_mode {
+                if let Some(a) = edit.amount {
+                    if let Some(session) = self.image_paint.as_ref() {
+                        if let ImageStripFocus::Layer(idx) = session.focus {
+                            self.preview_shape_property(Property::PaintLayerOpacity {
+                                layer_index: idx,
+                                opacity: a,
+                            });
+                        }
+                    }
                 }
-                FilterStep::Rest => self.rebuild_shape_preview(None),
+                if ui.ctx().input(|i| i.pointer.any_released())
+                    && self
+                        .shape_properties
+                        .edits
+                        .iter()
+                        .any(|e| matches!(e, Property::PaintLayerOpacity { .. }))
+                {
+                    self.apply_shape_preview(ui.ctx(), false);
+                    self.push_history(atlas_commands::CommandId("board.image.layer.opacity"), None);
+                }
+            } else {
+                if let Some(index) = edit.hovered {
+                    self.shape_properties.filter_aim = Some(index);
+                }
+                match photo_filter_gesture(selected, amount, self.shape_properties.filter_aim, edit)
+                {
+                    FilterStep::Commit(adjust) => {
+                        self.preview_shape_property(Property::ImageAdjust(adjust));
+                    }
+                    FilterStep::Peek(adjust) => {
+                        self.rebuild_shape_preview(Some(Property::ImageAdjust(adjust)));
+                    }
+                    FilterStep::Rest => self.rebuild_shape_preview(None),
+                }
             }
             return false;
         }
