@@ -302,6 +302,14 @@ pub fn bundle_run(scene: &Scene, ids: &[NodeId]) -> Option<Vec<NodeId>> {
     Some(run)
 }
 
+/// True when the clipboard payload is a chat train that must fork on paste.
+pub fn paste_is_train_fork(payload: &[crate::scene::Node]) -> bool {
+    payload.iter().any(|n| {
+        agent(n)
+            .is_some_and(|a| a.chat.train && matches!(n.kind, crate::scene::NodeKind::Portal(_)))
+    })
+}
+
 /// A copied card is a new view of the same checkpoint, never a new history edge
 /// into a different workbook. Copying a whole train preserves internal refs.
 pub fn remap_view(node: &mut Node, remap: impl Fn(NodeId) -> Option<NodeId>) {
@@ -578,6 +586,20 @@ mod tests {
         assert_eq!(s.node(b).unwrap().id, b);
     }
     #[test]
+    #[test]
+    fn paste_train_fork_detects_train_cards() {
+        let mut s = Scene::default();
+        let root = card(&mut s, None, 0);
+        let _child = card(&mut s, Some(root), 1);
+        let nodes: Vec<_> = s.nodes.clone();
+        assert!(paste_is_train_fork(&nodes));
+        let mut plain = s.nodes[0].clone();
+        if let NodeKind::Portal(p) = &mut plain.kind {
+            p.agent.as_mut().unwrap().chat.train = false;
+        }
+        assert!(!paste_is_train_fork(&[plain]));
+    }
+
     fn journal_refuses_rewiring_and_orphaning_history() {
         let mut s = Scene::default();
         let a = card(&mut s, None, 0);
