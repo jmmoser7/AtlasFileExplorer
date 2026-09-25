@@ -110,7 +110,11 @@ pub fn parse_when(date: &str, time: &str, now: NaiveDateTime) -> Result<NaiveDat
         "" | "today" => (today, true, false),
         "tonight" => {
             // Small hours tonight are tomorrow's date.
-            let d = if at.hour() < 6 { today.succ_opt().unwrap_or(today) } else { today };
+            let d = if at.hour() < 6 {
+                today.succ_opt().unwrap_or(today)
+            } else {
+                today
+            };
             (d, false, false)
         }
         "tomorrow" => (today.succ_opt().unwrap_or(today), false, false),
@@ -206,7 +210,8 @@ pub fn load(link_dir: &Path) -> Option<AgentSchedule> {
 }
 
 fn session_of(link_dir: &Path) -> Result<String, String> {
-    crate::access::session_of(link_dir).ok_or_else(|| "This card has no conversation folder.".into())
+    crate::access::session_of(link_dir)
+        .ok_or_else(|| "This card has no conversation folder.".into())
 }
 
 fn task_name(session: &str) -> String {
@@ -317,8 +322,8 @@ fn schtasks(args: &[String]) -> Result<(), String> {
 }
 
 fn request(schedule: &AgentSchedule, link_dir: &Path) -> Result<AgentRequest, String> {
-    let output = crate::agent::recorded_output_dir(link_dir)
-        .map(|p| p.to_string_lossy().into_owned());
+    let output =
+        crate::agent::recorded_output_dir(link_dir).map(|p| p.to_string_lossy().into_owned());
     serde_json::from_value(serde_json::json!({
         "id": crate::agent::request_id(),
         "prompt": schedule.prompt,
@@ -407,16 +412,48 @@ mod tests {
     #[test]
     fn people_can_type_dates_and_times_the_way_they_say_them() {
         let now = at("2026-09-24T17:02");
-        assert_eq!(parse_when("tonight", "1am", now).unwrap(), at("2026-09-25T01:00"));
-        assert_eq!(parse_when("tonight", "11:30 pm", now).unwrap(), at("2026-09-24T23:30"));
-        assert_eq!(parse_when("October 1st", "4:55 am", now).unwrap(), at("2026-10-01T04:55"));
-        assert_eq!(parse_when("Oct 1", "04:55", now).unwrap(), at("2026-10-01T04:55"));
-        assert_eq!(parse_when("10/1", "4:55am", now).unwrap(), at("2026-10-01T04:55"));
-        assert_eq!(parse_when("2026-10-01", "16:55", now).unwrap(), at("2026-10-01T16:55"));
-        assert_eq!(parse_when("tomorrow", "9am", now).unwrap(), at("2026-09-25T09:00"));
-        assert_eq!(parse_when("today", "9am", now).unwrap(), at("2026-09-25T09:00"), "past today rolls to tomorrow");
-        assert_eq!(parse_when("Jan 5", "9am", now).unwrap(), at("2027-01-05T09:00"), "a yearless past date is next year");
-        assert!(parse_when("2026-09-01", "9am", now).is_err(), "a full past date is refused");
+        assert_eq!(
+            parse_when("tonight", "1am", now).unwrap(),
+            at("2026-09-25T01:00")
+        );
+        assert_eq!(
+            parse_when("tonight", "11:30 pm", now).unwrap(),
+            at("2026-09-24T23:30")
+        );
+        assert_eq!(
+            parse_when("October 1st", "4:55 am", now).unwrap(),
+            at("2026-10-01T04:55")
+        );
+        assert_eq!(
+            parse_when("Oct 1", "04:55", now).unwrap(),
+            at("2026-10-01T04:55")
+        );
+        assert_eq!(
+            parse_when("10/1", "4:55am", now).unwrap(),
+            at("2026-10-01T04:55")
+        );
+        assert_eq!(
+            parse_when("2026-10-01", "16:55", now).unwrap(),
+            at("2026-10-01T16:55")
+        );
+        assert_eq!(
+            parse_when("tomorrow", "9am", now).unwrap(),
+            at("2026-09-25T09:00")
+        );
+        assert_eq!(
+            parse_when("today", "9am", now).unwrap(),
+            at("2026-09-25T09:00"),
+            "past today rolls to tomorrow"
+        );
+        assert_eq!(
+            parse_when("Jan 5", "9am", now).unwrap(),
+            at("2027-01-05T09:00"),
+            "a yearless past date is next year"
+        );
+        assert!(
+            parse_when("2026-09-01", "9am", now).is_err(),
+            "a full past date is refused"
+        );
         assert!(parse_when("tonight", "25:00", now).is_err());
         assert!(parse_when("someday", "9am", now).is_err());
     }
@@ -434,8 +471,14 @@ mod tests {
         };
         assert_eq!(s.describe(), "Once on Thu Oct 1 at 4:55 AM");
         assert!(s.pending(at("2026-09-30T12:00")));
-        assert!(!s.pending(at("2026-10-02T00:00")), "a finished one-time run shows no clock");
-        let daily = AgentSchedule { repeat: Repeat::Daily, ..s };
+        assert!(
+            !s.pending(at("2026-10-02T00:00")),
+            "a finished one-time run shows no clock"
+        );
+        let daily = AgentSchedule {
+            repeat: Repeat::Daily,
+            ..s
+        };
         assert!(daily.pending(at("2027-01-01T00:00")));
         assert_eq!(daily.describe(), "Every day at 4:55 AM, from Thu Oct 1");
     }
@@ -445,7 +488,8 @@ mod tests {
     #[test]
     #[ignore]
     fn task_scheduler_accepts_the_generated_tasks() {
-        let root = std::env::temp_dir().join(format!("agent-sched-selftest-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("agent-sched-selftest-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         for (i, repeat) in [Repeat::Once, Repeat::Weekly].into_iter().enumerate() {
             let link = root.join(format!("agent-selftest-{i}"));

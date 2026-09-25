@@ -1932,18 +1932,30 @@ mod tests {
         h.app.agents.sessions.insert(generator, session.clone());
         h.app.patch_nodes(&[generator], |n| n.rect.x += 1.0);
         assert_eq!(h.app.agent_images(generator).len(), 2);
-        assert_eq!(h.app.agent_shown_path(generator).as_deref(), Some(second.as_path()));
+        assert_eq!(
+            h.app.agent_shown_path(generator).as_deref(),
+            Some(second.as_path())
+        );
 
         h.app.board_sel.clear();
-        assert_eq!(h.app.image_wheel(generator), super::super::board_agent::ImageWheel::Board);
+        assert_eq!(
+            h.app.image_wheel(generator),
+            super::super::board_agent::ImageWheel::Board
+        );
         h.app.board_sel.insert(generator);
-        assert_eq!(h.app.image_wheel(generator), super::super::board_agent::ImageWheel::Album);
+        assert_eq!(
+            h.app.image_wheel(generator),
+            super::super::board_agent::ImageWheel::Album
+        );
         // Flowing hides the labels until the picture is clicked again.
         h.app.agents.flow.set_hud_hidden(generator, true);
         assert!(h.app.agents.flow.hud_hidden(generator));
         h.app.board_sel.clear();
         h.frame();
-        assert!(!h.app.agents.flow.hud_hidden(generator), "deselecting shows it again");
+        assert!(
+            !h.app.agents.flow.hud_hidden(generator),
+            "deselecting shows it again"
+        );
 
         // The frame's link poll replaces the stand-in session; restore it.
         h.app.agents.sessions.insert(generator, session);
@@ -1959,10 +1971,13 @@ mod tests {
             Some(second),
             "the shown (newest) result only"
         );
-        assert!(matches!(
-            &h.app.doc().scene.node(generator).unwrap().kind,
-            NodeKind::Image(i) if i.agent.is_some()
-        ), "the source keeps its agent");
+        assert!(
+            matches!(
+                &h.app.doc().scene.node(generator).unwrap().kind,
+                NodeKind::Image(i) if i.agent.is_some()
+            ),
+            "the source keeps its agent"
+        );
     }
 
     /// The Text choice is a sticky note. It shows the agent's reply until the

@@ -6,10 +6,10 @@
 //! required: a missing `gh` leaves the local note and says so in
 //! `feedback.result.json`.
 
-use std::path::Path;
-use std::process::Command;
 use atlas_agent::FeedbackNote;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
+use std::process::Command;
 
 /// Where notes go when the person has not named another repo.
 pub const DEFAULT_REPO: &str = "jmmoser7/slate-agent-feedback";

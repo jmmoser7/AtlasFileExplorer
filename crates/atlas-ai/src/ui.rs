@@ -138,7 +138,8 @@ impl AiPanel {
     /// Whether [`AiPanel::update_context`] would build a beacon now. Lets the
     /// app skip gathering selection and file lists on the frames in between.
     pub fn beacon_due(&self) -> bool {
-        self.last_beacon.is_none_or(|t| t.elapsed() >= BEACON_INTERVAL)
+        self.last_beacon
+            .is_none_or(|t| t.elapsed() >= BEACON_INTERVAL)
     }
 
     pub fn update_context(&mut self, build: impl FnOnce() -> AiAppContext) {

@@ -319,7 +319,9 @@ impl Client {
                 _ => "image/png",
             };
             let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-            content.push(json!({"type": "input_image", "image_url": format!("data:{mime};base64,{data}")}));
+            content.push(
+                json!({"type": "input_image", "image_url": format!("data:{mime};base64,{data}")}),
+            );
         }
         Ok(Request::post_json(
             format!("{BASE}/responses"),
@@ -392,8 +394,17 @@ pub fn text_models(key: &str) -> Result<Vec<(String, String)>, String> {
 /// Chat entries of a `/v1/models` listing as (id, id), newest first.
 pub fn chat_models(listing: &Value) -> Vec<(String, String)> {
     const LEFT_OUT: [&str; 11] = [
-        "image", "audio", "realtime", "tts", "transcribe", "search", "embedding", "moderation",
-        "instruct", "codex", "computer",
+        "image",
+        "audio",
+        "realtime",
+        "tts",
+        "transcribe",
+        "search",
+        "embedding",
+        "moderation",
+        "instruct",
+        "codex",
+        "computer",
     ];
     let mut found: Vec<(i64, String)> = listing["data"]
         .as_array()
@@ -560,7 +571,10 @@ mod tests {
             {"id": "text-embedding-3-large", "created": 20}
         ]});
         assert_eq!(
-            chat_models(&listing).iter().map(|m| m.0.as_str()).collect::<Vec<_>>(),
+            chat_models(&listing)
+                .iter()
+                .map(|m| m.0.as_str())
+                .collect::<Vec<_>>(),
             ["gpt-5.5", "o4-mini"]
         );
         let _ = std::fs::remove_dir_all(dir);

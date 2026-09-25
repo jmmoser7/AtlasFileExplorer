@@ -161,10 +161,7 @@ fn image_output_dir(provider: &str, link: &Path) -> (PathBuf, String) {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    (
-        atlas_core::index::data_dir().join(provider).join(&tag),
-        tag,
-    )
+    (atlas_core::index::data_dir().join(provider).join(&tag), tag)
 }
 
 /// Credential Manager slot for the person's OpenAI API key.
@@ -198,7 +195,11 @@ pub fn text_models(
     openai: bool,
     api: &[atlas_agent::AgentModel],
 ) -> Vec<(String, String, String)> {
-    let mut models = vec![("ollama".to_string(), String::new(), "Local · Auto".to_string())];
+    let mut models = vec![(
+        "ollama".to_string(),
+        String::new(),
+        "Local · Auto".to_string(),
+    )];
     models.extend(local.iter().map(|m| {
         (
             "ollama".to_string(),
@@ -255,12 +256,18 @@ pub fn image_models(
     openai: bool,
     gpt: &[atlas_agent::AgentModel],
 ) -> Vec<(String, String, String)> {
-    let mut models = vec![("comfy".to_string(), String::new(), "ComfyUI · Auto".to_string())];
-    models.extend(
-        comfy
-            .iter()
-            .map(|m| ("comfy".to_string(), m.id.clone(), format!("ComfyUI · {}", m.name))),
-    );
+    let mut models = vec![(
+        "comfy".to_string(),
+        String::new(),
+        "ComfyUI · Auto".to_string(),
+    )];
+    models.extend(comfy.iter().map(|m| {
+        (
+            "comfy".to_string(),
+            m.id.clone(),
+            format!("ComfyUI · {}", m.name),
+        )
+    }));
     if codex {
         models.push((
             "codex-image".into(),

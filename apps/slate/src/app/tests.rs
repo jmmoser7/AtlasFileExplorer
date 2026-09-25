@@ -3592,9 +3592,11 @@ impl board_web::WebHost for FakeWebHost {
         self.0.borrow_mut().admitted.remove(&id);
     }
     fn take_frame(&mut self, id: slate_doc::NodeId) -> Option<board_web::WebFrame> {
-        self.0.borrow().admitted.contains(&id).then(|| {
-            egui::ColorImage::new([8, 8], egui::Color32::from_rgb(30, 90, 160)).into()
-        })
+        self.0
+            .borrow()
+            .admitted
+            .contains(&id)
+            .then(|| egui::ColorImage::new([8, 8], egui::Color32::from_rgb(30, 90, 160)).into())
     }
     fn capture_poster(&mut self, _id: slate_doc::NodeId) -> Option<board_web::WebFrame> {
         Some(egui::ColorImage::new([8, 8], egui::Color32::from_rgb(30, 90, 160)).into())

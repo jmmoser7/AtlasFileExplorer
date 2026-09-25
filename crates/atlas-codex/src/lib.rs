@@ -317,7 +317,12 @@ impl Client {
                 .flat_map(|v| v.images.iter())
                 .collect()
         } else {
-            request.inputs.wired.iter().flat_map(|v| v.images.iter()).collect()
+            request
+                .inputs
+                .wired
+                .iter()
+                .flat_map(|v| v.images.iter())
+                .collect()
         };
         for path in attached {
             input.push(json!({"type":"localImage","path":path}));
@@ -545,7 +550,11 @@ pub fn image_turn(request: &AgentRequest) -> String {
         (false, false) => "",
     };
     let plural = if count == 1 { "" } else { "s" };
-    let variants = if count > 1 { ", each a distinct variation" } else { "" };
+    let variants = if count > 1 {
+        ", each a distinct variation"
+    } else {
+        ""
+    };
     format!(
         "Create {count} image{plural} with your built-in image_gen tool, one image_gen call per image{variants}. Shape: {shape}. {roles}Do not run commands, read or write files, or ask questions: Slate collects the images from Codex's generated images folder. When done, reply with one short line.\n\nImage prompt:\n{}",
         request.prompt.trim()
@@ -594,7 +603,11 @@ impl Pictures {
     }
 
     /// Copy newly finished pictures into the album. True when one arrived.
-    fn collect(&mut self, request: &AgentRequest, session: &mut AgentSession) -> Result<bool, String> {
+    fn collect(
+        &mut self,
+        request: &AgentRequest,
+        session: &mut AgentSession,
+    ) -> Result<bool, String> {
         if !self.settled
             && self
                 .last_scan
@@ -648,9 +661,12 @@ fn picture_files(dir: &Path) -> Vec<std::path::PathBuf> {
         .flatten()
         .flatten()
         .filter(|e| {
-            e.path().extension().and_then(|x| x.to_str()).is_some_and(|x| {
-                ["png", "webp", "jpg", "jpeg"].contains(&x.to_ascii_lowercase().as_str())
-            })
+            e.path()
+                .extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| {
+                    ["png", "webp", "jpg", "jpeg"].contains(&x.to_ascii_lowercase().as_str())
+                })
         })
         .map(|e| {
             let at = e.metadata().and_then(|m| m.modified()).ok();
@@ -857,7 +873,8 @@ mod tests {
         assert!(text.contains("second attached image is a style reference"));
         assert!(text.ends_with("a timber pavilion at dusk"));
 
-        let root = std::env::temp_dir().join(format!("atlas-codex-pictures-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("atlas-codex-pictures-{}", std::process::id()));
         let (watch, dest) = (root.join("thread"), root.join("out"));
         std::fs::create_dir_all(&watch).unwrap();
         std::fs::write(watch.join("old.png"), b"old").unwrap();
@@ -872,10 +889,17 @@ mod tests {
         };
         let mut session = session_from_thread(&json!({}));
         std::fs::write(watch.join("new.png"), b"picture").unwrap();
-        assert!(!pictures.collect(&request, &mut session).unwrap(), "waits one scan");
+        assert!(
+            !pictures.collect(&request, &mut session).unwrap(),
+            "waits one scan"
+        );
         pictures.last_scan = None;
         assert!(pictures.collect(&request, &mut session).unwrap());
-        assert_eq!(session.bundle.images.len(), 1, "files from before the run stay out");
+        assert_eq!(
+            session.bundle.images.len(),
+            1,
+            "files from before the run stay out"
+        );
         assert_eq!(session.bundle.images[0].task, "vary");
         assert!(dest.join("run-0.png").is_file());
         std::fs::write(watch.join("last.png"), b"late").unwrap();

@@ -1320,7 +1320,11 @@ impl Client {
         let params = request.image.clone().unwrap_or_default();
         up.aspect = params.aspect;
         // Live replaces one frame; otherwise each picture lands as it finishes.
-        let count = if params.live.is_some() { 1 } else { params.images() };
+        let count = if params.live.is_some() {
+            1
+        } else {
+            params.images()
+        };
         let base = params.seed.unwrap_or_else(|| seed_from(&request.id));
         session.status = AgentStatus::Thinking;
         changed(session);
@@ -1332,7 +1336,16 @@ impl Client {
             } else {
                 format!("{}-{pass}", request.id)
             };
-            self.run_graph(request, &id, graph, &catalog, &plan, cancel, session, &mut changed)?;
+            self.run_graph(
+                request,
+                &id,
+                graph,
+                &catalog,
+                &plan,
+                cancel,
+                session,
+                &mut changed,
+            )?;
         }
         session.status = AgentStatus::Idle;
         changed(session);
@@ -1499,7 +1512,9 @@ mod tests {
         let mut session: AgentSession = serde_json::from_str(r#"{"provider":"comfy"}"#).unwrap();
         let mut arrivals = 0;
         client
-            .run(&req, &mut session, &cancel, |s| arrivals = arrivals.max(s.bundle.images.len()))
+            .run(&req, &mut session, &cancel, |s| {
+                arrivals = arrivals.max(s.bundle.images.len())
+            })
             .unwrap();
         assert_eq!(session.bundle.images.len(), 2);
         assert_eq!(arrivals, 2);
