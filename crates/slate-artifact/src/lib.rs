@@ -581,8 +581,12 @@ mod tests {
         let mut assets = AssetMap::default();
         assets.insert(path, "assets/p.png".into());
         let html = render_html(&doc, &assets);
-        assert!(html.contains("clipPath"), "{html}");
-        assert!(html.contains("opacity=\"0.500\""), "{html}");
+        assert!(html.contains("class=\"paint-layer\""), "{html}");
+        assert!(html.contains("opacity:0.500"), "{html}");
+        assert!(
+            !html.contains("<svg style=\"position:absolute;inset:0"),
+            "{html}"
+        );
         assert!(html.contains("data-paint-layer="), "{html}");
         let _ = id;
     }

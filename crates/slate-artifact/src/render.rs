@@ -797,13 +797,26 @@ fn render_image(
         html.push_str(";\"></div>");
     }
 
-    render_image_paint_layers(html, node, img, rel);
+    render_image_paint_layers(html, doc, assets, node, img, rel);
 
     html.push_str("</div>\n");
 }
 
+fn paint_layer_host_local(node: &Node, world: WorldRect) -> WorldRect {
+    let w = node.rect.w.max(1e-6);
+    let h = node.rect.h.max(1e-6);
+    WorldRect::new(
+        (world.x - node.rect.x) / w,
+        (world.y - node.rect.y) / h,
+        world.w / w,
+        world.h / h,
+    )
+}
+
 fn render_image_paint_layers(
     html: &mut String,
+    doc: &SlateDoc,
+    assets: &AssetMap,
     node: &Node,
     img: &slate_doc::scene::ImageNode,
     rel: WorldRect,
@@ -811,36 +824,50 @@ fn render_image_paint_layers(
     if img.paint_layers.is_empty() {
         return;
     }
-    let clip_id = format!("img-clip-{}", node.id.0);
-    html.push_str("<svg style=\"position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:hidden\"><defs><clipPath id=\"");
-    html.push_str(&clip_id);
-    html.push_str("\"><rect width=\"100%\" height=\"100%\" rx=\"0\" ry=\"0\"/></clipPath></defs>");
+    let hw = rel.w.max(1e-6);
+    let hh = rel.h.max(1e-6);
     for (i, layer) in img.paint_layers.iter().enumerate() {
         if !layer.visible {
             continue;
         }
-        html.push_str("<g clip-path=\"url(#");
-        html.push_str(&clip_id);
-        html.push_str(")\" opacity=\"");
-        html.push_str(&format!(
-            "{:.3}",
-            (layer.opacity * node.opacity).clamp(0.0, 1.0)
-        ));
+        html.push_str("<div class=\"paint-layer\" style=\"position:absolute;inset:0;pointer-events:none;opacity:");
+        html.push_str(&format!("{:.3}", layer.opacity.clamp(0.0, 1.0)));
         html.push_str("\" data-paint-layer=\"");
         html.push_str(&format!("{}-{}", node.id.0, i));
         html.push_str("\">");
         for local in &layer.nodes {
+            if !slate_doc::image_paint::layer_node_kind_allowed(&local.kind) {
+                continue;
+            }
             let world = slate_doc::image_paint::layer_node_to_world(node, img, local);
-            let child_rel = world.rect.translated(-rel.x, -rel.y);
-            match &world.kind {
-                NodeKind::Shape(shape) => render_shape(html, &world, shape, child_rel),
-                NodeKind::Text(text) => render_text(html, &world, text, &text.text, child_rel),
+            let frac = paint_layer_host_local(node, world.rect);
+            let child_px = WorldRect::new(frac.x * hw, frac.y * hh, frac.w * hw, frac.h * hh);
+            let mut child = world.clone();
+            child.rotation_deg = local.rotation_deg;
+            child.opacity = (local.opacity * layer.opacity).clamp(0.0, 1.0);
+            html.push_str("<div class=\"paint-layer-node\" style=\"position:absolute;inset:0;pointer-events:none\">");
+            match &child.kind {
+                NodeKind::Shape(shape) => render_shape(html, &child, shape, child_px),
+                NodeKind::Text(text) => render_text(html, &child, text, &text.text, child_px),
+                NodeKind::Image(layer_img) => {
+                    if let Some(item) = doc.item(layer_img.item) {
+                        if let Some(url) = assets.get(&item.path) {
+                            let mut style = geometry_style(child_px, local.rotation_deg);
+                            append_opacity(&mut style, child.opacity);
+                            html.push_str("<img src=\"");
+                            html.push_str(&escape_attr(url));
+                            html.push_str("\" alt=\"\" style=\"");
+                            html.push_str(&style);
+                            html.push_str("object-fit:cover;\" draggable=\"false\">");
+                        }
+                    }
+                }
                 _ => {}
             }
+            html.push_str("</div>");
         }
-        html.push_str("</g>");
+        html.push_str("</div>");
     }
-    html.push_str("</svg>");
 }
 
 fn render_img_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNode) {
