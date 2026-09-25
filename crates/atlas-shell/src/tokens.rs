@@ -28,6 +28,7 @@ pub struct UiTokens {
     pub board_marquee: BoardMarqueeTokens,
     pub board_forcefield: BoardForcefieldTokens,
     pub menu: MenuTokens,
+    pub slider: SliderTokens,
     pub theme: ThemeTokens,
 }
 
@@ -47,8 +48,35 @@ impl Default for UiTokens {
             board_marquee: BoardMarqueeTokens::default(),
             board_forcefield: BoardForcefieldTokens::default(),
             menu: MenuTokens::default(),
+            slider: SliderTokens::default(),
             theme: ThemeTokens::default(),
         }
+    }
+}
+
+/// Pointer reach shared by every slider rail (see `widgets::slider_press_zone`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SliderTokens {
+    /// How far a press may land past either end of a rail and still grab it,
+    /// clamping to that end. Screen px on chrome; canvas-attached sliders
+    /// scale it with the zoom (P0.9).
+    pub end_overhang: f32,
+}
+
+impl Default for SliderTokens {
+    fn default() -> Self {
+        Self { end_overhang: 6.0 }
+    }
+}
+
+impl SliderTokens {
+    pub fn normalize(&mut self) {
+        self.end_overhang = self.end_overhang.clamp(0.0, 16.0);
+    }
+
+    pub fn round_for_storage(&mut self) {
+        self.end_overhang = (self.end_overhang * 1_000.0).round() / 1_000.0;
     }
 }
 
@@ -2587,6 +2615,7 @@ fn parse_embedded() -> UiTokens {
     tokens.board_marquee.normalize();
     tokens.board_forcefield.normalize();
     tokens.menu.normalize();
+    tokens.slider.normalize();
     tokens
 }
 
@@ -2623,6 +2652,7 @@ pub fn replace(mut tokens: UiTokens) {
     tokens.board_marquee.normalize();
     tokens.board_forcefield.normalize();
     tokens.menu.normalize();
+    tokens.slider.normalize();
     *store().write().expect("UI token lock poisoned") = Arc::new(tokens);
     GENERATION.fetch_add(1, Ordering::Relaxed);
 }
@@ -2660,6 +2690,7 @@ mod tests {
         assert!(tokens.dock.advanced.card_w > 0.0);
         assert!(tokens.dock.advanced.border_width >= 1.0);
         assert!(tokens.board_forcefield.center_weight > 0.0);
+        assert!(tokens.slider.end_overhang > 0.0);
         assert!(tokens.menu.border_width <= 0.01);
         assert!(tokens.menu.corner_radius >= 4.0);
         assert!(tokens.menu.divider_inset > 0.0);

@@ -569,6 +569,7 @@ fn buffer(
         fraction,
         handle,
         editing,
+        zoom,
     );
     let response = hit.response;
     let center = Pos2::new(egui::lerp(rect.x_range(), *fraction), rect.center().y);

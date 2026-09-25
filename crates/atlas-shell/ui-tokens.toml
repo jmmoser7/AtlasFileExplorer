@@ -852,6 +852,9 @@ border = [
     0,
 ]
 
+[slider]
+end_overhang = 6.0
+
 [theme.light]
 dark_base = false
 bg = "#f6f7f8"

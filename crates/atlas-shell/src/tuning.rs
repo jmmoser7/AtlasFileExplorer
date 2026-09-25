@@ -38,7 +38,7 @@ mod enabled {
     use crate::tokens::{
         self, ActivityHeatmapTokens, BoardForcefieldTokens, BoardPreviewTokens, DockAdvancedTheme,
         DockAdvancedTokens, DockThemeTokens, DockTokens, HomeTokens, MenuThemeTokens, MenuTokens,
-        PortalMenuTokens, ReadoutTokens, TopBarThemeTokens, TopBarTokens, UiTokens,
+        PortalMenuTokens, ReadoutTokens, SliderTokens, TopBarThemeTokens, TopBarTokens, UiTokens,
     };
     use eframe::egui::{self, Color32, RichText, Slider};
     use std::path::PathBuf;
@@ -104,6 +104,8 @@ mod enabled {
         stored.board_forcefield.round_for_storage();
         stored.menu.normalize();
         stored.menu.round_for_storage();
+        stored.slider.normalize();
+        stored.slider.round_for_storage();
         let body = toml::to_string_pretty(&stored).map_err(|error| error.to_string())?;
         let header = concat!(
             "# Canonical shared-chrome design tokens.\n",
@@ -124,7 +126,7 @@ mod enabled {
     ) -> bool {
         ui.horizontal(|ui| {
             ui.label(label);
-            ui.add(Slider::new(value, range).show_value(true)).changed()
+            crate::widgets::slider(ui, Slider::new(value, range).show_value(true)).changed()
         })
         .inner
     }
@@ -137,7 +139,7 @@ mod enabled {
     ) {
         ui.horizontal(|ui| {
             ui.label(label);
-            ui.add(Slider::new(value, range).show_value(true));
+            crate::widgets::slider(ui, Slider::new(value, range).show_value(true));
         });
     }
 
@@ -1303,6 +1305,27 @@ mod enabled {
             });
     }
 
+    fn slider_editor(ui: &mut egui::Ui, slider: &mut SliderTokens) {
+        egui::CollapsingHeader::new("Sliders · Pointer reach")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(
+                        "How far past either end of any slider a press still grabs it \
+                         (clamping to that end). Screen px on chrome; canvas sliders \
+                         scale it with the zoom.",
+                    )
+                    .small(),
+                );
+                scalar(
+                    ui,
+                    "End overhang (px)",
+                    &mut slider.end_overhang,
+                    0.0..=16.0,
+                );
+            });
+    }
+
     fn readouts_editor(ui: &mut egui::Ui, readouts: &mut ReadoutTokens) {
         egui::CollapsingHeader::new("Readout bar (bottom)")
             .default_open(false)
@@ -1716,6 +1739,8 @@ mod enabled {
                 activity_heatmap_editor(ui, &mut state.draft.activity_heatmap);
 
                 home_editor(ui, &mut state.draft.home);
+
+                slider_editor(ui, &mut state.draft.slider);
 
                 dock_partition_tracer_editor(ui, &mut state.draft.dock);
 
