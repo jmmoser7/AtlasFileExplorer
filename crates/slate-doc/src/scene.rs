@@ -4565,30 +4565,27 @@ pub fn supports_corners(node: &Node) -> bool {
     }
 }
 
-/// World-unit fillet radius after kind-specific defaults (text cards, portals).
-pub fn resolved_corner_radius(
-    node: &Node,
-    path: Option<&std::path::Path>,
-    portal_token_radius: f32,
-) -> f32 {
-    let corner = match &node.kind {
+/// Authored corner after kind defaults (text cards, portal [`Square`] → designed fillet).
+pub fn resolved_corner(node: &Node, path: Option<&std::path::Path>) -> Corner {
+    match &node.kind {
         NodeKind::Shape(s) if s.shape == ShapeKind::Rect => s.corner,
         NodeKind::Image(i) => path
             .map(|p| crate::media::text_card_corner(p, i.corner))
             .unwrap_or(i.corner),
         NodeKind::Frame(f) => f.corner,
-        NodeKind::Portal(p) => {
-            if matches!(p.corner, Corner::Square) {
-                Corner::Rounded {
-                    radius: portal_token_radius,
-                }
-            } else {
-                p.corner
-            }
-        }
+        NodeKind::Portal(p) => crate::media::portal_frame_corner(p.corner),
         _ => Corner::Square,
-    };
-    corner.effective(node.rect.w, node.rect.h).1
+    }
+}
+
+/// Effective chamfer flag and world radius for layout, export, and grips.
+pub fn resolved_corner_effective(node: &Node, path: Option<&std::path::Path>) -> (bool, f32) {
+    resolved_corner(node, path).effective(node.rect.w, node.rect.h)
+}
+
+/// World-unit radius after [`resolved_corner_effective`] (fillet amount only).
+pub fn resolved_corner_radius(node: &Node, path: Option<&std::path::Path>) -> f32 {
+    resolved_corner_effective(node, path).1
 }
 
 pub fn adjust_of(node: &Node) -> Option<ImageAdjust> {
@@ -4857,7 +4854,7 @@ mod corner_percentage_tests {
                 corner: Corner::Rounded { radius: 999.0 },
             }),
         };
-        assert!((resolved_corner_radius(&frame, None, 8.0) - 20.0).abs() < 1e-4);
+        assert!((resolved_corner_radius(&frame, None) - 20.0).abs() < 1e-4);
         let portal = Node {
             id: NodeId(3),
             rect,
@@ -4881,6 +4878,32 @@ mod corner_percentage_tests {
                 corner: Corner::Square,
             }),
         };
-        assert!((resolved_corner_radius(&portal, None, 12.0) - 12.0).abs() < 1e-4);
+        assert!(
+            (resolved_corner_radius(&portal, None) - crate::media::PORTAL_FRAME_DEFAULT_FILLET)
+                .abs()
+                < 1e-4
+        );
+    }
+
+    #[test]
+    fn portal_chamfer_resolves_for_layout_and_export() {
+        let mut portal = PortalNode::unbound_web("Page");
+        portal.corner = Corner::Chamfer { cut: 12.0 };
+        let node = Node {
+            id: NodeId(4),
+            rect: WorldRect::new(0.0, 0.0, 200.0, 100.0),
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            bumper: None,
+            kind: NodeKind::Portal(portal),
+        };
+        let corner = resolved_corner(&node, None);
+        let (chamfer, r) = corner.effective(node.rect.w, node.rect.h);
+        assert!(chamfer);
+        assert!((r - 12.0).abs() < 1e-4);
     }
 }

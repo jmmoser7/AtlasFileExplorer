@@ -204,6 +204,7 @@ impl SlateApp {
             srect,
             self.portal_chrome_collapsed(id),
             self.portal_is_maximized(id),
+            self.node_resolved_corner(&node),
             self.node_fillet_radius_world(&node),
             xf.z,
         );

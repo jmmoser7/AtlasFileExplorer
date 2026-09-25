@@ -11,6 +11,8 @@ pub const HANDLE_PX: f32 = 5.0;
 pub const FILLET_GRIP_PX: f32 = 4.0;
 /// Minimum inset of the fillet grip from the host corner along the diagonal.
 pub const FILLET_GRIP_MIN_INSET_PX: f32 = 10.0;
+/// Hover fill for the live fillet grip.
+pub const FILLET_GRIP_HOT: Color32 = Color32::from_rgb(210, 230, 255);
 /// Windows-style corner hit (diagonal resize).
 pub const CORNER_HIT_PX: f32 = 12.0;
 /// Windows-style edge-band hit (axis resize).
@@ -303,33 +305,33 @@ pub fn hit_test_resize_bands(screen: Pos2, geom: &SelectionGeom) -> Option<Resiz
     best.map(|(h, _)| h)
 }
 
-/// Fillet radius in world units from a pointer position on the NW→SE diagonal.
+/// Fillet radius in world units from a pointer position (local NW corner = min of rx, ry).
 pub fn fillet_radius_from_world_point(rect: WorldRect, rotation_deg: f32, world: Pos2) -> f32 {
     let (cx, cy) = rect.center();
-    let rad = (-rotation_deg).to_radians();
-    let (sin, cos) = rad.sin_cos();
-    let dx = world.x - cx;
-    let dy = world.y - cy;
-    let lx = cx + dx * cos - dy * sin;
-    let ly = cy + dx * sin + dy * cos;
-    let along = (lx - rect.x + ly - rect.y) * 0.5;
-    let max = rect.w.min(rect.h) * 0.5;
-    along.clamp(0.0, max)
+    let (lx, ly) = slate_doc::geom::world_to_local(world.x, world.y, cx, cy, rotation_deg);
+    let rx = (lx - rect.x).max(0.0);
+    let ry = (ly - rect.y).max(0.0);
+    let limit = rect.w.min(rect.h) * 0.5;
+    rx.min(ry).min(limit)
 }
 
-/// Screen position of the live fillet grip (NW host corner, inset on the diagonal).
-pub fn fillet_grip_screen(geom: &SelectionGeom, radius_world: f32) -> Pos2 {
+/// Screen position of the live fillet grip at local `(radius_world, radius_world)`.
+pub fn fillet_grip_screen(
+    xf: &BoardXf,
+    rect: WorldRect,
+    rotation_deg: f32,
+    radius_world: f32,
+) -> Pos2 {
+    let local = [rect.x + radius_world, rect.y + radius_world];
+    let [wx, wy] = rect.rotate_point(local, rotation_deg);
+    xf.w2s(Pos2::new(wx, wy))
+}
+
+pub fn fillet_grip_separated_from_nw_corner(geom: &SelectionGeom, grip: Pos2) -> bool {
     let nw = geom.corners[0];
-    let se = geom.corners[2];
-    let diag = se - nw;
-    let diag_len = diag.length();
-    if diag_len < 1e-4 {
-        return nw;
-    }
-    let inset =
-        (radius_world * geom.zoom).max(canvas_scale::px(FILLET_GRIP_MIN_INSET_PX, geom.zoom));
-    let t = (inset / diag_len).clamp(0.0, 0.45);
-    nw + diag * t
+    let min_sep = canvas_scale::hit_px(CORNER_HIT_PX, geom.zoom)
+        + canvas_scale::px(FILLET_GRIP_PX, geom.zoom);
+    grip.distance(nw) >= min_sep
 }
 
 pub fn hit_test_fillet_grip(screen: Pos2, geom: &SelectionGeom, grip: Pos2) -> bool {
@@ -341,11 +343,7 @@ pub fn hit_test_fillet_grip(screen: Pos2, geom: &SelectionGeom, grip: Pos2) -> b
 
 pub fn paint_fillet_grip(painter: &egui::Painter, grip: Pos2, zoom: f32, ink: Color32, hot: bool) {
     let half = canvas_scale::px(FILLET_GRIP_PX, zoom);
-    let fill = if hot {
-        Color32::from_rgb(210, 230, 255)
-    } else {
-        Color32::WHITE
-    };
+    let fill = if hot { FILLET_GRIP_HOT } else { Color32::WHITE };
     painter.rect(
         Rect::from_center_size(grip, Vec2::splat(half * 2.0)),
         0.0,
@@ -693,6 +691,48 @@ mod tests {
         assert!(
             (off2 - off1 * 2.0).abs() < 1e-3,
             "rotate offset froze: {off1} → {off2}"
+        );
+    }
+
+    #[test]
+    fn fillet_grip_screen_round_trips_the_radius_reader() {
+        use slate_doc::scene::WorldRect;
+
+        let xf = BoardXf {
+            center: Pos2::ZERO,
+            offset: Vec2::ZERO,
+            z: 1.0,
+        };
+        for (w, h) in [(100.0, 100.0), (400.0, 100.0), (100.0, 400.0)] {
+            for rot in [0.0, 37.0, 90.0, 180.0] {
+                let rect = WorldRect::new(0.0, 0.0, w, h);
+                let max = w.min(h) * 0.5;
+                for r in [0.0, 8.0, 24.0, (max * 0.45).floor()] {
+                    let grip = fillet_grip_screen(&xf, rect, rot, r);
+                    let world = xf.s2w(grip);
+                    let read = fillet_radius_from_world_point(rect, rot, world);
+                    assert!(
+                        (read - r).abs() < 0.08,
+                        "w={w} h={h} rot={rot} r={r}: read {read}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fillet_grip_hides_when_it_would_cover_the_nw_resize_corner() {
+        let rect = WorldRect::new(0.0, 0.0, 36.0, 36.0);
+        let xf = BoardXf {
+            center: Pos2::ZERO,
+            offset: egui::vec2(18.0, 18.0),
+            z: 1.0,
+        };
+        let geom = selection_geom(&xf, rect, 0.0);
+        let grip = fillet_grip_screen(&xf, rect, 0.0, 8.0);
+        assert!(
+            !fillet_grip_separated_from_nw_corner(&geom, grip),
+            "tiny node must not show a grip on the NW resize corner"
         );
     }
 }

@@ -1884,12 +1884,20 @@ impl SlateApp {
             );
             if self.node_supports_fillet_grip(n) {
                 let radius = self.node_fillet_radius_world(n);
-                let grip = board_handles::fillet_grip_screen(&geom, radius);
-                let hot = matches!(
-                    self.board_hover_hit,
-                    Some(board_handles::BoardHitTarget::FilletRadius)
-                ) || matches!(self.board_drag, Some(BoardDrag::FilletRadius { id, .. }) if id == n.id);
-                board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
+                let geom = board_handles::selection_geom(xf, n.rect, n.rotation_deg);
+                let grip = board_handles::fillet_grip_screen(xf, n.rect, n.rotation_deg, radius);
+                if board_handles::fillet_grip_separated_from_nw_corner(&geom, grip)
+                    && !canvas_scale::too_small(canvas_scale::px(
+                        board_handles::FILLET_GRIP_PX,
+                        xf.z,
+                    ))
+                {
+                    let hot = matches!(
+                        self.board_hover_hit,
+                        Some(board_handles::BoardHitTarget::FilletRadius)
+                    ) || matches!(self.board_drag, Some(BoardDrag::FilletRadius { id, .. }) if id == n.id);
+                    board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
+                }
             }
         } else {
             painter.add(egui::Shape::closed_line(
@@ -1931,15 +1939,7 @@ impl SlateApp {
                     .unwrap_or(img.corner);
                 corner_outline(srect, corner, z)
             }
-            NodeKind::Portal(p) => {
-                let token = atlas_shell::tokens::current().portal_frame.corner_radius;
-                let corner = if matches!(p.corner, Corner::Square) {
-                    Corner::Rounded { radius: token }
-                } else {
-                    p.corner
-                };
-                corner_outline(srect, corner, z)
-            }
+            NodeKind::Portal(p) => corner_outline(srect, self.node_resolved_corner(node), z),
             NodeKind::DockStrip(strip) => {
                 let (card, r) = self.dock_strip_screen_card(ctx, xf, node, strip);
                 rounded_rect_outline(card, r)
@@ -1978,43 +1978,22 @@ pub(crate) fn rounded_rect_outline(rect: Rect, radius: f32) -> Vec<Pos2> {
 
 /// Rounded frame outline cut to `body` so a tab bar can occupy the top
 /// without the page texture oversailing the fillet at the bottom corners.
-pub(crate) fn portal_content_outline(frame: Rect, body: Rect, radius: f32) -> Vec<Pos2> {
+pub(crate) fn portal_content_outline(frame: Rect, body: Rect, corner: Corner, z: f32) -> Vec<Pos2> {
     let clip = body.intersect(frame);
     if clip.height() < 1.0 || clip.width() < 1.0 {
         return Vec::new();
     }
-    let inset = (clip.left() - frame.left())
-        .max(frame.right() - clip.right())
-        .max(frame.bottom() - clip.bottom())
+    let fw = frame.width() / z;
+    let fh = frame.height() / z;
+    let inset = ((clip.left() - frame.left()) / z)
+        .max((frame.right() - clip.right()) / z)
+        .max((frame.bottom() - clip.bottom()) / z)
+        .max((clip.top() - frame.top()) / z)
         .max(0.0);
-    let half = clip.width().min(clip.height()) * 0.5;
-    let r = (radius - inset).clamp(0.0, half);
-    if clip.min.y <= frame.min.y + 0.5 {
-        return rounded_rect_outline(clip, r);
-    }
-    if r < 0.5 {
-        return vec![
-            clip.left_top(),
-            clip.right_top(),
-            clip.right_bottom(),
-            clip.left_bottom(),
-        ];
-    }
-    let steps = 8;
-    let mut pts = Vec::with_capacity(2 + 2 * (steps + 1));
-    pts.push(Pos2::new(clip.min.x, clip.min.y));
-    pts.push(Pos2::new(clip.max.x, clip.min.y));
-    let br = Pos2::new(clip.max.x - r, clip.max.y - r);
-    for s in 0..=steps {
-        let a = (90.0 * s as f32 / steps as f32).to_radians();
-        pts.push(br + Vec2::new(a.cos() * r, a.sin() * r));
-    }
-    let bl = Pos2::new(clip.min.x + r, clip.max.y - r);
-    for s in 0..=steps {
-        let a = (90.0 + 90.0 * s as f32 / steps as f32).to_radians();
-        pts.push(bl + Vec2::new(a.cos() * r, a.sin() * r));
-    }
-    pts
+    let (chamfer, r) = corner.effective(fw, fh);
+    let r2 = (r - inset).max(0.0);
+    let clip_corner = Corner::from_parameters(chamfer, false, r2);
+    corner_outline(clip, clip_corner, z)
 }
 
 /// Square-corner leftovers outside a rounded rect. Painted in the frame fill
@@ -2060,31 +2039,118 @@ pub(crate) fn fillet_overhangs(rect: Rect, radius: f32) -> [Vec<Pos2>; 4] {
     })
 }
 
-pub(crate) fn paint_fillet_masks(painter: &egui::Painter, frame: Rect, radius: f32, fill: Color32) {
-    if radius < 0.5 || fill.a() == 0 {
+pub(crate) fn paint_convex_fan_fill(painter: &egui::Painter, outline: &[Pos2], fill: Color32) {
+    if outline.len() < 3 {
         return;
     }
-    for outline in fillet_overhangs(frame, radius) {
-        if outline.len() < 3 {
+    let mut mesh = egui::Mesh::default();
+    for p in outline {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: *p,
+            uv: Pos2::ZERO,
+            color: fill,
+        });
+    }
+    for i in 1..outline.len() as u32 - 1 {
+        mesh.indices.extend_from_slice(&[0, i, i + 1]);
+    }
+    painter.add(mesh);
+}
+
+pub(crate) fn paint_fillet_masks(
+    painter: &egui::Painter,
+    frame: Rect,
+    corner: Corner,
+    z: f32,
+    fill: Color32,
+) {
+    if fill.a() == 0 {
+        return;
+    }
+    let (chamfer, r) = corner.effective(frame.width() / z, frame.height() / z);
+    if !chamfer {
+        if r < 0.5 {
+            return;
+        }
+        for outline in fillet_overhangs(frame, r) {
+            if outline.len() >= 3 {
+                paint_convex_fan_fill(painter, &outline, fill);
+            }
+        }
+        return;
+    }
+    let outline = corner_outline(frame, corner, z);
+    if outline.len() < 3 {
+        return;
+    }
+    let outers = [
+        frame.left_top(),
+        frame.right_top(),
+        frame.right_bottom(),
+        frame.left_bottom(),
+    ];
+    for outer in outers {
+        if point_in_convex_poly(&outline, outer) {
             continue;
         }
-        let mut mesh = egui::Mesh::default();
-        for p in &outline {
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: *p,
-                uv: Pos2::ZERO,
-                color: fill,
-            });
+        let wedge = chamfer_mask_wedge(outer, &outline);
+        if wedge.len() >= 3 {
+            paint_convex_fan_fill(painter, &wedge, fill);
         }
-        for i in 1..outline.len() as u32 - 1 {
-            mesh.indices.extend_from_slice(&[0, i, i + 1]);
-        }
-        painter.add(mesh);
     }
 }
 
+fn point_in_convex_poly(poly: &[Pos2], p: Pos2) -> bool {
+    if poly.len() < 3 {
+        return false;
+    }
+    let mut sign = 0.0f32;
+    for i in 0..poly.len() {
+        let a = poly[i];
+        let b = poly[(i + 1) % poly.len()];
+        let cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        if cross.abs() < 1e-3 {
+            continue;
+        }
+        let s = cross.signum();
+        if sign == 0.0 {
+            sign = s;
+        } else if s != sign {
+            return false;
+        }
+    }
+    true
+}
+
+fn chamfer_mask_wedge(outer: Pos2, outline: &[Pos2]) -> Vec<Pos2> {
+    let mut i0 = 0usize;
+    let mut d0 = f32::MAX;
+    let mut i1 = 0usize;
+    let mut d1 = f32::MAX;
+    for (i, p) in outline.iter().enumerate() {
+        let d = (*p - outer).length_sq();
+        if d < d0 {
+            d1 = d0;
+            i1 = i0;
+            d0 = d;
+            i0 = i;
+        } else if d < d1 {
+            d1 = d;
+            i1 = i;
+        }
+    }
+    if i0 == i1 {
+        return vec![];
+    }
+    let (start, end) = if i0 <= i1 { (i0, i1) } else { (i1, i0) };
+    let mut wedge = Vec::with_capacity(end - start + 2);
+    wedge.push(outer);
+    wedge.extend_from_slice(&outline[start..=end]);
+    wedge
+}
+
 /// Outline points for a rect with the given corner treatment (clockwise).
-fn corner_outline(rect: Rect, corner: Corner, z: f32) -> Vec<Pos2> {
+pub(crate) fn corner_outline(rect: Rect, corner: Corner, z: f32) -> Vec<Pos2> {
     corner
         .outline(
             WorldRect::new(0.0, 0.0, rect.width() / z, rect.height() / z),
@@ -3247,12 +3313,12 @@ impl SlateApp {
                     if let Some(sheet) = &sheet {
                         outline = if rotated {
                             rotate_points(
-                                &corner_outline(srect, Corner::Square, z),
+                                &corner_outline(srect, corner, z),
                                 srect.center(),
                                 node.rotation_deg,
                             )
                         } else {
-                            corner_outline(srect, Corner::Square, z)
+                            corner_outline(srect, corner, z)
                         };
                         self.paint_sheet_card(
                             painter, &outline, srect, node.id, img.item, &path, sheet, pointer, z,
@@ -4524,10 +4590,10 @@ impl SlateApp {
                         let label = format!("{} u", atlas_shell::selection_tools::number(r));
                         canvas_text::text(
                             &painter,
-                            p + Vec2::new(12.0, -18.0) * xf.z,
+                            p + Vec2::new(12.0, -18.0),
                             Align2::LEFT_BOTTOM,
                             label,
-                            canvas_scale::font(12.0, xf.z),
+                            canvas_scale::font(12.0, 1.0),
                             palette.select,
                         );
                     }
@@ -5779,10 +5845,10 @@ impl SlateApp {
                 if let Some(wd) = self.try_begin_wire_drag(screen, world, mods) {
                     return Some(BoardDrag::Wire(wd));
                 }
-                if let Some(drag) = self.begin_fillet_drag(screen) {
+                if let Some(drag) = self.begin_transform_drag(screen, world) {
                     return Some(drag);
                 }
-                if let Some(drag) = self.begin_transform_drag(screen, world) {
+                if let Some(drag) = self.begin_fillet_drag(screen) {
                     return Some(drag);
                 }
                 // Dragging inside an unlocked 3D viewport orbits its camera

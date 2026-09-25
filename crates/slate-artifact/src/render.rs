@@ -599,9 +599,15 @@ fn render_web_portal(
 ) {
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
-    style.push_str("overflow:hidden;background:");
-    style.push_str(&portal.fill.css());
-    style.push(';');
+    if !portal.slate_fill_follows_theme() {
+        style.push_str("background:");
+        style.push_str(&portal.fill.css());
+        style.push(';');
+    }
+    style.push_str("overflow:hidden;");
+    let corner = slate_doc::media::portal_frame_corner(portal.corner);
+    append_corner(&mut style, corner, rel.w, rel.h);
+    append_stroke(&mut style, &portal.stroke);
     html.push_str("<div class=\"node portal portal-web\" style=\"");
     html.push_str(&style);
     html.push_str("\">");
@@ -2039,6 +2045,17 @@ fn escape_attr(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_portal_export_emits_document_corner_radius() {
+        use slate_doc::media::{portal_frame_corner, PORTAL_FRAME_DEFAULT_FILLET};
+        let mut css = String::new();
+        append_corner(&mut css, portal_frame_corner(Corner::Square), 400.0, 300.0);
+        assert_eq!(
+            css,
+            format!("border-radius:{PORTAL_FRAME_DEFAULT_FILLET}px;")
+        );
+    }
 
     #[test]
     fn escape_html_entities() {

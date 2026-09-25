@@ -4356,7 +4356,10 @@ fn maximized_restore_glyph_click_leaves_maximize() {
             host,
             false,
             true,
-            slate_doc::media::TEXT_CARD_FILLET,
+            slate_doc::scene::Corner::Rounded {
+                radius: slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET,
+            },
+            slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET,
             1.0,
         );
         let at = layout.maximize.center();
@@ -4419,7 +4422,10 @@ fn maximized_restore_glyph_click_leaves_maximize() {
         host,
         false,
         true,
-        slate_doc::media::TEXT_CARD_FILLET,
+        slate_doc::scene::Corner::Rounded {
+            radius: slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET,
+        },
+        slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET,
         1.0,
     );
     assert_eq!(

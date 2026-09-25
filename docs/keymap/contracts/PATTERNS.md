@@ -176,13 +176,16 @@ is searchable.
   `[0, min(w,h)/2]`; live preview, **one** journaled `SceneCmd::Patch`
   on release (`board.shape.fillet`); Esc mid-drag restores press-time
   radius (ActiveOperation); Shift → integer world units; radius readout
-  at the pointer during drag (`canvas_text`). **Frame:** members are not
-  clipped by the frame fillet. **Pick:** click and marquee still use the
-  node AABB. **Portal `Corner::Square`:** live paint uses
-  `tokens.current().portal_frame.corner_radius`; HTML export uses
-  `slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET` (must equal shipped
-  `PortalFrameTokens::default().corner_radius`); a grip drag journals an
-  explicit `Rounded` radius. Owner: `board_handles` + `board_transform`.
+  at the pointer during drag (`canvas_text`, **P2.GhostFollow** — screen-constant
+  offset, not multiplied by zoom). **Frame:** members are not
+  clipped by the frame fillet on the board; exported slides clip deck
+  contents with `overflow:hidden` on the slide rect (existing frame/slide rule).
+  **Pick:** click and marquee still use the
+  node AABB. **Portal `Corner::Square`:** resolves to
+  `slate_doc::media::portal_frame_corner` (same default on board and export;
+  `PortalFrameTokens::default().corner_radius` tracks that constant for chrome
+  only); a grip drag journals an
+  explicit radius. Owner: `board_handles` + `board_transform`.
 - **P1.node.zorder / clipboard** PageUp/PageDown/Ctrl+B; Ctrl+C/X/V,
   Ctrl+Shift+V in place.
 

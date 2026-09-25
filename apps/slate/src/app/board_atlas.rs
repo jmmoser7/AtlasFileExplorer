@@ -488,12 +488,13 @@ impl SlateApp {
             srect,
             collapsed,
             maximized,
+            self.node_resolved_corner(node),
             self.node_fillet_radius_world(node),
             xf.z,
         );
         let fill = self.portal_frame_fill_color(portal);
         self.paint_portal_frame_fill(painter, &layout, fill, Color32::TRANSPARENT, false);
-        let clipped = painter.with_clip_rect(layout.body.intersect(painter.clip_rect()));
+        let clipped = painter.with_clip_rect(layout.page.intersect(painter.clip_rect()));
 
         match &portal.source {
             None => {
@@ -828,6 +829,7 @@ impl SlateApp {
             srect,
             self.portal_chrome_collapsed(id),
             self.portal_is_maximized(id),
+            self.node_resolved_corner(&node),
             self.node_fillet_radius_world(&node),
             xf.z,
         );

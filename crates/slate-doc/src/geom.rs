@@ -17,6 +17,18 @@ pub fn world_point(p: [f32; 2], rect: WorldRect, rotation_deg: f32) -> Point {
     Point::new(x as f64, y as f64)
 }
 
+/// Inverse of rotating a world point about `(cx, cy)` by `rotation_deg`.
+pub fn world_to_local(px: f32, py: f32, cx: f32, cy: f32, rotation_deg: f32) -> (f32, f32) {
+    if rotation_deg.abs() < f32::EPSILON {
+        return (px, py);
+    }
+    let rad = (-rotation_deg).to_radians();
+    let (sin, cos) = rad.sin_cos();
+    let dx = px - cx;
+    let dy = py - cy;
+    (cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
+}
+
 /// Normalized path data placed in `rect` and rotated about its center.
 pub fn path_data_to_world_bez(path: &PathData, rect: WorldRect, rotation_deg: f32) -> BezPath {
     let at = |p: [f32; 2]| world_point(p, rect, rotation_deg);
@@ -115,5 +127,26 @@ pub fn node_closed_poly(n: &Node, tolerance: f32) -> Option<Polygon> {
             .map(|(x, y)| [x, y])
             .collect()]),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn world_to_local_inverts_world_point() {
+        let rect = WorldRect::new(10.0, 20.0, 80.0, 40.0);
+        for rot in [0.0, 15.0, 90.0, 133.0] {
+            let (cx, cy) = rect.center();
+            let wx = rect.x + 0.25 * rect.w;
+            let wy = rect.y + 0.75 * rect.h;
+            let [rx, ry] = rect.rotate_point([wx, wy], rot);
+            let (lx, ly) = world_to_local(rx, ry, cx, cy, rot);
+            assert!(
+                (lx - wx).abs() < 1e-4 && (ly - wy).abs() < 1e-4,
+                "rot={rot}"
+            );
+        }
     }
 }

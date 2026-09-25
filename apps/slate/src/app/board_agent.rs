@@ -6678,6 +6678,7 @@ impl SlateApp {
             srect,
             false,
             false,
+            self.node_resolved_corner(node),
             self.node_fillet_radius_world(node),
             xf.z,
         );
@@ -6952,6 +6953,7 @@ impl SlateApp {
             rect,
             false,
             maximized,
+            self.node_resolved_corner(node),
             self.node_fillet_radius_world(node),
             xf.z,
         );
