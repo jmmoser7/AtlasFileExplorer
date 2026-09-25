@@ -2284,6 +2284,64 @@ mod tests {
         assert!(dims[0].offset.x > 0.99, "width stands on the right");
     }
 
+    /// The screenshot case: with a 223.57 × 289.326 portrait frame turned to
+    /// landscape, the 289.326 stringer was drawn along the top, through the
+    /// squircle strip. No stringer baseline may rise above the frame's visual
+    /// top edge, and no stringer's footprint (baseline, witness lines, ticks
+    /// and its 12 u label) may meet the strip rect its owner lays out.
+    #[test]
+    fn landscape_turned_frame_stringers_clear_the_property_strip() {
+        let mut h = board();
+        for (i, (w, h_)) in [(223.57, 289.326), (612.0, 792.0)].into_iter().enumerate() {
+            let id = frame_node(
+                &mut h,
+                WorldRect::new(40.0 + 2000.0 * i as f32, 60.0, w, h_),
+            );
+            for rotation in [0.0, 90.0, -90.0, 180.0, 270.0] {
+                h.app.patch_nodes(&[id], |n| n.rotation_deg = rotation);
+                let node = h.app.doc().scene.node(id).unwrap().clone();
+                let (bounds, dims) = dimensions(std::slice::from_ref(&node));
+                let bounds = bounds.unwrap();
+                let items = live_property_strip_items(&h.app, std::slice::from_ref(&node));
+                assert_eq!(items.len(), 7, "fill, stroke, corners, <, >, present, deck");
+                let strip = chrome::strip_rect(
+                    Pos2::new(bounds.x + bounds.w * 0.5, bounds.y),
+                    items.len(),
+                    1.0,
+                    1.0,
+                );
+                assert_eq!(dims.len(), 2);
+                for d in &dims {
+                    let a = d.ends[0] + d.offset;
+                    let b = d.ends[1] + d.offset;
+                    let label = format!("{w}×{h_} at {rotation}° {:?}", d.kind);
+                    assert!(
+                        a.y >= bounds.y - 0.01 && b.y >= bounds.y - 0.01,
+                        "{label} baseline above the frame"
+                    );
+                    let out = d.offset.normalized() * 4.0;
+                    let footprint =
+                        Rect::from_points(&[a, b, d.ends[0] + out, d.ends[1] + out]).expand(9.0);
+                    assert!(!footprint.intersects(strip), "{label} meets the strip");
+                }
+                let visual_w = bounds.w;
+                let across = dims
+                    .iter()
+                    .find(|d| (d.value - visual_w).abs() < 0.01)
+                    .expect("one stringer measures the visual width");
+                assert!(
+                    across.offset.y > 0.99,
+                    "{w}×{h_} at {rotation}° width is below"
+                );
+                let tall = dims.iter().find(|d| !std::ptr::eq(*d, across)).unwrap();
+                assert!(
+                    tall.offset.x > 0.99,
+                    "{w}×{h_} at {rotation}° height is right"
+                );
+            }
+        }
+    }
+
     #[test]
     fn shape_property_adjustment_fades_selection_paint_and_restores_after_cancel() {
         for dark in [false, true] {

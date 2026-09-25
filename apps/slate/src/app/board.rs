@@ -2081,15 +2081,41 @@ pub(crate) fn paint_frame_label(
     font: FontId,
     color: Color32,
 ) {
-    let [a, b] = upper_edge(node.rect, node.rotation_deg).map(|p| xf.w2s(p));
-    let along = (b - a).normalized();
-    let up = Vec2::new(along.y, -along.x);
     let laid = canvas_text::layout_no_wrap(painter, text, font, color);
-    let size = laid.size();
+    let (center, angle) = frame_label_placement(xf, node, at_right_end, inset, lift, laid.size());
+    if angle == 0.0 {
+        laid.paint_anchored(painter, center, Align2::CENTER_CENTER, color);
+    } else {
+        laid.paint_rotated(painter, center, angle, color);
+    }
+}
+
+/// Screen center and angle of a frame label of on-screen `size`. Quarter
+/// turns come back with an angle of exactly 0, so the label paints unrotated
+/// and as crisp as on an unrotated frame.
+pub(crate) fn frame_label_placement(
+    xf: &BoardXf,
+    node: &Node,
+    at_right_end: bool,
+    inset: f32,
+    lift: f32,
+    size: Vec2,
+) -> (Pos2, f32) {
+    let [a, b] = upper_edge(node.rect, node.rotation_deg).map(|p| xf.w2s(p));
+    let mut along = (b - a).normalized();
+    if along.y.abs() < 1e-3 {
+        along = Vec2::RIGHT;
+    }
+    let up = Vec2::new(along.y, -along.x);
     let run = along * (canvas_scale::px(inset, xf.z) + size.x * 0.5);
     let rise = up * (canvas_scale::px(lift, xf.z) + size.y * 0.5);
     let center = if at_right_end { b - run } else { a + run } + rise;
-    laid.paint_rotated(painter, center, along.angle(), color);
+    let angle = if along == Vec2::RIGHT {
+        0.0
+    } else {
+        along.angle()
+    };
+    (center, angle)
 }
 
 pub(crate) fn paint_fillet_masks(painter: &egui::Painter, frame: Rect, radius: f32, fill: Color32) {
@@ -8918,6 +8944,72 @@ mod tests {
             let [a, b] = upper_edge(rect, rotation);
             assert!(((b - a).length() - 792.0).abs() < 0.01);
             assert!((a.y - b.y).abs() < 0.01);
+        }
+    }
+
+    fn frame(rect: WorldRect, rotation_deg: f32) -> Node {
+        let mut node = slate_doc::scene::Scene::default().build_node(
+            rect,
+            NodeKind::Frame(slate_doc::scene::FrameNode {
+                title: "Slide 2".into(),
+                order: 1,
+                fill: Rgba::WHITE,
+                fill_authored: false,
+                assignments: Default::default(),
+                stroke: slate_doc::scene::Stroke::none(),
+                corner: Corner::Square,
+            }),
+        );
+        node.rotation_deg = rotation_deg;
+        node
+    }
+
+    /// The screenshot case: a 223.57 × 289.326 portrait frame (and a Letter
+    /// 8.5 × 11 one) turned to landscape. The title's bottom-left sits at the
+    /// rotated frame's visual top-left, inset and lifted exactly as on an
+    /// unrotated frame, horizontal, never offset toward the old portrait corner.
+    #[test]
+    fn a_quarter_turned_frame_title_sits_at_its_visual_top_left() {
+        let xf = BoardXf {
+            center: Pos2::new(400.0, 300.0),
+            offset: Vec2::new(50.0, -20.0),
+            z: 1.7,
+        };
+        let size = Vec2::new(90.0, 20.0);
+        let (inset, lift) = (2.0, 6.0);
+        for (w, h) in [(223.57, 289.326), (612.0, 792.0)] {
+            let rect = WorldRect::new(100.0, 50.0, w, h);
+            for rotation in [0.0, 90.0, -90.0, 180.0, 270.0] {
+                let node = frame(rect, rotation);
+                let bounds = xf.rect_w2s(rect.rotated_bounds(rotation));
+                let (center, angle) = frame_label_placement(&xf, &node, false, inset, lift, size);
+                assert_eq!(angle, 0.0, "{w}×{h} at {rotation}° is horizontal");
+                let bottom_left = center + Vec2::new(-size.x, size.y) * 0.5;
+                let want = bounds.left_top() + Vec2::new(inset * xf.z, -lift * xf.z);
+                assert!(
+                    (bottom_left - want).length() < 0.01,
+                    "{w}×{h} at {rotation}°: {bottom_left:?} vs {want:?}"
+                );
+                // The tag label mirrors it at the visual top-right.
+                let (center, angle) = frame_label_placement(&xf, &node, true, inset, lift, size);
+                assert_eq!(angle, 0.0);
+                let bottom_right = center + Vec2::new(size.x, size.y) * 0.5;
+                let want = bounds.right_top() + Vec2::new(-inset * xf.z, -lift * xf.z);
+                assert!(
+                    (bottom_right - want).length() < 0.01,
+                    "{w}×{h} at {rotation}° tags"
+                );
+            }
+        }
+        // Off-axis turns still read left to right, riding the upper edge.
+        for rotation in [30.0, -30.0, 135.0, -150.0] {
+            let node = frame(WorldRect::new(100.0, 50.0, 223.57, 289.326), rotation);
+            let (_, angle) = frame_label_placement(&xf, &node, false, inset, lift, size);
+            assert!(angle.cos() > 0.0, "{rotation}° reads left to right");
+            assert!(
+                angle.abs() <= std::f32::consts::FRAC_PI_4 + 1e-4,
+                "{rotation}°"
+            );
         }
     }
 
