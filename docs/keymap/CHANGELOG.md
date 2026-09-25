@@ -1,5 +1,15 @@
 # Canvas command project — change log
 
+## 2026-09-25 — Sign-in pop-ups in web portals
+
+- `portal-web-embed` D15 / D22 (and the D32 deny list) amended, user-ratified:
+  a page's `window.open` with a size or position — Google and Microsoft
+  sign-in — opens in a small Slate-owned window on the portal's own profile,
+  so the opener survives and the sign-in lands in that portal's cookies. It
+  is titled with its origin, closes itself when the page calls
+  `window.close()`, and closes with its portal. Links and featureless
+  `window.open` still navigate the portal in place. No new command.
+
 ## 2026-09-24 — Spot eraser and color wheel gap
 
 - The Eraser erases painted brush ink under the pass instead of deleting

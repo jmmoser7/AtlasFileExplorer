@@ -3607,6 +3607,7 @@ struct FakeLog {
     escape: bool,
     admitted: std::collections::HashSet<slate_doc::NodeId>,
     admit_targets: Vec<(slate_doc::NodeId, String)>,
+    admit_profiles: Vec<(slate_doc::NodeId, String)>,
     inputs: Vec<board_web::WebInput>,
     current_urls: std::collections::HashMap<slate_doc::NodeId, String>,
     navigations: Vec<(slate_doc::NodeId, String)>,
@@ -3647,6 +3648,7 @@ impl board_web::WebHost for FakeWebHost {
         let mut log = self.0.borrow_mut();
         log.admitted.insert(id);
         log.admit_targets.push((id, req.target.clone()));
+        log.admit_profiles.push((id, req.profile.clone()));
         log.current_urls
             .entry(id)
             .or_insert_with(|| req.target.clone());
@@ -3835,6 +3837,32 @@ fn zooming_out_does_not_reset_a_visited_page_to_home() {
     assert_eq!(
         last, "https://example.com/result",
         "eviction must not send the page back to the authored home"
+    );
+}
+
+/// A sign-in redirect or a followed link to another origin keeps the portal's
+/// own cookie jar; only the authored locator picks the profile (D15, D32).
+#[test]
+fn a_page_on_another_origin_keeps_the_authored_profile() {
+    let mut h = web_board("web_profile_follows_locator");
+    let host = with_fake_host(&mut h);
+    h.app.place_web_portal_at(Pos2::ZERO);
+    let (id, _) = only_portal(&h);
+    web_settle(&mut h, &[(id, 540.0)], 2);
+    host.set_current_url(id, "https://accounts.google.com/signin");
+    web_settle(&mut h, &[(id, 540.0)], 2);
+
+    let authored = slate_doc::scene::web_profile_name(board_web::WEB_START_LOCATOR);
+    let last = host.0.borrow().admit_profiles.last().cloned();
+    assert_eq!(
+        last,
+        Some((id, authored)),
+        "the page's current origin must not choose the cookie jar"
+    );
+    assert_eq!(
+        host.admit_targets().last().map(|(_, t)| t.clone()),
+        Some("https://accounts.google.com/signin".to_string()),
+        "the page itself still resumes where it is"
     );
 }
 

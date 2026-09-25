@@ -13,6 +13,12 @@
 //! The page still cannot post messages or host objects into Slate (Art. VII.4).
 //! The one exception is a user export: a download named `slate-canvas-*.png`
 //! is saved and handed back so the board can place it under the portal.
+//!
+//! A page's sign-in style pop-up (`window.open` with a size or position) opens
+//! in a small Slate-owned window on the same environment and profile, so the
+//! opener survives and the sign-in lands in the portal's cookie jar. Ordinary
+//! `_blank` links keep navigating the portal in place (D15 / D22, amended 25
+//! September 2026).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -29,7 +35,7 @@ use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::Graphics::DirectX::DirectXPixelFormat;
 use windows::Graphics::SizeInt32;
 use windows::System::DispatcherQueueController;
-use windows::Win32::Foundation::{HMODULE, HWND, POINT, RECT};
+use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_CPU_ACCESS_READ,
@@ -57,27 +63,31 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2, ICoreWebView2CompositionController, ICoreWebView2Controller,
     ICoreWebView2Controller2, ICoreWebView2Controller3, ICoreWebView2ControllerOptions,
     ICoreWebView2Environment, ICoreWebView2Environment10, ICoreWebView2Environment3,
-    ICoreWebView2ExecuteScriptCompletedHandler, ICoreWebView2_4,
-    COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS, COREWEBVIEW2_COLOR, COREWEBVIEW2_MOUSE_EVENT_KIND,
-    COREWEBVIEW2_MOUSE_EVENT_KIND_HORIZONTAL_WHEEL, COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE,
-    COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN, COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP,
-    COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN,
+    ICoreWebView2ExecuteScriptCompletedHandler, ICoreWebView2NewWindowRequestedEventArgs,
+    ICoreWebView2_4, COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS, COREWEBVIEW2_COLOR,
+    COREWEBVIEW2_MOUSE_EVENT_KIND, COREWEBVIEW2_MOUSE_EVENT_KIND_HORIZONTAL_WHEEL,
+    COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE, COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN,
+    COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP, COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_DOWN,
     COREWEBVIEW2_MOUSE_EVENT_KIND_MIDDLE_BUTTON_UP, COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE,
     COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN, COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP,
     COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS,
     COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_LEFT_BUTTON,
     COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_MIDDLE_BUTTON,
     COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_RIGHT_BUTTON,
+    COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC,
 };
 use webview2_com::{
     AcceleratorKeyPressedEventHandler, CallDevToolsProtocolMethodCompletedHandler,
     CreateCoreWebView2CompositionControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler,
     ExecuteScriptCompletedHandler, NavigationCompletedEventHandler, NewWindowRequestedEventHandler,
-    StateChangedEventHandler,
+    SourceChangedEventHandler, StateChangedEventHandler, WindowCloseRequestedEventHandler,
 };
 
-use super::board_web::{WebHost, WebInput, WebRequest};
+use super::board_web::{
+    popup_disposition, popup_title, popup_window_rect, PopupBook, PopupDisposition, PopupFeatures,
+    PxRect, WebHost, WebInput, WebRequest,
+};
 
 /// A download the board should place under the portal. Every other download
 /// stays cancelled. The saved name is ours, so a repeated export never
@@ -194,6 +204,8 @@ struct Pending {
     document_generation: u64,
     /// Latest dashboard wire script. Re-run after each navigation.
     link_script: String,
+    /// The portal on screen, client physical pixels. Pop-ups centre on it.
+    anchor: Option<PxRect>,
 }
 
 struct View {
@@ -239,6 +251,8 @@ pub struct Webview2Host {
     canvas_drops: Rc<RefCell<Vec<(NodeId, std::path::PathBuf)>>>,
     /// Page text read for an agent run, waiting to be taken.
     texts: Rc<RefCell<HashMap<NodeId, Result<String, String>>>>,
+    /// Sign-in pop-up windows, by the portal whose page opened them.
+    popups: Rc<RefCell<PopupBook<isize>>>,
     wake: egui::Context,
 }
 
@@ -252,6 +266,10 @@ impl Drop for Webview2Host {
         let ids: Vec<NodeId> = self.views.keys().copied().collect();
         for id in ids {
             self.evict(id);
+        }
+        let orphans = self.popups.borrow_mut().drain();
+        for window in orphans {
+            destroy_popup(window);
         }
         self.deferred.clear();
         self._queue.take();
@@ -331,6 +349,7 @@ impl Webview2Host {
             escape: Rc::new(Cell::new(false)),
             canvas_drops: Rc::new(RefCell::new(Vec::new())),
             texts: Rc::new(RefCell::new(HashMap::new())),
+            popups: Rc::new(RefCell::new(PopupBook::default())),
             wake,
         })
     }
@@ -360,6 +379,7 @@ impl Webview2Host {
 
         let shared: Rc<RefCell<Pending>> = Rc::new(RefCell::new(Pending {
             link_script: req.link_script.clone(),
+            anchor: req.anchor_px,
             ..Pending::default()
         }));
         let sink = shared.clone();
@@ -372,8 +392,18 @@ impl Webview2Host {
             bottom: h as i32,
         };
         let escape = self.escape.clone();
-        let drops = self.canvas_drops.clone();
-        let wake = self.wake.clone();
+        let profile = req.profile.clone();
+        let hooks = PageHooks {
+            portal: id,
+            wake: self.wake.clone(),
+            drops: self.canvas_drops.clone(),
+            env: env.clone(),
+            profile: profile.clone(),
+            owner: self.parent,
+            compositor: self.compositor.clone(),
+            popups: self.popups.clone(),
+            anchor: PopupAnchor::Portal(Rc::downgrade(&shared)),
+        };
         let handler = CreateCoreWebView2CompositionControllerCompletedHandler::create(Box::new(
             move |result: windows::core::Result<()>,
                   comp: Option<ICoreWebView2CompositionController>| {
@@ -398,16 +428,13 @@ impl Webview2Host {
                     &target,
                     &sink,
                     escape.clone(),
-                    wake.clone(),
-                    id,
-                    drops.clone(),
+                    hooks.clone(),
                 ) {
                     sink.borrow_mut().error = Some(format!("WebView2 could not start: {e}"));
                 }
                 Ok(())
             },
         ));
-        let profile = slate_doc::scene::web_profile_name(&req.target);
         if let Some(options) = profile_options(&env, &profile) {
             let env10 = env.cast::<ICoreWebView2Environment10>()?;
             unsafe {
@@ -738,8 +765,15 @@ impl WebHost for Webview2Host {
     }
     fn release_keyboard(&self) {
         use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
+        use windows::Win32::UI::WindowsAndMessaging::IsChild;
         let focused = unsafe { GetFocus() };
-        if !focused.is_invalid() && focused != self.parent {
+        // Only a portal's browser, a child of the board window, is ours to take
+        // back. A sign-in pop-up is a separate window the person is typing in,
+        // and a focused board field calls this every frame.
+        if !focused.is_invalid()
+            && focused != self.parent
+            && unsafe { IsChild(self.parent, focused) }.as_bool()
+        {
             let _ = unsafe { SetFocus(Some(self.parent)) };
         }
     }
@@ -761,11 +795,10 @@ impl WebHost for Webview2Host {
                 let _ = self.create_view(pending_id, &pending);
             }
         }
-        let profile = slate_doc::scene::web_profile_name(&req.target);
         if self
             .views
             .get(&id)
-            .is_some_and(|view| view.profile != profile)
+            .is_some_and(|view| view.profile != req.profile)
         {
             // Rebind to another origin. In-page hops stay in the profile of
             // the authored locator; only a new locator changes the jar.
@@ -775,14 +808,26 @@ impl WebHost for Webview2Host {
             // In-page navigation and camera zoom must not rebuild the webview.
             self.resize(id, req);
             self.refresh_link_script(id, &req.link_script);
+            if let Some(view) = self.views.get(&id) {
+                view.shared.borrow_mut().anchor = req.anchor_px;
+            }
         } else {
             let _ = self.create_view(id, req);
         }
         self.start_capture(id);
     }
 
+    fn holds_popup(&self, id: NodeId) -> bool {
+        self.popups.borrow().holds(id)
+    }
+
     fn evict(&mut self, id: NodeId) {
         self.deferred.remove(&id);
+        // A pop-up without its opener can only fail; close it with the portal.
+        let orphans = self.popups.borrow_mut().evicted(id);
+        for window in orphans {
+            destroy_popup(window);
+        }
         let Some(view) = self.views.remove(&id) else {
             return;
         };
@@ -995,10 +1040,9 @@ fn attach(
     target: &str,
     sink: &Rc<RefCell<Pending>>,
     escape: Rc<Cell<bool>>,
-    wake: egui::Context,
-    portal: NodeId,
-    drops: Rc<RefCell<Vec<(NodeId, std::path::PathBuf)>>>,
+    hooks: PageHooks,
 ) -> windows::core::Result<()> {
+    let wake = hooks.wake.clone();
     unsafe { comp.SetRootVisualTarget(visual) }?;
     let controller: ICoreWebView2Controller = comp.cast()?;
     unsafe {
@@ -1023,7 +1067,6 @@ fn attach(
         controller.SetBounds(bounds)?;
         controller.SetIsVisible(true)?;
     }
-    let export_wake = wake.clone();
     let accelerator = AcceleratorKeyPressedEventHandler::create(Box::new(move |sender, args| {
         if let Some(args) = args {
             let mut key = 0;
@@ -1073,17 +1116,7 @@ fn attach(
         controller.add_AcceleratorKeyPressed(&accelerator, &mut accelerator_token)?;
     }
     let webview = unsafe { controller.CoreWebView2() }?;
-    if let Ok(settings) = unsafe { webview.Settings() } {
-        unsafe {
-            let _ = settings.SetAreDefaultContextMenusEnabled(false);
-            let _ = settings.SetAreDefaultScriptDialogsEnabled(false);
-            let _ = settings.SetIsStatusBarEnabled(false);
-            // The page cannot post messages into Slate: there is no channel,
-            // which is what makes Art. VII.4 structural rather than a promise.
-            let _ = settings.SetIsWebMessageEnabled(false);
-            let _ = settings.SetAreHostObjectsAllowed(false);
-        }
-    }
+    apply_page_settings(&webview);
 
     let errors = Rc::downgrade(sink);
     let nav = NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
@@ -1131,80 +1164,12 @@ fn attach(
     let mut token = 0i64;
     let _ = unsafe { webview.add_NavigationCompleted(&nav, &mut token) };
 
-    // Popups and downloads are not a browser chrome feature we ship (D15, D32).
-    // Handled=true with no NewWindow; user-initiated `_blank` navigates the
-    // existing view so search result clicks do not disappear.
-    let popup = NewWindowRequestedEventHandler::create(Box::new(move |sender, args| {
-        if let Some(args) = args {
-            let mut uri = windows::core::PWSTR::null();
-            let target = if unsafe { args.Uri(&mut uri) }.is_ok() && !uri.is_null() {
-                let target = unsafe { uri.to_string() }.ok();
-                unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(uri.0 as *const _)) };
-                target
-            } else {
-                None
-            };
-            let _ = unsafe { args.SetHandled(true) };
-            if let (Some(sender), Some(target)) = (sender, target) {
-                let url = wide(&navigate_uri(&target));
-                let _ = unsafe { sender.Navigate(PCWSTR(url.as_ptr())) };
-            }
-        }
-        Ok(())
-    }));
-    let mut popup_token = 0i64;
-    let _ = unsafe { webview.add_NewWindowRequested(&popup, &mut popup_token) };
-    if let Ok(wv4) = webview.cast::<ICoreWebView2_4>() {
-        let download = DownloadStartingEventHandler::create(Box::new(move |_sender, args| {
-            let Some(args) = args else {
-                return Ok(());
-            };
-            let mut suggested = windows::core::PWSTR::null();
-            let name = if unsafe { args.ResultFilePath(&mut suggested) }.is_ok() {
-                take_pwstr(suggested)
-            } else {
-                None
-            };
-            let canvas = name.as_deref().and_then(canvas_export_file);
-            let Some(dest) = canvas else {
-                // Ordinary downloads stay out of the board (D15).
-                let _ = unsafe { args.SetCancel(true) };
-                let _ = unsafe { args.SetHandled(true) };
-                return Ok(());
-            };
-            let wide_dest = wide(&dest.to_string_lossy());
-            if unsafe { args.SetResultFilePath(PCWSTR(wide_dest.as_ptr())) }.is_err() {
-                let _ = unsafe { args.SetCancel(true) };
-                let _ = unsafe { args.SetHandled(true) };
-                return Ok(());
-            }
-            // No save dialog. The file lands under the portal when it finishes.
-            let _ = unsafe { args.SetHandled(true) };
-            if let Ok(op) = unsafe { args.DownloadOperation() } {
-                let drops = drops.clone();
-                let wake = export_wake.clone();
-                let done = StateChangedEventHandler::create(Box::new(move |sender, _| {
-                    let Some(op) = sender else {
-                        return Ok(());
-                    };
-                    let mut state = Default::default();
-                    if unsafe { op.State(&mut state) }.is_ok()
-                        && state == COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED
-                        && dest.is_file()
-                    {
-                        drops.borrow_mut().push((portal, dest.clone()));
-                        wake.request_repaint();
-                    }
-                    Ok(())
-                }));
-                let mut token = 0i64;
-                let _ = unsafe { op.add_StateChanged(&done, &mut token) };
-            }
-            Ok(())
-        }));
-        let mut download_token = 0i64;
-        let _ = unsafe { wv4.add_DownloadStarting(&download, &mut download_token) };
-    }
+    install_popup_policy(&webview, hooks.clone());
+    install_download_policy(&webview, &hooks);
+    // `window.close()` in the portal's own page must not close the portal.
+    let ignore_close = WindowCloseRequestedEventHandler::create(Box::new(|_, _| Ok(())));
+    let mut close_token = 0i64;
+    let _ = unsafe { webview.add_WindowCloseRequested(&ignore_close, &mut close_token) };
 
     let url = wide(&navigate_uri(target));
     unsafe { webview.Navigate(PCWSTR(url.as_ptr())) }?;
@@ -1215,6 +1180,728 @@ fn attach(
     pending.webview = Some(webview);
     pending.attached = true;
     Ok(())
+}
+
+/// The same for every page Slate hosts, portal or pop-up.
+fn apply_page_settings(webview: &ICoreWebView2) {
+    if let Ok(settings) = unsafe { webview.Settings() } {
+        unsafe {
+            let _ = settings.SetAreDefaultContextMenusEnabled(false);
+            let _ = settings.SetAreDefaultScriptDialogsEnabled(false);
+            let _ = settings.SetIsStatusBarEnabled(false);
+            // The page cannot post messages into Slate: there is no channel,
+            // which is what makes Art. VII.4 structural rather than a promise.
+            let _ = settings.SetIsWebMessageEnabled(false);
+            let _ = settings.SetAreHostObjectsAllowed(false);
+        }
+    }
+}
+
+/// Ordinary downloads stay out of the board (D15). A `slate-canvas-*.png`
+/// export lands under the portal, whether its page or one of its pop-ups
+/// started it.
+fn install_download_policy(webview: &ICoreWebView2, hooks: &PageHooks) {
+    let Ok(wv4) = webview.cast::<ICoreWebView2_4>() else {
+        return;
+    };
+    let portal = hooks.portal;
+    let drops = hooks.drops.clone();
+    let export_wake = hooks.wake.clone();
+    let download = DownloadStartingEventHandler::create(Box::new(move |_sender, args| {
+        let Some(args) = args else {
+            return Ok(());
+        };
+        let mut suggested = windows::core::PWSTR::null();
+        let name = if unsafe { args.ResultFilePath(&mut suggested) }.is_ok() {
+            take_pwstr(suggested)
+        } else {
+            None
+        };
+        let canvas = name.as_deref().and_then(canvas_export_file);
+        let Some(dest) = canvas else {
+            let _ = unsafe { args.SetCancel(true) };
+            let _ = unsafe { args.SetHandled(true) };
+            return Ok(());
+        };
+        let wide_dest = wide(&dest.to_string_lossy());
+        if unsafe { args.SetResultFilePath(PCWSTR(wide_dest.as_ptr())) }.is_err() {
+            let _ = unsafe { args.SetCancel(true) };
+            let _ = unsafe { args.SetHandled(true) };
+            return Ok(());
+        }
+        // No save dialog. The file lands under the portal when it finishes.
+        let _ = unsafe { args.SetHandled(true) };
+        if let Ok(op) = unsafe { args.DownloadOperation() } {
+            let drops = drops.clone();
+            let wake = export_wake.clone();
+            let done = StateChangedEventHandler::create(Box::new(move |sender, _| {
+                let Some(op) = sender else {
+                    return Ok(());
+                };
+                let mut state = Default::default();
+                if unsafe { op.State(&mut state) }.is_ok()
+                    && state == COREWEBVIEW2_DOWNLOAD_STATE_COMPLETED
+                    && dest.is_file()
+                {
+                    drops.borrow_mut().push((portal, dest.clone()));
+                    wake.request_repaint();
+                }
+                Ok(())
+            }));
+            let mut token = 0i64;
+            let _ = unsafe { op.add_StateChanged(&done, &mut token) };
+        }
+        Ok(())
+    }));
+    let mut download_token = 0i64;
+    let _ = unsafe { wv4.add_DownloadStarting(&download, &mut download_token) };
+}
+
+// ---------------------------------------------------------------------------
+// Sign-in pop-ups (D15 / D22, amended 25 September 2026)
+// ---------------------------------------------------------------------------
+
+/// What a page's handlers need beyond the view itself: where exports land, and
+/// how to open a pop-up on the same environment and profile as the portal.
+#[derive(Clone)]
+struct PageHooks {
+    portal: NodeId,
+    wake: egui::Context,
+    drops: Rc<RefCell<Vec<(NodeId, std::path::PathBuf)>>>,
+    env: ICoreWebView2Environment3,
+    /// The portal's WebView2 profile. A pop-up on another profile has no
+    /// opener and would sign in to the wrong cookie jar.
+    profile: String,
+    /// Slate's board window, which owns every pop-up.
+    owner: HWND,
+    /// An environment that hosts composition controllers refuses windowed
+    /// ones (`ERROR_INVALID_STATE`), so a pop-up is composition-hosted too.
+    compositor: Compositor,
+    popups: Rc<RefCell<PopupBook<isize>>>,
+    anchor: PopupAnchor,
+}
+
+/// What a new pop-up centres on when the page gave no position.
+#[derive(Clone)]
+enum PopupAnchor {
+    /// The portal on the board, in the owner's client coordinates.
+    Portal(std::rc::Weak<RefCell<Pending>>),
+    /// The pop-up that opened this one.
+    Window(HWND),
+}
+
+/// A live pop-up window's browser, kept where its window procedure can reach
+/// it. Removed on `WM_NCDESTROY`, which is also what marks the handle dead.
+struct PopupSlot {
+    comp: Option<ICoreWebView2CompositionController>,
+    book: std::rc::Weak<RefCell<PopupBook<isize>>>,
+    /// The window's visual tree; dropping the target blanks the window.
+    target: windows::UI::Composition::Desktop::DesktopWindowTarget,
+    root: ContainerVisual,
+    /// A `WM_MOUSELEAVE` has been requested for the current hover.
+    tracking: bool,
+}
+
+thread_local! {
+    static POPUP_SLOTS: RefCell<HashMap<isize, PopupSlot>> = RefCell::new(HashMap::new());
+}
+
+const POPUP_CLASS: &str = "SlateWebPopup";
+/// `WinUser.h`; the `windows` crate files it under a feature this app omits.
+const WM_MOUSELEAVE: u32 = 0x02A3;
+
+fn popup_key(hwnd: HWND) -> isize {
+    hwnd.0 as isize
+}
+
+fn popup_alive(window: isize) -> bool {
+    POPUP_SLOTS.with(|slots| slots.borrow().contains_key(&window))
+}
+
+fn popup_comp(window: isize) -> Option<ICoreWebView2CompositionController> {
+    POPUP_SLOTS.with(|slots| {
+        slots
+            .borrow()
+            .get(&window)
+            .and_then(|slot| slot.comp.clone())
+    })
+}
+
+fn popup_controller(window: isize) -> Option<ICoreWebView2Controller> {
+    popup_comp(window).and_then(|comp| comp.cast().ok())
+}
+
+/// Only a handle still in the slot table is ours; a recycled one is not.
+fn destroy_popup(window: isize) {
+    if popup_alive(window) {
+        let _ = unsafe {
+            windows::Win32::UI::WindowsAndMessaging::DestroyWindow(HWND(
+                window as *mut std::ffi::c_void,
+            ))
+        };
+    }
+}
+
+/// The sizes and position `window.open` asked for, if any.
+fn popup_features(args: &ICoreWebView2NewWindowRequestedEventArgs) -> PopupFeatures {
+    let mut out = PopupFeatures::default();
+    let Ok(features) = (unsafe { args.WindowFeatures() }) else {
+        return out;
+    };
+    let mut has = windows::core::BOOL(0);
+    if unsafe { features.HasPosition(&mut has) }.is_ok() && has.as_bool() {
+        let (mut left, mut top) = (0u32, 0u32);
+        if unsafe { features.Left(&mut left) }.is_ok() && unsafe { features.Top(&mut top) }.is_ok()
+        {
+            // Screens left of or above the primary report negative values.
+            out.position = Some((left as i32, top as i32));
+        }
+    }
+    let mut has = windows::core::BOOL(0);
+    if unsafe { features.HasSize(&mut has) }.is_ok() && has.as_bool() {
+        let (mut width, mut height) = (0u32, 0u32);
+        if unsafe { features.Width(&mut width) }.is_ok()
+            && unsafe { features.Height(&mut height) }.is_ok()
+        {
+            out.size = Some((width, height));
+        }
+    }
+    out
+}
+
+/// One rule for the portal's page and for every pop-up it opens.
+fn install_popup_policy(webview: &ICoreWebView2, hooks: PageHooks) {
+    let handler = NewWindowRequestedEventHandler::create(Box::new(move |sender, args| {
+        let Some(args) = args else {
+            return Ok(());
+        };
+        let mut uri = windows::core::PWSTR::null();
+        let target = if unsafe { args.Uri(&mut uri) }.is_ok() {
+            take_pwstr(uri)
+        } else {
+            None
+        };
+        let features = popup_features(&args);
+        if popup_disposition(&features) == PopupDisposition::OwnedWindow
+            && open_popup(
+                &hooks,
+                &args,
+                &features,
+                target.as_deref().unwrap_or_default(),
+            )
+        {
+            return Ok(());
+        }
+        // Handled with no NewWindow: the view that asked navigates instead, so
+        // a search result opened in a new tab does not vanish.
+        let _ = unsafe { args.SetHandled(true) };
+        if let (Some(sender), Some(target)) = (sender, target) {
+            let url = wide(&navigate_uri(&target));
+            let _ = unsafe { sender.Navigate(PCWSTR(url.as_ptr())) };
+        }
+        Ok(())
+    }));
+    let mut token = 0i64;
+    let _ = unsafe { webview.add_NewWindowRequested(&handler, &mut token) };
+}
+
+/// Where the pop-up goes, in physical screen pixels.
+fn popup_placement(hooks: &PageHooks, features: &PopupFeatures) -> PxRect {
+    use windows::Win32::Graphics::Gdi::{
+        ClientToScreen, GetMonitorInfoW, MonitorFromRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows::Win32::UI::HiDpi::{
+        AdjustWindowRectExForDpi, GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,
+    };
+
+    let window_rect = |hwnd: HWND| {
+        let mut r = RECT::default();
+        let _ = unsafe { GetWindowRect(hwnd, &mut r) };
+        PxRect::new(r.left, r.top, r.right, r.bottom)
+    };
+    let anchor = match &hooks.anchor {
+        PopupAnchor::Portal(pending) => {
+            pending
+                .upgrade()
+                .and_then(|p| p.borrow().anchor)
+                .map(|client| {
+                    let mut origin = POINT { x: 0, y: 0 };
+                    let _ = unsafe { ClientToScreen(hooks.owner, &mut origin) };
+                    client.offset(origin.x, origin.y)
+                })
+        }
+        PopupAnchor::Window(hwnd) => Some(window_rect(*hwnd)),
+    }
+    .filter(|r| r.width() > 0 && r.height() > 0)
+    .unwrap_or_else(|| window_rect(hooks.owner));
+
+    let probe = RECT {
+        left: anchor.left,
+        top: anchor.top,
+        right: anchor.right,
+        bottom: anchor.bottom,
+    };
+    let monitor = unsafe { MonitorFromRect(&probe, MONITOR_DEFAULTTONEAREST) };
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    let work = if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        let w = info.rcWork;
+        PxRect::new(w.left, w.top, w.right, w.bottom)
+    } else {
+        anchor
+    };
+    let (mut dpi, mut dpi_y) = (0u32, 0u32);
+    if unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut dpi_y) }.is_err()
+        || dpi == 0
+    {
+        dpi = unsafe { GetDpiForWindow(hooks.owner) }.max(96);
+    }
+    let mut frame = RECT::default();
+    let _ = unsafe {
+        AdjustWindowRectExForDpi(
+            &mut frame,
+            WS_OVERLAPPEDWINDOW,
+            false,
+            WINDOW_EX_STYLE::default(),
+            dpi,
+        )
+    };
+    let frame = PxRect::new(-frame.left, -frame.top, frame.right, frame.bottom);
+    popup_window_rect(features, dpi as f64 / 96.0, frame, anchor, work)
+}
+
+fn register_popup_class() {
+    use windows::Win32::Graphics::Gdi::{GetStockObject, HBRUSH, WHITE_BRUSH};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{RegisterClassW, CS_DBLCLKS, WNDCLASSW};
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| unsafe {
+        let Ok(instance) = GetModuleHandleW(None) else {
+            return;
+        };
+        let class = wide(POPUP_CLASS);
+        let wc = WNDCLASSW {
+            // The page gets real double-clicks, not two fast single clicks.
+            style: CS_DBLCLKS,
+            lpfnWndProc: Some(popup_proc),
+            hInstance: instance.into(),
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+            hbrBackground: HBRUSH(GetStockObject(WHITE_BRUSH).0),
+            lpszClassName: PCWSTR(class.as_ptr()),
+            ..Default::default()
+        };
+        RegisterClassW(&wc);
+    });
+}
+
+/// An owned top-level window: above Slate, and not a taskbar button of its own.
+fn create_popup_window(owner: HWND, rect: PxRect, title: &str) -> windows::core::Result<HWND> {
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, SendMessageW, ShowWindow, ICON_BIG, ICON_SMALL, SW_SHOWNORMAL,
+        WINDOW_EX_STYLE, WM_GETICON, WM_SETICON, WS_OVERLAPPEDWINDOW,
+    };
+    register_popup_class();
+    let instance = unsafe { GetModuleHandleW(None) }?;
+    let class = wide(POPUP_CLASS);
+    let title = wide(title);
+    let hwnd = unsafe {
+        CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            PCWSTR(class.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            WS_OVERLAPPEDWINDOW,
+            rect.left,
+            rect.top,
+            rect.width(),
+            rect.height(),
+            Some(owner),
+            None,
+            Some(instance.into()),
+            None,
+        )
+    }?;
+    for kind in [ICON_SMALL, ICON_BIG] {
+        let icon = unsafe { SendMessageW(owner, WM_GETICON, Some(WPARAM(kind as usize)), None) };
+        if icon.0 != 0 {
+            unsafe {
+                SendMessageW(
+                    hwnd,
+                    WM_SETICON,
+                    Some(WPARAM(kind as usize)),
+                    Some(LPARAM(icon.0)),
+                )
+            };
+        }
+    }
+    let _ = unsafe { ShowWindow(hwnd, SW_SHOWNORMAL) };
+    Ok(hwnd)
+}
+
+/// Opens a sign-in pop-up in its own window. `false` when no window could be
+/// made, so the caller falls back to navigating in place.
+fn open_popup(
+    hooks: &PageHooks,
+    args: &ICoreWebView2NewWindowRequestedEventArgs,
+    features: &PopupFeatures,
+    uri: &str,
+) -> bool {
+    let rect = popup_placement(hooks, features);
+    let Ok(hwnd) = create_popup_window(hooks.owner, rect, &popup_title(uri)) else {
+        return false;
+    };
+    let window = popup_key(hwnd);
+    let Ok((target, root)) = popup_visuals(&hooks.compositor, hwnd) else {
+        let _ = unsafe { windows::Win32::UI::WindowsAndMessaging::DestroyWindow(hwnd) };
+        return false;
+    };
+    POPUP_SLOTS.with(|slots| {
+        slots.borrow_mut().insert(
+            window,
+            PopupSlot {
+                comp: None,
+                book: Rc::downgrade(&hooks.popups),
+                target,
+                root: root.clone(),
+                tracking: false,
+            },
+        )
+    });
+    let Ok(deferral) = (unsafe { args.GetDeferral() }) else {
+        destroy_popup(window);
+        return false;
+    };
+    hooks.popups.borrow_mut().opened(hooks.portal, window);
+    // Completed exactly once: by the controller callback, or below if the
+    // controller could not even be requested.
+    let deferral = Rc::new(RefCell::new(Some(deferral)));
+    let complete = deferral.clone();
+
+    let pending_args = args.clone();
+    let nested = PageHooks {
+        anchor: PopupAnchor::Window(hwnd),
+        ..hooks.clone()
+    };
+    let handler = CreateCoreWebView2CompositionControllerCompletedHandler::create(Box::new(
+        move |result: windows::core::Result<()>,
+              comp: Option<ICoreWebView2CompositionController>| {
+            let close = |comp: &ICoreWebView2CompositionController| {
+                if let Ok(controller) = comp.cast::<ICoreWebView2Controller>() {
+                    let _ = unsafe { controller.Close() };
+                }
+            };
+            let webview = match (result, comp) {
+                (Ok(()), Some(comp)) if popup_alive(window) => {
+                    match wire_popup(&comp, hwnd, &root, &nested) {
+                        Ok(webview) => {
+                            POPUP_SLOTS.with(|slots| {
+                                if let Some(slot) = slots.borrow_mut().get_mut(&window) {
+                                    slot.comp = Some(comp.clone());
+                                }
+                            });
+                            Some(webview)
+                        }
+                        Err(_) => {
+                            close(&comp);
+                            None
+                        }
+                    }
+                }
+                (_, Some(comp)) => {
+                    close(&comp);
+                    None
+                }
+                _ => None,
+            };
+            let attached = webview
+                .as_ref()
+                .is_some_and(|w| unsafe { pending_args.SetNewWindow(w) }.is_ok());
+            let _ = unsafe { pending_args.SetHandled(true) };
+            if let Some(deferral) = complete.borrow_mut().take() {
+                let _ = unsafe { deferral.Complete() };
+            }
+            if !attached {
+                destroy_popup(window);
+            }
+            Ok(())
+        },
+    ));
+    let created = match profile_options(&hooks.env, &hooks.profile) {
+        Some(options) => hooks
+            .env
+            .cast::<ICoreWebView2Environment10>()
+            .and_then(|env10| unsafe {
+                env10.CreateCoreWebView2CompositionControllerWithOptions(hwnd, &options, &handler)
+            }),
+        None => unsafe {
+            hooks
+                .env
+                .CreateCoreWebView2CompositionController(hwnd, &handler)
+        },
+    };
+    if created.is_err() {
+        // Suppress rather than navigate the portal away from its own opener.
+        let _ = unsafe { args.SetHandled(true) };
+        if let Some(deferral) = deferral.borrow_mut().take() {
+            let _ = unsafe { deferral.Complete() };
+        }
+        destroy_popup(window);
+    }
+    true
+}
+
+/// A visual tree drawn straight into the pop-up window, filling its client area.
+fn popup_visuals(
+    compositor: &Compositor,
+    hwnd: HWND,
+) -> windows::core::Result<(
+    windows::UI::Composition::Desktop::DesktopWindowTarget,
+    ContainerVisual,
+)> {
+    use windows::Win32::System::WinRT::Composition::ICompositorDesktopInterop;
+    let interop: ICompositorDesktopInterop = compositor.cast()?;
+    let target = unsafe { interop.CreateDesktopWindowTarget(hwnd, true) }?;
+    let root = compositor.CreateContainerVisual()?;
+    root.SetRelativeSizeAdjustment(Vector2 { X: 1.0, Y: 1.0 })?;
+    target.SetRoot(&root)?;
+    Ok((target, root))
+}
+
+/// Settings, handlers, and bounds for a pop-up's browser, before it is handed
+/// to the page as its new window. It must not navigate on its own.
+fn wire_popup(
+    comp: &ICoreWebView2CompositionController,
+    hwnd: HWND,
+    root: &ContainerVisual,
+    hooks: &PageHooks,
+) -> windows::core::Result<ICoreWebView2> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetClientRect, PostMessageW, SetWindowTextW, WM_CLOSE,
+    };
+    let window = popup_key(hwnd);
+    unsafe { comp.SetRootVisualTarget(root) }?;
+    let controller: ICoreWebView2Controller = comp.cast()?;
+    let mut client = RECT::default();
+    unsafe { GetClientRect(hwnd, &mut client) }?;
+    unsafe {
+        // Client pixels in, and the page follows the window's monitor scale.
+        if let Ok(c3) = controller.cast::<ICoreWebView2Controller3>() {
+            let _ = c3.SetBoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS);
+            let _ = c3.SetShouldDetectMonitorScaleChanges(true);
+        }
+        controller.SetBounds(client)?;
+        controller.SetIsVisible(true)?;
+    }
+    let webview = unsafe { controller.CoreWebView2() }?;
+    apply_page_settings(&webview);
+    install_popup_policy(&webview, hooks.clone());
+    install_download_policy(&webview, hooks);
+
+    // The sign-in page closes itself once it has reported to its opener.
+    let close = WindowCloseRequestedEventHandler::create(Box::new(move |_, _| {
+        if popup_alive(window) {
+            let _ = unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+        }
+        Ok(())
+    }));
+    let mut token = 0i64;
+    let _ = unsafe { webview.add_WindowCloseRequested(&close, &mut token) };
+
+    // The title says where the page is, never what it calls itself (Art. IV).
+    let title = SourceChangedEventHandler::create(Box::new(move |sender, _| {
+        let Some(sender) = sender else {
+            return Ok(());
+        };
+        let mut source = windows::core::PWSTR::null();
+        if unsafe { sender.Source(&mut source) }.is_ok() && popup_alive(window) {
+            if let Some(url) = take_pwstr(source) {
+                let text = wide(&popup_title(&url));
+                let _ = unsafe { SetWindowTextW(hwnd, PCWSTR(text.as_ptr())) };
+            }
+        }
+        Ok(())
+    }));
+    let mut token = 0i64;
+    let _ = unsafe { webview.add_SourceChanged(&title, &mut token) };
+
+    let _ = unsafe { controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC) };
+    Ok(webview)
+}
+
+/// A composition-hosted page hears only the mouse input its window hands it.
+/// `COREWEBVIEW2_MOUSE_EVENT_KIND` values are the `WM_` message numbers, and
+/// the virtual-key flags are the `MK_` bits of `wParam`.
+fn forward_popup_mouse(
+    hwnd: HWND,
+    comp: &ICoreWebView2CompositionController,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) {
+    use windows::Win32::Graphics::Gdi::ScreenToClient;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
+        WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN,
+        WM_XBUTTONUP,
+    };
+    const MK_BUTTONS: i32 = 0x01 | 0x02 | 0x10 | 0x20 | 0x40;
+    let window = popup_key(hwnd);
+    let keys = (wparam.0 & 0xffff) as i32;
+    let high = ((wparam.0 >> 16) & 0xffff) as u16;
+    let mut point = POINT {
+        x: (lparam.0 & 0xffff) as i16 as i32,
+        y: ((lparam.0 >> 16) & 0xffff) as i16 as i32,
+    };
+    let mut data = 0u32;
+    let set_tracking = |on: bool| {
+        POPUP_SLOTS.with(|slots| {
+            slots
+                .borrow_mut()
+                .get_mut(&window)
+                .map(|slot| std::mem::replace(&mut slot.tracking, on))
+                .unwrap_or(on)
+        })
+    };
+    match msg {
+        WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
+            // Wheel messages carry screen coordinates.
+            let _ = unsafe { ScreenToClient(hwnd, &mut point) };
+            data = high as i16 as i32 as u32;
+        }
+        WM_XBUTTONDOWN | WM_XBUTTONUP | WM_XBUTTONDBLCLK => data = high as u32,
+        WM_MOUSELEAVE => {
+            set_tracking(false);
+            point = POINT::default();
+        }
+        WM_MOUSEMOVE if !set_tracking(true) => {
+            let mut track = TRACKMOUSEEVENT {
+                cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                dwFlags: TME_LEAVE,
+                hwndTrack: hwnd,
+                dwHoverTime: 0,
+            };
+            let _ = unsafe { TrackMouseEvent(&mut track) };
+        }
+        _ => {}
+    }
+    match msg {
+        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN => {
+            unsafe { SetCapture(hwnd) };
+        }
+        WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP if keys & MK_BUTTONS == 0 => {
+            let _ = unsafe { ReleaseCapture() };
+        }
+        _ => {}
+    }
+    let keys = if msg == WM_MOUSELEAVE { 0 } else { keys };
+    let _ = unsafe {
+        comp.SendMouseInput(
+            COREWEBVIEW2_MOUSE_EVENT_KIND(msg as i32),
+            COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS(keys),
+            data,
+            point,
+        )
+    };
+}
+
+unsafe extern "system" fn popup_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DefWindowProcW, GetClientRect, SetCursor, SetWindowPos, HTCLIENT, SWP_NOACTIVATE,
+        SWP_NOZORDER, WM_DPICHANGED, WM_MOUSEFIRST, WM_MOUSELAST, WM_MOVE, WM_NCDESTROY,
+        WM_SETCURSOR, WM_SETFOCUS, WM_SIZE,
+    };
+    let window = popup_key(hwnd);
+    match msg {
+        WM_MOUSEFIRST..=WM_MOUSELAST | WM_MOUSELEAVE => {
+            if let Some(comp) = popup_comp(window) {
+                forward_popup_mouse(hwnd, &comp, msg, wparam, lparam);
+                return LRESULT(0);
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+        WM_SETCURSOR if (lparam.0 & 0xffff) as u32 == HTCLIENT => {
+            let mut cursor = HCURSOR::default();
+            match popup_comp(window) {
+                Some(comp)
+                    if unsafe { comp.Cursor(&mut cursor) }.is_ok() && !cursor.is_invalid() =>
+                {
+                    unsafe { SetCursor(Some(cursor)) };
+                    LRESULT(1)
+                }
+                _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+            }
+        }
+        WM_SIZE => {
+            if let Some(controller) = popup_controller(window) {
+                let mut client = RECT::default();
+                if unsafe { GetClientRect(hwnd, &mut client) }.is_ok() {
+                    let _ = unsafe { controller.SetBounds(client) };
+                }
+            }
+            LRESULT(0)
+        }
+        WM_MOVE => {
+            if let Some(controller) = popup_controller(window) {
+                let _ = unsafe { controller.NotifyParentWindowPositionChanged() };
+            }
+            LRESULT(0)
+        }
+        WM_SETFOCUS => {
+            if let Some(controller) = popup_controller(window) {
+                let _ =
+                    unsafe { controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC) };
+            }
+            LRESULT(0)
+        }
+        WM_DPICHANGED => {
+            let suggested = unsafe { &*(lparam.0 as *const RECT) };
+            let _ = unsafe {
+                SetWindowPos(
+                    hwnd,
+                    None,
+                    suggested.left,
+                    suggested.top,
+                    suggested.right - suggested.left,
+                    suggested.bottom - suggested.top,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+            };
+            LRESULT(0)
+        }
+        WM_NCDESTROY => {
+            let slot = POPUP_SLOTS.with(|slots| slots.borrow_mut().remove(&window));
+            if let Some(slot) = slot {
+                if let Some(controller) = slot
+                    .comp
+                    .and_then(|comp| comp.cast::<ICoreWebView2Controller>().ok())
+                {
+                    let _ = unsafe { controller.Close() };
+                }
+                let _ = slot.root.SetIsVisible(false);
+                drop(slot.target);
+                if let Some(book) = slot.book.upgrade() {
+                    if let Ok(mut book) = book.try_borrow_mut() {
+                        book.closed(window);
+                    }
+                }
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+        _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+    }
 }
 
 fn runtime_installed() -> bool {
@@ -1493,6 +2180,8 @@ mod tests {
             raster_w: 320,
             raster_h: 200,
             link_script: String::new(),
+            anchor_px: None,
+            profile: "local".into(),
         };
         let (frames, red) = run_until(&mut host, id, &req, 45, |img| {
             img.pixels
@@ -1522,6 +2211,8 @@ mod tests {
             raster_w: 1024,
             raster_h: 700,
             link_script: String::new(),
+            anchor_px: None,
+            profile: slate_doc::scene::web_profile_name("https://example.com/"),
         };
         // Any page that renders text puts dark pixels on a light background;
         // an unpainted capture is uniformly transparent.
@@ -1551,6 +2242,8 @@ mod tests {
             raster_w: 200,
             raster_h: 120,
             link_script: String::new(),
+            anchor_px: None,
+            profile: "local".into(),
         };
         let (frames, _) = run_until(&mut host, id, &req, 30, |_| true);
         assert!(frames > 0);
@@ -1558,6 +2251,215 @@ mod tests {
         pump();
         assert!(host.views.is_empty(), "the view outlived its slot");
         assert!(host.take_frame(id).is_none());
+    }
+
+    /// Run a fixed expression in the portal's page and wait for its JSON.
+    fn eval(host: &Webview2Host, id: NodeId, script: &str, secs: u64) -> Option<String> {
+        let webview = host.webview(id)?;
+        let out: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let sink = out.clone();
+        let handler = ExecuteScriptCompletedHandler::create(Box::new(move |_, json| {
+            *sink.borrow_mut() = Some(json);
+            Ok(())
+        }));
+        let script = wide(script);
+        unsafe { webview.ExecuteScript(PCWSTR(script.as_ptr()), &handler) }.ok()?;
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        while Instant::now() < deadline && out.borrow().is_none() {
+            pump();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let json = out.borrow_mut().take();
+        json
+    }
+
+    fn pump_until(
+        host: &mut Webview2Host,
+        id: NodeId,
+        req: &WebRequest,
+        secs: u64,
+        done: impl Fn(&Webview2Host) -> bool,
+    ) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        while Instant::now() < deadline {
+            pump();
+            host.admit(id, req);
+            if done(host) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    fn local_request(page: &std::path::Path) -> WebRequest {
+        WebRequest {
+            target: page.to_string_lossy().into_owned(),
+            kind: WebSourceKind::LocalFile,
+            width_css: 400,
+            height_css: 300,
+            raster_w: 400,
+            raster_h: 300,
+            link_script: String::new(),
+            anchor_px: None,
+            profile: "local".into(),
+        }
+    }
+
+    /// The sign-in shape end to end: a sized `window.open` gets its own owned
+    /// window, the pop-up reaches its opener, and `window.close()` closes the
+    /// window while the portal stays on its page.
+    ///
+    /// ```powershell
+    /// cargo test -p slate --lib popup -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn a_sign_in_popup_keeps_its_opener_and_closes_itself() {
+        let dir = std::env::temp_dir().join("slate-web-probe-popup");
+        std::fs::create_dir_all(&dir).unwrap();
+        let opener = dir.join("opener.html");
+        std::fs::write(
+            &opener,
+            "<html><body><script>\
+             addEventListener('message', e => { document.title = e.data; });\
+             window.open('signin.html', 'signin', 'width=420,height=360');\
+             </script></body></html>",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("signin.html"),
+            "<html><body><script>\
+             window.opener.postMessage('signed-in', '*');\
+             setTimeout(() => window.close(), 300);\
+             </script></body></html>",
+        )
+        .unwrap();
+
+        let mut host = host("popup").expect("no WebView2 runtime on this machine");
+        let id = NodeId(7);
+        let req = local_request(&opener);
+        let opened = pump_until(&mut host, id, &req, 45, |h| h.holds_popup(id));
+        assert!(opened, "the sized window.open never became an owned window");
+        let closed = pump_until(&mut host, id, &req, 30, |h| !h.holds_popup(id));
+        assert!(
+            closed,
+            "window.close() in the pop-up did not close its window"
+        );
+        let title = eval(&host, id, "document.title", 10);
+        println!("opener title: {title:?}, url: {:?}", host.current_url(id));
+        assert_eq!(
+            title.as_deref(),
+            Some("\"signed-in\""),
+            "the opener never heard back"
+        );
+        assert!(
+            host.current_url(id)
+                .is_some_and(|u| u.ends_with("opener.html")),
+            "the portal was navigated away from the opener"
+        );
+    }
+
+    /// A bare `window.open` (no size, no position) keeps the old behaviour: the
+    /// portal navigates in place and no window appears.
+    #[test]
+    #[ignore]
+    fn a_featureless_window_open_navigates_the_portal_in_place() {
+        let dir = std::env::temp_dir().join("slate-web-probe-blank");
+        std::fs::create_dir_all(&dir).unwrap();
+        let start = dir.join("start.html");
+        std::fs::write(
+            &start,
+            "<html><body><script>window.open('next.html');</script></body></html>",
+        )
+        .unwrap();
+        std::fs::write(dir.join("next.html"), "<html><body>next</body></html>").unwrap();
+
+        let mut host = host("blank").expect("no WebView2 runtime on this machine");
+        let id = NodeId(8);
+        let req = local_request(&start);
+        let moved = pump_until(&mut host, id, &req, 45, |h| {
+            h.current_url(id).is_some_and(|u| u.ends_with("next.html"))
+        });
+        println!("url: {:?}", host.current_url(id));
+        assert!(moved, "the portal did not follow the link in place");
+        assert!(!host.holds_popup(id), "a link must not open a window");
+    }
+
+    /// Evicting a portal closes the sign-in window its page opened.
+    #[test]
+    #[ignore]
+    fn evicting_the_portal_closes_its_popup() {
+        let dir = std::env::temp_dir().join("slate-web-probe-popup-evict");
+        std::fs::create_dir_all(&dir).unwrap();
+        let opener = dir.join("opener.html");
+        std::fs::write(
+            &opener,
+            "<html><body><script>window.open('about:blank', 'x', 'width=300,height=200');</script></body></html>",
+        )
+        .unwrap();
+        let mut host = host("popup-evict").expect("no WebView2 runtime on this machine");
+        let id = NodeId(9);
+        let req = local_request(&opener);
+        assert!(pump_until(&mut host, id, &req, 45, |h| h.holds_popup(id)));
+        host.evict(id);
+        pump();
+        assert!(!host.holds_popup(id));
+        assert!(
+            POPUP_SLOTS.with(|s| s.borrow().is_empty()),
+            "the pop-up window outlived its portal"
+        );
+    }
+
+    /// What Google's sign-in page says to WebView2, without entering anything.
+    /// Prints the user agent and the page's visible text; asserts nothing
+    /// about Google's policy, which can change.
+    #[test]
+    #[ignore]
+    fn google_sign_in_page_in_webview2() {
+        let mut host = host("google").expect("no WebView2 runtime on this machine");
+        let id = NodeId(10);
+        let req = WebRequest {
+            target: "https://accounts.google.com/".into(),
+            kind: WebSourceKind::Remote,
+            width_css: 1024,
+            height_css: 768,
+            raster_w: 1024,
+            raster_h: 768,
+            link_script: String::new(),
+            anchor_px: None,
+            profile: slate_doc::scene::web_profile_name("https://accounts.google.com/"),
+        };
+        let loaded = pump_until(&mut host, id, &req, 60, |h| {
+            h.current_url(id)
+                .is_some_and(|u| u.contains("accounts.google.com/") && u.len() > 30)
+        });
+        // Let the sign-in form render after the redirect.
+        let settle = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < settle {
+            pump();
+            host.admit(id, &req);
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        println!("loaded: {loaded}, url: {:?}", host.current_url(id));
+        println!("error: {:?}", host.load_error(id));
+        println!(
+            "userAgent: {:?}",
+            eval(&host, id, "navigator.userAgent", 10)
+        );
+        println!(
+            "webdriver: {:?}",
+            eval(&host, id, "String(navigator.webdriver)", 10)
+        );
+        println!(
+            "text: {:?}",
+            eval(
+                &host,
+                id,
+                "document.body ? document.body.innerText.slice(0, 800) : ''",
+                10
+            )
+        );
     }
 }
 
