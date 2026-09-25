@@ -50,6 +50,8 @@ enum StripItem {
     Agent(bool),
     /// Arms point-to-point measure in a 3D viewport, like Deck arms a tool.
     ModelMeasure,
+    /// Viewport screenshot export menu (pointer-attached).
+    ModelScreenshot,
 }
 
 /// Display passes offered on a 3D viewport, in strip order.
@@ -403,17 +405,20 @@ fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
         return items;
     }
     let mut items = property_strip_items(nodes);
-    if nodes
-        .iter()
-        .any(|n| image_is_model(app, n) || image_is_text(app, n))
-    {
+    if nodes.iter().any(|n| image_is_text(app, n)) {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
     }
     if nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
+        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
         items.extend([
             StripItem::Panel(Panel::ModelDisplay),
             StripItem::ModelMeasure,
+            StripItem::ModelScreenshot,
+            StripItem::Panel(Panel::Filter),
         ]);
+    }
+    if nodes.len() == 1 && image_is_model(app, &nodes[0]) && !app.model_has_viewport(nodes[0].id) {
+        items.retain(|item| *item != StripItem::Panel(Panel::Filter));
     }
     if nodes.len() == 1 && image_has_pages(app, &nodes[0]) {
         items.push(StripItem::Panel(Panel::Pages));
@@ -1102,6 +1107,7 @@ impl SlateApp {
         let mut requested_frame = None;
         let mut requested_agent = None;
         let mut requested_measure = false;
+        let mut requested_screenshot = false;
         let mut captures = false;
         for (index, item) in items.iter().enumerate() {
             let r = chrome::strip_button_rect(strip, index, z);
@@ -1171,6 +1177,11 @@ impl SlateApp {
                         .first()
                         .is_some_and(|id| self.model_measuring(*id)),
                 ),
+                StripItem::ModelScreenshot => (
+                    "Screenshot: export the current viewport",
+                    Icon::View,
+                    self.model_shot_popup.is_some(),
+                ),
                 StripItem::Panel(Panel::Bumper) => (
                     "Bumper cars",
                     Icon::Bumper,
@@ -1214,6 +1225,7 @@ impl SlateApp {
                     StripItem::Frame(action) => requested_frame = Some(*action),
                     StripItem::Agent(expand) => requested_agent = Some(*expand),
                     StripItem::ModelMeasure => requested_measure = true,
+                    StripItem::ModelScreenshot => requested_screenshot = true,
                 }
             }
             captures |= ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
@@ -1264,6 +1276,16 @@ impl SlateApp {
                     CommandId("board.model_measure"),
                     Some(id.0.to_string()),
                 );
+            }
+        }
+        if requested_screenshot {
+            self.apply_shape_preview(&ctx, true);
+            self.shape_properties.number = None;
+            if let (Some(id), Some(p)) = (
+                self.shape_properties.ids.first().copied(),
+                ctx.pointer_latest_pos(),
+            ) {
+                self.open_model_screenshot_menu(id, p);
             }
         }
         // The inline editor is attached to a dimension kind, never a cached screen position.
@@ -1584,7 +1606,7 @@ impl SlateApp {
                     self.dispatch(
                         &ctx,
                         CommandId("board.model_display"),
-                        Some(format!("{}:{}", id.0, super::model3d::display_key(mode))),
+                        Some(format!("{}:{}", id.0, mode.key())),
                     );
                 }
             }
@@ -2834,6 +2856,7 @@ mod tests {
                 StripItem::Panel(Panel::Bumper) => "bumper",
                 StripItem::Panel(Panel::ModelDisplay) => "display",
                 StripItem::ModelMeasure => "measure",
+                StripItem::ModelScreenshot => "screenshot",
                 StripItem::Frame(FrameAction::Prev) => "prev",
                 StripItem::Frame(FrameAction::Next) => "next",
                 StripItem::Frame(FrameAction::Present) => "present",
@@ -2949,20 +2972,16 @@ mod tests {
     }
 
     fn model_node(h: &mut Harness, name: &str, rect: WorldRect) -> NodeId {
-        let item = h
-            .app
-            .doc_mut()
-            .add_item(std::path::PathBuf::from(name), name, 1, 0, name);
-        let node = h
-            .app
-            .doc_mut()
-            .scene
-            .build_node(rect, NodeKind::Image(scene::ImageNode::new(item)));
+        let path = h.base.join(name);
+        let _ = std::fs::write(&path, b" ");
+        let item = h.app.doc_mut().add_item(path, name, 1, 0, name);
+        let img = scene::ImageNode::new(item);
+        let node = h.app.doc_mut().scene.build_node(rect, NodeKind::Image(img));
         h.app.add_nodes(vec![node])[0]
     }
 
     #[test]
-    fn model_viewports_offer_display_and_measure_instead_of_filters() {
+    fn model_viewports_offer_display_measure_screenshot_then_filters() {
         let mut h = board();
         let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);
         let tower = model_node(&mut h, "tower.3dm", rect);
@@ -2970,7 +2989,15 @@ mod tests {
         let node = |h: &Harness, id| h.app.doc().scene.node(id).unwrap().clone();
         assert_eq!(
             item_kinds(&live_property_strip_items(&h.app, &[node(&h, tower)])),
-            ["stroke", "corners", "display", "measure", "agent"]
+            [
+                "stroke",
+                "corners",
+                "display",
+                "measure",
+                "screenshot",
+                "filter",
+                "agent"
+            ]
         );
         // A recognized format with no reader has no viewport to drive.
         let kinds = item_kinds(&live_property_strip_items(&h.app, &[node(&h, blend)]));
@@ -3007,6 +3034,51 @@ mod tests {
             .app
             .dispatch(&h.ctx, CommandId("board.model_display"), None));
         assert_eq!(display(&h), scene::ModelDisplay::Arctic);
+    }
+
+    #[test]
+    fn model_viewport_filter_commits_and_undoes() {
+        let mut h = board();
+        let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);
+        let tower = model_node(&mut h, "tower.3dm", rect);
+        h.app.board_sel = [tower].into_iter().collect();
+        h.app.sync_shape_properties();
+        let before = scene::adjust_of(h.app.doc().scene.node(tower).unwrap()).unwrap();
+        h.app
+            .preview_shape_property(Property::ImageAdjust(PhotoFilter::Juno.at(0.75)));
+        h.app.apply_shape_preview(&h.ctx, true);
+        let after = scene::adjust_of(h.app.doc().scene.node(tower).unwrap()).unwrap();
+        assert_ne!(after, before);
+        h.app.board_undo();
+        assert_eq!(
+            scene::adjust_of(h.app.doc().scene.node(tower).unwrap()).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn view_drop_restores_camera_in_one_undo_step() {
+        let mut h = board();
+        let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);
+        let tower = model_node(&mut h, "tower.3dm", rect);
+        let before = h.app.model_node_info(tower).unwrap().cam;
+        let mut restored = before;
+        restored.yaw = before.yaw + 0.5;
+        restored.display = scene::ModelDisplay::Arctic;
+        h.app.apply_view_drop(
+            tower,
+            model_preview::view_meta::ViewMetaParsed {
+                camera: restored,
+                model_name: "tower.3dm".into(),
+                model_path: "tower.3dm".into(),
+                model_hash: String::new(),
+                model_size: 0,
+                node_id: tower.0,
+            },
+        );
+        assert_eq!(h.app.model_node_info(tower).unwrap().cam, restored);
+        h.app.board_undo();
+        assert_eq!(h.app.model_node_info(tower).unwrap().cam, before);
     }
 
     fn pdf_node(h: &mut Harness, rect: WorldRect) -> NodeId {

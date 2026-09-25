@@ -61,7 +61,7 @@ impl InputRole {
     /// The role a port reads before anything is wired to it.
     pub fn of_slot(slot: atlas_agent::InputSlot) -> Self {
         match slot {
-            atlas_agent::InputSlot::Media => Self::Image,
+            atlas_agent::InputSlot::Media | atlas_agent::InputSlot::View => Self::Image,
             atlas_agent::InputSlot::Prompt => Self::Prompt,
             atlas_agent::InputSlot::Style => Self::Style,
         }
@@ -2508,6 +2508,7 @@ impl SlateApp {
             let Some(binding) = &conn.binding else {
                 continue;
             };
+            // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
             let (source, target) = if binding.input_b {
                 (&conn.a, &conn.b)
             } else {
@@ -2930,6 +2931,7 @@ impl SlateApp {
             let Some(binding) = &conn.binding else {
                 continue;
             };
+            // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
             let (source, target) = if binding.input_b {
                 (&conn.a, &conn.b)
             } else {
@@ -3833,6 +3835,7 @@ impl SlateApp {
         };
         let binding = c.binding.as_ref().unwrap();
         let all = !binding.all_images;
+        // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
         let source = if binding.input_b { &c.a } else { &c.b };
         let pin = if all {
             None
@@ -5109,6 +5112,7 @@ impl SlateApp {
                             .as_ref()
                             .map(|t| t.size_vec2())
                             .unwrap_or(egui::vec2(1.0, 1.0)),
+                        enabled: true,
                     }
                 })
                 .collect();
@@ -5226,6 +5230,7 @@ impl SlateApp {
                             .as_ref()
                             .map(|t| t.size_vec2())
                             .unwrap_or(egui::vec2(1.0, 1.0)),
+                        enabled: true,
                     }
                 })
                 .collect();
@@ -5240,6 +5245,8 @@ impl SlateApp {
                 reveal,
                 z,
                 self.palette(),
+                2,
+                None,
             ) {
                 self.pick_agent_result(id, pick);
             }
@@ -5625,6 +5632,7 @@ impl SlateApp {
                 if binding.consumed {
                     return None;
                 }
+                // TWIN: slate_doc::agent_inputs::WireBinding::target 2026-09-25
                 let target = if binding.input_b { &c.b } else { &c.a };
                 slate_doc::agent_inputs::endpoint_node(target)
                     .filter(|id| *id == portal)

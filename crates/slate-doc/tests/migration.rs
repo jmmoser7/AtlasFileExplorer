@@ -1,4 +1,4 @@
-//! One verbatim workbook per historical on-disk format version, and the
+﻿//! One verbatim workbook per historical on-disk format version, and the
 //! harness that proves each one still opens.
 //!
 //! Convention: a card that bumps `SlateDoc::CURRENT` adds a fixture for the

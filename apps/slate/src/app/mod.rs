@@ -72,6 +72,8 @@ mod external_drop;
 pub mod imagefx;
 pub mod kits;
 pub mod model3d;
+mod model_screenshot;
+mod model_wired_views;
 mod overlays;
 mod path_edit_overlay;
 pub mod pdf;
@@ -236,6 +238,12 @@ pub enum PickerMsg {
     /// Workbook picked as a Slate board portal source.
     SlatePortalSource {
         portal: NodeId,
+        path: Option<PathBuf>,
+    },
+    /// Save-file result for a viewport screenshot export.
+    ModelScreenshotSave {
+        tab_id: u64,
+        node: NodeId,
         path: Option<PathBuf>,
     },
 }
@@ -412,7 +420,8 @@ pub struct SlateApp {
     filter_swatch_src: HashMap<String, egui::ColorImage>,
     filter_swatch_tex: HashMap<(String, u64), TextureHandle>,
     /// Chip faces for the 3D viewport-display stringer (generation-tagged).
-    model_display_swatch_tex: HashMap<(NodeId, u64, slate_doc::scene::ModelDisplay), TextureHandle>,
+    model_display_swatch_tex:
+        HashMap<(u64, NodeId, u64, slate_doc::scene::ModelDisplay), TextureHandle>,
     /// Export artifact with base64-inlined assets (single portable file).
     pub export_inline: bool,
     /// Coalescing anchor for continuous board edits (node, last edit time).
@@ -433,6 +442,9 @@ pub struct SlateApp {
     frame_hwnd: isize,
     /// Interactive 3D model viewport state (see `model3d.rs`).
     pub model3d: model3d::ModelSpace,
+    pub(crate) model_shot_popup: Option<model_screenshot::ModelScreenshotPopup>,
+    pending_view_drop: Option<model_screenshot::PendingViewDrop>,
+    pending_view_wire_cache: Vec<model_wired_views::PendingViewWireCache>,
     /// Canvas video scrub and playback. Derived; not journaled.
     video: board_video::VideoBoard,
     /// Transient smart-guide lines shown during board move/resize (cleared each frame).
@@ -810,6 +822,9 @@ impl SlateApp {
             gl: None,
             frame_hwnd: 0,
             model3d: model3d::ModelSpace::default(),
+            model_shot_popup: None,
+            pending_view_drop: None,
+            pending_view_wire_cache: Vec::new(),
             video: board_video::VideoBoard::default(),
             board_snap_guides: Vec::new(),
             board_forcefield: board_forcefield::Forcefield::default(),
@@ -2106,6 +2121,15 @@ impl SlateApp {
                 portal,
                 path: Some(path),
             } => self.bind_slate_workbook(ctx, portal, path),
+            PickerMsg::ModelScreenshotSave {
+                tab_id,
+                node,
+                path: Some(path),
+            } => {
+                if !self.at_home && self.tab().id == tab_id {
+                    self.finish_model_screenshot_save(node, path);
+                }
+            }
             _ => {}
         }
     }

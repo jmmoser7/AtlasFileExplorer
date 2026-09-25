@@ -1,4 +1,4 @@
-//! The Board view — Slate's open-world authored canvas.
+﻿//! The Board view — Slate's open-world authored canvas.
 //!
 //! Frames, shapes, text, and placed images live in `slate_doc::scene`; this
 //! module paints the scene with egui and turns pointer input into invertible
@@ -1254,6 +1254,7 @@ impl SlateApp {
             })
             .collect();
         if self.commit_scene(cmds) {
+            self.note_view_wires_added(&ids);
             ids
         } else {
             Vec::new()
@@ -1630,7 +1631,8 @@ impl SlateApp {
         {
             let scene = &mut self.doc_mut().scene;
             for (i, item) in items.iter().enumerate() {
-                nodes.push(scene.build_node(rects[i], NodeKind::Image(ImageNode::new(*item))));
+                let img = ImageNode::new(*item);
+                nodes.push(scene.build_node(rects[i], NodeKind::Image(img)));
             }
         }
         let ids = self.add_nodes(nodes);
@@ -1665,7 +1667,8 @@ impl SlateApp {
                     cell_w,
                     cell_h,
                 );
-                nodes.push(scene.build_node(r, NodeKind::Image(ImageNode::new(*item))));
+                let img = ImageNode::new(*item);
+                nodes.push(scene.build_node(r, NodeKind::Image(img)));
             }
         }
         let ids = self.add_nodes(nodes);
@@ -1712,6 +1715,22 @@ impl SlateApp {
     }
 
     // ----- textures -------------------------------------------------------------
+
+    /// Effective photo filter for paint, including in-progress strip previews.
+    fn model_adjust_for_paint(&self, node_id: NodeId) -> ImageAdjust {
+        self.shape_properties
+            .preview
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(slate_doc::scene::adjust_of)
+            .or_else(|| {
+                self.doc()
+                    .scene
+                    .node(node_id)
+                    .and_then(slate_doc::scene::adjust_of)
+            })
+            .unwrap_or_default()
+    }
 
     /// Texture for an image node, applying non-destructive adjustments via
     /// the fx cache. Falls back to the plain thumb while pixels are pending.
@@ -2897,8 +2916,8 @@ impl SlateApp {
     /// standalone): live offscreen render while the viewport is unlocked,
     /// cached frozen-camera poster while locked, item thumbnail while the
     /// poster is still being generated. Files with no mesh reader stay on
-    /// this card and say so. Crop and filter adjustments don't apply — the
-    /// camera pose is the framing.
+    /// this card and say so. Photo filters apply over the render (once per
+    /// camera/size/adjust stamp — not per idle frame).
     #[allow(clippy::too_many_arguments)]
     fn paint_model_viewport(
         &mut self,
@@ -2912,13 +2931,14 @@ impl SlateApp {
     ) {
         let tint = Color32::WHITE.gamma_multiply(alpha);
         let live = self.model3d.live.contains_key(&node_id);
+        let adjust = self.model_adjust_for_paint(node_id);
 
         let rendered = if live {
-            self.model_live_texture(ui.ctx(), node_id, srect.width(), srect.height())
+            self.model_live_texture(ui.ctx(), node_id, srect.width(), srect.height(), &adjust)
         } else {
             let poster = self
                 .model_node_info(node_id)
-                .and_then(|info| self.model_poster_texture(ui.ctx(), &info));
+                .and_then(|info| self.model_poster_texture(ui.ctx(), &info, &adjust));
             if poster.is_none() {
                 self.request_model_poster(node_id);
             }
@@ -2953,7 +2973,7 @@ impl SlateApp {
                     ui.ctx(),
                     node_id,
                     self.image_item(node_id)?,
-                    &ImageAdjust::default(),
+                    &adjust,
                     desired_px,
                 )
             });
@@ -3054,10 +3074,12 @@ impl SlateApp {
                 egui::StrokeKind::Inside,
             );
         }
+
+        self.paint_model_wired_view_strip(ui, node_id, srect, self.board_xf().z);
     }
 
     /// The pool item behind an image node, if any.
-    fn image_item(&self, id: NodeId) -> Option<ItemId> {
+    pub(crate) fn image_item(&self, id: NodeId) -> Option<ItemId> {
         match self.doc().scene.node(id).map(|n| &n.kind) {
             Some(NodeKind::Image(img)) => Some(img.item),
             _ => None,
@@ -3720,7 +3742,9 @@ impl SlateApp {
         // Object chrome runs before gestures so it can capture clicks.
         let agent_controls_capture = self.agent_spawn_input(ui, &xf);
         let other_toolbar_captures = self.shape_properties_ui(ui, &xf);
-        let model_toolbar_captures = agent_controls_capture || other_toolbar_captures;
+        let shot_captures = self.paint_model_screenshot_popup(ui.ctx());
+        let model_toolbar_captures =
+            agent_controls_capture || other_toolbar_captures || shot_captures;
         self.lock_models_pressed_outside(ui, &xf, pointer, model_toolbar_captures);
 
         let now = ui.input(|i| i.time);
@@ -6406,6 +6430,19 @@ impl SlateApp {
             }
             Some(BoardDrag::Move {
                 ids, before, dup, ..
+            }) if pointer.is_some_and(|p| {
+                let world = self.board_xf().s2w(p);
+                self.maybe_intercept_node_drop_on_model(&ids, world)
+            }) =>
+            {
+                for (id, b) in ids.iter().zip(before.iter()) {
+                    if let Some(live) = self.doc_mut().scene.node_mut(*id) {
+                        *live = b.clone();
+                    }
+                }
+            }
+            Some(BoardDrag::Move {
+                ids, before, dup, ..
             }) => {
                 // Whole-node compare: a connector move also translates its
                 // Free endpoints (kind change), not just the rect.
@@ -7656,7 +7693,7 @@ impl SlateApp {
             .cloned()
     }
 
-    fn item_path(&self, item: ItemId) -> Option<PathBuf> {
+    pub(crate) fn item_path(&self, item: ItemId) -> Option<PathBuf> {
         self.doc().item(item).map(|it| it.path.clone())
     }
 

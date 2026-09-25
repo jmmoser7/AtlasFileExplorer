@@ -772,7 +772,7 @@ fn render_image(
                 let poster = assets
                     .model_poster(node.id)
                     .or_else(|| assets.item_thumb(img.item, path));
-                render_file_card(html, url, file_name, "", poster);
+                render_model_poster_card(html, url, poster, img);
             }
             // PDFs, docs, non-web-safe video, workbooks (legacy docs may
             // still carry one as an item), anything else: poster thumbnail
@@ -795,6 +795,37 @@ fn render_image(
     }
 
     html.push_str("</div>\n");
+}
+
+fn render_model_poster_card(
+    html: &mut String,
+    url: &str,
+    poster: Option<&str>,
+    img: &slate_doc::scene::ImageNode,
+) {
+    match poster {
+        Some(thumb) => {
+            html.push_str("<a class=\"thumbcard\" href=\"");
+            html.push_str(&escape_attr(url));
+            html.push_str("\" target=\"_blank\"><img src=\"");
+            html.push_str(&escape_attr(thumb));
+            html.push_str("\" alt=\"\" style=\"");
+            let filter = img.adjust.css_filter();
+            if !filter.is_empty() {
+                html.push_str("filter:");
+                html.push_str(&filter);
+                html.push(';');
+            }
+            html.push_str("\" draggable=\"false\"></a>");
+        }
+        None => {
+            html.push_str("<a class=\"filecard\" href=\"");
+            html.push_str(&escape_attr(url));
+            html.push_str("\" target=\"_blank\"><span>");
+            html.push_str(&escape_html(url.rsplit('/').next().unwrap_or(url)));
+            html.push_str("</span></a>");
+        }
+    }
 }
 
 fn render_img_tag(html: &mut String, url: &str, img: &slate_doc::scene::ImageNode) {

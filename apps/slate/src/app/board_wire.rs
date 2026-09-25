@@ -1,4 +1,4 @@
-//! Connector wires (keymap wave 2b, cluster B): edge grips, the Grasshopper
+﻿//! Connector wires (keymap wave 2b, cluster B): edge grips, the Grasshopper
 //! wire-drag grammar (add / Shift add / Ctrl detach / Ctrl+Shift move-all),
 //! connector painting through the path-mesh cache, label editing, and the
 //! derived-AABB sync that keeps `Node.rect` fresh for marquee/hit systems.
@@ -332,7 +332,7 @@ impl SlateApp {
             if n.hidden || matches!(n.kind, NodeKind::Connector(_)) {
                 continue;
             }
-            let host = WireHost::from_node(n);
+            let host = self.wire_host(n);
             if let NodeKind::Portal(portal) = &n.kind {
                 if portal.kind == slate_doc::scene::PortalKind::Agent {
                     if let Some(id) = self.agent_manual_context_at(screen, xf) {
@@ -419,7 +419,7 @@ impl SlateApp {
         }
         let edge = xf.w2s(port_point(node, side, 0.5));
         let r = atlas_shell::canvas_scale::px(GRIP_RADIUS, xf.z);
-        let normal = WireHost::from_node(node).outward(side, 0.5);
+        let normal = self.wire_host(node).outward(side, 0.5);
         let center = edge + egui::vec2(normal[0], normal[1]) * (r * (progress - 1.0));
         painter.circle_filled(center, r, self.palette().accent.gamma_multiply(0.45));
     }
@@ -551,7 +551,7 @@ impl SlateApp {
             if n.hidden || matches!(n.kind, NodeKind::Connector(_)) || Some(n.id) == exclude {
                 continue;
             }
-            let host = WireHost::from_node(n);
+            let host = self.wire_host(n);
             if let Some(port) = host
                 .ports()
                 .into_iter()
@@ -907,6 +907,7 @@ impl SlateApp {
         };
         if let Some(binding) = &mut conn.binding {
             if binding.kind == slate_doc::agent_inputs::InputKind::Images {
+                // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
                 let source = if binding.input_b { &conn.a } else { &conn.b };
                 binding.output = slate_doc::agent_inputs::endpoint_node(source)
                     .and_then(|id| self.agent_active_output(id));
@@ -915,6 +916,7 @@ impl SlateApp {
         // Wires into a chat train start in the train's calm gray instead of the
         // drawing color. It is only the default: a color picked later is kept.
         if let Some(binding) = &conn.binding {
+            // TWIN: slate_doc::agent_inputs::WireBinding::target 2026-09-25
             let input = if binding.input_b { &conn.b } else { &conn.a };
             if slate_doc::agent_inputs::endpoint_node(input)
                 .is_some_and(|id| slate_doc::agent_inputs::is_chat_card(&self.doc().scene, id))
@@ -930,7 +932,7 @@ impl SlateApp {
                 scene
                     .node(id)
                     .or_else(|| pending.iter().find(|n| n.id == id))
-                    .map(WireHost::from_node)
+                    .map(|n| self.wire_host(n))
             },
             self.board_wire_routing,
             &obstacles,
@@ -1196,7 +1198,7 @@ impl SlateApp {
                 };
                 let aabb = connector_aabb_routed(
                     c,
-                    |id| scene.node(id).map(WireHost::from_node),
+                    |id| scene.node(id).map(|n| self.wire_host(n)),
                     routing,
                     &obstacles,
                     lanes.get(&n.id).copied().unwrap_or_default(),

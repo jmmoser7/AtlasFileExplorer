@@ -1,4 +1,4 @@
-//! End-to-end export smoke test: one slide exercising every style feature
+﻿//! End-to-end export smoke test: one slide exercising every style feature
 //! (crop, rounded + chamfered corners, dashed stroke, filters, overlay,
 //! serif text with escaping) through the public `export_html` API.
 
@@ -170,4 +170,39 @@ fn model_nodes_export_per_node_posters() {
         "{assets:?}"
     );
     assert!(assets.iter().any(|n| n.starts_with("tower-")), "{assets:?}");
+}
+
+#[test]
+fn model_poster_html_carries_css_filter() {
+    let mut doc = SlateDoc::new("Filtered Model");
+    let dir = std::env::temp_dir().join("slate-smoke-model-filter");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let model_path = dir.join("shape.obj");
+    std::fs::write(&model_path, b"o tri").unwrap();
+    let poster_path = dir.join("poster.png");
+    std::fs::write(&poster_path, b"\x89PNG").unwrap();
+    let item = doc.add_item(model_path, "shape.obj", 6, 1, "objkey");
+    let mut img = ImageNode::new(item);
+    img.adjust = ImageAdjust {
+        grayscale: 1.0,
+        ..ImageAdjust::default()
+    };
+    let node = doc
+        .scene
+        .build_node(WorldRect::new(0.0, 0.0, 200.0, 150.0), NodeKind::Image(img));
+    let id = node.id;
+    doc.scene.apply(&SceneCmd::Add {
+        index: doc.scene.nodes.len(),
+        node,
+    });
+    let mut opts = slate_artifact::ExportOptions::default();
+    opts.model_posters.insert(id, poster_path);
+    let out = dir.join("out");
+    slate_artifact::export_html(&doc, &out, &opts).unwrap();
+    let html = std::fs::read_to_string(out.join("index.html")).unwrap();
+    assert!(
+        html.contains("filter:grayscale"),
+        "expected CSS filter on model poster:\n{html}"
+    );
 }

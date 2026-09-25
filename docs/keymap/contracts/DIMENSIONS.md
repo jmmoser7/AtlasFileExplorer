@@ -12,9 +12,9 @@ Rules:
   A dimension that stops earning its keep is marked `(deprecated)` in its
   Notes, not removed.
 - **Scope.** Every dimension declares which contract families must answer it:
-  `tool` (canvas tools), `portal` (portal subtypes), or `any` (both). A
-  contract declares its family in its header (`Family: tool | portal`) and
-  answers exactly the dimensions in scope for it — a gesture tool is not made
+  `tool` (canvas tools), `portal` (portal subtypes), `media` (the Media tool
+  contract only), or `any` (both). A contract declares its family in its header
+  (`Family: tool | portal`) and answers exactly the dimensions in scope for it — a gesture tool is not made
   to write `n/a` fourteen times about export serialization, and a portal is
   not made to invent a numeric-entry story. `cargo xtask contracts` enforces
   this; a missing in-scope row fails the check.
@@ -66,3 +66,8 @@ Rules:
 | D33 | Portal chrome | How the identity tab is painted, folded, and recovered, and which right-click actions it owns | portal | portal-web-embed |
 | D34 | Portal maximize | What maximize does to the window, the page aspect, Slate chrome, and Esc | portal | portal-web-embed |
 | D35 | Portal-local UI | Which source-specific controls this portal owns, and confirmation they do not appear on Document Settings or other board-wide chrome (P1.portal.local-ui) | portal | object-snap |
+| D36 | Viewport screenshot | How a selected 3D model exports the current camera to canvas or disk (formats, placement, picker path, outputs folder)? | media | media |
+| D37 | View metadata | What camera and model provenance is embedded in exported rasters (XMP schema, owner crate, version policy)? | media | media |
+| D38 | View drop-back restore | How dropping a raster onto a 3D model restores an embedded camera (hash match, toasts, undo grouping)? | media | media |
+| D39 | Viewport photo filters | How non-destructive `ImageAdjust` applies over a 3D viewport render/poster, board FX caching, artifact CSS, and screenshot bake? | media | media |
+| D40 | Wired saved views | How screenshot images wire into a 3D viewport, cache cameras, preview strip, and apply views? | media | media |

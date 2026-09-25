@@ -1,4 +1,4 @@
-//! Derived connector geometry: the bezier span and an obstacle-aware
+﻿//! Derived connector geometry: the bezier span and an obstacle-aware
 //! orthogonal (PCB-trace) router.
 //!
 //! Geometry is never stored — both interpreters (the egui board painter and

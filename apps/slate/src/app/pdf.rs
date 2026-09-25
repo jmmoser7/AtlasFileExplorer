@@ -342,6 +342,7 @@ impl SlateApp {
             images.push(atlas_shell::home::AlbumImage {
                 texture: tex_id,
                 size: tex_size,
+                enabled: true,
             });
         }
         let writable = !self.tab().read_only;

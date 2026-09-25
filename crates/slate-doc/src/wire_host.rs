@@ -101,6 +101,10 @@ impl WireHost {
     }
 
     pub fn from_node(node: &Node) -> Self {
+        Self::from_node_flow(node, crate::agent_inputs::input_ports_of(node, false))
+    }
+
+    pub fn from_node_flow(node: &Node, flow: &'static [crate::agent_inputs::InputPort]) -> Self {
         if let Some(stroke) = open_stroke(node) {
             return Self {
                 rect: node.rect,
@@ -117,7 +121,7 @@ impl WireHost {
             rect: node.rect,
             rotation_deg: node.rotation_deg,
             kind: HostKind::Oriented { ellipse },
-            flow: crate::agent_inputs::input_ports_of(node),
+            flow,
         }
     }
 

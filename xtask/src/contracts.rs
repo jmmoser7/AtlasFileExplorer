@@ -27,14 +27,19 @@ pub enum Scope {
     Tool,
     Portal,
     Any,
+    /// Only the `media` tool contract (3D viewport screenshot axes).
+    Media,
 }
 
 impl Scope {
-    fn covers(self, family: Family) -> bool {
-        matches!(
-            (self, family),
-            (Scope::Any, _) | (Scope::Tool, Family::Tool) | (Scope::Portal, Family::Portal)
-        )
+    fn covers(self, family: Family, contract_name: &str) -> bool {
+        match (self, family) {
+            (Scope::Any, _) => true,
+            (Scope::Tool, Family::Tool) => true,
+            (Scope::Portal, Family::Portal) => true,
+            (Scope::Media, Family::Tool) => contract_name == "media",
+            _ => false,
+        }
     }
 }
 
@@ -108,10 +113,10 @@ pub struct Registry {
 }
 
 impl Registry {
-    pub fn in_scope(&self, family: Family) -> Vec<&Dimension> {
+    pub fn in_scope(&self, family: Family, contract_name: &str) -> Vec<&Dimension> {
         self.dims
             .iter()
-            .filter(|d| d.scope.covers(family))
+            .filter(|d| d.scope.covers(family, contract_name))
             .collect()
     }
 }
@@ -248,6 +253,7 @@ pub fn parse_registry(text: &str, path: &Path) -> Result<Registry, MetricsError>
             "tool" => Scope::Tool,
             "portal" => Scope::Portal,
             "any" => Scope::Any,
+            "media" => Scope::Media,
             other => {
                 return Err(MetricsError::contract(
                     path,
@@ -404,7 +410,7 @@ pub fn check(
 
     for contract in contracts {
         let expected: Vec<String> = registry
-            .in_scope(contract.family)
+            .in_scope(contract.family, &contract.name)
             .into_iter()
             .map(|d| d.id.clone())
             .collect();
@@ -736,12 +742,12 @@ mod tests {
     fn scope_selects_the_rows_a_family_must_answer() {
         let registry = registry();
         let tool: Vec<&str> = registry
-            .in_scope(Family::Tool)
+            .in_scope(Family::Tool, "line")
             .iter()
             .map(|d| d.id.as_str())
             .collect();
         let portal: Vec<&str> = registry
-            .in_scope(Family::Portal)
+            .in_scope(Family::Portal, "portal-atlas-lens")
             .iter()
             .map(|d| d.id.as_str())
             .collect();

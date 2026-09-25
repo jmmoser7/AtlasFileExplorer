@@ -1,4 +1,4 @@
-//! Command dispatch: the keyboard front-end of the registry.
+﻿//! Command dispatch: the keyboard front-end of the registry.
 //!
 //! `hotkeys` builds [`atlas_commands::Chord`]s from egui key events, looks
 //! them up in the registry (respecting the pre-existing suppression gates:
@@ -183,7 +183,7 @@ impl SlateApp {
                         .parse::<u64>()
                         .ok()
                         .map(slate_doc::NodeId)
-                        .zip(super::model3d::display_from_key(mode)),
+                        .zip(slate_doc::scene::ModelDisplay::from_key(mode)),
                     None => self.selected_model_viewport().and_then(|id| {
                         let now = self.model_display_of(id)?;
                         let next = match now {
@@ -212,6 +212,29 @@ impl SlateApp {
                 };
                 node.is_some_and(|id| self.toggle_model_measure(id))
             }
+            "board.model_screenshot" => self
+                .selected_model_viewport()
+                .zip(ctx.pointer_latest_pos())
+                .map(|(id, p)| {
+                    self.open_model_screenshot_menu(id, p);
+                    true
+                })
+                .unwrap_or(false),
+            "board.model_screenshot_canvas" => self
+                .selected_model_viewport()
+                .map(|id| {
+                    self.export_model_screenshot_canvas(id);
+                    true
+                })
+                .unwrap_or(false),
+            "board.model_screenshot_save" => self
+                .selected_model_viewport()
+                .map(|id| {
+                    self.export_model_screenshot_dialog(id);
+                    true
+                })
+                .unwrap_or(false),
+            "board.model_view_restore" => false,
             "board.media.unbundle" => {
                 let (node, focus) = if let Some(detail) = detail.as_deref() {
                     let mut parts = detail.split(':');

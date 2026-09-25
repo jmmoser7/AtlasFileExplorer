@@ -1,4 +1,4 @@
-//! Board clipboard: copy / cut / paste of scene nodes, and paste of an image
+﻿//! Board clipboard: copy / cut / paste of scene nodes, and paste of an image
 //! or files copied outside Slate.
 //!
 //! Node payload is plain `Vec<Node>` JSON (the same serde model the `.slate`
@@ -370,6 +370,9 @@ impl SlateApp {
             paths
         };
         if paths.is_empty() {
+            return true;
+        }
+        if on_board && self.maybe_intercept_image_drop_on_model(&paths, at) {
             return true;
         }
         let items = self.add_paths(&paths);

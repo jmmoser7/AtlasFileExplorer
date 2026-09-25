@@ -517,6 +517,8 @@ pub enum InputSlot {
     Prompt,
     /// A second picture that guides the look of the result.
     Style,
+    /// A saved Slate view wired from a screenshot into a 3D viewport.
+    View,
 }
 
 impl InputSlot {
@@ -525,16 +527,17 @@ impl InputSlot {
             Self::Media => "media",
             Self::Prompt => "prompt",
             Self::Style => "style",
+            Self::View => "view",
         }
     }
 
     pub fn from_id(id: &str) -> Option<Self> {
-        [Self::Media, Self::Prompt, Self::Style]
+        [Self::Media, Self::Prompt, Self::Style, Self::View]
             .into_iter()
             .find(|slot| slot.id() == id)
     }
 
-    /// Prompt reads text; Media and Style read pictures.
+    /// Prompt reads text; Media, Style, and View read pictures.
     pub fn takes_text(self) -> bool {
         self == Self::Prompt
     }

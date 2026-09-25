@@ -1,4 +1,4 @@
-//! The semantic layer of existing board wires. Geometry remains in `wire_host`.
+﻿//! The semantic layer of existing board wires. Geometry remains in `wire_host`.
 //! Resolves one immutable run input; adapters never interpret a scene.
 use crate::{scene::*, SlateDoc};
 use atlas_agent::{ContextItem, ImageOutput, InputSlot, InputSnapshot};
@@ -37,6 +37,42 @@ pub struct WireBinding {
     pub slot: Option<String>,
 }
 
+impl WireBinding {
+    /// The connector end that supplies data along this wire.
+    pub fn source_end<'a>(&self, conn: &'a ConnectorNode) -> &'a ConnectorEnd {
+        if self.input_b {
+            &conn.a
+        } else {
+            &conn.b
+        }
+    }
+
+    /// The connector end that receives data along this wire.
+    pub fn target_end<'a>(&self, conn: &'a ConnectorNode) -> &'a ConnectorEnd {
+        if self.input_b {
+            &conn.b
+        } else {
+            &conn.a
+        }
+    }
+
+    pub fn source_end_mut<'a>(&self, conn: &'a mut ConnectorNode) -> &'a mut ConnectorEnd {
+        if self.input_b {
+            &mut conn.a
+        } else {
+            &mut conn.b
+        }
+    }
+
+    pub fn target_end_mut<'a>(&self, conn: &'a mut ConnectorNode) -> &'a mut ConnectorEnd {
+        if self.input_b {
+            &mut conn.b
+        } else {
+            &mut conn.a
+        }
+    }
+}
+
 pub fn endpoint_node(end: &ConnectorEnd) -> Option<NodeId> {
     match end {
         ConnectorEnd::Anchored { node, .. } => Some(*node),
@@ -69,17 +105,23 @@ fn directional_binding<'a>(
 ) -> Option<WireBinding> {
     let midpoint = matches!(target, ConnectorEnd::Anchored { side: Side::Left, t, .. } if (*t - 0.5).abs() < 0.001);
     let target_id = endpoint_node(target)?;
-    let flow = is_flow_node(scene, target_id);
+    let model_view = model_view_target(scene, target_id, item_path);
+    let flow = is_flow_node(scene, target_id) || model_view;
     if !midpoint && !flow {
         return None;
     }
     // A flow node's output port is never one of its inputs.
     if flow
+        && !model_view
         && matches!(target, ConnectorEnd::Anchored { side: Side::Right, t, .. } if (*t - OUTPUT_T).abs() < 0.001)
     {
         return None;
     }
-    let port = target_slot(scene, target_id, target);
+    let port = target_slot(scene, target_id, target, item_path);
+    if let Some(binding) = model_view_binding(scene, source, target, target_id, input_b, item_path)
+    {
+        return Some(binding);
+    }
     let source = scene.node(endpoint_node(source)?)?;
     let target = scene.node(target_id)?;
     if let Some(binding) = table_link(source, target, input_b, item_path) {
@@ -106,6 +148,51 @@ fn directional_binding<'a>(
         all_images: false,
         consumed: false,
         slot: slot.map(|s| s.id().to_string()),
+    })
+}
+
+fn model_view_binding<'a>(
+    scene: &Scene,
+    source_end: &ConnectorEnd,
+    target_end: &ConnectorEnd,
+    target_id: NodeId,
+    input_b: bool,
+    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
+) -> Option<WireBinding> {
+    let target_node = scene.node(target_id)?;
+    let NodeKind::Image(img) = &target_node.kind else {
+        return None;
+    };
+    let Some(path) = item_path(img.item) else {
+        return None;
+    };
+    if !image_model_view_port(path) {
+        return None;
+    }
+    let ConnectorEnd::Anchored {
+        side: Side::Left,
+        t,
+        ..
+    } = target_end
+    else {
+        return None;
+    };
+    if (*t - MODEL_VIEW_PORT_T).abs() > 0.001 {
+        return None;
+    }
+    let source_id = endpoint_node(source_end)?;
+    let NodeKind::Image(src) = &scene.node(source_id)?.kind else {
+        return None;
+    };
+    item_path(src.item)?;
+    Some(WireBinding {
+        input_b,
+        kind: InputKind::Images,
+        output: None,
+        order: vec![],
+        all_images: false,
+        consumed: false,
+        slot: Some(InputSlot::View.id().into()),
     })
 }
 
@@ -139,6 +226,35 @@ const GENERATOR_PORTS: [InputPort; 3] = [
     },
 ];
 
+/// Saved views wired from screenshot images into a 3D viewport.
+pub const MODEL_VIEW_PORT_T: f32 = 0.72;
+
+/// A placed model file that can host the View input port (no format gap).
+pub fn image_model_view_port(path: &std::path::Path) -> bool {
+    use crate::media::{media_kind, MediaKind};
+    media_kind(path) == MediaKind::Model
+}
+
+fn model_view_target<'a>(
+    scene: &Scene,
+    target_id: NodeId,
+    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
+) -> bool {
+    let Some(node) = scene.node(target_id) else {
+        return false;
+    };
+    let NodeKind::Image(img) = &node.kind else {
+        return false;
+    };
+    item_path(img.item).is_some_and(image_model_view_port)
+}
+
+const MODEL_VIEW_PORTS: [InputPort; 1] = [InputPort {
+    slot: InputSlot::View,
+    t: MODEL_VIEW_PORT_T,
+    label: "View",
+}];
+
 const TEXT_PORTS: [InputPort; 2] = [
     InputPort {
         slot: InputSlot::Media,
@@ -154,7 +270,10 @@ const TEXT_PORTS: [InputPort; 2] = [
 
 /// The input ports a node draws and binds, top to bottom. Empty for every node
 /// that is not a generator or text block. `WireHost::ports` reads this table.
-pub fn input_ports_of(node: &Node) -> &'static [InputPort] {
+pub fn input_ports_of(node: &Node, model_view_port: bool) -> &'static [InputPort] {
+    if model_view_port {
+        return &MODEL_VIEW_PORTS;
+    }
     match flow_view(node) {
         Some(atlas_agent::PortalView::Images) => &GENERATOR_PORTS,
         Some(atlas_agent::PortalView::Text) => &TEXT_PORTS,
@@ -169,7 +288,22 @@ fn flow_view(node: &Node) -> Option<atlas_agent::PortalView> {
 }
 
 pub fn input_ports(scene: &Scene, id: NodeId) -> &'static [InputPort] {
-    scene.node(id).map(input_ports_of).unwrap_or(&[])
+    scene
+        .node(id)
+        .map(|n| input_ports_of(n, false))
+        .unwrap_or(&[])
+}
+
+pub fn input_ports_with<'a>(
+    scene: &Scene,
+    id: NodeId,
+    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
+) -> &'static [InputPort] {
+    let Some(node) = scene.node(id) else {
+        return &[];
+    };
+    let model_view = model_view_target(scene, id, item_path);
+    input_ports_of(node, model_view)
 }
 
 /// Generators and text blocks read typed ports and take a wire on any edge.
@@ -177,7 +311,12 @@ pub fn is_flow_node(scene: &Scene, id: NodeId) -> bool {
     !input_ports(scene, id).is_empty()
 }
 
-fn target_slot(scene: &Scene, id: NodeId, end: &ConnectorEnd) -> Option<InputSlot> {
+fn target_slot<'a>(
+    scene: &Scene,
+    id: NodeId,
+    end: &ConnectorEnd,
+    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
+) -> Option<InputSlot> {
     let ConnectorEnd::Anchored {
         side: Side::Left,
         t,
@@ -186,7 +325,7 @@ fn target_slot(scene: &Scene, id: NodeId, end: &ConnectorEnd) -> Option<InputSlo
     else {
         return None;
     };
-    input_ports(scene, id)
+    input_ports_with(scene, id, item_path)
         .iter()
         .find(|p| (p.t - *t).abs() < 0.001)
         .map(|p| p.slot)
@@ -231,7 +370,7 @@ pub fn default_port<'a>(
 ) -> Option<InputPort> {
     wire_kind(scene, source, item_path)?;
     let text = !feeds_picture(scene, source, item_path);
-    let ports = input_ports(scene, target);
+    let ports = input_ports_with(scene, target, item_path);
     let taken = bound_slots(scene, target);
     let fits = |p: &&InputPort| p.slot.takes_text() == text;
     ports
@@ -259,12 +398,10 @@ fn sent_context(scene: &Scene) -> impl Iterator<Item = (NodeId, NodeId, NodeId)>
             return None;
         };
         let binding = c.binding.as_ref().filter(|b| b.consumed)?;
-        let (from, to) = if binding.input_b {
-            (&c.a, &c.b)
-        } else {
-            (&c.b, &c.a)
-        };
-        let (source, card) = (endpoint_node(from)?, endpoint_node(to)?);
+        let (source, card) = (
+            endpoint_node(binding.source_end(c))?,
+            endpoint_node(binding.target_end(c))?,
+        );
         (is_chat_card(scene, card) && !is_chat_card(scene, source)).then_some((n.id, source, card))
     })
 }
@@ -305,7 +442,7 @@ pub fn bound_slots(scene: &Scene, target: NodeId) -> Vec<InputSlot> {
         .filter_map(|n| match &n.kind {
             NodeKind::Connector(c) => {
                 let binding = c.binding.as_ref()?;
-                let end = if binding.input_b { &c.b } else { &c.a };
+                let end = binding.target_end(c);
                 (endpoint_node(end) == Some(target))
                     .then(|| binding.slot.as_deref().and_then(InputSlot::from_id))
                     .flatten()
@@ -639,11 +776,8 @@ pub fn snapshot(
         let Some(binding) = owned.as_ref() else {
             continue;
         };
-        let (source, target) = if binding.input_b {
-            (&c.a, &c.b)
-        } else {
-            (&c.b, &c.a)
-        };
+        let source = binding.source_end(c);
+        let target = binding.target_end(c);
         if endpoint_node(target) != Some(portal) {
             continue;
         }
@@ -774,7 +908,7 @@ pub fn unbundle(
                     continue;
                 };
                 let Some(binding) = &c.binding else { continue };
-                let end = if binding.input_b { &c.b } else { &c.a };
+                let end = binding.target_end(c);
                 if endpoint_node(end) != Some(id) {
                     continue;
                 }
@@ -788,7 +922,7 @@ pub fn unbundle(
                         b.order = vec![wire.id.0];
                     }
                 }
-                let end = if binding.input_b { &mut c.b } else { &mut c.a };
+                let end = binding.target_end_mut(c);
                 if let ConnectorEnd::Anchored { node, .. } = end {
                     *node = child_id;
                 }
@@ -807,7 +941,7 @@ pub fn unbundle(
             continue;
         };
         let Some(binding) = &c.binding else { continue };
-        let source = if binding.input_b { &c.a } else { &c.b };
+        let source = binding.source_end(c);
         if endpoint_node(source) != Some(id) {
             continue;
         }
@@ -832,7 +966,7 @@ pub fn unbundle(
             let NodeKind::Connector(ref mut c) = copy.kind else {
                 unreachable!()
             };
-            let source = if binding.input_b { &mut c.a } else { &mut c.b };
+            let source = binding.source_end_mut(c);
             if let ConnectorEnd::Anchored { node, .. } = source {
                 *node = ids[image_index];
             }
@@ -885,6 +1019,124 @@ pub fn unbundle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ids::ItemId;
+
+    #[test]
+    fn model_view_port_binds_any_wired_image() {
+        let mut doc = SlateDoc::new("views");
+        let model_id = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(1))), 0.0);
+        let shot = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(2))), 200.0);
+        let binding = infer_binding_with(
+            &doc.scene,
+            &ConnectorEnd::Anchored {
+                node: shot,
+                side: Side::Right,
+                t: 0.5,
+            },
+            &ConnectorEnd::Anchored {
+                node: model_id,
+                side: Side::Left,
+                t: MODEL_VIEW_PORT_T,
+            },
+            &|id| match id.0 {
+                1 => Some(std::path::Path::new("box.obj")),
+                2 => Some(std::path::Path::new("view.png")),
+                _ => None,
+            },
+        )
+        .expect("view wire");
+        assert_eq!(binding.slot.as_deref(), Some(InputSlot::View.id()));
+    }
+
+    #[test]
+    fn bound_slots_includes_view_when_wired() {
+        let mut doc = SlateDoc::new("bound-view");
+        let model_id = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(1))), 0.0);
+        let shot = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(2))), 200.0);
+        let binding = infer_binding_with(
+            &doc.scene,
+            &ConnectorEnd::Anchored {
+                node: shot,
+                side: Side::Right,
+                t: 0.5,
+            },
+            &ConnectorEnd::Anchored {
+                node: model_id,
+                side: Side::Left,
+                t: MODEL_VIEW_PORT_T,
+            },
+            &|id| match id.0 {
+                1 => Some(std::path::Path::new("box.obj")),
+                2 => Some(std::path::Path::new("view.png")),
+                _ => None,
+            },
+        )
+        .unwrap();
+        add(
+            &mut doc,
+            NodeKind::Connector(ConnectorNode {
+                a: ConnectorEnd::Anchored {
+                    node: shot,
+                    side: Side::Right,
+                    t: 0.5,
+                },
+                b: ConnectorEnd::Anchored {
+                    node: model_id,
+                    side: Side::Left,
+                    t: MODEL_VIEW_PORT_T,
+                },
+                stroke: Stroke::default(),
+                routing: None,
+                arrow_a: false,
+                arrow_b: false,
+                label: None,
+                display: WireDisplay::Default,
+                binding: Some(binding),
+            }),
+            400.0,
+        );
+        assert!(bound_slots(&doc.scene, model_id).contains(&InputSlot::View));
+    }
+
+    #[test]
+    fn view_wire_binding_source_is_screenshot_image() {
+        let mut doc = SlateDoc::new("wire-dir");
+        let model_id = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(1))), 0.0);
+        let shot = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(2))), 200.0);
+        let shot_end = ConnectorEnd::Anchored {
+            node: shot,
+            side: Side::Right,
+            t: 0.5,
+        };
+        let model_port = ConnectorEnd::Anchored {
+            node: model_id,
+            side: Side::Left,
+            t: MODEL_VIEW_PORT_T,
+        };
+        let binding = infer_binding_with(&doc.scene, &shot_end, &model_port, &|id| {
+            if id.0 == 2 {
+                Some(std::path::Path::new("screenshot.png"))
+            } else {
+                Some(std::path::Path::new("model.obj"))
+            }
+        })
+        .expect("view wire");
+        let conn = ConnectorNode {
+            a: shot_end,
+            b: model_port,
+            stroke: Stroke::default(),
+            routing: None,
+            arrow_a: false,
+            arrow_b: false,
+            label: None,
+            display: WireDisplay::Default,
+            binding: Some(binding),
+        };
+        let b = conn.binding.as_ref().unwrap();
+        assert_eq!(endpoint_node(b.source_end(&conn)), Some(shot));
+        assert_eq!(endpoint_node(b.target_end(&conn)), Some(model_id));
+    }
+
     #[test]
     fn context_uses_midpoint_input_and_portal_locators_only_when_wired() {
         let mut doc = SlateDoc::new("midpoint");

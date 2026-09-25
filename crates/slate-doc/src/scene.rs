@@ -1802,6 +1802,28 @@ pub enum ModelDisplay {
     Depth,
 }
 
+impl ModelDisplay {
+    /// Stable command, XMP, and serde spelling for this display pass.
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Shaded => "shaded",
+            Self::Arctic => "arctic",
+            Self::Material => "material",
+            Self::Depth => "depth",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "shaded" => Some(Self::Shaded),
+            "arctic" => Some(Self::Arctic),
+            "material" => Some(Self::Material),
+            "depth" => Some(Self::Depth),
+            _ => None,
+        }
+    }
+}
+
 /// `pitch` tilts above/below the XY plane, the eye sits `distance` from
 /// `target` along that direction.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -3778,6 +3800,23 @@ mod tests {
     }
 
     #[test]
+    fn model_display_keys_match_serde_names() {
+        for mode in [
+            ModelDisplay::Shaded,
+            ModelDisplay::Arctic,
+            ModelDisplay::Material,
+            ModelDisplay::Depth,
+        ] {
+            assert_eq!(ModelDisplay::from_key(mode.key()), Some(mode));
+            assert_eq!(
+                serde_json::to_string(&mode).unwrap(),
+                format!("\"{}\"", mode.key())
+            );
+        }
+        assert_eq!(ModelDisplay::from_key("unknown"), None);
+    }
+
+    #[test]
     fn photo_filter_recipes_round_trip_through_intensity() {
         for kind in PhotoFilter::ALL {
             let full = kind.at(1.0);
@@ -4664,8 +4703,8 @@ pub fn set_adjust(node: &mut Node, adjust: ImageAdjust) {
     }
 }
 
-/// Photo-filter / ImageAdjust editors apply to placed images (and video
-/// posters). 3D model viewports skip pixel filters in both interpreters.
+/// Photo-filter / ImageAdjust editors apply to placed images, including 3D
+/// model viewports (over the live render or frozen poster).
 pub fn supports_image_adjust(node: &Node) -> bool {
     matches!(node.kind, NodeKind::Image(_))
 }

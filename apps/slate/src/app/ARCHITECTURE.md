@@ -77,6 +77,10 @@ only *queues* upgrades; it never blocks a paint. The pipeline:
    Sources that can't beat their thumbnail land in `preview_failed` and are
    never re-requested (until "Unload all").
 
+The workspace `image` dependency enables PNG, JPEG, and WebP once for every
+consumer. Consequently `atlas_core::preview` decodes `.webp` through the same
+bounded preview tier; capability crates must not carry a divergent feature set.
+
 Board specifics: unadjusted images sharpen through the same path; images
 with non-identity `ImageAdjust` intentionally stay on thumbnail-based FX
 textures (CPU filter math over multi-megapixel previews would stall the

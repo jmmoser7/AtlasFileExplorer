@@ -1516,6 +1516,7 @@ impl SlateApp {
             if binding.kind != InputKind::Table {
                 continue;
             }
+            // TWIN: slate_doc::agent_inputs::WireBinding::source 2026-09-25
             let (source, target) = if binding.input_b {
                 (&conn.a, &conn.b)
             } else {

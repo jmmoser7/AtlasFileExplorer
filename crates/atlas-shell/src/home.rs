@@ -281,6 +281,8 @@ const ALBUM_SETTLE_SECONDS: f32 = 0.18;
 pub struct AlbumImage {
     pub texture: Option<TextureId>,
     pub size: Vec2,
+    /// When false, clicks are ignored (e.g. wired view with no slateview packet).
+    pub enabled: bool,
 }
 
 /// Which gestures browse the album. Anything not claimed stays with the canvas.
@@ -453,8 +455,10 @@ pub fn album_index_strip(
     shown: bool,
     zoom: f32,
     theme: crate::theme::Palette,
+    min_images: usize,
+    disabled_hover: Option<&str>,
 ) -> Option<usize> {
-    if images.len() < 2 {
+    if images.len() < min_images.max(1) {
         return None;
     }
     let fade = album_browsing(ui.ctx(), id).max(ui.ctx().animate_bool_with_time(
@@ -494,8 +498,22 @@ pub fn album_index_strip(
         x += gaps[offset];
         let square = Rect::from_min_size(Pos2::new(x, top), Vec2::splat(side));
         x += side;
-        let response = ui.interact(square, id.with(("album-index", i)), egui::Sense::click());
-        if response.clicked() {
+        let enabled = images[i].enabled;
+        let mut response = ui.interact(
+            square,
+            id.with(("album-index", i)),
+            if enabled {
+                egui::Sense::click()
+            } else {
+                egui::Sense::hover()
+            },
+        );
+        if !enabled {
+            if let Some(tip) = disabled_hover {
+                response = response.on_hover_text(tip);
+            }
+        }
+        if enabled && response.clicked() {
             clicked = Some(i);
         }
         let radius = 3.0 * zoom;

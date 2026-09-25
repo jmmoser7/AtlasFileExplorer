@@ -11,6 +11,7 @@ mod gltf;
 mod obj;
 mod rhino;
 mod stl;
+pub mod view_meta;
 
 use std::path::Path;
 

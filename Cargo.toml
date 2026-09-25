@@ -47,7 +47,11 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 toml = "0.8"
 syn = { version = "2", features = ["full", "visit"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+png = "0.18"
+sha2 = "0.10"
+roxmltree = "0.21"
+image-webp = "0.2"
 # Scaled (DCT-domain) JPEG decoding, which `image`'s zune-jpeg backend does not
 # expose. `rayon` is off on purpose: thumbnails are already parallel across
 # files, so a second pool inside each decode only oversubscribes.

@@ -1,4 +1,4 @@
-//! HTML artifact writer for Slate boards.
+﻿//! HTML artifact writer for Slate boards.
 //!
 //! The native output format of a Slate presentation is HTML+CSS (+ a tiny
 //! self-contained JS runtime for slide navigation). Because the scene model
