@@ -1,26 +1,47 @@
 //! Native file and folder pickers, owned by and modal to the app window.
 //!
-//! Both apps open every system file dialog through [`FilePicker`]. The dialog
-//! runs on its own thread so the frame loop keeps painting (Art. II), with the
-//! app's HWND as owner: it opens above the undecorated window and stays there
-//! (`Show(NULL)` often opened it behind, which looked like a freeze).
+//! Every app window has one [`DialogGate`]. Every [`FilePicker`] for that
+//! window — the app's own and the AI panel's — is built from it
+//! ([`DialogGate::picker`]), and the app wires the window exactly once: the
+//! owner HWND from `eframe::Frame` in `update` ([`DialogGate::set_owner`]),
+//! the input gate in `raw_input_hook` ([`DialogGate::gate_input`]), and one
+//! [`DialogGate::close_all`] when a drop lands. [`DialogGate::any_open`]
+//! answers restart/close blocking.
 //!
-//! While a dialog is up the window swallows its own input
-//! ([`FilePicker::gate_input`]); a click, key press, or close request brings
-//! the dialog forward and flashes it — the owned-modal cue Windows gives.
+//! **One dialog at a time per app.** A second window of the same app (the
+//! File Atlas viewport Slate hosts in a linked session) gets
+//! [`DialogGate::other_window`]: its own owner and gate, one shared scope. A
+//! picker asked to open while any dialog in the scope is up opens nothing and
+//! flashes the open dialog instead. The scope is passed explicitly (not a
+//! process-wide static) so parallel tests stay isolated and standalone apps,
+//! being separate processes, are unaffected.
 //!
-//! The owner is deliberately kept *enabled*. `IFileDialog::Show` disables its
-//! owner, and a disabled window cannot be relied on to take the gesture users
-//! actually make: dragging a file out of the dialog onto the canvas. The app
-//! accepts that drop as an ordinary external drop and calls
-//! [`FilePicker::close`], which cancels the dialog the way its Cancel button
+//! The dialog runs on its own thread so the frame loop keeps painting
+//! (Art. II), owned by the window's HWND: it opens above the undecorated
+//! window and stays there (`Show(NULL)` often opened it behind, which looked
+//! like a freeze). A gate never told its HWND (a hosted viewport, whose
+//! `eframe::App::update` never runs) uses the UI thread's active window at
+//! open — the window the user just clicked.
+//!
+//! While a dialog is up its window swallows its own input; a click, key
+//! press, or close request brings the dialog forward and flashes it — the
+//! owned-modal cue Windows gives. The owner is deliberately kept *enabled*:
+//! `IFileDialog::Show` disables it, and a disabled window cannot be relied on
+//! to take the gesture users actually make, dragging a file out of the dialog
+//! onto the canvas. The app accepts that drop as an ordinary external drop
+//! and calls `close_all`, which cancels the dialog the way its Cancel button
 //! does; the dialog's own result is discarded.
+//!
+//! A window whose gate is never called (again, the hosted viewport: its
+//! host's `raw_input_hook` does not see it) is left disabled, so the native
+//! modal supplies modality there. The cost is drag-to-dismiss in that window
+//! only.
 
 use crossbeam_channel::{Receiver, TryRecvError};
 use eframe::egui;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 /// Frame cadence while a dialog is up: re-enable the owner the dialog just
@@ -50,6 +71,14 @@ impl DialogOwner {
         {
             let _ = handle;
             None
+        }
+    }
+
+    #[cfg(test)]
+    fn fake() -> Self {
+        Self {
+            #[cfg(windows)]
+            hwnd: std::num::NonZeroIsize::new(1).unwrap(),
         }
     }
 }
@@ -226,12 +255,6 @@ impl PickerState {
         Some(self.generation)
     }
 
-    /// The user tried to act in the window. `true` asks for the dialog to be
-    /// brought forward and flashed.
-    pub fn input_attempt(&self) -> bool {
-        self.phase == Phase::Open
-    }
-
     /// Dismiss the dialog (a drop landed on the window, or the app needs it
     /// gone). `true` means a cancel must be sent to the dialog now.
     pub fn close(&mut self) -> bool {
@@ -257,89 +280,254 @@ impl PickerState {
     }
 }
 
-struct Session<M> {
-    generation: u64,
-    rx: Receiver<M>,
-    owner: Option<DialogOwner>,
-    /// Picker thread id (0 until it starts, and for adopted channels).
-    thread: Arc<AtomicU32>,
-    last_cancel: Option<Instant>,
+/// Window ids only need to be distinct within a process.
+static NEXT_WINDOW: AtomicU64 = AtomicU64::new(1);
+
+/// The app's one-dialog slot, shared by all of its windows.
+#[derive(Default)]
+struct Scope {
+    active: Mutex<Weak<DialogCore>>,
 }
 
-/// One modal dialog slot. `M` is the app's own result message, built on the
-/// picker thread from the paths by the `map` passed to [`FilePicker::open`].
-pub struct FilePicker<M> {
-    owner: Option<DialogOwner>,
-    state: PickerState,
-    session: Option<Session<M>>,
+/// A window's dialog handle. Clone freely; clones are the same window.
+#[derive(Clone)]
+pub struct DialogGate {
+    scope: Arc<Scope>,
+    window: u64,
+    owner: Arc<Mutex<Option<DialogOwner>>>,
 }
 
-impl<M> Default for FilePicker<M> {
+impl Default for DialogGate {
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DialogGate {
+    /// The main window of a new app scope.
+    pub fn new() -> Self {
+        Self::in_scope(Arc::default())
+    }
+
+    fn in_scope(scope: Arc<Scope>) -> Self {
         Self {
-            owner: None,
+            scope,
+            window: NEXT_WINDOW.fetch_add(1, Ordering::Relaxed),
+            owner: Arc::default(),
+        }
+    }
+
+    /// Another window of the same app: its own owner and gate, and the same
+    /// one-dialog rule.
+    pub fn other_window(&self) -> Self {
+        Self::in_scope(self.scope.clone())
+    }
+
+    /// The window's HWND. Apps call this from `eframe::App::update` with the
+    /// `Frame`; a gate that never hears it falls back to the active window.
+    pub fn set_owner(&self, owner: Option<DialogOwner>) {
+        *self.owner.lock().unwrap() = owner;
+    }
+
+    /// A dialog slot for this window.
+    pub fn picker<M: Send + 'static>(&self) -> FilePicker<M> {
+        FilePicker {
+            gate: self.clone(),
             state: PickerState::default(),
             session: None,
         }
     }
+
+    /// A dialog is up in any window of this app.
+    pub fn any_open(&self) -> bool {
+        self.active().is_some()
+    }
+
+    /// Cancel the open dialog, whichever slot raised it. Call when an external
+    /// drop replaced the pick.
+    pub fn close_all(&self) {
+        if let Some(core) = self.active() {
+            core.request_close();
+        }
+    }
+
+    /// From `eframe::App::raw_input_hook`: while this window's dialog is up,
+    /// the window ignores input and an attempt to act brings the dialog
+    /// forward. Returns `true` when it gated.
+    pub fn gate_input(&self, raw: &mut egui::RawInput) -> bool {
+        let Some(core) = self.active() else {
+            return false;
+        };
+        if core.window != self.window {
+            return false;
+        }
+        core.gated.store(true, Ordering::Release);
+        if core.attention_due(swallow_input(raw)) {
+            win::attention(core.thread());
+        }
+        true
+    }
+
+    fn active(&self) -> Option<Arc<DialogCore>> {
+        self.scope.active.lock().unwrap().upgrade()
+    }
+
+    /// Claim the app's dialog slot. `None` (after flashing the open dialog)
+    /// while one is up. `fallback` resolves an unknown owner to the calling
+    /// thread's active window, which is only meaningful on the UI thread.
+    fn begin(&self, fallback: bool) -> Option<Arc<DialogCore>> {
+        let mut active = self.scope.active.lock().unwrap();
+        if let Some(open) = active.upgrade() {
+            win::attention(open.thread());
+            return None;
+        }
+        let owner = *self.owner.lock().unwrap();
+        let core = Arc::new(DialogCore {
+            window: self.window,
+            owner: owner.or_else(|| if fallback { win::active_window() } else { None }),
+            thread: AtomicU32::new(0),
+            close_requested: AtomicBool::new(false),
+            gated: AtomicBool::new(false),
+            last_cancel: Mutex::new(None),
+        });
+        *active = Arc::downgrade(&core);
+        Some(core)
+    }
+}
+
+/// One dialog on screen. Alive while its slot is waiting or its thread runs.
+struct DialogCore {
+    window: u64,
+    owner: Option<DialogOwner>,
+    /// Picker thread id (0 until it starts, and for adopted channels).
+    thread: AtomicU32,
+    close_requested: AtomicBool,
+    /// The owning window's gate ran since open: that window supplies
+    /// modality, so the owner may be re-enabled for drops.
+    gated: AtomicBool,
+    last_cancel: Mutex<Option<Instant>>,
+}
+
+impl DialogCore {
+    fn thread(&self) -> u32 {
+        self.thread.load(Ordering::Acquire)
+    }
+
+    /// The user tried to act in the owning window: bring the dialog forward,
+    /// unless it is already on its way out.
+    fn attention_due(&self, attempted: bool) -> bool {
+        attempted && !self.close_requested.load(Ordering::Acquire)
+    }
+
+    fn keeps_owner_enabled(&self) -> bool {
+        self.owner.is_some()
+            && self.gated.load(Ordering::Acquire)
+            && !self.close_requested.load(Ordering::Acquire)
+    }
+
+    fn request_close(&self) {
+        if !self.close_requested.swap(true, Ordering::AcqRel) {
+            self.cancel_now();
+        }
+    }
+
+    /// A cancel posted before the dialog window exists finds nothing; retry.
+    fn cancel_if_due(&self) {
+        let due = self
+            .last_cancel
+            .lock()
+            .unwrap()
+            .is_none_or(|at| at.elapsed() >= CANCEL_RETRY);
+        if due {
+            self.cancel_now();
+        }
+    }
+
+    fn cancel_now(&self) {
+        win::cancel(self.thread());
+        *self.last_cancel.lock().unwrap() = Some(Instant::now());
+    }
+}
+
+struct Session<M> {
+    generation: u64,
+    rx: Receiver<M>,
+    core: Arc<DialogCore>,
+}
+
+/// One dialog slot of a window, built by [`DialogGate::picker`]. `M` is the
+/// caller's result message, built on the picker thread from the paths by the
+/// `map` passed to [`FilePicker::open`].
+pub struct FilePicker<M> {
+    gate: DialogGate,
+    state: PickerState,
+    session: Option<Session<M>>,
 }
 
 impl<M: Send + 'static> FilePicker<M> {
-    pub fn set_owner(&mut self, owner: Option<DialogOwner>) {
-        self.owner = owner;
-    }
-
+    /// This slot's dialog is up.
     pub fn is_open(&self) -> bool {
         self.state.is_open()
     }
 
-    /// Show a dialog. Returns `false` (and shows nothing) while one is open.
+    /// Show a dialog. Returns `false` (and shows nothing) while any dialog of
+    /// this app is open.
     pub fn open(
         &mut self,
         request: PickRequest,
         map: impl FnOnce(Option<Vec<PathBuf>>) -> M + Send + 'static,
     ) -> bool {
+        let Some(core) = self.gate.begin(true) else {
+            return false;
+        };
         let Some(generation) = self.state.begin() else {
             return false;
         };
         let (tx, rx) = crossbeam_channel::bounded(1);
-        let thread = Arc::new(AtomicU32::new(0));
-        let owner = self.owner;
         {
-            let thread = thread.clone();
+            let core = core.clone();
             std::thread::spawn(move || {
-                thread.store(win::current_thread_id(), Ordering::Release);
-                let _ = tx.send(map(request.run(owner)));
+                core.thread
+                    .store(win::current_thread_id(), Ordering::Release);
+                let owner = core.owner;
+                let picked = map(request.run(owner));
+                // The dialog is gone: free the slot before the result lands.
+                drop(core);
+                let _ = tx.send(picked);
             });
         }
         self.session = Some(Session {
             generation,
             rx,
-            owner,
-            thread,
-            last_cancel: None,
+            core,
         });
         true
     }
 
     /// Treat `rx` as the result of an open dialog without showing one — for
-    /// tests, which must never raise a native window.
-    pub fn adopt(&mut self, rx: Receiver<M>) {
+    /// tests, which must never raise a native window. Same admission rule as
+    /// [`FilePicker::open`].
+    pub fn adopt(&mut self, rx: Receiver<M>) -> bool {
+        let Some(core) = self.gate.begin(false) else {
+            return false;
+        };
         let Some(generation) = self.state.begin() else {
-            return;
+            return false;
         };
         self.session = Some(Session {
             generation,
             rx,
-            owner: None,
-            thread: Arc::new(AtomicU32::new(0)),
-            last_cancel: None,
+            core,
         });
+        true
     }
 
     /// Call every frame. Returns the pick once, unless the dialog was closed.
     pub fn poll(&mut self, ctx: &egui::Context) -> Option<M> {
-        let session = self.session.as_mut()?;
+        let session = self.session.as_ref()?;
+        if session.core.close_requested.load(Ordering::Acquire) {
+            self.state.close();
+        }
         match session.rx.try_recv() {
             Ok(msg) => {
                 let generation = session.generation;
@@ -353,16 +541,13 @@ impl<M: Send + 'static> FilePicker<M> {
                 None
             }
             Err(TryRecvError::Empty) => {
+                let core = &session.core;
                 if self.state.phase() == Phase::Closing {
-                    if session
-                        .last_cancel
-                        .is_none_or(|at| at.elapsed() >= CANCEL_RETRY)
-                    {
-                        win::cancel(session.thread.load(Ordering::Acquire));
-                        session.last_cancel = Some(Instant::now());
+                    core.cancel_if_due();
+                } else if core.keeps_owner_enabled() {
+                    if let Some(owner) = core.owner {
+                        win::keep_enabled(owner);
                     }
-                } else if let Some(owner) = session.owner {
-                    win::keep_enabled(owner);
                 }
                 ctx.request_repaint_after(POLL_INTERVAL);
                 None
@@ -370,31 +555,23 @@ impl<M: Send + 'static> FilePicker<M> {
         }
     }
 
-    /// Cancel the open dialog as if the user pressed Cancel. Its result is
-    /// discarded; call when an external drop replaced the pick.
+    /// Cancel this slot's dialog as if the user pressed Cancel; its result is
+    /// discarded. Apps reacting to a drop use [`DialogGate::close_all`].
     pub fn close(&mut self) {
-        if !self.state.close() {
-            return;
-        }
-        if let Some(session) = &mut self.session {
-            win::cancel(session.thread.load(Ordering::Acquire));
-            session.last_cancel = Some(Instant::now());
+        if let Some(session) = &self.session {
+            session.core.request_close();
+            self.state.close();
         }
     }
+}
 
-    /// From `eframe::App::raw_input_hook`: while a dialog is up, the window
-    /// ignores input and an attempt to act brings the dialog forward.
-    /// Returns `true` when it gated.
-    pub fn gate_input(&self, raw: &mut egui::RawInput) -> bool {
-        if !self.state.is_open() {
-            return false;
+impl<M> Drop for FilePicker<M> {
+    /// A slot dropped mid-dialog (a hosted window closing) cancels it rather
+    /// than leave an orphan holding the app's dialog slot.
+    fn drop(&mut self) {
+        if let Some(session) = &self.session {
+            session.core.request_close();
         }
-        if swallow_input(raw) && self.state.input_attempt() {
-            if let Some(session) = &self.session {
-                win::attention(session.thread.load(Ordering::Acquire));
-            }
-        }
-        true
     }
 }
 
@@ -437,7 +614,9 @@ mod win {
     use windows::core::BOOL;
     use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
     use windows::Win32::System::Threading::GetCurrentThreadId;
-    use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, IsWindowEnabled};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        EnableWindow, GetActiveWindow, IsWindowEnabled,
+    };
     use windows::Win32::UI::WindowsAndMessaging::{
         EnumThreadWindows, FlashWindowEx, GetClassNameW, IsWindowVisible, PostMessageW,
         SetForegroundWindow, FLASHWINFO, FLASHW_CAPTION, IDCANCEL, WM_COMMAND,
@@ -454,6 +633,13 @@ mod win {
 
     fn hwnd(owner: DialogOwner) -> HWND {
         HWND(owner.hwnd.get() as *mut _)
+    }
+
+    /// The calling thread's active window: on the UI thread, the app window
+    /// the user just acted in.
+    pub(super) fn active_window() -> Option<DialogOwner> {
+        let active = unsafe { GetActiveWindow() };
+        std::num::NonZeroIsize::new(active.0 as isize).map(|hwnd| DialogOwner { hwnd })
     }
 
     /// The picker thread's visible dialog windows (`#32770`; the Common Item
@@ -535,6 +721,9 @@ mod win {
     pub(super) fn current_thread_id() -> u32 {
         0
     }
+    pub(super) fn active_window() -> Option<DialogOwner> {
+        None
+    }
     pub(super) fn cancel(_thread: u32) {}
     pub(super) fn attention(_thread: u32) {}
     pub(super) fn keep_enabled(_owner: DialogOwner) {}
@@ -563,6 +752,13 @@ mod tests {
         }
     }
 
+    fn clicked() -> egui::RawInput {
+        egui::RawInput {
+            events: vec![press(true)],
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn open_then_pick_delivers_once() {
         let mut s = PickerState::default();
@@ -581,7 +777,6 @@ mod tests {
         assert!(s.close(), "a drop must cancel the dialog");
         assert_eq!(s.phase(), Phase::Closing);
         assert!(s.is_open(), "gated until the dialog is really gone");
-        assert!(!s.input_attempt(), "no flash for a dialog on its way out");
         assert!(!s.close(), "cancel is sent once, then retried by poll");
         assert_eq!(s.finished(generation), Outcome::Discard);
         assert!(!s.is_open());
@@ -589,10 +784,18 @@ mod tests {
 
     #[test]
     fn open_then_input_requests_attention() {
-        let mut s = PickerState::default();
-        assert!(!s.input_attempt());
-        s.begin().unwrap();
-        assert!(s.input_attempt());
+        let gate = DialogGate::new();
+        let mut picker = gate.picker::<u32>();
+        let (_tx, rx) = crossbeam_channel::unbounded();
+        picker.adopt(rx);
+        let core = picker.session.as_ref().unwrap().core.clone();
+        assert!(!core.attention_due(false), "hover and wheel do not flash");
+        assert!(core.attention_due(true));
+        gate.close_all();
+        assert!(
+            !core.attention_due(true),
+            "no flash for a dialog on its way out"
+        );
     }
 
     #[test]
@@ -643,10 +846,7 @@ mod tests {
 
     #[test]
     fn swallow_reports_presses_keys_and_close_as_attempts() {
-        let mut raw = egui::RawInput {
-            events: vec![press(true)],
-            ..Default::default()
-        };
+        let mut raw = clicked();
         assert!(swallow_input(&mut raw));
         assert_eq!(raw.events, vec![egui::Event::PointerGone]);
 
@@ -668,25 +868,80 @@ mod tests {
     #[test]
     fn picker_delivers_and_gates_through_adopted_channel() {
         let ctx = egui::Context::default();
-        let mut picker = FilePicker::<u32>::default();
-        let mut raw = egui::RawInput::default();
-        assert!(!picker.gate_input(&mut raw));
+        let gate = DialogGate::new();
+        let mut picker = gate.picker::<u32>();
+        assert!(!gate.gate_input(&mut clicked()));
 
         let (tx, rx) = crossbeam_channel::unbounded();
-        picker.adopt(rx);
-        assert!(picker.is_open());
-        raw.events = vec![press(true)];
-        assert!(picker.gate_input(&mut raw));
+        assert!(picker.adopt(rx));
+        assert!(picker.is_open() && gate.any_open());
+        let mut raw = clicked();
+        assert!(gate.gate_input(&mut raw));
+        assert_eq!(raw.events, vec![egui::Event::PointerGone]);
         assert_eq!(picker.poll(&ctx), None);
         tx.send(7).unwrap();
         assert_eq!(picker.poll(&ctx), Some(7));
-        assert!(!picker.is_open());
+        assert!(!picker.is_open() && !gate.any_open());
     }
 
     #[test]
-    fn picker_close_discards_the_dialog_result() {
+    fn the_gate_refuses_a_second_dialog_across_slots_and_windows() {
         let ctx = egui::Context::default();
-        let mut picker = FilePicker::<u32>::default();
+        let gate = DialogGate::new();
+        let hosted = gate.other_window();
+        let mut app = gate.picker::<u32>();
+        let mut ai = gate.picker::<u32>();
+        let mut hosted_app = hosted.picker::<u32>();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        assert!(app.adopt(rx));
+        assert!(!ai.adopt(crossbeam_channel::unbounded().1), "same window");
+        assert!(
+            !hosted_app.adopt(crossbeam_channel::unbounded().1),
+            "other window, same app"
+        );
+        assert!(!app.adopt(crossbeam_channel::unbounded().1), "same slot");
+        assert!(hosted.any_open(), "every window sees the open dialog");
+
+        tx.send(1).unwrap();
+        assert_eq!(app.poll(&ctx), Some(1));
+        assert!(ai.adopt(crossbeam_channel::unbounded().1), "slot freed");
+        assert!(!DialogGate::new().any_open(), "another app is unaffected");
+    }
+
+    #[test]
+    fn close_all_closes_whichever_slot_is_open() {
+        let ctx = egui::Context::default();
+        let gate = DialogGate::new();
+        let hosted = gate.other_window();
+        let mut app = gate.picker::<u32>();
+        let mut ai = gate.picker::<u32>();
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        app.adopt(rx);
+        gate.close_all();
+        tx.send(1).unwrap();
+        assert_eq!(
+            app.poll(&ctx),
+            None,
+            "a dismissed dialog's pick is discarded"
+        );
+        assert!(!gate.any_open());
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        ai.adopt(rx);
+        hosted.close_all();
+        assert!(ai.is_open(), "gated until the dialog reports");
+        tx.send(2).unwrap();
+        assert_eq!(ai.poll(&ctx), None);
+        assert!(!gate.any_open());
+    }
+
+    #[test]
+    fn slot_close_discards_the_dialog_result() {
+        let ctx = egui::Context::default();
+        let gate = DialogGate::new();
+        let mut picker = gate.picker::<u32>();
         let (tx, rx) = crossbeam_channel::unbounded();
         picker.adopt(rx);
         picker.close();
@@ -697,135 +952,201 @@ mod tests {
     }
 
     #[test]
-    fn a_vanished_dialog_thread_ungates_the_window() {
+    fn only_the_owning_window_gates_and_re_enables_its_owner() {
+        let gate = DialogGate::new();
+        let hosted = gate.other_window();
+        gate.set_owner(Some(DialogOwner::fake()));
+        let mut picker = gate.picker::<u32>();
+        let (_tx, rx) = crossbeam_channel::unbounded();
+        picker.adopt(rx);
+        let core = picker.session.as_ref().unwrap().core.clone();
+        assert!(
+            !core.keeps_owner_enabled(),
+            "no gate since open (a hosted viewport): leave the native modal alone"
+        );
+
+        let mut raw = clicked();
+        assert!(!hosted.gate_input(&mut raw), "another window's dialog");
+        assert_eq!(raw.events, vec![press(true)]);
+        assert!(!core.keeps_owner_enabled());
+
+        assert!(gate.gate_input(&mut clicked()));
+        assert!(core.keeps_owner_enabled(), "the gate supplies modality now");
+        picker.close();
+        assert!(
+            !core.keeps_owner_enabled(),
+            "a closing dialog re-enables it"
+        );
+    }
+
+    #[test]
+    fn a_vanished_dialog_thread_or_dropped_slot_frees_the_app() {
         let ctx = egui::Context::default();
-        let mut picker = FilePicker::<u32>::default();
+        let gate = DialogGate::new();
+        let mut picker = gate.picker::<u32>();
         let (tx, rx) = crossbeam_channel::unbounded();
         picker.adopt(rx);
         drop(tx);
         assert_eq!(picker.poll(&ctx), None);
-        assert!(!picker.is_open());
+        assert!(!picker.is_open() && !gate.any_open());
+
+        let (_tx, rx) = crossbeam_channel::unbounded();
+        picker.adopt(rx);
+        drop(picker);
+        assert!(!gate.any_open());
     }
 
-    /// Raises a real dialog, cancels it from this thread, and checks the
-    /// session ends with nothing delivered. Ignored: it puts a window on the
-    /// desktop for a moment.
     #[cfg(windows)]
-    #[test]
-    #[ignore]
-    fn real_dialog_is_cancelled_by_close() {
-        let ctx = egui::Context::default();
-        let mut picker = FilePicker::<Option<Vec<PathBuf>>>::default();
-        assert!(picker.open(PickRequest::file().title("atlas-shell test"), |p| p));
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while picker
-            .session
-            .as_ref()
-            .is_some_and(|s| win::dialogs(s.thread.load(Ordering::Acquire)).is_empty())
-        {
-            assert!(Instant::now() < deadline, "dialog never appeared");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        picker.close();
-        while picker.is_open() {
-            assert!(Instant::now() < deadline, "dialog ignored the cancel");
-            assert_eq!(picker.poll(&ctx), None);
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-
-    /// With a real owner window: the dialog is owned by it, `Show` disables
-    /// it, `poll` re-enables it while the dialog stays up, and a cancel
-    /// still ends the session. Ignored for the same reason as above.
-    #[cfg(windows)]
-    #[test]
-    #[ignore]
-    fn real_owned_dialog_keeps_its_owner_enabled() {
+    mod real {
+        //! Raise real dialogs. Ignored: they put windows on the desktop for a
+        //! moment.
+        use super::*;
         use windows::core::w;
-        use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::Input::KeyboardAndMouse::{IsWindowEnabled, SetActiveWindow};
         use windows::Win32::UI::WindowsAndMessaging::{
             CreateWindowExW, DestroyWindow, DispatchMessageW, GetWindow, IsWindowVisible,
             PeekMessageW, TranslateMessage, GW_OWNER, MSG, PM_REMOVE, WINDOW_EX_STYLE,
             WS_OVERLAPPEDWINDOW, WS_VISIBLE,
         };
-        // The dialog thread's EnableWindow is a cross-thread send to this one.
-        let pump = || unsafe {
-            let mut msg = MSG::default();
-            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+
+        /// A dialog thread's EnableWindow is a cross-thread send to this one.
+        fn pump() {
+            unsafe {
+                let mut msg = MSG::default();
+                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
             }
-        };
-        let owner = unsafe {
-            CreateWindowExW(
-                WINDOW_EX_STYLE(0),
-                w!("STATIC"),
-                w!("atlas-shell owner"),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                80,
-                80,
-                480,
-                320,
-                None,
-                None,
-                None,
-                None,
-            )
         }
-        .unwrap();
-        let enabled = || unsafe { IsWindowEnabled(owner) }.as_bool();
-        let wait = |what: &str, done: &mut dyn FnMut() -> bool| {
+
+        fn wait(what: &str, done: &mut dyn FnMut() -> bool) {
             let deadline = Instant::now() + Duration::from_secs(10);
             while !done() {
                 assert!(Instant::now() < deadline, "timed out: {what}");
                 pump();
                 std::thread::sleep(Duration::from_millis(10));
             }
-        };
+        }
 
-        let ctx = egui::Context::default();
-        let mut picker = FilePicker::<Option<Vec<PathBuf>>>::default();
-        picker.set_owner(Some(DialogOwner {
-            hwnd: std::num::NonZeroIsize::new(owner.0 as isize).unwrap(),
-        }));
-        assert!(picker.open(PickRequest::folder().title("atlas-shell owned test"), |p| p));
-        let thread = picker.session.as_ref().unwrap().thread.clone();
-        let mut dialog = None;
-        wait("dialog", &mut || {
-            dialog = win::dialogs(thread.load(Ordering::Acquire))
-                .first()
-                .copied();
-            dialog.is_some()
-        });
-        let dialog = dialog.unwrap();
-        assert_eq!(unsafe { GetWindow(dialog, GW_OWNER) }.ok(), Some(owner));
-        wait("Show disables its owner", &mut || !enabled());
+        fn window() -> HWND {
+            unsafe {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("STATIC"),
+                    w!("atlas-shell owner"),
+                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                    80,
+                    80,
+                    480,
+                    320,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .unwrap()
+        }
 
-        assert_eq!(picker.poll(&ctx), None);
-        pump();
-        assert!(enabled(), "poll re-enables the owner");
-        assert!(
-            unsafe { IsWindowVisible(dialog) }.as_bool(),
-            "dialog stays up"
-        );
+        fn owner_of(hwnd: HWND) -> DialogOwner {
+            DialogOwner {
+                hwnd: std::num::NonZeroIsize::new(hwnd.0 as isize).unwrap(),
+            }
+        }
 
-        let mut raw = egui::RawInput::default();
-        raw.events.push(egui::Event::PointerButton {
-            pos: egui::pos2(5.0, 5.0),
-            button: egui::PointerButton::Primary,
-            pressed: true,
-            modifiers: egui::Modifiers::NONE,
-        });
-        assert!(picker.gate_input(&mut raw), "attention path runs");
+        fn enabled(hwnd: HWND) -> bool {
+            unsafe { IsWindowEnabled(hwnd) }.as_bool()
+        }
 
-        picker.close();
-        wait("cancel", &mut || {
+        fn dialog_of<M: Send + 'static>(picker: &FilePicker<M>) -> HWND {
+            let core = picker.session.as_ref().unwrap().core.clone();
+            let mut dialog = None;
+            wait("dialog", &mut || {
+                dialog = win::dialogs(core.thread()).first().copied();
+                dialog.is_some()
+            });
+            dialog.unwrap()
+        }
+
+        fn close_and_wait<M: Send + 'static>(gate: &DialogGate, picker: &mut FilePicker<M>) {
+            let ctx = egui::Context::default();
+            gate.close_all();
+            wait("cancel", &mut || {
+                assert!(picker.poll(&ctx).is_none());
+                !picker.is_open()
+            });
+            assert!(!gate.any_open());
+        }
+
+        #[test]
+        #[ignore]
+        fn real_dialog_is_cancelled_by_close_all() {
+            let gate = DialogGate::new();
+            let mut picker = gate.picker::<Option<Vec<PathBuf>>>();
+            assert!(picker.open(PickRequest::file().title("atlas-shell test"), |p| p));
+            dialog_of(&picker);
+            close_and_wait(&gate, &mut picker);
+        }
+
+        /// The root window: owned, disabled by `Show`, left disabled until
+        /// its gate runs (the hosted-viewport path), then re-enabled while
+        /// the dialog stays up.
+        #[test]
+        #[ignore]
+        fn real_owned_dialog_is_re_enabled_only_once_gated() {
+            let ctx = egui::Context::default();
+            let hwnd = window();
+            let gate = DialogGate::new();
+            gate.set_owner(Some(owner_of(hwnd)));
+            let mut picker = gate.picker::<Option<Vec<PathBuf>>>();
+            assert!(picker.open(PickRequest::folder().title("atlas-shell owned test"), |p| p));
+            let dialog = dialog_of(&picker);
+            assert_eq!(unsafe { GetWindow(dialog, GW_OWNER) }.ok(), Some(hwnd));
+            wait("Show disables its owner", &mut || !enabled(hwnd));
+
+            for _ in 0..5 {
+                assert_eq!(picker.poll(&ctx), None);
+                pump();
+            }
+            assert!(!enabled(hwnd), "ungated window keeps the native modal");
+
+            assert!(gate.gate_input(&mut clicked()), "attention path runs");
             assert_eq!(picker.poll(&ctx), None);
-            !picker.is_open()
-        });
-        assert!(enabled());
-        unsafe {
-            let _ = DestroyWindow(owner);
+            pump();
+            assert!(enabled(hwnd), "gated window is re-enabled for drops");
+            assert!(
+                unsafe { IsWindowVisible(dialog) }.as_bool(),
+                "dialog stays up"
+            );
+
+            close_and_wait(&gate, &mut picker);
+            assert!(enabled(hwnd));
+            unsafe {
+                let _ = DestroyWindow(hwnd);
+            }
+        }
+
+        /// A gate never told its HWND (a hosted viewport) owns the dialog by
+        /// the thread's active window.
+        #[test]
+        #[ignore]
+        fn real_unowned_gate_uses_the_active_window() {
+            let hwnd = window();
+            unsafe {
+                let _ = SetActiveWindow(hwnd);
+            }
+            pump();
+            let hosted = DialogGate::new().other_window();
+            let mut picker = hosted.picker::<Option<Vec<PathBuf>>>();
+            assert!(picker.open(PickRequest::file().title("atlas-shell hosted test"), |p| p));
+            let dialog = dialog_of(&picker);
+            assert_eq!(unsafe { GetWindow(dialog, GW_OWNER) }.ok(), Some(hwnd));
+            close_and_wait(&hosted, &mut picker);
+            unsafe {
+                let _ = DestroyWindow(hwnd);
+            }
         }
     }
 }

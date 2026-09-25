@@ -26,7 +26,7 @@ use atlas_core::types::{
     FileEntry, FAMILIES, SECS_PER_DAY,
 };
 use atlas_core::watcher::{self, FsChange, FsWatch};
-use atlas_shell::file_picker::{self, DialogOwner, FilePicker, PickRequest};
+use atlas_shell::file_picker::{self, DialogGate, DialogOwner, FilePicker, PickRequest};
 use atlas_shell::folder_map::{
     self, folder_heat_color, FolderCam, MapMedia, MapStyle, PaintArgs, ToggleOutcome,
 };
@@ -822,7 +822,10 @@ pub struct AtlasApp {
     /// channel. The root is checked on arrival so a late reply can never be
     /// ingested into a different tab's workspace.
     pending_load: Option<(PathBuf, Receiver<LoadedRoot>)>,
-    /// The one system folder dialog, modal to the Atlas window.
+    /// This window's dialog gate; `picker` and the AI panel's slot are built
+    /// from it.
+    dialogs: DialogGate,
+    /// The Atlas folder dialog slot.
     picker: FilePicker<AtlasPick>,
     /// What the open dialog was raised for (spinners only).
     picking: PickPurpose,
@@ -1167,23 +1170,24 @@ impl TabState {
 
 impl AtlasApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_root: Option<PathBuf>) -> Self {
-        let mut app = Self::with_db(&cc.egui_ctx, Db::open(), initial_root);
-        let owner = DialogOwner::from_window(cc);
-        app.picker.set_owner(owner);
-        app.ai.set_dialog_owner(owner);
+        let mut app = Self::with_db(&cc.egui_ctx, Db::open(), initial_root, DialogGate::new());
         app.boot_phase("window");
         app
     }
 
     /// Construct Atlas for a linked Slate session: same app, plus a bridge
     /// for right-click tagging and cross-window drag. Used when Slate hosts
-    /// Atlas as a second viewport in its own process.
+    /// Atlas as a second viewport in its own process. `dialogs` is the host's
+    /// `DialogGate::other_window()`: this viewport never runs
+    /// `eframe::App::update` or `raw_input_hook`, so its dialogs are owned by
+    /// the active window and left natively modal.
     pub fn embedded(
         egui_ctx: &egui::Context,
         initial_root: Option<PathBuf>,
         session: atlas_session::SharedSession,
+        dialogs: DialogGate,
     ) -> Self {
-        let mut app = Self::with_db(egui_ctx, Db::open(), initial_root);
+        let mut app = Self::with_db(egui_ctx, Db::open(), initial_root, dialogs);
         app.session = Some(session);
         app
     }
@@ -1196,7 +1200,12 @@ impl AtlasApp {
     /// Full construction from an egui context and an explicit index DB.
     /// Used by `new` and by the headless test harness (isolated DB, no
     /// eframe window).
-    fn with_db(egui_ctx: &egui::Context, db: Db, initial_root: Option<PathBuf>) -> Self {
+    fn with_db(
+        egui_ctx: &egui::Context,
+        db: Db,
+        initial_root: Option<PathBuf>,
+        dialogs: DialogGate,
+    ) -> Self {
         let mut boot = atlas_core::session_log::Startup::begin();
         #[cfg(debug_assertions)]
         if let Err(e) = commands::REGISTRY.validate() {
@@ -1303,7 +1312,7 @@ impl AtlasApp {
             view_world: None,
             view_lod: 0,
             pending_load: None,
-            picker: FilePicker::default(),
+            picker: dialogs.picker(),
             picking: PickPurpose::Map,
             search: String::new(),
             family_on: [fam_default; 10],
@@ -1385,7 +1394,8 @@ impl AtlasApp {
             detail: None,
             session: None,
             session_drag: None,
-            ai: atlas_ai::AiPanel::new(),
+            ai: atlas_ai::AiPanel::new(&dialogs),
+            dialogs,
             session_log: if cfg!(test) {
                 atlas_core::session_log::SessionLog::memory("file-atlas")
             } else {
@@ -1511,33 +1521,29 @@ impl AtlasApp {
     }
 
     fn open_folder_dialog_for_tab(&mut self, tab_i: usize) {
-        if self.picker.is_open() {
-            return;
-        }
         // Stay on Home until a folder is chosen. Leaving first dumps the user
         // on an empty tree if the picker is cancelled or opens behind Atlas.
         self.ensure_tab();
         let Some(tab_id) = self.tabs.get(tab_i).map(|t| t.id) else {
             return;
         };
-        self.picking = PickPurpose::Map;
-        self.picker.open(
+        if self.picker.open(
             PickRequest::folders().title("Choose folder(s) to map"),
             move |folders| AtlasPick::Map { tab_id, folders },
-        );
+        ) {
+            self.picking = PickPurpose::Map;
+        }
     }
 
     // ---------- overnight pre-warm ----------
 
     fn open_prewarm_dialog(&mut self) {
-        if self.picker.is_open() {
-            return;
-        }
-        self.picking = PickPurpose::Prewarm;
-        self.picker.open(
+        if self.picker.open(
             PickRequest::folder().title("Choose a folder to pre-warm (runs quietly in background)"),
             |picked| AtlasPick::Prewarm(file_picker::first(picked)),
-        );
+        ) {
+            self.picking = PickPurpose::Prewarm;
+        }
     }
 
     /// Walk `dir` on a background thread and queue every thumbnail-able file
@@ -4873,20 +4879,21 @@ impl AtlasApp {
     }
 
     fn pick_export_dest(&mut self) {
-        if self.picker.is_open() || self.export_ui.is_some() {
+        if self.export_ui.is_some() {
             return;
         }
         let Some(root) = self.root.clone() else {
             return;
         };
-        self.picking = PickPurpose::Export;
-        self.picker.open(
+        if self.picker.open(
             PickRequest::folder().title("Choose export destination"),
             move |picked| AtlasPick::Export {
                 root,
                 dest: file_picker::first(picked),
             },
-        );
+        ) {
+            self.picking = PickPurpose::Export;
+        }
     }
 
     fn begin_export(&mut self, dest: PathBuf) {
@@ -4912,16 +4919,11 @@ impl AtlasApp {
 
 impl eframe::App for AtlasApp {
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        if !self.picker.gate_input(raw_input) {
-            self.ai.gate_input(raw_input);
-        }
+        self.dialogs.gate_input(raw_input);
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if let Some(owner) = DialogOwner::from_window(frame) {
-            self.picker.set_owner(Some(owner));
-            self.ai.set_dialog_owner(Some(owner));
-        }
+        self.dialogs.set_owner(DialogOwner::from_window(frame));
         self.pump_frame(ctx);
     }
 }
@@ -4957,6 +4959,8 @@ impl AtlasApp {
     pub fn update_close_blocked(&self) -> Option<&'static str> {
         if self.fs_op.is_some() || self.cloud_audit.is_some() || self.export_ui.is_some() {
             Some("Wait for file operations and exports to finish before restarting.")
+        } else if self.dialogs.any_open() {
+            Some("Finish the open file dialog before restarting.")
         } else {
             None
         }
@@ -5027,8 +5031,7 @@ impl AtlasApp {
         if !dropped.is_empty() {
             // Dragged out of the open dialog instead of picked: the drop is
             // the answer, so the dialog goes away as if cancelled.
-            self.picker.close();
-            self.ai.close_picker();
+            self.dialogs.close_all();
             self.set_roots(dropped);
         }
 
@@ -5137,11 +5140,9 @@ impl AtlasApp {
             || self.thumbs_pending > 0
             || self.export_ui.is_some()
             || self.pending_load.is_some()
-            || self.picker.is_open()
             || !self.toasts.is_empty()
             || self.drag_chip.is_some()
             || self.anim.is_some()
-            || self.ai.picker_pending()
             || self.tree_dirty
             || self.tree_build_rx.is_some()
             || self.fs_op.is_some()

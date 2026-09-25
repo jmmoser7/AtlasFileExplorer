@@ -72,8 +72,15 @@ them is an index-out-of-bounds crash the moment another tab's entries load:
    active workspace. Home stays up until a pick arrives — leaving first
    dumps the user on an empty tree if the dialog is cancelled or opens
    behind the window. Every dialog goes through `atlas_shell::file_picker`:
-   one at a time, owned by the Atlas HWND, window input gated while it is
-   up, and a folder dropped on the window closes it (its result discarded).
+   the window's one `DialogGate` (`AtlasApp::dialogs`, handed to `with_db`)
+   builds both dialog slots (`picker` and the AI panel's), and the window is
+   wired once — owner from the `Frame` in `update`, `gate_input` in
+   `raw_input_hook`, `close_all` when an accepted folder drop lands,
+   `any_open` in `update_close_blocked`. One dialog at a time, owned by the
+   Atlas HWND, window input gated while it is up. Hosted in Slate
+   (`embedded`), Atlas gets Slate's `other_window()` gate: dialogs owned by
+   the active window, the viewport left natively modal (no drag-to-dismiss
+   there), and still one dialog across both windows.
 4. **Owner is enrichment, never identity.** Discovery leaves it empty because the
    lookup is a security-descriptor query per file (`docs/performance.md`), and
    `queue_owner_pass` backfills it after the canvas is up. So nothing may treat a

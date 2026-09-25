@@ -30,10 +30,25 @@ fn update_restart_checks_inactive_workbooks_and_pending_dialogs() {
     h.app.tabs[0].dirty = false;
     assert!(h.app.update_close_blocked().is_none());
     let (tx, rx) = crossbeam_channel::unbounded();
-    h.app.picker.adopt(rx);
+    assert!(h.app.picker.adopt(rx));
     assert!(h.app.update_close_blocked().is_some());
     drop(tx);
     h.app.drain_pickers(&h.ctx);
+    assert!(h.app.update_close_blocked().is_none());
+
+    // Any slot of the app counts: the AI panel's, or the hosted Atlas
+    // window's, which shares the one-dialog rule with Slate's own.
+    let hosted = h.app.dialogs.other_window();
+    let mut atlas_slot = hosted.picker::<()>();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    assert!(atlas_slot.adopt(rx));
+    assert!(h.app.update_close_blocked().is_some());
+    assert!(
+        !h.app.picker.adopt(crossbeam_channel::unbounded().1),
+        "one dialog across Slate and the hosted Atlas window"
+    );
+    drop(tx);
+    assert_eq!(atlas_slot.poll(&h.ctx), None);
     assert!(h.app.update_close_blocked().is_none());
 }
 
@@ -60,7 +75,7 @@ fn a_drop_while_the_picker_is_open_lands_and_dismisses_the_dialog() {
         pressed: true,
         modifiers: egui::Modifiers::NONE,
     });
-    assert!(h.app.picker.gate_input(&mut raw), "the window is gated");
+    assert!(h.app.dialogs.gate_input(&mut raw), "the window is gated");
     assert_eq!(raw.events, vec![egui::Event::PointerGone]);
 
     h.app

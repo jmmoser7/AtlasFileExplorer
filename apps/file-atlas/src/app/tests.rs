@@ -27,7 +27,12 @@ impl Harness {
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         let ctx = egui::Context::default();
-        let app = AtlasApp::with_db(&ctx, Db::open_at(base.join("index.db")), None);
+        let app = AtlasApp::with_db(
+            &ctx,
+            Db::open_at(base.join("index.db")),
+            None,
+            DialogGate::new(),
+        );
         Harness {
             ctx,
             app,
@@ -508,6 +513,24 @@ fn picker_result_lands_on_the_tab_that_asked() {
     h.pump_until_idle();
     assert_eq!(h.app.root.as_ref(), Some(&root_b));
     assert_eq!(h.app.entries.len(), 7);
+}
+
+#[test]
+fn any_open_dialog_blocks_restart_and_a_second_dialog() {
+    let mut h = Harness::new("picker_blocks_restart");
+    assert!(h.app.update_close_blocked().is_none());
+    // Stands in for the AI panel's slot: another slot of this window.
+    let mut ai_slot = h.app.dialogs.picker::<()>();
+    let (tx, rx) = unbounded();
+    assert!(ai_slot.adopt(rx));
+    assert!(h.app.update_close_blocked().is_some());
+    assert!(
+        !h.app.picker.adopt(unbounded().1),
+        "one dialog across the window's slots"
+    );
+    drop(tx);
+    assert_eq!(ai_slot.poll(&h.ctx), None);
+    assert!(h.app.update_close_blocked().is_none());
 }
 
 #[test]

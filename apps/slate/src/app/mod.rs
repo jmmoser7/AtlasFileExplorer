@@ -9,7 +9,7 @@
 //! - `session` — linked File Atlas viewport (in-process)
 
 use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
-use atlas_shell::file_picker::{self, DialogOwner, FilePicker, PickRequest};
+use atlas_shell::file_picker::{self, DialogGate, DialogOwner, FilePicker, PickRequest};
 use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
 use crossbeam_channel::Receiver;
 use eframe::egui::{self, Rect, TextureHandle, Vec2};
@@ -312,6 +312,10 @@ pub struct SlateApp {
     /// Persisted UI settings (`slate-settings.json`).
     pub settings: settings::SlateSettings,
 
+    /// This window's dialog gate: every file dialog slot (`picker`, the AI
+    /// panel's) is built from it, and the hosted File Atlas window gets
+    /// `other_window()` so the app shows one dialog at a time.
+    pub dialogs: DialogGate,
     pub picker: FilePicker<PickerMsg>,
     export_rx: Option<Receiver<(PathBuf, Result<slate_artifact::ExportReport, String>)>>,
     unsaved_close: Option<UnsavedClose>,
@@ -684,6 +688,7 @@ impl SlateApp {
             atlas_shell::dock::DockSide::BottomCenter,
         );
         boot.phase("prefs");
+        let dialogs = DialogGate::new();
         let mut app = SlateApp {
             updater: atlas_update::Updater::default(),
             thumbs: ThumbPool::new(),
@@ -734,7 +739,7 @@ impl SlateApp {
             next_preview_slot: 0,
             preview_reqs_this_frame: 0,
             settings: settings::SlateSettings::load(),
-            picker: FilePicker::default(),
+            picker: dialogs.picker(),
             export_rx: None,
             unsaved_close: None,
             toasts: Vec::new(),
@@ -742,7 +747,8 @@ impl SlateApp {
             new_tag_edit: None,
             tag_color_cursor: 0,
             atlas: None,
-            ai: atlas_ai::AiPanel::new(),
+            ai: atlas_ai::AiPanel::new(&dialogs),
+            dialogs,
             portals: board_portal::PortalRuntime::default(),
             slate_boards: board_slate::SlateBoards::new(),
             agents: board_agent::AgentRuntime::default(),
@@ -2134,7 +2140,7 @@ impl SlateApp {
     pub(crate) fn update_close_blocked(&self) -> Option<&'static str> {
         if self.tabs.iter().any(|tab| tab.dirty) {
             Some("Save all open workbooks before restarting.")
-        } else if self.export_rx.is_some() || self.picker.is_open() {
+        } else if self.export_rx.is_some() || self.dialogs.any_open() {
             Some("Finish the open file dialog or export before restarting.")
         } else {
             self.atlas
@@ -2228,8 +2234,7 @@ impl SlateApp {
         if native_drop.is_some() || !dropped.is_empty() {
             // Dragged out of the open dialog instead of picked: the drop is
             // the answer, so the dialog goes away as if cancelled.
-            self.picker.close();
-            self.ai.close_picker();
+            self.dialogs.close_all();
         }
         if let Some(event) = native_drop {
             ctx.request_repaint(); // drain any remaining bounded OS-drop backlog
@@ -2382,9 +2387,6 @@ impl SlateApp {
         }
         if !self.preview_slots.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(150));
-        }
-        if self.ai.picker_pending() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.external_drop
             .set_url_area(self.web_drop_enabled().then_some(self.canvas_rect));
@@ -2549,16 +2551,11 @@ fn sample_workbook_cover_media(doc: &slate_doc::SlateDoc, limit: usize) -> Vec<P
 
 impl eframe::App for SlateApp {
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        if !self.picker.gate_input(raw_input) {
-            self.ai.gate_input(raw_input);
-        }
+        self.dialogs.gate_input(raw_input);
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if let Some(owner) = DialogOwner::from_window(frame) {
-            self.picker.set_owner(Some(owner));
-            self.ai.set_dialog_owner(Some(owner));
-        }
+        self.dialogs.set_owner(DialogOwner::from_window(frame));
         let _attach = self.session_log.attach();
         let t0 = Instant::now();
         let delivered = ctx.input(|i| i.unstable_dt);

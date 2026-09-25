@@ -356,13 +356,24 @@ No item can reference a workbook, so board/export recursion cannot occur.
 
 ### File dialogs
 
-Every system file dialog goes through `SlateApp::picker`
-(`atlas_shell::file_picker`, shared with File Atlas and the AI panel): one at a
-time, owned by the Slate HWND, off the UI thread. While it is up,
-`raw_input_hook` swallows window input and a click or key flashes the dialog.
-The window itself stays enabled so a file dragged out of the dialog still drops
-on the canvas; that drop is ingested normally and closes the dialog, whose own
-result is discarded.
+Every system file dialog goes through `atlas_shell::file_picker`. The Slate
+window has one `DialogGate` (`SlateApp::dialogs`); every dialog slot —
+`SlateApp::picker` and the AI panel's (`AiPanel::new(&dialogs)`) — is built from
+it, and the window is wired exactly once: `update` sets the owner HWND from the
+`Frame`, `raw_input_hook` calls `dialogs.gate_input`, a drop calls
+`dialogs.close_all`, and `update_close_blocked` asks `dialogs.any_open`.
+
+Dialogs run off the UI thread, owned by the Slate HWND, one at a time; a
+second request flashes the open dialog instead. While one is up the window
+swallows its input and a click or key flashes the dialog. The window stays
+enabled so a file dragged out of the dialog still drops on the canvas; that
+drop is ingested normally and closes the dialog, whose own result is discarded.
+
+The hosted File Atlas window gets `dialogs.other_window()` through
+`AtlasApp::embedded`, so the one-dialog rule spans both windows. That viewport
+runs neither `update` nor `raw_input_hook`: its dialogs are owned by the
+active window (the one just clicked) and it is left natively disabled while
+one is up. Drag-to-dismiss is not available in that window.
 
 ## Linked Atlas sessions (`session.rs`)
 

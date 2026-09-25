@@ -49,10 +49,13 @@ impl SlateApp {
         if let Ok(mut s) = shared.lock() {
             s.dark_mode = self.dark_mode;
         }
+        // Another window of this app: its own dialog owner and gate, and one
+        // dialog at a time across both windows.
         let atlas = Box::new(native_file_atlas::AtlasApp::embedded(
             ctx,
             root,
             shared.clone(),
+            self.dialogs.other_window(),
         ));
         self.atlas = Some(AtlasSession { shared, atlas });
         self.publish_session_tags();

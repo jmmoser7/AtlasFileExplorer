@@ -138,7 +138,7 @@ pub fn top_bar(app: &mut AtlasApp, ctx: &egui::Context) {
             app_title: "File Atlas",
             icon: AppIcon::Atlas,
             menus: &menus,
-            busy: app.picker.is_open(),
+            busy: app.dialogs.any_open(),
             tabs: &specs,
             active_tab,
         },

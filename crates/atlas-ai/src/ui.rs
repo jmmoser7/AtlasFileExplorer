@@ -5,7 +5,7 @@
 use crate::config::AiConfig;
 use crate::context::{now_secs, write_context, AiAppContext};
 use crate::launch;
-use atlas_shell::file_picker::{self, DialogOwner, FilePicker, PickRequest};
+use atlas_shell::file_picker::{self, DialogGate, FilePicker, PickRequest};
 use atlas_shell::sidebar::{
     sidebar_region, sidebar_subtle_divider, sidebar_toolbar_row, SidebarTheme,
 };
@@ -37,7 +37,9 @@ pub struct AiPanel {
 }
 
 impl AiPanel {
-    pub fn new() -> Self {
+    /// `dialogs` is the host window's gate: the workspace picker is one of
+    /// that window's dialog slots.
+    pub fn new(dialogs: &DialogGate) -> Self {
         let (cursor_tx, cursor_rx) = crossbeam_channel::bounded(1);
         std::thread::spawn(move || {
             let _ = cursor_tx.send(launch::cursor_available());
@@ -46,32 +48,12 @@ impl AiPanel {
             config: AiConfig::load(),
             cursor_available: None,
             cursor_rx: Some(cursor_rx),
-            picker: FilePicker::default(),
+            picker: dialogs.picker(),
             status: None,
             last_fingerprint: 0,
             last_beacon: None,
             beacon_tx: None,
         }
-    }
-
-    /// True while the workspace folder picker is open.
-    pub fn picker_pending(&self) -> bool {
-        self.picker.is_open()
-    }
-
-    /// The app window the workspace picker is modal to.
-    pub fn set_dialog_owner(&mut self, owner: Option<DialogOwner>) {
-        self.picker.set_owner(owner);
-    }
-
-    /// See [`FilePicker::gate_input`].
-    pub fn gate_input(&self, raw: &mut egui::RawInput) -> bool {
-        self.picker.gate_input(raw)
-    }
-
-    /// See [`FilePicker::close`].
-    pub fn close_picker(&mut self) {
-        self.picker.close();
     }
 
     /// Drain the async folder picker and the Cursor probe. Returns true while
@@ -171,12 +153,6 @@ impl AiPanel {
             tx
         });
         let _ = tx.send((ws, ctx));
-    }
-}
-
-impl Default for AiPanel {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
