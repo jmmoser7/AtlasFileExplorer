@@ -3220,11 +3220,11 @@
           "decided": "2026-09-17"
         },
         "D09": {
-          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Preview the resolved three-point arc while dragging the through-point; bulge follows the cursor on either side of the start–end chord (same snap point as commit).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D10": {
           "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",

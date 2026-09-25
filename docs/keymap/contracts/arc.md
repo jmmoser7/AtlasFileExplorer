@@ -52,8 +52,11 @@ These are interaction acceptance scripts; automated coverage is listed below. Na
 - **GP1:** Start, end, then a moving middle press -> one arc whose endpoints stay at the first two picks.
 - **GP2:** Select exported/reopened arc path -> supported path controls remain available; no misleading radius/sweep fields.
 - **GP3:** Near-collinear or coincident defining points -> deterministic existing fallback, no invalid geometry.
+- **GP4:** While dragging the through-point, the preview arc passes through the cursor on either side of the start–end chord (symmetric bulge toward the pointer).
 
 ## Implementation notes
+
+Three-point arcs choose the circular arc through start, through-point, and end by signed sweep from `arc_through_three_points` (negative sweep when the through-point lies on the long CCW arc). Regression: `arc_through_mid_on_both_sides_of_chord`, `arc_collinear_through_point_is_straight`.
 
 The native selection strip is implemented in `board_properties`; shell painting and desktop sampling are shared in atlas-shell. Model corner semantics live in slate-doc and are interpreted by both board and artifact renderers. Geometry-based capability gating applies to paths whose original tool provenance is not stored.
 

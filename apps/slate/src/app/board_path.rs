@@ -1187,24 +1187,28 @@ pub fn arc_through_three_points(p0: Pos2, p1: Pos2, p2: Pos2) -> BezPath {
     let a0 = ang(a);
     let a1 = ang(b);
     let a2_end = ang(c);
-    let mut sweep = a2_end - a0;
-    while sweep <= 0.0 {
-        sweep += std::f64::consts::TAU;
+    // CCW sweep from start → end in (0, τ]; pick the arc that contains the
+    // through-point. Do not re-normalize a negative sweep — kurbo uses the
+    // sign to take the long arc when the middle lies on that side of the chord.
+    let mut sweep_ccw = a2_end - a0;
+    while sweep_ccw <= 0.0 {
+        sweep_ccw += std::f64::consts::TAU;
     }
-    while sweep > std::f64::consts::TAU {
-        sweep -= std::f64::consts::TAU;
+    while sweep_ccw > std::f64::consts::TAU {
+        sweep_ccw -= std::f64::consts::TAU;
     }
-    let mut mid = a1 - a0;
-    while mid < 0.0 {
-        mid += std::f64::consts::TAU;
+    let mut mid_ccw = a1 - a0;
+    while mid_ccw < 0.0 {
+        mid_ccw += std::f64::consts::TAU;
     }
-    if mid > sweep {
-        sweep -= std::f64::consts::TAU;
-        while sweep <= 0.0 {
-            sweep += std::f64::consts::TAU;
-        }
+    while mid_ccw >= std::f64::consts::TAU {
+        mid_ccw -= std::f64::consts::TAU;
     }
-    let sweep_angle = sweep;
+    let sweep_angle = if mid_ccw <= sweep_ccw + 1e-10 {
+        sweep_ccw
+    } else {
+        sweep_ccw - std::f64::consts::TAU
+    };
     let arc = Arc::new(center, kurbo::Vec2::new(r, r), a0, sweep_angle, 0.0);
     path.move_to(a);
     for el in arc.append_iter(0.25) {
@@ -2281,6 +2285,59 @@ mod tests {
             (swapped_end[0] - mid.x).abs() < 1.5,
             "the old start-end-as-through mapping must not be used"
         );
+    }
+
+    fn min_dist_to_polyline(p: Pos2, flat: &[[f32; 2]]) -> f32 {
+        let mut best = f32::MAX;
+        for w in flat.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let ab = [b[0] - a[0], b[1] - a[1]];
+            let len_sq = ab[0] * ab[0] + ab[1] * ab[1];
+            let t = if len_sq < 1e-8 {
+                0.0
+            } else {
+                ((p.x - a[0]) * ab[0] + (p.y - a[1]) * ab[1]) / len_sq
+            }
+            .clamp(0.0, 1.0);
+            let q = [a[0] + t * ab[0], a[1] + t * ab[1]];
+            let dx = p.x - q[0];
+            let dy = p.y - q[1];
+            best = best.min((dx * dx + dy * dy).sqrt());
+        }
+        best
+    }
+
+    #[test]
+    fn arc_through_mid_on_both_sides_of_chord() {
+        let start = Pos2::new(0.0, 0.0);
+        let end = Pos2::new(100.0, 0.0);
+        for y in [40.0_f32, -40.0, 4.0, -4.0, 200.0] {
+            let mid = Pos2::new(50.0, y);
+            let bez = arc_through_three_points(start, mid, end);
+            let flat = flatten(&bez, 0.05);
+            let d = min_dist_to_polyline(mid, &flat);
+            assert!(
+                d < 1.5,
+                "through-point should lie on arc (y={y}, d={d})"
+            );
+            let first = flat.first().copied().unwrap();
+            let last = flat.last().copied().unwrap();
+            assert!((first[0] - start.x).abs() < 0.5);
+            assert!((last[0] - end.x).abs() < 0.5);
+        }
+    }
+
+    #[test]
+    fn arc_collinear_through_point_is_straight() {
+        let start = Pos2::new(0.0, 0.0);
+        let end = Pos2::new(100.0, 0.0);
+        let mid = Pos2::new(50.0, 0.0);
+        let bez = arc_through_three_points(start, mid, end);
+        assert_eq!(bez.elements().len(), 2);
+        let flat = flatten(&bez, 0.05);
+        for f in &flat {
+            assert!(f[1].abs() < 0.01);
+        }
     }
 
     #[test]
