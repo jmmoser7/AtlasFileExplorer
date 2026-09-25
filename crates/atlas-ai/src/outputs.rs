@@ -570,13 +570,17 @@ mod tests {
 
     #[test]
     fn link_folder_writes_are_not_outputs() {
-        let s = session(vec![
+        let (link_file, report) = if cfg!(windows) {
             (
-                1,
-                ArtifactKind::Created,
                 "C:\\ws\\.atlas-ai\\agent\\s1\\return.json",
-            ),
-            (1, ArtifactKind::Created, "C:\\p\\report.md"),
+                "C:\\p\\report.md",
+            )
+        } else {
+            ("/ws/.atlas-ai/agent/s1/return.json", "/p/report.md")
+        };
+        let s = session(vec![
+            (1, ArtifactKind::Created, link_file),
+            (1, ArtifactKind::Created, report),
         ]);
         let m = partition(&s, &LinkOutputs::default(), 0..usize::MAX);
         assert_eq!(

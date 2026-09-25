@@ -145,13 +145,16 @@ fn report_tiles(label: &str, app: &SlateApp) {
 fn a_few_brush_strokes_settle_into_tiles() {
     let mut b = Bench::new(6);
     b.app.brush_tiles_enabled = true;
+    // Tiles rasterize on worker threads; a busy CI runner needs wall time, not frames.
     let mut settled = false;
-    for _ in 0..90 {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
         b.frame();
         if b.app.brush_tiles.last.settled && b.app.brush_tiles.last.ready_tiles > 0 {
             settled = true;
             break;
         }
+        std::thread::sleep(Duration::from_millis(5));
     }
     assert!(
         settled,
@@ -166,7 +169,6 @@ fn a_few_brush_strokes_settle_into_tiles() {
     assert!(b.app.brush_tiles.last.gpu_bytes > 0);
 }
 
-/// 5,000 strokes: rest, pan, zoom, and one more commit, old path then tiles.
 /// Saves the bench board to `SLATE_BRUSH_FIXTURE` so a GUI run can open it.
 #[test]
 #[ignore]
@@ -182,6 +184,7 @@ fn write_brush_fixture() {
         .expect("write the brush fixture");
 }
 
+/// 5,000 strokes: rest, pan, zoom, and one more commit, old path then tiles.
 #[test]
 #[ignore]
 fn bench_brush_five_thousand() {

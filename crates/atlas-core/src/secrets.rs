@@ -295,15 +295,23 @@ mod tests {
 
     #[test]
     fn the_webview_folder_and_secret_store_are_machine_private() {
-        let root = Path::new(r"C:\Users\ada\AppData\Local\NativeFileAtlas");
+        let (root, elsewhere) = if cfg!(windows) {
+            (
+                Path::new(r"C:\Users\ada\AppData\Local\NativeFileAtlas"),
+                Path::new(r"D:\boards\reports\webview2\index.html"),
+            )
+        } else {
+            (
+                Path::new("/home/ada/.local/share/NativeFileAtlas"),
+                Path::new("/boards/reports/webview2/index.html"),
+            )
+        };
         assert!(is_machine_private(&root.join("webview2").join("EBWebView")));
         assert!(is_machine_private(
             &root.join("secrets").join("cursor-api-key")
         ));
         assert!(is_machine_private(&root.join("cursor-api-key")));
         assert!(!is_machine_private(&root.join("thumbs").join("a.jpg")));
-        assert!(!is_machine_private(Path::new(
-            r"D:\boards\reports\webview2\index.html"
-        )));
+        assert!(!is_machine_private(elsewhere));
     }
 }

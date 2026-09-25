@@ -8217,6 +8217,8 @@ fn home_cover_frames_do_not_touch_the_filesystem() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     h.frame();
+    // First use creates the data dir once per process; keep it out of the count.
+    let _ = atlas_core::index::data_dir();
     atlas_core::fs_probe::reset();
     let mut samples = Vec::with_capacity(30);
     for i in 0..30 {

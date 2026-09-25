@@ -476,10 +476,14 @@ pub(crate) fn clipboard_text_path(line: &str) -> Option<PathBuf> {
     if line.contains("://") && !line.to_ascii_lowercase().starts_with("file://") {
         return None;
     }
-    let rest = line
-        .strip_prefix("file:///")
-        .or_else(|| line.strip_prefix("file://"))
-        .unwrap_or(line);
+    // `file:///tmp/x` keeps its root; `file:///C:/x` drops the slash before the drive.
+    let rest = match line.strip_prefix("file://") {
+        Some(r) => match r.as_bytes() {
+            [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => &r[1..],
+            _ => r,
+        },
+        None => line,
+    };
     let rest = percent_decode(rest);
     if rest.is_empty() {
         return None;
