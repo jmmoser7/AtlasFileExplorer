@@ -71,7 +71,9 @@ them is an index-out-of-bounds crash the moment another tab's entries load:
    root/tab that is no longer current is dropped, never ingested into the
    active workspace. Home stays up until a pick arrives — leaving first
    dumps the user on an empty tree if the dialog is cancelled or opens
-   behind the window. On Windows the picker is owned by the Atlas HWND.
+   behind the window. Every dialog goes through `atlas_shell::file_picker`:
+   one at a time, owned by the Atlas HWND, window input gated while it is
+   up, and a folder dropped on the window closes it (its result discarded).
 4. **Owner is enrichment, never identity.** Discovery leaves it empty because the
    lookup is a security-descriptor query per file (`docs/performance.md`), and
    `queue_owner_pass` backfills it after the canvas is up. So nothing may treat a

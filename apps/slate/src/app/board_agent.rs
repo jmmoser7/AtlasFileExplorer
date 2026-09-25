@@ -10,6 +10,7 @@ use atlas_ai::agent::{
 };
 use atlas_ai::cursor_chats::CursorChat;
 use atlas_ai::launch::CursorIdeStatus;
+use atlas_shell::file_picker::{self, PickRequest};
 use atlas_shell::home::{image_album, AlbumImage};
 use atlas_shell::recent::{RecentEntry, RecentList};
 use atlas_shell::{canvas_scale, canvas_text};
@@ -6810,20 +6811,13 @@ impl SlateApp {
     }
 
     pub(crate) fn pick_agent_project(&mut self, portal: NodeId) {
-        if self.picker_rx.is_some() {
-            return;
-        }
-        let (tx, rx) = unbounded();
-        self.picker_rx = Some(rx);
-        std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new()
-                .set_title("Choose project folder")
-                .pick_folder();
-            let _ = tx.send(PickerMsg::AgentPortalSource {
+        self.picker.open(
+            PickRequest::folder().title("Choose project folder"),
+            move |picked| PickerMsg::AgentPortalSource {
                 portal,
-                path: picked,
-            });
-        });
+                path: file_picker::first(picked),
+            },
+        );
     }
 
     pub(crate) fn pick_selected_agent_project(&mut self) -> bool {

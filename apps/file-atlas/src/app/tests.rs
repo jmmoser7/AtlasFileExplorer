@@ -489,12 +489,16 @@ fn picker_result_lands_on_the_tab_that_asked() {
     h.frame();
     let tab1_id = h.app.tabs[1].id;
     let (tx, rx) = unbounded();
-    h.app.picker_rx = Some((tab1_id, rx));
+    h.app.picker.adopt(rx);
     h.app.switch_tab(0);
     h.pump_until_idle();
 
     // The pick arrives late: it must bind to tab 1, not the active tab 0.
-    tx.send(Some(vec![root_b.clone()])).unwrap();
+    tx.send(AtlasPick::Map {
+        tab_id: tab1_id,
+        folders: Some(vec![root_b.clone()]),
+    })
+    .unwrap();
     h.frame();
     assert_eq!(h.app.root.as_ref(), Some(&root_a), "active tab untouched");
     assert_eq!(h.app.tabs[1].root.as_ref(), Some(&root_b));
@@ -513,11 +517,50 @@ fn cancelled_picker_stays_on_home() {
     h.app.ensure_tab();
     let tab_id = h.app.tabs[0].id;
     let (tx, rx) = unbounded();
-    h.app.picker_rx = Some((tab_id, rx));
-    tx.send(None).unwrap();
+    h.app.picker.adopt(rx);
+    tx.send(AtlasPick::Map {
+        tab_id,
+        folders: None,
+    })
+    .unwrap();
     h.frame();
     assert!(h.app.at_home, "cancel must not leave Cover Flow");
     assert!(h.app.root.is_none());
+}
+
+#[test]
+fn a_folder_dropped_while_the_picker_is_open_maps_and_dismisses_it() {
+    let mut h = Harness::new("picker_drop_dismisses");
+    let dropped = make_tree(&h._base.join("dragged"), 3);
+    let picked = make_tree(&h._base.join("picked"), 2);
+    h.app.ensure_tab();
+    let tab_id = h.app.tabs[0].id;
+    let (tx, rx) = unbounded();
+    h.app.picker.adopt(rx);
+    let input = egui::RawInput {
+        dropped_files: vec![egui::DroppedFile {
+            path: Some(dropped.clone()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let ctx = h.ctx.clone();
+    let _ = ctx.run(input, |c| h.app.update_app(c));
+    assert_eq!(h.app.root.as_ref(), Some(&dropped), "drop is a normal drop");
+    assert!(h.app.picker.is_open(), "gated until the dialog reports");
+
+    tx.send(AtlasPick::Map {
+        tab_id,
+        folders: Some(vec![picked]),
+    })
+    .unwrap();
+    h.frame();
+    assert!(!h.app.picker.is_open());
+    assert_eq!(
+        h.app.root.as_ref(),
+        Some(&dropped),
+        "dialog result discarded"
+    );
 }
 
 #[test]
@@ -561,8 +604,12 @@ fn picker_from_home_opens_the_folder() {
     h.app.ensure_tab();
     let tab_id = h.app.tabs[0].id;
     let (tx, rx) = unbounded();
-    h.app.picker_rx = Some((tab_id, rx));
-    tx.send(Some(vec![root.clone()])).unwrap();
+    h.app.picker.adopt(rx);
+    tx.send(AtlasPick::Map {
+        tab_id,
+        folders: Some(vec![root.clone()]),
+    })
+    .unwrap();
     h.frame();
     assert!(!h.app.at_home);
     assert_eq!(h.app.root.as_ref(), Some(&root));
@@ -580,12 +627,16 @@ fn picker_result_for_a_closed_tab_is_dropped() {
     h.frame();
     let tab1_id = h.app.tabs[1].id;
     let (tx, rx) = unbounded();
-    h.app.picker_rx = Some((tab1_id, rx));
+    h.app.picker.adopt(rx);
 
     // Close the requesting tab before the dialog resolves.
     h.app.close_tab(1);
     h.pump_until_idle();
-    tx.send(Some(vec![root_b])).unwrap();
+    tx.send(AtlasPick::Map {
+        tab_id: tab1_id,
+        folders: Some(vec![root_b]),
+    })
+    .unwrap();
     h.frame();
     assert_eq!(h.app.tabs.len(), 1);
     assert_eq!(h.app.root.as_ref(), Some(&root_a), "pick must be dropped");

@@ -29,11 +29,59 @@ fn update_restart_checks_inactive_workbooks_and_pending_dialogs() {
     assert!(h.app.update_close_blocked().is_some());
     h.app.tabs[0].dirty = false;
     assert!(h.app.update_close_blocked().is_none());
-    let (_tx, rx) = crossbeam_channel::unbounded();
-    h.app.picker_rx = Some(rx);
+    let (tx, rx) = crossbeam_channel::unbounded();
+    h.app.picker.adopt(rx);
     assert!(h.app.update_close_blocked().is_some());
-    h.app.picker_rx = None;
+    drop(tx);
+    h.app.drain_pickers(&h.ctx);
     assert!(h.app.update_close_blocked().is_none());
+}
+
+#[test]
+fn a_drop_while_the_picker_is_open_lands_and_dismisses_the_dialog() {
+    let mut h = Harness::new("drop_dismisses_picker");
+    h.app.ensure_work_tab();
+    h.app.leave_home();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.frame();
+    let dropped = h.base.join("dragged-from-dialog.png");
+    let picked = h.base.join("picked-in-dialog.png");
+    for path in [&dropped, &picked] {
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 20, 30, 255]))
+            .save(path)
+            .unwrap();
+    }
+    let (tx, rx) = crossbeam_channel::unbounded();
+    h.app.picker.adopt(rx);
+    let mut raw = egui::RawInput::default();
+    raw.events.push(egui::Event::PointerButton {
+        pos: Pos2::new(400.0, 400.0),
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    assert!(h.app.picker.gate_input(&mut raw), "the window is gated");
+    assert_eq!(raw.events, vec![egui::Event::PointerGone]);
+
+    h.app
+        .external_drop
+        .push_test(super::external_drop::DropEvent {
+            payload: super::external_drop::Payload::Files(vec![dropped.clone()]),
+            at: h.app.canvas_rect.center(),
+            alt: false,
+        });
+    h.frame();
+    let linked = |h: &Harness| -> Vec<PathBuf> {
+        h.app.doc().items.iter().map(|i| i.path.clone()).collect()
+    };
+    assert_eq!(linked(&h), vec![dropped.clone()], "drop is a normal drop");
+    assert!(h.app.picker.is_open(), "gated until the dialog reports");
+
+    // The cancelled dialog (or a pick that raced the cancel) is discarded.
+    tx.send(PickerMsg::AddFiles(Some(vec![picked]))).unwrap();
+    h.frame();
+    assert!(!h.app.picker.is_open());
+    assert_eq!(linked(&h), vec![dropped]);
 }
 
 #[test]
@@ -71,7 +119,7 @@ fn media_menu_has_four_registered_families() {
     );
     // Keep a picker pending so this routing test never opens a native dialog.
     let (_tx, rx) = crossbeam_channel::unbounded();
-    h.app.picker_rx = Some(rx);
+    h.app.picker.adopt(rx);
     for (icon, command) in [
         ("media.image", "board.media.image"),
         ("media.model", "board.media.model"),
@@ -144,7 +192,7 @@ fn media_picker_places_one_undo_group_and_ignores_late_or_cancelled_results() {
         .save(&path)
         .unwrap();
     let (tx, rx) = crossbeam_channel::unbounded();
-    h.app.picker_rx = Some(rx);
+    h.app.picker.adopt(rx);
     tx.send(PickerMsg::AddMedia {
         tab_id,
         at: Pos2::new(80.0, 100.0),
@@ -157,7 +205,7 @@ fn media_picker_places_one_undo_group_and_ignores_late_or_cancelled_results() {
     assert!(h.app.doc().scene.nodes.is_empty());
     h.app.new_tab();
     let (tx, rx) = crossbeam_channel::unbounded();
-    h.app.picker_rx = Some(rx);
+    h.app.picker.adopt(rx);
     tx.send(PickerMsg::AddMedia {
         tab_id,
         at: Pos2::ZERO,
@@ -167,7 +215,7 @@ fn media_picker_places_one_undo_group_and_ignores_late_or_cancelled_results() {
     h.app.drain_pickers(&h.ctx);
     assert!(h.app.doc().items.is_empty());
     let (tx, rx) = crossbeam_channel::unbounded();
-    h.app.picker_rx = Some(rx);
+    h.app.picker.adopt(rx);
     tx.send(PickerMsg::AddMedia {
         tab_id: h.app.tab().id,
         at: Pos2::ZERO,

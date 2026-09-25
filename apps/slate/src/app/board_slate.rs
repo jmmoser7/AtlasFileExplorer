@@ -10,6 +10,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
+use atlas_shell::file_picker::{self, PickRequest};
 use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{self, Align2, FontId, Pos2, Vec2};
 use slate_doc::scene::{
@@ -475,21 +476,15 @@ impl SlateApp {
     }
 
     pub(crate) fn pick_slate_workbook(&mut self, portal: NodeId) {
-        if self.picker_rx.is_some() {
-            return;
-        }
-        let (tx, rx) = crossbeam_channel::unbounded();
-        self.picker_rx = Some(rx);
-        std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new()
-                .set_title("Choose workbook")
-                .add_filter("Slate workbook", &["slate"])
-                .pick_file();
-            let _ = tx.send(super::PickerMsg::SlatePortalSource {
+        self.picker.open(
+            PickRequest::file()
+                .title("Choose workbook")
+                .filter("Slate workbook", &["slate"]),
+            move |picked| super::PickerMsg::SlatePortalSource {
                 portal,
-                path: picked,
-            });
-        });
+                path: file_picker::first(picked),
+            },
+        );
     }
 
     pub(crate) fn slate_pick_source_for_selection(&mut self) -> bool {

@@ -14,6 +14,7 @@ use atlas_core::thumbs::cache_key;
 use atlas_core::tree::{LayoutConfig, Orient, Tree};
 use atlas_core::types::{wants_thumb, FileEntry};
 use atlas_core::watcher::{self, FsChange, FsWatch};
+use atlas_shell::file_picker::{self, PickRequest};
 use atlas_shell::folder_map::{
     self, FolderCam, MapHover, MapMedia, MapStyle, PaintArgs, ToggleOutcome, LOD_DETAIL, LOD_FULL,
     LOD_MID,
@@ -1541,20 +1542,13 @@ impl SlateApp {
     }
 
     pub(crate) fn pick_atlas_folder(&mut self, portal: NodeId) {
-        if self.picker_rx.is_some() {
-            return;
-        }
-        let (tx, rx) = unbounded();
-        self.picker_rx = Some(rx);
-        std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new()
-                .set_title("Choose folder")
-                .pick_folder();
-            let _ = tx.send(PickerMsg::AtlasPortalSource {
+        self.picker.open(
+            PickRequest::folder().title("Choose folder"),
+            move |picked| PickerMsg::AtlasPortalSource {
                 portal,
-                path: picked,
-            });
-        });
+                path: file_picker::first(picked),
+            },
+        );
     }
 
     pub(crate) fn atlas_pick_source_for_selection(&mut self) -> bool {

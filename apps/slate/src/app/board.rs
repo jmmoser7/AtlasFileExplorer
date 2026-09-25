@@ -49,6 +49,7 @@ use super::{
 };
 
 pub use super::board_align::{BoardAlign, DistributeAxis};
+use atlas_shell::file_picker::{self, PickRequest};
 use atlas_shell::menu::{self, MenuIcon};
 use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
@@ -8751,29 +8752,14 @@ impl SlateApp {
 
     /// Frame "+ images": pick files, place them inside the frame, inherit tags.
     pub fn add_to_frame_dialog(&mut self, frame: NodeId) {
-        if self.picker_rx.is_some() {
-            return;
-        }
-        let (tx, rx) = crossbeam_channel::unbounded();
-        self.picker_rx = Some(rx);
-        std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new().pick_files();
-            let _ = tx.send(super::PickerMsg::AddToFrame {
-                frame,
-                paths: picked,
-            });
+        self.picker.open(PickRequest::files(), move |paths| {
+            super::PickerMsg::AddToFrame { frame, paths }
         });
     }
 
     pub fn export_artifact_dialog(&mut self) {
-        if self.picker_rx.is_some() {
-            return;
-        }
-        let (tx, rx) = crossbeam_channel::unbounded();
-        self.picker_rx = Some(rx);
-        std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new().pick_folder();
-            let _ = tx.send(super::PickerMsg::ExportArtifact(picked));
+        self.picker.open(PickRequest::folder(), |picked| {
+            super::PickerMsg::ExportArtifact(file_picker::first(picked))
         });
     }
 }

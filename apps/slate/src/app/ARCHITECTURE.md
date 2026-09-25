@@ -354,6 +354,16 @@ double-click — never creates an item. All add paths divert workbooks into
 (including the active one, i.e. "load into itself") just focuses its tab.
 No item can reference a workbook, so board/export recursion cannot occur.
 
+### File dialogs
+
+Every system file dialog goes through `SlateApp::picker`
+(`atlas_shell::file_picker`, shared with File Atlas and the AI panel): one at a
+time, owned by the Slate HWND, off the UI thread. While it is up,
+`raw_input_hook` swallows window input and a click or key flashes the dialog.
+The window itself stays enabled so a file dragged out of the dialog still drops
+on the canvas; that drop is ingested normally and closes the dialog, whose own
+result is discarded.
+
 ## Linked Atlas sessions (`session.rs`)
 
 "Open File Atlas" hosts Atlas as a second **viewport of the Slate process**

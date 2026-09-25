@@ -9,8 +9,9 @@
 //! - `session` — linked File Atlas viewport (in-process)
 
 use atlas_core::thumbs::{cache_key, ThumbPool, ThumbRequest};
+use atlas_shell::file_picker::{self, DialogOwner, FilePicker, PickRequest};
 use atlas_shell::theme::{dark_visuals, light_visuals, Palette};
-use crossbeam_channel::{unbounded, Receiver};
+use crossbeam_channel::Receiver;
 use eframe::egui::{self, Rect, TextureHandle, Vec2};
 use slate_doc::scene::SceneJournal;
 use slate_doc::{
@@ -193,7 +194,7 @@ enum UnsavedClose {
     Exit,
 }
 
-/// Async results from native file dialogs (spawned threads, like Atlas).
+/// Results from the app's modal file dialog (`atlas_shell::file_picker`).
 pub enum PickerMsg {
     OpenDoc(Option<PathBuf>),
     SaveDocAs {
@@ -311,7 +312,7 @@ pub struct SlateApp {
     /// Persisted UI settings (`slate-settings.json`).
     pub settings: settings::SlateSettings,
 
-    pub picker_rx: Option<Receiver<PickerMsg>>,
+    pub picker: FilePicker<PickerMsg>,
     export_rx: Option<Receiver<(PathBuf, Result<slate_artifact::ExportReport, String>)>>,
     unsaved_close: Option<UnsavedClose>,
     pub toasts: Vec<(String, Instant)>,
@@ -733,7 +734,7 @@ impl SlateApp {
             next_preview_slot: 0,
             preview_reqs_this_frame: 0,
             settings: settings::SlateSettings::load(),
-            picker_rx: None,
+            picker: FilePicker::default(),
             export_rx: None,
             unsaved_close: None,
             toasts: Vec::new(),
@@ -1438,17 +1439,10 @@ impl SlateApp {
     // ----- document I/O ------------------------------------------------------
 
     pub fn open_doc_dialog(&mut self) {
-        if self.picker_rx.is_some() {
-            return;
-        }
-        let (tx, rx) = unbounded();
-        self.picker_rx = Some(rx);
-        std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new()
-                .add_filter("Slate workbook", &[SLATE_EXTENSION])
-                .pick_file();
-            let _ = tx.send(PickerMsg::OpenDoc(picked));
-        });
+        self.picker.open(
+            PickRequest::file().filter("Slate workbook", &[SLATE_EXTENSION]),
+            |picked| PickerMsg::OpenDoc(file_picker::first(picked)),
+        );
     }
 
     pub fn save_doc(&mut self) {
@@ -1464,23 +1458,17 @@ impl SlateApp {
     }
 
     pub fn save_doc_as_dialog(&mut self) {
-        if self.picker_rx.is_some() {
-            return;
-        }
         let tab_id = self.tab().id;
         let suggested = format!("{}.{}", self.doc().name, SLATE_EXTENSION);
-        let (tx, rx) = unbounded();
-        self.picker_rx = Some(rx);
-        std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new()
-                .add_filter("Slate workbook", &[SLATE_EXTENSION])
-                .set_file_name(&suggested)
-                .save_file();
-            let _ = tx.send(PickerMsg::SaveDocAs {
+        self.picker.open(
+            PickRequest::save()
+                .filter("Slate workbook", &[SLATE_EXTENSION])
+                .file_name(suggested),
+            move |picked| PickerMsg::SaveDocAs {
                 tab_id,
-                path: picked,
-            });
-        });
+                path: file_picker::first(picked),
+            },
+        );
     }
 
     pub fn add_files_dialog(&mut self) {
@@ -1497,31 +1485,19 @@ impl SlateApp {
     fn pick_linked_files(&mut self, group: Option<slate_doc::media::MediaGroup>) {
         let tab_id = self.tab().id;
         let at = self.board_xf().s2w(self.canvas_rect.center());
-        if self.picker_rx.is_some() {
-            return;
-        }
-        let (tx, rx) = unbounded();
-        self.picker_rx = Some(rx);
-        std::thread::spawn(move || {
-            let dialog = rfd::FileDialog::new();
-            let picked = match group {
-                Some(group) => dialog
-                    .set_title(format!("Media: {}", group.label()))
-                    .add_filter(group.label(), &group.extensions())
-                    .pick_files()
-                    .map(|paths| paths.into_iter().filter(|p| group.accepts(p)).collect()),
-                None => dialog.pick_files(),
-            };
-            let message = if group.is_some() {
-                PickerMsg::AddMedia {
-                    tab_id,
-                    at,
-                    paths: picked,
-                }
-            } else {
-                PickerMsg::AddFiles(picked)
-            };
-            let _ = tx.send(message);
+        let request = match group {
+            Some(group) => PickRequest::files()
+                .title(format!("Media: {}", group.label()))
+                .filter(group.label(), &group.extensions()),
+            None => PickRequest::files(),
+        };
+        self.picker.open(request, move |picked| match group {
+            Some(group) => PickerMsg::AddMedia {
+                tab_id,
+                at,
+                paths: picked.map(|paths| paths.into_iter().filter(|p| group.accepts(p)).collect()),
+            },
+            None => PickerMsg::AddFiles(picked),
         });
     }
 
@@ -2047,60 +2023,55 @@ impl SlateApp {
     // ----- frame loop ---------------------------------------------------------
 
     fn drain_pickers(&mut self, ctx: &egui::Context) {
-        let Some(rx) = &self.picker_rx else { return };
-        match rx.try_recv() {
-            Ok(msg) => {
-                self.picker_rx = None;
-                match msg {
-                    PickerMsg::OpenDoc(Some(path)) => self.open_doc_at(path),
-                    PickerMsg::SaveDocAs {
-                        tab_id,
-                        path: Some(path),
-                    } => self.save_doc_to(tab_id, path),
-                    PickerMsg::AddMedia {
-                        tab_id,
-                        at,
-                        paths: Some(paths),
-                    } => {
-                        if !self.at_home && self.tab().id == tab_id && !self.tab().read_only {
-                            let items = self.add_paths(&paths);
-                            self.place_items_on_board(&items, at);
-                        }
-                    }
-                    PickerMsg::AddFiles(Some(paths)) => {
-                        self.add_paths(&paths);
-                    }
-                    PickerMsg::AddToFrame {
-                        frame,
-                        paths: Some(paths),
-                    } => {
-                        let items = self.add_paths(&paths);
-                        self.place_items_in_frame(frame, &items);
-                    }
-                    PickerMsg::ExportArtifact(Some(dir)) => self.do_export(dir),
-                    PickerMsg::WebPortalSource {
-                        portal,
-                        path: Some(path),
-                    } => {
-                        self.bind_web_path(portal, path);
-                    }
-                    PickerMsg::AgentPortalSource {
-                        portal,
-                        path: Some(path),
-                    } => self.bind_agent_project(portal, path),
-                    PickerMsg::AtlasPortalSource {
-                        portal,
-                        path: Some(path),
-                    } => self.bind_atlas_folder(portal, path),
-                    PickerMsg::SlatePortalSource {
-                        portal,
-                        path: Some(path),
-                    } => self.bind_slate_workbook(ctx, portal, path),
-                    _ => {}
+        let Some(msg) = self.picker.poll(ctx) else {
+            return;
+        };
+        match msg {
+            PickerMsg::OpenDoc(Some(path)) => self.open_doc_at(path),
+            PickerMsg::SaveDocAs {
+                tab_id,
+                path: Some(path),
+            } => self.save_doc_to(tab_id, path),
+            PickerMsg::AddMedia {
+                tab_id,
+                at,
+                paths: Some(paths),
+            } => {
+                if !self.at_home && self.tab().id == tab_id && !self.tab().read_only {
+                    let items = self.add_paths(&paths);
+                    self.place_items_on_board(&items, at);
                 }
             }
-            Err(crossbeam_channel::TryRecvError::Empty) => {}
-            Err(crossbeam_channel::TryRecvError::Disconnected) => self.picker_rx = None,
+            PickerMsg::AddFiles(Some(paths)) => {
+                self.add_paths(&paths);
+            }
+            PickerMsg::AddToFrame {
+                frame,
+                paths: Some(paths),
+            } => {
+                let items = self.add_paths(&paths);
+                self.place_items_in_frame(frame, &items);
+            }
+            PickerMsg::ExportArtifact(Some(dir)) => self.do_export(dir),
+            PickerMsg::WebPortalSource {
+                portal,
+                path: Some(path),
+            } => {
+                self.bind_web_path(portal, path);
+            }
+            PickerMsg::AgentPortalSource {
+                portal,
+                path: Some(path),
+            } => self.bind_agent_project(portal, path),
+            PickerMsg::AtlasPortalSource {
+                portal,
+                path: Some(path),
+            } => self.bind_atlas_folder(portal, path),
+            PickerMsg::SlatePortalSource {
+                portal,
+                path: Some(path),
+            } => self.bind_slate_workbook(ctx, portal, path),
+            _ => {}
         }
     }
 
@@ -2163,7 +2134,7 @@ impl SlateApp {
     pub(crate) fn update_close_blocked(&self) -> Option<&'static str> {
         if self.tabs.iter().any(|tab| tab.dirty) {
             Some("Save all open workbooks before restarting.")
-        } else if self.export_rx.is_some() || self.picker_rx.is_some() {
+        } else if self.export_rx.is_some() || self.picker.is_open() {
             Some("Finish the open file dialog or export before restarting.")
         } else {
             self.atlas
@@ -2219,7 +2190,7 @@ impl SlateApp {
             let _span = atlas_core::session_log::span("slate.ai");
             {
                 let _poll = atlas_core::session_log::span("slate.ai.poll");
-                if self.ai.poll() {
+                if self.ai.poll(ctx) {
                     ctx.request_repaint_after(std::time::Duration::from_millis(50));
                 }
             }
@@ -2254,6 +2225,12 @@ impl SlateApp {
                 .filter_map(|f| f.path.clone())
                 .collect()
         });
+        if native_drop.is_some() || !dropped.is_empty() {
+            // Dragged out of the open dialog instead of picked: the drop is
+            // the answer, so the dialog goes away as if cancelled.
+            self.picker.close();
+            self.ai.close_picker();
+        }
         if let Some(event) = native_drop {
             ctx.request_repaint(); // drain any remaining bounded OS-drop backlog
             drop_at = Some(event.at);
@@ -2571,7 +2548,17 @@ fn sample_workbook_cover_media(doc: &slate_doc::SlateDoc, limit: usize) -> Vec<P
 }
 
 impl eframe::App for SlateApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if !self.picker.gate_input(raw_input) {
+            self.ai.gate_input(raw_input);
+        }
+    }
+
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if let Some(owner) = DialogOwner::from_window(frame) {
+            self.picker.set_owner(Some(owner));
+            self.ai.set_dialog_owner(Some(owner));
+        }
         let _attach = self.session_log.attach();
         let t0 = Instant::now();
         let delivered = ctx.input(|i| i.unstable_dt);

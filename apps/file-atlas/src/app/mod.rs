@@ -26,6 +26,7 @@ use atlas_core::types::{
     FileEntry, FAMILIES, SECS_PER_DAY,
 };
 use atlas_core::watcher::{self, FsChange, FsWatch};
+use atlas_shell::file_picker::{self, DialogOwner, FilePicker, PickRequest};
 use atlas_shell::folder_map::{
     self, folder_heat_color, FolderCam, MapMedia, MapStyle, PaintArgs, ToggleOutcome,
 };
@@ -43,7 +44,6 @@ use std::time::{Duration, Instant, SystemTime};
 mod chrome;
 mod commands;
 mod editprefs;
-mod folder_dialog;
 #[cfg(test)]
 mod tests;
 mod ui;
@@ -677,6 +677,31 @@ pub(crate) enum ViewCmd {
     FlyToBounds(Rect),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PickPurpose {
+    Map,
+    Export,
+    Prewarm,
+}
+
+/// Folder dialog results, each carrying what it must still match on arrival.
+enum AtlasPick {
+    /// Lands on the requesting tab (by stable id) even if the user switched
+    /// or closed tabs meanwhile. `Some(vec)` may hold several folders to open
+    /// on one canvas.
+    Map {
+        tab_id: u64,
+        folders: Option<Vec<PathBuf>>,
+    },
+    /// Bound to the root it was opened for, so a tab switch mid-dialog can't
+    /// export another tab's staging.
+    Export {
+        root: PathBuf,
+        dest: Option<PathBuf>,
+    },
+    Prewarm(Option<PathBuf>),
+}
+
 pub struct AtlasApp {
     pub(crate) updater: atlas_update::Updater,
     db: Db,
@@ -797,18 +822,10 @@ pub struct AtlasApp {
     /// channel. The root is checked on arrival so a late reply can never be
     /// ingested into a different tab's workspace.
     pending_load: Option<(PathBuf, Receiver<LoadedRoot>)>,
-    /// Folder picker: the tab (by stable id) that asked for it. The result
-    /// lands on that tab even if the user switched or closed tabs meanwhile.
-    /// `None` means the dialog was cancelled; `Some(vec)` may hold one or
-    /// more folders to open on the same canvas.
-    picker_rx: Option<(u64, Receiver<Option<Vec<PathBuf>>>)>,
-    /// Atlas window HWND, refreshed each frame so system pickers can own it.
-    /// Without an owner, Windows often opens `IFileOpenDialog` behind the
-    /// undecorated window and Atlas looks frozen.
-    dialog_owner: Option<folder_dialog::DialogOwner>,
-    /// Export destination picker: bound to the root it was opened for, so a
-    /// tab switch mid-dialog can't export another tab's staging.
-    export_picker_rx: Option<(PathBuf, Receiver<Option<PathBuf>>)>,
+    /// The one system folder dialog, modal to the Atlas window.
+    picker: FilePicker<AtlasPick>,
+    /// What the open dialog was raised for (spinners only).
+    picking: PickPurpose,
 
     // filters
     search: String,
@@ -883,7 +900,6 @@ pub struct AtlasApp {
     /// Prefix making cache keys project-root-relative.
     key_prefix: String,
     // Overnight pre-warm bookkeeping.
-    prewarm_picker_rx: Option<Receiver<Option<PathBuf>>>,
     /// How pre-warm treats portal-sized folders: warm, defer, or skip.
     prewarm_portal_mode: PrewarmPortalMode,
     /// Live pre-warm run (Some while active) — drives the temporary bottom
@@ -1152,7 +1168,9 @@ impl TabState {
 impl AtlasApp {
     pub fn new(cc: &eframe::CreationContext<'_>, initial_root: Option<PathBuf>) -> Self {
         let mut app = Self::with_db(&cc.egui_ctx, Db::open(), initial_root);
-        app.dialog_owner = folder_dialog::DialogOwner::from_window(cc);
+        let owner = DialogOwner::from_window(cc);
+        app.picker.set_owner(owner);
+        app.ai.set_dialog_owner(owner);
         app.boot_phase("window");
         app
     }
@@ -1285,9 +1303,8 @@ impl AtlasApp {
             view_world: None,
             view_lod: 0,
             pending_load: None,
-            picker_rx: None,
-            dialog_owner: None,
-            export_picker_rx: None,
+            picker: FilePicker::default(),
+            picking: PickPurpose::Map,
             search: String::new(),
             family_on: [fam_default; 10],
             ext_group_on: HashMap::new(),
@@ -1327,7 +1344,6 @@ impl AtlasApp {
             warm_plan_rx: None,
             shared_cache: None,
             key_prefix: String::new(),
-            prewarm_picker_rx: None,
             prewarm_portal_mode: PrewarmPortalMode::Defer,
             prewarm: None,
             cloud_plan: None,
@@ -1495,7 +1511,7 @@ impl AtlasApp {
     }
 
     fn open_folder_dialog_for_tab(&mut self, tab_i: usize) {
-        if self.picker_rx.is_some() {
+        if self.picker.is_open() {
             return;
         }
         // Stay on Home until a folder is chosen. Leaving first dumps the user
@@ -1504,31 +1520,24 @@ impl AtlasApp {
         let Some(tab_id) = self.tabs.get(tab_i).map(|t| t.id) else {
             return;
         };
-        let owner = self.dialog_owner;
-        let (tx, rx) = unbounded();
-        std::thread::spawn(move || {
-            let picked = folder_dialog::pick_folders("Choose folder(s) to map", owner);
-            let _ = tx.send(picked);
-        });
-        self.picker_rx = Some((tab_id, rx));
+        self.picking = PickPurpose::Map;
+        self.picker.open(
+            PickRequest::folders().title("Choose folder(s) to map"),
+            move |folders| AtlasPick::Map { tab_id, folders },
+        );
     }
 
     // ---------- overnight pre-warm ----------
 
     fn open_prewarm_dialog(&mut self) {
-        if self.prewarm_picker_rx.is_some() {
+        if self.picker.is_open() {
             return;
         }
-        let owner = self.dialog_owner;
-        let (tx, rx) = unbounded();
-        std::thread::spawn(move || {
-            let picked = folder_dialog::pick_folder(
-                "Choose a folder to pre-warm (runs quietly in background)",
-                owner,
-            );
-            let _ = tx.send(picked);
-        });
-        self.prewarm_picker_rx = Some(rx);
+        self.picking = PickPurpose::Prewarm;
+        self.picker.open(
+            PickRequest::folder().title("Choose a folder to pre-warm (runs quietly in background)"),
+            |picked| AtlasPick::Prewarm(file_picker::first(picked)),
+        );
     }
 
     /// Walk `dir` on a background thread and queue every thumbnail-able file
@@ -2878,56 +2887,41 @@ impl AtlasApp {
     }
 
     fn drain_channels(&mut self, ctx: &egui::Context) {
-        // Folder picker result — delivered to the tab that asked for it,
-        // which may no longer be active (or may be gone entirely).
-        if let Some((tab_id, rx)) = &self.picker_rx {
-            if let Ok(res) = rx.try_recv() {
-                let tab_id = *tab_id;
-                self.picker_rx = None;
-                if let Some(folders) = res {
-                    match self.tabs.iter().position(|t| t.id == tab_id) {
-                        Some(i) if i == self.active_tab => self.set_roots(folders),
-                        Some(i) => {
-                            // The user switched tabs while the dialog was
-                            // open: remember the choice, load on activation.
-                            self.tabs[i].set_folders(folders);
-                            self.tabs[i].cam = None;
-                        }
-                        None => {} // tab closed while the dialog was open
-                    }
+        match self.picker.poll(ctx) {
+            // Delivered to the tab that asked, which may no longer be active
+            // (or may be gone entirely).
+            Some(AtlasPick::Map {
+                tab_id,
+                folders: Some(folders),
+            }) => match self.tabs.iter().position(|t| t.id == tab_id) {
+                Some(i) if i == self.active_tab => self.set_roots(folders),
+                Some(i) => {
+                    // The user switched tabs while the dialog was
+                    // open: remember the choice, load on activation.
+                    self.tabs[i].set_folders(folders);
+                    self.tabs[i].cam = None;
+                }
+                None => {} // tab closed while the dialog was open
+            },
+            // Only valid while the root it was opened for is still front
+            // and center.
+            Some(AtlasPick::Export {
+                root,
+                dest: Some(dest),
+            }) => {
+                if self.root.as_ref() == Some(&root) {
+                    self.begin_export(dest);
+                } else {
+                    self.toast("Export cancelled — the folder changed while choosing");
                 }
             }
-        }
-
-        // Export destination picker result — only valid while the root it
-        // was opened for is still front and center.
-        if let Some((root, rx)) = &self.export_picker_rx {
-            if let Ok(res) = rx.try_recv() {
-                let same_root = self.root.as_ref() == Some(root);
-                self.export_picker_rx = None;
-                if let Some(dest) = res {
-                    if same_root {
-                        self.begin_export(dest);
-                    } else {
-                        self.toast("Export cancelled — the folder changed while choosing");
-                    }
-                }
-            }
+            Some(AtlasPick::Prewarm(Some(dir))) => self.start_prewarm(dir),
+            _ => {}
         }
 
         self.poll_cloud_download();
         self.poll_cloud_audit();
         self.poll_fs_op();
-
-        // Pre-warm folder picker result
-        if let Some(rx) = &self.prewarm_picker_rx {
-            if let Ok(res) = rx.try_recv() {
-                self.prewarm_picker_rx = None;
-                if let Some(dir) = res {
-                    self.start_prewarm(dir);
-                }
-            }
-        }
 
         // Pre-warm completion is detected here (once per frame) rather than
         // on the last thumbnail result, so runs that find nothing to do —
@@ -4879,19 +4873,20 @@ impl AtlasApp {
     }
 
     fn pick_export_dest(&mut self) {
-        if self.export_picker_rx.is_some() || self.export_ui.is_some() {
+        if self.picker.is_open() || self.export_ui.is_some() {
             return;
         }
         let Some(root) = self.root.clone() else {
             return;
         };
-        let owner = self.dialog_owner;
-        let (tx, rx) = unbounded();
-        std::thread::spawn(move || {
-            let picked = folder_dialog::pick_folder("Choose export destination", owner);
-            let _ = tx.send(picked);
-        });
-        self.export_picker_rx = Some((root, rx));
+        self.picking = PickPurpose::Export;
+        self.picker.open(
+            PickRequest::folder().title("Choose export destination"),
+            move |picked| AtlasPick::Export {
+                root,
+                dest: file_picker::first(picked),
+            },
+        );
     }
 
     fn begin_export(&mut self, dest: PathBuf) {
@@ -4916,9 +4911,16 @@ impl AtlasApp {
 }
 
 impl eframe::App for AtlasApp {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if !self.picker.gate_input(raw_input) {
+            self.ai.gate_input(raw_input);
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if let Some(owner) = folder_dialog::DialogOwner::from_window(frame) {
-            self.dialog_owner = Some(owner);
+        if let Some(owner) = DialogOwner::from_window(frame) {
+            self.picker.set_owner(Some(owner));
+            self.ai.set_dialog_owner(Some(owner));
         }
         self.pump_frame(ctx);
     }
@@ -5003,7 +5005,7 @@ impl AtlasApp {
         {
             let _span = atlas_core::session_log::span("atlas.pumps");
             self.drain_channels(ctx);
-            if self.ai.poll() {
+            if self.ai.poll(ctx) {
                 ctx.request_repaint_after(Duration::from_millis(50));
             }
             if self.recents.apply_prune(&mut self.recent_prune_rx) {
@@ -5023,6 +5025,10 @@ impl AtlasApp {
                 .collect()
         });
         if !dropped.is_empty() {
+            // Dragged out of the open dialog instead of picked: the drop is
+            // the answer, so the dialog goes away as if cancelled.
+            self.picker.close();
+            self.ai.close_picker();
             self.set_roots(dropped);
         }
 
@@ -5131,8 +5137,7 @@ impl AtlasApp {
             || self.thumbs_pending > 0
             || self.export_ui.is_some()
             || self.pending_load.is_some()
-            || self.picker_rx.is_some()
-            || self.export_picker_rx.is_some()
+            || self.picker.is_open()
             || !self.toasts.is_empty()
             || self.drag_chip.is_some()
             || self.anim.is_some()
@@ -5903,7 +5908,7 @@ impl AtlasApp {
                             self.pick_export_dest();
                         }
                     });
-                    if self.export_picker_rx.is_some() {
+                    if self.picker.is_open() && self.picking == PickPurpose::Export {
                         ui.spinner();
                     }
                     if !self.selection.is_empty()

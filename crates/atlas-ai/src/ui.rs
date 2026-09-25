@@ -5,6 +5,7 @@
 use crate::config::AiConfig;
 use crate::context::{now_secs, write_context, AiAppContext};
 use crate::launch;
+use atlas_shell::file_picker::{self, DialogOwner, FilePicker, PickRequest};
 use atlas_shell::sidebar::{
     sidebar_region, sidebar_subtle_divider, sidebar_toolbar_row, SidebarTheme,
 };
@@ -25,9 +26,7 @@ pub struct AiPanel {
     /// `None` until the background probe finishes.
     cursor_available: Option<bool>,
     cursor_rx: Option<Receiver<bool>>,
-    picker_tx: Sender<Option<PathBuf>>,
-    picker_rx: Receiver<Option<PathBuf>>,
-    picker_open: bool,
+    picker: FilePicker<Option<PathBuf>>,
     /// Transient status line shown at the bottom of the panel.
     pub status: Option<String>,
     last_fingerprint: u64,
@@ -39,7 +38,6 @@ pub struct AiPanel {
 
 impl AiPanel {
     pub fn new() -> Self {
-        let (picker_tx, picker_rx) = crossbeam_channel::unbounded();
         let (cursor_tx, cursor_rx) = crossbeam_channel::bounded(1);
         std::thread::spawn(move || {
             let _ = cursor_tx.send(launch::cursor_available());
@@ -48,9 +46,7 @@ impl AiPanel {
             config: AiConfig::load(),
             cursor_available: None,
             cursor_rx: Some(cursor_rx),
-            picker_tx,
-            picker_rx,
-            picker_open: false,
+            picker: FilePicker::default(),
             status: None,
             last_fingerprint: 0,
             last_beacon: None,
@@ -58,15 +54,29 @@ impl AiPanel {
         }
     }
 
-    /// True while the async folder picker is open — apps should keep
-    /// repainting so [`AiPanel::poll`] sees the result promptly.
+    /// True while the workspace folder picker is open.
     pub fn picker_pending(&self) -> bool {
-        self.picker_open
+        self.picker.is_open()
+    }
+
+    /// The app window the workspace picker is modal to.
+    pub fn set_dialog_owner(&mut self, owner: Option<DialogOwner>) {
+        self.picker.set_owner(owner);
+    }
+
+    /// See [`FilePicker::gate_input`].
+    pub fn gate_input(&self, raw: &mut egui::RawInput) -> bool {
+        self.picker.gate_input(raw)
+    }
+
+    /// See [`FilePicker::close`].
+    pub fn close_picker(&mut self) {
+        self.picker.close();
     }
 
     /// Drain the async folder picker and the Cursor probe. Returns true while
     /// the probe is still running so the caller can wake one more frame.
-    pub fn poll(&mut self) -> bool {
+    pub fn poll(&mut self, ctx: &egui::Context) -> bool {
         if let Some(rx) = self.cursor_rx.take() {
             match rx.try_recv() {
                 Ok(found) => self.cursor_available = Some(found),
@@ -77,19 +87,16 @@ impl AiPanel {
             }
         }
         let cursor_pending = self.cursor_rx.is_some();
-        while let Ok(msg) = self.picker_rx.try_recv() {
-            self.picker_open = false;
-            if let Some(dir) = msg {
-                match self.config.set_workspace(dir.clone()) {
-                    Ok(()) => {
-                        self.config.save();
-                        self.status = Some(format!("AI workspace set: {}", dir.display()));
-                        // Force a beacon rewrite into the new workspace.
-                        self.last_fingerprint = 0;
-                        self.last_beacon = None;
-                    }
-                    Err(e) => self.status = Some(format!("Could not use folder: {e}")),
+        if let Some(Some(dir)) = self.picker.poll(ctx) {
+            match self.config.set_workspace(dir.clone()) {
+                Ok(()) => {
+                    self.config.save();
+                    self.status = Some(format!("AI workspace set: {}", dir.display()));
+                    // Force a beacon rewrite into the new workspace.
+                    self.last_fingerprint = 0;
+                    self.last_beacon = None;
                 }
+                Err(e) => self.status = Some(format!("Could not use folder: {e}")),
             }
         }
         cursor_pending
@@ -97,19 +104,11 @@ impl AiPanel {
 
     /// Open the async "establish AI workspace" folder picker.
     pub fn pick_workspace(&mut self) {
-        if self.picker_open {
-            return;
+        let mut request = PickRequest::folder().title("Choose the AI workspace folder");
+        if let Some(dir) = self.config.workspace_dir.clone() {
+            request = request.directory(dir);
         }
-        self.picker_open = true;
-        let tx = self.picker_tx.clone();
-        let start = self.config.workspace_dir.clone();
-        std::thread::spawn(move || {
-            let mut dlg = rfd::FileDialog::new().set_title("Choose the AI workspace folder");
-            if let Some(d) = start {
-                dlg = dlg.set_directory(d);
-            }
-            let _ = tx.send(dlg.pick_folder());
-        });
+        self.picker.open(request, file_picker::first);
     }
 
     /// Launch Cursor in the AI workspace. First launch requires the user to
