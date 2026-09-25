@@ -2728,10 +2728,7 @@ mod tests {
     fn model_node(h: &mut Harness, name: &str, rect: WorldRect) -> NodeId {
         let path = h.base.join(name);
         let _ = std::fs::write(&path, b" ");
-        let item = h
-            .app
-            .doc_mut()
-            .add_item(path, name, 1, 0, name);
+        let item = h.app.doc_mut().add_item(path, name, 1, 0, name);
         let img = scene::ImageNode::new(item);
         let node = h.app.doc_mut().scene.build_node(rect, NodeKind::Image(img));
         h.app.add_nodes(vec![node])[0]

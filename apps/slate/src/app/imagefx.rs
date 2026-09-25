@@ -124,6 +124,12 @@ pub fn color_matrix_coefficients(adjust: &ImageAdjust) -> [f32; 9] {
     build_color_matrix(adjust).0
 }
 
+/// OpenGL column-major upload of the W3C row-major color matrix.
+pub fn gl_color_mat3(adjust: &ImageAdjust) -> [f32; 9] {
+    let m = color_matrix_coefficients(adjust);
+    [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]]
+}
+
 /// Uniforms for the model viewport GPU filter pass (`brightness * contrast`, offset).
 pub fn filter_tone(adjust: &ImageAdjust) -> (f32, f32) {
     (
@@ -152,43 +158,32 @@ pub fn adjusted(src: &ColorImage, adjust: &ImageAdjust) -> ColorImage {
     }
 
     let matrix = build_color_matrix(adjust);
-    let scale = adjust.brightness * adjust.contrast;
-    let offset = 0.5 * (1.0 - adjust.contrast);
-
-    let overlay = adjust.overlay.map(|Rgba([r, g, b, a])| {
-        let oa = a as f32 / 255.0;
-        (
-            r as f32 / 255.0,
-            g as f32 / 255.0,
-            b as f32 / 255.0,
-            oa,
-            1.0 - oa,
-        )
-    });
+    let (scale, offset) = filter_tone(adjust);
+    let (overlay, invert) = filter_shader_overlay(adjust);
+    let inv_oa = 1.0 - overlay[3];
 
     let mut out = src.clone();
     for pix in &mut out.pixels {
         let alpha = pix.a();
-        let r = pix.r() as f32 / 255.0;
-        let g = pix.g() as f32 / 255.0;
-        let b = pix.b() as f32 / 255.0;
+        let r = clamp01(scale * (pix.r() as f32 / 255.0) + offset);
+        let g = clamp01(scale * (pix.g() as f32 / 255.0) + offset);
+        let b = clamp01(scale * (pix.b() as f32 / 255.0) + offset);
 
-        let (mut r, mut g, mut b) =
-            matrix.transform(scale * r + offset, scale * g + offset, scale * b + offset);
+        let (r, g, b) = matrix.transform(r, g, b);
+        let (mut r, mut g, mut b) = (clamp01(r), clamp01(g), clamp01(b));
 
         // CSS filters apply in list order and `css_filter()` appends
         // invert(1) last, after the hue/sat/brightness pipeline.
-        if adjust.invert != 0.0 {
-            let inv = adjust.invert.clamp(0.0, 1.0);
-            r = lerp_channel(clamp01(r), 1.0 - clamp01(r), inv);
-            g = lerp_channel(clamp01(g), 1.0 - clamp01(g), inv);
-            b = lerp_channel(clamp01(b), 1.0 - clamp01(b), inv);
+        if invert != 0.0 {
+            r = clamp01(lerp_channel(r, 1.0 - r, invert));
+            g = clamp01(lerp_channel(g, 1.0 - g, invert));
+            b = clamp01(lerp_channel(b, 1.0 - b, invert));
         }
 
-        if let Some((oc_r, oc_g, oc_b, oa, inv_oa)) = overlay {
-            r = r * inv_oa + oc_r * oa;
-            g = g * inv_oa + oc_g * oa;
-            b = b * inv_oa + oc_b * oa;
+        if overlay[3] > 0.0 {
+            r = clamp01(r * inv_oa + overlay[0] * overlay[3]);
+            g = clamp01(g * inv_oa + overlay[1] * overlay[3]);
+            b = clamp01(b * inv_oa + overlay[2] * overlay[3]);
         }
 
         *pix = Color32::from_rgba_unmultiplied(to_u8(r), to_u8(g), to_u8(b), alpha);
@@ -303,6 +298,56 @@ mod tests {
         approx_eq(g, 200, 1);
         approx_eq(b, 200, 1);
         assert_eq!(a, 255);
+    }
+
+    #[test]
+    fn brightness_clamps_before_overlay() {
+        let src = solid([200, 200, 200, 255]);
+        let adjust = ImageAdjust {
+            brightness: 1.5,
+            overlay: Some(Rgba([0, 0, 0, 128])),
+            ..ImageAdjust::default()
+        };
+        let [r, g, b, _] = pixel(&adjusted(&src, &adjust));
+        // CSS brightness clips 300 to 255 before the 50% black overlay.
+        approx_eq(r, 127, 1);
+        approx_eq(g, 127, 1);
+        approx_eq(b, 127, 1);
+    }
+
+    #[test]
+    fn gl_matrix_upload_matches_cpu_transform() {
+        let color = [0.17, 0.43, 0.81];
+        let cases = [
+            ImageAdjust {
+                grayscale: 1.0,
+                ..ImageAdjust::default()
+            },
+            ImageAdjust {
+                sepia: 1.0,
+                ..ImageAdjust::default()
+            },
+            ImageAdjust {
+                hue_deg: 73.0,
+                ..ImageAdjust::default()
+            },
+            ImageAdjust {
+                saturate: 1.8,
+                ..ImageAdjust::default()
+            },
+        ];
+        for adjust in cases {
+            let cpu = build_color_matrix(&adjust).transform(color[0], color[1], color[2]);
+            let gl = gl_color_mat3(&adjust);
+            let gpu = (
+                gl[0] * color[0] + gl[3] * color[1] + gl[6] * color[2],
+                gl[1] * color[0] + gl[4] * color[1] + gl[7] * color[2],
+                gl[2] * color[0] + gl[5] * color[1] + gl[8] * color[2],
+            );
+            assert!((cpu.0 - gpu.0).abs() < 1e-6);
+            assert!((cpu.1 - gpu.1).abs() < 1e-6);
+            assert!((cpu.2 - gpu.2).abs() < 1e-6);
+        }
     }
 
     #[test]

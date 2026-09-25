@@ -2502,14 +2502,14 @@ uniform vec4 u_overlay;
 out vec4 frag;
 void main() {
     vec4 t = texture(u_tex, v_uv);
-    vec3 c = u_color_mat * (u_scale * t.rgb + u_offset);
-    c = clamp(c, 0.0, 1.0);
+    vec3 c = clamp(u_scale * t.rgb + u_offset, 0.0, 1.0);
+    c = clamp(u_color_mat * c, 0.0, 1.0);
     if (u_invert > 0.0) {
-        c = mix(c, 1.0 - c, u_invert);
+        c = clamp(mix(c, 1.0 - c, u_invert), 0.0, 1.0);
     }
     if (u_overlay.a > 0.0) {
         float inv_oa = 1.0 - u_overlay.a;
-        c = c * inv_oa + u_overlay.rgb * u_overlay.a;
+        c = clamp(c * inv_oa + u_overlay.rgb * u_overlay.a, 0.0, 1.0);
     }
     frag = vec4(c, t.a);
 }
@@ -2788,7 +2788,7 @@ impl ModelEngine {
     }
 
     fn bind_image_adjust_uniforms(&self, adjust: &ImageAdjust) {
-        let mat = super::imagefx::color_matrix_coefficients(adjust);
+        let mat = super::imagefx::gl_color_mat3(adjust);
         let (scale, offset) = super::imagefx::filter_tone(adjust);
         let (overlay, invert) = super::imagefx::filter_shader_overlay(adjust);
         let gl = &self.gl;
@@ -2807,7 +2807,7 @@ impl ModelEngine {
         }
     }
 
-    fn read_rgba_flipped(&self, w: i32, h: i32) -> Option<egui::ColorImage> {
+    fn read_rgba(&self, w: i32, h: i32, flip_rows: bool) -> Option<egui::ColorImage> {
         let gl = &self.gl;
         unsafe {
             let mut buf = vec![0u8; (w * h * 4) as usize];
@@ -2820,16 +2820,7 @@ impl ModelEngine {
                 glow::UNSIGNED_BYTE,
                 glow::PixelPackData::Slice(Some(&mut buf)),
             );
-            let row = (w * 4) as usize;
-            let mut flipped = vec![0u8; buf.len()];
-            for y in 0..h as usize {
-                let src = (h as usize - 1 - y) * row;
-                flipped[y * row..(y + 1) * row].copy_from_slice(&buf[src..src + row]);
-            }
-            Some(egui::ColorImage::from_rgba_unmultiplied(
-                [w as usize, h as usize],
-                &flipped,
-            ))
+            Some(color_image_from_readback(&buf, w, h, flip_rows))
         }
     }
 
@@ -2839,6 +2830,7 @@ impl ModelEngine {
         w: i32,
         h: i32,
         adjust: &ImageAdjust,
+        flip_readback: bool,
     ) -> Option<egui::ColorImage> {
         let gl = &self.gl;
         unsafe {
@@ -2882,7 +2874,7 @@ impl ModelEngine {
             gl.bind_vertex_array(None);
             gl.use_program(None);
             gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(out_fbo));
-            let img = self.read_rgba_flipped(w, h);
+            let img = self.read_rgba(w, h, flip_readback);
             gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
             gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
             gl.delete_framebuffer(out_fbo);
@@ -2931,7 +2923,7 @@ impl ModelEngine {
             );
             gl.bind_texture(glow::TEXTURE_2D, None);
             let out = self
-                .filter_resolved_texture(tex, w, h, adjust)
+                .filter_resolved_texture(tex, w, h, adjust, false)
                 .unwrap_or_else(|| super::imagefx::adjusted(src, adjust));
             gl.delete_texture(tex);
             out
@@ -3198,9 +3190,9 @@ impl ModelEngine {
 
                 gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(resolve_fbo));
                 pixels = if let Some(adj) = adjust.filter(|a| !a.is_identity()) {
-                    self.filter_resolved_texture(resolve_tex, w, h, adj)
+                    self.filter_resolved_texture(resolve_tex, w, h, adj, true)
                 } else {
-                    self.read_rgba_flipped(w, h)
+                    self.read_rgba(w, h, true)
                 };
                 gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
                 gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
@@ -3217,6 +3209,19 @@ impl ModelEngine {
     }
 }
 
+fn color_image_from_readback(rgba: &[u8], w: i32, h: i32, flip_rows: bool) -> egui::ColorImage {
+    let mut ordered = rgba.to_vec();
+    if flip_rows {
+        let row = (w * 4) as usize;
+        for y in 0..h as usize / 2 {
+            let opposite = h as usize - 1 - y;
+            let (before, after) = ordered.split_at_mut(opposite * row);
+            before[y * row..(y + 1) * row].swap_with_slice(&mut after[..row]);
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &ordered)
+}
+
 fn bytemuck_f32_slice(v: &[f32]) -> &[u8] {
     // Plain-old-data reinterpretation; f32 has no invalid byte patterns.
     unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, std::mem::size_of_val(v)) }
@@ -3230,6 +3235,20 @@ fn bytemuck_u32_slice(v: &[u32]) -> &[u8] {
 mod tests {
     use super::super::tests::Harness;
     use super::*;
+
+    #[test]
+    fn cpu_texture_readback_keeps_top_first_rows() {
+        let top = [255, 0, 0, 255];
+        let bottom = [0, 0, 255, 255];
+        let rgba = [top, bottom].concat();
+        let uploaded = color_image_from_readback(&rgba, 1, 2, false);
+        assert_eq!(uploaded.pixels[0], egui::Color32::RED);
+        assert_eq!(uploaded.pixels[1], egui::Color32::BLUE);
+
+        let rendered = color_image_from_readback(&rgba, 1, 2, true);
+        assert_eq!(rendered.pixels[0], egui::Color32::BLUE);
+        assert_eq!(rendered.pixels[1], egui::Color32::RED);
+    }
 
     fn live_model(tag: &str) -> (Harness, NodeId) {
         let mut h = Harness::new(tag);
