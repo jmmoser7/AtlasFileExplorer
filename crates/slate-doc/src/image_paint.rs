@@ -175,6 +175,7 @@ mod tests {
     fn path_shape() -> ShapeNode {
         ShapeNode {
             shape: ShapeKind::Path,
+            sides: 6,
             fill: None,
             stroke: Stroke::default(),
             corner: Corner::Square,
@@ -202,6 +203,7 @@ mod tests {
             WorldRect::new(u, v, 0.2, 0.1),
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Rect,
+                sides: 6,
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Corner::Square,

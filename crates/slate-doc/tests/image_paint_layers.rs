@@ -49,6 +49,7 @@ fn layer_stroke_follows_image_move() {
         WorldRect::new(10.0, 10.0, 20.0, 20.0),
         NodeKind::Shape(ShapeNode {
             shape: ShapeKind::Rect,
+            sides: 6,
             fill: None,
             stroke: Stroke::default(),
             corner: Default::default(),
@@ -108,6 +109,7 @@ fn layer_node_add_undo_round_trip() {
         WorldRect::new(0.1, 0.1, 0.2, 0.2),
         NodeKind::Shape(ShapeNode {
             shape: ShapeKind::Rect,
+            sides: 6,
             fill: None,
             stroke: Stroke::none(),
             corner: Corner::Square,

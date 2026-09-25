@@ -449,6 +449,7 @@ mod paint_window_tests {
             WorldRect::new(10.0, 50.0, 80.0, 0.0),
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Line,
+                sides: 6,
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Corner::Square,
@@ -462,6 +463,7 @@ mod paint_window_tests {
             WorldRect::new(200.0, 200.0, 50.0, 0.0),
             NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Line,
+                sides: 6,
                 fill: None,
                 stroke: Stroke::default(),
                 corner: Corner::Square,
