@@ -1252,6 +1252,7 @@ impl SlateApp {
         deleted.extend(orphans);
         let ids: Vec<_> = deleted.iter().copied().collect();
         self.stop_pruned_agent_runs(&ids);
+        self.agents.text_output.retire(&ids);
         // Surviving connectors anchored to a deleted node degrade to `Free`
         // at their last world position — same command group, so undo
         // restores the anchor (connectors spec).

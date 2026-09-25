@@ -272,6 +272,8 @@ pub struct AgentRuntime {
     spawned: HashMap<(NodeId, String), NodeId>,
     /// Portals animating back into the agent dot after retract.
     retract_ghosts: Vec<(Node, Pos2, Instant)>,
+    /// Linked `response.txt` sync for text-language-model windows.
+    pub(crate) text_output: super::agent_text_output::AgentTextOutputWriter,
     /// Output-port menu and text block drafts of generators and text blocks.
     pub(crate) flow: super::board_flow::FlowUi,
     /// The capsule stack on chat cards' output circles.
@@ -5537,6 +5539,7 @@ impl SlateApp {
             }
         }
         self.agents.sources.retain(&live_dirs);
+        self.pump_agent_text_outputs();
         drop(sessions_span);
         let tail_span = atlas_core::session_log::span("slate.agents.tail");
         self.pump_agent_awaits(ctx, &ws);
@@ -8860,7 +8863,10 @@ impl SlateApp {
         agent: &slate_doc::scene::AgentPortalRef,
         base: Option<&std::path::Path>,
     ) -> Option<Vec<AgentTurn>> {
-        let path = agent.bundle.as_ref().map(|uri| resolve_source(base, &uri.locator))?;
+        let path = agent
+            .bundle
+            .as_ref()
+            .map(|uri| resolve_source(base, &uri.locator))?;
         let text = std::fs::read_to_string(path).ok()?;
         let session: atlas_ai::agent::AgentSession = serde_json::from_str(&text).ok()?;
         Some(session.turns)

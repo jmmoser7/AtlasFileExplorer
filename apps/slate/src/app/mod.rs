@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+mod agent_text_output;
 pub mod association;
 #[cfg(test)]
 mod bench_brush;

@@ -581,9 +581,6 @@ impl SlateApp {
             return false;
         };
         let path = std::path::PathBuf::from(&output_dir).join("response.txt");
-        if std::fs::write(&path, "").is_err() {
-            return false;
-        }
         let item = self
             .doc_mut()
             .add_item(path.clone(), "response.txt", 0, 0, "txt");
@@ -592,7 +589,10 @@ impl SlateApp {
                 i.item = item;
             }
         });
-        let _ = self.snippet_for(item, &path);
+        self.snippets.insert(item, Some(String::new()));
+        self.agents
+            .text_output
+            .write_now(id, item, path, String::new());
         true
     }
 
@@ -836,16 +836,13 @@ impl SlateApp {
     }
 
     fn agent_text_window_owned(&self, id: NodeId) -> bool {
-        let Some(NodeKind::Image(i)) = self.doc().scene.node(id).map(|n| &n.kind) else {
+        let Some(NodeKind::Image(_)) = self.doc().scene.node(id).map(|n| &n.kind) else {
             return matches!(
                 self.doc().scene.node(id).map(|n| &n.kind),
                 Some(NodeKind::Text(t)) if !t.text.trim().is_empty()
             );
         };
-        self.doc()
-            .item(i.item)
-            .and_then(|it| std::fs::read_to_string(&it.path).ok())
-            .is_some_and(|text| !text.trim().is_empty())
+        self.agents.text_output.file_has_content(id, &self.snippets)
     }
 
     fn clear_agent_text_output_file(&mut self, id: NodeId) {
@@ -855,8 +852,8 @@ impl SlateApp {
         let Some(path) = self.doc().item(i.item).map(|it| it.path.clone()) else {
             return;
         };
-        let _ = std::fs::write(&path, "");
         self.snippets.remove(&i.item);
+        self.agents.text_output.begin_run(id, i.item, path);
     }
 
     /// Derived streaming sync: assistant text mirrors into the linked file.
@@ -877,9 +874,15 @@ impl SlateApp {
         let Some(text) = self.agent_reply(id) else {
             return;
         };
-        if std::fs::write(&path, &text).is_ok() {
+        let streaming = self.agent_is_running(id) || self.generations_waiting(id) > 0;
+        self.agents
+            .text_output
+            .sync(id, item, &path, &text, streaming);
+    }
+
+    pub(crate) fn pump_agent_text_outputs(&mut self) {
+        for item in self.agents.text_output.pump() {
             self.snippets.remove(&item);
-            let _ = self.snippet_for(item, &path);
         }
     }
 
@@ -2130,6 +2133,16 @@ mod tests {
             Some("Warm light on stone.")
         );
         h.app.sync_agent_text_output(note);
+        for _ in 0..100 {
+            h.app.pump_agent_text_outputs();
+            if std::fs::read_to_string(&path)
+                .ok()
+                .is_some_and(|text| !text.is_empty())
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         assert_eq!(
             std::fs::read_to_string(&path).unwrap().trim(),
             "Warm light on stone."

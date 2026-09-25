@@ -327,7 +327,10 @@ fn source_kind<'a>(
         NodeKind::Text(_) => InputKind::Text,
         NodeKind::Shape(_) => InputKind::Text,
         NodeKind::Image(image)
-            if image.agent.as_ref().is_some_and(|a| a.view == atlas_agent::PortalView::Text) =>
+            if image
+                .agent
+                .as_ref()
+                .is_some_and(|a| a.view == atlas_agent::PortalView::Text) =>
         {
             InputKind::Text
         }
