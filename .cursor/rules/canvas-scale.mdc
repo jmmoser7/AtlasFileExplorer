@@ -24,6 +24,9 @@ defect (`paint_atlas_empty` vs `paint_portal_empty`).
 
 - Window chrome in `atlas-shell` (top bar, tools rail, readouts, Advanced)
 - Pointer-attached chrome (`P2.GhostFollow`)
+- Path-edit handles: anchor squares, Bézier handle lines and knobs, and
+ draft rubber-band markers while drawing or directly editing a path. The
+ path itself still scales.
 
 A tab on a portal frame is a canvas object, not window chrome. Maximized,
 that same tab may stay screen-sized because it has become window chrome.
@@ -33,7 +36,7 @@ are canvas objects too. See `crates/atlas-shell/DYNAMIC_PANELS.md` for their
 shared layout and viewport-edge behavior; a floating appearance is not a
 screen-chrome exception.
 
-Linear size (fillets, strokes, insets, handle squares, tab radii) goes
+Linear size (fillets, strokes, insets, node resize-handle squares, tab radii) goes
 through `atlas-shell::canvas_scale::px` — one definition, no floor, no
 ceiling. Type goes through `atlas-shell::canvas_text` (`text` / `layout`),
 never `Painter::text` on the canvas. Cover Flow lives in

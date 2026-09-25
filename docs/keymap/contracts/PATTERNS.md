@@ -57,8 +57,13 @@ is searchable.
   13.0)`) is the same defect the moment the ceiling bites. When type is
   too small to read, drop it (LOD); do not freeze it. The only exceptions
   are those a contract **names**: window chrome in `atlas-shell` (top bar,
-  tools rail, readouts, Advanced) and pointer-attached chrome such as
-  **P2.GhostFollow**. A tab on a portal frame is a canvas object, not
+  tools rail, readouts, Advanced), pointer-attached chrome such as
+  **P2.GhostFollow**, and path-edit handles — anchor squares, Bézier
+  handle lines and knobs, and the draft rubber band's markers while a
+  path is being drawn or directly edited. Those follow the pointer's
+  editing, not the path, so they stay screen-constant (Illustrator
+  convention; user decision 25 September 2026). The path they edit still
+  scales. A tab on a portal frame is a canvas object, not
   window chrome — maximized, that same tab may stay screen-sized because
   it has become window chrome. Linear size is `atlas-shell::canvas_scale::px`
   (fillets, strokes, insets, handles). Type is painted through
