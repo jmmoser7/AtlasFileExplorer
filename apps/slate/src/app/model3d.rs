@@ -1,4 +1,4 @@
-﻿//! Interactive 3D viewports for placed models (`MediaKind::Model`).
+//! Interactive 3D viewports for placed models (`MediaKind::Model`).
 //!
 //! Any recognized 3D file placed on the board is a **viewport node**: its saved
 //! [`ModelCamera`] pose (journaled document state on the `ImageNode`) decides
@@ -46,7 +46,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{self, TextureHandle};
 use eframe::glow::{self, HasContext};
 use model_preview::{PreviewMesh, PreviewScene};
-use slate_doc::scene::{ModelCamera, ModelDisplay, NodeKind};
+use slate_doc::scene::{ImageAdjust, ModelCamera, ModelDisplay, NodeKind};
 use slate_doc::NodeId;
 
 use super::SlateApp;
@@ -73,8 +73,8 @@ const DISPLAY_SWATCH_MODES: [ModelDisplay; 4] = [
     ModelDisplay::Material,
     ModelDisplay::Depth,
 ];
-/// Vertical field of view, radians (â‰ˆ Rhino's default perspective lens).
-pub const FOV_Y: f32 = 0.6108652; // 35Â°
+/// Vertical field of view, radians (Rhino default perspective lens).
+pub use model_preview::view_meta::FOV_Y;
 /// Orbit sensitivity, radians per screen px.
 const ORBIT_PER_PX: f32 = 0.008;
 
@@ -564,15 +564,19 @@ impl ParseProgress {
 
 /// Worker-side parse: read the file in chunks (updating `progress` so the
 /// UI bar tracks real bytes), then hand the buffer to the mesh parser.
-fn parse_with_progress(path: &Path, progress: &ParseProgress) -> Result<PreviewScene, String> {
+fn parse_with_progress(
+    path: &Path,
+    progress: &ParseProgress,
+) -> Result<(PreviewScene, String), String> {
     if let Some(msg) = model_preview::gap_message(path) {
         return Err(msg.to_string());
     }
     let bytes = read_counted(path, progress).map_err(|e| e.to_string())?;
+    let hash = model_preview::view_meta::hash_bytes(&bytes);
     progress.set_stage(STAGE_PARSING);
-    let result = model_preview::load_preview(path, &bytes).map_err(|e| e.to_string());
+    let scene = model_preview::load_preview(path, &bytes).map_err(|e| e.to_string())?;
     progress.set_stage(STAGE_DONE);
-    result
+    Ok((scene, hash))
 }
 
 fn read_counted(path: &Path, progress: &ParseProgress) -> std::io::Result<Vec<u8>> {
@@ -709,6 +713,8 @@ pub struct ModelSpace {
     display_swatch_pixels: HashMap<(NodeId, u64, ModelDisplay), egui::ColorImage>,
     /// Parsed `slateview` cameras from wired screenshot items (item cache key).
     pub view_wire_meta: HashMap<String, Option<ModelCamera>>,
+    /// Decoded poster pixels (key = on-disk poster file name).
+    poster_pixels: HashMap<String, std::sync::Arc<egui::ColorImage>>,
 }
 
 struct EnscapeGrab {
@@ -770,6 +776,7 @@ impl Default for ModelSpace {
             display_swatch_queue: VecDeque::new(),
             display_swatch_pixels: HashMap::new(),
             view_wire_meta: HashMap::new(),
+            poster_pixels: HashMap::new(),
         }
     }
 }
@@ -836,8 +843,10 @@ impl ModelSpace {
         let key = cache_key.to_string();
         let path = path.to_path_buf();
         std::thread::spawn(move || {
-            let hash = model_preview::view_meta::hash_file_bytes(&path).ok();
-            let result = parse_with_progress(&path, &progress);
+            let (hash, result) = match parse_with_progress(&path, &progress) {
+                Ok((scene, hash)) => (Some(hash), Ok(scene)),
+                Err(e) => (None, Err(e)),
+            };
             let _ = tx.send((key, hash, result));
         });
     }
@@ -954,6 +963,7 @@ impl ModelSpace {
         cam: &ModelCamera,
         w: u32,
         h: u32,
+        adjust: Option<&ImageAdjust>,
     ) -> Option<egui::ColorImage> {
         if !self.ensure_gpu(gl, cache_key) {
             return None;
@@ -962,7 +972,7 @@ impl ModelSpace {
             return None;
         };
         let gpu = self.gpu.get(cache_key)?;
-        engine.render(&gpu.model, cam, w, h)
+        engine.render(&gpu.model, cam, w, h, adjust)
     }
 
     pub(crate) fn render_capture_image(
@@ -973,6 +983,7 @@ impl ModelSpace {
         w: u32,
         h: u32,
         depth: bool,
+        adjust: Option<&ImageAdjust>,
     ) -> Option<egui::ColorImage> {
         if !self.ensure_gpu(gl, cache_key) {
             return None;
@@ -981,7 +992,7 @@ impl ModelSpace {
             return None;
         };
         let gpu = self.gpu.get(cache_key)?;
-        engine.render_capture(&gpu.model, cam, w, h, depth)
+        engine.render_capture(&gpu.model, cam, w, h, depth, adjust)
     }
 
     /// Free GPU/CPU entries nothing is using (called once per frame).
@@ -1166,9 +1177,9 @@ impl SlateApp {
             }
             if let Some(gl) = self.gl.clone() {
                 let (pw, ph) = poster_size(aq);
-                if let Some(img) = self
-                    .model3d
-                    .render_image(&gl, &info.cache_key, &cam, pw, ph)
+                if let Some(img) =
+                    self.model3d
+                        .render_image(&gl, &info.cache_key, &cam, pw, ph, None)
                 {
                     save_poster(&poster_path(&info.cache_key, &cam, aq), &img);
                     if let Some(tex) = self.model3d.posters.get_mut(&name) {
@@ -1359,7 +1370,7 @@ impl SlateApp {
         let (pw, ph) = poster_size(aq);
         match self
             .model3d
-            .render_image(&gl, &info.cache_key, &cam, pw, ph)
+            .render_image(&gl, &info.cache_key, &cam, pw, ph, None)
         {
             Some(img) => {
                 save_poster(&poster_path(&info.cache_key, &cam, aq), &img);
@@ -1387,28 +1398,49 @@ impl SlateApp {
         };
         let aq = aspect_q(info.rect.w, info.rect.h);
         let name = poster_file_name(&info.cache_key, &cam, aq);
-        let fx_key = (format!("model-poster-{name}"), adjust.cache_hash(), 0u32);
-        if !adjust.is_identity() {
-            if let Some(tex) = self.fx_textures.get(&fx_key) {
+        let fx_key = (name.clone(), adjust.cache_hash(), 0u32);
+        if adjust.is_identity() {
+            if let Some(tex) = self.model3d.posters.get(&name) {
                 return Some(tex.clone());
             }
-        } else if let Some(tex) = self.model3d.posters.get(&name) {
+        } else if let Some(tex) = self.fx_textures.get(&fx_key) {
             return Some(tex.clone());
         }
         let path = poster_dir().join(&name);
-        let img = image::open(&path).ok()?.to_rgba8();
-        let (w, h) = (img.width() as usize, img.height() as usize);
-        let color = egui::ColorImage::from_rgba_unmultiplied([w, h], img.as_raw());
+        let base = self.model3d.poster_pixels.get(&name).cloned().or_else(|| {
+            let img = image::open(&path).ok()?.to_rgba8();
+            let (w, h) = (img.width() as usize, img.height() as usize);
+            let color = Arc::new(egui::ColorImage::from_rgba_unmultiplied(
+                [w, h],
+                img.as_raw(),
+            ));
+            self.model3d
+                .poster_pixels
+                .insert(name.clone(), color.clone());
+            Some(color)
+        })?;
         if adjust.is_identity() {
             let tex = ctx.load_texture(
                 format!("slate-model-poster-{name}"),
-                color,
+                (*base).clone(),
                 egui::TextureOptions::LINEAR,
             );
             self.model3d.posters.insert(name, tex.clone());
             return Some(tex);
         }
-        let filtered = super::imagefx::adjusted(&color, adjust);
+        let filtered = self
+            .gl
+            .as_ref()
+            .and_then(|gl| {
+                self.model3d.engine(gl);
+                match &self.model3d.engine {
+                    EngineSlot::Ready(engine) => {
+                        Some(engine.filter_color_image(base.as_ref(), adjust))
+                    }
+                    _ => None,
+                }
+            })
+            .unwrap_or_else(|| super::imagefx::adjusted(base.as_ref(), adjust));
         let tex = ctx.load_texture(
             format!("slate-model-poster-fx-{}-{}", name, adjust.cache_hash()),
             filtered,
@@ -1477,10 +1509,9 @@ impl SlateApp {
             .get(&id)
             .is_some_and(|vp| vp.rendered == Some(stamp) && vp.tex.is_some());
         if !up_to_date {
-            let mut img = self.model3d.render_image(&gl, &cache_key, &cam, w, h)?;
-            if !adjust.is_identity() {
-                img = super::imagefx::adjusted(&img, adjust);
-            }
+            let img = self
+                .model3d
+                .render_image(&gl, &cache_key, &cam, w, h, Some(adjust))?;
             let vp = self.model3d.live.get_mut(&id)?;
             match &mut vp.tex {
                 Some(tex) => tex.set(img, egui::TextureOptions::LINEAR),
@@ -1633,7 +1664,7 @@ impl SlateApp {
         let edge = DISPLAY_SWATCH_EDGE;
         let Some(img) = self
             .model3d
-            .render_image(&gl, &info.cache_key, &cam, edge, edge)
+            .render_image(&gl, &info.cache_key, &cam, edge, edge, None)
         else {
             return false;
         };
@@ -2238,16 +2269,16 @@ impl SlateApp {
             .map(|vp| vp.cam)
             .unwrap_or(info.cam);
         let (w, h) = capture_size(info.rect.w, info.rect.h);
-        let Some(view) = self
-            .model3d
-            .render_capture_image(&gl, &info.cache_key, &cam, w, h, false)
+        let Some(view) =
+            self.model3d
+                .render_capture_image(&gl, &info.cache_key, &cam, w, h, false, None)
         else {
             self.model3d.request_model(&info.cache_key, &info.path);
             return Ok(None);
         };
         let depth = self
             .model3d
-            .render_capture_image(&gl, &info.cache_key, &cam, w, h, true)
+            .render_capture_image(&gl, &info.cache_key, &cam, w, h, true, None)
             .ok_or("The depth pass failed.")?;
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let view_path = dir.join(format!("node-{}-view.png", id.0));
@@ -2458,6 +2489,32 @@ void main() {
 }
 "#;
 
+const IMAGE_FX_VS: &str = BG_VS;
+
+const IMAGE_FX_FS: &str = r#"#version 330 core
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform mat3 u_color_mat;
+uniform float u_scale;
+uniform float u_offset;
+uniform float u_invert;
+uniform vec4 u_overlay;
+out vec4 frag;
+void main() {
+    vec4 t = texture(u_tex, v_uv);
+    vec3 c = u_color_mat * (u_scale * t.rgb + u_offset);
+    c = clamp(c, 0.0, 1.0);
+    if (u_invert > 0.0) {
+        c = mix(c, 1.0 - c, u_invert);
+    }
+    if (u_overlay.a > 0.0) {
+        float inv_oa = 1.0 - u_overlay.a;
+        c = c * inv_oa + u_overlay.rgb * u_overlay.a;
+    }
+    frag = vec4(c, t.a);
+}
+"#;
+
 /// Default surface color for parts without an object color (Rhino files
 /// usually color by layer, which the reader doesn't resolve â€” see
 /// `rhino-mesh` docs).
@@ -2521,6 +2578,13 @@ pub struct ModelEngine {
     u_depth: glow::UniformLocation,
     bg_program: glow::Program,
     bg_vao: glow::VertexArray,
+    fx_program: glow::Program,
+    u_fx_tex: glow::UniformLocation,
+    u_fx_mat: glow::UniformLocation,
+    u_fx_scale: glow::UniformLocation,
+    u_fx_offset: glow::UniformLocation,
+    u_fx_invert: glow::UniformLocation,
+    u_fx_overlay: glow::UniformLocation,
 }
 
 fn compile_program(gl: &glow::Context, vs_src: &str, fs_src: &str) -> Option<glow::Program> {
@@ -2565,6 +2629,7 @@ impl ModelEngine {
     pub fn new(gl: Arc<glow::Context>) -> Option<Self> {
         let program = compile_program(&gl, MODEL_VS, MODEL_FS)?;
         let bg_program = compile_program(&gl, BG_VS, BG_FS)?;
+        let fx_program = compile_program(&gl, IMAGE_FX_VS, IMAGE_FX_FS)?;
         unsafe {
             let u_mvp = gl.get_uniform_location(program, "u_mvp")?;
             let u_view = gl.get_uniform_location(program, "u_view")?;
@@ -2572,6 +2637,12 @@ impl ModelEngine {
             let u_mask = gl.get_uniform_location(program, "u_mask")?;
             let u_mode = gl.get_uniform_location(program, "u_mode")?;
             let u_depth = gl.get_uniform_location(program, "u_depth")?;
+            let u_fx_tex = gl.get_uniform_location(fx_program, "u_tex")?;
+            let u_fx_mat = gl.get_uniform_location(fx_program, "u_color_mat")?;
+            let u_fx_scale = gl.get_uniform_location(fx_program, "u_scale")?;
+            let u_fx_offset = gl.get_uniform_location(fx_program, "u_offset")?;
+            let u_fx_invert = gl.get_uniform_location(fx_program, "u_invert")?;
+            let u_fx_overlay = gl.get_uniform_location(fx_program, "u_overlay")?;
             // Core profiles need a bound VAO even for bufferless draws.
             let bg_vao = gl.create_vertex_array().ok()?;
             Some(ModelEngine {
@@ -2585,6 +2656,13 @@ impl ModelEngine {
                 u_depth,
                 bg_program,
                 bg_vao,
+                fx_program,
+                u_fx_tex,
+                u_fx_mat,
+                u_fx_scale,
+                u_fx_offset,
+                u_fx_invert,
+                u_fx_overlay,
             })
         }
     }
@@ -2709,6 +2787,157 @@ impl ModelEngine {
         }
     }
 
+    fn bind_image_adjust_uniforms(&self, adjust: &ImageAdjust) {
+        let mat = super::imagefx::color_matrix_coefficients(adjust);
+        let (scale, offset) = super::imagefx::filter_tone(adjust);
+        let (overlay, invert) = super::imagefx::filter_shader_overlay(adjust);
+        let gl = &self.gl;
+        unsafe {
+            gl.uniform_matrix_3_f32_slice(Some(&self.u_fx_mat), false, &mat);
+            gl.uniform_1_f32(Some(&self.u_fx_scale), scale);
+            gl.uniform_1_f32(Some(&self.u_fx_offset), offset);
+            gl.uniform_1_f32(Some(&self.u_fx_invert), invert);
+            gl.uniform_4_f32(
+                Some(&self.u_fx_overlay),
+                overlay[0],
+                overlay[1],
+                overlay[2],
+                overlay[3],
+            );
+        }
+    }
+
+    fn read_rgba_flipped(&self, w: i32, h: i32) -> Option<egui::ColorImage> {
+        let gl = &self.gl;
+        unsafe {
+            let mut buf = vec![0u8; (w * h * 4) as usize];
+            gl.read_pixels(
+                0,
+                0,
+                w,
+                h,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelPackData::Slice(Some(&mut buf)),
+            );
+            let row = (w * 4) as usize;
+            let mut flipped = vec![0u8; buf.len()];
+            for y in 0..h as usize {
+                let src = (h as usize - 1 - y) * row;
+                flipped[y * row..(y + 1) * row].copy_from_slice(&buf[src..src + row]);
+            }
+            Some(egui::ColorImage::from_rgba_unmultiplied(
+                [w as usize, h as usize],
+                &flipped,
+            ))
+        }
+    }
+
+    fn filter_resolved_texture(
+        &self,
+        src_tex: glow::Texture,
+        w: i32,
+        h: i32,
+        adjust: &ImageAdjust,
+    ) -> Option<egui::ColorImage> {
+        let gl = &self.gl;
+        unsafe {
+            let out_fbo = gl.create_framebuffer().ok()?;
+            let out_tex = gl.create_texture().ok()?;
+            gl.bind_texture(glow::TEXTURE_2D, Some(out_tex));
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA8 as i32,
+                w,
+                h,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(None),
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::LINEAR as i32,
+            );
+            gl.bind_texture(glow::TEXTURE_2D, None);
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(out_fbo));
+            gl.framebuffer_texture_2d(
+                glow::DRAW_FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::TEXTURE_2D,
+                Some(out_tex),
+                0,
+            );
+            gl.viewport(0, 0, w, h);
+            gl.disable(glow::DEPTH_TEST);
+            gl.use_program(Some(self.fx_program));
+            gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(glow::TEXTURE_2D, Some(src_tex));
+            gl.uniform_1_i32(Some(&self.u_fx_tex), 0);
+            self.bind_image_adjust_uniforms(adjust);
+            gl.bind_vertex_array(Some(self.bg_vao));
+            gl.draw_arrays(glow::TRIANGLES, 0, 3);
+            gl.bind_vertex_array(None);
+            gl.use_program(None);
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(out_fbo));
+            let img = self.read_rgba_flipped(w, h);
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+            gl.delete_framebuffer(out_fbo);
+            gl.delete_texture(out_tex);
+            img
+        }
+    }
+
+    /// GPU photo-filter pass for a CPU [`ColorImage`] (posters, exports).
+    pub fn filter_color_image(
+        &self,
+        src: &egui::ColorImage,
+        adjust: &ImageAdjust,
+    ) -> egui::ColorImage {
+        if adjust.is_identity() {
+            return src.clone();
+        }
+        let w = src.width() as i32;
+        let h = src.height() as i32;
+        let mut rgba = Vec::with_capacity(src.pixels.len() * 4);
+        for p in &src.pixels {
+            rgba.extend_from_slice(&p.to_srgba_unmultiplied());
+        }
+        let gl = &self.gl;
+        unsafe {
+            let tex = match gl.create_texture() {
+                Ok(t) => t,
+                Err(_) => return super::imagefx::adjusted(src, adjust),
+            };
+            gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA8 as i32,
+                w,
+                h,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(Some(&rgba)),
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::LINEAR as i32,
+            );
+            gl.bind_texture(glow::TEXTURE_2D, None);
+            let out = self
+                .filter_resolved_texture(tex, w, h, adjust)
+                .unwrap_or_else(|| super::imagefx::adjusted(src, adjust));
+            gl.delete_texture(tex);
+            out
+        }
+    }
+
     /// Offscreen render: MSAA color+depth renderbuffers â†’ resolve blit â†’
     /// readback. Returns straight-alpha RGBA (alpha is 1 everywhere â€” the
     /// gradient background makes MSAA resolve fringe-free).
@@ -2718,8 +2947,9 @@ impl ModelEngine {
         cam: &ModelCamera,
         w: u32,
         h: u32,
+        adjust: Option<&ImageAdjust>,
     ) -> Option<egui::ColorImage> {
-        self.render_pass(model, None, cam, w, h, cam.display)
+        self.render_pass(model, None, cam, w, h, cam.display, adjust)
     }
 
     /// A generator capture: the model standing on a ground plane at its base,
@@ -2731,6 +2961,7 @@ impl ModelEngine {
         w: u32,
         h: u32,
         depth: bool,
+        adjust: Option<&ImageAdjust>,
     ) -> Option<egui::ColorImage> {
         let ground = self.ground_for(model);
         let mode = if depth {
@@ -2738,7 +2969,7 @@ impl ModelEngine {
         } else {
             slate_doc::scene::ModelDisplay::Shaded
         };
-        let image = self.render_pass(model, ground.as_ref(), cam, w, h, mode);
+        let image = self.render_pass(model, ground.as_ref(), cam, w, h, mode, adjust);
         if let Some(ground) = ground {
             self.free(ground);
         }
@@ -2778,6 +3009,7 @@ impl ModelEngine {
         w: u32,
         h: u32,
         mode: slate_doc::scene::ModelDisplay,
+        adjust: Option<&ImageAdjust>,
     ) -> Option<egui::ColorImage> {
         let gl = &self.gl;
         let (w, h) = (w.clamp(16, 4096) as i32, h.clamp(16, 4096) as i32);
@@ -2965,32 +3197,15 @@ impl ModelEngine {
                 );
 
                 gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(resolve_fbo));
-                let mut buf = vec![0u8; (w * h * 4) as usize];
-                gl.read_pixels(
-                    0,
-                    0,
-                    w,
-                    h,
-                    glow::RGBA,
-                    glow::UNSIGNED_BYTE,
-                    glow::PixelPackData::Slice(Some(&mut buf)),
-                );
+                pixels = if let Some(adj) = adjust.filter(|a| !a.is_identity()) {
+                    self.filter_resolved_texture(resolve_tex, w, h, adj)
+                } else {
+                    self.read_rgba_flipped(w, h)
+                };
                 gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
                 gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
                 gl.delete_framebuffer(resolve_fbo);
                 gl.delete_texture(resolve_tex);
-
-                // GL reads bottom-up; egui wants top-down.
-                let row = (w * 4) as usize;
-                let mut flipped = vec![0u8; buf.len()];
-                for y in 0..h as usize {
-                    let src = (h as usize - 1 - y) * row;
-                    flipped[y * row..(y + 1) * row].copy_from_slice(&buf[src..src + row]);
-                }
-                pixels = Some(egui::ColorImage::from_rgba_unmultiplied(
-                    [w as usize, h as usize],
-                    &flipped,
-                ));
             }
 
             gl.bind_framebuffer(glow::FRAMEBUFFER, None);

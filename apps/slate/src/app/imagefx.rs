@@ -119,6 +119,32 @@ fn build_color_matrix(adjust: &ImageAdjust) -> Mat3 {
         .mul(Mat3::saturate(adjust.saturate))
 }
 
+/// W3C color-matrix coefficients (row-major 3×3) shared by CPU and GPU filters.
+pub fn color_matrix_coefficients(adjust: &ImageAdjust) -> [f32; 9] {
+    build_color_matrix(adjust).0
+}
+
+/// Uniforms for the model viewport GPU filter pass (`brightness * contrast`, offset).
+pub fn filter_tone(adjust: &ImageAdjust) -> (f32, f32) {
+    (
+        adjust.brightness * adjust.contrast,
+        0.5 * (1.0 - adjust.contrast),
+    )
+}
+
+/// Overlay + invert terms for the GPU filter pass.
+pub fn filter_shader_overlay(adjust: &ImageAdjust) -> ([f32; 4], f32) {
+    let overlay = adjust.overlay.map(|Rgba([r, g, b, a])| {
+        [
+            r as f32 / 255.0,
+            g as f32 / 255.0,
+            b as f32 / 255.0,
+            a as f32 / 255.0,
+        ]
+    });
+    (overlay.unwrap_or([0.0; 4]), adjust.invert.clamp(0.0, 1.0))
+}
+
 /// Returns an adjusted copy of `src`. Identity adjustments return a plain clone.
 pub fn adjusted(src: &ColorImage, adjust: &ImageAdjust) -> ColorImage {
     if adjust.is_identity() {
