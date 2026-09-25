@@ -53,7 +53,7 @@ scroll position were verified with synthetic source updates; authenticated
 end-to-end provider runs were not performed in this visual pass.
 
 Remaining validation/refinement: complete documentation tests and end-to-end provider checks,
-large-history frame-time checks, deletion-scope preview and explicit Align train. A historical single-chat card that already owns
+large-history paint and fitting frame-time checks (the sessions pass is measured by `agent_sessions_pass_bench`), deletion-scope preview and explicit Align train. A historical single-chat card that already owns
 branch points cannot yet be split into smaller cards without changing those
 anchors; it explicitly retains Full detail instead. This is not shipped status.
 

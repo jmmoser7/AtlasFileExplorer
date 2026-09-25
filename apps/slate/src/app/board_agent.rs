@@ -120,6 +120,13 @@ impl GeneratorView {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Looks for an agent's `place.json` made on this thread.
+    pub(crate) static LINK_PROBES_ON_THIS_THREAD: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
 /// The visible crop or paint composite the once-a-second context publish
 /// shows for a wired picture. Made off the frame loop, then reused while the
 /// picture is unchanged; a send still clips fresh (`agent_input_snapshot`).
@@ -5558,8 +5565,36 @@ impl SlateApp {
         }
         drop(front_span);
         let ws = self.ai.config.workspace_dir.clone().unwrap_or_default();
+        self.pump_agent_sessions(ctx, &ws);
+        let tail_span = atlas_core::session_log::span("slate.agents.tail");
+        self.pump_agent_awaits(ctx, &ws);
+        self.pump_comfy_queue();
+        self.pump_live_generators();
+        if !self.agents.live_settle.is_empty() {
+            ctx.request_repaint_after(LIVE_TYPING_SETTLE);
+        }
+        self.pump_generation_previews(ctx);
+        drop(tail_span);
 
-        let sessions_span = atlas_core::session_log::span("slate.agents.sessions");
+        let _stage_span = atlas_core::session_log::span("slate.agents.stage");
+        let proposals = self.agents.stage.poll(&ws);
+        if !proposals.is_empty() {
+            for proposal in proposals {
+                if let Some(existing) = self.agents.pending.iter_mut().find(|p| p.id == proposal.id)
+                {
+                    *existing = proposal;
+                } else {
+                    self.agents.pending.push(proposal);
+                }
+            }
+            ctx.request_repaint();
+        }
+    }
+
+    /// Each card's linked session and published context, once a frame.
+    pub(crate) fn pump_agent_sessions(&mut self, ctx: &egui::Context, ws: &std::path::Path) {
+        let _sessions_span = atlas_core::session_log::span("slate.agents.sessions");
+        let ws = ws.to_path_buf();
         let portals: Vec<(NodeId, Option<slate_doc::scene::AgentPortalRef>)> = self
             .doc()
             .scene
@@ -5619,7 +5654,9 @@ impl SlateApp {
                 .unwrap_or_else(|| atlas_ai::agent::agent_dir(&ws, &agent.session));
             live_dirs.insert(dir.clone());
             if !self.agent_has_child(id) {
-                self.consume_atlas_place(id, &dir);
+                if let Some(raw) = self.agents.sources.take_place(&dir) {
+                    self.place_atlas_request(id, &dir, &raw);
+                }
                 self.agent_output_roots(id, &dir);
             }
             let context = if publish && !ws.as_os_str().is_empty() && published.insert(dir.clone())
@@ -5732,30 +5769,6 @@ impl SlateApp {
         }
         self.agents.sources.retain(&live_dirs);
         self.pump_agent_text_outputs();
-        drop(sessions_span);
-        let tail_span = atlas_core::session_log::span("slate.agents.tail");
-        self.pump_agent_awaits(ctx, &ws);
-        self.pump_comfy_queue();
-        self.pump_live_generators();
-        if !self.agents.live_settle.is_empty() {
-            ctx.request_repaint_after(LIVE_TYPING_SETTLE);
-        }
-        self.pump_generation_previews(ctx);
-        drop(tail_span);
-
-        let _stage_span = atlas_core::session_log::span("slate.agents.stage");
-        let proposals = self.agents.stage.poll(&ws);
-        if !proposals.is_empty() {
-            for proposal in proposals {
-                if let Some(existing) = self.agents.pending.iter_mut().find(|p| p.id == proposal.id)
-                {
-                    *existing = proposal;
-                } else {
-                    self.agents.pending.push(proposal);
-                }
-            }
-            ctx.request_repaint();
-        }
     }
 
     fn agent_context_for(
@@ -6482,23 +6495,37 @@ impl SlateApp {
 
     /// `place.json` beside `session.json` asks for a File Atlas portal.
     /// The folder path is relative to the AI workspace unless it is absolute.
+    /// Read and act on `place.json` on the calling thread. The frame loop
+    /// takes requests from the link worker instead.
+    #[cfg(test)]
     pub(crate) fn consume_atlas_place(
         &mut self,
         portal: NodeId,
         link_dir: &std::path::Path,
     ) -> bool {
+        let request_path = link_dir.join("place.json");
+        LINK_PROBES_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
+        if !request_path.is_file() || atlas_core::cloud::is_dehydrated(&request_path) {
+            return false;
+        }
+        let Ok(raw) = std::fs::read_to_string(&request_path) else {
+            return false;
+        };
+        self.place_atlas_request(portal, link_dir, &raw)
+    }
+
+    /// Act on the text of an agent's `place.json`, then remove the file.
+    fn place_atlas_request(
+        &mut self,
+        portal: NodeId,
+        link_dir: &std::path::Path,
+        raw: &str,
+    ) -> bool {
         if self.refuse_read_only_edit() {
             return false;
         }
         let request_path = link_dir.join("place.json");
-        if !request_path.is_file() || atlas_core::cloud::is_dehydrated(&request_path) {
-            return false;
-        }
-        let raw = match std::fs::read_to_string(&request_path) {
-            Ok(text) => text,
-            Err(_) => return false,
-        };
-        let value: serde_json::Value = match serde_json::from_str(&raw) {
+        let value: serde_json::Value = match serde_json::from_str(raw) {
             Ok(value) => value,
             Err(_) => return false,
         };
