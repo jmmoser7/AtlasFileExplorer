@@ -122,6 +122,9 @@ struct Finished {
     tx: i32,
     ty: i32,
     rgba: Vec<u8>,
+    /// The texture's pixels, premultiplied on the worker so an upload on
+    /// the frame thread is only a hand-off.
+    image: egui::ColorImage,
     baked: Vec<(NodeId, u64)>,
     incremental: bool,
 }
@@ -451,13 +454,9 @@ impl BrushTiles {
             return;
         };
         run.validated = None;
-        let image = egui::ColorImage::from_rgba_premultiplied(
-            [TILE_PX as usize, TILE_PX as usize],
-            &super::premultiplied(&fin.rgba),
-        );
         let tex = ctx.load_texture(
             format!("brush-tile-{}-{}-{}", fin.token, fin.tx, fin.ty),
-            image,
+            fin.image,
             egui::TextureOptions::LINEAR,
         );
         run.tiles.insert(
@@ -585,6 +584,10 @@ fn worker(jobs: Arc<Mutex<Receiver<Job>>>, done: Sender<Finished>) {
             let ink = cached_ink(&job.ink, src, job.pixel);
             composite_stroke(&mut img, &mut layer, ink.as_ref());
         }
+        let image = egui::ColorImage::from_rgba_premultiplied(
+            [TILE_PX as usize, TILE_PX as usize],
+            &super::premultiplied(&img.rgba),
+        );
         if done
             .send(Finished {
                 id: job.id,
@@ -593,6 +596,7 @@ fn worker(jobs: Arc<Mutex<Receiver<Job>>>, done: Sender<Finished>) {
                 tx: job.tx,
                 ty: job.ty,
                 rgba: img.rgba,
+                image,
                 baked: job.baked,
                 incremental: job.incremental,
             })
@@ -754,6 +758,7 @@ pub(crate) fn paint_rest(
     app.brush_tiles.lent_last = lent;
     app.brush_tiles.sync_keys(scene_gen);
     app.brush_tiles.drain_finished();
+    crate::app::board::brush_prof::lap("tiles.keys");
     app.brush_tiles.upload_some(painter.ctx());
     crate::app::board::brush_prof::lap("tiles.sync");
 
