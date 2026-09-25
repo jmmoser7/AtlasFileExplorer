@@ -1376,7 +1376,7 @@
           "decided": "2026-08-15"
         },
         "D02": {
-          "behavior": "Unchanged. DragRect tools stay one-shot (P2.DragShape.oneshot / P2.PortalPlace.oneshot). Space/Enter re-arms (P0.4). This contract does not change stickiness.",
+          "behavior": "Unchanged. DragRect tools stay one-shot (P2.DragShape.oneshot / P2.PortalPlace.oneshot). Space/Enter re-arms (P0.4). This contract does not change stickiness. Image crop is a mode, not a DragRect tool, and a finished crop joins the same P0.4 repeat (image-crop D02).",
           "source": "pattern",
           "confidence": 88,
           "verdict": "approved",
@@ -4513,11 +4513,11 @@
           "decided": "2026-09-24"
         },
         "D02": {
-          "behavior": "Crop stays on until Off is chosen in the Corners panel, Enter, Esc, or a tool other than Select. It is not a sticky drawing tool and does not repeat as a new image.",
-          "source": "precedent",
-          "confidence": 90,
+          "behavior": "Crop stays on until Off is chosen in the Corners panel, Enter, Esc, or a tool other than Select. It is not a sticky drawing tool. A finished crop gesture joins repeat-last (P0.4): afterwards, a Space tap or Enter while idle re-enters crop mode on whatever image is selected then, however crop was first entered.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-24"
+          "decided": "2026-09-25"
         },
         "D03": {
           "behavior": "All selected frames display the crop in real time with the prime. Each image shows a corner bracket and an edge bar on every side. Dragging one clips that side. The picture stays fixed in the world and the frame shrinks over it. Releasing writes that same crop onto every selected croppable image.",
@@ -4562,18 +4562,18 @@
           "decided": "2026-09-24"
         },
         "D09": {
-          "behavior": "While crop is on, each selected croppable image shows the white brackets, edge bars, and a white crop border. The dimmed full picture and the scrim outside the window stay on the image under the pointer. The Corners squircle stays up, with Crop shown on.",
+          "behavior": "While crop is on, each selected croppable image shows the white brackets, edge bars, and a white crop border. The dimmed full picture and the scrim outside the window stay on the image under the pointer. The Corners squircle stays up, with Crop shown on. A press on a crop handle or on a cropping image is the crop gesture, not a click-away: the squircle stays up, the selection stays whole, and the very first press reaches the handle.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-24"
+          "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "The hit is the painted bracket or bar expanded by CROP_HIT_PAD_PX (4) through canvas_scale. Left and right bars use the horizontal resize cursor. Top and bottom use the vertical resize cursor. Corners use the diagonal resize cursors.",
+          "behavior": "Hit zones are screen-space and never smaller than HIT_SLOP_PX (8), like other board handles (canvas_scale::hit_px). A corner is a disc of radius CROP_ARM_PX + CROP_HIT_PAD_PX (16 at 1:1) around the corner point. An edge is a band of half-width CROP_BAR_THICK_PX / 2 + CROP_HIT_PAD_PX (6.5, floored to 8) along the whole side, not only the painted bar. Both reach outside the box. Hovering a zone shows its cursor: left and right use the horizontal resize cursor, top and bottom the vertical, corners the diagonals.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-24"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "Pointer-up writes one journal group: the grabbed image's new frame and Crop, and the same Crop on every other selected croppable image, each frame resized so its own picture stays put. An unchanged drag adds no undo step. Undo restores every image in that group. Every path that sends this image to an agent uses only the visible crop window. The hidden part of the source file is omitted.",
@@ -4618,11 +4618,11 @@
           "decided": "2026-09-24"
         },
         "D17": {
-          "behavior": "Each bracket and bar is hit across its full graphic plus CROP_HIT_PAD_PX. That hit overrides wires and other transient handles. Crop mode does not clear the rest of the selection. Pressing empty canvas exits crop mode and deselects, matching the selection strip.",
+          "behavior": "Corners win over edges where their zones overlap. Across several selected images, a corner beats an edge, then the nearest handle wins. That hit overrides wires and other transient handles. Crop mode does not clear the rest of the selection: a click on a cropping image or inside a handle zone keeps crop mode and every selected image. Pressing empty canvas outside every zone exits crop mode and deselects, matching the selection strip.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-24"
+          "decided": "2026-09-25"
         }
       }
     },
