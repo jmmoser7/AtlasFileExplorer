@@ -1289,13 +1289,19 @@ impl SlateApp {
         let temporary = self.board_tool == BoardTool::Brush && self.alt_down;
         if temporary && !to_bg {
             if let Some(rgb) = atlas_shell::desktop_color::sample_cursor() {
-                self.board_colors.fg.0[..3].copy_from_slice(&rgb);
-                self.save_board_colors();
-                self.remember_document_colors(vec![rgb]);
+                self.adopt_sampled_brush_color(rgb);
                 return;
             }
         }
         self.start_tool_desktop_sample(to_bg, temporary);
+    }
+
+    /// A temporary Alt sample becomes the foreground (alpha kept) and a
+    /// recent color.
+    pub(crate) fn adopt_sampled_brush_color(&mut self, rgb: [u8; 3]) {
+        self.board_colors.fg.0[..3].copy_from_slice(&rgb);
+        self.save_board_colors();
+        self.remember_document_colors(vec![rgb]);
     }
 
     /// Whether the eyedropper is live this frame: the tool itself, or
@@ -1445,10 +1451,17 @@ impl SlateApp {
                 EStroke::new(1.2_f32, Color32::from_gray(150)),
             );
         }
-        painter.circle_filled(pointer, 5.0, fg);
+        // The sample reads the screen pixel under the hotspot, so the
+        // foreground swatch is a ring that leaves that pixel showing the canvas.
+        painter.circle_stroke(pointer, 5.0, EStroke::new(3.0_f32, fg));
         painter.circle_stroke(
             pointer,
-            5.5,
+            6.8,
+            EStroke::new(1.0_f32, Color32::from_black_alpha(90)),
+        );
+        painter.circle_stroke(
+            pointer,
+            3.2,
             EStroke::new(1.0_f32, Color32::from_black_alpha(90)),
         );
     }

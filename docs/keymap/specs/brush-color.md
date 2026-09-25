@@ -111,6 +111,7 @@ pub struct BoardColors { pub fg: Rgba, pub bg: Rgba }
 | Alt+right-drag | `board.brush.size_hud` |
 | Shift+right-drag | `board.brush.opacity_hud` (Brush only; Ctrl and Alt win) |
 | Ctrl+right-drag | `board.brush.color_wheel` |
+| Alt+click (Brush) | `board.brush.sample` (screen color to fg and recent colors) |
 | Shift+click (Brush) | steps opacity down 10% |
 | Alt+click (Eyedropper) | sample to bg |
 | , / . | preset cycling — **P2** (reserved, not bound in P1) |
