@@ -5,7 +5,7 @@ use eframe::egui::{self, Color32, Pos2};
 use slate_doc::{
     image_paint::{
         find_layer_node, layer_node_from_world, layer_node_kind_allowed, layer_node_to_world,
-        world_to_host_norm, LayerNodeRef, PaintLayerId,
+        LayerNodeRef, PaintLayerId,
     },
     scene::{ImageNode, Node, NodeKind, Rgba, SceneCmd, ShapeKind, WorldRect},
     NodeId, PaintLayer, ViewState,
@@ -254,11 +254,12 @@ impl SlateApp {
         let Some(node) = self.doc().scene.node(image) else {
             return false;
         };
-        let NodeKind::Image(img) = &node.kind else {
-            return false;
-        };
-        let (u, v) = world_to_host_norm(node, img, world.x, world.y);
-        (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v)
+        slate_doc::geom::point_in_node_outline(
+            node,
+            world.x,
+            world.y,
+            super::board_trim::trim_tokens::GEOMETRY_TOLERANCE,
+        )
     }
 
     /// When hosting, route scene Adds into the active paint layer instead.
@@ -308,17 +309,12 @@ impl SlateApp {
         true
     }
 
-    fn stroke_intersects_image_window(&self, host: &Node, img: &ImageNode, node: &Node) -> bool {
-        let corners = [
-            (node.rect.x, node.rect.y),
-            (node.rect.x + node.rect.w, node.rect.y),
-            (node.rect.x + node.rect.w, node.rect.y + node.rect.h),
-            (node.rect.x, node.rect.y + node.rect.h),
-        ];
-        corners.iter().any(|(x, y)| {
-            let (u, v) = world_to_host_norm(host, img, *x, *y);
-            (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v)
-        })
+    fn stroke_intersects_image_window(&self, host: &Node, _img: &ImageNode, node: &Node) -> bool {
+        slate_doc::geom::stroke_intersects_node_outline(
+            node,
+            host,
+            super::board_trim::trim_tokens::GEOMETRY_TOLERANCE,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]

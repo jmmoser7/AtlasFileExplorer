@@ -131,7 +131,7 @@ pub fn find_layer_node(scene: &crate::scene::Scene, id: NodeId) -> Option<LayerN
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::{Corner, NodeKind, ShapeKind, ShapeNode, Stroke};
+    use crate::scene::{Corner, Crop, NodeKind, ShapeKind, ShapeNode, Stroke};
 
     fn path_shape() -> ShapeNode {
         ShapeNode {
@@ -171,6 +171,31 @@ mod tests {
                 text: None,
             }),
         )
+    }
+
+    #[test]
+    fn layer_norm_is_content_not_crop_window() {
+        let crop = Crop {
+            x: 0.25,
+            y: 0.25,
+            w: 0.5,
+            h: 0.5,
+        };
+        let host = host_with_crop(crop);
+        let img = match &host.kind {
+            NodeKind::Image(i) => i,
+            _ => unreachable!(),
+        };
+        let (cx, cy) = host.rect.center();
+        let (u, v) = world_to_host_norm(&host, img, cx, cy);
+        assert!((u - 0.5).abs() < 1e-3 && (v - 0.5).abs() < 1e-3);
+        let mut local = stroke_local(0.0, 0.0);
+        local.rect = WorldRect::new(0.4, 0.4, 0.2, 0.2);
+        let world = layer_node_to_world(&host, img, &local);
+        let content = image_content_rect(&host, img);
+        let (ccx, ccy) = content.center();
+        let (wx, wy) = world.rect.center();
+        assert!((wx - ccx).abs() < 1e-2 && (wy - ccy).abs() < 1e-2);
     }
 
     #[test]

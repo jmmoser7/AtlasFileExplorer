@@ -4,7 +4,7 @@
 
 use crate::scene::{Crop, Node, NodeKind, PathData, PathSeg, ShapeKind, WorldRect};
 use vector_ink::kurbo::{BezPath, Point};
-use vector_ink::{flatten_contours, Polygon};
+use vector_ink::{flatten_contours, point_in_polygon, Polygon};
 
 /// The world rect the full uncropped image occupies (crop window + UV crop).
 pub fn image_content_rect(rect: WorldRect, crop: Crop) -> WorldRect {
@@ -202,5 +202,128 @@ pub fn node_closed_poly(n: &Node, tolerance: f32) -> Option<Polygon> {
             .map(|(x, y)| [x, y])
             .collect()]),
         _ => None,
+    }
+}
+
+fn segments_intersect(a1: [f32; 2], a2: [f32; 2], b1: [f32; 2], b2: [f32; 2]) -> bool {
+    fn orient(p: [f32; 2], q: [f32; 2], r: [f32; 2]) -> f32 {
+        (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    }
+    let d1 = orient(b1, b2, a1);
+    let d2 = orient(b1, b2, a2);
+    let d3 = orient(a1, a2, b1);
+    let d4 = orient(a1, a2, b2);
+    ((d1 > 0.0) != (d2 > 0.0)) && ((d3 > 0.0) != (d4 > 0.0))
+}
+
+/// Any vertex inside, or any segment crossing a ring edge.
+pub fn polyline_intersects_polygon(line: &[[f32; 2]], poly: &Polygon) -> bool {
+    if line.is_empty() || poly.is_empty() {
+        return false;
+    }
+    for p in line {
+        if point_in_polygon(poly, *p) {
+            return true;
+        }
+    }
+    if line.len() < 2 {
+        return false;
+    }
+    for i in 0..line.len() - 1 {
+        let a1 = line[i];
+        let a2 = line[i + 1];
+        for ring in poly {
+            if ring.len() < 2 {
+                continue;
+            }
+            for j in 0..ring.len() {
+                let b1 = ring[j];
+                let b2 = ring[(j + 1) % ring.len()];
+                if segments_intersect(a1, a2, b1, b2) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Flattened centerlines / outlines used to test ink against a host window.
+pub fn node_stroke_polylines(n: &Node, tolerance: f32) -> Vec<Vec<[f32; 2]>> {
+    if let Some(open) = node_open_polyline(n, tolerance) {
+        return vec![open];
+    }
+    if let Some(poly) = node_closed_poly(n, tolerance) {
+        return poly
+            .into_iter()
+            .filter_map(|ring| {
+                if ring.len() < 2 {
+                    return None;
+                }
+                let mut line = ring;
+                line.push(line[0]);
+                Some(line)
+            })
+            .collect();
+    }
+    vec![]
+}
+
+/// Whether world point `p` lies inside the host's visible outline (trim clip when set).
+pub fn point_in_node_outline(host: &Node, px: f32, py: f32, tolerance: f32) -> bool {
+    node_closed_poly(host, tolerance)
+        .is_some_and(|poly| point_in_polygon(&poly, [px, py]))
+}
+
+/// Whether any part of `stroke` intersects the host's visible outline.
+pub fn stroke_intersects_node_outline(stroke: &Node, host: &Node, tolerance: f32) -> bool {
+    let Some(host_poly) = node_closed_poly(host, tolerance) else {
+        return false;
+    };
+    node_stroke_polylines(stroke, tolerance)
+        .iter()
+        .any(|line| polyline_intersects_polygon(line, &host_poly))
+}
+
+#[cfg(test)]
+mod paint_window_tests {
+    use super::*;
+    use crate::scene::{
+        Corner, ImageNode, NodeKind, ShapeKind, ShapeNode, Stroke, WorldRect,
+    };
+
+    #[test]
+    fn stroke_hits_host_outline_not_far_away() {
+        let mut scene = crate::scene::Scene::default();
+        let host = scene.build_node(
+            WorldRect::new(0.0, 0.0, 100.0, 100.0),
+            NodeKind::Image(ImageNode::new(crate::ItemId(1))),
+        );
+        let line = scene.build_node(
+            WorldRect::new(10.0, 50.0, 80.0, 0.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Line,
+                fill: None,
+                stroke: Stroke::default(),
+                corner: Corner::Square,
+                flip: false,
+                path: None,
+                text: None,
+            }),
+        );
+        assert!(stroke_intersects_node_outline(&line, &host, 0.05));
+        let outside = scene.build_node(
+            WorldRect::new(200.0, 200.0, 50.0, 0.0),
+            NodeKind::Shape(ShapeNode {
+                shape: ShapeKind::Line,
+                fill: None,
+                stroke: Stroke::default(),
+                corner: Corner::Square,
+                flip: false,
+                path: None,
+                text: None,
+            }),
+        );
+        assert!(!stroke_intersects_node_outline(&outside, &host, 0.05));
     }
 }
