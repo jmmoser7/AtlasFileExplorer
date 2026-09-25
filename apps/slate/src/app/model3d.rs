@@ -1,4 +1,4 @@
-//! Interactive 3D viewports for placed models (`MediaKind::Model`).
+﻿//! Interactive 3D viewports for placed models (`MediaKind::Model`).
 //!
 //! Any recognized 3D file placed on the board is a **viewport node**: its saved
 //! [`ModelCamera`] pose (journaled document state on the `ImageNode`) decides
@@ -6,7 +6,7 @@
 //! `model-preview` and all return one [`model_preview::PreviewScene`]. The
 //! lifecycle keeps big models cheap by default:
 //!
-//! - **Locked (default).** The node paints a *poster* — a PNG rendered from
+//! - **Locked (default).** The node paints a *poster* â€” a PNG rendered from
 //!   the saved camera pose, cached on disk next to the thumbnail cache. No
 //!   mesh, no GPU buffers, no per-frame work. Duplicating the node and
 //!   changing each copy's camera is how one model appears from several
@@ -26,14 +26,14 @@
 //!
 //! Rendering happens **offscreen inside `update`** (the glow GL context is
 //! current there): the scene is drawn into an MSAA framebuffer, resolved,
-//! read back, and handed to egui as an ordinary texture — so model nodes go
+//! read back, and handed to egui as an ordinary texture â€” so model nodes go
 //! through the exact same `textured_polygon` path as every other board
 //! image (stroke, corners, opacity all apply), and the headless test
 //! harness (no GL) simply never sees a live viewport.
 //!
 //! Files without cached render meshes ("Save Small", wireframe-only saves)
 //! degrade to the embedded-preview thumbnail the thumb pool already
-//! extracts — same look as before this feature existed.
+//! extracts â€” same look as before this feature existed.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
@@ -73,8 +73,8 @@ const DISPLAY_SWATCH_MODES: [ModelDisplay; 4] = [
     ModelDisplay::Material,
     ModelDisplay::Depth,
 ];
-/// Vertical field of view, radians (≈ Rhino's default perspective lens).
-pub const FOV_Y: f32 = 0.6108652; // 35°
+/// Vertical field of view, radians (â‰ˆ Rhino's default perspective lens).
+pub const FOV_Y: f32 = 0.6108652; // 35Â°
 /// Orbit sensitivity, radians per screen px.
 const ORBIT_PER_PX: f32 = 0.008;
 
@@ -87,7 +87,7 @@ const ORBIT_PER_PX: f32 = 0.008;
 pub enum ModelViewportTool {
     #[default]
     Navigate,
-    /// Rhino `Distance` — direct line between two picked surface points.
+    /// Rhino `Distance` â€” direct line between two picked surface points.
     MeasureDistance,
 }
 
@@ -223,7 +223,7 @@ fn view_depth_range(view: &[f32; 16], min: [f32; 3], max: [f32; 3]) -> (f32, f32
     (near, far)
 }
 
-/// Capture size near 512² at the node's aspect, in multiples of 8.
+/// Capture size near 512Â² at the node's aspect, in multiples of 8.
 pub fn capture_size(w: f32, h: f32) -> (u32, u32) {
     let aspect = (w / h.max(1.0)).clamp(0.5, 2.0);
     let area = 512.0 * 512.0;
@@ -328,7 +328,7 @@ pub fn world_per_px(cam: &ModelCamera, viewport_px_h: f32) -> f32 {
 
 // ---------- picking (CPU raycast against render meshes) ----------
 
-/// Normalized viewport coordinates (0..1, origin top-left) → world-space ray.
+/// Normalized viewport coordinates (0..1, origin top-left) â†’ world-space ray.
 pub fn ray_from_viewport_uv(
     u: f32,
     v: f32,
@@ -352,7 +352,7 @@ pub fn ray_from_viewport_uv(
     (eye, dir)
 }
 
-/// Closest triangle hit along a ray (Möller–Trumbore). Returns world hit point.
+/// Closest triangle hit along a ray (MÃ¶llerâ€“Trumbore). Returns world hit point.
 pub fn raycast_model(model: &PreviewScene, origin: [f32; 3], dir: [f32; 3]) -> Option<[f32; 3]> {
     let mut best_t = f32::INFINITY;
     let mut best = None;
@@ -624,7 +624,7 @@ pub struct LiveViewport {
     pub cache_key: String,
     /// Live camera (resolved: `distance > 0` once the mesh is known).
     pub cam: ModelCamera,
-    /// Document pose at unlock — the `before` of the single patch on lock.
+    /// Document pose at unlock â€” the `before` of the single patch on lock.
     pub before: ModelCamera,
     pub last_interact: Instant,
     tex: Option<TextureHandle>,
@@ -680,7 +680,7 @@ pub struct ModelSpace {
     posters: HashMap<String, TextureHandle>,
     /// Nodes whose poster needs (re)generation once mesh + GL are ready.
     want_poster: std::collections::HashSet<NodeId>,
-    /// Bounds by cache key (kept even after CPU mesh eviction — needed to
+    /// Bounds by cache key (kept even after CPU mesh eviction â€” needed to
     /// resolve auto-fit cameras cheaply, e.g. for artifact export).
     pub bounds: HashMap<String, ([f32; 3], [f32; 3])>,
     /// SHA-256 hex of model file bytes, keyed by item cache key.
@@ -707,6 +707,8 @@ pub struct ModelSpace {
     display_swatch_stamp: HashMap<NodeId, u64>,
     display_swatch_queue: VecDeque<(NodeId, u64, ModelDisplay)>,
     display_swatch_pixels: HashMap<(NodeId, u64, ModelDisplay), egui::ColorImage>,
+    /// Parsed `slateview` cameras from wired screenshot items (item cache key).
+    pub view_wire_meta: HashMap<String, Option<ModelCamera>>,
 }
 
 struct EnscapeGrab {
@@ -767,6 +769,7 @@ impl Default for ModelSpace {
             display_swatch_stamp: HashMap::new(),
             display_swatch_queue: VecDeque::new(),
             display_swatch_pixels: HashMap::new(),
+            view_wire_meta: HashMap::new(),
         }
     }
 }
@@ -1148,7 +1151,7 @@ impl SlateApp {
             return;
         };
         let Some(info) = self.model_node_info(id) else {
-            return; // node deleted while live — nothing to persist
+            return; // node deleted while live â€” nothing to persist
         };
 
         // Render the final pose at poster quality and cache it on disk.
@@ -1174,7 +1177,7 @@ impl SlateApp {
                     self.model3d.want_poster.remove(&id);
                 }
             }
-            // Commit the pose (skip when untouched, e.g. unlock → instant
+            // Commit the pose (skip when untouched, e.g. unlock â†’ instant
             // relock before the mesh even loaded).
             if cam != vp.before {
                 self.last_board_edit = None;
@@ -1815,7 +1818,7 @@ impl SlateApp {
         };
         vp.last_interact = Instant::now();
         if vp.cam.distance <= 0.0 {
-            return; // mesh not in yet — nothing sensible to move
+            return; // mesh not in yet â€” nothing sensible to move
         }
         if pan_mode {
             let wpp = world_per_px(&vp.cam, viewport_h);
@@ -2321,7 +2324,7 @@ impl SlateApp {
     pub fn note_engine_failure(&mut self) {
         if matches!(self.model3d.engine, EngineSlot::Failed) && !self.model3d.engine_toast_shown {
             self.model3d.engine_toast_shown = true;
-            self.toast("3D viewport unavailable — GPU shader setup failed");
+            self.toast("3D viewport unavailable â€” GPU shader setup failed");
         }
     }
 }
@@ -2392,7 +2395,7 @@ void main() {
 "#;
 
 // Two-sided Blinn-Phong with a camera headlight plus a hemisphere fill,
-// computed in linear space and encoded back to sRGB — reads like Rhino's
+// computed in linear space and encoded back to sRGB â€” reads like Rhino's
 // shaded display mode (minus isocurves/edges, which need edge extraction).
 const MODEL_FS: &str = r#"#version 330 core
 in vec3 v_nrm;
@@ -2456,7 +2459,7 @@ void main() {
 "#;
 
 /// Default surface color for parts without an object color (Rhino files
-/// usually color by layer, which the reader doesn't resolve — see
+/// usually color by layer, which the reader doesn't resolve â€” see
 /// `rhino-mesh` docs).
 const DEFAULT_PART_COLOR: [f32; 3] = [0.78, 0.78, 0.76];
 
@@ -2706,8 +2709,8 @@ impl ModelEngine {
         }
     }
 
-    /// Offscreen render: MSAA color+depth renderbuffers → resolve blit →
-    /// readback. Returns straight-alpha RGBA (alpha is 1 everywhere — the
+    /// Offscreen render: MSAA color+depth renderbuffers â†’ resolve blit â†’
+    /// readback. Returns straight-alpha RGBA (alpha is 1 everywhere â€” the
     /// gradient background makes MSAA resolve fringe-free).
     pub fn render(
         &self,
@@ -3501,7 +3504,7 @@ mod tests {
         let mut c = cam(0.0, 0.0, 10.0);
         let before = c.target;
         pan(&mut c, 100.0, 0.0, 0.01);
-        // Eye on +X: screen-right is world -Y … the target must move, and
+        // Eye on +X: screen-right is world -Y â€¦ the target must move, and
         // stay at the same height for a horizontal pan.
         assert_ne!(before, c.target);
         assert!((c.target[2] - before[2]).abs() < 1e-4);

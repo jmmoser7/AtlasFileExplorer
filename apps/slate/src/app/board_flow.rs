@@ -323,7 +323,7 @@ impl SlateApp {
                 let wiring = matches!(self.board_drag, Some(BoardDrag::Wire(_)));
                 if p.distance(origin) < CLICK_SLOP && !wiring {
                     if let Some(node) = self.doc().scene.node(id) {
-                        let at = WireHost::from_node(node).anchor(Side::Right, OUTPUT_T);
+                        let at = self.wire_host(node).anchor(Side::Right, OUTPUT_T);
                         self.open_flow_menu(id, Pos2::new(at[0], at[1]), false, None);
                     }
                 }
@@ -496,7 +496,7 @@ impl SlateApp {
                 doc.item(id).map(|item| item.path.as_path())
             })
         };
-        let Some(port) = agent_inputs::input_ports_of(&node)
+        let Some(port) = agent_inputs::input_ports_of(&node, self.model_has_viewport(node.id))
             .iter()
             .find(|p| p.slot.takes_text() == reads_text)
             .copied()
@@ -617,7 +617,7 @@ impl SlateApp {
         let labels = canvas_text::legible(font.size);
         let scene = &self.doc().scene;
         for node in &scene.nodes {
-            let ports = agent_inputs::input_ports_of(node);
+            let ports = agent_inputs::input_ports_of(node, self.model_has_viewport(node.id));
             if node.hidden || ports.is_empty() {
                 continue;
             }
@@ -630,7 +630,7 @@ impl SlateApp {
                 continue;
             }
             let bound = agent_inputs::bound_slots(scene, node.id);
-            let sites = WireHost::from_node(node).ports();
+            let sites = self.wire_host(node).ports();
             for (port, site) in ports.iter().zip(&sites) {
                 let center = xf.w2s(Pos2::new(site.point[0], site.point[1]));
                 let (_, color) = InputRole::of_slot(port.slot).look();
@@ -681,7 +681,7 @@ impl SlateApp {
         if let Some(menu) = self.agents.flow.menu.as_ref().filter(|m| m.dropped) {
             if let Some(source) = scene.node(menu.source) {
                 let (side, t) = menu.grip.unwrap_or((Side::Right, OUTPUT_T));
-                let from = WireHost::from_node(source).anchor(side, t);
+                let from = self.wire_host(source).anchor(side, t);
                 painter.line_segment(
                     [xf.w2s(Pos2::new(from[0], from[1])), xf.w2s(menu.at)],
                     egui::Stroke::new(canvas_scale::px(1.5, z), palette.sub.gamma_multiply(0.6)),

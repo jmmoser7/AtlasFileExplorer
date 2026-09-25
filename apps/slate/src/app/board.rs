@@ -1,8 +1,8 @@
-//! The Board view — Slate's open-world authored canvas.
+﻿//! The Board view â€” Slate's open-world authored canvas.
 //!
 //! Frames, shapes, text, and placed images live in `slate_doc::scene`; this
 //! module paints the scene with egui and turns pointer input into invertible
-//! `SceneCmd` groups (see `scene.rs` — the command layer is the contract
+//! `SceneCmd` groups (see `scene.rs` â€” the command layer is the contract
 //! shared by the UI, undo/redo, and the future MCP agent surface).
 //!
 //! Gesture rules:
@@ -13,26 +13,26 @@
 //!   scales a copy and leaves the original. `Ctrl+D` duplicates in place.
 //!   Deleting and z-order moves are plain command groups.
 //! - Smart guides align objects to each other while moving, resizing, or
-//!   drawing (on by default). Create-tool corners — GhostFollow hover and
-//!   both DragScale corners — use the same forcefield as a resize: the
+//!   drawing (on by default). Create-tool corners â€” GhostFollow hover and
+//!   both DragScale corners â€” use the same forcefield as a resize: the
 //!   live rect's moving edges, not a 0-size point at the cursor. Hold
 //!   `Alt` to bypass snapping; corner resize scales
 //!   proportionally by default and `Shift` frees the aspect (distortion);
 //!   `Ctrl` resizes from center (Office/PowerPoint convention).
 //! - Armed area tools (frame, rect, ellipse, portals) click-release to
 //!   place at default size, or press-drag-release to scale. The split is
-//!   4 screen px (`place_tokens::DRAG_THRESHOLD`), on press/release — an
+//!   4 screen px (`place_tokens::DRAG_THRESHOLD`), on press/release â€” an
 //!   egui click is not a drag.
-//! - Windows-style bounding-box chrome is live on hover — no prior selection.
+//! - Windows-style bounding-box chrome is live on hover â€” no prior selection.
 //!   Edges change the cursor only (no selection-look handles). Corners
-//!   show 45° arrows even on a wide group box. A rotated resize pins the
+//!   show 45Â° arrows even on a wide group box. A rotated resize pins the
 //!   opposite handle in world space so the grabbed edge moves. Body hover
 //!   eases a soft outline in and out. Selected objects get that same
 //!   silhouette (fillet / ellipse / AABB) with no corner or midspan
 //!   squares. Rotatable kinds (shapes, frames, text,
-//!   images) show a 90° arc cursor just *outside*
+//!   images) show a 90Â° arc cursor just *outside*
 //!   a corner; portals, connectors, and simple lines stay axis-aligned and
-//!   never offer rotate. Rotation snaps at 45° intervals. Grid display and
+//!   never offer rotate. Rotation snaps at 45Â° intervals. Grid display and
 //!   snap-to-grid are toolbar toggles. A Grasshopper-style align widget
 //!   (left + bottom icon clusters, no second frame, no hover ghost)
 //!   appears around a 2+ selection and commits `board.align.*` /
@@ -253,8 +253,8 @@ pub enum FramePreset {
 impl FramePreset {
     pub fn label(self) -> &'static str {
         match self {
-            FramePreset::Letter => "8.5 × 11",
-            FramePreset::Tabloid => "17 × 11",
+            FramePreset::Letter => "8.5 Ã— 11",
+            FramePreset::Tabloid => "17 Ã— 11",
             FramePreset::Wide169 => "16:9",
             FramePreset::Custom { .. } => "Custom",
         }
@@ -302,16 +302,16 @@ pub enum BoardTool {
     Eraser,
     /// Sample node colors into fg (Alt: bg) (I).
     Eyedropper,
-    /// Sticky-note placement (N) — a Text-node preset.
+    /// Sticky-note placement (N) â€” a Text-node preset.
     Sticky,
     /// Direct Selection: anchor/segment/handle editing on paths (A).
     DirectSelect,
     /// Local agent host portal placement (palette / Portals rail).
     AgentPortal,
-    /// Web host portal placement — embedded page or local HTML dashboard
+    /// Web host portal placement â€” embedded page or local HTML dashboard
     /// (palette / Portals rail). See `contracts/portal-web-embed.md`.
     WebPortal,
-    /// File Atlas lens — live folder map on the board (not a File Atlas feature).
+    /// File Atlas lens â€” live folder map on the board (not a File Atlas feature).
     AtlasPortal,
     /// Nested workbook board (document portal).
     SlatePortal,
@@ -500,7 +500,7 @@ impl BoardTool {
     }
 
     /// Area create tools: press-drag sizes, click-release places a default.
-    /// The live path must start on press — egui `drag_started` never fires
+    /// The live path must start on press â€” egui `drag_started` never fires
     /// for a click, which is why click-place used to do nothing.
     pub fn places_by_drag_rect(self) -> bool {
         self.grammar() == slate_kit::Grammar::DragRect
@@ -544,7 +544,7 @@ pub enum BoardDrag {
         start_world: Pos2,
         dup: bool,
     },
-    /// Resizing one node from a handle (0–7: corners then edge midpoints).
+    /// Resizing one node from a handle (0â€“7: corners then edge midpoints).
     /// `dup` is an Alt-scale copy: the original stays, and release journals
     /// an Add of the copy rather than a Patch.
     Resize {
@@ -560,7 +560,7 @@ pub enum BoardDrag {
         start_angle: f32,
     },
     /// Crop mode: dragging a crop-window edge/corner. The node rect and the
-    /// UV crop change together so the content stays fixed — only the mask
+    /// UV crop change together so the content stays fixed â€” only the mask
     /// moves (InDesign frame-edge cropping).
     CropEdge {
         id: NodeId,
@@ -599,7 +599,7 @@ pub enum BoardDrag {
         tool: BoardTool,
     },
     /// Line tool press (contracts/line.md). `started` = this press placed
-    /// the first point — release applies the click-vs-drag rule (D04).
+    /// the first point â€” release applies the click-vs-drag rule (D04).
     LineDraw { started: bool },
     /// Dragging an endpoint grip of a selected simple line (0 = start,
     /// 1 = end). Journals one point-edit Patch on release (D13/D14).
@@ -618,7 +618,7 @@ pub enum BoardDrag {
         straight: bool,
         spot: Vec<NodeId>,
     },
-    /// Connector wire gesture (add / detach / move-all) — see `board_wire`.
+    /// Connector wire gesture (add / detach / move-all) â€” see `board_wire`.
     Wire(super::board_wire::WireDrag),
     /// Direct-selection drag (anchors / segment / handle / anchor marquee).
     Direct(super::board_direct::DirectDrag),
@@ -644,8 +644,8 @@ pub enum BoardDrag {
     },
 }
 
-/// World→screen transform. The board uses the tab camera; presentation mode
-/// builds its own transform per slide — both feed the same painters.
+/// Worldâ†’screen transform. The board uses the tab camera; presentation mode
+/// builds its own transform per slide â€” both feed the same painters.
 #[derive(Clone, Copy)]
 pub struct BoardXf {
     pub center: Pos2,
@@ -1106,7 +1106,7 @@ impl SlateApp {
     // ----- journaled mutations -------------------------------------------------
 
     /// Bump the cheap scene-content generation. Call at every journal
-    /// commit/record/undo/redo site (and on tab switches) — it keys the
+    /// commit/record/undo/redo site (and on tab switches) â€” it keys the
     /// minimap's cached texture and the search-match recompute.
     pub(crate) fn note_scene_change(&mut self) {
         self.scene_gen = self.scene_gen.wrapping_add(1);
@@ -1254,7 +1254,7 @@ impl SlateApp {
         let ids: Vec<_> = deleted.iter().copied().collect();
         self.stop_pruned_agent_runs(&ids);
         // Surviving connectors anchored to a deleted node degrade to `Free`
-        // at their last world position — same command group, so undo
+        // at their last world position â€” same command group, so undo
         // restores the anchor (connectors spec).
         let mut cmds: Vec<SceneCmd> = Vec::new();
         for n in &self.doc().scene.nodes {
@@ -1566,22 +1566,11 @@ impl SlateApp {
             .map(|item| self.image_natural_size(*item))
             .collect();
         let rects = grid_drop_rects(&sizes, at);
-        let model_flags: Vec<bool> = items
-            .iter()
-            .map(|item| {
-                self.doc().item(*item).is_some_and(|it| {
-                    slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Model
-                })
-            })
-            .collect();
         let mut nodes = Vec::new();
         {
             let scene = &mut self.doc_mut().scene;
             for (i, item) in items.iter().enumerate() {
-                let mut img = ImageNode::new(*item);
-                if model_flags[i] {
-                    img.model_viewport = true;
-                }
+                let img = ImageNode::new(*item);
                 nodes.push(scene.build_node(rects[i], NodeKind::Image(img)));
             }
         }
@@ -1594,7 +1583,7 @@ impl SlateApp {
     /// its tags (frame toolbar "+ images" and Atlas drops onto frames).
     pub fn place_items_in_frame(&mut self, frame: NodeId, items: &[ItemId]) {
         let Some(rect) = self.doc().scene.node(frame).map(|n| n.rect) else {
-            // Frame vanished — fall back to a plain board drop at origin.
+            // Frame vanished â€” fall back to a plain board drop at origin.
             self.place_items_on_board(items, Pos2::new(0.0, 0.0));
             return;
         };
@@ -1605,14 +1594,6 @@ impl SlateApp {
         let cols = (items.len() as f32).sqrt().ceil().max(1.0) as usize;
         let cell_w = ((rect.w - pad * 2.0) / cols as f32).clamp(60.0, IMAGE_W);
         let cell_h = cell_w * (IMAGE_H / IMAGE_W);
-        let model_flags: Vec<bool> = items
-            .iter()
-            .map(|item| {
-                self.doc().item(*item).is_some_and(|it| {
-                    slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Model
-                })
-            })
-            .collect();
         let mut nodes = Vec::new();
         {
             let scene = &mut self.doc_mut().scene;
@@ -1625,10 +1606,7 @@ impl SlateApp {
                     cell_w,
                     cell_h,
                 );
-                let mut img = ImageNode::new(*item);
-                if model_flags[i] {
-                    img.model_viewport = true;
-                }
+                let img = ImageNode::new(*item);
                 nodes.push(scene.build_node(r, NodeKind::Image(img)));
             }
         }
@@ -1656,7 +1634,7 @@ impl SlateApp {
 
     /// Selection expanded so selected frames carry their members. Hidden and
     /// locked members stay put, and connectors never ride along (their
-    /// geometry is derived from their endpoints — frame membership does not
+    /// geometry is derived from their endpoints â€” frame membership does not
     /// apply to them).
     fn expand_with_members(&self, ids: &[NodeId]) -> Vec<NodeId> {
         let mut out: Vec<NodeId> = ids.to_vec();
@@ -1929,7 +1907,7 @@ impl SlateApp {
         }
     }
 
-    /// Screen-space silhouette of a node — the same outline the painter uses,
+    /// Screen-space silhouette of a node â€” the same outline the painter uses,
     /// so selection and hover rings follow fillets and ellipses instead of
     /// the AABB.
     pub(crate) fn node_screen_outline(
@@ -2364,7 +2342,7 @@ fn stroke_outline(
     }
 }
 
-/// Corner "▶" marker on a video that has not been scrubbed or played.
+/// Corner "â–¶" marker on a video that has not been scrubbed or played.
 /// Once the playhead is live the board shows that frame; the badge returns
 /// only while the node is still on its poster.
 fn paint_play_badge(painter: &egui::Painter, srect: Rect, z: f32) {
@@ -2386,7 +2364,7 @@ fn paint_play_badge(painter: &egui::Painter, srect: Rect, z: f32) {
     ));
 }
 
-/// Extension badge in the bottom-left corner (PDF / DOCX / MOV …).
+/// Extension badge in the bottom-left corner (PDF / DOCX / MOV â€¦).
 fn paint_ext_badge(painter: &egui::Painter, srect: Rect, badge: &str, z: f32) {
     if badge.is_empty() {
         return;
@@ -2437,7 +2415,7 @@ impl SlateApp {
             .clone()
     }
 
-    /// Paper-like card with the file's opening lines — the board twin of the
+    /// Paper-like card with the file's opening lines â€” the board twin of the
     /// artifact's `.textcard`.
     fn paint_text_snippet_card(
         &mut self,
@@ -2807,7 +2785,7 @@ impl SlateApp {
     /// cached frozen-camera poster while locked, item thumbnail while the
     /// poster is still being generated. Files with no mesh reader stay on
     /// this card and say so. Photo filters apply over the render (once per
-    /// camera/size/adjust stamp — not per idle frame).
+    /// camera/size/adjust stamp â€” not per idle frame).
     #[allow(clippy::too_many_arguments)]
     fn paint_model_viewport(
         &mut self,
@@ -2890,7 +2868,7 @@ impl SlateApp {
                         })
                         .unwrap_or_else(|| {
                             format!(
-                                "{} — preparing 3D view…",
+                                "{} â€” preparing 3D viewâ€¦",
                                 atlas_shell::widgets::trunc(name, 18)
                             )
                         });
@@ -2946,7 +2924,7 @@ impl SlateApp {
                     painter,
                     bar.center_top() + Vec2::new(0.0, canvas_scale::px(-6.0, z)),
                     Align2::CENTER_BOTTOM,
-                    "Preparing 3D view…",
+                    "Preparing 3D viewâ€¦",
                     FontId::proportional(label),
                     palette.sub.gamma_multiply(alpha),
                 );
@@ -3195,7 +3173,7 @@ impl SlateApp {
                             painter,
                             srect.left_top() + Vec2::new(2.0 * z, -6.0 * z),
                             Align2::LEFT_BOTTOM,
-                            format!("{order} · {}", f.title),
+                            format!("{order} Â· {}", f.title),
                             FontId::proportional(title),
                             palette.sub,
                         );
@@ -3214,7 +3192,7 @@ impl SlateApp {
                                 painter,
                                 srect.right_top() + Vec2::new(-2.0 * z, -6.0 * z),
                                 Align2::RIGHT_BOTTOM,
-                                format!("⬦ {}", tags.join(", ")),
+                                format!("â¬¦ {}", tags.join(", ")),
                                 FontId::proportional(tag_px),
                                 palette.accent,
                             );
@@ -3256,7 +3234,7 @@ impl SlateApp {
                 let nested = self.slate_nesting();
                 // Plain text and code always use the excerpt card. Word and
                 // spreadsheets use it when text was extracted, and the
-                // thumbnail card when it was not — the same split the
+                // thumbnail card when it was not â€” the same split the
                 // artifact export uses. Nested boards keep the file name:
                 // item ids are not unique across workbooks.
                 let sheet = if !nested && kind == slate_doc::MediaKind::Text {
@@ -3464,7 +3442,7 @@ impl SlateApp {
             }
             NodeKind::Text(t) => {
                 // Background fill (sticky notes are a Text preset with a
-                // fill) — mirrors the artifact's `background` on the node.
+                // fill) â€” mirrors the artifact's `background` on the node.
                 if let Some(fill) = t.fill {
                     Self::paint_sticky_shadow(painter, xf, node, srect, z, &fade);
                     if let Some(clip) = &node.clip {
@@ -3985,7 +3963,7 @@ impl SlateApp {
             }
         }
 
-        // Deck: press/release, same reason as DragRect — a click never
+        // Deck: press/release, same reason as DragRect â€” a click never
         // becomes an egui drag, and travel past 4 screen px is the stroke.
         let decking = self.board_tool == BoardTool::Deck;
         if decking && place_ok {
@@ -4399,7 +4377,7 @@ impl SlateApp {
 
         // --- paint scene ---
         // Hidden nodes are skipped everywhere (paint, hit-test, marquee,
-        // cycling, present, export) — scene-flags semantics matrix.
+        // cycling, present, export) â€” scene-flags semantics matrix.
         // Viewport cull uses the spatial index (Art. II); off-screen nodes
         // are not cloned or painted.
         self.begin_agent_paint();
@@ -4413,7 +4391,7 @@ impl SlateApp {
                 nodes.retain(|n| n.id != id);
             }
         }
-        // Ctrl+F: dim non-matching nodes to ~35% at paint time only — the
+        // Ctrl+F: dim non-matching nodes to ~35% at paint time only â€” the
         // opacity tweak lives on this per-frame clone, never in the scene
         // and never in the journal.
         if let Some(matches) = self.search_node_matches() {
@@ -4879,7 +4857,7 @@ impl SlateApp {
             painter.text(
                 rect.center(),
                 Align2::CENTER_CENTER,
-                "An open board — choose Frame in the create toolbar for a slide,\n\
+                "An open board â€” choose Frame in the create toolbar for a slide,\n\
                  drop files anywhere, or place images from the Grid view (right-click).",
                 FontId::proportional(14.0),
                 palette.sub,
@@ -4895,7 +4873,7 @@ impl SlateApp {
             self.show_minimap(ui, rect, model);
         }
 
-        // Overlays. (The create toolbar now lives in the shared bottom dock —
+        // Overlays. (The create toolbar now lives in the shared bottom dock â€”
         // see `ui/tools.rs::floating_tools_dock`.)
         self.frame_custom_dialog(ui.ctx(), rect);
         self.sheet_edit_overlay(ui.ctx());
@@ -5016,7 +4994,7 @@ impl SlateApp {
                     let text = if srect.width() >= 150.0 {
                         "Double-click to enter 3D"
                     } else {
-                        "2×click: 3D"
+                        "2Ã—click: 3D"
                     };
                     self.paint_model_status_hint(ui, xf, srect, text);
                 }
@@ -5148,7 +5126,7 @@ impl SlateApp {
 
     /// Smart-guide snap sources: hidden nodes are out, **locked nodes stay
     /// in** (Rhino: locked still snaps), and connectors' derived AABBs never
-    /// act as alignment targets. Unfilled paths are strokes — their AABB
+    /// act as alignment targets. Unfilled paths are strokes â€” their AABB
     /// is not a guide (a closed polyline's box is mostly empty space).
     pub(crate) fn board_node_rects(&self) -> Vec<(NodeId, WorldRect)> {
         self.doc()
@@ -5172,7 +5150,7 @@ impl SlateApp {
 
     // ----- crop mode ---------------------------------------------------------------
 
-    /// Whether the node is an image whose crop can be edited on canvas —
+    /// Whether the node is an image whose crop can be edited on canvas â€”
     /// the same eligibility as the inspector's Crop section: textured media
     /// (images / PDF pages / video posters / doc thumbnails), never 3D
     /// model viewports or text snippet cards.
@@ -5325,7 +5303,7 @@ impl SlateApp {
         let content = board_crop::content_rect(node.rect, img.crop);
 
         // Points are computed in the node's local (unrotated) space, then
-        // rotated about the node rect center — the same frame the crop math
+        // rotated about the node rect center â€” the same frame the crop math
         // and the node painter use.
         let rotate_w = |x: f32, y: f32| -> (f32, f32) {
             if rot.abs() < f32::EPSILON {
@@ -5427,7 +5405,7 @@ impl SlateApp {
                     painter,
                     at + Vec2::new(0.0, canvas_scale::px(14.0, z)),
                     Align2::CENTER_TOP,
-                    "Drag an edge to crop · Enter / Esc to finish",
+                    "Drag an edge to crop Â· Enter / Esc to finish",
                     FontId::proportional(hint),
                     palette.sub,
                 );
@@ -5463,7 +5441,7 @@ impl SlateApp {
                         self.board_crop = None;
                     }
                 }
-                // Endpoint grips on a selected simple line — these replace
+                // Endpoint grips on a selected simple line â€” these replace
                 // the resize bbox entirely (P1.curve.grips, contract D13).
                 if self.board_sel.len() == 1 {
                     let id = *self.board_sel.iter().next().unwrap();
@@ -5491,7 +5469,7 @@ impl SlateApp {
                     if let Some(id) = self.live_model_at(world.x, world.y) {
                         // Orbiting also selects the node (egui suppresses the
                         // click after a drag), so its resize handles appear
-                        // and win the next press — live viewports resize
+                        // and win the next press â€” live viewports resize
                         // exactly like images.
                         if !self.board_sel.contains(&id) {
                             self.board_sel.clear();
@@ -5768,7 +5746,7 @@ impl SlateApp {
                 let start = *start_world;
                 let dup = *dup;
                 let mut d = world - start;
-                // Ortho (F8, Shift inverts): the drag vector snaps to 45°
+                // Ortho (F8, Shift inverts): the drag vector snaps to 45Â°
                 // steps from the gesture origin.
                 let ortho = board_snap::effective_ortho(self.board_ortho, mods.shift);
                 let ortho_axis = board_snap::ortho_axis(d);
@@ -5866,7 +5844,7 @@ impl SlateApp {
                 for ((id, r), b) in pairs.into_iter().zip(before.iter()) {
                     if let Some(n) = scene.node_mut(id) {
                         // Free connector endpoints travel with the drag
-                        // (anchored ends stay glued — geometry is derived).
+                        // (anchored ends stay glued â€” geometry is derived).
                         if let (NodeKind::Connector(c), NodeKind::Connector(cb)) =
                             (&mut n.kind, &b.kind)
                         {
@@ -6255,7 +6233,7 @@ impl SlateApp {
                     }
                 }
             }
-            // Crop gestures: one Patch for the whole drag — both the rect
+            // Crop gestures: one Patch for the whole drag â€” both the rect
             // (window) and the image crop may differ between before/after.
             Some(BoardDrag::CropEdge {
                 id, before, peers, ..
@@ -6611,7 +6589,7 @@ impl SlateApp {
     /// palette placing at its invocation point).
     pub(crate) fn place_frame_at(&mut self, center: Pos2) {
         // Frames alone take their click size from the app's frame preset rather
-        // than the recipe — the preset is a live UI choice, not a tool default.
+        // than the recipe â€” the preset is a live UI choice, not a tool default.
         let (w, h) = self.board_frame_preset.size();
         self.place_from_recipe(BoardTool::Frame, center, (w, h));
     }
@@ -6628,7 +6606,7 @@ impl SlateApp {
         self.add_agent_portal(rect, "placed");
     }
 
-    /// Click-to-place default File Atlas lens (960×540, unbound).
+    /// Click-to-place default File Atlas lens (960Ã—540, unbound).
     pub(crate) fn place_atlas_portal_at(&mut self, center: Pos2) {
         self.place_from_recipe(
             BoardTool::AtlasPortal,
@@ -6637,7 +6615,7 @@ impl SlateApp {
         );
     }
 
-    /// Click-to-place an unbound Slate board portal (960×540).
+    /// Click-to-place an unbound Slate board portal (960Ã—540).
     pub(crate) fn place_slate_portal_at(&mut self, center: Pos2) {
         self.place_from_recipe(
             BoardTool::SlatePortal,
@@ -6991,7 +6969,7 @@ impl SlateApp {
             }
             _ => {}
         }
-        // Ctrl+Shift+click: sub-object select — a single group member, or a
+        // Ctrl+Shift+click: sub-object select â€” a single group member, or a
         // locked node (force-selected for one-off edits). No expansion.
         if mods.ctrl && mods.shift {
             let hit = board_path::board_pick_node_routed(
@@ -7089,7 +7067,7 @@ impl SlateApp {
         if self.board_tool.is_path_tool() && self.path_tool_try_finish() {
             return;
         }
-        // Direct selection: double-click an anchor toggles corner ↔ smooth.
+        // Direct selection: double-click an anchor toggles corner â†” smooth.
         if self.board_tool == BoardTool::DirectSelect {
             let screen = self.board_xf().w2s(world);
             if self.direct_double_click(screen) {
@@ -7102,7 +7080,7 @@ impl SlateApp {
         else {
             // Double-click on empty board = the canvas palette (Grasshopper
             // gesture): search + place/execute at this point. Navigation
-            // tools only — draw tools keep their double-click semantics.
+            // tools only â€” draw tools keep their double-click semantics.
             if matches!(self.board_tool, BoardTool::Select | BoardTool::Pan)
                 && self.board_crop.is_none()
                 && self.text_edit.is_none()
@@ -7136,7 +7114,7 @@ impl SlateApp {
                     return;
                 }
                 // Below the live threshold, zoom to fit first rather than
-                // refusing — the page is not too small, the view is (D23).
+                // refusing â€” the page is not too small, the view is (D23).
                 let screen_h = self.board_xf().rect_w2s(node.rect).height();
                 if board_web::lod_for(screen_h) != board_web::WebLod::Eligible {
                     self.zoom_to_rect(node.rect);
@@ -7192,7 +7170,7 @@ impl SlateApp {
 
     // ----- overlays ---------------------------------------------------------------
 
-    /// Manual frame dimensions entry (opened from Frame → Custom…).
+    /// Manual frame dimensions entry (opened from Frame â†’ Customâ€¦).
     fn frame_custom_dialog(&mut self, ctx: &egui::Context, canvas: Rect) {
         if self.board_frame_custom.is_none() {
             return;
@@ -8353,7 +8331,7 @@ impl SlateApp {
                             });
                             self.last_board_edit = None;
                         }
-                        if menu::item(ui, MenuIcon::Rename, "Edit label…", dark).clicked() {
+                        if menu::item(ui, MenuIcon::Rename, "Edit labelâ€¦", dark).clicked() {
                             self.open_wire_label_edit(node_id);
                             close = true;
                         }
@@ -8639,10 +8617,10 @@ mod tests {
     #[test]
     fn group_scale_anchor_is_opposite_corner_or_center() {
         let gb = WorldRect::new(0.0, 0.0, 100.0, 50.0);
-        assert_eq!(group_scale_anchor(gb, 0, false), (100.0, 50.0)); // Nw → Se
-        assert_eq!(group_scale_anchor(gb, 4, false), (0.0, 0.0)); // Se → Nw
-        assert_eq!(group_scale_anchor(gb, 3, false), (0.0, 25.0)); // E → W edge
-        assert_eq!(group_scale_anchor(gb, 0, true), (50.0, 25.0)); // Ctrl → center
+        assert_eq!(group_scale_anchor(gb, 0, false), (100.0, 50.0)); // Nw â†’ Se
+        assert_eq!(group_scale_anchor(gb, 4, false), (0.0, 0.0)); // Se â†’ Nw
+        assert_eq!(group_scale_anchor(gb, 3, false), (0.0, 25.0)); // E â†’ W edge
+        assert_eq!(group_scale_anchor(gb, 0, true), (50.0, 25.0)); // Ctrl â†’ center
     }
 
     #[test]

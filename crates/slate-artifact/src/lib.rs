@@ -1,9 +1,9 @@
-//! HTML artifact writer for Slate boards.
+﻿//! HTML artifact writer for Slate boards.
 //!
 //! The native output format of a Slate presentation is HTML+CSS (+ a tiny
 //! self-contained JS runtime for slide navigation). Because the scene model
 //! in `slate-doc` is constrained to CSS-expressible styling, this crate is a
-//! *serializer*, not a converter — the artifact shows exactly what the board
+//! *serializer*, not a converter â€” the artifact shows exactly what the board
 //! shows. PDF / PPT exports are future downstream conversions of this HTML.
 
 mod assets;
@@ -42,7 +42,7 @@ pub struct ExportOptions {
     /// Resolved absolute sources for local web portals, keyed by node. The app
     /// resolves the workbook-relative locator; packaging them is a fork that
     /// names its origin (Art. IX.4), so the writer records where each came
-    /// from. Remote portals never appear here — a URL is not packaged.
+    /// from. Remote portals never appear here â€” a URL is not packaged.
     pub web_sources: BTreeMap<slate_doc::NodeId, PathBuf>,
     /// Captured posters per web portal node, used for the poster + pointer
     /// export a remote page gets (Art. V.3).
@@ -233,8 +233,6 @@ mod tests {
                 sheet: Default::default(),
                 video: Default::default(),
                 model: Default::default(),
-                model_viewport: false,
-                active_view_wire: None,
                 agent: None,
             }),
         );
@@ -413,7 +411,7 @@ mod tests {
         assert_eq!(report.slides, 1);
 
         let html = fs::read_to_string(out.join("index.html")).expect("read");
-        // Bbox min (100,50) − 40px padding origin → node at relative (40,40).
+        // Bbox min (100,50) âˆ’ 40px padding origin â†’ node at relative (40,40).
         assert!(html.contains("left:40.0px;top:40.0px"));
         let _ = fs::remove_dir_all(dir);
     }
@@ -607,7 +605,6 @@ mod tests {
             arrow_b: true,
             label: Some("flows".into()),
             display,
-            cached_slate_view: None,
         })
     }
 

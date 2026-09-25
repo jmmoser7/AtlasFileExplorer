@@ -1,4 +1,4 @@
-//! The board scene graph — the authored, open-world canvas of a workbook.
+﻿//! The board scene graph â€” the authored, open-world canvas of a workbook.
 //!
 //! Design rule (load-bearing): every node and every style property here must
 //! be expressible as SVG (including CSS). The egui board painter and the
@@ -7,13 +7,13 @@
 //! construction*. Do not add style properties outside that ceiling.
 //!
 //! Structure:
-//! - [`Scene`] — flat node list; vector order is z-order (later = on top).
+//! - [`Scene`] â€” flat node list; vector order is z-order (later = on top).
 //!   Frames are always painted behind content regardless of z.
-//! - [`Node`] — world-space rect + opacity + a [`NodeKind`] payload
+//! - [`Node`] â€” world-space rect + opacity + a [`NodeKind`] payload
 //!   (frame / image / shape / text).
 //! - Frame membership is **geometric**: a node belongs to the frame whose
 //!   rect contains its center. No parent pointers, no reparenting bugs.
-//! - [`SceneCmd`] / [`SceneJournal`] — every mutation is a typed, invertible
+//! - [`SceneCmd`] / [`SceneJournal`] â€” every mutation is a typed, invertible
 //!   command. The UI, undo/redo, and (later) the MCP agent surface all speak
 //!   this same command language.
 
@@ -338,7 +338,7 @@ impl Stroke {
 }
 
 /// Corner treatment; maps to `border-radius` (rounded) or a `clip-path`
-/// octagon polygon (chamfer — the "jammed corners" option).
+/// octagon polygon (chamfer â€” the "jammed corners" option).
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Corner {
@@ -554,7 +554,7 @@ impl ImageAdjust {
         h.finish()
     }
 
-    /// The CSS `filter` property value ("" when identity, overlay excluded —
+    /// The CSS `filter` property value ("" when identity, overlay excluded â€”
     /// the overlay is a separate layer in both renderers).
     pub fn css_filter(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
@@ -1200,7 +1200,7 @@ impl Default for WebViewport {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WebExport {
-    /// A captured poster wrapped in a link to the locator — the Art. V.3
+    /// A captured poster wrapped in a link to the locator â€” the Art. V.3
     /// host-portal default, and the only honest option for a remote page.
     Poster,
     /// An `<iframe>` over material the package copied beside the artifact.
@@ -1218,8 +1218,8 @@ pub enum WebPosterCapture {
 }
 
 /// Journaled web-portal parameters. The locator itself lives in
-/// [`PortalNode::source`]; everything derived from loading it — poster texture,
-/// scroll offset, page history, pool membership — is never stored here (D31).
+/// [`PortalNode::source`]; everything derived from loading it â€” poster texture,
+/// scroll offset, page history, pool membership â€” is never stored here (D31).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WebPortalRef {
@@ -1279,7 +1279,7 @@ impl WebSourceKind {
 /// never silently coerced into something that happens to load.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WebRefusal {
-    /// `javascript:` and `data:` — code smuggled in as a location.
+    /// `javascript:` and `data:` â€” code smuggled in as a location.
     DangerousScheme(String),
     /// Any scheme that is not `http`/`https`, e.g. `ftp:`, `about:`.
     UnsupportedScheme(String),
@@ -1294,7 +1294,7 @@ impl std::fmt::Display for WebRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WebRefusal::DangerousScheme(s) => {
-                write!(f, "{s}: locations are code, not pages — refused")
+                write!(f, "{s}: locations are code, not pages â€” refused")
             }
             WebRefusal::UnsupportedScheme(s) => write!(f, "{s}: is not an http(s) page"),
             WebRefusal::Workbook => write!(f, "a .slate workbook opens as a tab, not a portal"),
@@ -1374,7 +1374,7 @@ pub fn web_display_locator(locator: &str) -> String {
 }
 
 /// The origin a consent grant keys on (scheme + host + port). Local sources
-/// have no origin — they need no permission (D32).
+/// have no origin â€” they need no permission (D32).
 pub fn web_origin(locator: &str) -> Option<String> {
     let trimmed = locator.trim();
     for scheme in ["http://", "https://"] {
@@ -1463,7 +1463,7 @@ pub struct PortalNode {
 }
 
 impl PortalNode {
-    /// Fresh unbound web host portal — paints "Choose page or file…" until a
+    /// Fresh unbound web host portal â€” paints "Choose page or fileâ€¦" until a
     /// locator is bound (D03).
     pub fn unbound_web(title: impl Into<String>) -> Self {
         Self {
@@ -1479,7 +1479,7 @@ impl PortalNode {
         }
     }
 
-    /// Web host portal bound at placement — the drag/paste/drop entry paths of
+    /// Web host portal bound at placement â€” the drag/paste/drop entry paths of
     /// D01, which skip the unbound state.
     pub fn bound_web(title: impl Into<String>, locator: impl Into<String>) -> Self {
         let mut portal = Self::unbound_web(title);
@@ -1529,7 +1529,7 @@ impl PortalNode {
         }
     }
 
-    /// Fresh unbound File Atlas lens — paints "Choose folder…" until bound.
+    /// Fresh unbound File Atlas lens â€” paints "Choose folderâ€¦" until bound.
     pub fn unbound_file_atlas(title: impl Into<String>) -> Self {
         Self {
             class: PortalClass::Host,
@@ -1794,7 +1794,7 @@ pub struct ModelCamera {
     pub target: [f32; 3],
     /// Rotation around +Z, radians.
     pub yaw: f32,
-    /// Elevation above the XY plane, radians (clamped near ±π/2).
+    /// Elevation above the XY plane, radians (clamped near Â±Ï€/2).
     pub pitch: f32,
     /// Eye distance from the target. `<= 0` = auto-fit to the model bounds
     /// (the state of a freshly placed node, resolved on first render).
@@ -1845,7 +1845,7 @@ pub struct SheetLayout {
     pub rows: Vec<f32>,
 }
 
-/// Never pixels — the pool item owns the file link.
+/// Never pixels â€” the pool item owns the file link.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageNode {
     pub item: ItemId,
@@ -1867,12 +1867,6 @@ pub struct ImageNode {
     /// otherwise.
     #[serde(default)]
     pub model: ModelCamera,
-    /// True when this node is an interactive 3D viewport (saved-view input port).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub model_viewport: bool,
-    /// Highlight for the wired saved-view strip (`Connector` node id).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_view_wire: Option<NodeId>,
     /// The agent generating this picture. Its results are the card's album;
     /// `item` is the result a person picked, and [`ItemId::NONE`] shows the
     /// newest (see [`crate::agent_inputs::newest_image`]).
@@ -1899,8 +1893,6 @@ impl ImageNode {
             adjust: ImageAdjust::default(),
             video: VideoOpts::default(),
             model: ModelCamera::default(),
-            model_viewport: false,
-            active_view_wire: None,
             agent: None,
         }
     }
@@ -1959,7 +1951,7 @@ pub struct PathContour {
 
 /// Vector path payload for `ShapeKind::Path` nodes. SVG-expressible by
 /// construction (maps 1:1 to an SVG <path> d attribute). Extra contours
-/// are further `M … Z` subpaths (holes when [`PathFillRule::EvenOdd`]).
+/// are further `M â€¦ Z` subpaths (holes when [`PathFillRule::EvenOdd`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PathData {
     pub start: [f32; 2],
@@ -2054,7 +2046,7 @@ pub struct ShapeNode {
     pub stroke: Stroke,
     #[serde(default)]
     pub corner: Corner,
-    /// Lines only: false = ↘ diagonal (min→max), true = ↗ diagonal.
+    /// Lines only: false = â†˜ diagonal (minâ†’max), true = â†— diagonal.
     #[serde(default)]
     pub flip: bool,
     /// Shared so cloning a stroke (paint, journal patch, tile workers) does
@@ -2158,7 +2150,7 @@ pub struct TextNode {
 /// at zoom 1: the board multiplies by zoom, the artifact uses CSS pixels.
 pub const STICKY_SHADOW_OFFSET_Y: f32 = 6.0;
 pub const STICKY_SHADOW_BLUR: f32 = 16.0;
-/// Strength of the shadow's dark center, 0–1.
+/// Strength of the shadow's dark center, 0â€“1.
 pub const STICKY_SHADOW_ALPHA: f32 = 0.16;
 /// Smallest world font size a sticky will shrink to. Below this, text clips.
 pub const STICKY_FIT_MIN: f32 = 8.0;
@@ -2209,8 +2201,8 @@ impl Side {
     }
 
     /// Outward unit normal of this side on an **unrotated** rect
-    /// (screen-style axes: +y is down, so `Top` points to −y).
-    /// Stroke sites return a zero vector — use [`crate::WireHost::outward`].
+    /// (screen-style axes: +y is down, so `Top` points to âˆ’y).
+    /// Stroke sites return a zero vector â€” use [`crate::WireHost::outward`].
     pub fn normal(self) -> [f32; 2] {
         match self {
             Side::Top => [0.0, -1.0],
@@ -2226,7 +2218,7 @@ impl Side {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectorEnd {
-    /// Anchored to a host feature: a local box edge (`Top`…`Left`, `t`
+    /// Anchored to a host feature: a local box edge (`Top`â€¦`Left`, `t`
     /// along that edge) or an open-stroke site (`Start` / `Mid` / `End`,
     /// `t` = arclength on `Mid`). Resolved through [`crate::WireHost`].
     Anchored { node: NodeId, side: Side, t: f32 },
@@ -2244,7 +2236,7 @@ pub enum WireDisplay {
     Faint,
 }
 
-/// A wire between two endpoints. Geometry is derived, never stored — the
+/// A wire between two endpoints. Geometry is derived, never stored â€” the
 /// curve is recomputed from the current [`crate::WireHost`] pose of
 /// anchored nodes at paint/export time (see [`crate::connector_route`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2267,9 +2259,6 @@ pub struct ConnectorNode {
     /// None is a decorative wire. Bound wires use these existing A/B endpoints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<crate::agent_inputs::WireBinding>,
-    /// Camera parsed once from a wired screenshot (`slateview` XMP).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cached_slate_view: Option<ModelCamera>,
 }
 
 impl ConnectorNode {
@@ -2299,12 +2288,12 @@ pub fn connector_drawn_stroke(mut stroke: Stroke) -> Stroke {
 }
 
 /// Grasshopper `GH_Painter.ConnectionPathBezier` (Rhino 8): both handles
-/// share `max(0.5·|Δx|, 0.75·|Δy|)` world units. No floor, no ceiling.
+/// share `max(0.5Â·|Î”x|, 0.75Â·|Î”y|)` world units. No floor, no ceiling.
 pub const CONNECTOR_HANDLE_DX: f32 = 0.5;
 pub const CONNECTOR_HANDLE_DY: f32 = 0.75;
 
 /// World point on `side` of an axis-aligned `rect` at fraction `t` (0..=1,
-/// measured left→right on horizontal sides, top→bottom on vertical sides).
+/// measured leftâ†’right on horizontal sides, topâ†’bottom on vertical sides).
 /// Rotation and open-stroke features are resolved by [`crate::WireHost`];
 /// this helper is the unrotated-box primitive that host uses.
 pub fn connector_anchor_point(rect: WorldRect, side: Side, t: f32) -> [f32; 2] {
@@ -2385,12 +2374,12 @@ fn normalize_or(v: [f32; 2], fallback: [f32; 2]) -> [f32; 2] {
     }
 }
 
-/// Min/max of one cubic bezier component over t ∈ 0..=1.
+/// Min/max of one cubic bezier component over t âˆˆ 0..=1.
 fn cubic_axis_bounds(p0: f32, c1: f32, c2: f32, p3: f32) -> (f32, f32) {
     let mut min = p0.min(p3);
     let mut max = p0.max(p3);
-    // dB/dt = 3(1−t)²(c1−p0) + 6(1−t)t(c2−c1) + 3t²(p3−c2) — a quadratic
-    // a·t² + b·t + c in the coefficients below.
+    // dB/dt = 3(1âˆ’t)Â²(c1âˆ’p0) + 6(1âˆ’t)t(c2âˆ’c1) + 3tÂ²(p3âˆ’c2) â€” a quadratic
+    // aÂ·tÂ² + bÂ·t + c in the coefficients below.
     let a = 3.0 * (p3 - 3.0 * c2 + 3.0 * c1 - p0);
     let b = 6.0 * (c2 - 2.0 * c1 + p0);
     let c = 3.0 * (c1 - p0);
@@ -2437,7 +2426,7 @@ fn resolve_end(
 /// - An anchored end leaves its rect **perpendicular to its side** (handle
 ///   along the side's outward normal).
 /// - A free end aims at the other endpoint (handle along the chord).
-/// - Handle length is Grasshopper's `max(0.5·|Δx|, 0.75·|Δy|)`.
+/// - Handle length is Grasshopper's `max(0.5Â·|Î”x|, 0.75Â·|Î”y|)`.
 ///
 /// Returns `None` when an anchored node is missing from `rect_of` (the
 /// interpreters skip such connectors).
@@ -2463,7 +2452,7 @@ pub fn connector_bezier(
 }
 
 /// Cubic from two world points and their outward handle directions.
-/// Handle length matches Grasshopper: `max(0.5·|Δx|, 0.75·|Δy|)`.
+/// Handle length matches Grasshopper: `max(0.5Â·|Î”x|, 0.75Â·|Î”y|)`.
 pub fn connector_bezier_from_dirs(
     p0: [f32; 2],
     dir_a: [f32; 2],
@@ -2482,7 +2471,7 @@ pub fn connector_bezier_from_dirs(
     }
 }
 
-/// AABB of the derived curve — the connector node's `rect` is kept equal to
+/// AABB of the derived curve â€” the connector node's `rect` is kept equal to
 /// this so marquee/hit systems keep working. `None` when unresolvable.
 pub fn connector_aabb(
     conn: &ConnectorNode,
@@ -2530,7 +2519,7 @@ impl NodeKind {
 }
 
 /// A toolbar dropped onto the board. `palette_id` names the dock body
-/// (`tool.shapes`, …). `visible` is the tool ids this copy shows; empty
+/// (`tool.shapes`, â€¦). `visible` is the tool ids this copy shows; empty
 /// means the palette's full default set. Baseline dock chrome is untouched.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockStripNode {
@@ -2600,7 +2589,7 @@ impl Node {
 /// Node IDs must remain unique and stable, including when importing nodes
 /// through the public vector. Prefer journal commands for authored changes.
 ///
-/// [`Scene::scene_gen`], the spatial index and ID lookup are derived — skipped on
+/// [`Scene::scene_gen`], the spatial index and ID lookup are derived â€” skipped on
 /// serde and ignored by [`PartialEq`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Scene {
@@ -2738,7 +2727,7 @@ impl Scene {
     }
 
     /// Legacy bbox-diagonal lines (`ShapeKind::Line` + `flip`) become
-    /// parametric two-point Path nodes — the Line contract's on-load
+    /// parametric two-point Path nodes â€” the Line contract's on-load
     /// migration decision (docs/keymap/contracts/line.md, resolved
     /// 2026-07-23). The world geometry is unchanged: the rect stays, the
     /// diagonal becomes an explicit single-segment path.
@@ -2851,7 +2840,7 @@ impl Scene {
             .unwrap_or(0)
     }
 
-    /// Content nodes this frame owns, in z-order (ascending) — every node
+    /// Content nodes this frame owns, in z-order (ascending) â€” every node
     /// whose [`Scene::frame_of`] is `frame_id`. Where frames overlap the
     /// members are partitioned, never shared, so a node is exported onto
     /// exactly one slide.
@@ -2863,7 +2852,7 @@ impl Scene {
             .collect()
     }
 
-    /// The frame that owns `node` — the topmost frame whose rect contains the
+    /// The frame that owns `node` â€” the topmost frame whose rect contains the
     /// node's centre, matching [`Scene::frame_at`]'s pick order. A node
     /// belongs to exactly one frame, or to none. Membership is derived, never
     /// stored (decision D3).
@@ -2998,7 +2987,7 @@ impl Scene {
                 if before.id != after.id {
                     return false;
                 }
-                // Patch must not go through [`Self::node_mut`] — that bumps
+                // Patch must not go through [`Self::node_mut`] â€” that bumps
                 // gen on lookup; we bump once here on success.
                 let Some(index) = self.index_of(before.id) else {
                     return false;
@@ -3103,7 +3092,7 @@ impl SceneJournal {
     }
 
     /// Records a command group that has *already been applied* to the scene
-    /// (live gestures — drag-move, inspector slider scrubs — mutate the scene
+    /// (live gestures â€” drag-move, inspector slider scrubs â€” mutate the scene
     /// continuously and journal the net effect once, on release).
     pub fn record(&mut self, cmds: Vec<SceneCmd>) {
         self.record_as(cmds, CmdAuthor::Human);
@@ -3168,7 +3157,7 @@ impl SceneJournal {
     }
 
     /// Committed groups available to undo. Exposed so a test can assert that
-    /// something *did not* journal — derived state must leave no trace here.
+    /// something *did not* journal â€” derived state must leave no trace here.
     pub fn undo_depth(&self) -> usize {
         self.done.len()
     }
@@ -3575,7 +3564,7 @@ mod tests {
         let mut ids = Vec::new();
         for (x, y) in [
             (50.0, 50.0),   // first frame only
-            (250.0, 250.0), // first ∩ second
+            (250.0, 250.0), // first âˆ© second
             (350.0, 250.0), // all three
             (350.0, 650.0), // third only
             (900.0, 900.0), // none
@@ -3602,7 +3591,7 @@ mod tests {
         let mut scene = Scene::default();
         push_frame(&mut scene, WorldRect::new(0.0, 0.0, 400.0, 400.0), 0);
         let outside = push_image(&mut scene, WorldRect::new(800.0, 800.0, 100.0, 100.0));
-        // Overlapping the frame is not enough — the centre decides.
+        // Overlapping the frame is not enough â€” the centre decides.
         let overhanging = push_image(&mut scene, WorldRect::new(380.0, 100.0, 100.0, 100.0));
 
         assert_eq!(scene.frame_of(outside), None);
@@ -4156,7 +4145,6 @@ mod tests {
             arrow_b: true,
             label: Some("relates".into()),
             display: WireDisplay::Faint,
-            cached_slate_view: None,
         }
     }
 
@@ -4267,11 +4255,11 @@ mod tests {
         // outward normal (+x, no y drift)...
         assert!(bez.c1[0] > bez.p0[0]);
         assert_eq!(bez.c1[1], bez.p0[1]);
-        // ...and the second along Top's outward normal (−y, no x drift).
+        // ...and the second along Top's outward normal (âˆ’y, no x drift).
         assert_eq!(bez.c2[0], bez.p3[0]);
         assert!(bez.c2[1] < bez.p3[1]);
 
-        // Grasshopper: max(0.5·|Δx|, 0.75·|Δy|) = max(110, 127.5).
+        // Grasshopper: max(0.5Â·|Î”x|, 0.75Â·|Î”y|) = max(110, 127.5).
         let expect = (0.5 * 220.0_f32).max(0.75 * 170.0);
         let got = bez.c1[0] - bez.p0[0];
         assert!((got - expect).abs() < 1e-3, "handle {got} vs {expect}");
@@ -4298,16 +4286,16 @@ mod tests {
         assert_eq!(bez.c2[1], 0.0);
         assert!(bez.c1[0] > 0.0);
         assert!(bez.c2[0] < 100.0);
-        // Horizontal span: 0.5·|Δx| = 50, and |Δy| does not lift it.
+        // Horizontal span: 0.5Â·|Î”x| = 50, and |Î”y| does not lift it.
         assert!((bez.c1[0] - 50.0).abs() < 1e-3);
         assert!((bez.c2[0] - 50.0).abs() < 1e-3);
 
-        // A short span stays short — Grasshopper has no minimum handle.
+        // A short span stays short â€” Grasshopper has no minimum handle.
         let near = ConnectorEnd::Free { point: [10.0, 0.0] };
         let bez = connector_bezier(&a, &near, |_| None).unwrap();
         assert!((bez.c1[0] - 5.0).abs() < 1e-3);
 
-        // Stacked components: |Δy| dominates, so the bulge is 0.75·|Δy|.
+        // Stacked components: |Î”y| dominates, so the bulge is 0.75Â·|Î”y|.
         let below = ConnectorEnd::Free { point: [0.0, 80.0] };
         let bez = connector_bezier(&a, &below, |_| None).unwrap();
         assert!((bez.c1[1] - 60.0).abs() < 1e-3);
@@ -4505,7 +4493,7 @@ pub fn stroke_of(node: &Node) -> Option<Stroke> {
         NodeKind::Image(i) => Some(i.stroke),
         NodeKind::Connector(c) => Some(c.stroke),
         NodeKind::Frame(f) => Some(f.stroke),
-        // TWIN: docs/audit/deviations.md DV-21 — an agent portal keeps its
+        // TWIN: docs/audit/deviations.md DV-21 â€” an agent portal keeps its
         // outline in `agent.chat.stroke`; every other portal uses
         // `PortalNode::stroke`. Collapse onto the field.
         NodeKind::Portal(p) => Some(match p.agent.as_ref() {

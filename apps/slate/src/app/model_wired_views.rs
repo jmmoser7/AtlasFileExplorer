@@ -9,6 +9,7 @@ use eframe::egui::{self, Id, Rect, Ui};
 use model_preview::view_meta;
 use slate_doc::agent_inputs;
 use slate_doc::scene::{ConnectorEnd, ModelCamera, NodeId, NodeKind, Side};
+use slate_doc::wire_host::WireHost;
 
 use atlas_shell::canvas_scale;
 use atlas_shell::home::{album_index_strip, AlbumImage};
@@ -16,7 +17,9 @@ use atlas_shell::home::{album_index_strip, AlbumImage};
 use super::SlateApp;
 
 pub struct PendingViewWireCache {
+    pub tab_id: u64,
     pub connector: NodeId,
+    pub item_key: String,
     rx: Receiver<ViewWireCacheMsg>,
 }
 
@@ -33,7 +36,16 @@ struct WiredViewEntry {
 }
 
 impl SlateApp {
+    pub(crate) fn wire_host(&self, node: &slate_doc::scene::Node) -> WireHost {
+        let model_view = self.model_has_viewport(node.id);
+        WireHost::from_node_flow(
+            node,
+            agent_inputs::input_ports_of(node, model_view),
+        )
+    }
+
     pub(crate) fn note_view_wires_added(&mut self, ids: &[NodeId]) {
+        let tab_id = self.tab().id;
         for id in ids {
             let Some(node) = self.doc().scene.node(*id) else {
                 continue;
@@ -47,7 +59,14 @@ impl SlateApp {
             if binding.slot.as_deref() != Some(InputSlot::View.id()) {
                 continue;
             }
-            if conn.cached_slate_view.is_some() {
+            let source_end = binding.source_end(conn);
+            let Some(source) = agent_inputs::endpoint_node(source_end) else {
+                continue;
+            };
+            let Some(item_key) = self.image_item_cache_key(source) else {
+                continue;
+            };
+            if self.model3d.view_wire_meta.contains_key(&item_key) {
                 continue;
             }
             if self
@@ -57,10 +76,6 @@ impl SlateApp {
             {
                 continue;
             }
-            let source_end = binding.source_end(conn);
-            let Some(source) = agent_inputs::endpoint_node(source_end) else {
-                continue;
-            };
             let Some(path) = self.image_item_path(source) else {
                 continue;
             };
@@ -73,34 +88,45 @@ impl SlateApp {
                 };
                 let _ = tx.send(msg);
             });
-            self.pending_view_wire_cache
-                .push(PendingViewWireCache { connector: *id, rx });
+            self.pending_view_wire_cache.push(PendingViewWireCache {
+                tab_id,
+                connector: *id,
+                item_key,
+                rx,
+            });
         }
     }
 
     pub(crate) fn maintain_view_wire_cache(&mut self) {
+        let tab_id = self.tab().id;
         let mut done = Vec::new();
-        let mut cameras = Vec::new();
+        let mut updates = Vec::new();
+        let mut toasts = Vec::new();
         for (i, pending) in self.pending_view_wire_cache.iter().enumerate() {
             let Ok(msg) = pending.rx.try_recv() else {
                 continue;
             };
             done.push(i);
-            if let ViewWireCacheMsg::Camera(cam) = msg {
-                cameras.push((pending.connector, cam));
-            }
+            let cam = match msg {
+                ViewWireCacheMsg::Camera(cam) => Some(cam),
+                ViewWireCacheMsg::Missing => None,
+                ViewWireCacheMsg::Err(e) => {
+                    if pending.tab_id == tab_id {
+                        toasts.push(e);
+                    }
+                    None
+                }
+            };
+            updates.push((pending.item_key.clone(), cam));
+        }
+        for msg in toasts {
+            self.toast(&msg);
         }
         for i in done.into_iter().rev() {
             self.pending_view_wire_cache.remove(i);
         }
-        for (connector, cam) in cameras {
-            self.last_board_edit = None;
-            self.patch_nodes(&[connector], |n| {
-                if let NodeKind::Connector(c) = &mut n.kind {
-                    c.cached_slate_view = Some(cam);
-                }
-            });
-            self.last_board_edit = None;
+        for (key, cam) in updates {
+            self.model3d.view_wire_meta.insert(key, cam);
         }
     }
 
@@ -126,14 +152,33 @@ impl SlateApp {
             let Some(source) = source else {
                 continue;
             };
+            let camera = self
+                .image_item_cache_key(source)
+                .and_then(|k| self.model3d.view_wire_meta.get(&k))
+                .and_then(|c| *c);
             out.push(WiredViewEntry {
                 connector: node.id,
                 source,
-                camera: conn.cached_slate_view,
+                camera,
             });
         }
         out.sort_by_key(|e| e.connector.0);
         out
+    }
+
+    fn active_view_connector(&self, model: NodeId, views: &[WiredViewEntry]) -> Option<NodeId> {
+        let cam = self
+            .doc()
+            .scene
+            .node(model)
+            .and_then(|n| match &n.kind {
+                NodeKind::Image(i) => Some(i.model),
+                _ => None,
+            })?;
+        views
+            .iter()
+            .find(|v| v.camera == Some(cam))
+            .map(|v| v.connector)
     }
 
     pub(crate) fn paint_model_wired_view_strip(
@@ -147,10 +192,7 @@ impl SlateApp {
         if views.is_empty() {
             return;
         }
-        let active = self.doc().scene.node(model).and_then(|n| match &n.kind {
-            NodeKind::Image(i) => i.active_view_wire,
-            _ => None,
-        });
+        let active = self.active_view_connector(model, &views);
         let focus = views
             .iter()
             .position(|v| Some(v.connector) == active)
@@ -195,13 +237,12 @@ impl SlateApp {
     }
 
     fn apply_wired_view_pick(&mut self, model: NodeId, connector: NodeId) {
-        let Some(node) = self.doc().scene.node(connector) else {
-            return;
-        };
-        let NodeKind::Connector(conn) = &node.kind else {
-            return;
-        };
-        let Some(cam) = conn.cached_slate_view else {
+        let views = self.wired_views_for_model(model);
+        let Some(cam) = views
+            .iter()
+            .find(|v| v.connector == connector)
+            .and_then(|v| v.camera)
+        else {
             self.toast("No saved Slate view");
             return;
         };
@@ -210,7 +251,6 @@ impl SlateApp {
         self.patch_nodes(&[model], |n| {
             if let NodeKind::Image(i) = &mut n.kind {
                 i.model = cam;
-                i.active_view_wire = Some(connector);
             }
         });
         self.last_board_edit = None;
@@ -235,5 +275,13 @@ impl SlateApp {
             return None;
         };
         self.doc().item(img.item).map(|i| i.path.clone())
+    }
+
+    fn image_item_cache_key(&self, image: NodeId) -> Option<String> {
+        let node = self.doc().scene.node(image)?;
+        let NodeKind::Image(img) = &node.kind else {
+            return None;
+        };
+        self.doc().item(img.item).map(|i| i.cache_key.clone())
     }
 }

@@ -1,4 +1,4 @@
-//! The semantic layer of existing board wires. Geometry remains in `wire_host`.
+﻿//! The semantic layer of existing board wires. Geometry remains in `wire_host`.
 //! Resolves one immutable run input; adapters never interpret a scene.
 use crate::{scene::*, SlateDoc};
 use atlas_agent::{ContextItem, ImageOutput, InputSlot, InputSnapshot};
@@ -105,17 +105,19 @@ fn directional_binding<'a>(
 ) -> Option<WireBinding> {
     let midpoint = matches!(target, ConnectorEnd::Anchored { side: Side::Left, t, .. } if (*t - 0.5).abs() < 0.001);
     let target_id = endpoint_node(target)?;
-    let flow = is_flow_node(scene, target_id);
+    let model_view = model_view_target(scene, target_id, item_path);
+    let flow = is_flow_node(scene, target_id) || model_view;
     if !midpoint && !flow {
         return None;
     }
     // A flow node's output port is never one of its inputs.
     if flow
+        && !model_view
         && matches!(target, ConnectorEnd::Anchored { side: Side::Right, t, .. } if (*t - OUTPUT_T).abs() < 0.001)
     {
         return None;
     }
-    let port = target_slot(scene, target_id, target);
+    let port = target_slot(scene, target_id, target, item_path);
     if let Some(binding) = model_view_binding(scene, source, target, target_id, input_b, item_path)
     {
         return Some(binding);
@@ -161,7 +163,10 @@ fn model_view_binding<'a>(
     let NodeKind::Image(img) = &target_node.kind else {
         return None;
     };
-    if !img.model_viewport {
+    let Some(path) = item_path(img.item) else {
+        return None;
+    };
+    if !image_model_view_port(path) {
         return None;
     }
     let ConnectorEnd::Anchored {
@@ -224,6 +229,26 @@ const GENERATOR_PORTS: [InputPort; 3] = [
 /// Saved views wired from screenshot images into a 3D viewport.
 pub const MODEL_VIEW_PORT_T: f32 = 0.72;
 
+/// A placed model file that can host the View input port (no format gap).
+pub fn image_model_view_port(path: &std::path::Path) -> bool {
+    use crate::media::{media_kind, MediaKind};
+    media_kind(path) == MediaKind::Model
+}
+
+fn model_view_target<'a>(
+    scene: &Scene,
+    target_id: NodeId,
+    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
+) -> bool {
+    let Some(node) = scene.node(target_id) else {
+        return false;
+    };
+    let NodeKind::Image(img) = &node.kind else {
+        return false;
+    };
+    item_path(img.item).is_some_and(image_model_view_port)
+}
+
 const MODEL_VIEW_PORTS: [InputPort; 1] = [InputPort {
     slot: InputSlot::View,
     t: MODEL_VIEW_PORT_T,
@@ -245,11 +270,9 @@ const TEXT_PORTS: [InputPort; 2] = [
 
 /// The input ports a node draws and binds, top to bottom. Empty for every node
 /// that is not a generator or text block. `WireHost::ports` reads this table.
-pub fn input_ports_of(node: &Node) -> &'static [InputPort] {
-    if let NodeKind::Image(img) = &node.kind {
-        if img.model_viewport {
-            return &MODEL_VIEW_PORTS;
-        }
+pub fn input_ports_of(node: &Node, model_view_port: bool) -> &'static [InputPort] {
+    if model_view_port {
+        return &MODEL_VIEW_PORTS;
     }
     match flow_view(node) {
         Some(atlas_agent::PortalView::Images) => &GENERATOR_PORTS,
@@ -265,7 +288,22 @@ fn flow_view(node: &Node) -> Option<atlas_agent::PortalView> {
 }
 
 pub fn input_ports(scene: &Scene, id: NodeId) -> &'static [InputPort] {
-    scene.node(id).map(input_ports_of).unwrap_or(&[])
+    scene
+        .node(id)
+        .map(|n| input_ports_of(n, false))
+        .unwrap_or(&[])
+}
+
+pub fn input_ports_with<'a>(
+    scene: &Scene,
+    id: NodeId,
+    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
+) -> &'static [InputPort] {
+    let Some(node) = scene.node(id) else {
+        return &[];
+    };
+    let model_view = model_view_target(scene, id, item_path);
+    input_ports_of(node, model_view)
 }
 
 /// Generators and text blocks read typed ports and take a wire on any edge.
@@ -273,7 +311,12 @@ pub fn is_flow_node(scene: &Scene, id: NodeId) -> bool {
     !input_ports(scene, id).is_empty()
 }
 
-fn target_slot(scene: &Scene, id: NodeId, end: &ConnectorEnd) -> Option<InputSlot> {
+fn target_slot<'a>(
+    scene: &Scene,
+    id: NodeId,
+    end: &ConnectorEnd,
+    item_path: &dyn Fn(crate::ids::ItemId) -> Option<&'a std::path::Path>,
+) -> Option<InputSlot> {
     let ConnectorEnd::Anchored {
         side: Side::Left,
         t,
@@ -282,7 +325,7 @@ fn target_slot(scene: &Scene, id: NodeId, end: &ConnectorEnd) -> Option<InputSlo
     else {
         return None;
     };
-    input_ports(scene, id)
+    input_ports_with(scene, id, item_path)
         .iter()
         .find(|p| (p.t - *t).abs() < 0.001)
         .map(|p| p.slot)
@@ -327,7 +370,7 @@ pub fn default_port<'a>(
 ) -> Option<InputPort> {
     wire_kind(scene, source, item_path)?;
     let text = !feeds_picture(scene, source, item_path);
-    let ports = input_ports(scene, target);
+    let ports = input_ports_with(scene, target, item_path);
     let taken = bound_slots(scene, target);
     let fits = |p: &&InputPort| p.slot.takes_text() == text;
     ports
@@ -571,7 +614,7 @@ fn shape_brief(node: &Node, shape: &ShapeNode) -> String {
         ShapeKind::Path => "path",
     };
     let mut lines = vec![format!(
-        "Sketch {kind} {:.0}×{:.0} at ({:.0}, {:.0})",
+        "Sketch {kind} {:.0}Ã—{:.0} at ({:.0}, {:.0})",
         node.rect.w, node.rect.h, node.rect.x, node.rect.y
     )];
     if let Some(text) = &shape.text {
@@ -603,7 +646,7 @@ fn path_brief(path: &PathData) -> String {
     format!(
         "path {}{}",
         body,
-        if path.segs.len() > 80 { " …" } else { "" }
+        if path.segs.len() > 80 { " â€¦" } else { "" }
     )
 }
 
@@ -972,9 +1015,7 @@ mod tests {
     #[test]
     fn model_view_port_binds_any_wired_image() {
         let mut doc = SlateDoc::new("views");
-        let mut model = ImageNode::new(ItemId(1));
-        model.model_viewport = true;
-        let model_id = add(&mut doc, NodeKind::Image(model), 0.0);
+        let model_id = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(1))), 0.0);
         let shot = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(2))), 200.0);
         let binding = infer_binding_with(
             &doc.scene,
@@ -988,12 +1029,10 @@ mod tests {
                 side: Side::Left,
                 t: MODEL_VIEW_PORT_T,
             },
-            &|id| {
-                if id.0 == 2 {
-                    Some(std::path::Path::new("view.png"))
-                } else {
-                    None
-                }
+            &|id| match id.0 {
+                1 => Some(std::path::Path::new("box.obj")),
+                2 => Some(std::path::Path::new("view.png")),
+                _ => None,
             },
         )
         .expect("view wire");
@@ -1003,9 +1042,7 @@ mod tests {
     #[test]
     fn bound_slots_includes_view_when_wired() {
         let mut doc = SlateDoc::new("bound-view");
-        let mut model = ImageNode::new(ItemId(1));
-        model.model_viewport = true;
-        let model_id = add(&mut doc, NodeKind::Image(model), 0.0);
+        let model_id = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(1))), 0.0);
         let shot = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(2))), 200.0);
         let binding = infer_binding_with(
             &doc.scene,
@@ -1019,12 +1056,10 @@ mod tests {
                 side: Side::Left,
                 t: MODEL_VIEW_PORT_T,
             },
-            &|id| {
-                if id.0 == 2 {
-                    Some(std::path::Path::new("view.png"))
-                } else {
-                    None
-                }
+            &|id| match id.0 {
+                1 => Some(std::path::Path::new("box.obj")),
+                2 => Some(std::path::Path::new("view.png")),
+                _ => None,
             },
         )
         .unwrap();
@@ -1048,7 +1083,6 @@ mod tests {
                 label: None,
                 display: WireDisplay::Default,
                 binding: Some(binding),
-                cached_slate_view: None,
             }),
             400.0,
         );
@@ -1058,9 +1092,7 @@ mod tests {
     #[test]
     fn view_wire_binding_source_is_screenshot_image() {
         let mut doc = SlateDoc::new("wire-dir");
-        let mut model = ImageNode::new(ItemId(1));
-        model.model_viewport = true;
-        let model_id = add(&mut doc, NodeKind::Image(model), 0.0);
+        let model_id = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(1))), 0.0);
         let shot = add(&mut doc, NodeKind::Image(ImageNode::new(ItemId(2))), 200.0);
         let shot_end = ConnectorEnd::Anchored {
             node: shot,
@@ -1090,7 +1122,6 @@ mod tests {
             label: None,
             display: WireDisplay::Default,
             binding: Some(binding),
-            cached_slate_view: None,
         };
         let b = conn.binding.as_ref().unwrap();
         assert_eq!(endpoint_node(b.source_end(&conn)), Some(shot));
@@ -1186,7 +1217,6 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display,
-                cached_slate_view: None,
             })
         };
         // An unbound wire saved by an older build still feeds the generator.
@@ -1294,7 +1324,6 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: Default::default(),
-                cached_slate_view: None,
             }),
             0.0,
         )
@@ -1780,7 +1809,6 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: Default::default(),
-                cached_slate_view: None,
             }),
             0.0,
         );
@@ -1895,7 +1923,6 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: Default::default(),
-                cached_slate_view: None,
             })
         };
         let media = wire(&doc.scene, out(picture), port(generator, InputSlot::Media));
@@ -1960,7 +1987,6 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: Default::default(),
-                cached_slate_view: None,
             })
         };
         add(&mut doc, wire, 0.0);
@@ -2029,7 +2055,6 @@ mod tests {
                 arrow_b: false,
                 label: None,
                 display: Default::default(),
-                cached_slate_view: None,
             });
             add(&mut doc, wire, 0.0);
         }

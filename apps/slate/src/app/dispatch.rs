@@ -1,9 +1,9 @@
-//! Command dispatch: the keyboard front-end of the registry.
+﻿//! Command dispatch: the keyboard front-end of the registry.
 //!
 //! `hotkeys` builds [`atlas_commands::Chord`]s from egui key events, looks
 //! them up in the registry (respecting the pre-existing suppression gates:
 //! presenting, typing, text editing, board-only keys), and routes matches
-//! through [`SlateApp::dispatch`] — the same entry the canvas palette, the
+//! through [`SlateApp::dispatch`] â€” the same entry the canvas palette, the
 //! dock toggles, and the menu bar use, so every input modality drives one
 //! command surface (Constitution Art. VII/VIII). Every dispatched command
 //! pushes a [`HistoryEntry`] (the F2 window's data and the Space/Enter
@@ -35,7 +35,7 @@ const BARE_LETTER_HOLD: Duration = Duration::from_millis(700);
 #[derive(Default)]
 pub struct SpaceTap {
     pressed_at: Option<Instant>,
-    /// A pointer button went down while Space was held — it was a pan chord.
+    /// A pointer button went down while Space was held â€” it was a pan chord.
     pointer_used: bool,
 }
 
@@ -582,7 +582,7 @@ impl SlateApp {
             "board.brush.width_down" | "board.brush.width_up" => {
                 let (w, eraser) = self.step_active_width(id.0 == "board.brush.width_up");
                 detail = detail.or(Some(format!(
-                    "{} → {w:.1}u",
+                    "{} â†’ {w:.1}u",
                     if eraser { "eraser" } else { "brush" }
                 )));
                 true
@@ -699,7 +699,7 @@ impl SlateApp {
             }
             "board.dock.advanced" => {
                 // Retired from palette chrome; the id stays on the command
-                // surface so Advanced → Commands does not go stale.
+                // surface so Advanced â†’ Commands does not go stale.
                 true
             }
             "dock.bar.toggle" => {
@@ -854,7 +854,7 @@ impl SlateApp {
                     });
                     self.last_board_edit = None; // toggles never coalesce
                     detail = detail.or(Some(format!(
-                        "{} → {}",
+                        "{} â†’ {}",
                         images.len(),
                         if target > 0.0 { "on" } else { "off" }
                     )));
@@ -952,7 +952,7 @@ impl SlateApp {
             return self.portal_restore();
         }
         // Web portal input focus. Releasing it leaves the page running with
-        // its scroll position and form contents intact (D12) — this peels
+        // its scroll position and form contents intact (D12) â€” this peels
         // where the keyboard goes, nothing more.
         if self.doc().view.active_view == ViewKind::Board && self.web.focused.is_some() {
             return self.web_blur();
@@ -974,7 +974,7 @@ impl SlateApp {
         let board = self.doc().view.active_view == ViewKind::Board;
         let mut live: Vec<CancelLayer> = Vec::new();
         // Running drag operations (wire drags, eraser scrubs, direct-
-        // selection edits, the zoom-window marquee) cancel first — restore,
+        // selection edits, the zoom-window marquee) cancel first â€” restore,
         // no journal.
         if self.brush_hud.is_some()
             || self.zoom_marquee.is_some()
@@ -1018,7 +1018,7 @@ impl SlateApp {
         }
         // Chrome: open context menus, the adjust popover, and the inline
         // new-tag editor. The palette and the search strip own their Esc
-        // (focused text fields); the minimap is pinned chrome — excluded.
+        // (focused text fields); the minimap is pinned chrome â€” excluded.
         if self.board_menu.is_some()
             || self.board_empty_menu.is_some()
             || self.adjust_popover_open
@@ -1053,7 +1053,7 @@ impl SlateApp {
                             }
                         }
                     }
-                    // Eraser: nothing was mutated — dropping the drag and its
+                    // Eraser: nothing was mutated â€” dropping the drag and its
                     // live preview restores the ink.
                     _ => self.erase_live.clear(),
                 }
@@ -1074,7 +1074,7 @@ impl SlateApp {
                 } else if self.trim_live_draft() {
                     self.trim_cancel_step();
                 } else if !self.direct.anchors.is_empty() {
-                    // Direct-selection Esc order: anchors → node → tool.
+                    // Direct-selection Esc order: anchors â†’ node â†’ tool.
                     self.direct.anchors.clear();
                 } else {
                     self.direct_set_target(None);
@@ -1128,8 +1128,8 @@ impl SlateApp {
         let editing = self.text_edit.is_some() || self.sheet_edit.is_some();
         // A focused web portal is a keyboard sink, like an inline editor: bare
         // letters, digits, Tab, and arrows belong to the page, so typing in a
-        // form cannot switch tools (D22). Ctrl chords stay Slate's — save and
-        // undo keep working — and Escape stays out of this so it can still peel
+        // form cannot switch tools (D22). Ctrl chords stay Slate's â€” save and
+        // undo keep working â€” and Escape stays out of this so it can still peel
         // the focus back off.
         let web_focus = board && self.web.focused.is_some();
         let agent_focus = board && self.agents.focused.is_some();
@@ -1179,7 +1179,7 @@ impl SlateApp {
 
         struct Keys {
             matched: Vec<CommandId>,
-            /// Bare A–Z chords deferred for the type-to-command hold window.
+            /// Bare Aâ€“Z chords deferred for the type-to-command hold window.
             bare_letter: Option<(CommandId, char)>,
             /// Printable text typed this frame (lowercase), for command entry.
             typed: String,
@@ -1284,7 +1284,7 @@ impl SlateApp {
 
             // The platform integration may deliver Ctrl+C/X/V as
             // Copy/Cut/Paste events (with the OS clipboard payload) instead
-            // of — or as well as — key events. Map them onto the same
+            // of â€” or as well as â€” key events. Map them onto the same
             // commands; `push_unique` keeps double delivery harmless.
             if !wants_kb && !editing && !palette_open {
                 for e in &i.events {
@@ -1429,7 +1429,7 @@ impl SlateApp {
         } else if command_typing_ok {
             if let Some((id, ch)) = keys.bare_letter {
                 // Same frame may already carry more than the first letter
-                // (fast typists) — go straight to command entry.
+                // (fast typists) â€” go straight to command entry.
                 let mut buf = String::new();
                 if keys.typed.is_empty() {
                     buf.push(ch);
@@ -1494,7 +1494,7 @@ impl SlateApp {
         }
         self.pending_paste_text = None;
 
-        // --- line draft numeric entry (typed digits set length — D08) ---
+        // --- line draft numeric entry (typed digits set length â€” D08) ---
         if board && self.line_draft.is_some() && !wants_kb && !editing && !palette_open {
             let (typed, backspaces) = ctx.input(|i| {
                 let mut typed = String::new();
@@ -1571,7 +1571,7 @@ impl SlateApp {
                 let ids: Vec<NodeId> = self.board_sel.iter().copied().collect();
                 self.patch_nodes(&ids, move |n| n.rect = n.rect.translated(mx, my));
             } else {
-                // Pan: a comfortable screen-space step, Shift = ×4.
+                // Pan: a comfortable screen-space step, Shift = Ã—4.
                 let px = if keys.shift { 240.0 } else { 60.0 };
                 let z = self.tab().cam.z.max(f32::EPSILON);
                 self.tab_mut().cam.offset += egui::Vec2::new(dx * px, dy * px) / z;
@@ -1603,7 +1603,7 @@ fn chord_pressed(i: &egui::InputState, chord: Chord) -> bool {
 /// - Ctrl chords are suppressed while a text field wants the keyboard
 ///   (exactly the old `!wants_kb` gate on the Ctrl block);
 /// - bare (modifier-free) non-F-keys are suppressed while typing or text
-///   editing (the old board-keys gate — view scoping now comes from
+///   editing (the old board-keys gate â€” view scoping now comes from
 ///   `Availability`);
 /// - F-keys stay live while typing (F5/F11 always were);
 /// - everything is suppressed while the palette popup is open (it owns
@@ -1636,7 +1636,7 @@ fn suppressed(chord: Chord, wants_kb: bool, editing: bool, palette_open: bool) -
     wants_kb || editing
 }
 
-/// Registry [`Key`] → egui key (the app-edge mapping the pure crate defers).
+/// Registry [`Key`] â†’ egui key (the app-edge mapping the pure crate defers).
 fn to_egui_key(key: Key) -> Option<egui::Key> {
     use egui::Key as E;
     Some(match key {

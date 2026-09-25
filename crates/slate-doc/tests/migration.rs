@@ -1,9 +1,9 @@
-//! One verbatim workbook per historical on-disk format version, and the
+﻿//! One verbatim workbook per historical on-disk format version, and the
 //! harness that proves each one still opens.
 //!
 //! Convention: a card that bumps `SlateDoc::CURRENT` adds a fixture for the
 //! version it supersedes plus a `vN_fixture_upgrades_to_current` test; it never
-//! edits an existing fixture. The committed JSON is the source of truth —
+//! edits an existing fixture. The committed JSON is the source of truth â€”
 //! [`generate_fixtures`] is ignored and exists only to make the next fixture
 //! cheap to author.
 
@@ -18,8 +18,8 @@ use slate_doc::{GroupId, ItemId, SlateDoc, SlateLoadError, TagId, ViewKind};
 
 const V1_FIXTURE: &str = "v1-tags-items.slate.json";
 const V2_FIXTURE: &str = "v2-board.slate.json";
-/// Fixtures the loader must *refuse* live here, so the round-trip harness —
-/// which walks the top level of the fixtures directory — never sees them.
+/// Fixtures the loader must *refuse* live here, so the round-trip harness â€”
+/// which walks the top level of the fixtures directory â€” never sees them.
 const UNSUPPORTED_DIR: &str = "unsupported";
 const V99_FIXTURE: &str = "v99-future.slate.json";
 
@@ -196,7 +196,7 @@ fn v2_fixture_upgrades_to_current() {
     let report = &doc.items[1];
     assert_eq!(report.id, ItemId(2));
     assert_eq!(report.path, PathBuf::from("/decks/harbour/report.pdf"));
-    assert_eq!(report.file_name, "report.pdf — page 4");
+    assert_eq!(report.file_name, "report.pdf â€” page 4");
     assert_eq!(report.size, 982_004);
     assert_eq!(report.mtime, 1_752_200_000);
     assert_eq!(report.cache_key, "report-3");
@@ -258,7 +258,7 @@ fn v2_fixture_preserves_scene_shape() {
     assert_eq!(frame.assignments, BTreeMap::from([(GroupId(1), TagId(1))]));
     assert_eq!(scene.next_frame_order(), 3);
 
-    // Every content node sits inside the single frame — one slide, four members.
+    // Every content node sits inside the single frame â€” one slide, four members.
     assert_eq!(
         scene.members_of(NodeId(1)),
         vec![NodeId(2), NodeId(3), NodeId(4), NodeId(5)]
@@ -456,7 +456,7 @@ fn v2_document() -> SlateDoc {
     );
     let report = doc.add_item_page(
         PathBuf::from("/decks/harbour/report.pdf"),
-        "report.pdf — page 4",
+        "report.pdf â€” page 4",
         982_004,
         1_752_200_000,
         "report-3",
@@ -534,7 +534,7 @@ fn v2_document() -> SlateDoc {
     let mut text = scene.build_node(
         WorldRect::new(640.0, 460.0, 420.0, 120.0),
         NodeKind::Text(TextNode {
-            text: "Harbour frontage — draft".into(),
+            text: "Harbour frontage â€” draft".into(),
             family: Typeface::Serif,
             size: 34.0,
             color: Rgba::opaque(20, 20, 40),
@@ -575,7 +575,6 @@ fn v2_document() -> SlateDoc {
         arrow_b: true,
         label: Some("informs".into()),
         display: WireDisplay::Faint,
-        cached_slate_view: None,
     };
     // The board keeps a connector's rect equal to its derived curve bounds.
     let rect = connector_aabb(&connector, |id| scene.node(id).map(|n| n.rect))

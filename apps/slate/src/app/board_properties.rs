@@ -1,4 +1,4 @@
-//! Selection property adapter. Chrome is atlas-shell; authored style is slate-doc.
+﻿//! Selection property adapter. Chrome is atlas-shell; authored style is slate-doc.
 //! A preview never changes the document. A completed edit dispatches one journal group.
 use super::{
     board::{BoardTool, BoardXf},
@@ -504,7 +504,7 @@ enum FilterStep {
 }
 
 /// Hover peeks. Click and the intensity slider record. `selected` is the
-/// authored filter (scene plus pending edits), never the peek — otherwise
+/// authored filter (scene plus pending edits), never the peek â€” otherwise
 /// the click that should arm a hovered filter toggles it off.
 fn photo_filter_gesture(
     selected: Option<usize>,
@@ -1248,7 +1248,7 @@ impl SlateApp {
                         d.offset * z,
                         d.value,
                         if d.kind == DimensionKind::Diameter {
-                            "Ø "
+                            "Ã˜ "
                         } else {
                             ""
                         },

@@ -59,7 +59,7 @@ impl InputRole {
     /// The role a port reads before anything is wired to it.
     pub fn of_slot(slot: atlas_agent::InputSlot) -> Self {
         match slot {
-            atlas_agent::InputSlot::Media => Self::Image,
+            atlas_agent::InputSlot::Media | atlas_agent::InputSlot::View => Self::Image,
             atlas_agent::InputSlot::Prompt => Self::Prompt,
             atlas_agent::InputSlot::Style => Self::Style,
         }
