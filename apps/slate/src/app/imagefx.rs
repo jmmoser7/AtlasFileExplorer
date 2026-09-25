@@ -203,6 +203,8 @@ pub(crate) fn visible_crop_file(path: &Path, crop: Crop) -> Option<PathBuf> {
     if crop.is_full() || atlas_core::cloud::is_dehydrated(path) {
         return None;
     }
+    #[cfg(test)]
+    DECODES_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
     let img = image::open(path).ok()?;
     let c = crop.clamped();
     let w = img.width().max(1);
@@ -225,6 +227,14 @@ pub(crate) fn visible_crop_file(path: &Path, crop: Crop) -> Option<PathBuf> {
     let out = dir.join(key);
     cropped.save(&out).ok()?;
     Some(out)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Derived input files decoded on this thread, so tests can prove the
+    /// frame loop does none.
+    pub(crate) static DECODES_ON_THIS_THREAD: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
 }
 
 fn path_key(path: &Path) -> u64 {

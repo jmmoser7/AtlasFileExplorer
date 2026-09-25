@@ -915,11 +915,11 @@
           "decided": "2026-09-18"
         },
         "D29": {
-          "behavior": "One atlas-ai AgentSources worker/cache per source path shared by its cards. Source reads and protocol work stay off-thread. Summary layout caches by source/scene revision and zoom resolution. Completed train runtimes are released; large-history frame-time validation remains pending. A generator's resolved inputs cache per scene and output revision. A 3D capture is two offscreen passes and two fast PNG writes on the frame that starts a run, into local app data; ComfyUI results land in local app data too, so only the small manifest syncs with the workspace.",
+          "behavior": "One atlas-ai AgentSources worker/cache per source path shared by its cards. Source reads and protocol work stay off-thread. The once-a-second context publish reuses each wired picture's visible crop or paint composite, made off-thread and remade only when the picture changes; while one is being made, the last published context stays. A session file rewritten with unchanged content is not new output, so cards keep their layout. Summary layout caches by source/scene revision and zoom resolution. Completed train runtimes are released; large-history frame-time validation remains pending. A generator's resolved inputs cache per scene and output revision. A 3D capture is two offscreen passes and two fast PNG writes on the frame that starts a run, into local app data; ComfyUI results land in local app data too, so only the small manifest syncs with the workspace.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-18"
+          "decided": "2026-09-25"
         },
         "D30": {
           "behavior": "Installed program, healthy server and installed model are separate states. Ollama never downloads a model or silently falls back to cloud. ComfyUI starts with API nodes disabled and never downloads a checkpoint. It names a checkpoint with no matching ControlNet, a transformer checkpoint, a model still loading, a missing GPU and extra sources. Failures name unsupported image inputs, context budget, model absence, transport errors and cancellation. A Style picture names a missing style adapter or CLIP vision model, a checkpoint family without an adapter, and a second style wire. A picture wired to a local model that cannot read it names an installed model that can, or asks for one. GPT Image names a missing or refused API key and offers the paste; ChatGPT names a Codex run that returned no picture.",

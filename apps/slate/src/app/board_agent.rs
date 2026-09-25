@@ -120,9 +120,64 @@ impl GeneratorView {
     }
 }
 
+/// The visible crop or paint composite the once-a-second context publish
+/// shows for a wired picture. Made off the frame loop, then reused while the
+/// picture is unchanged; a send still clips fresh (`agent_input_snapshot`).
+#[derive(Default)]
+struct PublishClips {
+    /// Content key per picture node, valid for one scene revision.
+    keys: HashMap<NodeId, ((u64, u64), u64)>,
+    /// `None` when no clip can be made; the source then stands, as at send.
+    ready: HashMap<u64, Option<PathBuf>>,
+    pending: HashSet<u64>,
+    done: Option<(Sender<MadeClip>, Receiver<MadeClip>)>,
+}
+
+/// A publish clip's content key and the file made for it.
+type MadeClip = (u64, Option<PathBuf>);
+
+impl PublishClips {
+    const KEEP: usize = 256;
+
+    fn receive(&mut self) {
+        let Some((_, rx)) = &self.done else {
+            return;
+        };
+        while let Ok((key, clip)) = rx.try_recv() {
+            self.pending.remove(&key);
+            if self.ready.len() >= Self::KEEP {
+                self.ready.clear();
+            }
+            self.ready.insert(key, clip);
+        }
+    }
+
+    fn key(&mut self, node: &Node, img: &slate_doc::scene::ImageNode, revision: (u64, u64)) -> u64 {
+        use std::hash::{Hash, Hasher};
+        if let Some((at, key)) = self.keys.get(&node.id) {
+            if *at == revision {
+                return *key;
+            }
+        }
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        node.id.hash(&mut hash);
+        serde_json::to_string(img)
+            .unwrap_or_default()
+            .hash(&mut hash);
+        let key = hash.finish();
+        self.keys.insert(node.id, (revision, key));
+        key
+    }
+
+    fn sender(&mut self) -> Sender<MadeClip> {
+        self.done.get_or_insert_with(unbounded).0.clone()
+    }
+}
+
 #[derive(Default)]
 pub struct AgentRuntime {
     sources: atlas_ai::agent::AgentSources,
+    publish_clips: std::cell::RefCell<PublishClips>,
     project_picker: Option<NodeId>,
     catalog_error: Option<String>,
     connection_rx: Option<Receiver<(NodeId, String, Result<AgentSession, String>)>>,
@@ -4453,6 +4508,88 @@ impl SlateApp {
         &self,
         id: NodeId,
     ) -> Result<atlas_ai::agent::InputSnapshot, String> {
+        let mut inputs = self.agent_input_refs(id)?;
+        self.clip_agent_images(&mut inputs);
+        Ok(inputs)
+    }
+
+    /// The context publish's snapshot, with each wired picture's clip made
+    /// off the frame loop. `None` while one is still being made: the last
+    /// published context stays rather than naming a picture's hidden part.
+    fn published_agent_inputs(
+        &self,
+        id: NodeId,
+    ) -> Option<Result<atlas_ai::agent::InputSnapshot, String>> {
+        let mut inputs = match self.agent_input_refs(id) {
+            Ok(inputs) => inputs,
+            Err(error) => return Some(Err(error)),
+        };
+        let revision = (self.scene_gen, self.doc().scene.scene_gen());
+        let mut clips = self.agents.publish_clips.borrow_mut();
+        clips.receive();
+        let mut waiting = false;
+        for item in inputs.context.iter_mut().chain(inputs.wired.iter_mut()) {
+            let Some(node) = self.doc().scene.node(NodeId(item.node)) else {
+                continue;
+            };
+            let NodeKind::Image(img) = &node.kind else {
+                continue;
+            };
+            let painted = img
+                .paint_layers
+                .iter()
+                .any(|layer| layer.visible && !layer.nodes.is_empty());
+            if !painted && img.crop.is_full() {
+                continue;
+            }
+            let Some(source) = self.doc().item(img.item).map(|i| i.path.clone()) else {
+                continue;
+            };
+            let key = clips.key(node, img, revision);
+            match clips.ready.get(&key) {
+                Some(Some(clip)) => {
+                    let clip = clip.to_string_lossy().into_owned();
+                    for slot in item.images.iter_mut().chain(item.depth.as_mut()) {
+                        if std::path::Path::new(&*slot) == source {
+                            *slot = clip.clone();
+                        }
+                    }
+                }
+                Some(None) => {}
+                None => {
+                    waiting = true;
+                    if !clips.pending.insert(key) {
+                        continue;
+                    }
+                    let tx = clips.sender();
+                    if painted {
+                        let doc = self.doc().clone();
+                        let node = node.clone();
+                        std::thread::spawn(move || {
+                            let clip = match &node.kind {
+                                NodeKind::Image(img) => {
+                                    super::image_composite::agent_wired_image_file(&doc, &node, img)
+                                }
+                                _ => None,
+                            };
+                            let _ = tx.send((key, clip));
+                        });
+                    } else {
+                        let crop = img.crop;
+                        std::thread::spawn(move || {
+                            let _ =
+                                tx.send((key, super::imagefx::visible_crop_file(&source, crop)));
+                        });
+                    }
+                }
+            }
+        }
+        (!waiting).then_some(Ok(inputs))
+    }
+
+    /// Wired and context inputs as board references, before any picture is
+    /// clipped.
+    fn agent_input_refs(&self, id: NodeId) -> Result<atlas_ai::agent::InputSnapshot, String> {
         let mut outputs = std::collections::BTreeMap::new();
         for node in &self.doc().scene.nodes {
             if slate_doc::agent_chat::is_agent_node(node) {
@@ -4534,7 +4671,6 @@ impl SlateApp {
             &[],
             &outputs,
         )?;
-        self.clip_agent_images(&mut inputs);
         // A prompt being typed steers before the edit commits.
         if let Some((editing, text)) = &self.text_edit {
             for item in &mut inputs.wired {
@@ -5490,15 +5626,19 @@ impl SlateApp {
             {
                 let mut context =
                     self.agent_context_for(&agent.session, &agent.provider, agent.context);
-                if let Ok(inputs) = self.agent_input_snapshot(id) {
-                    context.selection = inputs
-                        .context
-                        .iter()
-                        .map(|item| format!("node:{}", item.node))
-                        .collect();
-                    context.board_summary = serde_json::to_string(&inputs).unwrap_or_default();
+                match self.published_agent_inputs(id) {
+                    Some(Ok(inputs)) => {
+                        context.selection = inputs
+                            .context
+                            .iter()
+                            .map(|item| format!("node:{}", item.node))
+                            .collect();
+                        context.board_summary = serde_json::to_string(&inputs).unwrap_or_default();
+                        Some(context)
+                    }
+                    Some(Err(_)) => Some(context),
+                    None => None,
                 }
-                Some(context)
             } else {
                 None
             };
@@ -5509,6 +5649,17 @@ impl SlateApp {
                     .get(&id)
                     .is_some_and(|previous| std::sync::Arc::ptr_eq(previous, &session))
                 {
+                    continue;
+                }
+                // A sidecar rewrites unchanged state (at boot, on a repeated
+                // error); there is nothing new to lay out.
+                if self
+                    .agents
+                    .sessions
+                    .get(&id)
+                    .is_some_and(|previous| **previous == *session)
+                {
+                    self.agents.sessions.insert(id, session);
                     continue;
                 }
                 if let Some(local) = self.agents.local_turns.get(&id).cloned() {

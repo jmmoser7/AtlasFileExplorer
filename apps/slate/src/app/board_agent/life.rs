@@ -981,6 +981,115 @@ mod tests {
     }
 
     #[test]
+    fn agent_life_an_identical_session_rewrite_does_not_refit_the_train() {
+        let (mut h, ws) = linked_board("agent_life_same_session");
+        let ids = saved_train(&mut h, &ws, "conv-same", true);
+        let dir = h.app.agent_link_dir(ids[0], &ws).unwrap();
+        let last = *ids.last().unwrap();
+        frames_until(&mut h, "the saved history", |h| shows(h, last, "answer 1"));
+        for _ in 0..10 {
+            h.frame();
+        }
+        let before = card_views(&h);
+        let epoch = h.app.agents.output_epoch;
+        let read = h.app.agents.sessions.get(&last).cloned().unwrap();
+        // The sidecar rewrites unchanged state at boot and on a repeated error.
+        write_session(&dir, &history("conv-same", 2));
+        frames_until(&mut h, "the reread", |h| {
+            !std::sync::Arc::ptr_eq(h.app.agents.sessions.get(&last).unwrap(), &read)
+        });
+        h.frame();
+        assert_eq!(h.app.agents.output_epoch, epoch, "nothing new to lay out");
+        assert_eq!(card_views(&h), before);
+    }
+
+    #[test]
+    fn agent_life_publishing_context_never_decodes_pictures_on_the_frame_loop() {
+        use slate_doc::scene::{ConnectorEnd, Crop, ImageNode, Side, WorldRect};
+        let decodes = || crate::app::imagefx::DECODES_ON_THIS_THREAD.with(|n| n.get());
+        let (mut h, ws) = linked_board("agent_life_publish_crop");
+        let card = cursor_chat(&mut h, "conv-crop");
+        let src = h.base.join("photo.png");
+        image::RgbaImage::from_pixel(64, 32, image::Rgba([90, 120, 150, 255]))
+            .save(&src)
+            .unwrap();
+        let item = h.app.add_paths(std::slice::from_ref(&src))[0];
+        let mut picture = h.app.doc_mut().scene.build_node(
+            WorldRect::new(-600.0, 0.0, 200.0, 100.0),
+            NodeKind::Image(ImageNode::new(item)),
+        );
+        let crop = |x| Crop {
+            x,
+            y: 0.0,
+            w: 0.5,
+            h: 1.0,
+        };
+        if let NodeKind::Image(img) = &mut picture.kind {
+            img.crop = crop(0.25);
+        }
+        let picture = h.app.add_nodes(vec![picture])[0];
+        let anchored = |node, side| ConnectorEnd::Anchored { node, side, t: 0.5 };
+        h.app
+            .add_connector(anchored(picture, Side::Right), anchored(card, Side::Left))
+            .unwrap();
+        let context = h
+            .app
+            .agent_link_dir(card, &ws)
+            .unwrap()
+            .join("context.json");
+        let published =
+            |crop: &str| std::fs::read_to_string(&context).is_ok_and(|t| t.contains(crop));
+        let first = "-0.2500-0.0000-0.5000-1.0000.png";
+        frames_until(&mut h, "the cropped context", |h| {
+            h.app.agents.context_tick = None;
+            published(first)
+        });
+        let clipped = std::fs::read_dir(std::env::temp_dir().join("slate-crop"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| {
+                let name = p.file_name().unwrap().to_string_lossy().into_owned();
+                name.ends_with(first) && std::fs::read_to_string(&context).unwrap().contains(&name)
+            })
+            .unwrap();
+        let old = std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&clipped)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+
+        let on_loop = decodes();
+        for _ in 0..3 {
+            h.app.agents.context_tick = None;
+            h.frame();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let when = std::fs::metadata(&clipped).unwrap().modified().unwrap();
+        assert_eq!(
+            when,
+            old,
+            "an unchanged picture is not encoded again ({} decodes on the frame loop)",
+            decodes() - on_loop
+        );
+
+        h.app.patch_nodes(&[picture], |n| {
+            if let NodeKind::Image(img) = &mut n.kind {
+                img.crop = crop(0.5);
+            }
+        });
+        frames_until(&mut h, "the new crop", |h| {
+            h.app.agents.context_tick = None;
+            published("-0.5000-0.0000-0.5000-1.0000.png")
+        });
+        assert_eq!(decodes(), on_loop, "publishing decoded on the frame loop");
+        let text = std::fs::read_to_string(&context).unwrap();
+        assert!(!text.contains("photo.png"), "the hidden part never leaves");
+    }
+
+    #[test]
     fn agent_life_relaunch_rejoins_and_sends_what_waited_for_the_connection() {
         let (mut h, ws) = linked_board("agent_life_relaunch");
         let id = cursor_chat(&mut h, "conv-2");
