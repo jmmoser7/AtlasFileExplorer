@@ -2,15 +2,28 @@
 
 use crate::geom::{dist, EPS};
 
+#[cfg(test)]
+fn dash_on_runs(points: &[[f32; 2]], pattern: &[f32], phase: f32) -> Vec<Vec<[f32; 2]>> {
+    dash_runs(points, pattern, phase)
+        .into_iter()
+        .map(|(_, run)| run)
+        .collect()
+}
+
 /// Split into on-runs while retaining every interior curve sample. A dash is
 /// a subpath, not a chord between its two endpoints. One forward traversal
-/// keeps work proportional to input vertices plus dash boundaries.
-pub(crate) fn dash_on_runs(points: &[[f32; 2]], pattern: &[f32], phase: f32) -> Vec<Vec<[f32; 2]>> {
+/// keeps work proportional to input vertices plus dash boundaries. Each run
+/// carries the arc length from `points[0]` to its first point.
+pub(crate) fn dash_runs(
+    points: &[[f32; 2]],
+    pattern: &[f32],
+    phase: f32,
+) -> Vec<(f32, Vec<[f32; 2]>)> {
     if points.len() < 2 || pattern.is_empty() || !phase.is_finite() {
         return Vec::new();
     }
     if pattern.iter().any(|v| !v.is_finite() || *v <= EPS) {
-        return vec![points.to_vec()];
+        return vec![(0.0, points.to_vec())];
     }
     // SVG repeats odd-length patterns before wrapping the on/off state.
     let count = if pattern.len().is_multiple_of(2) {
@@ -31,6 +44,8 @@ pub(crate) fn dash_on_runs(points: &[[f32; 2]], pattern: &[f32], phase: f32) -> 
     let mut remaining = pattern[index % pattern.len()] - offset;
     let mut runs = Vec::new();
     let mut run = Vec::new();
+    let mut run_start = 0.0;
+    let mut travelled = 0.0;
     for pair in points.windows(2) {
         let length = dist(pair[0], pair[1]);
         if length <= EPS {
@@ -48,6 +63,7 @@ pub(crate) fn dash_on_runs(points: &[[f32; 2]], pattern: &[f32], phase: f32) -> 
             if index.is_multiple_of(2) {
                 if run.is_empty() {
                     run.push(point(used));
+                    run_start = travelled + used;
                 }
                 run.push(point(used + step));
             }
@@ -55,25 +71,26 @@ pub(crate) fn dash_on_runs(points: &[[f32; 2]], pattern: &[f32], phase: f32) -> 
             remaining -= step;
             if remaining <= EPS {
                 if run.len() >= 2 {
-                    runs.push(std::mem::take(&mut run));
+                    runs.push((run_start, std::mem::take(&mut run)));
                 }
                 index = (index + 1) % count;
                 remaining = pattern[index % pattern.len()];
             }
         }
+        travelled += length;
     }
     if run.len() >= 2 {
-        runs.push(run);
+        runs.push((run_start, run));
     }
     // A dash crossing a closed contour's seam is one run, with no caps at
     // the arbitrary MoveTo vertex.
     if runs.len() > 1
         && dist(points[0], *points.last().unwrap()) < EPS
-        && dist(runs[0][0], points[0]) < EPS
-        && dist(*runs.last().unwrap().last().unwrap(), points[0]) < EPS
+        && dist(runs[0].1[0], points[0]) < EPS
+        && dist(*runs.last().unwrap().1.last().unwrap(), points[0]) < EPS
     {
-        let first = runs.remove(0);
-        runs.last_mut().unwrap().extend_from_slice(&first[1..]);
+        let (_, first) = runs.remove(0);
+        runs.last_mut().unwrap().1.extend_from_slice(&first[1..]);
     }
     runs
 }

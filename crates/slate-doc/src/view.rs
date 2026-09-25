@@ -131,7 +131,8 @@ impl ViewState {
         }
     }
 
-    /// Ensure split create-style memory exists; migrate legacy single slot once.
+    /// Ensure split create-style memory exists; migrate the legacy single
+    /// slot and the shared open-curve slot into per-tool memory once.
     pub fn ensure_create_style(&mut self, min_open_stroke_width: f32) -> &mut CreateStyleMemory {
         if self.create_style.is_none() {
             if let Some(legacy) = self.legacy_board_last_style.take() {
@@ -143,7 +144,9 @@ impl ViewState {
                 self.create_style = Some(CreateStyleMemory::default());
             }
         }
-        self.create_style.as_mut().unwrap()
+        let mem = self.create_style.as_mut().unwrap();
+        mem.migrate_open_to_tools(min_open_stroke_width);
+        mem
     }
 }
 

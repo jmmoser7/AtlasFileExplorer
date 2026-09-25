@@ -485,11 +485,11 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "Held Shift inverts the F8 ortho state for the pending segment, 45-degree steps (P2.RhinoDraft.ortho).",
+          "behavior": "Held Shift inverts the F8 ortho state for the pending segment, 45-degree steps (P2.RhinoDraft.ortho). Alt+right-drag scrubs the Line's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the line being drawn, and the rubber band previews that width.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-07-23"
+          "decided": "2026-09-25"
         },
         "D06": {
           "behavior": "F8 ortho + F9 grid snap apply to both endpoints. Object snaps follow P1.node.osnap (ObjectSnapSet, draft.osnap_radius / osnap.radius). Defaults End+Mid+Center match the previous hardcoded edge/anchor snap.",
@@ -527,11 +527,11 @@
           "decided": "2026-07-23"
         },
         "D11": {
-          "behavior": "A parametric 2-point line node; stroke from P1.curve.create-style when the last single-node edit exists, else default_curve_stroke(fg) (Square end caps, Miter joins, 2 px); opacity from last edit or 1.0; journal cmd board.tool.line; one gesture = one undo (P0.2/P0.3).",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "A parametric 2-point line node; stroke from the Line tool's own P1.curve.create-style memory (D16), else default_curve_stroke in the theme ink (Square end caps, Miter joins, 2 px); opacity from the Line's memory or 1.0; the rubber band previews that color and width; journal cmd board.tool.line; one gesture = one undo (P0.2/P0.3).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-07-24"
+          "decided": "2026-09-25"
         },
         "D12": {
           "behavior": "Esc during numeric entry clears the entry; next Esc removes the first point (back to Armed); next disarms to Select (P2.RhinoDraft.esc, P0.1).",
@@ -562,7 +562,7 @@
           "decided": "2026-07-23"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Line remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, pen, arc, polyline, and Bezier each keep their own). Its memory changes when it draws, when its width chord runs, and on a single-node edit to a stroke it drew. Remembered width is never 0. A Line that has not drawn yet starts from default_curve_stroke (Square cap, 2 px) in the theme ink, not the brush foreground. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1432,11 +1432,11 @@
           "decided": "2026-08-15"
         },
         "D10": {
-          "behavior": "P2.GhostFollow.cursor. Text / Sticky get the tint and a small glyph (OQ4, 2026-08-15).",
+          "behavior": "P2.GhostFollow.cursor. Text / Sticky get the tint and a small glyph (OQ4, 2026-08-15). Every armed drawing tool shows a crosshair or a tip circle (stated 2026-09-25): Brush, Eraser, Smooth, and Pen a circle sized to the tip; Line, Arc, Polyline, Bezier, Rectangle, Ellipse, and Polygon the crosshair. board_place::armed_cursor names every tool's cursor.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-08-15"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "Unchanged. Existing finish_draw / place_*_at / journal cmds. The ghost never commits. One gesture = one undo (P0.2 / P0.3).",
@@ -1474,7 +1474,7 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "Unchanged split: closed shapes consume BoardLastStyle.closed, open curves consume BoardLastStyle.open; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome.",
+          "behavior": "Closed shapes consume the shared closed memory (CreateStyleMemory.closed); each stroke tool (pen, line, arc, polyline, Bezier) consumes only its own slot and never another tool's (stated 2026-09-25); portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2742,11 +2742,11 @@
           "decided": "2026-09-17"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board (stated 2026-09-25). The P2.GhostFollow silhouette still follows it until the press, without the tinted pointer. Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
@@ -2872,11 +2872,11 @@
           "decided": "2026-09-17"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board (stated 2026-09-25). The P2.GhostFollow silhouette still follows it until the press, without the tinted pointer. Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
@@ -3044,7 +3044,7 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25): the Line keeps its own stroke color, width, and opacity and never inherits from another tool (line D16); remembered width is never 0; always a hard vector stroke.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3097,11 +3097,11 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Polyline's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the polyline being drawn, and the draft previews that width.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D06": {
           "behavior": "The shared object-snap resolver includes draft endpoints and completed segments for enabled End, Mid, Near and Perpendicular snaps. The rubber-band is excluded; existing scene intersections remain available.",
@@ -3132,11 +3132,11 @@
           "decided": "2026-09-17"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board, before and during the draft (stated 2026-09-25). Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "After at least three vertices, returning to the first vertex closes one PathData without a duplicated start anchor. Fill remains unset until chosen. Enter commits an open path. A moving primary press places one vertex; release adds none.",
@@ -3174,7 +3174,7 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Closed paths with fill use closed memory when committed as closed shapes.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Polyline remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, pen, line, arc, and Bezier each keep their own). Its memory changes when it draws, when its width chord runs, and on a single-node edit to a stroke it drew. Remembered width is never 0. A Polyline that has not drawn yet starts from default_curve_stroke (Square cap, 2 px) in the theme ink, not the brush foreground. Closed paths with fill use the shared closed memory for fill and feed it when committed as closed shapes. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3262,9 +3262,9 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Armed-tool cursor; shell hover on controls.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board (stated 2026-09-25); shell hover on controls.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-25"
         },
@@ -3357,11 +3357,11 @@
           "decided": "2026-09-17"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Arc's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the arc being drawn, and the draft previews that width.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D06": {
           "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority.",
@@ -3392,11 +3392,11 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board, before and during the draft (stated 2026-09-25). Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
@@ -3434,7 +3434,7 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Arc remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, pen, line, polyline, and Bezier each keep their own). Its memory changes when it draws, when its width chord runs, and on a single-node edit to a stroke it drew. Remembered width is never 0. An Arc that has not drawn yet starts from default_curve_stroke (Square cap, 2 px) in the theme ink, not the brush foreground. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3487,7 +3487,7 @@
           "decided": "2026-09-25"
         },
         "D05": {
-          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Alt on an existing handle, while drawing or on a selected span, also breaks symmetry; without Alt a smooth anchor keeps its opposite handle collinear at its own length. Other creation modifiers unchanged.",
+          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Alt on an existing handle, while drawing or on a selected span, also breaks symmetry; without Alt a smooth anchor keeps its opposite handle collinear at its own length. Other creation modifiers unchanged. Alt+right-drag scrubs the Bezier tool's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-draw it changes the width of the span being drawn, and the draft previews that width.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3522,11 +3522,11 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Crosshair while armed over the board, before and during the draft (stated 2026-09-25). Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "Enter, a double-click on a placed anchor, or Esc commits a span of two or more anchors as exactly one journaled add, then returns to Select. P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
@@ -3564,7 +3564,7 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Bezier tool remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, pen, line, arc, and polyline each keep their own). Its memory changes when it draws, when its width chord runs, and on a single-node edit to a stroke it drew. Remembered width is never 0. A Bezier tool that has not drawn yet starts from default_curve_stroke (Square cap, 2 px) in the theme ink, not the brush foreground. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3617,11 +3617,11 @@
           "decided": "2026-09-25"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects. Alt+right-drag scrubs the Pen's own width through the Brush size HUD (board.stroke.width_hud, P1.curve.width-chord), horizontally only: no softness. Mid-stroke the scrub draws nothing and the rest of the stroke takes the new width, stored as one tip per vertex.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D06": {
           "behavior": "No point snapping along the freehand stroke; it would quantize the sketch. Existing point snapping remains available when editing committed anchors.",
@@ -3652,11 +3652,11 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "A hard circle of the pen's own width and color, the same disc the Brush shows for its tip; the OS cursor hides under it over the board. The user offered circle or crosshair (stated 2026-09-25); the circle was chosen because it previews the width the width chord scrubs. The size HUD replaces it while open. Controls use shell hover and focus feedback.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D11": {
           "behavior": "P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history.",
@@ -3694,7 +3694,7 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Pen remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, line, arc, polyline, and Bezier each keep their own). Its memory changes when it draws, when its width chord runs, and on a single-node edit to a stroke it drew. Remembered width is never 0. A Pen that has not drawn yet starts from default_curve_stroke (Square cap, 2 px) in the theme ink, not the brush foreground. Pen ink keeps round-cap kit defaults when pinned. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3782,7 +3782,7 @@
           "decided": "2026-09-22"
         },
         "D10": {
-          "behavior": "Idle Brush and the size HUD paint a filled tip in the foreground color. The fill is opaque from the center out to (1 - softness) of the radius, then fades to clear at the rim. A thin white ring marks the full diameter. While Alt is held the eyedropper cursor replaces it: the foreground swatch is a ring, so the pixel under the hotspot, which the sample reads, still shows the canvas.",
+          "behavior": "Idle Brush and the size HUD paint a filled tip in the foreground color. The fill is opaque from the center out to (1 - softness) of the radius, then fades to clear at the rim. A thin white ring marks the full diameter. While Alt is held the eyedropper cursor replaces it: the foreground swatch is a ring, so the pixel under the hotspot, which the sample reads, still shows the canvas. The tip circle is the cursor for Brush and Eraser: the OS arrow hides under it over the board (stated 2026-09-25).",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -4699,10 +4699,10 @@
           "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "Filled radial tip + white diameter ring (P0.9); gray fill for Smooth.",
+          "behavior": "Filled radial tip + white diameter ring (P0.9); gray fill for Smooth. The circle is the cursor: the OS arrow hides under it over the board (stated 2026-09-25).",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
+          "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D11": {

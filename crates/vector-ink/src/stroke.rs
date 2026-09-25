@@ -2,9 +2,9 @@
 
 use kurbo::{BezPath, PathEl};
 
-use crate::dash::dash_on_runs;
+use crate::dash::dash_runs;
 use crate::flatten::{flatten, flatten_contours};
-use crate::geom::{from_kurbo, is_finite_pt, to_kurbo, EPS};
+use crate::geom::{cumulative_arclength, dist, from_kurbo, is_finite_pt, lerp, to_kurbo, EPS};
 use crate::mesh::{run_outline, tessellate_run};
 use crate::trim::Polygon;
 use crate::{InkMesh, StrokeStyle};
@@ -15,6 +15,31 @@ pub(crate) fn valid_style(style: &StrokeStyle) -> bool {
 
 /// Tessellate a stroked path into a feathered AA mesh.
 pub fn stroke_mesh(path: &BezPath, style: &StrokeStyle, feather: f32, tolerance: f64) -> InkMesh {
+    stroke_mesh_with(path, style, None, feather, tolerance)
+}
+
+/// [`stroke_mesh`] with a full width at every on-curve vertex: each `MoveTo`,
+/// then the end of each segment, in path order. A segment interpolates
+/// between its end widths by arc length; `ClosePath` returns to the
+/// contour's first width. A count that does not match the path's vertices
+/// strokes at `style.width`. The taper, if any, still scales the widths.
+pub fn stroke_mesh_tipped(
+    path: &BezPath,
+    style: &StrokeStyle,
+    widths: &[f32],
+    feather: f32,
+    tolerance: f64,
+) -> InkMesh {
+    stroke_mesh_with(path, style, Some(widths), feather, tolerance)
+}
+
+fn stroke_mesh_with(
+    path: &BezPath,
+    style: &StrokeStyle,
+    widths: Option<&[f32]>,
+    feather: f32,
+    tolerance: f64,
+) -> InkMesh {
     if !valid_style(style)
         || !feather.is_finite()
         || feather < 0.0
@@ -26,9 +51,17 @@ pub fn stroke_mesh(path: &BezPath, style: &StrokeStyle, feather: f32, tolerance:
     mesh.vertices.reserve(256);
     mesh.indices.reserve(512);
 
-    for sub in subpaths(path, tolerance) {
-        for (points, closed) in stroke_runs(sub, style) {
-            tessellate_run(&mut mesh, &points, style, feather, closed, tolerance);
+    for sub in stroke_subpaths(path, widths, tolerance) {
+        for run in stroke_runs(sub, style) {
+            tessellate_run(
+                &mut mesh,
+                &run.points,
+                run.widths.as_deref(),
+                style,
+                feather,
+                run.closed,
+                tolerance,
+            );
         }
     }
 
@@ -38,30 +71,176 @@ pub fn stroke_mesh(path: &BezPath, style: &StrokeStyle, feather: f32, tolerance:
 struct SubPath {
     points: Vec<[f32; 2]>,
     closed: bool,
+    /// Full width per point, for a tipped stroke.
+    widths: Option<Vec<f32>>,
 }
 
-fn stroke_runs(mut sub: SubPath, style: &StrokeStyle) -> Vec<(Vec<[f32; 2]>, bool)> {
+struct Run {
+    points: Vec<[f32; 2]>,
+    widths: Option<Vec<f32>>,
+    closed: bool,
+}
+
+fn stroke_subpaths(path: &BezPath, widths: Option<&[f32]>, tolerance: f64) -> Vec<SubPath> {
+    widths
+        .and_then(|w| tipped_subpaths(path, w, tolerance))
+        .unwrap_or_else(|| subpaths(path, tolerance))
+}
+
+fn stroke_runs(mut sub: SubPath, style: &StrokeStyle) -> Vec<Run> {
     if sub.points.len() < 2 {
         return Vec::new();
     }
     let Some((pattern, phase)) = &style.dash else {
-        return vec![(sub.points, sub.closed)];
+        return vec![Run {
+            points: sub.points,
+            widths: sub.widths,
+            closed: sub.closed,
+        }];
     };
     if sub.closed {
         sub.points.push(sub.points[0]);
+        if let Some(w) = &mut sub.widths {
+            w.push(w[0]);
+        }
     }
-    dash_on_runs(&sub.points, pattern, *phase)
+    let lengths = sub
+        .widths
+        .as_ref()
+        .map(|_| cumulative_arclength(&sub.points));
+    dash_runs(&sub.points, pattern, *phase)
         .into_iter()
-        .map(|mut points| {
+        .map(|(start, mut points)| {
             let closed = sub.closed
                 && points.len() > 2
                 && dist2(points[0], *points.last().unwrap()) < EPS * EPS;
             if closed {
                 points.pop();
             }
-            (points, closed)
+            let widths = sub
+                .widths
+                .as_deref()
+                .zip(lengths.as_deref())
+                .map(|(w, l)| widths_along(&points, start, l, w));
+            Run {
+                points,
+                widths,
+                closed,
+            }
         })
         .collect()
+}
+
+/// Widths for a dash run that starts `start` along a contour whose points
+/// sit at `lengths` with `widths`. A run past the closed seam wraps.
+fn widths_along(points: &[[f32; 2]], start: f32, lengths: &[f32], widths: &[f32]) -> Vec<f32> {
+    let total = lengths.last().copied().unwrap_or(0.0);
+    let mut at = start;
+    let mut out = Vec::with_capacity(points.len());
+    for (i, p) in points.iter().enumerate() {
+        if i > 0 {
+            at += dist(points[i - 1], *p);
+        }
+        let s = if total > EPS && at > total + EPS {
+            at - total
+        } else {
+            at
+        };
+        out.push(width_at(lengths, widths, s));
+    }
+    out
+}
+
+fn width_at(lengths: &[f32], widths: &[f32], at: f32) -> f32 {
+    let i = lengths.partition_point(|&l| l < at);
+    if i == 0 {
+        return widths[0];
+    }
+    if i >= lengths.len() {
+        return widths[widths.len() - 1];
+    }
+    let span = lengths[i] - lengths[i - 1];
+    let t = if span > EPS {
+        (at - lengths[i - 1]) / span
+    } else {
+        1.0
+    };
+    lerp(widths[i - 1], widths[i], t)
+}
+
+/// Flatten segment by segment so every point knows its width. `None` when
+/// the widths do not match the path's on-curve vertices.
+fn tipped_subpaths(path: &BezPath, widths: &[f32], tolerance: f64) -> Option<Vec<SubPath>> {
+    let vertices = path
+        .elements()
+        .iter()
+        .filter(|el| !matches!(el, PathEl::ClosePath))
+        .count();
+    if vertices != widths.len() || widths.iter().any(|w| !w.is_finite() || *w < 0.0) {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut points: Vec<[f32; 2]> = Vec::new();
+    let mut ws: Vec<f32> = Vec::new();
+    let mut next = widths.iter().copied();
+    let mut last = kurbo::Point::ZERO;
+    let mut last_w = 0.0;
+    let mut contour_start = (kurbo::Point::ZERO, 0.0);
+    let flush = |out: &mut Vec<SubPath>, points: &mut Vec<_>, ws: &mut Vec<_>, closed| {
+        if !points.is_empty() {
+            out.push(SubPath {
+                points: std::mem::take(points),
+                closed,
+                widths: Some(std::mem::take(ws)),
+            });
+        }
+    };
+    for el in path.elements() {
+        let end = match *el {
+            PathEl::MoveTo(p) => {
+                flush(&mut out, &mut points, &mut ws, false);
+                last = p;
+                last_w = next.next()?;
+                contour_start = (p, last_w);
+                points.push(from_kurbo(p));
+                ws.push(last_w);
+                continue;
+            }
+            PathEl::ClosePath => {
+                if points.len() >= 2 && dist2(points[0], *points.last().unwrap()) < EPS * EPS {
+                    points.pop();
+                    ws.pop();
+                }
+                flush(&mut out, &mut points, &mut ws, true);
+                (last, last_w) = contour_start;
+                continue;
+            }
+            PathEl::LineTo(p) | PathEl::QuadTo(_, p) | PathEl::CurveTo(_, _, p) => p,
+        };
+        let end_w = next.next()?;
+        if points.is_empty() {
+            points.push(from_kurbo(last));
+            ws.push(last_w);
+        }
+        let mut piece = BezPath::new();
+        piece.move_to(last);
+        piece.push(*el);
+        let flat = flatten(&piece, tolerance);
+        let lengths = cumulative_arclength(&flat);
+        let total = lengths.last().copied().unwrap_or(0.0);
+        for (p, l) in flat.iter().zip(&lengths).skip(1) {
+            points.push(*p);
+            ws.push(if total > EPS {
+                lerp(last_w, end_w, l / total)
+            } else {
+                end_w
+            });
+        }
+        last = end;
+        last_w = end_w;
+    }
+    flush(&mut out, &mut points, &mut ws, false);
+    Some(out)
 }
 
 fn subpaths(path: &BezPath, tolerance: f64) -> Vec<SubPath> {
@@ -105,7 +284,11 @@ fn finish_chunk(chunk: &BezPath, tolerance: f64) -> SubPath {
     if closed && points.len() >= 2 && dist2(points[0], *points.last().unwrap()) < EPS * EPS {
         points.pop();
     }
-    SubPath { points, closed }
+    SubPath {
+        points,
+        closed,
+        widths: None,
+    }
 }
 
 #[inline]
@@ -117,13 +300,38 @@ fn dist2(a: [f32; 2], b: [f32; 2]) -> f32 {
 
 /// The stroked region as a closed outline path (for SVG export).
 pub fn stroke_outline(path: &BezPath, style: &StrokeStyle, tolerance: f64) -> BezPath {
+    stroke_outline_with(path, style, None, tolerance)
+}
+
+/// [`stroke_outline`] with per-vertex widths, as in [`stroke_mesh_tipped`].
+pub fn stroke_outline_tipped(
+    path: &BezPath,
+    style: &StrokeStyle,
+    widths: &[f32],
+    tolerance: f64,
+) -> BezPath {
+    stroke_outline_with(path, style, Some(widths), tolerance)
+}
+
+fn stroke_outline_with(
+    path: &BezPath,
+    style: &StrokeStyle,
+    widths: Option<&[f32]>,
+    tolerance: f64,
+) -> BezPath {
     if !valid_style(style) || (tolerance <= 0.0 || !tolerance.is_finite()) {
         return BezPath::new();
     }
     let mut outline = BezPath::new();
-    for sub in subpaths(path, tolerance) {
-        for (points, closed) in stroke_runs(sub, style) {
-            for ring in run_outline(&points, style, closed, tolerance) {
+    for sub in stroke_subpaths(path, widths, tolerance) {
+        for run in stroke_runs(sub, style) {
+            for ring in run_outline(
+                &run.points,
+                run.widths.as_deref(),
+                style,
+                run.closed,
+                tolerance,
+            ) {
                 outline.move_to(to_kurbo(ring[0]));
                 for p in &ring[1..] {
                     outline.line_to(to_kurbo(*p));
@@ -290,6 +498,36 @@ mod tests {
             last_half = y;
         }
         assert!(last_x > 50.0);
+    }
+
+    fn inside(mesh: &InkMesh, p: [f32; 2]) -> bool {
+        let verts: Vec<[f32; 2]> = mesh.vertices.iter().map(|v| v.pos).collect();
+        crate::point_in_mesh(&verts, &mesh.indices, p)
+    }
+
+    #[test]
+    fn tipped_stroke_follows_its_vertex_widths() {
+        let mut path = line_path(0.0, 0.0, 50.0, 0.0);
+        path.line_to((100.0, 0.0));
+        let style = StrokeStyle {
+            width: 10.0,
+            cap: Cap::Butt,
+            join: Join::Miter,
+            taper: None,
+            dash: None,
+        };
+        let widths = [2.0, 2.0, 10.0];
+        let mesh = stroke_mesh_tipped(&path, &style, &widths, 0.0, 0.05);
+        assert!(inside(&mesh, [25.0, 0.8]), "narrow first span has ink");
+        assert!(!inside(&mesh, [25.0, 3.0]), "first span stays 2 wide");
+        assert!(inside(&mesh, [98.0, 4.5]), "second span widens to 10");
+        let outline = stroke_outline_tipped(&path, &style, &widths, 0.05);
+        let bounds = kurbo::Shape::bounding_box(&outline);
+        assert!((bounds.y1 - 5.0).abs() < 0.01, "outline peaks at 10 wide");
+        assert!(bounds.y0 > -5.01);
+
+        let mismatched = stroke_mesh_tipped(&path, &style, &[2.0], 0.0, 0.05);
+        assert!(inside(&mismatched, [25.0, 4.5]), "wrong count is uniform");
     }
 
     #[test]

@@ -665,7 +665,8 @@ pub(crate) struct BrushStraight {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum BrushHud {
     /// Alt+right-drag: size horizontally, softness vertically, for the
-    /// armed Brush or Eraser.
+    /// armed Brush or Eraser. Pen, Line, Arc, Polyline, and Bézier take the
+    /// width only.
     Size {
         origin: Pos2,
         width0: f32,
@@ -734,6 +735,49 @@ impl SlateApp {
             ),
             _ => (self.brush_width, self.brush_softness, self.brush_opacity),
         }
+    }
+
+    /// True when Alt+right-drag sizes the armed tool: the brush, eraser,
+    /// and smooth tips, and the pen, line, arc, polyline, and Bézier widths.
+    pub(crate) fn board_tool_takes_width_chord(&self) -> bool {
+        matches!(
+            self.board_tool,
+            BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
+        ) || self.armed_stroke_tool().is_some()
+    }
+
+    /// The tip the size chord scrubs. A stroke tool's own width, always
+    /// hard; otherwise [`Self::active_tip`].
+    fn chord_tip(&self) -> (f32, f32, f32) {
+        match self.armed_stroke_tool() {
+            Some(tool) => (
+                self.stroke_for_tool(tool).width,
+                0.0,
+                self.opacity_for_tool(tool),
+            ),
+            None => self.active_tip(),
+        }
+    }
+
+    /// A stroke tool takes only the width: it offers no softness control.
+    fn set_chord_tip(&mut self, width: f32, softness: f32, opacity: f32) {
+        match self.armed_stroke_tool() {
+            Some(tool) => self.set_tool_width(tool, width),
+            None => self.set_active_tip(width, softness, opacity),
+        }
+    }
+
+    /// Size HUD label: the brush readout, or a stroke tool's width.
+    pub(crate) fn size_hud_label(&self) -> Option<String> {
+        if let Some(line) = self.brush_status_line() {
+            return Some(line);
+        }
+        if self.doc().view.active_view != slate_doc::ViewKind::Board {
+            return None;
+        }
+        let z = self.tab().cam.z.max(f32::EPSILON);
+        self.armed_stroke_tool()
+            .map(|tool| format!("{:.0} px", self.stroke_for_tool(tool).width * z))
     }
 
     /// Write the armed tip into app state and settings (not saved).
@@ -1484,18 +1528,31 @@ impl SlateApp {
 
     // ---------- cursor feedback ----------
 
-    /// Filled tip while Brush or Eraser is armed. Softness is a solid core
-    /// that fades to the rim, the same stamp Photoshop shows for the brush.
-    pub(crate) fn paint_width_cursor(&self, painter: &egui::Painter, pointer: Pos2) {
+    /// Screen radius, softness, and color of the tip disc for Brush, Eraser,
+    /// Smooth, and Pen; `None` for every other tool.
+    pub(crate) fn width_cursor_disc(&self) -> Option<(f32, f32, Color32)> {
         let z = self.tab().cam.z;
-        let (w, softness, strength) = self.active_tip();
-        let r = (w * 0.5 * z).max(1.5);
+        let (w, softness, strength) = self.chord_tip();
         let ink = match self.board_tool {
+            BoardTool::Brush => self.brush_preview_color(),
             BoardTool::Eraser => {
                 Color32::from_gray(180).gamma_multiply(self.eraser_opacity.clamp(0.1, 1.0))
             }
             BoardTool::Smooth => Color32::from_gray(160).gamma_multiply(strength.clamp(0.1, 1.0)),
-            _ => self.brush_preview_color(),
+            BoardTool::Pen => {
+                super::board::rgba32(self.stroke_for_tool(slate_doc::StrokeTool::Pen).color)
+            }
+            _ => return None,
+        };
+        Some(((w * 0.5 * z).max(1.5), softness, ink))
+    }
+
+    /// Filled tip while Brush, Eraser, Smooth, or Pen is armed. Softness is
+    /// a solid core that fades to the rim, the same stamp Photoshop shows for
+    /// the brush.
+    pub(crate) fn paint_width_cursor(&self, painter: &egui::Painter, pointer: Pos2) {
+        let Some((r, softness, ink)) = self.width_cursor_disc() else {
+            return;
         };
         paint_soft_disc(painter, pointer, r, softness, ink);
         if self.shift_down {
@@ -1602,7 +1659,7 @@ impl SlateApp {
         );
         // A held button counts, not only the press edge. The modifier often
         // arrives on the same chord a frame after `button_pressed` has passed.
-        if (!secondary_down && !secondary_pressed) || !armed {
+        if (!secondary_down && !secondary_pressed) || !self.board_tool_takes_width_chord() {
             return false;
         }
         let Some(pointer) = pointer else {
@@ -1620,7 +1677,7 @@ impl SlateApp {
             return true;
         }
         if self.alt_down {
-            let (width0, softness0, _) = self.active_tip();
+            let (width0, softness0, _) = self.chord_tip();
             self.brush_hud_before = Some(self.brush_setting_snapshot());
             self.brush_hud = Some(BrushHud::Size {
                 origin: pointer,
@@ -1630,7 +1687,7 @@ impl SlateApp {
             return true;
         }
         // Shift alone. Ctrl and Alt already claimed the button above.
-        if self.shift_down {
+        if self.shift_down && armed {
             self.brush_hud_before = Some(self.brush_setting_snapshot());
             self.brush_hud = Some(BrushHud::Opacity {
                 origin: pointer,
@@ -1658,8 +1715,8 @@ impl SlateApp {
                     super::settings::STROKE_WIDTH_MAX,
                 );
                 let soft = scrub_softness(*softness0, pointer.y - origin.y);
-                let opacity = self.active_tip().2;
-                self.set_active_tip(width, soft, opacity);
+                let opacity = self.chord_tip().2;
+                self.set_chord_tip(width, soft, opacity);
             }
             BrushHud::Opacity { origin, opacity0 } => {
                 let (w, soft, _) = self.active_tip();
@@ -1711,6 +1768,9 @@ impl SlateApp {
             return;
         };
         match hud {
+            BrushHud::Size { .. } if self.armed_stroke_tool().is_some() => {
+                self.flush_create_style_to_doc();
+            }
             BrushHud::Size { .. } | BrushHud::Opacity { .. } => self.settings.save(),
             BrushHud::Wheel { .. } => {
                 let rgb = [
@@ -1737,8 +1797,8 @@ impl SlateApp {
             BrushHud::Size {
                 width0, softness0, ..
             } => {
-                let opacity = self.active_tip().2;
-                self.set_active_tip(width0, softness0, opacity);
+                let opacity = self.chord_tip().2;
+                self.set_chord_tip(width0, softness0, opacity);
             }
             BrushHud::Opacity { opacity0, .. } => {
                 let (w, soft, _) = self.active_tip();
@@ -1774,15 +1834,17 @@ impl SlateApp {
     fn paint_size_hud(&self, painter: &egui::Painter, pointer: Pos2, _accent: Color32) {
         let z = self.tab().cam.z.max(f32::EPSILON);
         let eraser = self.board_tool == BoardTool::Eraser;
-        let (width, softness, _) = self.active_tip();
+        let (width, softness, _) = self.chord_tip();
         let r = (width * 0.5 * z).max(1.5);
         let ink = if eraser {
             Color32::from_gray(180).gamma_multiply(self.eraser_opacity.clamp(0.1, 1.0))
+        } else if let Some(tool) = self.armed_stroke_tool() {
+            super::board::rgba32(self.stroke_for_tool(tool).color)
         } else {
             self.brush_preview_color()
         };
         paint_soft_disc(painter, pointer, r, softness, ink);
-        let label = self.brush_status_line().unwrap_or_default();
+        let label = self.size_hud_label().unwrap_or_default();
         painter.text(
             pointer + egui::vec2(0.0, -r - 14.0),
             egui::Align2::CENTER_BOTTOM,

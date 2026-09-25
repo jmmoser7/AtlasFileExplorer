@@ -232,7 +232,7 @@ is searchable.
 
 - **P1.shape.style** fill + stroke; new **closed** shapes (rect, ellipse,
   regular polygon, closed path with fill, …) consume the last closed-form
-  memory (`CreateStyleMemory.closed`, mirrored in `BoardLastStyle.closed`)
+  memory (`CreateStyleMemory.closed`, mirrored in `BoardLastStyle.memory`)
   when the kit recipe is inherit. A stroke-only create does not wipe the
   remembered fill.
 - **P1.shape.aspect** Shift during creation locks aspect (square/circle).
@@ -248,15 +248,40 @@ is searchable.
 
 - **P1.curve.style** stroke only, no fill; stroke width/cap/dash editable
   after the fact; Ctrl+J joins endpoints.
-- **P1.curve.create-style** the last **single-node** edit seeds stroke +
-  opacity on the next **open** create (line, arc, polyline, open path, …)
-  from `CreateStyleMemory.open` / `BoardLastStyle.open`. Remembered open stroke
-  width is never 0 (minimum 2 world units). When nothing was edited yet, draft
-  curves use `default_curve_stroke` at the current fg color — **Square** end
-  caps, Miter joins (distinct from expressive ink's round caps). Brush/Pen ink
-  keeps its own round defaults (`P2.StickyInk`). Implementation:
-  `board_style::BoardLastStyle`, updated from `patch_nodes` (single target) and
-  grip commits; persisted on `ViewState.create_style`.
+- **P1.curve.create-style** **per tool** (stated 2026-09-25; supersedes the
+  shared open-curve memory). Each drawing tool — brush, pen, line, arc,
+  polyline, Bézier — remembers its **own** last stroke color and width and
+  never inherits from another tool. The brush keeps its settings
+  (`brush.md` D16). Each stroke tool has its own slot
+  (`CreateStyleMemory::tool(StrokeTool)`): the tool's own commit and a
+  **single-node** edit to a stroke it drew this session update that slot,
+  stroke + opacity only. Remembered width is never 0 (minimum 2 world units).
+  A tool that has not drawn yet uses `default_curve_stroke` in the theme ink,
+  not the brush foreground — **Square** end caps, Miter joins (distinct from
+  expressive ink's round caps). Brush/Pen kit ink keeps its own round defaults
+  when pinned (`P2.StickyInk`). Workbooks saved with the shared `open` slot
+  seed every tool from it once. Closed shapes keep one shared memory
+  (P1.shape.style). Implementation: `board_style::BoardLastStyle`, updated from
+  `patch_nodes` (single target), grip commits, and tool commits; persisted on
+  `ViewState.create_style`. Vector curve tools
+  (pen, line, arc, polyline, Bézier) always commit a hard vector stroke
+  (`Stroke::hard_vector`): edge softness, stamp, and Gaussian blur are never
+  inherited, not even from an edited brush stroke, and those tools offer no
+  softness or blur control. Existing documents are not rewritten on load.
+- **P1.curve.width-chord** (stated 2026-09-25) Alt+right-drag with pen,
+  line, arc, polyline, or Bézier armed runs the Brush size HUD
+  (`board_color::drive_brush_hud`, no copy) on that tool's own width:
+  horizontal scrub, no softness, Esc restores, release saves to the tool's
+  memory. It takes the right button from pan and the context menu like the
+  brush chords. Mid-draw it changes the shape being drawn and the draft
+  previews the committed width. Mid-stroke the Pen stops sampling while the
+  HUD is up and the rest of the stroke takes the new width: each
+  constant-width run is fitted on its own and `PathData::tips` stores one
+  tip per vertex. Tips on a hard vector stroke are relative
+  (`PathData::vector_widths`): the widest vertex paints at `Stroke::width`,
+  so a later width edit scales the whole stroke. Both interpreters stroke
+  them through `vector_ink::stroke_mesh_tipped` / `stroke_outline_tipped`
+  (the artifact writes the filled outline, as for a taper).
 - **P1.curve.grips** selected open curves expose their defining points as
   gripable handles (endpoints, on-curve anchors) — **not** a resize bbox.
   Applies to **every** selected simple line in the selection, not only when
@@ -552,8 +577,12 @@ P2.DragShape, P2.PortalPlace, or P2.PlaceOnce.
 - **P2.GhostFollow.cursor** while armed and the pointer is over the board,
   hide the OS cursor and paint a pointer in `place.cursor_tint`
   (`palette.accent`). Same paint path as the rotate cursor
-  (`CursorIcon::None` + glyph). Line keeps its crosshair; Brush / Eraser
-  keep the width circle; Select / Pan are unchanged.
+  (`CursorIcon::None` + glyph). Every armed drawing tool shows a crosshair
+  or a tip circle instead (stated 2026-09-25): Line, Arc, Polyline, Bézier,
+  Polygon, Rectangle, and Ellipse show the OS crosshair (Rectangle and
+  Ellipse keep the silhouette); Brush / Eraser / Smooth / Pen hide the OS
+  cursor under a circle sized to the tip; Select / Pan are unchanged.
+  `board_place::armed_cursor` is the one table.
 - **P2.GhostFollow.glyph** a small **screen-space** silhouette of the armed
   result follows the pointer: size `place.ghost_size` (22 px), offset
   `place.ghost_offset` (14, 14) from the hotspot, alpha `place.ghost_alpha`

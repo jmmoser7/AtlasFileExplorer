@@ -652,7 +652,13 @@ pub enum BoardDrag {
     /// 1 = end). Journals one point-edit Patch on release (D13/D14).
     LineGrip { id: NodeId, before: Node, end: u8 },
     /// Freehand pen stroke (world-space samples).
-    FreehandPen { points: Vec<Pos2>, last: Pos2 },
+    /// `widths` holds the Pen width at each point, so a width chord
+    /// mid-stroke changes the rest of the stroke.
+    FreehandPen {
+        points: Vec<Pos2>,
+        last: Pos2,
+        widths: Vec<f32>,
+    },
     /// Freehand brush stroke (fg color / brush width; tool stays armed).
     FreehandBrush { points: Vec<Pos2>, last: Pos2 },
     /// Eraser scrub. Vector strokes it crosses (`touched`) render at 30% and
@@ -4128,7 +4134,7 @@ impl SlateApp {
         // wheel. Ctrl and Alt beat Shift. Each chord owns the button before
         // turbo pan or a plain right-drag pan.
         let claim_right = self.brush_hud.is_some()
-            || (brush_armed && right_held && self.alt_down)
+            || (self.board_tool_takes_width_chord() && right_held && self.alt_down)
             || (self.board_tool == BoardTool::Brush && right_held && self.ctrl_down)
             || (brush_armed && right_held && self.shift_down && !self.ctrl_down && !self.alt_down);
         let mut cam_offset_tmp = self.tab().cam.offset;
@@ -4645,33 +4651,38 @@ impl SlateApp {
             }
         }
 
-        // Line tool: crosshair while armed (D10) and the constraint-resolved
-        // rubber-band cursor on plain hover (a live press updates through
-        // update_gesture instead).
-        if matches!(self.board_tool, BoardTool::Trim | BoardTool::Split)
+        // Crosshair while a drawing tool is armed (D10). The Line tool also
+        // resolves its rubber-band cursor on plain hover (a live press
+        // updates through update_gesture instead).
+        if board_place::armed_cursor(self.board_tool) == board_place::ArmedCursor::Crosshair
             && resp.hovered()
             && !panning
             && !zoom_tool
         {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        if matches!(self.board_tool, BoardTool::Trim | BoardTool::Split)
+            && resp.hovered()
+            && !panning
+            && !zoom_tool
+        {
             if let Some(w) = wp {
                 let shift = ui.input(|i| i.modifiers.shift);
                 self.trim_hover(w, shift);
             }
         }
-        if self.board_tool == BoardTool::Deck && resp.hovered() && !panning && !zoom_tool {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-        }
-        if self.board_tool == BoardTool::Line && resp.hovered() && !panning && !zoom_tool {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-            if self.board_drag.is_none() {
-                if let Some(w) = wp {
-                    let shift = ui.input(|i| i.modifiers.shift);
-                    if self.line_draft.is_some() {
-                        self.line_hover(w, shift);
-                    } else {
-                        let _ = self.resolve_point_snap(w, &[], None, false, false);
-                    }
+        if self.board_tool == BoardTool::Line
+            && resp.hovered()
+            && !panning
+            && !zoom_tool
+            && self.board_drag.is_none()
+        {
+            if let Some(w) = wp {
+                let shift = ui.input(|i| i.modifiers.shift);
+                if self.line_draft.is_some() {
+                    self.line_hover(w, shift);
+                } else {
+                    let _ = self.resolve_point_snap(w, &[], None, false, false);
                 }
             }
         }
@@ -5030,8 +5041,11 @@ impl SlateApp {
 
         // Armed create-tool chrome (P2.GhostFollow): tinted pointer + small
         // silhouette until the first press. During DragScale the silhouette
-        // yields to the live rubber-band; the pointer stays.
+        // yields to the live rubber-band; the pointer stays. The rectangle
+        // and ellipse keep the OS crosshair in place of the tinted pointer.
         let armed_kind = board_place::ghost_kind(self.board_tool);
+        let crosshair =
+            board_place::armed_cursor(self.board_tool) == board_place::ArmedCursor::Crosshair;
         if armed_kind.is_some()
             && self.text_box_draft.is_none()
             && resp.hovered()
@@ -5041,11 +5055,13 @@ impl SlateApp {
             && !web_capture
         {
             if let Some(p) = pointer {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
                 // Glyph stays screen-space (P0.9); the hotspot is the snapped
                 // world point so the armed cursor is not a naked hunt.
                 let hot = self.board_point_snap.map(|w| xf.w2s(w)).unwrap_or(p);
-                board_place::paint_armed_pointer(&painter, hot, palette.accent);
+                if !crosshair {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                    board_place::paint_armed_pointer(&painter, hot, palette.accent);
+                }
                 let drawing = match &self.board_drag {
                     Some(BoardDrag::Draw { start_screen, .. }) => {
                         (p - *start_screen).length() > board_place::place_tokens::DRAG_THRESHOLD
@@ -5179,6 +5195,9 @@ impl SlateApp {
                 cursor,
                 board_path::PathDraftPaintStyle {
                     stroke: palette.accent,
+                    width: self
+                        .armed_stroke_tool()
+                        .map_or(2.0, |tool| self.stroke_for_tool(tool).width),
                     overlay: super::path_edit_overlay::PathEditAnchorColors {
                         select: palette.select,
                         bg: palette.bg,
@@ -5202,7 +5221,15 @@ impl SlateApp {
         }
         if let (Some(BoardDrag::FreehandPen { points, .. }), Some(w)) = (&self.board_drag, wp) {
             if !points.is_empty() {
-                board_path::paint_polyline_preview(&draft_painter, &xf, points, w, palette.accent);
+                let width = self.stroke_for_tool(slate_doc::StrokeTool::Pen).width;
+                board_path::paint_polyline_preview(
+                    &draft_painter,
+                    &xf,
+                    points,
+                    w,
+                    palette.accent,
+                    width,
+                );
             }
         }
         // Brush drag preview: the screen-aligned canvas holds the same radial
@@ -5353,8 +5380,9 @@ impl SlateApp {
             }
         }
 
-        // Tool cursors: width circle for Brush/Eraser, sampling ring for the
-        // eyedropper (also spring-loaded via Alt while Brush is armed).
+        // Tool cursors: tip circle for Brush/Eraser/Smooth/Pen (the OS
+        // cursor hides under it), sampling ring for the eyedropper (also
+        // spring-loaded via Alt while Brush is armed).
         // The size HUD and color wheel are pointer-attached chrome.
         if let Some(p) = pointer {
             if self.brush_hud.is_some() {
@@ -5363,11 +5391,13 @@ impl SlateApp {
                 if let Some(w) = wp {
                     if self.eyedropper_active() {
                         self.paint_eyedropper_cursor(&painter, p, w);
-                    } else if matches!(
-                        self.board_tool,
-                        BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
-                    ) {
+                    } else if board_place::armed_cursor(self.board_tool)
+                        == board_place::ArmedCursor::TipCircle
+                    {
                         let _cursor = atlas_core::session_log::span("slate.board.brush_cursor");
+                        if resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                        }
                         self.paint_width_cursor(&painter, p);
                     }
                 }
@@ -6114,6 +6144,7 @@ impl SlateApp {
             BoardTool::Pen => Some(BoardDrag::FreehandPen {
                 points: vec![world],
                 last: world,
+                widths: vec![self.stroke_for_tool(slate_doc::StrokeTool::Pen).width],
             }),
             BoardTool::Brush => {
                 if self.alt_down || self.shift_down {
@@ -6271,10 +6302,28 @@ impl SlateApp {
             }
             return;
         }
-        if let Some(
-            BoardDrag::FreehandPen { points, last } | BoardDrag::FreehandBrush { points, last },
-        ) = &mut self.board_drag
-        {
+        if matches!(self.board_drag, Some(BoardDrag::FreehandPen { .. })) {
+            // The size chord's scrub is not ink.
+            if self.brush_hud.is_some() {
+                return;
+            }
+            let width = self.stroke_for_tool(slate_doc::StrokeTool::Pen).width;
+            let zoom = self.tabs[self.active_tab].cam.z;
+            if let Some(BoardDrag::FreehandPen {
+                points,
+                last,
+                widths,
+            }) = &mut self.board_drag
+            {
+                if (world - *last).length() * zoom >= board_path::FREEHAND_SAMPLE_SPACING_PX {
+                    points.push(world);
+                    widths.push(width);
+                    *last = world;
+                }
+            }
+            return;
+        }
+        if let Some(BoardDrag::FreehandBrush { points, last }) = &mut self.board_drag {
             if (world - *last).length() * self.tabs[self.active_tab].cam.z
                 >= board_path::FREEHAND_SAMPLE_SPACING_PX
             {
@@ -6994,13 +7043,19 @@ impl SlateApp {
                     }
                 }
             }
-            Some(BoardDrag::FreehandPen { mut points, .. }) => {
+            Some(BoardDrag::FreehandPen {
+                mut points,
+                mut widths,
+                ..
+            }) => {
                 board_path::append_freehand_endpoint(
                     &mut points,
                     world,
                     self.tabs[self.active_tab].cam.z,
                 );
-                self.finish_freehand_pen(points);
+                let last = widths.last().copied().unwrap_or_default();
+                widths.resize(points.len(), last);
+                self.finish_freehand_pen_widths(points, &widths);
             }
             Some(BoardDrag::FreehandBrush { mut points, .. }) => {
                 board_path::append_freehand_endpoint(

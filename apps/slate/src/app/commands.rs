@@ -1864,6 +1864,19 @@ pub static SPECS: &[CommandSpec] = &[
         &["hud", "diameter"],
     ),
     spec(
+        "board.stroke.width_hud",
+        "Board",
+        "Scrub stroke width",
+        "Alt+right-drag while Pen, Line, Arc, Polyline, or Bezier is armed: \
+         the Brush size HUD, for that tool's own width only (no softness). \
+         Mid-draw it changes the shape being drawn; mid-stroke the Pen \
+         widens or narrows from that point on. Esc restores the width.",
+        None,
+        Repeat::Never,
+        BOARD,
+        &["hud", "width", "thickness"],
+    ),
+    spec(
         "board.brush.color_wheel",
         "Board",
         "Brush color wheel",

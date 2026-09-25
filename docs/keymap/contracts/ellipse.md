@@ -23,7 +23,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D07 | Direction / value locks | No new lock binding. Preserve existing locks; numeric property editing is separate from drawing. | pattern | 85 |
 | D08 | Numeric / manual entry | one diameter stringer for a circle; two local-axis diameters for an ellipse. Edits stay centered; a circle stays circular. Alternative: radius/radii labels instead of diameter. No size fields in the toolbar. | guess | 55 |
 | D09 | Preview & readouts | P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip. | pattern | 85 |
-| D10 | Cursor | Retain existing armed-tool cursor; controls use shell hover and focus feedback. | pattern | 85 |
+| D10 | Cursor | Crosshair while armed over the board (stated 2026-09-25). The P2.GhostFollow silhouette still follows it until the press, without the tinted pointer. Controls use shell hover and focus feedback. | stated | 100 |
 | D11 | Commit | P1.shape.properties: one accepted property editor or dimension value creates one invertible journal group; no-op edits add no history. | pattern | 85 |
 | D12 | Cancel | P1.shape.properties: Esc cancels the pending property edit and preserves selection. Existing creation cancellation remains unchanged. | pattern | 85 |
 | D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |

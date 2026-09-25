@@ -41,14 +41,17 @@ fn arc_steps(radius: f32, angle: f32, tolerance: f64) -> usize {
     }
 }
 
+/// `widths`, when present, holds a full width per point and replaces
+/// `style.width` there; the taper still scales it.
 fn stations(
     points: &[[f32; 2]],
+    widths: Option<&[f32]>,
     style: &StrokeStyle,
     closed: bool,
     tolerance: f64,
     feather: f32,
 ) -> Vec<Station> {
-    if points.len() < 2 {
+    if points.len() < 2 || widths.is_some_and(|w| w.len() != points.len()) {
         return Vec::new();
     }
     let lengths = cumulative_arclength(points);
@@ -57,6 +60,13 @@ fn stations(
         return Vec::new();
     }
     let n = points.len();
+    let half = |i: usize| {
+        let styled = half_width_at(style, lengths[i] / total);
+        match widths {
+            None => styled,
+            Some(widths) => styled / (style.width * 0.5) * widths[i].max(0.0) * 0.5,
+        }
+    };
     let mut out = Vec::with_capacity(n + 16);
     if closed {
         for i in 0..n {
@@ -67,7 +77,7 @@ fn stations(
                 points[i],
                 incoming,
                 outgoing,
-                half_width_at(style, lengths[i] / total),
+                half(i),
                 style.join,
                 tolerance,
                 feather,
@@ -79,7 +89,7 @@ fn stations(
             &mut out,
             points[0],
             first,
-            half_width_at(style, 0.0),
+            half(0),
             style.cap,
             true,
             tolerance,
@@ -95,7 +105,7 @@ fn stations(
                 points[i],
                 incoming,
                 outgoing,
-                half_width_at(style, lengths[i] / total),
+                half(i),
                 style.join,
                 tolerance,
                 feather,
@@ -106,7 +116,7 @@ fn stations(
             &mut out,
             points[n - 1],
             last,
-            half_width_at(style, 1.0),
+            half(n - 1),
             style.cap,
             false,
             tolerance,
@@ -119,6 +129,7 @@ fn stations(
 pub(crate) fn tessellate_run(
     mesh: &mut InkMesh,
     points: &[[f32; 2]],
+    widths: Option<&[f32]>,
     style: &StrokeStyle,
     feather: f32,
     closed: bool,
@@ -127,8 +138,15 @@ pub(crate) fn tessellate_run(
     if style.width <= 0.0 || !feather.is_finite() || feather < 0.0 {
         return;
     }
-    let points = limit_chords(points, chord_limit(tolerance, feather));
-    let mut sections = stations(&points, style, closed, tolerance, feather);
+    let (points, widths) = limit_chords(points, widths, chord_limit(tolerance, feather));
+    let mut sections = stations(
+        &points,
+        widths.as_deref(),
+        style,
+        closed,
+        tolerance,
+        feather,
+    );
     if sections.len() < 2 {
         return;
     }
@@ -142,11 +160,12 @@ pub(crate) fn tessellate_run(
 /// Closed strokes have two opposite-winding contours, not a bridged seam.
 pub(crate) fn run_outline(
     points: &[[f32; 2]],
+    widths: Option<&[f32]>,
     style: &StrokeStyle,
     closed: bool,
     tolerance: f64,
 ) -> Vec<Vec<[f32; 2]>> {
-    let sections = stations(points, style, closed, tolerance, 0.0);
+    let sections = stations(points, widths, style, closed, tolerance, 0.0);
     if sections.len() < 2 {
         return Vec::new();
     }
@@ -271,25 +290,43 @@ fn chord_limit(tolerance: f64, feather: f32) -> f32 {
     (tolerance as f32 * 8.0).max(0.75)
 }
 
-fn limit_chords(points: &[[f32; 2]], max_len: f32) -> Vec<[f32; 2]> {
+/// Split long chords; per-point widths are interpolated onto the new points.
+fn limit_chords(
+    points: &[[f32; 2]],
+    widths: Option<&[f32]>,
+    max_len: f32,
+) -> (Vec<[f32; 2]>, Option<Vec<f32>>) {
+    let widths = widths.filter(|w| w.len() == points.len());
     if points.len() < 2 || !max_len.is_finite() {
-        return points.to_vec();
+        return (points.to_vec(), widths.map(<[f32]>::to_vec));
     }
     let mut out = Vec::with_capacity(points.len());
+    let mut out_widths = widths.map(|w| {
+        let mut v = Vec::with_capacity(w.len());
+        v.push(w[0]);
+        v
+    });
     out.push(points[0]);
-    for pair in points.windows(2) {
+    for (k, pair) in points.windows(2).enumerate() {
         let (a, b) = (pair[0], pair[1]);
         let delta = sub(b, a);
         let len = (delta[0] * delta[0] + delta[1] * delta[1]).sqrt();
         let steps = (len / max_len).ceil() as usize;
         if steps > 1 {
             for i in 1..steps {
-                out.push(add(a, scale(delta, i as f32 / steps as f32)));
+                let t = i as f32 / steps as f32;
+                out.push(add(a, scale(delta, t)));
+                if let (Some(ow), Some(w)) = (out_widths.as_mut(), widths) {
+                    ow.push(w[k] + (w[k + 1] - w[k]) * t);
+                }
             }
         }
         out.push(b);
+        if let (Some(ow), Some(w)) = (out_widths.as_mut(), widths) {
+            ow.push(w[k + 1]);
+        }
     }
-    out
+    (out, out_widths)
 }
 
 fn emit_strip(mesh: &mut InkMesh, stations: &[Station], feather: f32) {

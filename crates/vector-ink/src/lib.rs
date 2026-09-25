@@ -84,7 +84,10 @@ pub use stamp::{
     stamp_contours_at, stamp_line, stamp_polyline, stamp_segment, stamp_tipped, tip_coverage,
     tipped_contours, StampImage, StampStyle, TipPoint,
 };
-pub use stroke::{stroke_bounds, stroke_mesh, stroke_outline, stroke_ribbon};
+pub use stroke::{
+    stroke_bounds, stroke_mesh, stroke_mesh_tipped, stroke_outline, stroke_outline_tipped,
+    stroke_ribbon,
+};
 pub use tile::{
     composite_stroke, composite_strokes, composite_strokes_tiled, ink_bounds, source_over_region,
     tile_index, tile_origin, StrokeInk, TILE_PX,

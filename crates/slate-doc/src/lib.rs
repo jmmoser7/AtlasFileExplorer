@@ -26,7 +26,7 @@ mod view;
 pub mod wire;
 pub mod wire_host;
 
-pub use create_style::{CreateStyleMemory, StyleMemorySlot};
+pub use create_style::{CreateStyleMemory, StrokeTool, StyleMemorySlot};
 pub use doc::{SlateDoc, SLATE_EXTENSION};
 pub use error::SlateLoadError;
 pub use ids::{GroupId, ItemId, TagId};

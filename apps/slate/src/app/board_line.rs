@@ -13,7 +13,7 @@
 
 use eframe::egui::{self, Color32, Pos2, Vec2};
 use slate_doc::scene::{NodeKind, PathSeg, ShapeKind, ShapeNode, WorldRect};
-use slate_doc::{Node, NodeId};
+use slate_doc::{Node, NodeId, StrokeTool};
 use vector_ink::kurbo::PathEl;
 
 use super::board::{BoardTool, BoardXf};
@@ -270,16 +270,16 @@ impl SlateApp {
         true
     }
 
-    /// Build and journal the parametric 2-point line node: stroke from
-    /// P1.curve.create-style (last edit) or Square-cap draft defaults at
-    /// fg; one-shot tool returns to Select (D02/D11).
+    /// Build and journal the parametric 2-point line node: stroke from the
+    /// Line tool's own memory (P1.curve.create-style) or Square-cap draft
+    /// defaults; one-shot tool returns to Select (D02/D11).
     pub(crate) fn commit_line(&mut self, a: Pos2, b: Pos2) -> Option<NodeId> {
         let (rect, data) = board_path::points_to_path_data(&[a, b], false);
         if data.is_empty() {
             return None;
         }
-        let stroke = self.stroke_for_new_curve();
-        let opacity = self.opacity_for_new_node(false);
+        let stroke = self.stroke_for_tool(StrokeTool::Line);
+        let opacity = self.opacity_for_tool(StrokeTool::Line);
         let node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::Shape(ShapeNode {
@@ -302,7 +302,7 @@ impl SlateApp {
         self.line_draft = None;
         self.set_board_tool(BoardTool::Select);
         if let Some(n) = self.doc().scene.node(node.id).cloned() {
-            self.note_last_style(&n);
+            self.note_tool_style(StrokeTool::Line, &n);
         }
         self.push_history(
             atlas_commands::CommandId("board.tool.line"),
@@ -407,8 +407,9 @@ impl SlateApp {
 
     // ----- painting ---------------------------------------------------------------
 
-    /// Rubber band from the first point to the resolved cursor, in the fg
-    /// color the committed stroke will use (D09).
+    /// Rubber band from the first point to the resolved cursor, in the
+    /// Line tool's own color and width, the ones the committed stroke will
+    /// use (D09).
     pub(crate) fn paint_line_draft(&self, painter: &egui::Painter, xf: &BoardXf) {
         let Some(d) = &self.line_draft else {
             return;
@@ -425,8 +426,9 @@ impl SlateApp {
             d.start.y as f64,
         ));
         bez.line_to(vector_ink::kurbo::Point::new(c.x as f64, c.y as f64));
-        let fg = super::board::rgba32(self.board_colors.fg);
-        board_path::paint_path_preview(painter, xf, fg, &bez);
+        let stroke = self.stroke_for_tool(StrokeTool::Line);
+        let ink = super::board::rgba32(stroke.color);
+        board_path::paint_path_preview(painter, xf, ink, stroke.width, &bez);
     }
 
     /// Endpoint grips on the selected simple line — no resize bbox (D13).

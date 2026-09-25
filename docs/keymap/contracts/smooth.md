@@ -21,7 +21,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D07 | Direction / value locks | n/a | pattern | 85 |
 | D08 | Numeric / manual entry | `[` / `]` screen-px tiers (same as Brush). Strength 0.1..=1 via Shift+right-drag. | stated | 100 |
 | D09 | Preview & readouts | Canvas-scaled soft disc (same as Eraser). Live preview replaces touched nodes until release. Bottom readout: diameter, softness, strength %. | stated | 100 |
-| D10 | Cursor | Filled radial tip + white diameter ring (P0.9); gray fill for Smooth. | stated | 100 |
+| D10 | Cursor | Filled radial tip + white diameter ring (P0.9); gray fill for Smooth. The circle is the cursor: the OS arrow hides under it over the board (stated 2026-09-25). | stated | 100 |
 | D11 | Commit | Release journals one invertible group of `SceneCmd::Patch` for every touched node (vectors: refit path; stamps: `Stroke::gaussian_blur`). Undo restores exact before snapshots. | stated | 100 |
 | D12 | Cancel | Esc drops the drag and live preview; no journal. | pattern | 85 |
 | D13 | Selected presentation | Unchanged during drag. | pattern | 85 |
