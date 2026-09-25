@@ -2786,7 +2786,7 @@ impl Scene {
         copy.rect = copy.rect.translated(dx, dy);
         crate::agent_chat::remap_view(&mut copy, |_| None);
         if let NodeKind::Image(ref mut img) = copy.kind {
-            crate::image_paint::fresh_layer_node_ids(self, img);
+            crate::image_paint::fresh_layer_node_ids(img, || self.alloc_id());
         }
         copy
     }
@@ -3105,7 +3105,9 @@ impl Scene {
                 layer_ref.nodes.insert(*index, node.clone());
                 self.next_node_id = self.next_node_id.max(node.id.0);
                 self.bump_gen();
-                self.invalidate_derived();
+                if spatial_current {
+                    self.spatial.borrow_mut().stamp(self.scene_gen);
+                }
                 true
             }
             SceneCmd::LayerNodeRemove {
@@ -3122,7 +3124,9 @@ impl Scene {
                 }
                 layer_ref.nodes.remove(*index);
                 self.bump_gen();
-                self.invalidate_derived();
+                if spatial_current {
+                    self.spatial.borrow_mut().stamp(self.scene_gen);
+                }
                 true
             }
             SceneCmd::LayerNodePatch {
@@ -3143,7 +3147,9 @@ impl Scene {
                 }
                 layer_ref.nodes[*index] = (**after).clone();
                 self.bump_gen();
-                self.invalidate_derived();
+                if spatial_current {
+                    self.spatial.borrow_mut().stamp(self.scene_gen);
+                }
                 true
             }
         }

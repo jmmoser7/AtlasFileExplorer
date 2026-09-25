@@ -126,10 +126,10 @@ pub struct LayerNodeRef {
 }
 
 /// Fresh [`NodeId`]s for every child on duplicated or pasted images.
-pub fn fresh_layer_node_ids(scene: &mut crate::scene::Scene, img: &mut ImageNode) {
+pub fn fresh_layer_node_ids(img: &mut ImageNode, mut next_id: impl FnMut() -> NodeId) {
     for layer in &mut img.paint_layers {
         for child in &mut layer.nodes {
-            child.id = scene.alloc_id();
+            child.id = next_id();
         }
     }
 }
