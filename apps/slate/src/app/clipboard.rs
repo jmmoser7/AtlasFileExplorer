@@ -113,6 +113,13 @@ pub fn remap_for_paste(
             if let Some(g) = n.group {
                 n.group = Some(*group_map.entry(g).or_insert_with(&mut next_group));
             }
+            if let NodeKind::Image(ref mut img) = n.kind {
+                for layer in &mut img.paint_layers {
+                    for child in &mut layer.nodes {
+                        child.id = next_id();
+                    }
+                }
+            }
             if let NodeKind::Connector(c) = &mut n.kind {
                 if let Some(binding) = &mut c.binding {
                     if binding.order.is_empty() {

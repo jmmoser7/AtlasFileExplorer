@@ -107,6 +107,15 @@ pub struct LayerNodeRef {
     pub node_index: usize,
 }
 
+/// Fresh [`NodeId`]s for every child on duplicated or pasted images.
+pub fn fresh_layer_node_ids(scene: &mut crate::scene::Scene, img: &mut ImageNode) {
+    for layer in &mut img.paint_layers {
+        for child in &mut layer.nodes {
+            child.id = scene.alloc_id();
+        }
+    }
+}
+
 /// Find a paint-layer child by its stable [`NodeId`].
 pub fn find_layer_node(scene: &crate::scene::Scene, id: NodeId) -> Option<LayerNodeRef> {
     for host in &scene.nodes {

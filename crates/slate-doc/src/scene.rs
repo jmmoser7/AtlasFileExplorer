@@ -2695,7 +2695,7 @@ impl Scene {
         self.spatial.borrow().rebuilds()
     }
 
-    fn alloc_id(&mut self) -> NodeId {
+    pub(crate) fn alloc_id(&mut self) -> NodeId {
         self.next_node_id += 1;
         NodeId(self.next_node_id)
     }
@@ -2785,6 +2785,9 @@ impl Scene {
         copy.id = self.alloc_id();
         copy.rect = copy.rect.translated(dx, dy);
         crate::agent_chat::remap_view(&mut copy, |_| None);
+        if let NodeKind::Image(ref mut img) = copy.kind {
+            crate::image_paint::fresh_layer_node_ids(self, img);
+        }
         copy
     }
 
@@ -2918,6 +2921,28 @@ pub enum SceneCmd {
     /// Replace a node's full state (`before.id == after.id`). Covers move,
     /// resize, and every style edit.
     Patch { before: Box<Node>, after: Box<Node> },
+    /// Append one child on an image paint layer (not a z-list node).
+    LayerNodeAdd {
+        host: NodeId,
+        layer: crate::image_paint::PaintLayerId,
+        index: usize,
+        node: Node,
+    },
+    /// Remove one paint-layer child by stable index + id.
+    LayerNodeRemove {
+        host: NodeId,
+        layer: crate::image_paint::PaintLayerId,
+        index: usize,
+        node: Node,
+    },
+    /// Scoped edit to one paint-layer child (eraser marks, etc.).
+    LayerNodePatch {
+        host: NodeId,
+        layer: crate::image_paint::PaintLayerId,
+        index: usize,
+        before: Box<Node>,
+        after: Box<Node>,
+    },
 }
 
 impl SceneCmd {
@@ -2935,8 +2960,55 @@ impl SceneCmd {
                 before: after.clone(),
                 after: before.clone(),
             },
+            SceneCmd::LayerNodeAdd {
+                host,
+                layer,
+                index,
+                node,
+            } => SceneCmd::LayerNodeRemove {
+                host: *host,
+                layer: *layer,
+                index: *index,
+                node: node.clone(),
+            },
+            SceneCmd::LayerNodeRemove {
+                host,
+                layer,
+                index,
+                node,
+            } => SceneCmd::LayerNodeAdd {
+                host: *host,
+                layer: *layer,
+                index: *index,
+                node: node.clone(),
+            },
+            SceneCmd::LayerNodePatch {
+                host,
+                layer,
+                index,
+                before,
+                after,
+            } => SceneCmd::LayerNodePatch {
+                host: *host,
+                layer: *layer,
+                index: *index,
+                before: after.clone(),
+                after: before.clone(),
+            },
         }
     }
+}
+
+fn paint_layer_slot<'a>(
+    nodes: &'a mut [Node],
+    host: NodeId,
+    layer: crate::image_paint::PaintLayerId,
+) -> Option<&'a mut crate::image_paint::PaintLayer> {
+    let idx = nodes.iter().position(|n| n.id == host)?;
+    let NodeKind::Image(img) = &mut nodes[idx].kind else {
+        return None;
+    };
+    img.paint_layers.iter_mut().find(|l| l.id == layer)
 }
 
 impl Scene {
@@ -3010,6 +3082,68 @@ impl Scene {
                 } else {
                     self.invalidate_derived();
                 }
+                true
+            }
+            SceneCmd::LayerNodeAdd {
+                host,
+                layer,
+                index,
+                node,
+            } => {
+                if self.index_of(node.id).is_some() {
+                    return false;
+                }
+                let Some(layer_ref) = paint_layer_slot(&mut self.nodes, *host, *layer) else {
+                    return false;
+                };
+                if *index > layer_ref.nodes.len() {
+                    return false;
+                }
+                if layer_ref.nodes.iter().any(|n| n.id == node.id) {
+                    return false;
+                }
+                layer_ref.nodes.insert(*index, node.clone());
+                self.next_node_id = self.next_node_id.max(node.id.0);
+                self.bump_gen();
+                self.invalidate_derived();
+                true
+            }
+            SceneCmd::LayerNodeRemove {
+                host,
+                layer,
+                index,
+                node,
+            } => {
+                let Some(layer_ref) = paint_layer_slot(&mut self.nodes, *host, *layer) else {
+                    return false;
+                };
+                if layer_ref.nodes.get(*index).map(|n| n.id) != Some(node.id) {
+                    return false;
+                }
+                layer_ref.nodes.remove(*index);
+                self.bump_gen();
+                self.invalidate_derived();
+                true
+            }
+            SceneCmd::LayerNodePatch {
+                host,
+                layer,
+                index,
+                before,
+                after,
+            } => {
+                if before.id != after.id {
+                    return false;
+                }
+                let Some(layer_ref) = paint_layer_slot(&mut self.nodes, *host, *layer) else {
+                    return false;
+                };
+                if layer_ref.nodes.get(*index).map(|n| n.id) != Some(before.id) {
+                    return false;
+                }
+                layer_ref.nodes[*index] = (**after).clone();
+                self.bump_gen();
+                self.invalidate_derived();
                 true
             }
         }

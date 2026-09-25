@@ -89,6 +89,65 @@ fn layer_stroke_follows_image_move() {
     assert!((world.rect.x - 60.0).abs() < 1e-3);
 }
 
+#[test]
+fn layer_node_add_undo_round_trip() {
+    use slate_doc::image_paint::PaintLayer;
+    use slate_doc::scene::{Corner, ShapeKind, ShapeNode, Stroke};
+    let mut scene = Scene::default();
+    let host = scene.build_node(
+        WorldRect::new(0.0, 0.0, 100.0, 100.0),
+        NodeKind::Image(ImageNode::new(ItemId(1))),
+    );
+    let host_id = host.id;
+    scene.apply(&SceneCmd::Add {
+        index: 0,
+        node: host,
+    });
+    let layer_id = PaintLayerId(1);
+    let stroke = scene.build_node(
+        WorldRect::new(0.1, 0.1, 0.2, 0.2),
+        NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Rect,
+            fill: None,
+            stroke: Stroke::none(),
+            corner: Corner::Square,
+            flip: false,
+            path: None,
+            text: None,
+        }),
+    );
+    let mut before = scene.node(host_id).unwrap().clone();
+    let NodeKind::Image(ref mut img) = before.kind else {
+        panic!();
+    };
+    img.paint_layers.push(PaintLayer::new(layer_id));
+    scene.apply(&SceneCmd::Patch {
+        before: Box::new(scene.node(host_id).unwrap().clone()),
+        after: Box::new(before),
+    });
+    assert!(scene.apply(&SceneCmd::LayerNodeAdd {
+        host: host_id,
+        layer: layer_id,
+        index: 0,
+        node: stroke,
+    }));
+    let NodeKind::Image(img) = &scene.node(host_id).unwrap().kind else {
+        panic!();
+    };
+    assert_eq!(img.paint_layers[0].nodes.len(), 1);
+    let removed = img.paint_layers[0].nodes[0].clone();
+    assert!(scene.apply(&SceneCmd::LayerNodeRemove {
+        host: host_id,
+        layer: layer_id,
+        index: 0,
+        node: removed,
+    }));
+    let NodeKind::Image(img) = &scene.node(host_id).unwrap().kind else {
+        panic!();
+    };
+    assert!(img.paint_layers[0].nodes.is_empty());
+}
+
 trait ImageLayersLen {
     fn image_layers_len(&self) -> usize;
 }

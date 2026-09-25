@@ -108,8 +108,32 @@ impl SlateApp {
         if !Self::supports_image_paint(id, self) {
             return;
         }
+        let Some(node) = self.doc().scene.node(id).cloned() else {
+            return;
+        };
+        let NodeKind::Image(ref img) = node.kind else {
+            return;
+        };
+        let layer_index = self
+            .image_paint
+            .as_ref()
+            .filter(|s| s.image == id)
+            .map(|s| s.layer_index)
+            .unwrap_or_else(|| img.paint_layers.len().saturating_sub(1));
+        let focus = if img.paint_layers.is_empty() {
+            ImageStripFocus::Layer(0)
+        } else {
+            ImageStripFocus::Layer(layer_index.min(img.paint_layers.len() - 1))
+        };
         if self.image_paint.as_ref().map(|s| s.image) != Some(id) {
-            self.ensure_paint_layer(id);
+            self.image_paint = Some(ImagePaintSession {
+                image: id,
+                layer_index: match focus {
+                    ImageStripFocus::Layer(i) => i,
+                    ImageStripFocus::Filter => 0,
+                },
+                focus,
+            });
         }
     }
 
@@ -262,51 +286,83 @@ impl SlateApp {
         )
     }
 
-    /// When hosting, route scene Adds into the active paint layer instead.
-    pub fn try_commit_layer_nodes(&mut self, nodes: Vec<Node>) -> bool {
-        let Some(session) = self.image_paint.clone() else {
-            return false;
-        };
+    /// When image-hosting, commit strokes to the active layer. `None` → use
+    /// [`SlateApp::add_nodes`]. `Some` may be empty when nothing intersected (D03).
+    pub fn commit_paint_layer_nodes(&mut self, nodes: Vec<Node>) -> Option<Vec<NodeId>> {
+        let session = self.image_paint.clone()?;
         if nodes.is_empty() {
-            return false;
+            return Some(Vec::new());
         }
         if !nodes.iter().all(|n| layer_node_kind_allowed(&n.kind)) {
-            return false;
+            return Some(Vec::new());
         }
         let Some(host) = self.doc().scene.node(session.image).cloned() else {
-            return false;
+            return Some(Vec::new());
         };
         let NodeKind::Image(ref host_img) = host.kind else {
-            return false;
+            return Some(Vec::new());
         };
-        if !nodes
-            .iter()
-            .all(|n| self.stroke_intersects_image_window(&host, host_img, n))
-        {
-            return false;
+        let accepted: Vec<Node> = nodes
+            .into_iter()
+            .filter(|n| self.stroke_intersects_image_window(&host, host_img, n))
+            .collect();
+        if accepted.is_empty() {
+            return Some(Vec::new());
         }
-        let locals: Vec<Node> = nodes
+        let locals: Vec<Node> = accepted
             .iter()
             .map(|n| layer_node_from_world(&host, host_img, n))
             .collect();
-        let Some(before) = self.doc().scene.node(session.image).cloned() else {
-            return false;
+        let ids: Vec<NodeId> = locals.iter().map(|n| n.id).collect();
+        let mut cmds = Vec::new();
+        let (layer_id, layer_index) = if host_img.paint_layers.is_empty() {
+            let before = host.clone();
+            let layer_id = Self::next_paint_layer_id(host_img);
+            let mut after = before.clone();
+            let NodeKind::Image(ref mut img) = after.kind else {
+                return Some(Vec::new());
+            };
+            img.paint_layers.push(PaintLayer::new(layer_id));
+            cmds.push(SceneCmd::Patch {
+                before: Box::new(before),
+                after: Box::new(after),
+            });
+            (layer_id, 0)
+        } else {
+            let idx = session.layer_index.min(host_img.paint_layers.len() - 1);
+            (host_img.paint_layers[idx].id, idx)
         };
-        let mut after = before.clone();
-        let NodeKind::Image(ref mut img) = after.kind else {
-            return false;
-        };
-        let Some(layer) = img.paint_layers.get_mut(session.layer_index) else {
-            return false;
-        };
-        layer.nodes.extend(locals);
-        if !self.commit_scene(vec![SceneCmd::Patch {
-            before: Box::new(before),
-            after: Box::new(after),
-        }]) {
-            return false;
+        let base = self
+            .doc()
+            .scene
+            .node(session.image)
+            .and_then(|n| match &n.kind {
+                NodeKind::Image(img) => img
+                    .paint_layers
+                    .iter()
+                    .find(|l| l.id == layer_id)
+                    .map(|l| l.nodes.len()),
+                _ => None,
+            })
+            .unwrap_or(0);
+        for (i, local) in locals.into_iter().enumerate() {
+            cmds.push(SceneCmd::LayerNodeAdd {
+                host: session.image,
+                layer: layer_id,
+                index: base + i,
+                node: local,
+            });
         }
-        true
+        if !self.commit_scene(cmds) {
+            return Some(Vec::new());
+        }
+        if let Some(session) = &mut self.image_paint {
+            if session.image == host.id {
+                session.layer_index = layer_index;
+                session.focus = ImageStripFocus::Layer(layer_index);
+            }
+        }
+        Some(ids)
     }
 
     fn stroke_intersects_image_window(&self, host: &Node, _img: &ImageNode, node: &Node) -> bool {
@@ -498,8 +554,8 @@ impl SlateApp {
         span: slate_doc::scene::StrokeSpan,
         live: &std::collections::HashMap<NodeId, super::board_path::EraseLive>,
     ) -> (Vec<SceneCmd>, usize) {
-        let mut by_host: std::collections::HashMap<NodeId, Node> = std::collections::HashMap::new();
-        let mut removes: Vec<LayerNodeRef> = Vec::new();
+        let mut cmds = Vec::new();
+        let mut removes: Vec<(LayerNodeRef, Node, PaintLayerId)> = Vec::new();
         let mut touched = 0usize;
         for id in spot {
             if live.get(id).is_some_and(|l| !l.changed) {
@@ -514,23 +570,23 @@ impl SlateApp {
             if session.image != loc.image || session.layer_index != loc.layer_index {
                 continue;
             }
-            let host = by_host
-                .entry(loc.image)
-                .or_insert_with(|| self.doc().scene.node(loc.image).unwrap().clone());
-            let host_snapshot = host.clone();
-            let NodeKind::Image(ref snap_img) = host_snapshot.kind else {
+            let Some(host) = self.doc().scene.node(loc.image).cloned() else {
                 continue;
             };
-            let NodeKind::Image(ref mut img) = host.kind else {
+            let NodeKind::Image(ref snap_img) = host.kind else {
                 continue;
             };
-            let Some(layer) = img.paint_layers.get_mut(loc.layer_index) else {
+            let Some(layer_id) = snap_img.paint_layers.get(loc.layer_index).map(|l| l.id) else {
                 continue;
             };
-            let Some(local) = layer.nodes.get_mut(loc.node_index) else {
+            let Some(before_local) = snap_img.paint_layers[loc.layer_index]
+                .nodes
+                .get(loc.node_index)
+                .cloned()
+            else {
                 continue;
             };
-            let mut world = layer_node_to_world(&host_snapshot, snap_img, local);
+            let mut world = layer_node_to_world(&host, snap_img, &before_local);
             let NodeKind::Shape(shape) = &mut world.kind else {
                 continue;
             };
@@ -558,34 +614,30 @@ impl SlateApp {
             }
             touched += 1;
             if gone {
-                removes.push(loc);
+                removes.push((loc, before_local, layer_id));
             } else {
-                *local = layer_node_from_world(&host_snapshot, snap_img, &world);
+                let after_local = layer_node_from_world(&host, snap_img, &world);
+                cmds.push(SceneCmd::LayerNodePatch {
+                    host: loc.image,
+                    layer: layer_id,
+                    index: loc.node_index,
+                    before: Box::new(before_local),
+                    after: Box::new(after_local),
+                });
             }
         }
         removes.sort_by(|a, b| {
-            b.layer_index
-                .cmp(&a.layer_index)
-                .then(b.node_index.cmp(&a.node_index))
+            b.0.layer_index
+                .cmp(&a.0.layer_index)
+                .then(b.0.node_index.cmp(&a.0.node_index))
         });
-        for loc in removes {
-            if let NodeKind::Image(ref mut img) = by_host.get_mut(&loc.image).unwrap().kind {
-                if let Some(layer) = img.paint_layers.get_mut(loc.layer_index) {
-                    if loc.node_index < layer.nodes.len() {
-                        layer.nodes.remove(loc.node_index);
-                    }
-                }
-            }
-        }
-        let mut cmds = Vec::new();
-        for (image, after) in by_host {
-            let before = self.doc().scene.node(image).unwrap().clone();
-            if before != after {
-                cmds.push(SceneCmd::Patch {
-                    before: Box::new(before),
-                    after: Box::new(after),
-                });
-            }
+        for (loc, node, layer_id) in removes {
+            cmds.push(SceneCmd::LayerNodeRemove {
+                host: loc.image,
+                layer: layer_id,
+                index: loc.node_index,
+                node,
+            });
         }
         (cmds, touched)
     }

@@ -66,6 +66,7 @@ pub enum Property {
     WireRouting(slate_doc::WireRouting),
     WireArrows(bool),
     ImageAdjust(ImageAdjust),
+    PaintLayerOpacity { layer_index: usize, opacity: f32 },
     TextFamily(scene::Typeface),
     TextSize(f32),
     TextAlign(scene::TextAlign),
@@ -150,6 +151,16 @@ impl Property {
                 scene::set_corner(node, Corner::from_parameters(chamfer, percent, amount));
             }
             Self::ImageAdjust(adjust) => scene::set_adjust(node, adjust),
+            Self::PaintLayerOpacity {
+                layer_index,
+                opacity,
+            } => {
+                if let NodeKind::Image(ref mut img) = node.kind {
+                    if let Some(layer) = img.paint_layers.get_mut(layer_index) {
+                        layer.opacity = opacity.clamp(0.0, 1.0);
+                    }
+                }
+            }
             Self::TextFamily(family) => {
                 map_text_style(node, |face, _, _, _| *face = family);
             }
@@ -497,17 +508,20 @@ fn photo_filter_gesture(
     FilterStep::Rest
 }
 
-fn layer_index_label(i: usize) -> &'static str {
-    match i {
-        0 => "1",
-        1 => "2",
-        2 => "3",
-        3 => "4",
-        4 => "5",
-        5 => "6",
-        6 => "7",
-        7 => "8",
-        _ => "9",
+fn layer_index_label(i: usize) -> std::borrow::Cow<'static, str> {
+    if i < 8 {
+        std::borrow::Cow::Borrowed(match i {
+            0 => "1",
+            1 => "2",
+            2 => "3",
+            3 => "4",
+            4 => "5",
+            5 => "6",
+            6 => "7",
+            _ => "8",
+        })
+    } else {
+        std::borrow::Cow::Owned(format!("{}", i + 1))
     }
 }
 
@@ -535,7 +549,7 @@ fn paint_layer_strip_state(
         })
         .collect();
     chips.push(chrome::LayerChip {
-        label: "+",
+        label: std::borrow::Cow::Borrowed("+"),
         thumb: None,
         is_add: true,
     });
@@ -1533,14 +1547,25 @@ impl SlateApp {
                 }
             }
             if layer_mode {
-                if let (Some(image), Some(a)) = (paint_image, edit.amount) {
+                if let Some(a) = edit.amount {
                     if let Some(session) = self.image_paint.as_ref() {
-                        if session.image == image {
-                            if let ImageStripFocus::Layer(idx) = session.focus {
-                                self.set_paint_layer_opacity(image, idx, a);
-                            }
+                        if let ImageStripFocus::Layer(idx) = session.focus {
+                            self.preview_shape_property(Property::PaintLayerOpacity {
+                                layer_index: idx,
+                                opacity: a,
+                            });
                         }
                     }
+                }
+                if ui.ctx().input(|i| i.pointer.any_released())
+                    && self
+                        .shape_properties
+                        .edits
+                        .iter()
+                        .any(|e| matches!(e, Property::PaintLayerOpacity { .. }))
+                {
+                    self.apply_shape_preview(ui.ctx(), false);
+                    self.push_history(atlas_commands::CommandId("board.image.layer.opacity"), None);
                 }
             } else {
                 if let Some(index) = edit.hovered {
