@@ -26,7 +26,7 @@ Inherits: P0.* (all), P1.node.select — deviations flagged below.
 | D14 | Post-edit | n/a. The sweep does not create or edit geometry. | pattern | 90 |
 | D15 | Non-goals | Cut: Alt forcing Window; W/C typed aliases; Ctrl removing hits; File Atlas card marquee; the Z zoom-window; portal-internal file marquee; Direct Selection (A) anchor marquee, which keeps selecting anchors whose points lie inside the box. | guess | 55 |
 | D16 | Create-style inheritance | n/a. The sweep does not read or write BoardLastStyle. | pattern | 90 |
-| D17 | Hit-testing & pick | Window selects a node only when its pick geometry lies entirely inside the rect. Stroke-pick shapes and connectors: every flattened centerline sample is inside. Other nodes: all four corners of the rotated rect are inside. Crossing keeps marquee_hits_node: stroke intersection, or the rotated rect intersecting the sweep. A line that only crosses the box is selected right-to-left and missed left-to-right. | stated | 100 |
+| D17 | Hit-testing & pick | Window selects a node only when its pick geometry lies entirely inside the rect. Stroke-pick shapes and connectors: every flattened centerline sample is inside. Other nodes: all four corners of the rotated rect are inside. Crossing keeps marquee_hits_node: stroke intersection, or the rotated rect intersecting the sweep. A line that only crosses the box is selected right-to-left and missed left-to-right. A single-click brush dab is its ink disc (stroke width across): window needs the whole disc inside, crossing needs the rect to touch the disc, and a click anywhere on the disc picks it. | stated | 100 |
 
 ## Feel constants
 

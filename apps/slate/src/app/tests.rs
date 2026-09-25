@@ -6224,6 +6224,39 @@ fn sweep_gp5_window_replaces() {
     assert!(!h.app.board_sel.contains(&other));
 }
 
+/// A single-click brush dab answers a left-to-right window sweep, a
+/// right-to-left crossing sweep that only grazes its rim, and a click on its
+/// ink away from the center.
+#[test]
+fn a_brush_dab_answers_sweeps_both_ways_and_a_click() {
+    let mut h = align_board("brush_dab_sweep");
+    h.app.brush_width = 20.0;
+    h.app.finish_freehand_brush(vec![Pos2::new(100.0, 100.0)]);
+    let dab = h.app.doc().scene.nodes.last().unwrap().id;
+    h.frame();
+    let none = egui::Modifiers::NONE;
+    let swept = |h: &mut Harness, from: Pos2, to: Pos2| {
+        h.app.board_sel.clear();
+        sweep(h, from, to, none);
+        h.app.board_sel.contains(&dab)
+    };
+    assert!(
+        swept(&mut h, Pos2::new(50.0, 50.0), Pos2::new(125.0, 125.0)),
+        "left-to-right window around the dab"
+    );
+    assert!(
+        swept(&mut h, Pos2::new(150.0, 150.0), Pos2::new(104.0, 104.0)),
+        "right-to-left crossing through the dab's rim"
+    );
+    assert!(
+        !swept(&mut h, Pos2::new(50.0, 50.0), Pos2::new(104.0, 104.0)),
+        "a window that cuts the dab leaves it"
+    );
+    h.app.board_sel.clear();
+    h.app.board_click_for_test(Pos2::new(106.0, 100.0), none);
+    assert!(h.app.board_sel.contains(&dab), "a click on the dab's ink");
+}
+
 /// A frame that covers the viewport selects its members on drag. A smaller
 /// frame still moves.
 #[test]

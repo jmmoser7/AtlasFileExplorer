@@ -4486,7 +4486,7 @@
           "decided": null
         },
         "D17": {
-          "behavior": "Window selects a node only when its pick geometry lies entirely inside the rect. Stroke-pick shapes and connectors: every flattened centerline sample is inside. Other nodes: all four corners of the rotated rect are inside. Crossing keeps marquee_hits_node: stroke intersection, or the rotated rect intersecting the sweep. A line that only crosses the box is selected right-to-left and missed left-to-right.",
+          "behavior": "Window selects a node only when its pick geometry lies entirely inside the rect. Stroke-pick shapes and connectors: every flattened centerline sample is inside. Other nodes: all four corners of the rotated rect are inside. Crossing keeps marquee_hits_node: stroke intersection, or the rotated rect intersecting the sweep. A line that only crosses the box is selected right-to-left and missed left-to-right. A single-click brush dab is its ink disc (stroke width across): window needs the whole disc inside, crossing needs the rect to touch the disc, and a click anywhere on the disc picks it.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
