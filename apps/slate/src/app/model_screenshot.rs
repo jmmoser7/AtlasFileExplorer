@@ -20,6 +20,25 @@ pub struct ModelScreenshotPopup {
     pub node: NodeId,
     /// Screen position when the menu opened (P2 pointer-attached chrome).
     pub anchor: Pos2,
+    /// The click that opened the menu is still this frame's click, so it
+    /// must not count as a click elsewhere.
+    pub opening: bool,
+}
+
+/// An export waiting for the model's mesh to finish parsing.
+pub struct PendingModelShot {
+    pub tab_id: u64,
+    pub node: NodeId,
+    /// `None` exports to the canvas.
+    pub dest: Option<PathBuf>,
+}
+
+/// Rendered viewport pixels plus the view they record.
+struct ModelShot {
+    rgba: Vec<u8>,
+    w: u32,
+    h: u32,
+    meta: ViewMetaInput,
 }
 
 enum ViewDropMsg {
@@ -40,6 +59,7 @@ impl SlateApp {
             tab_id: self.tab().id,
             node,
             anchor,
+            opening: true,
         });
     }
 
@@ -59,6 +79,7 @@ impl SlateApp {
         let menu_node = popup.node;
         let menu_tab = popup.tab_id;
         let anchor = popup.anchor;
+        let opening = popup.opening;
         let palette = self.palette();
         let mut choice_canvas = false;
         let mut choice_folder = false;
@@ -87,8 +108,11 @@ impl SlateApp {
                         }
                     })
             });
-        if resp.response.clicked_elsewhere() {
+        if resp.response.clicked_elsewhere() && !opening {
             dismiss = true;
+        }
+        if let Some(popup) = self.model_shot_popup.as_mut() {
+            popup.opening = false;
         }
         if choice_canvas {
             self.model_shot_popup = None;
@@ -118,77 +142,92 @@ impl SlateApp {
     }
 
     pub fn export_model_screenshot_canvas(&mut self, node: NodeId) {
-        match self.write_model_screenshot(node, None) {
-            Ok(Some((_path, Some(item)))) => {
-                if let Some(placed) = self.place_screenshot_beside_model(node, item) {
-                    self.board_sel = std::iter::once(placed).collect();
-                    self.toast("Viewport screenshot placed on the board");
-                }
-            }
-            Ok(None) => self.toast("Still loading the 3D model — try again"),
-            Ok(Some((_, None))) => {}
-            Err(e) => self.toast(&e),
-        }
+        self.run_model_screenshot(node, None, true);
     }
 
     pub fn finish_model_screenshot_save(&mut self, node: NodeId, path: PathBuf) {
-        match self.write_model_screenshot(node, Some(&path)) {
-            Ok(Some(_)) => self.toast(format!(
+        self.run_model_screenshot(node, Some(path), true);
+    }
+
+    /// Render, then write or place. A mesh that is not parsed yet (frozen
+    /// viewports show a cached poster) queues the export instead of asking
+    /// for a second click; `may_wait` is false on that retry.
+    fn run_model_screenshot(&mut self, node: NodeId, dest: Option<PathBuf>, may_wait: bool) {
+        match self.render_model_screenshot_rgba(node) {
+            Ok(Some(shot)) => self.save_model_screenshot(node, shot, dest),
+            Ok(None) if may_wait => {
+                self.toast("Loading the 3D model — the screenshot follows");
+                self.model_shot_pending = Some(PendingModelShot {
+                    tab_id: self.tab().id,
+                    node,
+                    dest,
+                });
+            }
+            Ok(None) => self.toast("The 3D model could not be rendered for a screenshot"),
+            Err(e) => self.toast(format!("Screenshot failed: {e}")),
+        }
+    }
+
+    /// Finish a queued export once its model has parsed (per frame; cheap
+    /// until then).
+    pub(crate) fn maintain_model_shot_pending(&mut self) {
+        let Some(pending) = self.model_shot_pending.as_ref() else {
+            return;
+        };
+        if self.at_home || pending.tab_id != self.tab().id {
+            return;
+        }
+        let node = pending.node;
+        let Some(info) = self.model_node_info(node) else {
+            self.model_shot_pending = None;
+            return;
+        };
+        let Some(outcome) = self.model3d.parse_outcome(&info.cache_key) else {
+            return;
+        };
+        let pending = self.model_shot_pending.take().expect("checked above");
+        match outcome {
+            Ok(()) => self.run_model_screenshot(node, pending.dest, false),
+            Err(e) => self.toast(format!("Screenshot failed: {e}")),
+        }
+    }
+
+    /// Write the file, then (canvas export) link and place it. Every failure
+    /// toasts.
+    fn save_model_screenshot(&mut self, node: NodeId, shot: ModelShot, dest: Option<PathBuf>) {
+        let to_canvas = dest.is_none();
+        let path = match dest {
+            Some(p) => p,
+            None => match self.model_screenshot_output_path(node, "png") {
+                Ok(p) => p,
+                Err(e) => return self.toast(&e),
+            },
+        };
+        if let Err(e) = write_model_screenshot(&path, &shot) {
+            return self.toast(format!("Screenshot failed: {e}"));
+        }
+        if !to_canvas {
+            return self.toast(format!(
                 "Saved {}",
                 path.file_name().unwrap_or_default().to_string_lossy()
-            )),
-            Ok(None) => self.toast("Still loading the 3D model — try again"),
-            Err(e) => self.toast(&e),
+            ));
         }
-    }
-
-    fn write_model_screenshot(
-        &mut self,
-        node: NodeId,
-        dest: Option<&Path>,
-    ) -> Result<Option<(PathBuf, Option<slate_doc::ItemId>)>, String> {
-        let Some((rgba, w, h, meta)) = self.render_model_screenshot_rgba(node)? else {
-            return Ok(None);
+        let Some(item) = self.item_for_path(&path) else {
+            return self.toast("Viewport screenshot could not be linked");
         };
-        let xmp = view_meta::build_xmp_packet(&meta).map_err(|e| e.to_string())?;
-        let path = if let Some(p) = dest {
-            p.to_path_buf()
-        } else {
-            self.model_screenshot_output_path(node, "png")?
-        };
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("png")
-            .to_ascii_lowercase();
-        match ext.as_str() {
-            "png" => view_meta::write_png_with_xmp(&path, &rgba, w, h, &xmp)
-                .map_err(|e| e.to_string())?,
-            "jpg" | "jpeg" => {
-                let rgb: Vec<u8> = rgba.chunks(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
-                view_meta::write_jpeg_with_xmp(&path, &rgb, w, h, 92, &xmp)
-                    .map_err(|e| e.to_string())?;
+        match self.place_screenshot_beside_model(node, item) {
+            Some(placed) => {
+                self.board_sel = std::iter::once(placed).collect();
+                self.toast("Viewport screenshot placed on the board");
             }
-            "webp" => view_meta::write_webp_with_xmp(&path, &rgba, w, h, &xmp)
-                .map_err(|e| e.to_string())?,
-            _ => return Err("Use PNG, JPEG, or WebP".into()),
+            None => self.toast(format!(
+                "Saved {} but could not place it on the board",
+                path.display()
+            )),
         }
-        if dest.is_some() {
-            return Ok(Some((path, None)));
-        }
-        let item = self
-            .item_for_path(&path)
-            .ok_or("Viewport screenshot could not be linked")?;
-        Ok(Some((path, Some(item))))
     }
 
-    fn render_model_screenshot_rgba(
-        &mut self,
-        node: NodeId,
-    ) -> Result<Option<(Vec<u8>, u32, u32, ViewMetaInput)>, String> {
+    fn render_model_screenshot_rgba(&mut self, node: NodeId) -> Result<Option<ModelShot>, String> {
         let info = self
             .model_node_info(node)
             .ok_or("That node is not a 3D model.")?;
@@ -229,7 +268,7 @@ impl SlateApp {
             rgba.extend_from_slice(&p.to_srgba_unmultiplied());
         }
         let meta = self.view_meta_input(node, &info, cam, w, h, &adjust)?;
-        Ok(Some((rgba, w, h, meta)))
+        Ok(Some(ModelShot { rgba, w, h, meta }))
     }
 
     fn view_meta_input(
@@ -488,6 +527,30 @@ impl SlateApp {
     }
 }
 
+/// Encode by extension with the view packet embedded (PNG, JPEG, WebP).
+fn write_model_screenshot(path: &Path, shot: &ModelShot) -> Result<(), String> {
+    let xmp = view_meta::build_xmp_packet(&shot.meta).map_err(|e| e.to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png")
+        .to_ascii_lowercase();
+    let (rgba, w, h) = (&shot.rgba, shot.w, shot.h);
+    match ext.as_str() {
+        "png" => view_meta::write_png_with_xmp(path, rgba, w, h, &xmp),
+        "jpg" | "jpeg" => {
+            let rgb: Vec<u8> = rgba.chunks(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+            view_meta::write_jpeg_with_xmp(path, &rgb, w, h, 92, &xmp)
+        }
+        "webp" => view_meta::write_webp_with_xmp(path, rgba, w, h, &xmp),
+        _ => return Err("Use PNG, JPEG, or WebP".into()),
+    }
+    .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::tests::Harness;
@@ -528,6 +591,29 @@ mod tests {
             h.frame();
         }
         (h, id)
+    }
+
+    fn click(h: &mut Harness, p: Pos2) {
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(p)));
+        for pressed in [true, false] {
+            h.frame_with(|input| {
+                input.events.push(egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                });
+            });
+        }
+        h.frame();
+    }
+
+    fn click_screenshot_button(h: &mut Harness) {
+        let button = h
+            .app
+            .model_screenshot_button()
+            .expect("a selected model offers the screenshot button");
+        click(h, button.center());
     }
 
     #[test]
@@ -603,6 +689,97 @@ mod tests {
         assert_eq!(
             binding.slot.as_deref(),
             Some(atlas_agent::InputSlot::View.id())
+        );
+    }
+
+    #[test]
+    fn the_screenshot_button_opens_a_menu_that_stays_open() {
+        let (mut h, id) = selected_model("shot_button_opens");
+        click_screenshot_button(&mut h);
+        let popup = h.app.model_shot_popup.as_ref().expect("the menu is open");
+        assert_eq!(popup.node, id);
+        h.frame();
+        assert!(h.app.model_shot_popup.is_some(), "and stays open");
+    }
+
+    #[test]
+    fn export_to_canvas_requests_a_capture_and_says_why_it_cannot() {
+        let (mut h, id) = selected_model("shot_export_no_gl");
+        click_screenshot_button(&mut h);
+        assert!(h.app.model_shot_popup.is_some(), "the menu is open");
+        let tab = h.app.tab().id;
+        let menu = h
+            .ctx
+            .memory(|m| m.area_rect(Id::new(("model_shot_menu", tab, id.0))))
+            .expect("the menu was laid out");
+        let nodes = h.app.doc().scene.nodes.len();
+        // "Export to canvas" is the upper of the two left-aligned buttons.
+        click(
+            &mut h,
+            Pos2::new(menu.left() + 24.0, menu.top() + menu.height() * 0.25),
+        );
+        assert!(h.app.model_shot_popup.is_none(), "choosing closes the menu");
+        assert!(
+            h.app
+                .toasts
+                .iter()
+                .any(|(m, _)| m.starts_with("Screenshot failed") && m.contains("GPU rendering")),
+            "the capture ran and its failure is visible: {:?}",
+            h.app.toasts.iter().map(|(m, _)| m).collect::<Vec<_>>()
+        );
+        assert!(
+            !h.app
+                .toasts
+                .iter()
+                .any(|(m, _)| m.starts_with("3D viewports")),
+            "the menu click did not reach the board beneath it"
+        );
+        assert_eq!(h.app.doc().scene.nodes.len(), nodes);
+    }
+
+    #[test]
+    fn a_rendered_screenshot_lands_as_one_image_node_and_one_file() {
+        let (mut h, id) = selected_model("shot_writer");
+        let info = h.app.model_node_info(id).unwrap();
+        let (w, hh) = (8u32, 4u32);
+        let cam = ModelCamera {
+            yaw: 0.7,
+            distance: 5.0,
+            ..info.cam
+        };
+        let meta = h
+            .app
+            .view_meta_input(id, &info, cam, w, hh, &ImageAdjust::default())
+            .unwrap();
+        let shot = ModelShot {
+            rgba: vec![200; (w * hh * 4) as usize],
+            w,
+            h: hh,
+            meta,
+        };
+        let before = h.app.doc().scene.nodes.len();
+        h.app.save_model_screenshot(id, shot, None);
+        let scene = &h.app.doc().scene;
+        assert_eq!(scene.nodes.len(), before + 1, "exactly one node added");
+        let placed = scene.nodes.last().unwrap();
+        let NodeKind::Image(img) = &placed.kind else {
+            panic!("an image node");
+        };
+        let path = h.app.doc().item(img.item).unwrap().path.clone();
+        assert!(
+            path.starts_with(h.base.join("assets")),
+            "{}",
+            path.display()
+        );
+        let files: Vec<_> = std::fs::read_dir(h.base.join("assets")).unwrap().collect();
+        assert_eq!(files.len(), 1, "exactly one file written");
+        let restored = view_meta::read_view_meta(&path)
+            .unwrap()
+            .expect("view packet");
+        assert!((restored.camera.yaw - 0.7).abs() < 1e-4);
+        assert_eq!(
+            h.app.board_sel.iter().copied().collect::<Vec<_>>(),
+            vec![placed.id]
         );
     }
 

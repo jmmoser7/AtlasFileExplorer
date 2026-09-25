@@ -886,6 +886,15 @@ impl ModelSpace {
         any
     }
 
+    /// `None` while the file is still parsing, then whether it parsed.
+    pub(crate) fn parse_outcome(&self, cache_key: &str) -> Option<Result<(), String>> {
+        match self.models.get(cache_key).map(|e| &e.state) {
+            Some(ModelState::Loading) => None,
+            Some(ModelState::Failed(e) | ModelState::External(e)) => Some(Err(e.clone())),
+            Some(ModelState::Ready(_)) | None => Some(Ok(())),
+        }
+    }
+
     /// Parsed CPU mesh when ready (for picking / measurement).
     pub fn mesh_for_key(&mut self, cache_key: &str) -> Option<Arc<PreviewScene>> {
         self.ready_model(cache_key)
@@ -1264,6 +1273,7 @@ impl SlateApp {
         self.queue_executable_sniffs();
         self.maintain_enscape();
         self.maintain_view_drop();
+        self.maintain_model_shot_pending();
         self.maintain_view_wire_cache();
         if self.tick_model_view_tweens() {
             ctx.request_repaint();

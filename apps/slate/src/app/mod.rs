@@ -452,6 +452,7 @@ pub struct SlateApp {
     /// Interactive 3D model viewport state (see `model3d.rs`).
     pub model3d: model3d::ModelSpace,
     pub(crate) model_shot_popup: Option<model_screenshot::ModelScreenshotPopup>,
+    model_shot_pending: Option<model_screenshot::PendingModelShot>,
     pending_view_drop: Option<model_screenshot::PendingViewDrop>,
     pending_view_wire_cache: Vec<model_wired_views::PendingViewWireCache>,
     /// Canvas video scrub and playback. Derived; not journaled.
@@ -836,6 +837,7 @@ impl SlateApp {
             frame_hwnd: 0,
             model3d: model3d::ModelSpace::default(),
             model_shot_popup: None,
+            model_shot_pending: None,
             pending_view_drop: None,
             pending_view_wire_cache: Vec::new(),
             video: board_video::VideoBoard::default(),
