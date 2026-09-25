@@ -552,6 +552,9 @@ impl SlateApp {
                 continue;
             }
             let host = self.wire_host(n);
+            if !host.offers_ports() {
+                continue;
+            }
             if let Some(port) = host
                 .ports()
                 .into_iter()

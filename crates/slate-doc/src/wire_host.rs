@@ -2,9 +2,9 @@
 //!
 //! Both interpreters resolve anchors through [`WireHost`] so a rotated rect
 //! keeps its ports on the same local edges, an ellipse keeps them on the
-//! axis tips (which lie on the curve), and an open stroke keeps them on
-//! the stroke itself. The AABB is only a fallback for area objects that
-//! have no richer silhouette facet yet.
+//! axis tips (which lie on the curve), and a closed stroke keeps them on
+//! the stroke itself. Open shapes offer none. The AABB is only a fallback
+//! for area objects that have no richer silhouette facet yet.
 //!
 //! ## Current kinds
 //!
@@ -12,8 +12,8 @@
 //! |------|-------|-------|
 //! | Rect, text, sticky, image, frame, portal, dock strip | Oriented box | Midpoints of the **local** edges, then rotated about the node center |
 //! | Ellipse | Oriented box | Same four local-axis extrema — those points lie on the ellipse |
-//! | Closed path / compound | Open stroke (closed loop) | The path itself, including the closing seam — never `node.rect` |
-//! | Line, arc, polyline, bezier, open path | Open stroke | Arclength `t = 0`, `0.5`, `1` (start / mid / end) |
+//! | Closed path / compound | Open stroke (closed loop) | Arclength `t = 0`, `0.5`, `1` on the path itself, including the closing seam — never `node.rect` |
+//! | Line, arc, polyline, Bézier span, pen stroke — unclosed ([`is_open_shape`]) | Open stroke | No ports and no new attachments. Wires saved earlier still resolve through [`WireHost::anchor`] |
 //! | Connector | — | No ports (filtered by the interaction layer) |
 //!
 //! ## Future kinds
@@ -63,6 +63,25 @@ pub struct WireHost {
     /// Typed inputs of a generator or text block. When present, the host's
     /// ports are these on the left edge plus one output at the right middle.
     flow: &'static [crate::agent_inputs::InputPort],
+    /// [`is_open_shape`]: no ports and no new attachments. Saved anchors
+    /// still resolve.
+    open_shape: bool,
+}
+
+/// An unclosed line, arc, polyline, Bézier span, or pen stroke. The single
+/// closedness predicate for wire ports: open shapes offer none.
+pub fn is_open_shape(node: &Node) -> bool {
+    let NodeKind::Shape(shape) = &node.kind else {
+        return false;
+    };
+    match shape.shape {
+        ShapeKind::Line => true,
+        ShapeKind::Path => shape
+            .path
+            .as_ref()
+            .is_some_and(|p| !p.closed || p.extra.iter().any(|c| !c.closed)),
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +106,7 @@ impl WireHost {
             rotation_deg: 0.0,
             kind: HostKind::Oriented { ellipse: false },
             flow: &[],
+            open_shape: false,
         }
     }
 
@@ -97,6 +117,7 @@ impl WireHost {
             rotation_deg: 0.0,
             kind: HostKind::Oriented { ellipse: true },
             flow: &[],
+            open_shape: false,
         }
     }
 
@@ -111,6 +132,7 @@ impl WireHost {
                 rotation_deg: node.rotation_deg,
                 kind: HostKind::Open(stroke),
                 flow: &[],
+                open_shape: is_open_shape(node),
             };
         }
         let ellipse = matches!(
@@ -122,7 +144,13 @@ impl WireHost {
             rotation_deg: node.rotation_deg,
             kind: HostKind::Oriented { ellipse },
             flow,
+            open_shape: is_open_shape(node),
         }
+    }
+
+    /// Open shapes offer no ports and take no new wire ends.
+    pub fn offers_ports(&self) -> bool {
+        !self.open_shape
     }
 
     /// A generator or text block: typed input ports and one output.
@@ -142,9 +170,13 @@ impl WireHost {
         matches!(self.kind, HostKind::Oriented { ellipse: true })
     }
 
-    /// Default spawn handles. Three on an open stroke, four on an area. A flow
-    /// node has its inputs down the left edge and one output on the right.
+    /// Default spawn handles. Three on a closed stroke, four on an area, none
+    /// on an open shape. A flow node has its inputs down the left edge and
+    /// one output on the right.
     pub fn ports(&self) -> Vec<WirePort> {
+        if !self.offers_ports() {
+            return Vec::new();
+        }
         if self.is_flow() {
             let mut ports: Vec<WirePort> = self
                 .flow
@@ -650,7 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn open_path_ports_are_start_mid_end() {
+    fn open_path_anchors_are_start_mid_end() {
         let rect = WorldRect::new(0.0, 0.0, 100.0, 50.0);
         let path = PathData {
             start: [0.0, 0.0],
@@ -660,28 +692,26 @@ mod tests {
         let node = shape_node(ShapeKind::Path, rect, 0.0, Some(path));
         let host = WireHost::from_node(&node);
         assert!(host.is_open());
-        let ports = host.ports();
-        assert_eq!(ports.len(), 3);
-        assert_eq!(ports[0].side, Side::Start);
-        assert_eq!(ports[1].side, Side::Mid);
-        assert_eq!(ports[2].side, Side::End);
-        assert!((ports[0].point[0] - 0.0).abs() < 1e-4 && (ports[0].point[1] - 0.0).abs() < 1e-4);
-        assert!((ports[1].point[0] - 50.0).abs() < 1e-4 && (ports[1].point[1] - 25.0).abs() < 1e-4);
-        assert!(
-            (ports[2].point[0] - 100.0).abs() < 1e-4 && (ports[2].point[1] - 50.0).abs() < 1e-4
-        );
+        assert!(host.ports().is_empty(), "open shapes offer no ports");
+        let start = host.anchor(Side::Start, 0.0);
+        let mid = host.anchor(Side::Mid, 0.5);
+        let end = host.anchor(Side::End, 1.0);
+        assert!((start[0] - 0.0).abs() < 1e-4 && (start[1] - 0.0).abs() < 1e-4);
+        assert!((mid[0] - 50.0).abs() < 1e-4 && (mid[1] - 25.0).abs() < 1e-4);
+        assert!((end[0] - 100.0).abs() < 1e-4 && (end[1] - 50.0).abs() < 1e-4);
     }
 
     #[test]
-    fn legacy_line_ports_follow_the_diagonal() {
+    fn legacy_line_anchors_follow_the_diagonal() {
         let rect = WorldRect::new(10.0, 20.0, 80.0, 40.0);
         let node = shape_node(ShapeKind::Line, rect, 0.0, None);
         let host = WireHost::from_node(&node);
-        let ports = host.ports();
-        assert_eq!(ports[0].point, [10.0, 20.0]);
-        assert_eq!(ports[2].point, [90.0, 60.0]);
-        assert!((ports[1].point[0] - 50.0).abs() < 1e-4);
-        assert!((ports[1].point[1] - 40.0).abs() < 1e-4);
+        assert!(host.ports().is_empty(), "open shapes offer no ports");
+        assert_eq!(host.anchor(Side::Start, 0.0), [10.0, 20.0]);
+        assert_eq!(host.anchor(Side::End, 1.0), [90.0, 60.0]);
+        let mid = host.anchor(Side::Mid, 0.5);
+        assert!((mid[0] - 50.0).abs() < 1e-4);
+        assert!((mid[1] - 40.0).abs() < 1e-4);
     }
 
     #[test]
@@ -775,5 +805,53 @@ mod tests {
             dist(snap.point, ghost) > 15.0,
             "the AABB edge itself is not a closed-polyline feature"
         );
+    }
+
+    #[test]
+    fn open_shapes_offer_no_ports_while_closed_shapes_keep_them() {
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 50.0);
+        let polyline = |closed: bool| PathData {
+            start: [0.0, 0.0],
+            segs: vec![
+                PathSeg::Line { to: [1.0, 0.0] },
+                PathSeg::Line { to: [0.0, 1.0] },
+            ],
+            closed,
+            ..PathData::default()
+        };
+        let cubic = |closed: bool| PathData {
+            start: [0.0, 0.0],
+            segs: vec![PathSeg::Cubic {
+                c1: [0.3, -0.5],
+                c2: [0.7, 1.5],
+                to: [1.0, 1.0],
+            }],
+            closed,
+            ..PathData::default()
+        };
+        let open = [
+            shape_node(ShapeKind::Line, rect, 0.0, None),
+            shape_node(ShapeKind::Path, rect, 0.0, Some(polyline(false))),
+            shape_node(ShapeKind::Path, rect, 0.0, Some(cubic(false))),
+        ];
+        for node in &open {
+            assert!(is_open_shape(node));
+            let host = WireHost::from_node(node);
+            assert!(!host.offers_ports());
+            assert!(host.ports().is_empty(), "open shape offered ports");
+            // Wires saved before the gate still resolve onto the stroke.
+            let end = host.anchor(Side::End, 1.0);
+            assert!(end[0].is_finite() && end[1].is_finite());
+        }
+        for path in [polyline(true), cubic(true)] {
+            let node = shape_node(ShapeKind::Path, rect, 0.0, Some(path));
+            assert!(!is_open_shape(&node));
+            let host = WireHost::from_node(&node);
+            assert!(host.offers_ports());
+            assert_eq!(host.ports().len(), 3);
+        }
+        let boxed = shape_node(ShapeKind::Rect, rect, 0.0, None);
+        assert!(!is_open_shape(&boxed));
+        assert_eq!(WireHost::from_node(&boxed).ports().len(), 4);
     }
 }

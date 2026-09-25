@@ -15,13 +15,14 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc as Shared;
 use vector_ink::kurbo::{self, Arc, BezPath, PathEl, Point};
 use vector_ink::{
-    flatten, flatten_contours, hit_stroke, stamp_segment, stamp_tipped, stroke_mesh,
-    tipped_contours, Cap, InkMesh, Join, StampStyle, StrokeStyle, TipPoint,
+    bezpath_from_anchors, classify_kind, flatten, flatten_contours, hit_stroke, move_handle,
+    stamp_segment, stamp_tipped, stroke_mesh, tipped_contours, Anchor, AnchorKind, Cap, InkMesh,
+    Join, StampStyle, StrokeStyle, TipPoint,
 };
 
 use super::board::{rgba32, BoardXf};
 use super::path_edit_overlay::{
-    paint_path_edit_anchors, PathEditAnchorColors, PathEditAnchorPaint,
+    paint_path_edit_anchors, path_edit_hit, PathEditAnchorColors, PathEditAnchorPaint, PathEditHit,
 };
 use super::SlateApp;
 
@@ -48,6 +49,13 @@ pub enum BoardPathDraft {
         anchors: Vec<(Pos2, BezierHandles)>,
         /// Active click-drag placing an anchor + handles.
         placing: Option<(Pos2, BezierHandles)>,
+        /// Anchors taken back by Ctrl+Z while drawing, newest last. Placing a
+        /// new anchor clears it. Never journaled.
+        redo: Vec<(Pos2, BezierHandles)>,
+        /// The latest press placed an anchor (rather than editing one). A
+        /// double-click whose second press placed an anchor is two anchors,
+        /// not a finish.
+        last_press_placed: bool,
     },
 }
 
@@ -1282,20 +1290,82 @@ pub fn arc_through_three_points(p0: Pos2, p1: Pos2, p2: Pos2) -> BezPath {
     path
 }
 
+/// Open span through the draft anchors. A segment whose facing handles are
+/// both zero is straight (`vector_ink::bezpath_from_anchors`).
 pub fn bezier_anchors_to_bezpath(anchors: &[(Pos2, BezierHandles)]) -> BezPath {
-    let mut path = BezPath::new();
-    if anchors.is_empty() {
-        return path;
+    bezpath_from_anchors(&bezier_draft_to_ink(anchors), false)
+}
+
+/// Draft anchors (handle offsets) as `vector_ink` anchors (absolute handle
+/// points). A zero offset is no handle.
+pub(crate) fn bezier_draft_to_ink(anchors: &[(Pos2, BezierHandles)]) -> Vec<Anchor> {
+    anchors
+        .iter()
+        .map(|(p, h)| {
+            let handle = |off: Vec2| (off.length_sq() > 0.0).then(|| to_k(*p + off));
+            let mut a = Anchor {
+                point: to_k(*p),
+                handle_in: handle(h.handle_in),
+                handle_out: handle(h.handle_out),
+                kind: AnchorKind::Corner,
+            };
+            a.kind = classify_kind(&a);
+            a
+        })
+        .collect()
+}
+
+fn bezier_draft_from_ink(anchors: &[Anchor]) -> Vec<(Pos2, BezierHandles)> {
+    anchors
+        .iter()
+        .map(|a| {
+            let p = from_k(a.point);
+            let offset = |h: Option<Point>| h.map_or(Vec2::ZERO, |h| from_k(h) - p);
+            (
+                p,
+                BezierHandles {
+                    handle_in: offset(a.handle_in),
+                    handle_out: offset(a.handle_out),
+                },
+            )
+        })
+        .collect()
+}
+
+/// Painted adornment for the placed draft anchors (plus the anchor being
+/// placed). Shared by paint and by the draft's press hit-test.
+pub(crate) fn bezier_draft_overlay(
+    xf: &BoardXf,
+    anchors: &[(Pos2, BezierHandles)],
+    placing: Option<(Pos2, BezierHandles)>,
+    close_first_anchor: bool,
+) -> Vec<PathEditAnchorPaint> {
+    let knob = |p: Pos2, off: Vec2| (off.length_sq() > 0.0).then(|| xf.w2s(p + off));
+    let mut overlay: Vec<PathEditAnchorPaint> = anchors
+        .iter()
+        .enumerate()
+        .map(|(i, (p, h))| PathEditAnchorPaint {
+            point: xf.w2s(*p),
+            handle_in: knob(*p, h.handle_in),
+            handle_out: knob(*p, h.handle_out),
+            selected: false,
+            smooth_hint: h.handle_in.length_sq() > 0.0
+                && h.handle_out.length_sq() > 0.0
+                && (h.handle_in + h.handle_out).length_sq() < 1e-4,
+            close_hint: i == 0 && close_first_anchor,
+        })
+        .collect();
+    if let Some((a, h)) = placing {
+        overlay.push(PathEditAnchorPaint {
+            point: xf.w2s(a),
+            handle_in: knob(a, h.handle_in),
+            handle_out: knob(a, h.handle_out),
+            selected: true,
+            smooth_hint: false,
+            close_hint: false,
+        });
     }
-    path.move_to(to_k(anchors[0].0));
-    for i in 0..anchors.len().saturating_sub(1) {
-        let (a0, h0) = anchors[i];
-        let (a1, h1) = anchors[i + 1];
-        let c1 = a0 + h0.handle_out;
-        let c2 = a1 + h1.handle_in;
-        path.curve_to(to_k(c1), to_k(c2), to_k(a1));
-    }
-    path
+    overlay
 }
 
 pub fn paint_path_shape(
@@ -2120,7 +2190,9 @@ pub fn paint_path_draft(
                 _ => {}
             }
         }
-        BoardPathDraft::Bezier { anchors, placing } => {
+        BoardPathDraft::Bezier {
+            anchors, placing, ..
+        } => {
             let mut span = anchors.clone();
             if let Some((a, h)) = placing {
                 span.push((*a, *h));
@@ -2141,36 +2213,7 @@ pub fn paint_path_draft(
                     paint_path_preview(painter, xf, color, &bez);
                 }
             }
-            let mut overlay: Vec<PathEditAnchorPaint> = anchors
-                .iter()
-                .enumerate()
-                .map(|(i, (p, h))| {
-                    let pt = xf.w2s(*p);
-                    PathEditAnchorPaint {
-                        point: pt,
-                        handle_in: (h.handle_in.length_sq() > 0.0)
-                            .then(|| xf.w2s(*p + h.handle_in)),
-                        handle_out: (h.handle_out.length_sq() > 0.0)
-                            .then(|| xf.w2s(*p + h.handle_out)),
-                        selected: false,
-                        smooth_hint: h.handle_in.length_sq() > 0.0
-                            && h.handle_out.length_sq() > 0.0
-                            && (h.handle_in + h.handle_out).length_sq() < 1e-4,
-                        close_hint: i == 0 && style.close_first_anchor,
-                    }
-                })
-                .collect();
-            if let Some((a, h)) = placing {
-                let pt = xf.w2s(*a);
-                overlay.push(PathEditAnchorPaint {
-                    point: pt,
-                    handle_in: (h.handle_in.length_sq() > 0.0).then(|| xf.w2s(*a + h.handle_in)),
-                    handle_out: (h.handle_out.length_sq() > 0.0).then(|| xf.w2s(*a + h.handle_out)),
-                    selected: true,
-                    smooth_hint: false,
-                    close_hint: false,
-                });
-            }
+            let overlay = bezier_draft_overlay(xf, anchors, *placing, style.close_first_anchor);
             paint_path_edit_anchors(painter, None, &overlay, style.overlay);
         }
     }
@@ -2213,10 +2256,7 @@ impl SlateApp {
                 let (r, d) = points_to_path_data(&points, closed);
                 (r, d, closed)
             }
-            BoardPathDraft::Bezier {
-                anchors,
-                placing: _,
-            } => {
+            BoardPathDraft::Bezier { anchors, .. } => {
                 if anchors.len() < 2 {
                     return false;
                 }
@@ -2317,8 +2357,141 @@ impl SlateApp {
                 self.board_path_draft = Some(BoardPathDraft::Bezier {
                     anchors: vec![],
                     placing: Some((press, BezierHandles::default())),
+                    redo: vec![],
+                    last_press_placed: true,
                 });
             }
+        }
+    }
+
+    /// A press on a placed draft anchor or handle knob, by the shared
+    /// path-edit hit rules. Such a press edits instead of placing (D17).
+    pub(crate) fn bezier_draft_hit(&self, screen: Pos2) -> Option<PathEditHit> {
+        let Some(BoardPathDraft::Bezier {
+            anchors,
+            placing: None,
+            ..
+        }) = &self.board_path_draft
+        else {
+            return None;
+        };
+        let xf = self.board_xf();
+        path_edit_hit(&bezier_draft_overlay(&xf, anchors, None, false), screen)
+    }
+
+    /// Live drag of a placed draft anchor or handle, from the press-time
+    /// anchors. Handles follow `vector_ink::move_handle`: a smooth anchor
+    /// keeps its opposite handle collinear; Alt breaks symmetry.
+    pub(crate) fn bezier_draft_edit(
+        &mut self,
+        hit: PathEditHit,
+        start: Pos2,
+        anchors0: &[(Pos2, BezierHandles)],
+        world: Pos2,
+        alt: bool,
+    ) {
+        let edited = match hit {
+            PathEditHit::Anchor(i) => {
+                let snapped = self.resolve_point_snap(world, &[], None, false, false);
+                let mut edited = anchors0.to_vec();
+                if let Some(a) = edited.get_mut(i) {
+                    a.0 = anchors0[i].0 + (snapped - start);
+                }
+                edited
+            }
+            PathEditHit::Handle(i, end) => {
+                let mut ink = bezier_draft_to_ink(anchors0);
+                move_handle(&mut ink, i, end, to_k(world), alt);
+                bezier_draft_from_ink(&ink)
+            }
+        };
+        if let Some(BoardPathDraft::Bezier { anchors, .. }) = &mut self.board_path_draft {
+            *anchors = edited;
+        }
+    }
+
+    /// Ctrl+Z while drawing a span: take back the last anchor; with none
+    /// left, leave drawing. Returns whether the draft owned the keypress.
+    pub(crate) fn bezier_draft_undo(&mut self) -> bool {
+        if self.board_tool != super::board::BoardTool::BezierSpan {
+            return false;
+        }
+        let Some(BoardPathDraft::Bezier {
+            anchors,
+            placing,
+            redo,
+            ..
+        }) = &mut self.board_path_draft
+        else {
+            return false;
+        };
+        if placing.is_some() {
+            return true;
+        }
+        match anchors.pop() {
+            Some(last) => redo.push(last),
+            None => {
+                self.board_path_draft = None;
+                self.set_board_tool(super::board::BoardTool::Select);
+            }
+        }
+        true
+    }
+
+    /// Ctrl+Y / Ctrl+Shift+Z while drawing: put back the last anchor taken.
+    pub(crate) fn bezier_draft_redo(&mut self) -> bool {
+        if self.board_tool != super::board::BoardTool::BezierSpan {
+            return false;
+        }
+        let Some(BoardPathDraft::Bezier {
+            anchors,
+            placing,
+            redo,
+            ..
+        }) = &mut self.board_path_draft
+        else {
+            return false;
+        };
+        if placing.is_none() {
+            if let Some(next) = redo.pop() {
+                anchors.push(next);
+            }
+        }
+        true
+    }
+
+    /// A double-click ends a span only when its second press landed on a
+    /// placed anchor: two quick clicks in different places are two anchors
+    /// (D04).
+    pub(crate) fn bezier_double_click_finishes(&self) -> bool {
+        !matches!(
+            &self.board_path_draft,
+            Some(BoardPathDraft::Bezier {
+                last_press_placed: true,
+                ..
+            })
+        )
+    }
+
+    /// A press on a placed anchor or handle starts an edit, not a placement.
+    pub(crate) fn bezier_note_edit_press(&mut self) {
+        if let Some(BoardPathDraft::Bezier {
+            last_press_placed, ..
+        }) = &mut self.board_path_draft
+        {
+            *last_press_placed = false;
+        }
+    }
+
+    /// Esc on a path draft: a span of two or more anchors commits as it
+    /// stands (D12); anything else cancels.
+    pub(crate) fn escape_path_draft(&mut self) {
+        let commit = matches!(
+            &self.board_path_draft,
+            Some(BoardPathDraft::Bezier { anchors, .. }) if anchors.len() >= 2
+        );
+        if !(commit && self.finish_path_draft()) {
+            self.cancel_path_draft();
         }
     }
 
@@ -2342,14 +2515,23 @@ impl SlateApp {
             BezierHandles::default()
         };
         match &mut self.board_path_draft {
-            Some(BoardPathDraft::Bezier { anchors, placing }) => {
+            Some(BoardPathDraft::Bezier {
+                anchors,
+                placing,
+                redo,
+                last_press_placed,
+            }) => {
                 anchors.push((press, handles));
                 *placing = None;
+                redo.clear();
+                *last_press_placed = true;
             }
             _ => {
                 self.board_path_draft = Some(BoardPathDraft::Bezier {
                     anchors: vec![(press, handles)],
                     placing: None,
+                    redo: vec![],
+                    last_press_placed: true,
                 });
             }
         }
@@ -2380,6 +2562,8 @@ impl SlateApp {
                 self.board_path_draft = Some(BoardPathDraft::Bezier {
                     anchors: vec![],
                     placing: Some((press, handles)),
+                    redo: vec![],
+                    last_press_placed: true,
                 });
             }
         }

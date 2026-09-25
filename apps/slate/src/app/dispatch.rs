@@ -15,7 +15,7 @@
 //! (bare letter shortcuts hold ~700 ms so a second character can open the
 //! canvas palette instead).
 
-use super::{board, board_align, commands, SlateApp};
+use super::{board, board_align, board_path, commands, SlateApp};
 use atlas_commands::{
     cancel_target, Availability, CancelLayer, Chord, CmdAuthor, CommandId, HistoryEntry, Key,
 };
@@ -1016,6 +1016,8 @@ impl SlateApp {
                         | board::BoardDrag::Marquee { .. }
                         | board::BoardDrag::CropEdge { .. }
                         | board::BoardDrag::FilletRadius { .. }
+                        | board::BoardDrag::BezierAnchor { .. }
+                        | board::BoardDrag::BezierEdit { .. }
                 )
             )
             || (self.bumper.dragging()
@@ -1091,6 +1093,22 @@ impl SlateApp {
                             *n = before;
                         }
                     }
+                    // Bézier draft: drop the anchor being placed, or put an
+                    // edited anchor back. Placed anchors stay.
+                    Some(board::BoardDrag::BezierAnchor { .. }) => {
+                        if let Some(board_path::BoardPathDraft::Bezier { placing, .. }) =
+                            &mut self.board_path_draft
+                        {
+                            *placing = None;
+                        }
+                    }
+                    Some(board::BoardDrag::BezierEdit { anchors0, .. }) => {
+                        if let Some(board_path::BoardPathDraft::Bezier { anchors, .. }) =
+                            &mut self.board_path_draft
+                        {
+                            *anchors = anchors0;
+                        }
+                    }
                     // Eraser: nothing was mutated — dropping the drag and its
                     // live preview restores the ink.
                     _ => self.erase_live.clear(),
@@ -1110,7 +1128,7 @@ impl SlateApp {
                     // point; the Mode layer below then disarms to Select.
                     self.line_cancel_step();
                 } else if self.board_path_draft.is_some() {
-                    self.cancel_path_draft();
+                    self.escape_path_draft();
                 } else if self.trim_live_draft() {
                     self.trim_cancel_step();
                 } else if !self.direct.anchors.is_empty() {

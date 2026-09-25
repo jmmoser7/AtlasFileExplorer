@@ -56,4 +56,4 @@ pub use wire::{
     WireObstacle, WireRouting, ORTHO_CLEARANCE, ORTHO_CORNER_RADIUS, ORTHO_EXIT_GAP,
     ORTHO_RAIL_GAP,
 };
-pub use wire_host::{connector_anchor_on, WireHost, WirePort, WireSnap};
+pub use wire_host::{connector_anchor_on, is_open_shape, WireHost, WirePort, WireSnap};

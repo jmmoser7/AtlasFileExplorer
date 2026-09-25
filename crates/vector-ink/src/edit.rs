@@ -487,7 +487,9 @@ pub fn segment_hit(path: &BezPath, pos: Point, radius: f64) -> Option<usize> {
     best.map(|(i, _)| i)
 }
 
-fn classify_kind(a: &Anchor) -> AnchorKind {
+/// `Smooth` when both handles are present, non-degenerate, and collinear
+/// through the anchor; otherwise `Corner`.
+pub fn classify_kind(a: &Anchor) -> AnchorKind {
     let (Some(hi), Some(ho)) = (a.handle_in, a.handle_out) else {
         return AnchorKind::Corner;
     };

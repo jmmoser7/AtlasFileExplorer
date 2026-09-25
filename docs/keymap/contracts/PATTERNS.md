@@ -227,7 +227,13 @@ is searchable.
   Applies to **every** selected simple line in the selection, not only when
   one line is selected; homogeneous multi-line selections skip group bbox
   handles. Direct Selection (A) additionally exposes tangent handles and
-  segments.
+  segments. A **single** selected open curve with a cubic segment (a
+  Bézier span, and by geometry an arc or fitted pen stroke) shows every
+  anchor and every non-zero tangent handle with the Select tool. One drag
+  is one journaled Patch; Alt on a handle breaks symmetry. Picking follows
+  the shared path-edit hit rule: only painted grips, nearest within 7
+  screen px, an anchor wins a tie. Implementation:
+  `board_direct::bezier_grip_target`, `path_edit_overlay::path_edit_hit`.
 - **P1.curve.pick** click and marquee selection hit the **stroke** (via
   `vector_ink::hit_stroke` + `pick.slop` ≈ 4 screen px), never the node's
   axis-aligned rect alone. Closed unfilled paths included — each contour
@@ -246,10 +252,13 @@ is searchable.
   expose the four local-edge midpoints of `node.rect`, then rotate
   those points about the node center — so a rotated rectangle's ports
   travel with the rectangle, and an ellipse's ports are the local-axis
-  extrema (which lie on the ellipse). Strokes (line, arc, open or
-  closed polyline, bezier, pen) expose arclength `t = 0`, `0.5`, `1`
-  on the path itself, including a closed path's closing seam — never
-  the path's AABB. Connectors have no ports. New geometry declares a
+  extrema (which lie on the ellipse). Closed strokes (closed polyline,
+  closed path) expose arclength `t = 0`, `0.5`, `1` on the path itself,
+  including the closing seam — never the path's AABB. **Open shapes**
+  (lines, open arcs, polylines, Bézier spans, unclosed pen strokes) offer
+  no ports and take no new wire ends; wires saved earlier still resolve.
+  One predicate at the port owner decides: `slate_doc::is_open_shape`.
+  Connectors have no ports. New geometry declares a
   class on `slate_doc::WireHost` (oriented box, open stroke, or a
   future silhouette / vertex facet) — it does not special-case a file
   format. Geometry is derived at resolve time (Art. VI.3); the journal
@@ -493,7 +502,9 @@ State machine: `Armed → Placing(point k) → … → Commit`.
   that distance along the current direction. Backspace edits; Esc clears the
   entry before it cancels anything else.
 - **P2.RhinoDraft.esc** Esc backs out one placed point per press; with no
-  points placed it disarms to Select (P0.1 layering).
+  points placed it disarms to Select (P0.1 layering). Deviation: the
+  Bézier span commits on Esc with two or more anchors, and backs out
+  anchors with Ctrl+Z instead (`bezier-span.md` D12).
 - **P2.RhinoDraft.oneshot** commit returns to Select; Space/Enter re-arms
   (P0.4).
 
