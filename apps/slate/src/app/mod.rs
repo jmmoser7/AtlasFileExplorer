@@ -373,6 +373,8 @@ pub struct SlateApp {
     pub board_crop: Option<NodeId>,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
+    /// Click/drag text-box compose before the first journaled add.
+    pub text_box_draft: Option<board::TextBoxDraft>,
     /// Fitted sticky font sizes. Derived from text and box; not journaled.
     sticky_fit: HashMap<NodeId, board::StickyFit>,
     /// Cell editor on a CSV / Excel card.
@@ -768,6 +770,7 @@ impl SlateApp {
             board_drag: None,
             board_crop: None,
             text_edit: None,
+            text_box_draft: None,
             sticky_fit: HashMap::new(),
             sheet_edit: None,
             sheet_open: None,

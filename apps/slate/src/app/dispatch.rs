@@ -1102,7 +1102,7 @@ impl SlateApp {
         }
         let wants_kb = ctx.wants_keyboard_input();
         let board = self.doc().view.active_view == ViewKind::Board;
-        let editing = self.text_edit.is_some() || self.sheet_edit.is_some();
+        let editing = self.text_compose_active() || self.sheet_edit.is_some();
         // A focused web portal is a keyboard sink, like an inline editor: bare
         // letters, digits, Tab, and arrows belong to the page, so typing in a
         // form cannot switch tools (D22). Ctrl chords stay Slate's — save and
@@ -1151,7 +1151,7 @@ impl SlateApp {
             && self.board_path_draft.is_none()
             && self.board_crop.is_none()
             && self.wire_label_edit.is_none()
-            && self.text_edit.is_none()
+            && !self.text_compose_active()
             && !self.search.open;
 
         struct Keys {

@@ -295,25 +295,25 @@
           "decided": null
         },
         "D02": {
-          "behavior": "Text box and sticky are both one-shot. After place, return to Select so the place ghost does not stay under the pointer. Sticky: Tab / Shift+Tab while editing still spawns an adjacent sticky and moves the caret; that does not re-arm placement. Esc while armed (no edit) disarms to Select.",
+          "behavior": "Text box and sticky are both one-shot after commit. After a non-empty text-box compose commits, return to Select. While an empty text-box draft is active, Text stays armed. Sticky: Tab / Shift+Tab while editing still spawns an adjacent sticky and moves the caret; that does not re-arm placement. Esc while armed (no compose) disarms to Select.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-23"
+          "decided": "2026-09-25"
         },
         "D03": {
-          "behavior": "Armed → GhostFollow (default-size ghost locked to cursor) → Press → (ClickPlace | DragScale) → Commit → enter inline edit. Click-release places at default world size. Press-drag-release places and scales. Replaces P2.PlaceOnce for text/sticky (new L2: GhostPlace).",
+          "behavior": "Armed → GhostFollow → Press → (ClickPlace | DragScale) → inline compose (transient draft, no journal) → commit when non-empty on click-away or Esc. Click-release starts compose at snapped point; drag-release starts compose in the dragged rect.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-25"
         },
         "D04": {
-          "behavior": "Cursor travel > draft.drag_threshold (4 screen px) before release = DragScale; release within threshold = ClickPlace at default size. Drag under MIN_DRAW discards.",
+          "behavior": "Cursor travel > draft.drag_threshold (4 screen px) before release = DragScale; otherwise ClickPlace. ClickPlace auto-width; DragScale fixed wrap width from the drawn rect. Drag under MIN_DRAW discards.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-25"
         },
         "D05": {
           "behavior": "Held Shift during DragScale locks aspect: Sticky → square; Text box → lock to default aspect (280×48). No Alt/Ctrl create modifiers in v1.",
@@ -344,32 +344,32 @@
           "decided": null
         },
         "D09": {
-          "behavior": "While Armed: ghosted Text box or sticky preview locked to the cursor at the default world size (text: 280×48 + sample Text; sticky: STICKY_SIZE + white fill), alpha from place.ghost_alpha. During DragScale: live sized ghost. Paint always uses world metrics × camera zoom (font = size×z, wrap = rect.w×z) with no screen-constant / auto-fit path and no relative-scale floor.",
+          "behavior": "While Armed (no compose): ghosted Text box or sticky at default size (text: empty silhouette, no placeholder string; sticky: STICKY_FILL), alpha from place.ghost_alpha. DragScale: live rubber-band. Text-box compose: thin vector outline only; selection property strip / text palette stay hidden until commit+select.",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-25"
         },
         "D10": {
-          "behavior": "While Armed / DragScale the ghost is the cursor feedback (plus optional thin crosshair at the anchor). No system I-beam until inline edit starts after commit.",
+          "behavior": "Armed / DragScale: ghost cursor feedback. Text-box compose: blinking caret with theme palette.ink (light ink in dark mode, dark ink in light mode).",
           "source": "stated",
           "confidence": 100,
-          "verdict": "proposed",
-          "decided": null
+          "verdict": "approved",
+          "decided": "2026-09-25"
         },
         "D11": {
-          "behavior": "Text box → TextNode (fill=None, default text Text, size 24 world). Sticky → TextNode with white STICKY_FILL + STICKY_INK, empty text, TextAlign::Center, size 24 world, and the shared drop shadow (STICKY_SHADOW_OFFSET_Y / BLUR / ALPHA). Journal cmds board.tool.text / board.tool.sticky; one gesture = one undo. Immediately open inline edit. The sticky caret is black, blinking, and in the vertical and horizontal middle of the note. The fill/text strip and its color capsule stay hidden while that caret is up. Creation DragScale sets rect from drag and scales font by mean scale vs default rect. Subsequent bbox resize of an existing node changes the frame only — authored font size stays put and text reflows.",
+          "behavior": "Text box: TextNode fill=None, empty start, size 24 world, ink=palette.ink; journaled only when compose finishes with non-empty text (one board.tool.text undo step). ClickPlace auto-grows width on commit; DragScale keeps drawn rect. Sticky: unchanged (journaled on place, centered black caret, strip hidden while editing). Subsequent bbox resize = frame-only reflow.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-23"
+          "decided": "2026-09-25"
         },
         "D12": {
-          "behavior": "Esc while GhostFollow / mid-DragScale → disarm to Select, no node (P0.1). Esc or a click off the note while inline-editing → commit text and leave edit. Both text and sticky are already on Select (D02).",
+          "behavior": "Esc while GhostFollow / mid-DragScale → disarm, no node. Esc on empty text-box draft → discard, no journal. Esc or click-away on non-empty compose → commit; text box returns to Select (D02). Empty click-away or tool switch on draft → discard, no journal.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-23"
+          "decided": "2026-09-25"
         },
         "D13": {
           "behavior": "Standard node resize bbox + rotation (P1.node). Multi-select uses the shared group bbox; group uniform scale also scales TextNode.size.",

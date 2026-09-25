@@ -1489,6 +1489,83 @@ fn sticky_place_opens_centered_edit_without_the_color_capsule() {
     h.frame();
 }
 
+#[test]
+fn text_box_click_starts_draft_without_journal() {
+    let mut h = Harness::new("text-draft");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    let before = h.app.tab().journal.undo_depth();
+    h.app.place_text_at(Pos2::new(40.0, 40.0));
+    assert!(h.app.text_box_draft.is_some());
+    assert!(h.app.doc().scene.nodes.is_empty());
+    assert_eq!(h.app.tab().journal.undo_depth(), before);
+    let draft = h.app.text_box_draft.as_ref().unwrap();
+    assert!(draft.buffer.is_empty());
+    assert_eq!(draft.color, board::to_rgba(h.app.palette().ink));
+    h.frame();
+}
+
+#[test]
+fn text_box_commit_on_click_away_is_one_undo_step() {
+    use slate_doc::scene::NodeKind;
+    let mut h = Harness::new("text-commit");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.place_text_at(Pos2::ZERO);
+    h.app.text_box_draft.as_mut().unwrap().buffer = "Hello".into();
+    let before = h.app.tab().journal.undo_depth();
+    h.app.commit_text_box_draft();
+    assert!(h.app.text_box_draft.is_none());
+    assert_eq!(h.app.doc().scene.nodes.len(), 1);
+    assert_eq!(h.app.tab().journal.undo_depth(), before + 1);
+    match &h.app.doc().scene.nodes[0].kind {
+        NodeKind::Text(t) => assert_eq!(t.text, "Hello"),
+        _ => panic!("text node"),
+    }
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty());
+    h.frame();
+}
+
+#[test]
+fn text_box_empty_click_away_discards_without_journal() {
+    let mut h = Harness::new("text-discard");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.place_text_at(Pos2::ZERO);
+    let before = h.app.tab().journal.undo_depth();
+    h.app.cancel_text_box_draft();
+    assert!(h.app.text_box_draft.is_none());
+    assert!(h.app.doc().scene.nodes.is_empty());
+    assert_eq!(h.app.tab().journal.undo_depth(), before);
+    h.frame();
+}
+
+#[test]
+fn text_box_draft_uses_theme_ink_in_dark_mode() {
+    let mut h = Harness::new("text-ink-dark");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.dark_mode = true;
+    h.app.place_text_at(Pos2::ZERO);
+    assert_eq!(
+        h.app.text_box_draft.as_ref().unwrap().color,
+        board::to_rgba(h.app.palette().ink)
+    );
+    h.app.dark_mode = false;
+    h.app.cancel_text_box_draft();
+    h.app.place_text_at(Pos2::ZERO);
+    assert_eq!(
+        h.app.text_box_draft.as_ref().unwrap().color,
+        board::to_rgba(h.app.palette().ink)
+    );
+    h.frame();
+}
+
 /// Double-click anywhere on a closed shape opens center-justified text editing
 /// and the text configuration. A line does not.
 #[test]

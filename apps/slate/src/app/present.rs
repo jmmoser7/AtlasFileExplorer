@@ -54,6 +54,7 @@ impl SlateApp {
         self.presenting = Some(Present { idx, from: None });
         self.board_menu = None;
         self.text_edit = None;
+        self.text_box_draft = None;
     }
 
     pub fn stop_present(&mut self) {

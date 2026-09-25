@@ -1014,8 +1014,10 @@ impl SlateApp {
                 .node(*id)
                 .is_some_and(|n| matches!(&n.kind, NodeKind::Text(t) if t.fill.is_some()))
         });
+        let composing_text_box = self.text_box_draft.is_some();
         let live = self.board_drag.is_none()
             && !editing_sticky
+            && !composing_text_box
             && (editing_hosted_text
                 || (self.board_tool == BoardTool::Select && self.text_edit.is_none()))
             && !self.shape_properties.nodes.is_empty();

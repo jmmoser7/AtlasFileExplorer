@@ -254,7 +254,6 @@ impl SlateApp {
             }
             "board.tool.text" => {
                 self.place_text_at(world);
-                self.push_history(item.id, Some("placed".into()));
             }
             "board.tool.sticky" => {
                 self.place_sticky_at(world);
