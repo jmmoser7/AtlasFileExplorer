@@ -288,7 +288,7 @@ impl SlateApp {
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
-                path: Some(data),
+                path: Some(data.into()),
 
                 text: None,
             }),
@@ -377,7 +377,7 @@ impl SlateApp {
             n.rect = rect;
             n.rotation_deg = 0.0;
             if let NodeKind::Shape(s) = &mut n.kind {
-                s.path = Some(data);
+                s.path = Some(data.into());
             }
         }
         self.note_scene_change();

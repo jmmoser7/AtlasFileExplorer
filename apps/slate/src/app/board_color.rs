@@ -714,7 +714,7 @@ impl SlateApp {
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
-                path: Some(data),
+                path: Some(data.into()),
 
                 text: None,
             }),
@@ -753,7 +753,7 @@ impl SlateApp {
                     stroke,
                     corner: slate_doc::scene::Corner::Square,
                     flip: false,
-                    path: Some(data),
+                    path: Some(data.into()),
                     text: None,
                 }),
             );
@@ -824,7 +824,7 @@ impl SlateApp {
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
-                path: Some(data),
+                path: Some(data.into()),
                 text: None,
             }),
         );
@@ -886,7 +886,7 @@ impl SlateApp {
             n.rect = rect;
             n.rotation_deg = 0.0;
             if let NodeKind::Shape(s) = &mut n.kind {
-                s.path = Some(data.clone());
+                s.path = Some(data.clone().into());
                 s.stroke.width = widest;
                 s.stroke.softness = end.softness;
                 s.stroke.color = end.color;
@@ -1155,13 +1155,15 @@ impl SlateApp {
             let Some(path) = shape.path.as_mut() else {
                 continue;
             };
-            path.erase.push(slate_doc::scene::EraseMark {
-                points: points
-                    .iter()
-                    .map(|p| board_path::world_to_node_norm(*p, after.rect, after.rotation_deg))
-                    .collect(),
-                tips: vec![span],
-            });
+            std::sync::Arc::make_mut(path)
+                .erase
+                .push(slate_doc::scene::EraseMark {
+                    points: points
+                        .iter()
+                        .map(|p| board_path::world_to_node_norm(*p, after.rect, after.rotation_deg))
+                        .collect(),
+                    tips: vec![span],
+                });
             let (ink, gone) = erased_result(&after);
             if !ink {
                 continue;

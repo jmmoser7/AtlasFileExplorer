@@ -87,7 +87,7 @@ fn stamp_stroke(i: usize) -> (WorldRect, ShapeNode) {
         },
         corner: slate_doc::scene::Corner::Square,
         flip: false,
-        path: Some(path),
+        path: Some(path.into()),
         text: None,
     };
     (rect, shape)

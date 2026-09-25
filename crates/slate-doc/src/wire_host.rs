@@ -599,7 +599,7 @@ mod tests {
                 stroke: Stroke::default(),
                 corner: Default::default(),
                 flip: false,
-                path,
+                path: path.map(std::sync::Arc::new),
                 text: None,
             }),
         }

@@ -10,6 +10,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use slate_doc::scene::*;
@@ -510,7 +511,7 @@ fn v2_document() -> SlateDoc {
             },
             corner: Corner::Square,
             flip: false,
-            path: Some(PathData {
+            path: Some(Arc::new(PathData {
                 start: [0.0, 0.0],
                 segs: vec![
                     PathSeg::Line { to: [1.0, 0.4] },
@@ -522,7 +523,7 @@ fn v2_document() -> SlateDoc {
                 ],
                 closed: false,
                 ..Default::default()
-            }),
+            })),
 
             text: None,
         }),

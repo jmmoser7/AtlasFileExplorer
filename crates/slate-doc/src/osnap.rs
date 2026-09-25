@@ -413,7 +413,7 @@ pub fn node_facets(node: &Node) -> SnapFacet {
             .union(SnapFacet::BOUNDARY)
             .union(SnapFacet::OPEN_CURVE)
             .union(SnapFacet::SMOOTH),
-        NodeKind::Shape(s) => shape_facets(s.shape, s.path.as_ref()),
+        NodeKind::Shape(s) => shape_facets(s.shape, s.path.as_deref()),
     }
 }
 
@@ -940,7 +940,7 @@ mod tests {
     fn cubic_path_rejects_tangent_until_evaluator_ships() {
         let mut n = shape(ShapeKind::Path, WorldRect::new(0.0, 0.0, 10.0, 10.0));
         if let NodeKind::Shape(s) = &mut n.kind {
-            s.path = Some(PathData {
+            s.path = Some(std::sync::Arc::new(PathData {
                 start: [0.0, 0.0],
                 segs: vec![PathSeg::Cubic {
                     c1: [0.3, 1.0],
@@ -949,7 +949,7 @@ mod tests {
                 }],
                 closed: false,
                 ..Default::default()
-            });
+            }));
         }
         let f = node_facets(&n);
         assert!(f.contains(SnapFacet::SMOOTH));
@@ -967,12 +967,12 @@ mod tests {
     fn open_path_has_no_center() {
         let mut n = shape(ShapeKind::Path, WorldRect::new(0.0, 0.0, 10.0, 10.0));
         if let NodeKind::Shape(s) = &mut n.kind {
-            s.path = Some(PathData {
+            s.path = Some(std::sync::Arc::new(PathData {
                 start: [0.0, 0.0],
                 segs: vec![PathSeg::Line { to: [1.0, 0.0] }],
                 closed: false,
                 ..Default::default()
-            });
+            }));
         }
         assert_eq!(
             SnapKind::Center.accepts(node_facets(&n), None),

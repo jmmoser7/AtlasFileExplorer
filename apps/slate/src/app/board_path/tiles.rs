@@ -563,9 +563,7 @@ fn plain_stamp<'a>(
     if shape.shape != ShapeKind::Path || slate_doc::scene::shape_hosts_text(shape) {
         return None;
     }
-    let Some(path) = shape.path.as_ref() else {
-        return None;
-    };
+    let path = shape.path.as_deref()?;
     if !shape.stroke.paints_as_stamp() || shape.stroke.is_none() {
         return None;
     }
