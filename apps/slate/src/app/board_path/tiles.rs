@@ -48,6 +48,9 @@ pub(crate) struct BrushPaintStats {
     pub drew_fallback: bool,
     pub individuals: usize,
     pub settled: bool,
+    /// Frame of the last paint, and the strokes it drew on their own.
+    pub frame: u64,
+    pub fresh: Vec<NodeId>,
 }
 
 struct StrokeSrc {
@@ -68,6 +71,9 @@ struct GpuTile {
 
 struct RunCache {
     token: u64,
+    /// Tab whose document the strokes belong to. Node ids repeat across
+    /// documents, so a run never serves another tab.
+    doc: u64,
     ids: Vec<NodeId>,
     keys: Vec<u64>,
     tiles: HashMap<TileCoord, GpuTile>,
@@ -142,6 +148,9 @@ pub(crate) struct BrushTiles {
     dirty_all: bool,
     specified: bool,
     runs: Vec<RunCache>,
+    /// Runs a paint already matched this frame. A split run's later pieces
+    /// get their own caches instead of fighting over one tile set.
+    claimed: Vec<u64>,
     next_token: u64,
     next_job: u64,
     live_jobs: HashSet<u64>,
@@ -168,6 +177,7 @@ impl Default for BrushTiles {
             dirty_all: false,
             specified: false,
             runs: Vec::new(),
+            claimed: Vec::new(),
             next_token: 1,
             next_job: 1,
             live_jobs: HashSet::new(),
@@ -188,6 +198,8 @@ impl Default for BrushTiles {
                 drew_fallback: false,
                 individuals: 0,
                 settled: false,
+                frame: 0,
+                fresh: Vec::new(),
             },
         }
     }
@@ -208,7 +220,8 @@ impl BrushTiles {
         self.dirty_ids.extend(ids);
     }
 
-    /// Scene changed but the caller did not name nodes (undo, tab switch).
+    /// Scene changed but the caller did not name nodes (undo, tab switch, a
+    /// gesture end).
     pub(crate) fn note_unspecified(&mut self) {
         if self.specified {
             self.specified = false;
@@ -239,14 +252,11 @@ impl BrushTiles {
             return;
         }
         if self.dirty_all {
+            // Nobody named the nodes, so every content key is recomputed. The
+            // tiles stay: each is judged against those keys, and one whose
+            // strokes did not change keeps painting.
             self.keys.clear();
             self.srcs.clear();
-            self.runs.clear();
-            self.live_jobs.clear();
-            self.queued.clear();
-            self.inflight.clear();
-            self.stash.clear();
-            self.incoming.clear();
             if let Ok(mut ink) = self.ink.lock() {
                 ink.clear();
             }
@@ -255,12 +265,13 @@ impl BrushTiles {
                 self.keys.remove(id);
                 self.srcs.remove(id);
             }
-            // In-flight rasters still show the previous strokes. Drop them.
-            self.live_jobs.clear();
-            self.queued.clear();
-            self.inflight.clear();
-            self.stash.clear();
         }
+        // In-flight rasters still show the previous strokes. Drop them.
+        self.live_jobs.clear();
+        self.queued.clear();
+        self.inflight.clear();
+        self.stash.clear();
+        self.incoming.clear();
         self.dirty_ids.clear();
         self.dirty_all = false;
         self.keyed_gen = scene_gen;
@@ -474,6 +485,42 @@ impl BrushTiles {
     }
 }
 
+#[cfg(test)]
+impl BrushTiles {
+    /// Strokes the last paint drew, from any tile it painted or on their own.
+    pub(crate) fn drawn_ids(&self) -> HashSet<NodeId> {
+        let frame = self.last.frame;
+        let mut out: HashSet<NodeId> = self.last.fresh.iter().copied().collect();
+        for run in &self.runs {
+            for tile in run.tiles.values().filter(|t| t.used == frame) {
+                out.extend(tile.baked.iter().map(|(id, _)| *id));
+            }
+        }
+        out
+    }
+
+    /// Every cached tile's texture, keyed by run token and tile.
+    pub(crate) fn tile_textures(&self) -> HashMap<(u64, TileCoord), egui::TextureId> {
+        self.runs
+            .iter()
+            .flat_map(|r| r.tiles.iter().map(|(k, t)| ((r.token, *k), t.tex.id())))
+            .collect()
+    }
+
+    /// Tiles whose baked strokes include `id`.
+    pub(crate) fn tiles_with(&self, id: NodeId) -> HashSet<(u64, TileCoord)> {
+        self.runs
+            .iter()
+            .flat_map(|r| {
+                r.tiles
+                    .iter()
+                    .filter(|(_, t)| t.baked.iter().any(|(b, _)| *b == id))
+                    .map(|(k, _)| (r.token, *k))
+            })
+            .collect()
+    }
+}
+
 fn worker(jobs: Arc<Mutex<Receiver<Job>>>, done: Sender<Finished>) {
     loop {
         let job = {
@@ -668,6 +715,8 @@ pub(crate) fn paint_rest(
     let scene_gen = app.scene_gen;
     app.brush_tiles.last.drew_fallback = false;
     app.brush_tiles.last.individuals = 0;
+    app.brush_tiles.last.fresh.clear();
+    app.brush_tiles.claimed.clear();
     app.brush_tiles.sync_keys(scene_gen);
     app.brush_tiles.drain_finished();
     app.brush_tiles.upload_some(painter.ctx());
@@ -720,6 +769,7 @@ pub(crate) fn paint_rest(
     let gpu_bytes = app.brush_tiles.gpu_bytes();
     let drew_fallback = app.brush_tiles.last.drew_fallback;
     let individuals = app.brush_tiles.last.individuals;
+    let fresh = std::mem::take(&mut app.brush_tiles.last.fresh);
     app.brush_tiles.last = BrushPaintStats {
         gpu_bytes,
         pending_jobs: pending,
@@ -727,6 +777,8 @@ pub(crate) fn paint_rest(
         drew_fallback,
         individuals,
         settled: pending == 0 && !drew_fallback && individuals == 0,
+        frame,
+        fresh,
     };
     if pending > 0 {
         painter.ctx().request_repaint();
@@ -766,7 +818,8 @@ fn paint_run(
     let keys: Vec<u64> = prep.iter().map(|p| p.key).collect();
     crate::app::board::brush_prof::lap("tiles.prep");
 
-    let token = match_run(&mut app.brush_tiles, &ids, &keys);
+    let doc = app.tab().id;
+    let token = match_run(&mut app.brush_tiles, doc, &ids, &keys);
     crate::app::board::brush_prof::lap("tiles.match");
     let mut drew_fallback = false;
     let mut individuals = 0usize;
@@ -792,6 +845,7 @@ fn paint_run(
     }
     let bins = bin_by_tile(&prep, pixel, span);
     let mut missing = false;
+    let mut absent = false;
     let mut covered: HashSet<NodeId> = HashSet::new();
     for ty in ty0..=ty1 {
         for tx in tx0..=tx1 {
@@ -839,11 +893,24 @@ fn paint_run(
                 continue;
             }
             missing = true;
-            if let TileFit::Prefix(_) = kind {
-                if let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) {
-                    if let Some(tile) = run.tiles.get_mut(&(bits, tx, ty)) {
-                        tile.used = frame;
-                        paint_tile(painter, xf, tile);
+            if kind == TileFit::Missing {
+                absent = true;
+            } else if let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) {
+                // The old raster keeps painting until its replacement lands.
+                // Strokes it already shows unchanged are covered by it.
+                if let Some(tile) = run.tiles.get_mut(&(bits, tx, ty)) {
+                    tile.used = frame;
+                    paint_tile(painter, xf, tile);
+                    if let TileFit::Prefix(n) = kind {
+                        covered.extend(desired[..n].iter().map(|(id, _)| *id));
+                    } else {
+                        let want: HashSet<(NodeId, u64)> = desired.iter().copied().collect();
+                        covered.extend(
+                            tile.baked
+                                .iter()
+                                .filter(|pair| want.contains(pair))
+                                .map(|(id, _)| *id),
+                        );
                     }
                 }
             }
@@ -898,7 +965,9 @@ fn paint_run(
         }
     }
 
-    if missing {
+    // Another level stands in only for tiles that have nothing to show.
+    // Tiles still painting an old raster do not need one.
+    if absent {
         for fallback in fallback_pixels(app, token, pixel) {
             if draw_level(app, painter, xf, view, fallback, frame, &prep, token, true) {
                 drew_fallback = true;
@@ -922,6 +991,7 @@ fn paint_run(
     };
     if !fresh.is_empty() && fresh.len() <= IMMEDIATE_STROKES {
         individuals = fresh.len();
+        app.brush_tiles.last.fresh.extend_from_slice(&fresh);
         for node in nodes {
             if fresh.contains(&node.id) {
                 let fade = fade_of(node);
@@ -941,9 +1011,10 @@ fn paint_run(
     app.brush_tiles.last.individuals += individuals;
     if let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) {
         // Grow the cached stroke list when new strokes appear. A cull is the
-        // other way around and must not throw the list away.
+        // other way around and must not throw the list away. A restyle keeps
+        // the strokes and takes their new keys.
         run.validated = (!missing).then_some(Validated { sig, bits, span });
-        if subsequence(&ids, &keys, &run.ids, &run.keys) {
+        if id_subsequence(&ids, &run.ids) {
             run.ids = ids;
             run.keys = keys;
         }
@@ -1039,16 +1110,47 @@ fn covers(baked: &[(NodeId, u64)], desired: &[(NodeId, u64)]) -> bool {
     i == desired.len()
 }
 
-fn match_run(cache: &mut BrushTiles, ids: &[NodeId], keys: &[u64]) -> u64 {
-    if let Some(run) = cache.runs.iter().find(|r| {
-        subsequence(&r.ids, &r.keys, ids, keys) || subsequence(ids, keys, &r.ids, &r.keys)
-    }) {
-        return run.token;
+/// `needle` appears inside `hay` in order, whatever the content keys.
+fn id_subsequence(hay: &[NodeId], needle: &[NodeId]) -> bool {
+    let mut i = 0;
+    for id in hay {
+        if i < needle.len() && *id == needle[i] {
+            i += 1;
+        }
+    }
+    i == needle.len()
+}
+
+/// The run cache for these strokes. Same strokes with the same content come
+/// first; failing that, the same strokes in order whose content changed (a
+/// restyle), so their tiles keep painting until the new raster lands.
+fn match_run(cache: &mut BrushTiles, doc: u64, ids: &[NodeId], keys: &[u64]) -> u64 {
+    let open = |r: &&RunCache| r.doc == doc && !cache.claimed.contains(&r.token);
+    let found = cache
+        .runs
+        .iter()
+        .filter(open)
+        .find(|r| {
+            subsequence(&r.ids, &r.keys, ids, keys) || subsequence(ids, keys, &r.ids, &r.keys)
+        })
+        .or_else(|| {
+            cache
+                .runs
+                .iter()
+                .filter(open)
+                .find(|r| id_subsequence(&r.ids, ids) || id_subsequence(ids, &r.ids))
+        })
+        .map(|r| r.token);
+    if let Some(token) = found {
+        cache.claimed.push(token);
+        return token;
     }
     let token = cache.next_token;
     cache.next_token = cache.next_token.wrapping_add(1);
+    cache.claimed.push(token);
     cache.runs.push(RunCache {
         token,
+        doc,
         ids: ids.to_vec(),
         keys: keys.to_vec(),
         tiles: HashMap::new(),

@@ -44,8 +44,13 @@ impl Bench {
     }
 
     fn frame(&mut self) -> Duration {
+        self.frame_with(Vec::new())
+    }
+
+    fn frame_with(&mut self, events: Vec<egui::Event>) -> Duration {
         let input = egui::RawInput {
             screen_rect: Some(ERect::from_min_size(Pos2::ZERO, EVec2::new(1920.0, 1080.0))),
+            events,
             ..Default::default()
         };
         let ctx = self.ctx.clone();
@@ -169,6 +174,97 @@ fn a_few_brush_strokes_settle_into_tiles() {
         )
     );
     assert!(b.app.brush_tiles.last.gpu_bytes > 0);
+}
+
+fn settle(b: &mut Bench) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        b.frame();
+        if b.app.brush_tiles.last.settled && b.app.brush_tiles.last.ready_tiles > 0 {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    false
+}
+
+fn primary(pos: Pos2, pressed: bool) -> Vec<egui::Event> {
+    vec![
+        egui::Event::PointerMoved(pos),
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        },
+    ]
+}
+
+/// Drag one brush stroke across the canvas center with real pointer input.
+fn drag_brush_stroke(b: &mut Bench) -> slate_doc::NodeId {
+    b.app.set_board_tool(super::board::BoardTool::Brush);
+    b.frame();
+    let c = b.app.canvas_rect.center();
+    let start = c + EVec2::new(-90.0, -20.0);
+    b.frame_with(primary(start, true));
+    for i in 1..=12 {
+        let p = start + EVec2::new(i as f32 * 15.0, (i as f32 * 0.6).sin() * 25.0);
+        b.frame_with(vec![egui::Event::PointerMoved(p)]);
+    }
+    let before = b.app.doc().scene.nodes.len();
+    b.frame_with(primary(start + EVec2::new(180.0, 0.0), false));
+    assert_eq!(
+        b.app.doc().scene.nodes.len(),
+        before + 1,
+        "stroke committed"
+    );
+    b.app.doc().scene.nodes.last().unwrap().id
+}
+
+/// Committing a stroke must not blank the strokes already on screen: every
+/// frame from the release until the new tiles land draws each earlier stroke,
+/// and tiles the new stroke does not touch keep their textures.
+#[test]
+fn committing_a_stroke_keeps_earlier_strokes_on_screen() {
+    let mut b = Bench::new(40);
+    b.app.brush_tiles_enabled = true;
+    assert!(settle(&mut b), "fixture tiles did not settle");
+    let before = b.app.brush_tiles.drawn_ids();
+    assert!(before.len() >= 10, "fixture drew {} strokes", before.len());
+    let textures = b.app.brush_tiles.tile_textures();
+
+    let added = drag_brush_stroke(&mut b);
+    let mut frame = 0;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let drawn = b.app.brush_tiles.drawn_ids();
+        let lost = before.difference(&drawn).count();
+        assert_eq!(
+            lost,
+            0,
+            "frame {frame} after the commit left {lost} of {} earlier strokes undrawn",
+            before.len()
+        );
+        if b.app.brush_tiles.last.settled || Instant::now() > deadline {
+            break;
+        }
+        frame += 1;
+        std::thread::sleep(Duration::from_millis(5));
+        b.frame();
+    }
+    assert!(b.app.brush_tiles.last.settled, "tiles did not settle");
+    let touched = b.app.brush_tiles.tiles_with(added);
+    let after = b.app.brush_tiles.tile_textures();
+    let kept = textures
+        .iter()
+        .filter(|(key, _)| !touched.contains(*key))
+        .filter(|(key, tex)| after.get(*key) == Some(*tex))
+        .count();
+    let untouched = textures.keys().filter(|k| !touched.contains(*k)).count();
+    assert_eq!(
+        kept, untouched,
+        "tiles away from the new stroke were rebuilt"
+    );
 }
 
 /// Saves the bench board to `SLATE_BRUSH_FIXTURE` so a GUI run can open it.
