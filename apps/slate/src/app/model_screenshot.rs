@@ -38,9 +38,11 @@ impl SlateApp {
 
     /// Pointer-attached menu (P2): screen-space placement under the cursor.
     pub(crate) fn paint_model_screenshot_popup(&mut self, ctx: &egui::Context) -> bool {
-        let Some(popup) = self.model_shot_popup else {
+        let Some(popup) = self.model_shot_popup.as_ref() else {
             return false;
         };
+        let menu_node = popup.node;
+        let anchor = popup.anchor;
         let palette = self.palette();
         let mut choice_canvas = false;
         let mut choice_folder = false;
@@ -49,10 +51,10 @@ impl SlateApp {
         let item_h = POPUP_ITEM_H;
         let w = POPUP_W;
         let h = item_h * 2.0 + 6.0;
-        let top = popup.anchor.y + 6.0;
-        let rect = Rect::from_min_size(Pos2::new(popup.anchor.x - w * 0.5, top), Vec2::new(w, h));
+        let top = anchor.y + 6.0;
+        let rect = Rect::from_min_size(Pos2::new(anchor.x - w * 0.5, top), Vec2::new(w, h));
 
-        let resp = egui::Area::new(Id::new(("model_shot_menu", popup.node.0)))
+        let resp = egui::Area::new(Id::new(("model_shot_menu", menu_node.0)))
             .fixed_pos(rect.min)
             .order(egui::Order::Foreground)
             .interactable(true)
@@ -74,10 +76,10 @@ impl SlateApp {
         }
         if choice_canvas {
             self.model_shot_popup = None;
-            self.export_model_screenshot_canvas(popup.node);
+            self.export_model_screenshot_canvas(menu_node);
         } else if choice_folder {
             self.model_shot_popup = None;
-            self.export_model_screenshot_dialog(popup.node);
+            self.export_model_screenshot_dialog(menu_node);
         } else if dismiss {
             self.model_shot_popup = None;
         }
@@ -420,7 +422,7 @@ impl SlateApp {
         };
         let Some(image) = moved.iter().find(|id| {
             self.doc().scene.node(**id).is_some_and(|n| {
-                matches!(n.kind, NodeKind::Image(img) if {
+                matches!(&n.kind, NodeKind::Image(img) if {
                     self.doc()
                         .item(img.item)
                         .is_some_and(|it| is_raster_image_path(&it.path))
@@ -430,7 +432,10 @@ impl SlateApp {
         }) else {
             return false;
         };
-        let NodeKind::Image(img) = &self.doc().scene.node(*image)?.kind else {
+        let Some(n) = self.doc().scene.node(*image) else {
+            return false;
+        };
+        let NodeKind::Image(img) = &n.kind else {
             return false;
         };
         self.queue_view_drop_from_item(model, img.item);

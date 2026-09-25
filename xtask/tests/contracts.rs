@@ -34,7 +34,10 @@ fn every_contract_answers_every_dimension_in_its_scope() {
         "no contracts found — the audit would pass vacuously"
     );
     for contract in &audit.contracts {
-        let expected = audit.registry.in_scope(contract.family).len();
+        let expected = audit
+            .registry
+            .in_scope(contract.family, &contract.name)
+            .len();
         assert_eq!(
             contract.rows.len(),
             expected,
@@ -76,6 +79,9 @@ fn an_agreed_portal_contract_covers_every_portal_dimension() {
     assert_eq!(portal.status, Status::Agreed);
     assert_eq!(
         portal.rows.len(),
-        audit.registry.in_scope(Family::Portal).len()
+        audit
+            .registry
+            .in_scope(Family::Portal, "portal-atlas-lens")
+            .len()
     );
 }

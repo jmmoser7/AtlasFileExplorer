@@ -733,7 +733,7 @@ impl Default for ModelSpace {
 
 impl ModelSpace {
     /// Kick off (or re-poll) the off-thread parse of a model file.
-    fn request_model(&mut self, cache_key: &str, path: &Path) {
+    pub(crate) fn request_model(&mut self, cache_key: &str, path: &Path) {
         if self.external.contains(cache_key) || self.models.contains_key(cache_key) {
             return;
         }

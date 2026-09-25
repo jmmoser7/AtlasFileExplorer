@@ -128,7 +128,10 @@ pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> 
 
 pub fn parse_xmp_packet(xmp: &str) -> Result<ViewMetaParsed, ViewMetaError> {
     let _doc = roxmltree::Document::parse(xmp).map_err(|e| ViewMetaError::Parse(e.to_string()))?;
-    let version = parse_u32(&pick_attr(xmp, "version").ok_or(ViewMetaError::MissingField("version"))?, "version")?;
+    let version = parse_u32(
+        &pick_attr(xmp, "version").ok_or(ViewMetaError::MissingField("version"))?,
+        "version",
+    )?;
     let target = parse3(
         &pick_attr(xmp, "target").ok_or(ViewMetaError::MissingField("target"))?,
         "target",
@@ -190,10 +193,10 @@ pub fn read_view_meta(path: &Path) -> Result<Option<ViewMetaParsed>, ViewMetaErr
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let xmp = if ext == "png" {
-        read_png_xmp(path)?.or_else(|| read_xmp_via_image(path).ok().flatten())
-    } else {
-        read_xmp_via_image(path)?
+    let xmp = match ext.as_str() {
+        "png" => read_png_xmp(path)?.or_else(|| read_xmp_via_image(path).ok().flatten()),
+        "jpg" | "jpeg" => read_jpeg_xmp(path)?.or_else(|| read_xmp_via_image(path).ok().flatten()),
+        _ => read_xmp_via_image(path)?,
     };
     let Some(xmp) = xmp else {
         return Ok(None);
@@ -209,7 +212,8 @@ fn read_xmp_via_image(path: &Path) -> Result<Option<String>, ViewMetaError> {
         .map_err(|e| ViewMetaError::Image(e.to_string()))?;
     match decoder.xmp_metadata() {
         Ok(Some(bytes)) => {
-            let text = std::str::from_utf8(&bytes).map_err(|e| ViewMetaError::Parse(e.to_string()))?;
+            let text =
+                std::str::from_utf8(&bytes).map_err(|e| ViewMetaError::Parse(e.to_string()))?;
             Ok(Some(text.to_string()))
         }
         Ok(None) => Ok(None),
@@ -246,19 +250,69 @@ fn decode_png_text_chunk(data: &[u8]) -> Option<String> {
         return None;
     }
     let mut i = keyword_end + 1;
-    if i + 1 >= data.len() {
+    if i + 2 > data.len() {
         return None;
     }
+    let compressed = data[i] != 0;
     i += 2; // compression flag + method
-    while i < data.len() && data[i] != 0 {
-        i += 1;
+    if compressed {
+        return None;
     }
-    i += 1; // language tag
-    while i < data.len() && data[i] != 0 {
-        i += 1;
+    if !skip_png_text_field(data, &mut i) || !skip_png_text_field(data, &mut i) {
+        return None;
     }
-    i += 1; // translated keyword
-    std::str::from_utf8(&data[i..])
+    (i <= data.len()).then(|| std::str::from_utf8(&data[i..]).ok().map(|s| s.to_string()))?
+}
+
+fn skip_png_text_field(data: &[u8], i: &mut usize) -> bool {
+    if *i >= data.len() {
+        return false;
+    }
+    while *i < data.len() && data[*i] != 0 {
+        *i += 1;
+    }
+    if *i >= data.len() {
+        return false;
+    }
+    *i += 1;
+    true
+}
+
+fn read_jpeg_xmp(path: &Path) -> Result<Option<String>, ViewMetaError> {
+    let jpeg = std::fs::read(path).map_err(|e| ViewMetaError::Io(e.to_string()))?;
+    if jpeg.len() < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
+        return Ok(None);
+    }
+    let mut pos = 2usize;
+    while pos + 4 <= jpeg.len() {
+        if jpeg[pos] != 0xFF {
+            break;
+        }
+        let marker = jpeg[pos + 1];
+        if marker == 0xDA || marker == 0xD9 {
+            break;
+        }
+        let len = u16::from_be_bytes([jpeg[pos + 2], jpeg[pos + 3]]) as usize;
+        if len < 2 || pos + 2 + len > jpeg.len() {
+            break;
+        }
+        if marker == 0xE1 {
+            let payload = &jpeg[pos + 4..pos + 2 + len];
+            if let Some(text) = xmp_from_jpeg_app1(payload) {
+                return Ok(Some(text));
+            }
+        }
+        pos += 2 + len;
+    }
+    Ok(None)
+}
+
+fn xmp_from_jpeg_app1(payload: &[u8]) -> Option<String> {
+    const NS: &[u8] = b"http://ns.adobe.com/xap/1.0\0";
+    if payload.len() <= NS.len() || &payload[..NS.len()] != NS {
+        return None;
+    }
+    std::str::from_utf8(&payload[NS.len()..])
         .ok()
         .map(|s| s.to_string())
 }
@@ -384,7 +438,8 @@ fn insert_png_xmp(png: &mut Vec<u8>, xmp: &str) -> Result<(), ViewMetaError> {
 fn build_itxt_chunk(keyword: &str, text: &str) -> Vec<u8> {
     let mut data = Vec::new();
     data.extend_from_slice(keyword.as_bytes());
-    data.push(0); // compression flag
+    data.push(0); // keyword terminator
+    data.push(0); // compression flag (uncompressed)
     data.push(0); // compression method
     data.push(0); // language tag
     data.push(0); // translated keyword
@@ -582,13 +637,14 @@ mod tests {
         rgba: &[u8],
         w: u32,
         h: u32,
+        ext: &str,
     ) {
         let input = sample_input();
         let xmp = build_xmp_packet(&input).unwrap();
         assert!(!path_looks_absolute(&input.model_path));
         let dir = std::env::temp_dir().join(format!("slate-view-meta-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("shot.png");
+        let path = dir.join(format!("shot.{ext}"));
         write(&path, rgba, w, h, &xmp).unwrap();
         let parsed = read_view_meta(&path).unwrap().expect("xmp");
         assert_eq!(parsed.camera, input.camera);
@@ -612,18 +668,21 @@ mod tests {
             &rgba,
             w,
             h,
+            "png",
         );
         round_trip_format(
             |p, rgb, w, h, xmp| write_jpeg_with_xmp(p, rgb, w, h, 90, xmp),
             &rgb,
             w,
             h,
+            "jpg",
         );
         round_trip_format(
             |p, rgba, w, h, xmp| write_webp_with_xmp(p, rgba, w, h, xmp),
             &rgba,
             w,
             h,
+            "webp",
         );
     }
 
@@ -636,6 +695,15 @@ mod tests {
         let rgba = vec![255u8; (w * h * 4) as usize];
         let png = encode_png_with_itxt(&rgba, w, h, &xmp).unwrap();
         assert!(png_xmp_precedes_idat(&png));
+        let dir = std::env::temp_dir().join(format!("slate-view-meta-dbg-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("shot.png");
+        write_png_with_xmp(&path, &rgba, w, h, &xmp).unwrap();
+        assert!(
+            read_view_meta(&path).unwrap().is_some(),
+            "read_view_meta should parse embedded iTXt"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
