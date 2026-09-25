@@ -17,7 +17,7 @@ use slate_doc::scene::{ConnectorEnd, NodeId, NodeKind, PortalNode, SceneCmd, Sid
 use slate_doc::WireHost;
 
 use super::board::{BoardDrag, BoardXf};
-use super::board_agent::{bind_program, program_card_size, InputRole};
+use super::board_agent::{bind_program, paint_overlay_pill, program_card_size, InputRole};
 use super::SlateApp;
 
 /// Designed width of a picture an agent generates.
@@ -844,6 +844,7 @@ impl SlateApp {
             .is_some_and(|p| body.expand(px(8.0)).contains(p));
         let reveal = hovered || self.board_sel.contains(&id) || self.flow_capsule_open(id);
         let empty = reply.is_none() && !own;
+        let ink = self.palette().overlay();
         if empty && !(running || waiting > 0) {
             let wired = self
                 .generator_view(id)
@@ -859,11 +860,7 @@ impl SlateApp {
                 body.center(),
                 egui::vec2(body.width() - px(32.0), px(64.0)),
             );
-            painter.rect_filled(
-                field.expand(px(8.0)),
-                px(10.0),
-                Color32::from_black_alpha(150),
-            );
+            paint_overlay_pill(painter, field.expand(px(8.0)), px(10.0), ink.scrim, &ink, z);
             self.paint_generator_prompt(ui, id, field, z, hint);
         }
         let failure = self
@@ -875,16 +872,19 @@ impl SlateApp {
                 painter,
                 reason,
                 canvas_scale::font(super::board_agent::GENERATOR_CHIP_PX, z),
-                Color32::from_rgb(255, 190, 130),
+                ink.warn,
                 body.width() - px(24.0),
             );
             let at = Pos2::new(body.left() + px(12.0), body.top() + px(12.0));
-            painter.rect_filled(
+            paint_overlay_pill(
+                painter,
                 Rect::from_min_size(at, laid.size()).expand(px(5.0)),
                 px(6.0),
-                Color32::from_black_alpha(175),
+                ink.fill,
+                &ink,
+                z,
             );
-            laid.paint(painter, at, Color32::from_rgb(255, 190, 130));
+            laid.paint(painter, at, ink.warn);
         }
         self.paint_run_progress(ui, painter, id, body, z, "Writing", false);
         if !reveal {
@@ -897,7 +897,7 @@ impl SlateApp {
             at,
             if running { "Stop" } else { "Run" },
             Id::new(("text-block-run", id.0)),
-            Color32::from_black_alpha(175),
+            &ink,
             z,
         );
         if run.clicked() {
@@ -1411,7 +1411,8 @@ impl SlateApp {
         if !canvas_text::legible(font.size) {
             return;
         }
-        let laid = canvas_text::layout_no_wrap(painter, text, font, Color32::WHITE);
+        let ink = self.palette().overlay();
+        let laid = canvas_text::layout_no_wrap(painter, text, font, ink.text);
         let spin = canvas_scale::px(6.0, z);
         let pad = canvas_scale::px(10.0, z);
         let size = laid.size() + egui::vec2(pad * 3.0 + spin * 2.0, pad);
@@ -1422,20 +1423,20 @@ impl SlateApp {
             ),
             size,
         );
-        painter.rect_filled(pill, size.y * 0.5, Color32::from_black_alpha(185));
+        paint_overlay_pill(painter, pill, size.y * 0.5, ink.progress, &ink, z);
         let time = ui.input(|i| i.time) as f32;
         super::board_agent::paint_agent_spinner(
             painter,
             Pos2::new(pill.left() + pad + spin, pill.center().y),
             spin,
             time,
-            Color32::WHITE,
+            ink.text,
         );
         laid.paint_anchored(
             painter,
             Pos2::new(pill.left() + pad * 2.0 + spin * 2.0, pill.center().y),
             Align2::LEFT_CENTER,
-            Color32::WHITE,
+            ink.text,
         );
         if running && !previews {
             // No step count to show: a segment sweeps along the bottom edge.
@@ -1474,9 +1475,10 @@ impl SlateApp {
             .unwrap_or_default();
         self.sync_instruction(id, &journaled);
         let mut theme = self.palette();
-        // The field sits on a dark scrim in both themes.
-        theme.ink = Color32::WHITE;
-        theme.sub = Color32::from_gray(170);
+        // The field sits on the overlay scrim, not on the canvas.
+        let ink = theme.overlay();
+        theme.ink = ink.text;
+        theme.sub = ink.muted;
         let mut text = self.agents.prompt_mut(id).clone();
         let take_focus = self.agents.flow.focus_prompt == Some(id);
         if take_focus {
@@ -1587,11 +1589,8 @@ impl SlateApp {
         } else if was_open {
             self.agents.flow.capsule = None;
         }
-        painter.rect_filled(
-            capsule,
-            capsule.height() * 0.5,
-            Color32::from_black_alpha(175),
-        );
+        let ink = self.palette().overlay();
+        paint_overlay_pill(painter, capsule, capsule.height() * 0.5, ink.fill, &ink, z);
         let font = canvas_scale::font(super::board_agent::GENERATOR_CHIP_PX, z);
         let shown = if label.is_empty() {
             "Add a prompt".to_string()
@@ -1603,9 +1602,9 @@ impl SlateApp {
             shown,
             font,
             if label.is_empty() {
-                Color32::from_gray(170)
+                ink.muted
             } else {
-                Color32::WHITE
+                ink.text
             },
             capsule.width() - px(24.0),
             1,
@@ -1614,12 +1613,12 @@ impl SlateApp {
             &painter.with_clip_rect(capsule),
             Pos2::new(capsule.left() + px(12.0), capsule.center().y),
             Align2::LEFT_CENTER,
-            Color32::WHITE,
+            ink.text,
         );
         if !open {
             return;
         }
-        painter.rect_filled(expanded, px(10.0), Color32::from_black_alpha(215));
+        paint_overlay_pill(painter, expanded, px(10.0), ink.raised, &ink, z);
         let hint = if wired.is_empty() {
             "Describe the picture. Enter runs it again."
         } else {
@@ -1654,6 +1653,19 @@ impl SlateApp {
 mod tests {
     use super::*;
     use slate_doc::agent_inputs::InputKind;
+
+    #[test]
+    fn media_overlays_follow_the_app_theme() {
+        let mut h = super::super::tests::Harness::new("overlay_theme");
+        h.app.dark_mode = false;
+        let light = h.app.palette().overlay();
+        h.app.dark_mode = true;
+        let dark = h.app.palette().overlay();
+        assert_ne!(light.fill, dark.fill);
+        assert_ne!(light.text, dark.text);
+        assert_eq!(dark.fill, Color32::from_black_alpha(175));
+        assert_eq!(dark.text, Color32::WHITE);
+    }
 
     /// A ComfyUI generator with one finished picture in its album.
     fn generator_with_output(tag: &str) -> (super::super::tests::Harness, NodeId) {

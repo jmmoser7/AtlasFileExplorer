@@ -113,6 +113,11 @@ impl Palette {
         }
     }
 
+    /// Pills laid over board media in this theme (`[board_overlay]`).
+    pub fn overlay(&self) -> tokens::OverlayInk {
+        tokens::current().board_overlay.ink(self.dark_mode)
+    }
+
     /// Theme subset used by the sidebar layout primitives.
     pub fn sidebar_theme(&self) -> SidebarTheme {
         SidebarTheme {
