@@ -9,7 +9,7 @@
 //! brush canvas stays on the per-stroke path and splits the run so later
 //! strokes still paint above it.
 
-use super::super::board::{BoardDrag, BoardXf};
+use super::super::board::BoardXf;
 use super::super::SlateApp;
 use super::{paint_path_shape, path_content_hash};
 use eframe::egui::{self, Color32, Pos2};
@@ -151,6 +151,12 @@ pub(crate) struct BrushTiles {
     /// Runs a paint already matched this frame. A split run's later pieces
     /// get their own caches instead of fighting over one tile set.
     claimed: Vec<u64>,
+    /// Tiles another run's piece painted in place of its own missing tile,
+    /// this frame and the last. A replacement for one of last frame's waits
+    /// in `held`, so the strokes it stood in for never go undrawn.
+    lent: HashSet<(u64, TileCoord)>,
+    lent_last: HashSet<(u64, TileCoord)>,
+    held: Vec<Finished>,
     next_token: u64,
     next_job: u64,
     live_jobs: HashSet<u64>,
@@ -178,6 +184,9 @@ impl Default for BrushTiles {
             specified: false,
             runs: Vec::new(),
             claimed: Vec::new(),
+            lent: HashSet::new(),
+            lent_last: HashSet::new(),
+            held: Vec::new(),
             next_token: 1,
             next_job: 1,
             live_jobs: HashSet::new(),
@@ -272,6 +281,7 @@ impl BrushTiles {
         self.inflight.clear();
         self.stash.clear();
         self.incoming.clear();
+        self.held.clear();
         self.dirty_ids.clear();
         self.dirty_all = false;
         self.keyed_gen = scene_gen;
@@ -340,6 +350,16 @@ impl BrushTiles {
 
     fn upload_some(&mut self, ctx: &egui::Context) {
         let mut uploaded = 0;
+        for fin in std::mem::take(&mut self.held) {
+            if uploaded < UPLOADS_PER_FRAME && !self.on_loan(&fin) {
+                self.queued
+                    .remove(&(fin.token, fin.pixel.to_bits(), fin.tx, fin.ty));
+                self.install(ctx, fin);
+                uploaded += 1;
+            } else {
+                self.held.push(fin);
+            }
+        }
         while uploaded < UPLOADS_PER_FRAME {
             let Some(fin) = self.incoming.pop_front() else {
                 break;
@@ -356,11 +376,21 @@ impl BrushTiles {
                 self.flush_stash(ctx);
                 continue;
             }
+            if self.on_loan(&fin) {
+                self.held.push(fin);
+                continue;
+            }
             self.queued
                 .remove(&(fin.token, fin.pixel.to_bits(), fin.tx, fin.ty));
             self.install(ctx, fin);
             uploaded += 1;
         }
+    }
+
+    /// Another run's piece painted the tile this would replace last frame.
+    fn on_loan(&self, fin: &Finished) -> bool {
+        self.lent_last
+            .contains(&(fin.token, (fin.pixel.to_bits(), fin.tx, fin.ty)))
     }
 
     fn enqueue(&mut self, job: Job) {
@@ -629,13 +659,10 @@ fn plain_stamp<'a>(
     if (node.opacity - 1.0).abs() > 0.001 {
         return None;
     }
+    // A stroke the eraser reached leaves the tiles once its live preview
+    // exists (`ensure_erase_live`), not before, so it never goes undrawn.
     if app.board_sel.contains(&node.id) || app.erase_live.contains_key(&node.id) {
         return None;
-    }
-    if let Some(BoardDrag::Erase { spot, .. }) = &app.board_drag {
-        if spot.contains(&node.id) {
-            return None;
-        }
     }
     if app.shape_properties.preview.iter().any(|p| p.id == node.id) {
         return None;
@@ -717,11 +744,14 @@ pub(crate) fn paint_rest(
         return;
     }
 
+    super::ensure_erase_live(app, painter, xf);
     let scene_gen = app.scene_gen;
     app.brush_tiles.last.drew_fallback = false;
     app.brush_tiles.last.individuals = 0;
     app.brush_tiles.last.fresh.clear();
     app.brush_tiles.claimed.clear();
+    let lent = std::mem::take(&mut app.brush_tiles.lent);
+    app.brush_tiles.lent_last = lent;
     app.brush_tiles.sync_keys(scene_gen);
     app.brush_tiles.drain_finished();
     app.brush_tiles.upload_some(painter.ctx());
@@ -769,7 +799,9 @@ pub(crate) fn paint_rest(
     }
 
     app.brush_tiles.evict(frame);
-    let pending = app.brush_tiles.live_jobs.len() + app.brush_tiles.incoming.len();
+    let pending = app.brush_tiles.live_jobs.len()
+        + app.brush_tiles.incoming.len()
+        + app.brush_tiles.held.len();
     let ready = app.brush_tiles.runs.iter().map(|r| r.tiles.len()).sum();
     let gpu_bytes = app.brush_tiles.gpu_bytes();
     let drew_fallback = app.brush_tiles.last.drew_fallback;
@@ -898,8 +930,9 @@ fn paint_run(
                 continue;
             }
             missing = true;
+            let mut need: Vec<(NodeId, u64)> = Vec::new();
             if kind == TileFit::Missing {
-                absent = true;
+                need.extend_from_slice(&desired);
             } else if let Some(run) = app.brush_tiles.runs.iter_mut().find(|r| r.token == token) {
                 // The old raster keeps painting until its replacement lands.
                 // Strokes it already shows unchanged are covered by it.
@@ -908,15 +941,34 @@ fn paint_run(
                     paint_tile(painter, xf, tile);
                     if let TileFit::Prefix(n) = kind {
                         covered.extend(desired[..n].iter().map(|(id, _)| *id));
+                        need.extend_from_slice(&desired[n..]);
                     } else {
-                        let want: HashSet<(NodeId, u64)> = desired.iter().copied().collect();
-                        covered.extend(
-                            tile.baked
-                                .iter()
-                                .filter(|pair| want.contains(pair))
-                                .map(|(id, _)| *id),
-                        );
+                        let shown: HashSet<(NodeId, u64)> = tile.baked.iter().copied().collect();
+                        for pair in desired.iter() {
+                            if shown.contains(pair) {
+                                covered.insert(pair.0);
+                            } else {
+                                need.push(*pair);
+                            }
+                        }
                     }
+                }
+            }
+            if !need.is_empty() {
+                let at = (bits, tx, ty);
+                borrow_tiles(
+                    app,
+                    doc,
+                    token,
+                    at,
+                    &mut need,
+                    frame,
+                    painter,
+                    xf,
+                    &mut covered,
+                );
+                if kind == TileFit::Missing && !need.is_empty() {
+                    absent = true;
                 }
             }
             let queued = app
@@ -1113,6 +1165,68 @@ fn covers(baked: &[(NodeId, u64)], desired: &[(NodeId, u64)]) -> bool {
         }
     }
     i == desired.len()
+}
+
+/// Donor tiles one tile may borrow in a frame.
+const LENDERS_PER_TILE: usize = 3;
+
+/// A run that just split or merged (a stroke left or rejoined the tiles)
+/// has strokes here that its own tile does not show yet. Recent runs of the
+/// same document whose tile here already shows some of them unchanged (the
+/// run before the split, the pieces before the merge) stand in, the most
+/// helpful first: each painted once per frame, its own replacement waiting
+/// (`lent`) until this run's tile lands. `need` keeps what none of them shows.
+#[allow(clippy::too_many_arguments)]
+fn borrow_tiles(
+    app: &mut SlateApp,
+    doc: u64,
+    token: u64,
+    at: TileCoord,
+    need: &mut Vec<(NodeId, u64)>,
+    frame: u64,
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    covered: &mut HashSet<NodeId>,
+) {
+    let cache = &mut app.brush_tiles;
+    for _ in 0..LENDERS_PER_TILE {
+        let shows = |r: &RunCache| {
+            r.tiles
+                .get(&at)
+                .map_or(0, |t| need.iter().filter(|p| t.baked.contains(p)).count())
+        };
+        let best = cache
+            .runs
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.doc == doc && r.token != token && r.used + 2 >= frame)
+            .map(|(i, r)| (i, shows(r)))
+            .filter(|&(_, n)| n > 0)
+            .max_by_key(|&(_, n)| n);
+        let Some((index, _)) = best else {
+            return;
+        };
+        let run = &mut cache.runs[index];
+        run.used = frame;
+        let lender = run.token;
+        if let Some(tile) = run.tiles.get_mut(&at) {
+            if tile.used != frame {
+                tile.used = frame;
+                paint_tile(painter, xf, tile);
+            }
+            need.retain(|p| {
+                let shown = tile.baked.contains(p);
+                if shown {
+                    covered.insert(p.0);
+                }
+                !shown
+            });
+        }
+        cache.lent.insert((lender, at));
+        if need.is_empty() {
+            return;
+        }
+    }
 }
 
 /// `needle` appears inside `hay` in order, whatever the content keys.

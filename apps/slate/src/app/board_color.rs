@@ -16,13 +16,44 @@ use slate_doc::scene::{
 use slate_doc::NodeId;
 use vector_ink::kurbo::BezPath;
 
-pub(crate) fn eraser_hits_node(node: &Node, world: Pos2, slop: f32, zoom: f32) -> bool {
+/// Whether a round pick of radius `slop` touches `node` anywhere on the
+/// segment `from` to `to`. One fast pointer move is one long segment, so the
+/// pick is tested at samples no more than half its radius apart, not only at
+/// the two ends.
+pub(crate) fn eraser_sweep_hits_node(
+    node: &Node,
+    from: Pos2,
+    to: Pos2,
+    slop: f32,
+    zoom: f32,
+) -> bool {
     if node.hidden || node.locked {
         return false;
     }
     let NodeKind::Shape(shape) = &node.kind else {
         return false;
     };
+    let pad = slop + shape.stroke.width.max(1.0) * 0.5;
+    let rect = node.rect.normalized();
+    let reach = if node.rotation_deg.abs() > 0.01 {
+        pad + rect.w.max(rect.h)
+    } else {
+        pad
+    };
+    let near = |p: &Pos2| {
+        p.x >= rect.x - reach
+            && p.x <= rect.x + rect.w + reach
+            && p.y >= rect.y - reach
+            && p.y <= rect.y + rect.h + reach
+    };
+    let steps = ((to - from).length() / (slop * 0.5).max(0.25)).ceil() as usize;
+    let mut samples = (0..=steps)
+        .map(|i| from.lerp(to, i as f32 / steps.max(1) as f32))
+        .filter(near)
+        .peekable();
+    if samples.peek().is_none() {
+        return false;
+    }
     match shape.shape {
         ShapeKind::Path => {
             let Some(path) = shape.path.as_ref() else {
@@ -33,11 +64,11 @@ pub(crate) fn eraser_hits_node(node: &Node, world: Pos2, slop: f32, zoom: f32) -
             }
             let bez = board_path::path_data_to_world_bez(path, node.rect, node.rotation_deg);
             let style = board_path::stroke_style_world(&shape.stroke, zoom);
-            vector_ink::hit_stroke(&bez, &style, [world.x, world.y], slop)
+            samples.any(|p| vector_ink::hit_stroke(&bez, &style, [p.x, p.y], slop))
         }
         ShapeKind::Line => {
             let (a, b) = line_endpoints(node.rect, shape.flip, node.rotation_deg);
-            dist_point_segment(world, a, b) <= slop + shape.stroke.width.max(1.0) * 0.5
+            samples.any(|p| dist_point_segment(p, a, b) <= pad)
         }
         _ => false,
     }
@@ -74,6 +105,42 @@ pub(crate) fn spot_reaches(node: &Node, bounds: WorldRect) -> bool {
         && rect.x + rect.w + reach >= bounds.x
         && rect.y - reach <= bounds.y + bounds.h
         && rect.y + rect.h + reach >= bounds.y
+}
+
+/// Whether an eraser disc of radius `r` swept from `from` to `to` touches the
+/// painted ink of a stamped stroke: its tipped centerline, each vertex at its
+/// own tip radius. Only strokes the pass really reaches get a live preview.
+pub(crate) fn spot_touches(node: &Node, from: Pos2, to: Pos2, r: f32) -> bool {
+    let NodeKind::Shape(shape) = &node.kind else {
+        return false;
+    };
+    let Some(path) = shape.path.as_ref() else {
+        return false;
+    };
+    let tolerance = (r as f64 * 0.25).max(0.05);
+    let pos = |p: &vector_ink::TipPoint| Pos2::new(p.pos[0], p.pos[1]);
+    board_path::stamped_contours(node, shape, path, tolerance)
+        .iter()
+        .any(|contour| match contour.as_slice() {
+            [only] => dist_point_segment(pos(only), from, to) <= r + only.tip.diameter * 0.5,
+            pts => pts.windows(2).any(|s| {
+                let reach = r + s[0].tip.diameter.max(s[1].tip.diameter) * 0.5;
+                dist_segment_segment(from, to, pos(&s[0]), pos(&s[1])) <= reach
+            }),
+        })
+}
+
+fn dist_segment_segment(a0: Pos2, a1: Pos2, b0: Pos2, b1: Pos2) -> f32 {
+    let cross = |o: Pos2, p: Pos2, q: Pos2| (p - o).x * (q - o).y - (p - o).y * (q - o).x;
+    let (d1, d2) = (cross(b0, b1, a0), cross(b0, b1, a1));
+    let (d3, d4) = (cross(a0, a1, b0), cross(a0, a1, b1));
+    if d1 * d2 < 0.0 && d3 * d4 < 0.0 {
+        return 0.0;
+    }
+    dist_point_segment(a0, b0, b1)
+        .min(dist_point_segment(a1, b0, b1))
+        .min(dist_point_segment(b0, a0, a1))
+        .min(dist_point_segment(b1, a0, a1))
 }
 
 pub(crate) fn stamp_erase_mark(
@@ -1037,27 +1104,44 @@ impl SlateApp {
     /// Path/Line stroke nodes under the eraser circle at `world`
     /// (pick radius = eraser width / 2). Images, text, frames, and
     /// connectors are never erasable; hidden/locked strokes are skipped.
+    #[cfg(test)]
     pub(crate) fn eraser_hits_at(&self, world: Pos2) -> Vec<NodeId> {
-        self.vector_sweep_hits_at(world, self.eraser_width)
+        self.eraser_hits_along(world, world)
+    }
+
+    /// The same strokes, for the eraser circle swept from `from` to `to`.
+    pub(crate) fn eraser_hits_along(&self, from: Pos2, to: Pos2) -> Vec<NodeId> {
+        self.vector_sweep_hits_along(from, to, self.eraser_width)
     }
 
     /// Vector Path/Line strokes under a circular pick (brush width = diameter).
     pub(crate) fn vector_sweep_hits_at(&self, world: Pos2, pick_width: f32) -> Vec<NodeId> {
+        self.vector_sweep_hits_along(world, world, pick_width)
+    }
+
+    /// Vector Path/Line strokes the circular pick touches anywhere along the
+    /// segment `from` to `to`.
+    pub(crate) fn vector_sweep_hits_along(
+        &self,
+        from: Pos2,
+        to: Pos2,
+        pick_width: f32,
+    ) -> Vec<NodeId> {
         let zoom = self.tab().cam.z;
         let slop = (pick_width * 0.5).max(1.0);
         let reach = slop + super::settings::STROKE_WIDTH_MAX * 0.5;
         let query = slate_doc::scene::WorldRect::new(
-            world.x - reach,
-            world.y - reach,
-            reach * 2.0,
-            reach * 2.0,
+            from.x.min(to.x) - reach,
+            from.y.min(to.y) - reach,
+            (from.x - to.x).abs() + reach * 2.0,
+            (from.y - to.y).abs() + reach * 2.0,
         );
         let mut hits = Vec::new();
         for id in self.doc().scene.query_rect(query) {
             let Some(n) = self.doc().scene.node(id) else {
                 continue;
             };
-            if eraser_hits_node(n, world, slop, zoom) {
+            if eraser_sweep_hits_node(n, from, to, slop, zoom) {
                 hits.push(n.id);
             }
         }
@@ -1132,30 +1216,28 @@ impl SlateApp {
         else {
             return;
         };
+        // The stretch of the pass since the last hit test: the whole line
+        // for a straight pass, otherwise from the previous pointer sample.
+        let from = if *straight {
+            points.first().copied()
+        } else {
+            points.iter().rev().find(|p| **p != world).copied()
+        }
+        .unwrap_or(world);
         for h in self
-            .eraser_hits_at(world)
+            .eraser_hits_along(from, world)
             .into_iter()
-            .chain(self.eraser_hits_active_layer_at(world))
+            .chain(self.eraser_hits_active_layer_along(from, world))
         {
             if !touched.contains(&h) {
                 touched.push(h);
             }
         }
         self.collect_layer_erase_spot(spot, points, *straight);
-        let tail: &[Pos2] = if *straight || points.len() < 2 {
-            points
-        } else {
-            &points[points.len() - 2..]
-        };
         let r = self.eraser_width * 0.5;
-        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-        for p in tail {
-            x0 = x0.min(p.x - r);
-            y0 = y0.min(p.y - r);
-            x1 = x1.max(p.x + r);
-            y1 = y1.max(p.y + r);
-        }
-        if !x0.is_finite() {
+        let (x0, y0) = (from.x.min(world.x) - r, from.y.min(world.y) - r);
+        let (x1, y1) = (from.x.max(world.x) + r, from.y.max(world.y) + r);
+        if !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()) {
             return;
         }
         let ink = super::settings::STROKE_WIDTH_MAX * 0.5;
@@ -1173,7 +1255,9 @@ impl SlateApp {
             if spot.contains(&n.id) {
                 continue;
             }
-            if spot_reaches(n, WorldRect::new(x0, y0, x1 - x0, y1 - y0)) {
+            if spot_reaches(n, WorldRect::new(x0, y0, x1 - x0, y1 - y0))
+                && spot_touches(n, from, world, r)
+            {
                 spot.push(n.id);
             }
         }

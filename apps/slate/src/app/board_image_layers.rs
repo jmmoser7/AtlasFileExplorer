@@ -517,7 +517,7 @@ impl SlateApp {
         }
     }
 
-    pub(crate) fn eraser_hits_active_layer_at(&self, world: Pos2) -> Vec<NodeId> {
+    pub(crate) fn eraser_hits_active_layer_along(&self, from: Pos2, to: Pos2) -> Vec<NodeId> {
         let Some(session) = self.image_paint.as_ref() else {
             return Vec::new();
         };
@@ -535,7 +535,7 @@ impl SlateApp {
         let mut hits = Vec::new();
         for local in &layer.nodes {
             let n = layer_node_to_world(host, img, local);
-            if super::board_color::eraser_hits_node(&n, world, slop, zoom) {
+            if super::board_color::eraser_sweep_hits_node(&n, from, to, slop, zoom) {
                 hits.push(local.id);
             }
         }

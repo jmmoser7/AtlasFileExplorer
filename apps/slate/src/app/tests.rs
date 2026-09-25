@@ -9186,6 +9186,79 @@ fn a_brush_sample_sets_the_foreground_and_recent_colors() {
     assert_eq!(recent.first().copied(), Some([90, 140, 210]));
 }
 
+/// A two-point diagonal line crossing `(x, x)` at a right angle.
+fn crossing_line(app: &mut SlateApp, x: f32) -> NodeId {
+    use slate_doc::scene::{ShapeKind, ShapeNode};
+    let (rect, data) = board_path::points_to_path_data(
+        &[Pos2::new(x - 12.0, x + 12.0), Pos2::new(x + 12.0, x - 12.0)],
+        false,
+    );
+    let node = app.doc_mut().scene.build_node(
+        rect,
+        NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke: board_path::default_curve_stroke(Rgba::BLACK),
+            corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            flip: false,
+            path: Some(data.into()),
+            text: None,
+        }),
+    );
+    let id = node.id;
+    app.add_nodes(vec![node]);
+    id
+}
+
+/// One fast pointer move is one long segment. Everything under that segment
+/// is erased, not only what sits under its two ends.
+#[test]
+fn a_fast_eraser_segment_erases_along_its_whole_length() {
+    let mut h = web_board("eraser_fast_segment");
+    let lines: Vec<NodeId> = (1..=7)
+        .map(|i| crossing_line(&mut h.app, i as f32 * 50.0))
+        .collect();
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.brush_width = 10.0;
+    let dots: Vec<NodeId> = (1..=6)
+        .map(|i| {
+            let p = Pos2::new(i as f32 * 50.0 + 25.0, i as f32 * 50.0 + 25.0);
+            h.app.finish_freehand_brush(vec![p]);
+            h.app.doc().scene.nodes.last().unwrap().id
+        })
+        .collect();
+    {
+        let cam = &mut h.app.tab_mut().cam;
+        cam.z = 1.0;
+        cam.offset = EVec2::new(200.0, 200.0);
+    }
+    h.app.set_board_tool(board::BoardTool::Eraser);
+    h.app.eraser_width = 30.0;
+    h.app.eraser_softness = 0.0;
+    h.app.eraser_opacity = 1.0;
+    h.frame();
+    let xf = h.app.board_xf();
+    let (a, b) = (xf.w2s(Pos2::new(0.0, 0.0)), xf.w2s(Pos2::new(400.0, 400.0)));
+    assert!(h.app.canvas_rect.contains(a) && h.app.canvas_rect.contains(b));
+    h.frame_with(pointer_to(a, false));
+    h.frame_with(primary_button(a, true, false));
+    h.frame_with(pointer_to(b, false));
+    h.frame_with(primary_button(b, false, false));
+    let left: Vec<NodeId> = lines
+        .iter()
+        .chain(&dots)
+        .copied()
+        .filter(|id| h.app.doc().scene.node(*id).is_some())
+        .collect();
+    assert!(
+        left.is_empty(),
+        "{} of {} marks under the segment survived",
+        left.len(),
+        lines.len() + dots.len()
+    );
+}
+
 /// Machine-local: time until `SlateApp::with_ctx` returns (headless `new`).
 /// Not a CI assertion — fonts and the data dir dominate, and they vary by machine.
 #[test]

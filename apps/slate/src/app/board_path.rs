@@ -1492,9 +1492,44 @@ pub(crate) fn stamped_contours(
     contours
 }
 
-/// Stamps rebuilt per frame for a zoom change. A stroke without any bitmap
-/// always builds, so a commit never flickers.
+/// Stamps rasterized on the frame loop per frame: rebuilds for a zoom change
+/// and live eraser previews. A stroke without any bitmap always builds, so a
+/// commit never flickers; a stroke waiting for its eraser preview keeps
+/// painting as committed.
 const STAMP_REBUILDS_PER_FRAME: u32 = 3;
+
+/// Build the live eraser preview for strokes the pass reached, a few per
+/// frame. Until a stroke has one it stays on the tile path, as committed.
+pub(crate) fn ensure_erase_live(app: &mut SlateApp, painter: &egui::Painter, xf: &BoardXf) {
+    let Some(super::board::BoardDrag::Erase { spot, .. }) = &app.board_drag else {
+        return;
+    };
+    let waiting: Vec<NodeId> = spot
+        .iter()
+        .filter(|id| !app.erase_live.contains_key(id))
+        .copied()
+        .collect();
+    let want = stamp_pixel_for_zoom(xf.z, painter.ctx().pixels_per_point());
+    for id in waiting {
+        if app.brush_stamp_rebuilds >= STAMP_REBUILDS_PER_FRAME {
+            painter.ctx().request_repaint();
+            return;
+        }
+        let Some(node) = app.doc().scene.node(id).cloned() else {
+            continue;
+        };
+        let NodeKind::Shape(shape) = &node.kind else {
+            continue;
+        };
+        let Some(path) = shape.path.as_ref() else {
+            continue;
+        };
+        app.brush_stamp_rebuilds += 1;
+        if let Some(live) = EraseLive::new(painter, &node, shape, path, want) {
+            app.erase_live.insert(id, live);
+        }
+    }
+}
 const STAMP_CACHE_BYTES: usize = 384 * 1024 * 1024;
 
 /// Cached radial stamp for one committed stroke.
@@ -1528,7 +1563,10 @@ fn paint_stamped_stroke(
         if spot.contains(&node.id) {
             let (points, straight) = (points.clone(), *straight);
             let tip = app.eraser_tip();
-            if !app.erase_live.contains_key(&node.id) {
+            if !app.erase_live.contains_key(&node.id)
+                && app.brush_stamp_rebuilds < STAMP_REBUILDS_PER_FRAME
+            {
+                app.brush_stamp_rebuilds += 1;
                 if let Some(live) = EraseLive::new(painter, node, shape, path, want) {
                     app.erase_live.insert(node.id, live);
                 }

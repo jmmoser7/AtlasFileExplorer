@@ -289,6 +289,61 @@ fn committing_a_stroke_keeps_earlier_strokes_on_screen() {
     );
 }
 
+/// Erasing across a stroke must not blank the strokes the eraser never
+/// reached: every frame of the pass and after the release draws each of them.
+#[test]
+fn erasing_keeps_untouched_strokes_on_screen() {
+    let mut b = Bench::new(40);
+    b.app.brush_tiles_enabled = true;
+    assert!(settle(&mut b), "fixture tiles did not settle");
+    let before = b.app.brush_tiles.drawn_ids();
+    let target = b.app.doc().scene.nodes[20].clone();
+    let at = Pos2::new(
+        target.rect.x + 0.06 * target.rect.w,
+        target.rect.y + 0.5 * target.rect.h,
+    );
+    b.app.set_board_tool(super::board::BoardTool::Eraser);
+    b.app.eraser_width = 16.0;
+    b.frame();
+    let xf = b.app.board_xf();
+    let start = xf.w2s(at);
+    b.frame_with(vec![egui::Event::PointerMoved(start)]);
+    b.frame_with(primary(start, true));
+    let mut reached: HashSet<slate_doc::NodeId> = HashSet::new();
+    let mut check = |b: &Bench, when: &str| {
+        if let Some(super::board::BoardDrag::Erase { spot, .. }) = &b.app.board_drag {
+            reached.extend(spot.iter().copied());
+        }
+        let drawn = b.app.brush_tiles.drawn_ids();
+        let lost: Vec<_> = before
+            .iter()
+            .filter(|id| !reached.contains(id) && **id != target.id && !drawn.contains(id))
+            .collect();
+        assert!(
+            lost.is_empty(),
+            "{when}: {} strokes the eraser never reached went undrawn",
+            lost.len()
+        );
+    };
+    for i in 1..=8 {
+        let p = start + EVec2::new(i as f32 * 4.0, 0.0);
+        b.frame_with(vec![egui::Event::PointerMoved(p)]);
+        check(&b, &format!("move {i}"));
+    }
+    b.frame_with(primary(start + EVec2::new(32.0, 0.0), false));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut frame = 0;
+    loop {
+        check(&b, &format!("frame {frame} after release"));
+        if b.app.brush_tiles.last.settled || Instant::now() > deadline {
+            break;
+        }
+        frame += 1;
+        std::thread::sleep(Duration::from_millis(5));
+        b.frame();
+    }
+}
+
 /// Saves the bench board to `SLATE_BRUSH_FIXTURE` so a GUI run can open it.
 #[test]
 #[ignore]
