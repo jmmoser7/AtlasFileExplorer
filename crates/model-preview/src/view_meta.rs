@@ -65,12 +65,27 @@ impl std::fmt::Display for ViewMetaError {
 
 impl std::error::Error for ViewMetaError {}
 
-pub fn hash_file_bytes(path: &Path) -> Result<String, ViewMetaError> {
+pub fn hash_bytes(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    let mut file = std::fs::File::open(path).map_err(|e| ViewMetaError::Io(e.to_string()))?;
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher).map_err(|e| ViewMetaError::Io(e.to_string()))?;
-    Ok(format!("{:x}", hasher.finalize()))
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+pub fn hash_file_bytes(path: &Path) -> Result<String, ViewMetaError> {
+    if cloud_dehydrated(path) {
+        return Err(ViewMetaError::Io("cloud placeholder".into()));
+    }
+    let bytes = std::fs::read(path).map_err(|e| ViewMetaError::Io(e.to_string()))?;
+    Ok(hash_bytes(&bytes))
+}
+
+#[cfg(windows)]
+fn cloud_dehydrated(path: &Path) -> bool {
+    atlas_core::cloud::is_dehydrated(path)
+}
+
+#[cfg(not(windows))]
+fn cloud_dehydrated(_path: &Path) -> bool {
+    false
 }
 
 pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> {
@@ -140,38 +155,69 @@ pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> 
     ))
 }
 
+fn slateview_attrs(xmp: &str) -> Result<std::collections::HashMap<String, String>, ViewMetaError> {
+    let doc = roxmltree::Document::parse(xmp).map_err(|e| ViewMetaError::Parse(e.to_string()))?;
+    let mut out = std::collections::HashMap::new();
+    for node in doc.descendants() {
+        for attr in node.attributes() {
+            let name = attr.name();
+            let Some(local) = name.strip_prefix("slateview:") else {
+                continue;
+            };
+            out.insert(local.to_string(), unxml(attr.value()));
+        }
+    }
+    Ok(out)
+}
+
+fn attr_field<'a>(
+    attrs: &'a std::collections::HashMap<String, String>,
+    key: &'static str,
+) -> Result<&'a str, ViewMetaError> {
+    attrs
+        .get(key)
+        .map(|s| s.as_str())
+        .ok_or(ViewMetaError::MissingField(key))
+}
+
 pub fn parse_xmp_packet(xmp: &str) -> Result<ViewMetaParsed, ViewMetaError> {
-    let _doc = roxmltree::Document::parse(xmp).map_err(|e| ViewMetaError::Parse(e.to_string()))?;
-    let version = parse_u32(
-        &pick_attr(xmp, "version").ok_or(ViewMetaError::MissingField("version"))?,
+    let mut attrs = slateview_attrs(xmp).unwrap_or_default();
+    for key in [
         "version",
-    )?;
-    let target = parse3(
-        &pick_attr(xmp, "target").ok_or(ViewMetaError::MissingField("target"))?,
         "target",
-    )?;
-    let yaw = parse_f32(
-        &pick_attr(xmp, "yaw").ok_or(ViewMetaError::MissingField("yaw"))?,
         "yaw",
-    )?;
-    let pitch = parse_f32(
-        &pick_attr(xmp, "pitch").ok_or(ViewMetaError::MissingField("pitch"))?,
         "pitch",
-    )?;
-    let distance = parse_f32(
-        &pick_attr(xmp, "distance").ok_or(ViewMetaError::MissingField("distance"))?,
         "distance",
-    )?;
-    let display = pick_attr(xmp, "display");
-    let model_name = pick_attr(xmp, "modelName");
-    let model_path = pick_attr(xmp, "modelPath").unwrap_or_default();
-    let model_hash = pick_attr(xmp, "modelHash").unwrap_or_default();
-    let model_size = pick_attr(xmp, "modelSize")
-        .map(|s| parse_u64(&s, "modelSize"))
+        "display",
+        "modelName",
+        "modelPath",
+        "modelHash",
+        "modelSize",
+        "nodeId",
+    ] {
+        if !attrs.contains_key(key) {
+            if let Some(v) = pick_attr(xmp, key) {
+                attrs.insert(key.to_string(), v);
+            }
+        }
+    }
+    let version = parse_u32(attr_field(&attrs, "version")?, "version")?;
+    let target = parse3(attr_field(&attrs, "target")?, "target")?;
+    let yaw = parse_f32(attr_field(&attrs, "yaw")?, "yaw")?;
+    let pitch = parse_f32(attr_field(&attrs, "pitch")?, "pitch")?;
+    let distance = parse_f32(attr_field(&attrs, "distance")?, "distance")?;
+    let display = attrs.get("display").map(|s| s.as_str());
+    let model_name = attrs.get("modelName").cloned();
+    let model_path = attrs.get("modelPath").cloned().unwrap_or_default();
+    let model_hash = attrs.get("modelHash").cloned().unwrap_or_default();
+    let model_size = attrs
+        .get("modelSize")
+        .map(|s| parse_u64(s, "modelSize"))
         .transpose()?
         .unwrap_or(0);
-    let node_id = pick_attr(xmp, "nodeId")
-        .map(|s| parse_u64(&s, "nodeId"))
+    let node_id = attrs
+        .get("nodeId")
+        .map(|s| parse_u64(s, "nodeId"))
         .transpose()?
         .unwrap_or(0);
     if version > VIEW_VERSION {
@@ -202,20 +248,31 @@ pub fn parse_xmp_packet(xmp: &str) -> Result<ViewMetaParsed, ViewMetaError> {
 
 /// Read XMP from a saved image file (single-file read, safe off the UI thread).
 pub fn read_view_meta(path: &Path) -> Result<Option<ViewMetaParsed>, ViewMetaError> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let xmp = match ext.as_str() {
-        "png" => read_png_xmp(path)?.or_else(|| read_xmp_via_image(path).ok().flatten()),
-        "jpg" | "jpeg" => read_jpeg_xmp(path)?.or_else(|| read_xmp_via_image(path).ok().flatten()),
-        _ => read_xmp_via_image(path)?,
-    };
+    if cloud_dehydrated(path) {
+        return Ok(None);
+    }
+    let xmp = read_xmp_via_image(path)?.or_else(|| scan_xmp_packet_file(path).ok().flatten());
     let Some(xmp) = xmp else {
         return Ok(None);
     };
     parse_xmp_packet(&xmp).map(Some)
+}
+
+/// Last-resort scan for an embedded `<?xpacket` (WebP and other decoders without XMP hooks).
+fn scan_xmp_packet_file(path: &Path) -> Result<Option<String>, ViewMetaError> {
+    let bytes = std::fs::read(path).map_err(|e| ViewMetaError::Io(e.to_string()))?;
+    let needle = b"<?xpacket begin";
+    let Some(start) = bytes.windows(needle.len()).position(|w| w == needle) else {
+        return Ok(None);
+    };
+    let end = bytes[start..]
+        .windows(15)
+        .position(|w| w.starts_with(b"<?xpacket end"))
+        .map(|i| start + i + 15)
+        .unwrap_or(bytes.len());
+    std::str::from_utf8(&bytes[start..end])
+        .map(|s| Some(s.to_string()))
+        .map_err(|e| ViewMetaError::Parse(e.to_string()))
 }
 
 fn read_xmp_via_image(path: &Path) -> Result<Option<String>, ViewMetaError> {
@@ -233,102 +290,6 @@ fn read_xmp_via_image(path: &Path) -> Result<Option<String>, ViewMetaError> {
         Ok(None) => Ok(None),
         Err(e) => Err(ViewMetaError::Image(e.to_string())),
     }
-}
-
-fn read_png_xmp(path: &Path) -> Result<Option<String>, ViewMetaError> {
-    let bytes = std::fs::read(path).map_err(|e| ViewMetaError::Io(e.to_string()))?;
-    let mut pos = 8;
-    while pos + 12 <= bytes.len() {
-        let len = u32::from_be_bytes(bytes[pos..pos + 4].try_into().unwrap()) as usize;
-        if pos + 12 + len > bytes.len() {
-            break;
-        }
-        let kind = &bytes[pos + 4..pos + 8];
-        let data = &bytes[pos + 8..pos + 8 + len];
-        if kind == b"iTXt" || kind == b"tEXt" {
-            if let Some(text) = decode_png_text_chunk(data) {
-                if text.contains("slateview:") || text.contains(VIEW_NS) {
-                    return Ok(Some(text));
-                }
-            }
-        }
-        pos += 12 + len;
-    }
-    Ok(None)
-}
-
-fn decode_png_text_chunk(data: &[u8]) -> Option<String> {
-    let keyword_end = data.iter().position(|&b| b == 0)?;
-    let keyword = std::str::from_utf8(&data[..keyword_end]).ok()?;
-    if keyword != "XML:com.adobe.xmp" {
-        return None;
-    }
-    let mut i = keyword_end + 1;
-    if i + 2 > data.len() {
-        return None;
-    }
-    let compressed = data[i] != 0;
-    i += 2; // compression flag + method
-    if compressed {
-        return None;
-    }
-    if !skip_png_text_field(data, &mut i) || !skip_png_text_field(data, &mut i) {
-        return None;
-    }
-    (i <= data.len()).then(|| std::str::from_utf8(&data[i..]).ok().map(|s| s.to_string()))?
-}
-
-fn skip_png_text_field(data: &[u8], i: &mut usize) -> bool {
-    if *i >= data.len() {
-        return false;
-    }
-    while *i < data.len() && data[*i] != 0 {
-        *i += 1;
-    }
-    if *i >= data.len() {
-        return false;
-    }
-    *i += 1;
-    true
-}
-
-fn read_jpeg_xmp(path: &Path) -> Result<Option<String>, ViewMetaError> {
-    let jpeg = std::fs::read(path).map_err(|e| ViewMetaError::Io(e.to_string()))?;
-    if jpeg.len() < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
-        return Ok(None);
-    }
-    let mut pos = 2usize;
-    while pos + 4 <= jpeg.len() {
-        if jpeg[pos] != 0xFF {
-            break;
-        }
-        let marker = jpeg[pos + 1];
-        if marker == 0xDA || marker == 0xD9 {
-            break;
-        }
-        let len = u16::from_be_bytes([jpeg[pos + 2], jpeg[pos + 3]]) as usize;
-        if len < 2 || pos + 2 + len > jpeg.len() {
-            break;
-        }
-        if marker == 0xE1 {
-            let payload = &jpeg[pos + 4..pos + 2 + len];
-            if let Some(text) = xmp_from_jpeg_app1(payload) {
-                return Ok(Some(text));
-            }
-        }
-        pos += 2 + len;
-    }
-    Ok(None)
-}
-
-fn xmp_from_jpeg_app1(payload: &[u8]) -> Option<String> {
-    const NS: &[u8] = b"http://ns.adobe.com/xap/1.0\0";
-    if payload.len() <= NS.len() || &payload[..NS.len()] != NS {
-        return None;
-    }
-    std::str::from_utf8(&payload[NS.len()..])
-        .ok()
-        .map(|s| s.to_string())
 }
 
 pub fn write_png_with_xmp(
@@ -397,19 +358,19 @@ fn encode_png_with_itxt(rgba: &[u8], w: u32, h: u32, xmp: &str) -> Result<Vec<u8
     Ok(base)
 }
 
+fn unxml(s: &str) -> String {
+    s.replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
 fn pick_attr(xmp: &str, key: &str) -> Option<String> {
     let needle = format!("slateview:{key}=\"");
     let start = xmp.find(&needle)? + needle.len();
     let rest = &xmp[start..];
     let end = rest.find('"')?;
     Some(unxml(&rest[..end]))
-}
-
-fn unxml(s: &str) -> String {
-    s.replace("&quot;", "\"")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
 }
 
 fn encode_png_rgba(rgba: &[u8], w: u32, h: u32) -> Result<Vec<u8>, ViewMetaError> {
@@ -735,5 +696,23 @@ mod tests {
         let mut input = sample_input();
         input.model_path = r"C:\Users\secret\model.3dm".into();
         assert_eq!(build_xmp_packet(&input), Err(ViewMetaError::InvalidPath));
+    }
+
+    #[test]
+    fn hash_bytes_is_stable() {
+        let a = hash_bytes(b"model-bytes");
+        assert_eq!(a, hash_bytes(b"model-bytes"));
+        assert_ne!(a, hash_bytes(b"other"));
+    }
+
+    #[test]
+    fn hash_file_bytes_local_file() {
+        let dir = std::env::temp_dir().join(format!("slate-hash-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("mesh.bin");
+        std::fs::write(&path, b"fixture").unwrap();
+        let h = hash_file_bytes(&path).unwrap();
+        assert_eq!(h, hash_bytes(b"fixture"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
