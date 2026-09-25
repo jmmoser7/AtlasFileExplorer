@@ -1561,6 +1561,10 @@ fn paint_stamp_quad(painter: &egui::Painter, xf: &BoardXf, gpu: &BrushStampGpu, 
 /// the canvas first and hidden from the scene paint for the drag. The
 /// preview is then one bitmap with the committed result's max-coverage
 /// joint, not two overlapping images.
+///
+/// Between strokes the canvas is parked, not dropped: the next stroke clears
+/// only the pixels the last one touched, so a stroke start costs its own area
+/// rather than a full-window allocation and upload.
 pub struct BrushLiveCanvas {
     img: vector_ink::StampImage,
     base: Vec<u8>,
@@ -1570,6 +1574,9 @@ pub struct BrushLiveCanvas {
     freehand_done: usize,
     line_key: Option<u64>,
     line_dirty: Option<[u32; 4]>,
+    /// Every pixel box drawn since the last reset.
+    touched: Option<[u32; 4]>,
+    idle: bool,
 }
 
 fn view_key(xf: &BoardXf, screen: egui::Rect, ppp: f32) -> [u32; 6] {
@@ -1596,53 +1603,115 @@ impl BrushLiveCanvas {
     ) -> &'a mut BrushLiveCanvas {
         let ppp = painter.ctx().pixels_per_point();
         let view = view_key(xf, screen, ppp);
-        let reuse = slot
+        let live = slot
             .as_ref()
-            .is_some_and(|c| c.view == view && c.anchor == anchor_id);
-        if !reuse {
-            let w = (screen.width() * ppp).ceil().max(1.0) as u32;
-            let h = (screen.height() * ppp).ceil().max(1.0) as u32;
-            let origin = xf.s2w(screen.min);
-            let mut img = vector_ink::StampImage {
-                width: w,
-                height: h,
-                origin: [origin.x, origin.y],
-                pixel: 1.0 / (xf.z * ppp).max(1.0e-3),
-                rgba: vec![0u8; (w as usize) * (h as usize) * 4],
-            };
-            if anchor_id.is_some() {
-                for contour in &anchor_contours() {
-                    match contour.as_slice() {
-                        [] => {}
-                        [only] => stamp_segment(&mut img, *only, *only),
-                        pts => {
-                            for s in pts.windows(2) {
-                                stamp_segment(&mut img, s[0], s[1]);
-                            }
+            .is_some_and(|c| !c.idle && c.view == view && c.anchor == anchor_id);
+        if live {
+            return slot.as_mut().expect("live canvas");
+        }
+        let w = (screen.width() * ppp).ceil().max(1.0) as u32;
+        let h = (screen.height() * ppp).ceil().max(1.0) as u32;
+        let fits = slot
+            .as_ref()
+            .is_some_and(|c| c.img.width == w && c.img.height == h);
+        if !fits {
+            let rgba = vec![0u8; (w as usize) * (h as usize) * 4];
+            let tex = painter.ctx().load_texture(
+                "brush-live",
+                egui::ColorImage::new([w as usize, h as usize], Color32::TRANSPARENT),
+                egui::TextureOptions::LINEAR,
+            );
+            *slot = Some(BrushLiveCanvas {
+                img: vector_ink::StampImage {
+                    width: w,
+                    height: h,
+                    origin: [0.0, 0.0],
+                    pixel: 1.0,
+                    rgba: rgba.clone(),
+                },
+                base: rgba,
+                tex,
+                view,
+                anchor: None,
+                freehand_done: 0,
+                line_key: None,
+                line_dirty: None,
+                touched: None,
+                idle: true,
+            });
+        }
+        let canvas = slot.as_mut().expect("canvas just ensured");
+        // An empty canvas is empty under any camera, so only the mapping moves.
+        canvas.clear_touched();
+        let origin = xf.s2w(screen.min);
+        canvas.img.origin = [origin.x, origin.y];
+        canvas.img.pixel = 1.0 / (xf.z * ppp).max(1.0e-3);
+        canvas.view = view;
+        canvas.anchor = anchor_id;
+        canvas.freehand_done = 0;
+        canvas.line_key = None;
+        canvas.line_dirty = None;
+        canvas.idle = false;
+        if anchor_id.is_some() {
+            for contour in &anchor_contours() {
+                match contour.as_slice() {
+                    [] => {}
+                    [only] => {
+                        canvas.stamp(*only, *only);
+                    }
+                    pts => {
+                        for s in pts.windows(2) {
+                            canvas.stamp(s[0], s[1]);
                         }
                     }
                 }
             }
-            let tex = painter.ctx().load_texture(
-                "brush-live",
-                egui::ColorImage::from_rgba_premultiplied(
-                    [w as usize, h as usize],
-                    &premultiplied(&img.rgba),
-                ),
-                egui::TextureOptions::LINEAR,
-            );
-            *slot = Some(BrushLiveCanvas {
-                base: img.rgba.clone(),
-                img,
-                tex,
-                view,
-                anchor: anchor_id,
-                freehand_done: 0,
-                line_key: None,
-                line_dirty: None,
-            });
+            if let Some(b) = canvas.touched {
+                canvas.copy_rows(b, true);
+                canvas.upload(b);
+            }
         }
-        slot.as_mut().expect("canvas just ensured")
+        canvas
+    }
+
+    /// Stop previewing. The anchor stroke paints from the scene again.
+    pub fn park(&mut self) {
+        self.idle = true;
+        self.anchor = None;
+    }
+
+    /// Stamp a segment and remember its box for the next reset.
+    fn stamp(&mut self, a: TipPoint, b: TipPoint) -> Option<[u32; 4]> {
+        stamp_segment(&mut self.img, a, b);
+        let bx = self.segment_box(a, b)?;
+        self.touched = Some(union_box(self.touched, bx));
+        Some(bx)
+    }
+
+    /// Copy `b` between the canvas and `base` (`to_base` = canvas into base).
+    fn copy_rows(&mut self, b: [u32; 4], to_base: bool) {
+        let stride = self.img.width as usize * 4;
+        for y in b[1] as usize..b[3] as usize {
+            let row = y * stride + b[0] as usize * 4..y * stride + b[2] as usize * 4;
+            if to_base {
+                self.base[row.clone()].copy_from_slice(&self.img.rgba[row]);
+            } else {
+                self.img.rgba[row.clone()].copy_from_slice(&self.base[row]);
+            }
+        }
+    }
+
+    fn clear_touched(&mut self) {
+        let Some(b) = self.touched.take() else {
+            return;
+        };
+        let stride = self.img.width as usize * 4;
+        for y in b[1] as usize..b[3] as usize {
+            let row = y * stride + b[0] as usize * 4..y * stride + b[2] as usize * 4;
+            self.img.rgba[row.clone()].fill(0);
+            self.base[row].fill(0);
+        }
+        self.upload(b);
     }
 
     fn segment_box(&self, a: TipPoint, b: TipPoint) -> Option<[u32; 4]> {
@@ -1669,8 +1738,7 @@ impl BrushLiveCanvas {
             segs.push((at(points[i - 1]), at(points[i])));
         }
         for (a, b) in segs {
-            stamp_segment(&mut self.img, a, b);
-            if let Some(bx) = self.segment_box(a, b) {
+            if let Some(bx) = self.stamp(a, b) {
                 dirty = Some(union_box(dirty, bx));
             }
         }
@@ -1704,15 +1772,10 @@ impl BrushLiveCanvas {
             return;
         }
         self.line_key = Some(key);
-        let stride = self.img.width as usize * 4;
-        if let Some([x0, y0, x1, y1]) = self.line_dirty {
-            for y in y0 as usize..y1 as usize {
-                let row = y * stride + x0 as usize * 4..y * stride + x1 as usize * 4;
-                self.img.rgba[row.clone()].copy_from_slice(&self.base[row]);
-            }
+        if let Some(old) = self.line_dirty {
+            self.copy_rows(old, false);
         }
-        stamp_segment(&mut self.img, a, b);
-        let new_box = self.segment_box(a, b);
+        let new_box = self.stamp(a, b);
         let dirty = match (self.line_dirty, new_box) {
             (Some(old), Some(new)) => Some(union_box(Some(old), new)),
             (old, new) => old.or(new),

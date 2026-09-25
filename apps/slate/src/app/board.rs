@@ -4717,7 +4717,11 @@ impl SlateApp {
                 );
                 canvas.paint(&painter, &xf);
             }
-            _ => self.brush_live = None,
+            _ => {
+                if let Some(canvas) = self.brush_live.as_mut() {
+                    canvas.park();
+                }
+            }
         }
         // Wire drag preview (rubber-band bezier, snap ring, modifier glyph).
         if let Some(BoardDrag::Wire(wd)) = &self.board_drag {

@@ -174,6 +174,53 @@ fn eraser_hits_only_the_stroke_under_the_tip() {
     assert_eq!(hits, vec![line_id]);
 }
 
+fn button(pos: Pos2, pressed: bool) -> impl FnOnce(&mut egui::RawInput) {
+    move |input: &mut egui::RawInput| {
+        input.events.push(egui::Event::PointerMoved(pos));
+        input.events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        });
+    }
+}
+
+fn timed(h: &mut Harness, input: impl FnOnce(&mut egui::RawInput)) -> f32 {
+    let t = Instant::now();
+    h.frame_with(input);
+    t.elapsed().as_secs_f32() * 1000.0
+}
+
+/// Frame cost while drawing: press, a steady drag, release. Three strokes so
+/// the first-stroke and next-stroke costs both show.
+#[test]
+#[ignore]
+fn bench_brush_drag() {
+    let mut h = board("brush_bench_drag");
+    h.app.set_board_tool(BoardTool::Brush);
+    let c = center(&h);
+    hover_frame(&mut h, c);
+    for stroke in 0..3 {
+        let start = c + egui::vec2(-200.0, -60.0 + stroke as f32 * 60.0);
+        let press = timed(&mut h, button(start, true));
+        let mut drag = Vec::new();
+        for i in 1..=40 {
+            let p = start + egui::vec2(i as f32 * 10.0, (i as f32 * 0.4).sin() * 30.0);
+            drag.push(timed(&mut h, pointer_at(p)));
+        }
+        let end = start + egui::vec2(400.0, 0.0);
+        let release = timed(&mut h, button(end, false));
+        let after = timed(&mut h, pointer_at(end));
+        println!(
+            "stroke {stroke}: press {press:.2} ms, drag median {:.2} max {:.2} ms, release {release:.2} ms, next {after:.2} ms",
+            median_ms(drag.clone()),
+            drag.iter().cloned().fold(0.0, f32::max),
+        );
+    }
+    assert_eq!(h.app.doc().scene.nodes.len(), 3);
+}
+
 #[test]
 #[ignore]
 fn bench_brush_input() {
