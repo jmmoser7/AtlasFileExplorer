@@ -96,6 +96,10 @@ drag the address-bar URL or a page link instead.
 - **PageUp / PageDown** bring-to-front / send-to-back (**Ctrl+B** = send to
   back) · **C** crop the single selected croppable image · **Ctrl+U** image
   adjust popover · **Ctrl+I** invert image colors (journaled).
+- **Actions → Mirror horizontal / Mirror vertical** (`board.mirror.horizontal`,
+  `board.mirror.vertical`) — mirror selected pictures, paths, and lines
+  across the board axis through each center, one undo step. Dragging a
+  picture's edge or corner past its opposite also mirrors it (P1.node.transform).
 - **Ctrl+C / X / V** board clipboard (JSON on the OS clipboard too;
   connectors ride along when both ends are copied, outside anchors degrade
   to Free). Ctrl+V also places a copied image or files at the pointer.

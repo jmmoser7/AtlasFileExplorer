@@ -617,6 +617,34 @@ impl SlateApp {
                 }
                 ran
             }
+            "board.mirror.horizontal" | "board.mirror.vertical" => {
+                let axis = if id.0 == "board.mirror.horizontal" {
+                    slate_doc::mirror::MirrorAxis::Horizontal
+                } else {
+                    slate_doc::mirror::MirrorAxis::Vertical
+                };
+                let ids: Vec<NodeId> = self
+                    .board_sel
+                    .iter()
+                    .copied()
+                    .filter(|id| {
+                        self.doc()
+                            .scene
+                            .node(*id)
+                            .is_some_and(|n| slate_doc::mirror::node_mirrors(self.doc(), n))
+                    })
+                    .collect();
+                if ids.is_empty() {
+                    false
+                } else {
+                    self.patch_nodes(&ids, move |n| {
+                        slate_doc::mirror::mirror_on_board(n, axis);
+                    });
+                    self.last_board_edit = None; // toggles never coalesce
+                    detail = detail.or(Some(format!("{} node(s)", ids.len())));
+                    true
+                }
+            }
             // ----- scene flags ------------------------------------------------------
             "board.group" => {
                 let n = self.cmd_group_selection();

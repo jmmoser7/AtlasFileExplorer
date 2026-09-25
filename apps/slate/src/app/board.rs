@@ -54,8 +54,8 @@ use atlas_shell::menu::{self, MenuIcon};
 use atlas_shell::{canvas_scale, canvas_text};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke as EStroke, Vec2};
 use slate_doc::scene::{
-    Corner, Crop, Dash, ImageAdjust, ImageNode, Node, NodeKind, PortalKind, PortalNode, Rgba,
-    SceneCmd, ShapeKind, TextAlign, TextNode, Typeface, WorldRect, PORTAL_DEFAULT_H,
+    Corner, Crop, Dash, ImageAdjust, ImageNode, Mirror, Node, NodeKind, PortalKind, PortalNode,
+    Rgba, SceneCmd, ShapeKind, TextAlign, TextNode, Typeface, WorldRect, PORTAL_DEFAULT_H,
     PORTAL_DEFAULT_W,
 };
 use slate_doc::{ItemId, NodeId};
@@ -2375,6 +2375,7 @@ fn paint_clip_fill(
     painter.add(egui::Shape::mesh(mesh));
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_clipped_texture(
     painter: &egui::Painter,
     xf: &BoardXf,
@@ -2382,6 +2383,7 @@ pub(crate) fn paint_clipped_texture(
     node: &Node,
     clip: &slate_doc::scene::PathData,
     crop: Crop,
+    mirror: Mirror,
     tint: Color32,
 ) {
     let bez = board_path::path_data_to_world_bez(clip, node.rect, node.rotation_deg);
@@ -2390,10 +2392,11 @@ pub(crate) fn paint_clipped_texture(
     if idx.is_empty() {
         return;
     }
-    let crop = crop.clamped();
+    let (cx, cy) = node.rect.center();
     let mut mesh = egui::Mesh::with_texture(tex.id());
     for v in &verts {
-        let uv = host_texture_uv(node.rect, node.rotation_deg, crop, (v[0], v[1]));
+        let local = slate_doc::geom::world_to_local_about(v[0], v[1], cx, cy, node.rotation_deg);
+        let uv = local_texture_uv(node.rect, crop, mirror, local);
         mesh.vertices.push(egui::epaint::Vertex {
             pos: xf.w2s(Pos2::new(v[0], v[1])),
             uv,
@@ -2474,6 +2477,7 @@ pub(crate) fn node_texture_vertices(
     rotation_deg: f32,
     corner: Corner,
     crop: Crop,
+    mirror: Mirror,
 ) -> Vec<(Pos2, Pos2)> {
     corner
         .outline(tex_rect, 0.25 / xf.z.max(0.01))
@@ -2482,7 +2486,7 @@ pub(crate) fn node_texture_vertices(
             let [wx, wy] = node_rect.rotate_point([x, y], rotation_deg);
             (
                 xf.w2s(Pos2::new(wx, wy)),
-                local_texture_uv(tex_rect, crop, (x, y)),
+                local_texture_uv(tex_rect, crop, mirror, (x, y)),
             )
         })
         .collect()
@@ -2490,11 +2494,11 @@ pub(crate) fn node_texture_vertices(
 
 /// UV of an unrotated node-local point: normalized in `rect`, then mapped
 /// into the crop window.
-fn local_texture_uv(rect: WorldRect, crop: Crop, local: (f32, f32)) -> Pos2 {
-    let crop = crop.clamped();
+fn local_texture_uv(rect: WorldRect, crop: Crop, mirror: Mirror, local: (f32, f32)) -> Pos2 {
     let fx = ((local.0 - rect.x) / rect.w.max(0.001)).clamp(0.0, 1.0);
     let fy = ((local.1 - rect.y) / rect.h.max(0.001)).clamp(0.0, 1.0);
-    Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h)
+    let [u, v] = crop.clamped().texture_uv(fx, fy, mirror);
+    Pos2::new(u, v)
 }
 
 /// Fan-triangulated textured mesh from [`node_texture_vertices`].
@@ -2529,7 +2533,7 @@ fn host_texture_uv(rect: WorldRect, rotation_deg: f32, crop: Crop, world: (f32, 
         rect.center().1,
         rotation_deg,
     );
-    local_texture_uv(rect, crop, local)
+    local_texture_uv(rect, crop, Mirror::default(), local)
 }
 
 pub(crate) fn stroke_outline(
@@ -3536,6 +3540,7 @@ impl SlateApp {
                         node.rotation_deg,
                         corner,
                         Crop::full(),
+                        Mirror::default(),
                     );
                     self.paint_model_viewport(
                         ui,
@@ -3570,7 +3575,14 @@ impl SlateApp {
                             let tint = Color32::WHITE.gamma_multiply(alpha);
                             if let Some(clip) = &node.clip {
                                 paint_clipped_texture(
-                                    painter, xf, &tex, node, clip, img.crop, tint,
+                                    painter,
+                                    xf,
+                                    &tex,
+                                    node,
+                                    clip,
+                                    img.crop,
+                                    img.mirror(),
+                                    tint,
                                 );
                             } else {
                                 let vertices = node_texture_vertices(
@@ -3580,6 +3592,7 @@ impl SlateApp {
                                     node.rotation_deg,
                                     corner,
                                     img.crop,
+                                    img.mirror(),
                                 );
                                 paint_node_texture(painter, &tex, &vertices, tint);
                             }
@@ -5703,6 +5716,7 @@ impl SlateApp {
                 node.rotation_deg,
                 Corner::Square,
                 Crop::full(),
+                img.mirror(),
             );
             paint_node_texture(
                 painter,
@@ -6012,6 +6026,34 @@ impl SlateApp {
         )
     }
 
+    /// Keep a picture being resized mirrored on exactly the axes its drag
+    /// has crossed. Rebuilt from the gesture-start node, so dragging back
+    /// restores it; the release commits one Patch like any resize.
+    fn sync_resize_mirror(&mut self, id: NodeId, crossed: [bool; 2]) {
+        let Some(BoardDrag::Resize { before, .. }) = &self.board_drag else {
+            return;
+        };
+        let (NodeKind::Image(start), Some(NodeKind::Image(live))) =
+            (&before.kind, self.doc().scene.node(id).map(|n| &n.kind))
+        else {
+            return;
+        };
+        if [live.flip_x != start.flip_x, live.flip_y != start.flip_y] == crossed {
+            return;
+        }
+        let mut node = before.clone();
+        if crossed[0] {
+            slate_doc::mirror::mirror_local(&mut node, slate_doc::mirror::MirrorAxis::Horizontal);
+        }
+        if crossed[1] {
+            slate_doc::mirror::mirror_local(&mut node, slate_doc::mirror::MirrorAxis::Vertical);
+        }
+        if let Some(live) = self.doc_mut().scene.node_mut(id) {
+            live.kind = node.kind;
+            live.clip = node.clip;
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn update_gesture_for_test(&mut self, world: Pos2, mods: egui::Modifiers) {
         self.update_gesture(world, mods);
@@ -6271,30 +6313,29 @@ impl SlateApp {
                 let handle = *handle;
                 let before_rect = before.rect;
                 let rotation_deg = before.rotation_deg;
+                // A picture dragged past its opposite edge mirrors instead of
+                // clamping (P1.node.transform); other kinds keep the clamp.
+                let mirrors = matches!(before.kind, NodeKind::Image(_))
+                    && slate_doc::mirror::node_mirrors(self.doc(), before);
                 // Corner drags scale proportionally by default; Shift frees
                 // the aspect (distortion). Edge drags are single-axis, with
                 // Shift locking the aspect instead.
                 let is_corner = matches!(handle, 0 | 2 | 4 | 6);
                 let lock_aspect = if is_corner { !mods.shift } else { mods.shift };
                 let from_center = mods.ctrl;
-                let mut r = board_snap::resize_from_handle(
-                    before_rect,
-                    world,
-                    handle,
-                    MIN_DRAW,
-                    lock_aspect,
-                    from_center,
-                    rotation_deg,
-                );
-
-                if !mods.alt {
-                    if is_corner {
-                        // Snap the grabbed corner (osnap + smart guides), then
-                        // rebuild so aspect lock still holds. Independent
-                        // edge snaps fight proportional scale.
-                        let pointer =
-                            self.resolve_point_snap(world, &[node_id], None, false, false);
-                        r = board_snap::resize_from_handle(
+                let resize = |pointer: Pos2| {
+                    if mirrors {
+                        board_snap::resize_from_handle_mirroring(
+                            before_rect,
+                            pointer,
+                            handle,
+                            MIN_DRAW,
+                            lock_aspect,
+                            from_center,
+                            rotation_deg,
+                        )
+                    } else {
+                        let r = board_snap::resize_from_handle(
                             before_rect,
                             pointer,
                             handle,
@@ -6303,9 +6344,28 @@ impl SlateApp {
                             from_center,
                             rotation_deg,
                         );
+                        (r, [false, false])
+                    }
+                };
+                let (mut r, mut crossed) = resize(world);
+
+                if !mods.alt {
+                    if is_corner {
+                        // Snap the grabbed corner (osnap + smart guides), then
+                        // rebuild so aspect lock still holds. Independent
+                        // edge snaps fight proportional scale.
+                        let pointer =
+                            self.resolve_point_snap(world, &[node_id], None, false, false);
+                        (r, crossed) = resize(pointer);
                     } else if self.board_smart_guides {
                         let all = self.board_node_rects();
-                        let edges = board_snap::ResizeSnapEdges::for_handle(handle);
+                        // Past the far edge, the moving edge is the opposite one.
+                        let moving = if crossed[0] || crossed[1] {
+                            (handle + 4) % 8
+                        } else {
+                            handle
+                        };
+                        let edges = board_snap::ResizeSnapEdges::for_handle(moving);
                         let (snapped, guides) = board_snap::snap_resize_rect_scoped(
                             r,
                             &[node_id],
@@ -6318,6 +6378,9 @@ impl SlateApp {
                     }
                 }
 
+                if mirrors {
+                    self.sync_resize_mirror(node_id, crossed);
+                }
                 if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
                     n.rect = r;
                 }
@@ -9406,7 +9469,15 @@ mod tests {
             z: 1.5,
         };
         let rect = WorldRect::new(10.0, 20.0, 200.0, 100.0);
-        let vertices = node_texture_vertices(&xf, rect, rect, 90.0, Corner::Square, Crop::full());
+        let vertices = node_texture_vertices(
+            &xf,
+            rect,
+            rect,
+            90.0,
+            Corner::Square,
+            Crop::full(),
+            Mirror::default(),
+        );
         assert_rigid_texture(&xf, rect, rect, 90.0, &vertices);
         let corners = rect.corners_rotated(90.0);
         let uv_corners = [
@@ -9454,6 +9525,7 @@ mod tests {
                 rotation,
                 Corner::Rounded { radius: 12.0 },
                 crop,
+                Mirror::default(),
             );
             let (cx, cy) = rect.center();
             for (pos, uv) in &vertices {
@@ -9488,9 +9560,50 @@ mod tests {
             h: 0.5,
         };
         let content = board_crop::content_rect(rect, crop);
-        let vertices =
-            node_texture_vertices(&xf, rect, content, 90.0, Corner::Square, Crop::full());
+        let vertices = node_texture_vertices(
+            &xf,
+            rect,
+            content,
+            90.0,
+            Corner::Square,
+            Crop::full(),
+            Mirror::default(),
+        );
         assert_rigid_texture(&xf, rect, content, 90.0, &vertices);
+    }
+
+    /// A mirrored picture reads its crop window backwards along the flipped
+    /// axis, turned rigidly with the node like any other texture.
+    #[test]
+    fn a_mirrored_picture_reads_its_crop_window_backwards() {
+        let xf = BoardXf {
+            center: Pos2::ZERO,
+            offset: Vec2::ZERO,
+            z: 1.0,
+        };
+        let rect = WorldRect::new(10.0, 20.0, 200.0, 100.0);
+        let crop = Crop {
+            x: 0.25,
+            y: 0.1,
+            w: 0.5,
+            h: 0.6,
+        };
+        let mirror = Mirror { x: true, y: false };
+        for rotation in [0.0, 90.0, -30.0] {
+            let vertices =
+                node_texture_vertices(&xf, rect, rect, rotation, Corner::Square, crop, mirror);
+            let corners = rect.corners_rotated(rotation);
+            let top_left = xf.w2s(Pos2::new(corners[0].0, corners[0].1));
+            let top_right = xf.w2s(Pos2::new(corners[1].0, corners[1].1));
+            assert!(
+                (vertex_with_uv(&vertices, Pos2::new(0.75, 0.1)) - top_left).length() < 1e-2,
+                "{rotation}°"
+            );
+            assert!(
+                (vertex_with_uv(&vertices, Pos2::new(0.25, 0.1)) - top_right).length() < 1e-2,
+                "{rotation}°"
+            );
+        }
     }
 
     #[test]

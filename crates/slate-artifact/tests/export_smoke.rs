@@ -62,6 +62,8 @@ fn smoke_full_feature_export() {
             model: Default::default(),
             agent: None,
             paint_layers: Vec::new(),
+            flip_x: false,
+            flip_y: false,
         }),
     );
     let text = doc.scene.build_node(

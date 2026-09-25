@@ -237,6 +237,8 @@ mod tests {
                 model: Default::default(),
                 agent: None,
                 paint_layers: Vec::new(),
+                flip_x: false,
+                flip_y: false,
             }),
         );
         let id = node.id;
@@ -365,6 +367,52 @@ mod tests {
         );
         assert!(!img.contains("rotate"), "{img}");
         assert!(!img.contains("object-fit"), "{img}");
+    }
+
+    #[test]
+    fn a_mirrored_image_flips_its_pixels_inside_the_box() {
+        let mut doc = SlateDoc::new("Mirror");
+        let path = PathBuf::from("/tmp/slate-artifact-mirror.png");
+        let item = doc.add_item(path.clone(), "wide.png", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 600.0, 400.0));
+        let id = add_image(
+            &mut doc.scene,
+            WorldRect::new(100.0, 100.0, 200.0, 100.0),
+            item,
+            Crop {
+                x: 0.5,
+                y: 0.0,
+                w: 0.5,
+                h: 1.0,
+            },
+            Corner::Square,
+            Stroke::none(),
+            ImageAdjust::default(),
+        );
+        let mut assets = AssetMap::default();
+        assets.insert(path, "assets/wide.png".into());
+        let img_tag = |doc: &SlateDoc| {
+            let html = render_html(doc, &assets);
+            let img = &html[html.find("<img").expect("img")..];
+            img[..img.find('>').unwrap()].to_string()
+        };
+        let plain = img_tag(&doc);
+        assert!(!plain.contains("scale("), "{plain}");
+
+        let set = |doc: &mut SlateDoc, x: bool, y: bool| {
+            if let NodeKind::Image(img) = &mut doc.scene.node_mut(id).unwrap().kind {
+                img.flip_x = x;
+                img.flip_y = y;
+            }
+        };
+        set(&mut doc, true, false);
+        let img = img_tag(&doc);
+        assert!(img.contains("transform:scale(-1,1);"), "{img}");
+        assert!(img.contains("width:200.0000%;"), "crop still fills: {img}");
+        set(&mut doc, false, true);
+        assert!(img_tag(&doc).contains("transform:scale(1,-1);"));
+        set(&mut doc, true, true);
+        assert!(img_tag(&doc).contains("transform:scale(-1,-1);"));
     }
 
     #[test]

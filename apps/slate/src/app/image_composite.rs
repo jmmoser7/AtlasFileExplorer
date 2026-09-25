@@ -10,10 +10,11 @@ use std::path::{Path, PathBuf};
 /// PNG path for generator input: filtered/cropped base plus visible paint layers.
 pub fn agent_wired_image_file(app: &SlateApp, node: &Node, img: &ImageNode) -> Option<PathBuf> {
     let source = app.doc().item(img.item).map(|i| i.path.clone())?;
-    if img
-        .paint_layers
-        .iter()
-        .all(|l| !l.visible || l.nodes.is_empty())
+    if !img.mirror().any()
+        && img
+            .paint_layers
+            .iter()
+            .all(|l| !l.visible || l.nodes.is_empty())
     {
         return super::imagefx::visible_crop_file(&source, img.crop).or_else(|| {
             if img.crop.is_full() {
@@ -23,7 +24,35 @@ pub fn agent_wired_image_file(app: &SlateApp, node: &Node, img: &ImageNode) -> O
             }
         });
     }
-    let base = image::open(&source).ok()?;
+    let rgba = composite_rgba(app, node, img, &source)?;
+    let dir = std::env::temp_dir().join("slate-composite");
+    std::fs::create_dir_all(&dir).ok()?;
+    let key = format!(
+        "{:016x}-{}-{}.png",
+        path_key(&source),
+        node.id.0,
+        img.paint_layers.len()
+    );
+    let out = dir.join(key);
+    rgba.save(&out).ok()?;
+    Some(out)
+}
+
+/// The picture as the board shows it before the node's own rotation:
+/// mirrored source, crop window, filters, then visible paint layers.
+pub fn composite_rgba(
+    app: &SlateApp,
+    node: &Node,
+    img: &ImageNode,
+    source: &Path,
+) -> Option<RgbaImage> {
+    let mut base = image::open(source).ok()?;
+    if img.flip_x {
+        base = base.fliph();
+    }
+    if img.flip_y {
+        base = base.flipv();
+    }
     let c = img.crop.clamped();
     let w = base.width().max(1);
     let h = base.height().max(1);
@@ -48,21 +77,17 @@ pub fn agent_wired_image_file(app: &SlateApp, node: &Node, img: &ImageNode) -> O
         rgba.as_mut()[o + 2] = px.b();
         rgba.as_mut()[o + 3] = px.a();
     }
-    let svg = slate_artifact::paint_layers_svg_with_doc(node, img, cw, ch, app.doc());
-    if let Some(overlay) = slate_artifact::rasterize_paint_layers_svg(&svg, cw, ch) {
-        blend_rgba(&mut rgba, &overlay, cw, ch);
+    if img
+        .paint_layers
+        .iter()
+        .any(|l| l.visible && !l.nodes.is_empty())
+    {
+        let svg = slate_artifact::paint_layers_svg_with_doc(node, img, cw, ch, app.doc());
+        if let Some(overlay) = slate_artifact::rasterize_paint_layers_svg(&svg, cw, ch) {
+            blend_rgba(&mut rgba, &overlay, cw, ch);
+        }
     }
-    let dir = std::env::temp_dir().join("slate-composite");
-    std::fs::create_dir_all(&dir).ok()?;
-    let key = format!(
-        "{:016x}-{}-{}.png",
-        path_key(&source),
-        node.id.0,
-        img.paint_layers.len()
-    );
-    let out = dir.join(key);
-    rgba.save(&out).ok()?;
-    Some(out)
+    Some(rgba)
 }
 
 pub fn replace_wired_image_slots(

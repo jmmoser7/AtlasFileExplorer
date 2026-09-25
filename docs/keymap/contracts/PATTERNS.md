@@ -133,6 +133,10 @@ is searchable.
   A rotated resize pins that origin in world space so the grabbed edge
   is the one that moves (local AABB math alone walks the far edge once
   rotation is about the live center; most visible at 180°).
+  Dragging a mirrorable picture's edge or corner past its opposite mirrors
+  it on that local axis (`board_snap::resize_from_handle_mirroring`,
+  `slate-doc::mirror`): the rect stays positive and the flip is authored
+  state in the same undo step. Other kinds clamp at the minimum size.
   Modifier matrix (Select-tool bbox):
 
   | Mods | Corner | Edge |

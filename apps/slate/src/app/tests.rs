@@ -9047,3 +9047,189 @@ fn home_startup_constructor_time() {
         h.app.at_home
     );
 }
+
+fn add_picture(h: &mut Harness, rect: slate_doc::scene::WorldRect) -> NodeId {
+    let p = h.base.join("photo.png");
+    std::fs::write(&p, b"png").unwrap();
+    let item = h.app.add_paths(&[p])[0];
+    let node = h.app.doc_mut().scene.build_node(
+        rect,
+        slate_doc::scene::NodeKind::Image(slate_doc::scene::ImageNode::new(item)),
+    );
+    h.app.add_nodes(vec![node])[0]
+}
+
+fn picture_flips(h: &Harness, id: NodeId) -> (bool, bool) {
+    match &h.app.doc().scene.node(id).unwrap().kind {
+        slate_doc::NodeKind::Image(img) => (img.flip_x, img.flip_y),
+        _ => panic!("image"),
+    }
+}
+
+/// Dragging a picture's right edge past its left edge mirrors it: the width
+/// stays positive, the flip is authored state, and one undo restores both.
+#[test]
+fn dragging_a_pictures_edge_past_its_opposite_mirrors_it() {
+    let mut h = web_board("edge_cross_mirror");
+    let id = add_picture(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+    );
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    let before = h.app.doc().scene.node(id).unwrap().clone();
+    let xf = h.app.board_xf();
+    // Off the edge midpoint so a wire grip does not steal the press.
+    let edge = xf.w2s(Pos2::new(200.0, 12.0));
+    let mods = egui::Modifiers::default();
+    h.app.board_drag = h.app.begin_gesture_for_test(edge, xf.s2w(edge), mods);
+    assert!(matches!(
+        h.app.board_drag,
+        Some(board::BoardDrag::Resize { handle: 3, .. })
+    ));
+    let undo_depth = h.app.tab().journal.undo_depth();
+    // Through the far edge and back out again: the flip follows the pointer.
+    h.app.update_gesture_for_test(Pos2::new(-30.0, 12.0), mods);
+    assert_eq!(picture_flips(&h, id), (true, false));
+    h.app.update_gesture_for_test(Pos2::new(120.0, 12.0), mods);
+    assert_eq!(picture_flips(&h, id), (false, false));
+    let past = Pos2::new(-60.0, 12.0);
+    h.app.update_gesture_for_test(past, mods);
+    h.app.end_gesture_for_test(past, Some(xf.w2s(past)), mods);
+
+    let after = h.app.doc().scene.node(id).unwrap().clone();
+    assert!(
+        (after.rect.x + 60.0).abs() < 0.5 && (after.rect.w - 60.0).abs() < 0.5,
+        "{:?}",
+        after.rect
+    );
+    assert!(after.rect.w > 0.0 && after.rect.h > 0.0);
+    assert_eq!(picture_flips(&h, id), (true, false));
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        undo_depth + 1,
+        "one step per drag"
+    );
+
+    h.app.board_undo();
+    let undone = h.app.doc().scene.node(id).unwrap();
+    assert_eq!(undone.rect, before.rect);
+    assert_eq!(picture_flips(&h, id), (false, false));
+}
+
+/// A shape that cannot mirror keeps the old clamp at the minimum size.
+#[test]
+fn dragging_a_rect_edge_past_its_opposite_still_clamps() {
+    let mut h = web_board("edge_cross_rect");
+    let id = add_rect(&mut h.app, 0.0, 0.0);
+    h.app.board_sel.clear();
+    h.app.set_board_tool(board::BoardTool::Select);
+    h.frame();
+    let xf = h.app.board_xf();
+    let edge = xf.w2s(Pos2::new(80.0, 12.0));
+    let mods = egui::Modifiers::default();
+    h.app.board_drag = h.app.begin_gesture_for_test(edge, xf.s2w(edge), mods);
+    let past = Pos2::new(-60.0, 12.0);
+    h.app.update_gesture_for_test(past, mods);
+    h.app.end_gesture_for_test(past, Some(xf.w2s(past)), mods);
+    let after = h.app.doc().scene.node(id).unwrap().rect;
+    assert_eq!(after.x, 0.0, "{after:?}");
+}
+
+/// Mirror horizontal / vertical flip pictures and paths across the board
+/// axis through each node's center; rectangles are left alone. Undo restores.
+#[test]
+fn mirror_commands_toggle_pictures_and_paths_and_undo() {
+    use slate_doc::scene::{PathData, PathSeg, ShapeKind, ShapeNode};
+    let mut h = web_board("mirror_commands");
+    let pic = add_picture(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+    );
+    h.app.patch_nodes(&[pic], |n| n.rotation_deg = 30.0);
+    let path = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(300.0, 0.0, 100.0, 100.0),
+        slate_doc::scene::NodeKind::Shape(ShapeNode {
+            shape: ShapeKind::Path,
+            fill: None,
+            stroke: slate_doc::scene::Stroke::default(),
+            corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            flip: false,
+            path: Some(std::sync::Arc::new(PathData {
+                start: [0.1, 0.2],
+                segs: vec![PathSeg::Line { to: [0.9, 0.7] }],
+                ..PathData::default()
+            })),
+            text: None,
+        }),
+    );
+    let path = h.app.add_nodes(vec![path])[0];
+    let rect = add_rect(&mut h.app, 500.0, 0.0);
+    let rect_before = h.app.doc().scene.node(rect).unwrap().clone();
+    h.app.board_sel = [pic, path, rect].into_iter().collect();
+
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.mirror.horizontal"),
+        None
+    ));
+    assert_eq!(picture_flips(&h, pic), (true, false));
+    assert_eq!(h.app.doc().scene.node(pic).unwrap().rotation_deg, -30.0);
+    let start = |h: &Harness| match &h.app.doc().scene.node(path).unwrap().kind {
+        slate_doc::NodeKind::Shape(s) => s.path.as_ref().unwrap().start,
+        _ => panic!("path"),
+    };
+    assert!((start(&h)[0] - 0.9).abs() < 1e-6, "{:?}", start(&h));
+    assert_eq!(h.app.doc().scene.node(rect).unwrap(), &rect_before);
+
+    assert!(h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.mirror.vertical"),
+        None
+    ));
+    assert_eq!(picture_flips(&h, pic), (true, true));
+
+    h.app.board_undo();
+    assert_eq!(picture_flips(&h, pic), (true, false));
+    h.app.board_undo();
+    assert_eq!(picture_flips(&h, pic), (false, false));
+    assert_eq!(h.app.doc().scene.node(pic).unwrap().rotation_deg, 30.0);
+    assert!((start(&h)[0] - 0.1).abs() < 1e-6);
+
+    h.app.board_sel = std::iter::once(rect).collect();
+    assert!(!h.app.dispatch(
+        &h.ctx,
+        atlas_commands::CommandId("board.mirror.horizontal"),
+        None
+    ));
+}
+
+/// The Actions flyout offers both mirrors, and they run the commands.
+#[test]
+fn actions_flyout_offers_mirror() {
+    let mut h = web_board("actions_mirror");
+    let pic = add_picture(
+        &mut h,
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 200.0, 100.0),
+    );
+    h.app.board_sel = std::iter::once(pic).collect();
+    let items = ui::tools::palette_strip_items(&h.app, "tool.actions", &[]);
+    let ids: Vec<_> = items.iter().map(|i| i.id).collect();
+    assert!(ids.contains(&"action.mirror_h"), "{ids:?}");
+    assert!(ids.contains(&"action.mirror_v"), "{ids:?}");
+    for id in ["board.mirror.horizontal", "board.mirror.vertical"] {
+        assert!(h
+            .app
+            .registry
+            .by_id(atlas_commands::CommandId(id))
+            .is_some());
+    }
+    ui::tools::activate_flyout_id(&mut h.app, &h.ctx, "action.mirror_v");
+    assert_eq!(
+        h.app.cmd_history.iter().last().unwrap().id.0,
+        "board.mirror.vertical"
+    );
+    assert_eq!(picture_flips(&h, pic), (false, true));
+}
