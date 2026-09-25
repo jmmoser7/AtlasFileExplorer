@@ -11,15 +11,17 @@
 //!   mesh, no GPU buffers, no per-frame work. Duplicating the node and
 //!   changing each copy's camera is how one model appears from several
 //!   perspectives across slides.
-//! - **Unlocked (double-click the node, or hover → padlock).** The mesh is
-//!   parsed off-thread
+//! - **Unlocked (double-click the node).** The mesh is parsed off-thread
 //!   (`model-preview` reads the file), uploaded to the GPU, and rendered
 //!   live with orbit / pan / zoom:
 //!   drag = orbit, Shift+drag = pan, scroll = zoom. At most [`MAX_LIVE`]
 //!   viewports stay live; unlocking more locks the least-recently-used one.
-//! - **Auto-lock.** A live viewport idle for [`AUTO_LOCK`] locks itself:
-//!   the current framebuffer pose is written out as the new poster, the
-//!   camera is committed to the document as one undoable patch, and the GPU
+//!   Navigate is the only resting tool. Measure is armed from the node's
+//!   selection strip and falls back to Navigate after one measurement.
+//! - **Locking.** Esc (after peeling any measure state) or a primary press
+//!   outside the node locks it, as does [`AUTO_LOCK`] of idle time: the
+//!   current framebuffer pose is written out as the new poster, the camera
+//!   is committed to the document as one undoable patch, and the GPU
 //!   resources are released.
 //!
 //! Rendering happens **offscreen inside `update`** (the glow GL context is
@@ -44,7 +46,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{self, TextureHandle};
 use eframe::glow::{self, HasContext};
 use model_preview::{PreviewMesh, PreviewScene};
-use slate_doc::scene::{ModelCamera, NodeKind};
+use slate_doc::scene::{ModelCamera, ModelDisplay, NodeKind};
 use slate_doc::NodeId;
 
 use super::SlateApp;
@@ -71,7 +73,8 @@ const ORBIT_PER_PX: f32 = 0.008;
 // ---------- viewport tools ----------
 
 /// Active tool inside a live 3D viewport. Navigation matches Rhino's default
-/// perspective viewport; measure tools own primary clicks.
+/// perspective viewport and is the default; measure tools own primary clicks
+/// and are armed from the selection strip (`board.model_measure`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ModelViewportTool {
     #[default]
@@ -91,6 +94,28 @@ impl DistanceMeasurement {
     pub fn length(&self) -> f32 {
         distance_3d(self.a, self.b)
     }
+}
+
+/// Command-detail spelling of a display pass (`board.model_display`),
+/// matching its serialized name.
+pub fn display_key(mode: ModelDisplay) -> &'static str {
+    match mode {
+        ModelDisplay::Shaded => "shaded",
+        ModelDisplay::Arctic => "arctic",
+        ModelDisplay::Material => "material",
+        ModelDisplay::Depth => "depth",
+    }
+}
+
+pub fn display_from_key(key: &str) -> Option<ModelDisplay> {
+    [
+        ModelDisplay::Shaded,
+        ModelDisplay::Arctic,
+        ModelDisplay::Material,
+        ModelDisplay::Depth,
+    ]
+    .into_iter()
+    .find(|mode| display_key(*mode) == key)
 }
 
 fn distance_3d(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -576,8 +601,6 @@ pub struct LiveViewport {
     pub(crate) rendered: Option<(u64, u32, u32)>,
     /// Bounds radius once known (zoom clamps, pan scale).
     pub radius: f32,
-    /// Left-edge tool palette (Miro-style expandable strip).
-    pub toolbar_expanded: bool,
     pub tool: ModelViewportTool,
     /// In-progress first point for point-to-point measure.
     pub measure_first: Option<[f32; 3]>,
@@ -1030,7 +1053,6 @@ impl SlateApp {
                 tex: None,
                 rendered: None,
                 radius,
-                toolbar_expanded: false,
                 tool: ModelViewportTool::Navigate,
                 measure_first: None,
                 measure_preview: None,
@@ -1147,6 +1169,23 @@ impl SlateApp {
             .collect();
         for id in dead {
             self.model3d.live.remove(&id);
+        }
+
+        // The display pass is journaled on its own, so undo/redo can change
+        // it under a live viewport.
+        let display: Vec<(NodeId, ModelDisplay)> = self
+            .model3d
+            .live
+            .keys()
+            .filter_map(|id| Some((*id, self.model_node_info(*id)?.cam.display)))
+            .collect();
+        for (id, doc) in display {
+            if let Some(vp) = self.model3d.live.get_mut(&id) {
+                if vp.before.display != doc {
+                    vp.before.display = doc;
+                    vp.cam.display = doc;
+                }
+            }
         }
 
         // Auto-lock idle viewports.
@@ -1358,7 +1397,8 @@ impl SlateApp {
         }
     }
 
-    /// Commit a measure pick (first or second point).
+    /// Commit a measure pick (first or second point). The second point
+    /// completes the measurement and returns the viewport to Navigate.
     pub fn model_measure_pick(&mut self, id: NodeId, screen: egui::Pos2, srect: egui::Rect) {
         let Some(hit) = self.model_pick_at_screen(id, screen, srect) else {
             return;
@@ -1372,16 +1412,171 @@ impl SlateApp {
             Some(a) => {
                 vp.measures.push(DistanceMeasurement { a, b: hit });
                 vp.measure_first = None;
+                vp.tool = ModelViewportTool::Navigate;
             }
         }
         vp.measure_preview = None;
     }
 
-    /// Clear in-progress measure picks.
-    pub fn model_measure_cancel(&mut self, id: NodeId) {
+    /// A mesh viewport the selection strip can drive: a placed model with a
+    /// preview reader. Enscape standalones and recognized gaps are not.
+    pub fn model_has_viewport(&self, id: NodeId) -> bool {
+        self.model_node_info(id).is_some_and(|info| {
+            !self.model3d.external.contains(&info.cache_key)
+                && model_preview::gap_message(&info.path).is_none()
+                && self.model_failure(&info.cache_key).is_none()
+        })
+    }
+
+    /// The single selected node, when it is a mesh viewport (palette runs of
+    /// `board.model_display` / `board.model_measure`).
+    pub fn selected_model_viewport(&self) -> Option<NodeId> {
+        let mut sel = self.board_sel.iter();
+        let id = *sel.next()?;
+        (sel.next().is_none() && self.model_has_viewport(id)).then_some(id)
+    }
+
+    /// Display pass shown on the node: the live camera's while unlocked.
+    pub fn model_display_of(&self, id: NodeId) -> Option<ModelDisplay> {
+        if let Some(vp) = self.model3d.live.get(&id) {
+            return Some(vp.cam.display);
+        }
+        self.model_node_info(id).map(|info| info.cam.display)
+    }
+
+    /// `board.model_display`: one journaled patch of the display pass, live
+    /// or frozen. A live viewport shows it at once and does not re-commit
+    /// it on lock.
+    pub fn set_model_display(&mut self, id: NodeId, mode: ModelDisplay) -> bool {
+        if !self.model_has_viewport(id)
+            || self.doc().scene.node(id).is_none_or(|n| n.locked)
+            || self.model_display_of(id) == Some(mode)
+            || self.refuse_read_only_edit()
+        {
+            return false;
+        }
+        self.last_board_edit = None;
+        self.patch_nodes(&[id], |n| {
+            if let NodeKind::Image(img) = &mut n.kind {
+                img.model.display = mode;
+            }
+        });
+        self.last_board_edit = None;
         if let Some(vp) = self.model3d.live.get_mut(&id) {
-            vp.measure_first = None;
-            vp.measure_preview = None;
+            vp.cam.display = mode;
+            vp.before.display = mode;
+            vp.last_interact = Instant::now();
+        }
+        true
+    }
+
+    /// `board.model_measure`: arm point-to-point measure, entering the
+    /// viewport first when it is frozen. Armed, the same action returns to
+    /// Navigate.
+    pub fn toggle_model_measure(&mut self, id: NodeId) -> bool {
+        if !self.model_has_viewport(id) {
+            return false;
+        }
+        if !self.model3d.live.contains_key(&id) {
+            self.unlock_model(id);
+        }
+        let Some(vp) = self.model3d.live.get_mut(&id) else {
+            return false;
+        };
+        vp.tool = match vp.tool {
+            ModelViewportTool::Navigate => ModelViewportTool::MeasureDistance,
+            ModelViewportTool::MeasureDistance => ModelViewportTool::Navigate,
+        };
+        vp.measure_first = None;
+        vp.measure_preview = None;
+        vp.last_interact = Instant::now();
+        true
+    }
+
+    pub fn model_measuring(&self, id: NodeId) -> bool {
+        self.model3d
+            .live
+            .get(&id)
+            .is_some_and(|vp| vp.tool == ModelViewportTool::MeasureDistance)
+    }
+
+    /// Live viewports the board owns. A focused generator steers its wired
+    /// model and releases it itself.
+    fn board_live_models(&self) -> Vec<NodeId> {
+        self.model3d
+            .live
+            .keys()
+            .filter(|id| !self.agents.steers_model(**id))
+            .copied()
+            .collect()
+    }
+
+    /// One Esc layer inside live viewports (P0.1): a pending measure point,
+    /// then the armed Measure, then completed measurements, then the
+    /// viewport itself locks.
+    pub fn model_cancel_step(&mut self) -> bool {
+        let ids = self.board_live_models();
+        if ids.is_empty() {
+            return false;
+        }
+        let any = |app: &Self, test: &dyn Fn(&LiveViewport) -> bool| {
+            ids.iter()
+                .any(|id| app.model3d.live.get(id).is_some_and(test))
+        };
+        if any(self, &|vp| vp.measure_first.is_some()) {
+            for id in &ids {
+                if let Some(vp) = self.model3d.live.get_mut(id) {
+                    vp.measure_first = None;
+                    vp.measure_preview = None;
+                }
+            }
+        } else if any(self, &|vp| vp.tool != ModelViewportTool::Navigate) {
+            for id in &ids {
+                if let Some(vp) = self.model3d.live.get_mut(id) {
+                    vp.tool = ModelViewportTool::Navigate;
+                }
+            }
+        } else if any(self, &|vp| !vp.measures.is_empty()) {
+            for id in &ids {
+                if let Some(vp) = self.model3d.live.get_mut(id) {
+                    vp.measures.clear();
+                }
+            }
+        } else {
+            for id in ids {
+                self.lock_model(id);
+            }
+        }
+        true
+    }
+
+    /// A primary press outside a live viewport ends it, unless selection
+    /// chrome took the press. The press then belongs to the board.
+    pub fn lock_models_pressed_outside(
+        &mut self,
+        ui: &egui::Ui,
+        xf: &super::board::BoardXf,
+        pointer: Option<egui::Pos2>,
+        chrome_captured: bool,
+    ) {
+        if chrome_captured || !ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+        {
+            return;
+        }
+        let Some(p) = pointer.filter(|p| self.canvas_rect.contains(*p)) else {
+            return;
+        };
+        // Screen-constant slop keeps the edge resize handles with the node.
+        const HANDLE_SLOP_PX: f32 = 8.0;
+        for id in self.board_live_models() {
+            let inside = self
+                .doc()
+                .scene
+                .node(id)
+                .is_some_and(|n| xf.rect_w2s(n.rect).expand(HANDLE_SLOP_PX).contains(p));
+            if !inside {
+                self.lock_model(id);
+            }
         }
     }
 
@@ -2625,7 +2820,6 @@ mod tests {
                 )),
                 rendered: Some((cam.cache_hash(), 2, 2)),
                 radius: bounds_sphere(model.bounds_min, model.bounds_max).1,
-                toolbar_expanded: false,
                 tool: ModelViewportTool::Navigate,
                 measure_first: None,
                 measure_preview: None,
@@ -2656,8 +2850,8 @@ mod tests {
         let world = h.app.board_xf().s2w(start);
         assert_eq!(h.app.live_model_at(world.x, world.y), Some(id));
         assert_eq!(h.app.board_tool, super::super::board::BoardTool::Select);
-        // egui Areas settle their size across initial passes; the live
-        // toolbar must have its final hit rect before the pointer presses.
+        // egui Areas settle their size across initial passes; selection
+        // chrome must have its final hit rect before the pointer presses.
         for _ in 0..3 {
             h.frame_with(|input| input.events.push(egui::Event::PointerMoved(start)));
         }
@@ -2797,6 +2991,171 @@ mod tests {
         assert!(h.app.model3d.live.is_empty());
         h.app.switch_tab(0);
         assert_eq!(h.app.model_node_info(id).unwrap().cam, cam);
+    }
+
+    /// The parsed mesh, so picks can raycast without a GL context.
+    fn with_mesh(h: &mut Harness, id: NodeId) {
+        let info = h.app.model_node_info(id).unwrap();
+        let bytes = std::fs::read(&info.path).unwrap();
+        let model = model_preview::load_preview(&info.path, &bytes).unwrap();
+        h.app
+            .model3d
+            .bounds
+            .insert(info.cache_key.clone(), (model.bounds_min, model.bounds_max));
+        h.app.model3d.models.insert(
+            info.cache_key,
+            CpuEntry {
+                state: ModelState::Ready(Arc::new(model)),
+                last_used: Instant::now(),
+                progress: Arc::new(ParseProgress::new()),
+            },
+        );
+    }
+
+    fn cancel(h: &mut Harness) {
+        assert!(h
+            .app
+            .dispatch(&h.ctx, atlas_commands::CommandId("app.cancel"), None));
+    }
+
+    #[test]
+    fn one_measurement_returns_the_viewport_to_navigate() {
+        let (mut h, id) = live_model("model_measure");
+        with_mesh(&mut h, id);
+        assert!(h.app.dispatch(
+            &h.ctx,
+            atlas_commands::CommandId("board.model_measure"),
+            Some(id.0.to_string())
+        ));
+        assert!(h.app.model_measuring(id));
+        let srect = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        // Aim at two triangle centroids so each ray is known to hit.
+        let key = h.app.model3d.live[&id].cache_key.clone();
+        let mesh = h.app.model3d.mesh_for_key(&key).unwrap();
+        let bounds = h.app.model3d.bounds[&key];
+        let cam = h.app.model3d.live[&id].cam;
+        let aspect = srect.width() / srect.height();
+        let part = &mesh.meshes[0];
+        let aim = |tri: usize| {
+            let c = part.indices[tri * 3..tri * 3 + 3]
+                .iter()
+                .map(|i| part.positions[*i as usize])
+                .fold([0.0f32; 3], |s, p| {
+                    [s[0] + p[0] / 3.0, s[1] + p[1] / 3.0, s[2] + p[2] / 3.0]
+                });
+            let (u, v) = project_model_point(c, aspect, &cam, bounds).unwrap();
+            srect.min + egui::vec2(u * srect.width(), v * srect.height())
+        };
+        let (a, b) = (aim(0), aim(part.indices.len() / 3 - 1));
+        h.app.model_measure_pick(id, a, srect);
+        assert!(
+            h.app.model3d.live[&id].measure_first.is_some(),
+            "first pick hits"
+        );
+        assert!(h.app.model_measuring(id));
+        h.app.model_measure_pick(id, b, srect);
+        let vp = &h.app.model3d.live[&id];
+        assert_eq!(vp.measures.len(), 1);
+        assert_eq!(vp.tool, ModelViewportTool::Navigate);
+    }
+
+    #[test]
+    fn escape_peels_measure_state_then_locks_the_viewport() {
+        let (mut h, id) = live_model("model_escape");
+        h.app.board_sel = [id].into_iter().collect();
+        assert!(h.app.toggle_model_measure(id));
+        let vp = h.app.model3d.live.get_mut(&id).unwrap();
+        vp.measure_first = Some([0.0; 3]);
+        vp.measures.push(DistanceMeasurement {
+            a: [0.0; 3],
+            b: [1.0, 0.0, 0.0],
+        });
+        cancel(&mut h);
+        assert!(h.app.model3d.live[&id].measure_first.is_none());
+        assert!(h.app.model_measuring(id), "the pending point peels first");
+        cancel(&mut h);
+        assert!(!h.app.model_measuring(id));
+        assert_eq!(h.app.model3d.live[&id].measures.len(), 1);
+        cancel(&mut h);
+        assert!(h.app.model3d.live[&id].measures.is_empty());
+        cancel(&mut h);
+        assert!(
+            !h.app.model3d.live.contains_key(&id),
+            "then the viewport locks"
+        );
+        assert!(h.app.board_sel.contains(&id), "selection is the next layer");
+        cancel(&mut h);
+        assert!(h.app.board_sel.is_empty());
+    }
+
+    #[test]
+    fn measure_enters_a_frozen_viewport_and_toggles_back() {
+        let (mut h, id) = live_model("model_measure_toggle");
+        h.app.lock_model(id);
+        assert!(!h.app.model3d.live.contains_key(&id));
+        // Headless has no GL, so entering is refused rather than faked.
+        assert!(!h.app.toggle_model_measure(id));
+        let (mut h, id) = live_model("model_measure_toggle_live");
+        assert!(h.app.toggle_model_measure(id));
+        assert!(h.app.toggle_model_measure(id));
+        assert!(!h.app.model_measuring(id));
+    }
+
+    #[test]
+    fn a_press_outside_a_live_viewport_locks_it() {
+        let (mut h, id) = live_model("model_press_outside");
+        h.app.tab_mut().cam.z *= 0.25;
+        h.frame();
+        let srect = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        let outside = h.app.canvas_rect.min + egui::vec2(6.0, 6.0);
+        assert!(!srect.expand(8.0).contains(outside));
+        h.frame_with(|input| {
+            input.events.push(egui::Event::PointerMoved(outside));
+            input.events.push(egui::Event::PointerButton {
+                pos: outside,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            });
+        });
+        assert!(!h.app.model3d.live.contains_key(&id));
+    }
+
+    #[test]
+    fn live_display_is_one_undo_step_and_follows_undo() {
+        let (mut h, id) = live_model("model_live_display");
+        assert!(h.app.set_model_display(id, ModelDisplay::Depth));
+        let vp = &h.app.model3d.live[&id];
+        assert_eq!(vp.cam.display, ModelDisplay::Depth);
+        assert_eq!(
+            h.app.model_node_info(id).unwrap().cam.display,
+            ModelDisplay::Depth
+        );
+        h.app.board_undo();
+        h.app.model3d_frame(&h.ctx);
+        assert_eq!(h.app.model3d.live[&id].cam.display, ModelDisplay::Shaded);
+        h.app.board_redo();
+        h.app.model3d_frame(&h.ctx);
+        assert_eq!(h.app.model3d.live[&id].cam.display, ModelDisplay::Depth);
+        // The camera commits on lock as its own step; the display stays put
+        // until its own step is undone.
+        h.app.lock_model(id);
+        h.app.board_undo();
+        assert_eq!(
+            h.app.model_node_info(id).unwrap().cam.display,
+            ModelDisplay::Depth
+        );
+        h.app.board_undo();
+        assert_eq!(
+            h.app.model_node_info(id).unwrap().cam.display,
+            ModelDisplay::Shaded
+        );
     }
 
     #[test]

@@ -361,6 +361,11 @@ impl AgentRuntime {
         self.composer_editing == Some(id) || self.composer_focus == Some(id) || self.flow.typing(id)
     }
 
+    /// A focused generator unlocked this model and releases it itself.
+    pub fn steers_model(&self, model: NodeId) -> bool {
+        self.steering.values().any(|m| *m == model)
+    }
+
     /// The run a card is waiting on or showing.
     pub fn request_of(&self, id: NodeId) -> Option<&str> {
         self.requests.get(&id).map(String::as_str)
