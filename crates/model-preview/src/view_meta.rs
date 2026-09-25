@@ -142,11 +142,10 @@ fn slateview_attrs(xmp: &str) -> Result<std::collections::HashMap<String, String
     let mut out = std::collections::HashMap::new();
     for node in doc.descendants() {
         for attr in node.attributes() {
-            let name = attr.name();
-            let Some(local) = name.strip_prefix("slateview:") else {
+            if attr.namespace() != Some(VIEW_NS) {
                 continue;
-            };
-            out.insert(local.to_string(), unxml(attr.value()));
+            }
+            out.insert(attr.name().to_string(), attr.value().to_string());
         }
     }
     Ok(out)
@@ -163,26 +162,7 @@ fn attr_field<'a>(
 }
 
 pub fn parse_xmp_packet(xmp: &str) -> Result<ViewMetaParsed, ViewMetaError> {
-    let mut attrs = slateview_attrs(xmp).unwrap_or_default();
-    for key in [
-        "version",
-        "target",
-        "yaw",
-        "pitch",
-        "distance",
-        "display",
-        "modelName",
-        "modelPath",
-        "modelHash",
-        "modelSize",
-        "nodeId",
-    ] {
-        if !attrs.contains_key(key) {
-            if let Some(v) = pick_attr(xmp, key) {
-                attrs.insert(key.to_string(), v);
-            }
-        }
-    }
+    let attrs = slateview_attrs(xmp)?;
     let version = parse_u32(attr_field(&attrs, "version")?, "version")?;
     let target = parse3(attr_field(&attrs, "target")?, "target")?;
     let yaw = parse_f32(attr_field(&attrs, "yaw")?, "yaw")?;
@@ -234,28 +214,11 @@ pub fn parse_xmp_packet(xmp: &str) -> Result<ViewMetaParsed, ViewMetaError> {
 /// before calling. This pure crate deliberately has no platform cloud-policy
 /// dependency.
 pub fn read_view_meta(path: &Path) -> Result<Option<ViewMetaParsed>, ViewMetaError> {
-    let xmp = read_xmp_via_image(path)?.or_else(|| scan_xmp_packet_file(path).ok().flatten());
+    let xmp = read_xmp_via_image(path)?;
     let Some(xmp) = xmp else {
         return Ok(None);
     };
     parse_xmp_packet(&xmp).map(Some)
-}
-
-/// Last-resort scan for an embedded `<?xpacket` (WebP and other decoders without XMP hooks).
-fn scan_xmp_packet_file(path: &Path) -> Result<Option<String>, ViewMetaError> {
-    let bytes = std::fs::read(path).map_err(|e| ViewMetaError::Io(e.to_string()))?;
-    let needle = b"<?xpacket begin";
-    let Some(start) = bytes.windows(needle.len()).position(|w| w == needle) else {
-        return Ok(None);
-    };
-    let end = bytes[start..]
-        .windows(15)
-        .position(|w| w.starts_with(b"<?xpacket end"))
-        .map(|i| start + i + 15)
-        .unwrap_or(bytes.len());
-    std::str::from_utf8(&bytes[start..end])
-        .map(|s| Some(s.to_string()))
-        .map_err(|e| ViewMetaError::Parse(e.to_string()))
 }
 
 fn read_xmp_via_image(path: &Path) -> Result<Option<String>, ViewMetaError> {
@@ -310,57 +273,14 @@ pub fn write_webp_with_xmp(
     std::fs::write(path, &bytes).map_err(|e| ViewMetaError::Io(e.to_string()))
 }
 
-pub fn png_xmp_precedes_idat(png: &[u8]) -> bool {
-    let mut pos = 8; // signature
-    let mut seen_xmp = false;
-    while pos + 12 <= png.len() {
-        let len = u32::from_be_bytes(png[pos..pos + 4].try_into().unwrap()) as usize;
-        if pos + 12 + len > png.len() {
-            break;
-        }
-        let kind = &png[pos + 4..pos + 8];
-        if kind == b"IDAT" {
-            return seen_xmp;
-        }
-        if kind == b"iTXt" || kind == b"tEXt" {
-            let data = &png[pos + 8..pos + 8 + len];
-            if data.starts_with(b"XML:com.adobe.xmp")
-                || data.windows(19).any(|w| w == b"XML:com.adobe.xmp")
-            {
-                seen_xmp = true;
-            }
-        }
-        pos += 12 + len;
-    }
-    false
-}
-
 fn encode_png_with_itxt(rgba: &[u8], w: u32, h: u32, xmp: &str) -> Result<Vec<u8>, ViewMetaError> {
-    let mut base = encode_png_rgba(rgba, w, h)?;
-    insert_png_xmp(&mut base, xmp)?;
-    Ok(base)
-}
-
-fn unxml(s: &str) -> String {
-    s.replace("&quot;", "\"")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
-}
-
-fn pick_attr(xmp: &str, key: &str) -> Option<String> {
-    let needle = format!("slateview:{key}=\"");
-    let start = xmp.find(&needle)? + needle.len();
-    let rest = &xmp[start..];
-    let end = rest.find('"')?;
-    Some(unxml(&rest[..end]))
-}
-
-fn encode_png_rgba(rgba: &[u8], w: u32, h: u32) -> Result<Vec<u8>, ViewMetaError> {
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, w, h);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .add_itxt_chunk("XML:com.adobe.xmp".to_owned(), xmp.to_owned())
+        .map_err(|e| ViewMetaError::Image(e.to_string()))?;
     {
         let mut writer = encoder
             .write_header()
@@ -370,61 +290,6 @@ fn encode_png_rgba(rgba: &[u8], w: u32, h: u32) -> Result<Vec<u8>, ViewMetaError
             .map_err(|e| ViewMetaError::Image(e.to_string()))?;
     }
     Ok(out)
-}
-
-fn insert_png_xmp(png: &mut Vec<u8>, xmp: &str) -> Result<(), ViewMetaError> {
-    let chunk = build_itxt_chunk("XML:com.adobe.xmp", xmp);
-    if png.len() < 8 {
-        return Err(ViewMetaError::Image("png too short".into()));
-    }
-    let mut pos = 8;
-    while pos + 12 <= png.len() {
-        let len = u32::from_be_bytes(png[pos..pos + 4].try_into().unwrap()) as usize;
-        if pos + 12 + len > png.len() {
-            break;
-        }
-        let kind = &png[pos + 4..pos + 8];
-        if kind == b"IDAT" {
-            png.splice(pos..pos, chunk.clone());
-            return Ok(());
-        }
-        pos += 12 + len;
-    }
-    Err(ViewMetaError::Image("png missing IDAT".into()))
-}
-
-fn build_itxt_chunk(keyword: &str, text: &str) -> Vec<u8> {
-    let mut data = Vec::new();
-    data.extend_from_slice(keyword.as_bytes());
-    data.push(0); // keyword terminator
-    data.push(0); // compression flag (uncompressed)
-    data.push(0); // compression method
-    data.push(0); // language tag
-    data.push(0); // translated keyword
-    data.extend_from_slice(text.as_bytes());
-    let len = data.len() as u32;
-    let mut chunk = Vec::new();
-    chunk.extend_from_slice(&len.to_be_bytes());
-    chunk.extend_from_slice(b"iTXt");
-    chunk.extend_from_slice(&data);
-    let crc = crc32(&chunk[4..]);
-    chunk.extend_from_slice(&crc.to_be_bytes());
-    chunk
-}
-
-fn crc32(data: &[u8]) -> u32 {
-    let mut crc = 0xffffffffu32;
-    for byte in data {
-        crc ^= u32::from(*byte);
-        for _ in 0..8 {
-            crc = if crc & 1 != 0 {
-                (crc >> 1) ^ 0xedb88320
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    !crc
 }
 
 fn encode_jpeg_rgb(rgb: &[u8], w: u32, h: u32, quality: u8) -> Result<Vec<u8>, ViewMetaError> {
@@ -440,29 +305,14 @@ fn splice_jpeg_xmp(mut jpeg: Vec<u8>, xmp: &str) -> Vec<u8> {
     if jpeg.len() < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
         return jpeg;
     }
-    let mut insert_at = 2usize;
-    while insert_at + 4 <= jpeg.len() {
-        if jpeg[insert_at] != 0xFF {
-            break;
-        }
-        let marker = jpeg[insert_at + 1];
-        if marker == 0xDA || marker == 0xD9 {
-            break;
-        }
-        let len = u16::from_be_bytes([jpeg[insert_at + 2], jpeg[insert_at + 3]]) as usize;
-        if len < 2 {
-            break;
-        }
-        insert_at += 2 + len;
-    }
     let mut segment = Vec::new();
-    segment.extend_from_slice(b"http://ns.adobe.com/xap/1.0\0");
+    segment.extend_from_slice(b"http://ns.adobe.com/xap/1.0/\0");
     segment.extend_from_slice(xmp.as_bytes());
     let seg_len = segment.len() + 2;
     let mut app1 = vec![0xFF, 0xE1];
     app1.extend_from_slice(&(seg_len as u16).to_be_bytes());
     app1.extend_from_slice(&segment);
-    jpeg.splice(insert_at..insert_at, app1);
+    jpeg.splice(2..2, app1);
     jpeg
 }
 
@@ -605,7 +455,9 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join(format!("shot.{ext}"));
         write(&path, rgba, w, h, &xmp).unwrap();
-        let parsed = read_view_meta(&path).unwrap().expect("xmp");
+        let parsed = read_view_meta(&path)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{ext} xmp"));
         assert_eq!(parsed.camera, input.camera);
         assert_eq!(parsed.model_hash, input.model_hash);
         assert_eq!(parsed.model_path, input.model_path);
@@ -646,32 +498,20 @@ mod tests {
     }
 
     #[test]
-    fn png_xmp_chunk_before_idat() {
-        let input = sample_input();
-        let xmp = build_xmp_packet(&input).unwrap();
-        let w = 2u32;
-        let h = 2u32;
-        let rgba = vec![255u8; (w * h * 4) as usize];
-        let png = encode_png_with_itxt(&rgba, w, h, &xmp).unwrap();
-        assert!(png_xmp_precedes_idat(&png));
-        let dir = std::env::temp_dir().join(format!("slate-view-meta-dbg-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("shot.png");
-        write_png_with_xmp(&path, &rgba, w, h, &xmp).unwrap();
-        assert!(
-            read_view_meta(&path).unwrap().is_some(),
-            "read_view_meta should parse embedded iTXt"
-        );
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
     fn rejects_newer_version() {
         let xmp = build_xmp_packet(&sample_input())
             .unwrap()
             .replace("slateview:version=\"1\"", "slateview:version=\"2\"");
         let err = parse_xmp_packet(&xmp).unwrap_err();
         assert_eq!(err, ViewMetaError::UnsupportedVersion(2));
+    }
+
+    #[test]
+    fn malformed_xmp_reports_xml_error() {
+        assert!(matches!(
+            parse_xmp_packet("<x:xmpmeta"),
+            Err(ViewMetaError::Parse(_))
+        ));
     }
 
     #[test]
