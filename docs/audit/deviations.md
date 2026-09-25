@@ -37,11 +37,15 @@ Rules:
 | DV-21 | XII.1 | Two owners for a portal's authored outline: agent portals store it in `agent.chat.stroke` (`Option<Stroke>`), every other portal in `PortalNode::stroke` (width 0 = none). `stroke_of`, `set_stroke`, and the artifact writer each branch on which. Landed by merging concurrent local and cloud work; collapse onto the field | open | 2026-09-21 (merge integration) | P1.portal.style | — |
 | DV-22 | XII.4 | The loopback server lifecycle is copied between `atlas-ollama` and `atlas-comfy` (`SERVER` static, spawn, cancel/deadline readiness loop). The lifecycles already differ: ComfyUI reaps a dead child and releases the lock before polling, Ollama does neither. Both files carry `// TWIN:` markers. The transport half closed 2026-09-24: Ollama, ComfyUI and OpenAI requests all go through `atlas-curl` | open | 2026-09-22 (DRY review) | Extract the lifecycle into a renderer-free helper (not `atlas-ai`, DV-02) before a third local server adapter lands or on the next edit to either lifecycle |
 | DV-23 | XII.3 | The gray agent handle dot, `circle_filled(p, 3.5 * z * (1.12 if near), sub…)`, is painted inline at five `board_agent.rs` sites (spawn preview and the context / artifact handles) with a bare `* z` instead of `canvas_scale::px`. Flow ports (`board_flow.rs`) are a different, typed visual and do not add a sixth copy. Deferred while a concurrent chat-card change owns those sites | open | 2026-09-23 (DRY review, flow ports) | Extract `paint_handle_dot(painter, p, z, near, alpha)` on `canvas_scale::px` and move all five sites onto it, on the next edit to any of them | - | — |
+| DV-24 | IV | Axis-aligned host bodies that cannot polygon-clip use `portal_body_content_clip`; its inset is conservative and still needs tightening against the exact resolved corner outline at large radii and chamfers | open | 2026-09-25 (corner-grip final review) | Portal clip follow-up | — |
+| DV-25 | XII.1 | `selection_tools::agent_card` and `agent_card_outline` own two shadow treatments; the arbitrary-corner path uses a translated polygon while the rounded-rect path uses egui's blurred `Shadow` | open | 2026-09-25 (corner-grip final review) | Agent-card shadow unification | — |
+| DV-26 | XII.1 | Agent portal stroke fallback remains split: readers prefer `agent.chat.stroke` but fall back to `PortalNode::stroke`, preserving two possible authored sources until DV-21 collapses the model | open | 2026-09-25 (corner-grip final review) | DV-21 | — |
+| DV-27 | IV | CSS `clip-path:polygon(...)` chamfers clip the element border itself; HTML cannot currently place a chamfer stroke with the same centered outline geometry as the native board painter | open | 2026-09-25 (corner-grip final review) | Chamfer-stroke export follow-up | — |
 
 ## Deviation counts by article (maintained by the metrics tool)
 
 Do not hand-edit; `cargo xtask metrics` rewrites the block below.
 
 <!-- metrics:deviations:begin -->
-open: 12 · accepted: 0 · closed: 8
+open: 19 · accepted: 0 · closed: 8
 <!-- metrics:deviations:end -->

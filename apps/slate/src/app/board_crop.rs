@@ -43,24 +43,12 @@ pub fn crop_from_rects(window: WorldRect, content: WorldRect) -> Crop {
 /// Transform a world-space point into the node's local (unrotated) axes
 /// about `(cx, cy)`.
 pub fn to_local(px: f32, py: f32, cx: f32, cy: f32, rotation_deg: f32) -> (f32, f32) {
-    if rotation_deg.abs() < f32::EPSILON {
-        return (px, py);
-    }
-    let rad = (-rotation_deg).to_radians();
-    let (sin, cos) = rad.sin_cos();
-    let dx = px - cx;
-    let dy = py - cy;
-    (cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
+    slate_doc::geom::world_to_local(px, py, cx, cy, rotation_deg)
 }
 
 /// Rotate a world-space delta into the node's local axes.
 pub fn delta_local(dx: f32, dy: f32, rotation_deg: f32) -> (f32, f32) {
-    if rotation_deg.abs() < f32::EPSILON {
-        return (dx, dy);
-    }
-    let rad = (-rotation_deg).to_radians();
-    let (sin, cos) = rad.sin_cos();
-    (dx * cos - dy * sin, dx * sin + dy * cos)
+    slate_doc::geom::world_to_local(dx, dy, 0.0, 0.0, rotation_deg)
 }
 
 /// Drag a crop-window edge/corner (`handle` 0–7: Nw N Ne E Se S Sw W, same

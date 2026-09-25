@@ -12,9 +12,11 @@ use crate::doc::SLATE_EXTENSION;
 use crate::scene::Corner;
 
 /// World-unit fillet for a text-document card that has no authored corner.
-/// The same designed radius as a portal frame
-/// (`PortalFrameTokens::default().corner_radius`).
 pub const TEXT_CARD_FILLET: f32 = 8.0;
+
+/// Portal frame fillet when the journal still holds [`Corner::Square`].
+/// This model-owned value is consumed by both board and artifact interpreters.
+pub const PORTAL_FRAME_DEFAULT_FILLET: f32 = 8.0;
 
 /// Square text documents pick up [`TEXT_CARD_FILLET`]. An authored fillet or
 /// chamfer is left alone. Photos and other media keep their stored corner.
@@ -22,6 +24,18 @@ pub fn text_card_corner(path: &Path, corner: Corner) -> Corner {
     if matches!(corner, Corner::Square) && media_kind(path) == MediaKind::Text {
         Corner::Rounded {
             radius: TEXT_CARD_FILLET,
+        }
+    } else {
+        corner
+    }
+}
+
+/// Resolved portal frame corner. [`Corner::Square`] means the model-owned
+/// designed radius [`PORTAL_FRAME_DEFAULT_FILLET`].
+pub fn portal_frame_corner(corner: Corner) -> Corner {
+    if matches!(corner, Corner::Square) {
+        Corner::Rounded {
+            radius: PORTAL_FRAME_DEFAULT_FILLET,
         }
     } else {
         corner
@@ -182,6 +196,17 @@ mod picker_tests {
         assert_eq!(
             text_card_corner(Path::new("photo.png"), Corner::Square),
             Corner::Square
+        );
+        assert_eq!(PORTAL_FRAME_DEFAULT_FILLET, TEXT_CARD_FILLET);
+        assert_eq!(
+            portal_frame_corner(Corner::Square),
+            Corner::Rounded {
+                radius: PORTAL_FRAME_DEFAULT_FILLET
+            }
+        );
+        assert_eq!(
+            portal_frame_corner(Corner::Rounded { radius: 12.0 }),
+            Corner::Rounded { radius: 12.0 }
         );
         assert!(MediaGroup::Model.accepts(Path::new("mass.obj")));
         assert!(MediaGroup::Model.accepts(Path::new("house.blend")));

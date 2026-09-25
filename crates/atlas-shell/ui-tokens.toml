@@ -698,7 +698,6 @@ pan_invert = false
 zoom_ease = 0.11999999731779099
 
 [portal_frame]
-corner_radius = 8.0
 reveal_strip_px = 14.0
 chrome_button_px = 22.0
 border_hit_px = 6.0

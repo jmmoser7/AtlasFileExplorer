@@ -160,6 +160,35 @@ is searchable.
   (corners included, same 45° cursor as a single node). Shift+click on
   an unselected node's hover-resize band adds it to the selection
   instead of starting a resize.
+- **P1.node.corner-grip** (Select tool): a **square** grip on every node
+  that `supports_corners` — rectangle, frame, placed linked-media card,
+  and portal frame — so the person can set a **custom fillet radius**
+  by dragging (**stated** user scope). The selection-strip **Corners**
+  squircle edits the same authored `Corner` field (**stated**). Grip
+  drag stores fillet radius in world units as `Corner::Rounded { radius }`
+  (chamfer / percent modes stay strip-only until extended). **Proposals**
+  (implementation detail, not re-litigated per contract): **single-select
+  only**; grip at the host **NW** corner; diagonal inset
+  `max(resolved_radius_world, FILLET_GRIP_MIN_INSET_WORLD)` and painted
+  size `FILLET_GRIP_PX` via `canvas_scale` (P0.9); hidden in image crop
+  mode, multi-select, and when portal chrome suppresses the ordinary
+  selection cast; drag projects on the NW→SE diagonal with clamp
+  `[0, min(w,h)/2]`; live preview, **one** journaled `SceneCmd::Patch`
+  on release (`board.shape.fillet`); Esc mid-drag restores press-time
+  radius (ActiveOperation); Shift → integer world units; radius readout
+  at the pointer during drag (`canvas_text`, **P2.GhostFollow** — screen-constant
+  offset, not multiplied by zoom). **Frame:** members are not
+  clipped by the frame fillet on the board; exported slides clip deck
+  contents with `overflow:hidden` on the slide rect (existing frame/slide rule).
+  **Pick:** click and marquee still use the
+  node AABB. The drag stores the press-time difference between the displayed
+  inset and resolved radius, so clicking or off-center grabbing cannot jump
+  the value. **Portal `Corner::Square`:** resolves through
+  `slate_doc::media::portal_frame_corner` to the same model-owned default on
+  board and export; a grip drag journals an
+  explicit radius. Owner: `board_handles` + `board_transform`.
+  Where its hit box overlaps a resize edge band, the visible grip wins both
+  hover and press; the NW corner point itself remains the NW resize target.
 - **P1.node.zorder / clipboard** PageUp/PageDown/Ctrl+B; Ctrl+C/X/V,
   Ctrl+Shift+V in place.
 
@@ -359,14 +388,17 @@ duplication. New portal contracts reference these and add only deviations.
   fill (rounded rect) → contents (textured or vector, clipped to the rounded
   outline) → identity tab (when the kind has one) → stroke last. No kind
   paints the square leftover corners in the canvas fill: that mask covers a
-  frame the portal overlaps, including one with its own fill. On the canvas,
-  radius and stroke follow **P0.9** (`portal_frame.corner_radius × zoom`).
-  Maximized, radius is 0. Web portal pixels are visually full-bleed to the
+  frame the portal overlaps, including one with its own fill. Board and export
+  share the one `slate-doc` corner model (`portal_frame_corner`,
+  `PORTAL_FRAME_DEFAULT_FILLET`); on the canvas, effective radius and stroke
+  follow **P0.9** (authored corner × zoom). Host bodies that cannot
+  polygon-clip inset their axis-aligned clip by the painted radius
+  (`portal_body_content_clip`). Maximized, radius is 0. Web portal pixels are visually full-bleed to the
   frame/body outline; the invisible focused-page border hit band is
   input-only, never a bezel. A square `clip_rect` / `painter.image` of the
   AABB still **deviates** where a body has not yet been meshed to the outline.
 - **P1.portal.chrome** Identity chrome is **web-only**, owned by
-  `atlas-shell::tabs::portal_tab_bar`: a plain bar with centered page name/URL,
+  `atlas-shell::tabs::portal_tab_bar_corner`: a plain bar with centered page name/URL,
   no blister. It overlays the full-bleed page and retracts after 1.2 seconds
   idle or pointer departure; interaction or its top edge reveals it. Native
   page scrollbars share that visibility, retaining transparent gutters to
@@ -547,11 +579,10 @@ and **P1.portal.empty-ui**.
   P1.portal.contents-focus). Entering a host peels every other host
   through one function — not `web_blur(); agent_blur(); atlas_blur();`
   inlined in each kind. Use `peel_contents_focus_if_clicked_outside`.
-- **P2.PortalHost.shell** Paint sequence is shared: layout → fill →
-  clipped body hook → identity chrome → stroke. No kind punches the fillet
-  with the canvas color (`portal_masks_fillet_with_canvas` is false).
+- **P2.PortalHost.shell** Paint sequence is shared: layout → corner-shaped
+  fill → clipped body hook → identity chrome → corner-shaped stroke.
   Kind-specific work is the body hook and a palette border, not a copied
-  wrapper. Call `paint_portal_shell_finish`.
+  wrapper. Call `paint_portal_shell_finish`; no canvas-colour corner mask exists.
 - **P2.PortalHost.hit** `border_hit_px` comes only from
   `portal_frame_tokens()` (P0.6). Local `BORDER_HIT_PX` constants are
   forbidden.

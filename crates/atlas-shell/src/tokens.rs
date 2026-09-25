@@ -142,10 +142,6 @@ impl Default for ReadoutTokens {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PortalFrameTokens {
-    /// Designed corner radius of every portal frame (body, identity tab,
-    /// selection highlight). Contents clip to this fillet. Times zoom on
-    /// the canvas (P0.9).
-    pub corner_radius: f32,
     /// Hover strip at the top interior used to re-expand a folded identity tab.
     pub reveal_strip_px: f32,
     /// Hit size for the maximize glyph on a portal.
@@ -160,7 +156,6 @@ pub struct PortalFrameTokens {
 impl Default for PortalFrameTokens {
     fn default() -> Self {
         Self {
-            corner_radius: 8.0,
             reveal_strip_px: 14.0,
             chrome_button_px: 22.0,
             border_hit_px: 6.0,
@@ -171,7 +166,6 @@ impl Default for PortalFrameTokens {
 
 impl PortalFrameTokens {
     pub fn normalize(&mut self) {
-        self.corner_radius = self.corner_radius.clamp(0.0, 24.0);
         self.reveal_strip_px = self.reveal_strip_px.clamp(6.0, 32.0);
         self.chrome_button_px = self.chrome_button_px.clamp(14.0, 36.0);
         self.border_hit_px = self.border_hit_px.clamp(2.0, 16.0);

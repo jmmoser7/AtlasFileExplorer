@@ -975,6 +975,7 @@ impl SlateApp {
                         | board::BoardDrag::DeckStroke { .. }
                         | board::BoardDrag::Marquee { .. }
                         | board::BoardDrag::CropEdge { .. }
+                        | board::BoardDrag::FilletRadius { .. }
                 )
             )
             || (self.bumper.dragging()
@@ -1044,6 +1045,11 @@ impl SlateApp {
                     Some(board::BoardDrag::Smooth { .. }) => {
                         self.smooth_preview.clear();
                         self.smooth_polylines.clear();
+                    }
+                    Some(board::BoardDrag::FilletRadius { id, before, .. }) => {
+                        if let Some(n) = self.doc_mut().scene.node_mut(id) {
+                            *n = before;
+                        }
                     }
                     // Eraser: nothing was mutated — dropping the drag and its
                     // live preview restores the ink.

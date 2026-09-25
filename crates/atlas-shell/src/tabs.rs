@@ -183,19 +183,31 @@ pub(crate) fn paint_vertical_gradient(
     top: Color32,
     bottom: Color32,
 ) {
-    paint_vertical_gradient_top_fillet(painter, rect, top, bottom, 0.0);
+    paint_vertical_gradient_top_corner(painter, rect, top, bottom, PortalTabCorner::Square);
 }
 
-/// Top-to-bottom bar gradient whose scanlines follow a top-only fillet so
-/// a portal identity tab cannot oversail the host frame's rounded corners.
-fn paint_vertical_gradient_top_fillet(
+/// Top-corner treatment supplied by a canvas host. This is paint input, not
+/// a document model: app crates adapt their scene corner into it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PortalTabCorner {
+    Square,
+    Rounded(f32),
+    Chamfer(f32),
+}
+
+/// Top-to-bottom bar gradient whose scanlines follow the host's top corners.
+fn paint_vertical_gradient_top_corner(
     painter: &egui::Painter,
     rect: Rect,
     top: Color32,
     bottom: Color32,
-    radius: f32,
+    corner: PortalTabCorner,
 ) {
-    let r = radius.min(rect.width() * 0.5).min(rect.height()).max(0.0);
+    let radius = match corner {
+        PortalTabCorner::Square => 0.0,
+        PortalTabCorner::Rounded(radius) | PortalTabCorner::Chamfer(radius) => radius,
+    };
+    let r = radius.min(rect.width() * 0.5).max(0.0);
     let steps = rect.height().ceil().max(1.0) as usize;
     for step in 0..steps {
         let t = step as f32 / steps as f32;
@@ -203,9 +215,8 @@ fn paint_vertical_gradient_top_fillet(
         let (left, right) = if r < 0.5 || y >= rect.top() + r {
             (rect.left(), rect.right())
         } else {
-            let dy = y - (rect.top() + r);
-            let dx = (r * r - dy * dy).max(0.0).sqrt();
-            (rect.left() + r - dx, rect.right() - r + dx)
+            let inset = portal_top_corner_inset(corner, r, y - rect.top());
+            (rect.left() + inset, rect.right() - inset)
         };
         if right - left < 0.5 {
             continue;
@@ -214,6 +225,17 @@ fn paint_vertical_gradient_top_fillet(
             [Pos2::new(left, y), Pos2::new(right, y)],
             Stroke::new(1.25_f32, lerp_color(top, bottom, t)),
         );
+    }
+}
+
+fn portal_top_corner_inset(corner: PortalTabCorner, radius: f32, y: f32) -> f32 {
+    match corner {
+        PortalTabCorner::Chamfer(_) => (radius - y).max(0.0),
+        PortalTabCorner::Rounded(_) => {
+            let dy = y - radius;
+            radius - (radius * radius - dy * dy).max(0.0).sqrt()
+        }
+        PortalTabCorner::Square => 0.0,
     }
 }
 
@@ -628,6 +650,28 @@ pub fn portal_tab_bar(
     id_salt: u64,
     model: &PortalTabModel<'_>,
 ) -> Option<PortalTabAction> {
+    portal_tab_bar_corner(
+        ui,
+        palette,
+        bar,
+        maximize,
+        PortalTabCorner::Rounded(frame_radius),
+        id_salt,
+        model,
+    )
+}
+
+/// Corner-aware portal title bar. Canvas hosts adapt their authored corner
+/// so square, rounded, and chamfered tops agree with the frame.
+pub fn portal_tab_bar_corner(
+    ui: &Ui,
+    palette: &Palette,
+    bar: Rect,
+    maximize: Rect,
+    frame_corner: PortalTabCorner,
+    id_salt: u64,
+    model: &PortalTabModel<'_>,
+) -> Option<PortalTabAction> {
     let tokens = crate::tokens::current();
     let colors = TabChromeColors::from_palette(palette, &tokens.topbar);
     let painter = ui.painter();
@@ -635,7 +679,7 @@ pub fn portal_tab_bar(
     if h < 2.0 {
         return None;
     }
-    paint_vertical_gradient_top_fillet(painter, bar, colors.bar_top, colors.bar, frame_radius);
+    paint_vertical_gradient_top_corner(painter, bar, colors.bar_top, colors.bar, frame_corner);
     // Symmetric clearance keeps the title centered on the whole bar, not
     // centered in whatever space is left of the window control.
     let inset = (bar.right() - maximize.left())
@@ -755,5 +799,32 @@ mod tests {
         let flipped_y = rect.top() + rect.bottom() - y;
         let down = tab_scanline_x(rect, flipped_y, bubble, TabHost::Top);
         assert!((up.0 - down.0).abs() < 1e-3 && (up.1 - down.1).abs() < 1e-3);
+    }
+
+    #[test]
+    fn short_portal_tab_stays_inside_large_frame_corners() {
+        let radius = 30.0;
+        let bar_h = 12.0;
+        for corner in [
+            PortalTabCorner::Rounded(radius),
+            PortalTabCorner::Chamfer(radius),
+        ] {
+            for y in [0.0, bar_h * 0.5, bar_h] {
+                let inset = portal_top_corner_inset(corner, radius, y);
+                let expected = match corner {
+                    PortalTabCorner::Rounded(_) => {
+                        let dy = y - radius;
+                        radius - (radius * radius - dy * dy).sqrt()
+                    }
+                    PortalTabCorner::Chamfer(_) => radius - y,
+                    PortalTabCorner::Square => unreachable!(),
+                };
+                assert!((inset - expected).abs() < 1e-4);
+            }
+            assert!(
+                portal_top_corner_inset(corner, radius, bar_h) > 5.0,
+                "R=30 must still inset the bottom of a 12-high tab"
+            );
+        }
     }
 }

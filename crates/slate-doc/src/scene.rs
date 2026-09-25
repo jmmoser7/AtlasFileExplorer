@@ -1469,6 +1469,10 @@ pub struct PortalNode {
     /// Authored frame outline. Width 0 is none (P1.portal.style default).
     #[serde(default)]
     pub stroke: Stroke,
+    /// Frame fillet/chamfer. [`Corner::Square`] follows the portal-frame token
+    /// radius at paint/export time; any other value is authored.
+    #[serde(default)]
+    pub corner: Corner,
 }
 
 impl PortalNode {
@@ -1485,6 +1489,7 @@ impl PortalNode {
             atlas: AtlasPortalQuery::default(),
             fill: Rgba([20, 20, 26, 255]),
             stroke: Stroke::default(),
+            corner: Corner::default(),
         }
     }
 
@@ -1535,6 +1540,7 @@ impl PortalNode {
             atlas: AtlasPortalQuery::default(),
             fill: Rgba([16, 22, 34, 255]),
             stroke: Stroke::default(),
+            corner: Corner::default(),
         }
     }
 
@@ -1550,6 +1556,7 @@ impl PortalNode {
             atlas: AtlasPortalQuery::default(),
             fill: Rgba([0, 0, 0, 0]),
             stroke: Stroke::default(),
+            corner: Corner::default(),
         }
     }
 
@@ -1566,6 +1573,7 @@ impl PortalNode {
             atlas: AtlasPortalQuery::default(),
             fill: Rgba([0, 0, 0, 0]),
             stroke: Stroke::default(),
+            corner: Corner::default(),
         }
     }
 
@@ -4577,6 +4585,7 @@ pub fn corner_of(node: &Node) -> Option<Corner> {
         NodeKind::Shape(s) => Some(s.corner),
         NodeKind::Image(i) => Some(i.corner),
         NodeKind::Frame(f) => Some(f.corner),
+        NodeKind::Portal(p) => Some(p.corner),
         _ => None,
     }
 }
@@ -4586,12 +4595,13 @@ pub fn set_corner(node: &mut Node, corner: Corner) {
         NodeKind::Shape(s) => s.corner = corner,
         NodeKind::Image(i) => i.corner = corner,
         NodeKind::Frame(f) => f.corner = corner,
+        NodeKind::Portal(p) => p.corner = corner,
         _ => {}
     }
 }
 
-/// Fillet/chamfer applies to rectangles, images, and slide frames. Other
-/// shapes store a corner field that is not a user-facing treatment.
+/// Fillet/chamfer applies to rectangles, images, slide frames, and portals.
+/// Other shapes store a corner field that is not a user-facing treatment.
 pub fn supports_corners(node: &Node) -> bool {
     match &node.kind {
         NodeKind::Shape(s) => {
@@ -4601,9 +4611,44 @@ pub fn supports_corners(node: &Node) -> bool {
                         .as_ref()
                         .is_some_and(|p| crate::geom::path_is_line_polyline(p)))
         }
-        NodeKind::Image(_) | NodeKind::Frame(_) => true,
+        NodeKind::Image(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => true,
         _ => false,
     }
+}
+
+/// Authored corner after kind defaults (text cards, portal [`Square`] → designed fillet).
+pub fn resolved_corner(node: &Node, path: Option<&std::path::Path>) -> Corner {
+    match &node.kind {
+        NodeKind::Shape(s) if s.shape == ShapeKind::Rect => s.corner,
+        NodeKind::Image(i) => path
+            .map(|p| crate::media::text_card_corner(p, i.corner))
+            .unwrap_or(i.corner),
+        NodeKind::Frame(f) => f.corner,
+        NodeKind::Portal(p) => crate::media::portal_frame_corner(p.corner),
+        _ => Corner::Square,
+    }
+}
+
+/// Edit the corner the person sees, including kind defaults, then store the
+/// explicit authored result. Every corner editor uses this path so a default
+/// portal or text card does not reset to zero on its first edit.
+pub fn edit_corner(
+    node: &mut Node,
+    path: Option<&std::path::Path>,
+    edit: impl FnOnce(Corner) -> Corner,
+) {
+    let corner = edit(resolved_corner(node, path));
+    set_corner(node, corner);
+}
+
+/// Effective chamfer flag and world radius for layout, export, and grips.
+pub fn resolved_corner_effective(node: &Node, path: Option<&std::path::Path>) -> (bool, f32) {
+    resolved_corner(node, path).effective(node.rect.w, node.rect.h)
+}
+
+/// World-unit radius after [`resolved_corner_effective`] (fillet amount only).
+pub fn resolved_corner_radius(node: &Node, path: Option<&std::path::Path>) -> f32 {
+    resolved_corner_effective(node, path).1
 }
 
 pub fn adjust_of(node: &Node) -> Option<ImageAdjust> {
@@ -4794,7 +4839,7 @@ mod corner_percentage_tests {
         assert!(
             supports_fill(&portal)
                 && supports_stroke(&portal)
-                && !supports_corners(&portal)
+                && supports_corners(&portal)
                 && !supports_image_adjust(&portal)
         );
         assert!(
@@ -4849,5 +4894,81 @@ mod corner_percentage_tests {
         };
         assert_eq!(f.fill, Rgba([9, 8, 7, 255]));
         assert!(!f.fill_follows_theme());
+    }
+
+    #[test]
+    fn resolved_corner_radius_clamps_to_half_the_short_side() {
+        let rect = WorldRect::new(0.0, 0.0, 100.0, 40.0);
+        let frame = Node {
+            id: NodeId(2),
+            rect,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            bumper: None,
+            kind: NodeKind::Frame(FrameNode {
+                title: "S".into(),
+                order: 0,
+                fill: Rgba::WHITE,
+                fill_authored: false,
+                assignments: Default::default(),
+                stroke: Stroke::none(),
+                corner: Corner::Rounded { radius: 999.0 },
+            }),
+        };
+        assert!((resolved_corner_radius(&frame, None) - 20.0).abs() < 1e-4);
+        let portal = Node {
+            id: NodeId(3),
+            rect,
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            bumper: None,
+            kind: NodeKind::Portal(PortalNode {
+                class: PortalClass::Host,
+                kind: PortalKind::Web,
+                title: "W".into(),
+                source: None,
+                agent: None,
+                web: None,
+                atlas: Default::default(),
+                fill: Rgba::BLACK,
+                stroke: Stroke::none(),
+                corner: Corner::Square,
+            }),
+        };
+        assert!(
+            (resolved_corner_radius(&portal, None) - crate::media::PORTAL_FRAME_DEFAULT_FILLET)
+                .abs()
+                < 1e-4
+        );
+    }
+
+    #[test]
+    fn portal_chamfer_resolves_for_layout_and_export() {
+        let mut portal = PortalNode::unbound_web("Page");
+        portal.corner = Corner::Chamfer { cut: 12.0 };
+        let node = Node {
+            id: NodeId(4),
+            rect: WorldRect::new(0.0, 0.0, 200.0, 100.0),
+            rotation_deg: 0.0,
+            opacity: 1.0,
+            locked: false,
+            hidden: false,
+            group: None,
+            clip: None,
+            bumper: None,
+            kind: NodeKind::Portal(portal),
+        };
+        let corner = resolved_corner(&node, None);
+        let (chamfer, r) = corner.effective(node.rect.w, node.rect.h);
+        assert!(chamfer);
+        assert!((r - 12.0).abs() < 1e-4);
     }
 }

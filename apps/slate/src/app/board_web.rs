@@ -1136,7 +1136,15 @@ impl SlateApp {
             if self.portal_chrome.maximized == Some(*id) {
                 let screen = ctx.screen_rect();
                 let collapsed = self.portal_chrome_collapsed(*id);
-                let layout = layout_portal_chrome(screen, collapsed, true, 1.0);
+                let corner = self
+                    .doc()
+                    .scene
+                    .node(*id)
+                    .map(|n| self.node_resolved_corner(n))
+                    .unwrap_or_else(|| {
+                        slate_doc::media::portal_frame_corner(slate_doc::scene::Corner::Square)
+                    });
+                let layout = layout_portal_chrome(screen, collapsed, true, corner, 1.0);
                 if let Some(v) = self.web.views.get_mut(id) {
                     let ppp = ctx.pixels_per_point().max(0.01);
                     v.width_px = layout.body.width() * ppp;
@@ -1599,7 +1607,16 @@ impl SlateApp {
             return node_rect;
         }
         let screen = ctx.screen_rect();
-        let layout = layout_portal_chrome(screen, self.portal_chrome_collapsed(id), true, 1.0);
+        let corner = self
+            .doc()
+            .scene
+            .node(id)
+            .map(|n| self.node_resolved_corner(n))
+            .unwrap_or_else(|| {
+                slate_doc::media::portal_frame_corner(slate_doc::scene::Corner::Square)
+            });
+        let layout =
+            layout_portal_chrome(screen, self.portal_chrome_collapsed(id), true, corner, 1.0);
         slate_doc::scene::WorldRect::new(
             0.0,
             0.0,
@@ -2441,7 +2458,13 @@ impl SlateApp {
         // Escape is owned exclusively by the command cancel stack. Handling
         // it here too would peel focus in the same frame as restoring maximize.
         let srect = xf.rect_w2s(node.rect);
-        let mut layout = layout_portal_chrome(srect, self.portal_chrome_collapsed(id), false, xf.z);
+        let mut layout = layout_portal_chrome(
+            srect,
+            self.portal_chrome_collapsed(id),
+            false,
+            self.node_resolved_corner(&node),
+            xf.z,
+        );
         layout.retract_when_idle(ui.ctx(), id, true);
         if pointer.is_some_and(|p| layout.pointer_on_chrome(p)) {
             return false;
@@ -2637,7 +2660,13 @@ impl SlateApp {
         let srect = xf.rect_w2s(node.rect);
         self.note_web_geometry(node.id, srect, ui.clip_rect(), ui.ctx().pixels_per_point());
         let collapsed = self.portal_chrome_collapsed(node.id);
-        let mut layout = layout_portal_chrome(srect, collapsed, false, xf.z);
+        let mut layout = layout_portal_chrome(
+            srect,
+            collapsed,
+            false,
+            self.node_resolved_corner(node),
+            xf.z,
+        );
         layout.retract_when_idle(ui.ctx(), node.id, self.web.focused == Some(node.id));
         self.paint_web_portal_in_rect(ui, painter, node, portal, &layout, xf.z);
         let visiting = self.web_visiting_label(node.id, portal);
@@ -2673,7 +2702,6 @@ impl SlateApp {
         let alpha = node.opacity.clamp(0.0, 1.0);
         let fade = |c: Color32| c.gamma_multiply(alpha);
         let state = self.web.state(node.id);
-        let focused = self.web.focused == Some(node.id);
         let css_rect = self.web_layout_world(node.id, node.rect, ui.ctx());
         let (css_width, _) = css_size(&portal.web_ref(), css_rect);
         let chrome_height = if self.portal_is_maximized(node.id) {
@@ -2698,13 +2726,7 @@ impl SlateApp {
             ui.ctx().pixels_per_point(),
         );
 
-        self.paint_portal_frame_fill(
-            painter,
-            layout,
-            fade(rgba32(portal.fill)),
-            Color32::TRANSPARENT,
-            focused,
-        );
+        self.paint_portal_frame_fill(painter, layout, fade(rgba32(portal.fill)));
 
         let body = layout.body;
         if body.width() < 2.0 || body.height() < 2.0 {
@@ -2717,7 +2739,7 @@ impl SlateApp {
             let stale = matches!(state, WebState::Missing { .. });
             let tint =
                 Color32::WHITE.gamma_multiply(if stale { STALE_ALPHA * alpha } else { alpha });
-            let outline = board::portal_content_outline(layout.frame, clip, layout.radius);
+            let outline = board::portal_content_outline(layout.frame, clip, layout.corner, zoom);
             if !outline.is_empty() {
                 board::textured_polygon(
                     painter,

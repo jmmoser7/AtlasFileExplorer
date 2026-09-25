@@ -544,11 +544,14 @@ impl SlateApp {
             srect,
             collapsed,
             maximized,
+            self.node_resolved_corner(node),
             xf.z,
         );
         let fill = self.portal_frame_fill_color(portal);
-        self.paint_portal_frame_fill(painter, &layout, fill, egui::Color32::TRANSPARENT, false);
-        let clipped = painter.with_clip_rect(layout.body.intersect(painter.clip_rect()));
+        self.paint_portal_frame_fill(painter, &layout, fill);
+        let clip = super::board_portal_chrome::portal_body_content_clip(&layout)
+            .intersect(painter.clip_rect());
+        let clipped = painter.with_clip_rect(clip);
 
         if self.slate_boards.depth >= SLATE_PORTAL_PAINT_DEPTH {
             self.paint_slate_caption(
@@ -718,10 +721,16 @@ impl SlateApp {
         portal: &PortalNode,
     ) {
         let srect = xf.rect_w2s(node.rect);
-        let layout =
-            super::board_portal_chrome::layout_for_portal(portal.kind, srect, false, false, xf.z);
+        let layout = super::board_portal_chrome::layout_for_portal(
+            portal.kind,
+            srect,
+            false,
+            false,
+            self.node_resolved_corner(node),
+            xf.z,
+        );
         let fill = self.portal_frame_fill_color(portal);
-        self.paint_portal_frame_fill(painter, &layout, fill, egui::Color32::TRANSPARENT, false);
+        self.paint_portal_frame_fill(painter, &layout, fill);
         let label = portal
             .source
             .as_ref()

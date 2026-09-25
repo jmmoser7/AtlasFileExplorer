@@ -390,20 +390,7 @@ fn render_portal(
 ) {
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
-    if !portal.slate_fill_follows_theme() {
-        style.push_str("background:");
-        style.push_str(&portal.fill.css());
-        style.push(';');
-    }
-    style.push_str("overflow:hidden;");
-    match portal.agent.as_ref().and_then(|a| a.chat.stroke) {
-        Some(stroke) => style.push_str(&format!(
-            "box-sizing:border-box;border:{}px solid {};",
-            stroke.width,
-            stroke.color.css()
-        )),
-        None => append_stroke(&mut style, &portal.stroke),
-    }
+    append_portal_frame_style(&mut style, portal, rel);
     html.push_str("<div class=\"node portal");
     if portal.slate_fill_follows_theme() {
         html.push_str(" theme-plate");
@@ -483,6 +470,23 @@ fn render_portal(
     }
 
     html.push_str("</div>\n");
+}
+
+fn append_portal_frame_style(style: &mut String, portal: &PortalNode, rel: WorldRect) {
+    if !portal.slate_fill_follows_theme() {
+        style.push_str("background:");
+        style.push_str(&portal.fill.css());
+        style.push(';');
+    }
+    style.push_str("overflow:hidden;");
+    let corner = slate_doc::media::portal_frame_corner(portal.corner);
+    append_corner(style, corner, rel.w, rel.h);
+    let stroke = portal
+        .agent
+        .as_ref()
+        .and_then(|agent| agent.chat.stroke)
+        .unwrap_or(portal.stroke);
+    append_stroke(style, &stroke);
 }
 
 fn render_slate_board(
@@ -597,9 +601,7 @@ fn render_web_portal(
 ) {
     let mut style = geometry_style(rel, node.rotation_deg);
     append_opacity(&mut style, node.opacity);
-    style.push_str("overflow:hidden;background:");
-    style.push_str(&portal.fill.css());
-    style.push(';');
+    append_portal_frame_style(&mut style, portal, rel);
     html.push_str("<div class=\"node portal portal-web\" style=\"");
     html.push_str(&style);
     html.push_str("\">");
@@ -2171,6 +2173,58 @@ fn escape_attr(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_portal_export_emits_document_corner_radius() {
+        use slate_doc::media::{portal_frame_corner, PORTAL_FRAME_DEFAULT_FILLET};
+        let mut css = String::new();
+        append_corner(&mut css, portal_frame_corner(Corner::Square), 400.0, 300.0);
+        assert_eq!(
+            css,
+            format!("border-radius:{PORTAL_FRAME_DEFAULT_FILLET}px;")
+        );
+    }
+
+    #[test]
+    fn every_portal_kind_exports_the_same_chamfer_large_radius_and_stroke() {
+        let stroke = slate_doc::scene::Stroke {
+            width: 3.0,
+            color: slate_doc::scene::Rgba([12, 34, 56, 255]),
+            ..Default::default()
+        };
+        let rel = WorldRect::new(0.0, 0.0, 1000.0, 900.0);
+        for corner in [
+            Corner::Chamfer { cut: 80.0 },
+            Corner::Rounded { radius: 400.0 },
+        ] {
+            let mut portals = vec![
+                PortalNode::unbound_web("Web"),
+                PortalNode::bound_file_atlas("Atlas", "folder"),
+                PortalNode::unbound_slate("Slate"),
+                PortalNode::unbound_agent("Agent", "codex"),
+            ];
+            for portal in &mut portals {
+                portal.corner = corner;
+                if let Some(agent) = portal.agent.as_mut() {
+                    agent.chat.stroke = Some(stroke);
+                } else {
+                    portal.stroke = stroke;
+                }
+                let mut style = String::new();
+                append_portal_frame_style(&mut style, portal, rel);
+                assert!(style.contains("border:3.0px solid rgba(12,34,56,1.000)"));
+                match corner {
+                    Corner::Chamfer { .. } => {
+                        assert!(style.contains("clip-path:polygon(80px 0"))
+                    }
+                    Corner::Rounded { .. } => {
+                        assert!(style.contains("border-radius:400px"))
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
 
     #[test]
     fn escape_html_entities() {

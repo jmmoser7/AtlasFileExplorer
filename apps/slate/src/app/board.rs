@@ -684,6 +684,13 @@ pub enum BoardDrag {
         start_screen: Pos2,
         points: Vec<Pos2>,
     },
+    /// Live fillet radius on a selected frame, portal, image, or rectangle.
+    FilletRadius {
+        id: NodeId,
+        before: Node,
+        /// Press-time offset from the displayed grip to the authored radius.
+        grab: f32,
+    },
 }
 
 /// World→screen transform. The board uses the tab camera; presentation mode
@@ -1935,6 +1942,13 @@ impl SlateApp {
                 self.board_hover_hit,
                 outline_w,
             );
+            if let Some(grip) = self.fillet_grip_at(n, xf) {
+                let hot = matches!(
+                    self.board_hover_hit,
+                    Some(board_handles::BoardHitTarget::FilletRadius)
+                ) || matches!(self.board_drag, Some(BoardDrag::FilletRadius { id, .. }) if id == n.id);
+                board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
+            }
         } else {
             painter.add(egui::Shape::closed_line(
                 outline,
@@ -1981,17 +1995,10 @@ impl SlateApp {
                 ShapeKind::Line | ShapeKind::Path => return aabb(),
             },
             NodeKind::Image(img) => {
-                let corner = self
-                    .viewed_doc()
-                    .item(img.item)
-                    .map(|it| slate_doc::media::text_card_corner(&it.path, img.corner))
-                    .unwrap_or(img.corner);
-                corner_outline(srect, corner, z)
+                let path = self.viewed_doc().item(img.item).map(|it| it.path.as_path());
+                corner_outline(srect, slate_doc::scene::resolved_corner(node, path), z)
             }
-            NodeKind::Portal(_) => {
-                let r = atlas_shell::tokens::current().portal_frame.corner_radius * z;
-                rounded_rect_outline(srect, r)
-            }
+            NodeKind::Portal(_) => corner_outline(srect, self.node_resolved_corner(node), z),
             NodeKind::DockStrip(strip) => {
                 let (card, r) = self.dock_strip_screen_card(ctx, xf, node, strip);
                 rounded_rect_outline(card, r)
@@ -2030,43 +2037,22 @@ pub(crate) fn rounded_rect_outline(rect: Rect, radius: f32) -> Vec<Pos2> {
 
 /// Rounded frame outline cut to `body` so a tab bar can occupy the top
 /// without the page texture oversailing the fillet at the bottom corners.
-pub(crate) fn portal_content_outline(frame: Rect, body: Rect, radius: f32) -> Vec<Pos2> {
+pub(crate) fn portal_content_outline(frame: Rect, body: Rect, corner: Corner, z: f32) -> Vec<Pos2> {
     let clip = body.intersect(frame);
     if clip.height() < 1.0 || clip.width() < 1.0 {
         return Vec::new();
     }
-    let inset = (clip.left() - frame.left())
-        .max(frame.right() - clip.right())
-        .max(frame.bottom() - clip.bottom())
+    let fw = frame.width() / z;
+    let fh = frame.height() / z;
+    let inset = ((clip.left() - frame.left()) / z)
+        .max((frame.right() - clip.right()) / z)
+        .max((frame.bottom() - clip.bottom()) / z)
+        .max((clip.top() - frame.top()) / z)
         .max(0.0);
-    let half = clip.width().min(clip.height()) * 0.5;
-    let r = (radius - inset).clamp(0.0, half);
-    if clip.min.y <= frame.min.y + 0.5 {
-        return rounded_rect_outline(clip, r);
-    }
-    if r < 0.5 {
-        return vec![
-            clip.left_top(),
-            clip.right_top(),
-            clip.right_bottom(),
-            clip.left_bottom(),
-        ];
-    }
-    let steps = 8;
-    let mut pts = Vec::with_capacity(2 + 2 * (steps + 1));
-    pts.push(Pos2::new(clip.min.x, clip.min.y));
-    pts.push(Pos2::new(clip.max.x, clip.min.y));
-    let br = Pos2::new(clip.max.x - r, clip.max.y - r);
-    for s in 0..=steps {
-        let a = (90.0 * s as f32 / steps as f32).to_radians();
-        pts.push(br + Vec2::new(a.cos() * r, a.sin() * r));
-    }
-    let bl = Pos2::new(clip.min.x + r, clip.max.y - r);
-    for s in 0..=steps {
-        let a = (90.0 + 90.0 * s as f32 / steps as f32).to_radians();
-        pts.push(bl + Vec2::new(a.cos() * r, a.sin() * r));
-    }
-    pts
+    let (chamfer, r) = corner.effective(fw, fh);
+    let r2 = (r - inset).max(0.0);
+    let clip_corner = Corner::from_parameters(chamfer, false, r2);
+    corner_outline(clip, clip_corner, z)
 }
 
 /// Square-corner leftovers outside a rounded rect. Painted in the frame fill
@@ -2191,26 +2177,30 @@ pub(crate) fn paint_fillet_masks(painter: &egui::Painter, frame: Rect, radius: f
         return;
     }
     for outline in fillet_overhangs(frame, radius) {
-        if outline.len() < 3 {
-            continue;
-        }
-        let mut mesh = egui::Mesh::default();
-        for p in &outline {
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: *p,
-                uv: Pos2::ZERO,
-                color: fill,
-            });
-        }
-        for i in 1..outline.len() as u32 - 1 {
-            mesh.indices.extend_from_slice(&[0, i, i + 1]);
-        }
-        painter.add(mesh);
+        paint_convex_fan_fill(painter, &outline, fill);
     }
 }
 
+pub(crate) fn paint_convex_fan_fill(painter: &egui::Painter, outline: &[Pos2], fill: Color32) {
+    if outline.len() < 3 {
+        return;
+    }
+    let mut mesh = egui::Mesh::default();
+    for p in outline {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: *p,
+            uv: Pos2::ZERO,
+            color: fill,
+        });
+    }
+    for i in 1..outline.len() as u32 - 1 {
+        mesh.indices.extend_from_slice(&[0, i, i + 1]);
+    }
+    painter.add(mesh);
+}
+
 /// Outline points for a rect with the given corner treatment (clockwise).
-fn corner_outline(rect: Rect, corner: Corner, z: f32) -> Vec<Pos2> {
+pub(crate) fn corner_outline(rect: Rect, corner: Corner, z: f32) -> Vec<Pos2> {
     corner
         .outline(
             WorldRect::new(0.0, 0.0, rect.width() / z, rect.height() / z),
@@ -2426,7 +2416,7 @@ fn textured_polygon_world(
     painter.add(mesh);
 }
 
-fn stroke_outline(
+pub(crate) fn stroke_outline(
     painter: &egui::Painter,
     outline: &[Pos2],
     stroke: &slate_doc::scene::Stroke,
@@ -3346,9 +3336,7 @@ impl SlateApp {
                     slate_doc::media_kind(&path)
                 };
                 let corner = slate_doc::media::text_card_corner(&path, img.corner);
-                let mut outline = if rotated && kind != slate_doc::MediaKind::Text {
-                    outline_s.clone()
-                } else if rotated {
+                let outline = if rotated {
                     rotate_points(
                         &corner_outline(srect, corner, z),
                         srect.center(),
@@ -3377,15 +3365,6 @@ impl SlateApp {
                 if show_excerpt {
                     let pointer = ui.ctx().pointer_hover_pos();
                     if let Some(sheet) = &sheet {
-                        outline = if rotated {
-                            rotate_points(
-                                &corner_outline(srect, Corner::Square, z),
-                                srect.center(),
-                                node.rotation_deg,
-                            )
-                        } else {
-                            corner_outline(srect, Corner::Square, z)
-                        };
                         self.paint_sheet_card(
                             painter, &outline, srect, node.id, img.item, &path, sheet, pointer, z,
                         );
@@ -3424,11 +3403,24 @@ impl SlateApp {
                                     painter, xf, &tex, node, clip, img.crop, tint,
                                 );
                             } else if rotated {
+                                let local_outline = corner
+                                    .outline(node.rect, 0.25 / z.max(0.01))
+                                    .into_iter()
+                                    .map(|[x, y]| (x, y))
+                                    .collect::<Vec<_>>();
+                                let rotated_outline = local_outline
+                                    .iter()
+                                    .map(|&(x, y)| {
+                                        let [wx, wy] =
+                                            node.rect.rotate_point([x, y], node.rotation_deg);
+                                        xf.w2s(Pos2::new(wx, wy))
+                                    })
+                                    .collect::<Vec<_>>();
                                 textured_polygon_world(
                                     painter,
                                     &tex,
-                                    &outline_s,
-                                    &outline_world,
+                                    &rotated_outline,
+                                    &local_outline,
                                     node.rect,
                                     img.crop,
                                     tint,
@@ -4670,6 +4662,27 @@ impl SlateApp {
                     ));
                 }
             }
+            Some(BoardDrag::FilletRadius { id, .. }) => {
+                if let Some(n) = self.doc().scene.node(*id) {
+                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+                    ui.ctx().set_cursor_icon(board_handles::cursor_for_resize(
+                        board_handles::ResizeHandle::Nw,
+                        &geom,
+                    ));
+                    if let Some(p) = pointer {
+                        let r = self.node_fillet_radius_world(n);
+                        let label = format!("{} u", atlas_shell::selection_tools::number(r));
+                        canvas_text::text(
+                            &painter,
+                            p + Vec2::new(12.0, -18.0),
+                            Align2::LEFT_BOTTOM,
+                            label,
+                            canvas_scale::font(12.0, 1.0),
+                            palette.select,
+                        );
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -5593,7 +5606,7 @@ impl SlateApp {
 
     // ----- gesture handling ------------------------------------------------------
 
-    fn begin_gesture(
+    pub(crate) fn begin_gesture(
         &mut self,
         screen: Pos2,
         world: Pos2,
@@ -5631,6 +5644,11 @@ impl SlateApp {
                             }
                         }
                     }
+                }
+                // Match hover priority: the visible fillet grip wins any
+                // overlap with wire/resize bands.
+                if let Some(drag) = self.begin_fillet_drag(screen, world) {
+                    return Some(drag);
                 }
                 // Wire grip at the press origin beats edge resize. The rest
                 // of the edge is Windows-style resize (no selection needed).
@@ -6349,6 +6367,28 @@ impl SlateApp {
                     }
                 }
             }
+            Some(BoardDrag::FilletRadius { id, before, grab }) => {
+                let node_id = *id;
+                let before = before.clone();
+                let image_path = self
+                    .node_item_path(&before)
+                    .map(std::path::Path::to_path_buf);
+                let radius = board_handles::fillet_drag_radius_from_world_point(
+                    before.rect,
+                    before.rotation_deg,
+                    world,
+                    *grab,
+                );
+                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
+                    SlateApp::apply_fillet_radius_to_node(
+                        n,
+                        &before,
+                        radius,
+                        mods.shift,
+                        image_path.as_deref(),
+                    );
+                }
+            }
             _ => {}
         }
     }
@@ -6408,6 +6448,17 @@ impl SlateApp {
                                 *live = after.clone();
                             }
                         }
+                        self.tab_mut().journal.record(vec![SceneCmd::Patch {
+                            before: Box::new(before),
+                            after: Box::new(after),
+                        }]);
+                        self.tab_mut().dirty = true;
+                    }
+                }
+            }
+            Some(BoardDrag::FilletRadius { id, before, .. }) => {
+                if let Some(after) = self.doc().scene.node(id).cloned() {
+                    if after != before {
                         self.tab_mut().journal.record(vec![SceneCmd::Patch {
                             before: Box::new(before),
                             after: Box::new(after),

@@ -105,6 +105,10 @@ drag the address-bar URL or a page link instead.
   Shift+click empty canvas keeps the set. Shift+marquee adds. Rectangles
   honor this even when the press lands on the hover-resize band.
   Selection chrome is a subtle highlight of each shape (not a union box).
+- **Corner-radius grip** (`board.shape.fillet`) — on one selected rectangle,
+  frame, portal, or placed-media node, drag the inset square at the local
+  top-left corner to set its radius. Shift snaps to whole world units; Esc
+  cancels the active drag; release records one undo step.
 - **Align widget** (Grasshopper): with the Select tool and 2+ nodes selected,
   two icon clusters sit outside the group box (bottom and left). Bottom:
   align left / center / right / distribute horizontally; the row sits past

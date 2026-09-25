@@ -40,6 +40,10 @@ pub struct PortalChrome {
 #[derive(Debug, Clone, Copy)]
 pub struct PortalChromeLayout {
     pub frame: Rect,
+    /// Resolved world [`Corner`] (fillet or chamfer).
+    pub corner: slate_doc::scene::Corner,
+    /// Board camera scale used for this layout (`radius` = world radius × zoom).
+    pub zoom: f32,
     pub radius: f32,
     pub bar: Option<Rect>,
     pub reveal: Option<Rect>,
@@ -149,12 +153,13 @@ pub fn layout_for_portal(
     frame: Rect,
     collapsed: bool,
     maximized: bool,
+    frame_corner: slate_doc::scene::Corner,
     zoom: f32,
 ) -> PortalChromeLayout {
     if uses_identity_tab(kind) {
-        layout_portal_chrome(frame, collapsed, maximized, zoom)
+        layout_portal_chrome(frame, collapsed, maximized, frame_corner, zoom)
     } else {
-        let mut layout = layout_portal_frame(frame, maximized, zoom);
+        let mut layout = layout_portal_frame(frame, maximized, frame_corner, zoom);
         if kind == PortalKind::Agent {
             layout.maximize = Rect::NOTHING;
         }
@@ -162,16 +167,52 @@ pub fn layout_for_portal(
     }
 }
 
-/// Frame + body, no identity tab — agent portals, and inner paints that
-/// already reserved a tab above.
-pub fn layout_portal_frame(frame: Rect, maximized: bool, zoom: f32) -> PortalChromeLayout {
-    let tokens = portal_frame_tokens();
-    let z = if maximized { 1.0 } else { zoom.max(0.01) };
-    let radius = if maximized {
+fn portal_layout_corner(
+    frame_corner: slate_doc::scene::Corner,
+    maximized: bool,
+) -> slate_doc::scene::Corner {
+    if maximized {
+        slate_doc::scene::Corner::Square
+    } else {
+        frame_corner
+    }
+}
+
+fn portal_layout_radius_screen(
+    frame: Rect,
+    corner: slate_doc::scene::Corner,
+    z: f32,
+    maximized: bool,
+) -> f32 {
+    if maximized {
         0.0
     } else {
-        tokens.corner_radius * z
-    };
+        let (_, r) = corner.effective(frame.width() / z, frame.height() / z);
+        r * z
+    }
+}
+
+/// Axis-aligned clip for host body painting when egui cannot polygon-clip.
+/// Insets by the painted fillet/chamfer radius so square clips do not oversail corners.
+pub fn portal_body_content_clip(layout: &PortalChromeLayout) -> Rect {
+    if layout.radius < 0.5 {
+        return layout.page;
+    }
+    layout.page.shrink(layout.radius)
+}
+
+/// Frame + body, no identity tab — agent portals, and inner paints that
+/// already reserved a tab above.
+pub fn layout_portal_frame(
+    frame: Rect,
+    maximized: bool,
+    frame_corner: slate_doc::scene::Corner,
+    zoom: f32,
+) -> PortalChromeLayout {
+    let tokens = portal_frame_tokens();
+    let z = if maximized { 1.0 } else { zoom.max(0.01) };
+    let corner = portal_layout_corner(frame_corner, maximized);
+    let radius = portal_layout_radius_screen(frame, corner, z, maximized);
     let border = if maximized {
         0.0
     } else {
@@ -183,6 +224,8 @@ pub fn layout_portal_frame(frame: Rect, maximized: bool, zoom: f32) -> PortalChr
     );
     PortalChromeLayout {
         frame,
+        corner,
+        zoom: z,
         radius,
         bar: None,
         reveal: None,
@@ -201,15 +244,13 @@ pub fn layout_portal_chrome(
     frame: Rect,
     collapsed: bool,
     maximized: bool,
+    frame_corner: slate_doc::scene::Corner,
     zoom: f32,
 ) -> PortalChromeLayout {
     let tokens = portal_frame_tokens();
     let z = if maximized { 1.0 } else { zoom.max(0.01) };
-    let radius = if maximized {
-        0.0
-    } else {
-        tokens.corner_radius * z
-    };
+    let corner = portal_layout_corner(frame_corner, maximized);
+    let radius = portal_layout_radius_screen(frame, corner, z, maximized);
     let tab_h = if maximized {
         atlas_shell::tokens::current().topbar.height
     } else {
@@ -235,6 +276,8 @@ pub fn layout_portal_chrome(
         );
         return PortalChromeLayout {
             frame,
+            corner,
+            zoom: z,
             radius,
             bar: None,
             reveal: Some(reveal),
@@ -256,6 +299,8 @@ pub fn layout_portal_chrome(
     );
     PortalChromeLayout {
         frame,
+        corner,
+        zoom: z,
         radius,
         bar: Some(bar),
         reveal: None,
@@ -294,6 +339,7 @@ impl SlateApp {
             xf.rect_w2s(node.rect),
             self.portal_chrome_collapsed(id),
             false,
+            self.node_resolved_corner(node),
             xf.z,
         );
         layout.maximize.contains(p)
@@ -490,12 +536,19 @@ impl SlateApp {
         let palette = self.palette();
         if let Some(bar) = layout.bar {
             let model = self.portal_tab_model(id, portal, visiting);
-            if let Some(action) = tabs::portal_tab_bar(
+            let frame_corner = if layout.radius < 0.5 {
+                tabs::PortalTabCorner::Square
+            } else if layout.corner.parameters().0 {
+                tabs::PortalTabCorner::Chamfer(layout.radius)
+            } else {
+                tabs::PortalTabCorner::Rounded(layout.radius)
+            };
+            if let Some(action) = tabs::portal_tab_bar_corner(
                 ui,
                 &palette,
                 bar,
                 layout.maximize,
-                layout.radius,
+                frame_corner,
                 id.0,
                 &model,
             ) {
@@ -607,37 +660,23 @@ impl SlateApp {
         painter: &egui::Painter,
         layout: &PortalChromeLayout,
         fill: Color32,
-        border: Color32,
-        focused: bool,
     ) {
-        painter.rect(
-            layout.frame,
-            layout.radius,
-            fill,
-            Stroke::NONE,
-            StrokeKind::Inside,
-        );
-        let _ = (border, focused);
+        let z = layout.zoom.max(0.01);
+        let (chamfer, radius_world) = layout
+            .corner
+            .effective(layout.frame.width() / z, layout.frame.height() / z);
+        let radius = radius_world * z;
+        let use_rect = !chamfer && radius <= 255.0;
+        if use_rect {
+            painter.rect(layout.frame, radius, fill, Stroke::NONE, StrokeKind::Inside);
+        } else {
+            let outline = board::corner_outline(layout.frame, layout.corner, layout.zoom.max(0.01));
+            board::paint_convex_fan_fill(painter, &outline, fill);
+        }
     }
 
-    /// No portal kind covers its fillet with the canvas color. That mask
-    /// hides whatever the frame overlaps — another frame, or a frame with
-    /// its own fill. The footprint is the rounded fill and, where the body
-    /// is a texture, the rounded content mesh (P1.portal.clip).
-    pub(crate) fn portal_masks_fillet_with_canvas(_kind: PortalKind) -> bool {
-        false
-    }
-
-    pub(crate) fn paint_portal_fillet_punch(
-        &self,
-        painter: &egui::Painter,
-        layout: &PortalChromeLayout,
-    ) {
-        board::paint_fillet_masks(painter, layout.frame, layout.radius, self.palette().bg);
-    }
-
-    /// Shared close of the host paint sequence: fillet punch → identity
-    /// chrome → hover/focus stroke. Kind-specific work is the body hook.
+    /// Shared close of the host paint sequence: identity chrome →
+    /// hover/focus stroke. Kind-specific work is the clipped body hook.
     #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
     pub(crate) fn paint_portal_shell_finish(
         &mut self,
@@ -651,9 +690,6 @@ impl SlateApp {
         focused: bool,
         zoom: f32,
     ) {
-        if Self::portal_masks_fillet_with_canvas(portal.kind) {
-            self.paint_portal_fillet_punch(painter, layout);
-        }
         // Maximized, the overlay paints the one restore control. A second
         // glyph here sits on a different rect and steals the click.
         if !self.portal_is_maximized(id) {
@@ -675,6 +711,25 @@ impl SlateApp {
         zoom: f32,
     ) {
         let z = zoom.max(0.01);
+        let stroke_rect = |painter: &egui::Painter, width: f32, color: Color32| {
+            let (chamfer, radius_world) = layout
+                .corner
+                .effective(layout.frame.width() / z, layout.frame.height() / z);
+            let radius = radius_world * z;
+            let use_rect = !chamfer && radius <= 255.0;
+            if use_rect {
+                painter.rect_stroke(
+                    layout.frame,
+                    radius,
+                    Stroke::new(width, color),
+                    StrokeKind::Middle,
+                );
+            } else {
+                let outline =
+                    board::corner_outline(layout.frame, layout.corner, layout.zoom.max(0.01));
+                painter.add(egui::Shape::closed_line(outline, Stroke::new(width, color)));
+            }
+        };
         if portal.kind == PortalKind::FileAtlas {
             let width = canvas_scale::px(portal.stroke.width.max(1.0), z);
             let color = if portal.stroke_follows_theme() {
@@ -682,22 +737,12 @@ impl SlateApp {
             } else {
                 rgba32(portal.stroke.color)
             };
-            painter.rect_stroke(
-                layout.frame,
-                layout.radius,
-                Stroke::new(width, color),
-                StrokeKind::Outside,
-            );
+            stroke_rect(painter, width, color);
             return;
         }
         if !portal.stroke.is_none() {
             let width = canvas_scale::px(portal.stroke.width, z);
-            painter.rect_stroke(
-                layout.frame,
-                layout.radius,
-                Stroke::new(width, rgba32(portal.stroke.color)),
-                StrokeKind::Outside,
-            );
+            stroke_rect(painter, width, rgba32(portal.stroke.color));
             return;
         }
         // Contents focus is nested editing: no highlight border on the frame.
@@ -712,13 +757,8 @@ impl SlateApp {
         if !edge_hover || !self.settings.hover_highlight("portal") {
             return;
         }
-        let width = 1.0_f32 * z;
-        painter.rect_stroke(
-            layout.frame,
-            layout.radius,
-            Stroke::new(width, border),
-            StrokeKind::Outside,
-        );
+        let width = canvas_scale::px(1.0, z);
+        stroke_rect(painter, width, border);
     }
 
     /// Full-window overlay: the portal is the sole interface (P1.portal.maximize).
@@ -741,7 +781,14 @@ impl SlateApp {
         // Non-web portals letterbox inside the window. The restore glyph has
         // to sit on that visible card, not in the empty margin.
         let host = maximized_host_rect(portal.kind, node.rect, screen);
-        let mut layout = layout_for_portal(portal.kind, host, collapsed, true, 1.0);
+        let mut layout = layout_for_portal(
+            portal.kind,
+            host,
+            collapsed,
+            true,
+            self.node_resolved_corner(&node),
+            1.0,
+        );
         if portal.kind == PortalKind::Web {
             layout.retract_when_idle(ui.ctx(), id, self.web.focused == Some(id));
         }
@@ -852,38 +899,45 @@ fn point_in_convex(poly: &[Pos2], p: Pos2) -> bool {
 mod tests {
     use super::*;
     use eframe::egui::{pos2, Rect};
+    use slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET;
+    use slate_doc::scene::Corner;
+
+    fn design_portal_corner() -> Corner {
+        Corner::Rounded {
+            radius: PORTAL_FRAME_DEFAULT_FILLET,
+        }
+    }
 
     #[test]
-    fn no_portal_fillet_is_masked_with_the_canvas() {
-        for kind in [
+    fn host_body_clip_insets_for_the_corner() {
+        let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
+        let layout = layout_for_portal(
             PortalKind::Web,
-            PortalKind::FileAtlas,
-            PortalKind::Slate,
-            PortalKind::Agent,
-        ] {
-            assert!(
-                !SlateApp::portal_masks_fillet_with_canvas(kind),
-                "{kind:?} must not cover its fillet with the canvas color"
-            );
-        }
+            frame,
+            false,
+            false,
+            design_portal_corner(),
+            1.0,
+        );
+        let clip = portal_body_content_clip(&layout);
+        assert!(
+            clip.width() + 1.0 < layout.page.width(),
+            "host body clip must inset for the fillet when polygon clip is unavailable"
+        );
     }
 
     #[test]
     fn every_portal_kind_uses_the_same_fillet() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let expected = portal_frame_tokens().corner_radius;
-        assert_eq!(
-            slate_doc::media::TEXT_CARD_FILLET,
-            atlas_shell::tokens::PortalFrameTokens::default().corner_radius,
-            "text documents use the portal frame's designed fillet"
-        );
+        let resolved = slate_doc::media::portal_frame_corner(Corner::Square);
+        let expected = resolved.effective(frame.width(), frame.height()).1;
         for kind in [
             PortalKind::Web,
             PortalKind::Agent,
             PortalKind::FileAtlas,
             PortalKind::Slate,
         ] {
-            let layout = layout_for_portal(kind, frame, false, false, 1.0);
+            let layout = layout_for_portal(kind, frame, false, false, resolved, 1.0);
             assert!(
                 (layout.radius - expected).abs() < 1e-4,
                 "{kind:?} fillet {} != shared {expected}",
@@ -895,7 +949,7 @@ mod tests {
     #[test]
     fn collapsed_layout_exposes_a_reveal_strip_and_full_body() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let layout = layout_portal_chrome(frame, true, false, 1.0);
+        let layout = layout_portal_chrome(frame, true, false, design_portal_corner(), 1.0);
         assert!(layout.bar.is_none());
         assert!(layout.reveal.is_some());
         assert_eq!(layout.body, frame);
@@ -905,7 +959,7 @@ mod tests {
     #[test]
     fn expanded_layout_overlays_a_tab_bar_without_resizing_the_page() {
         let frame = Rect::from_min_max(pos2(10.0, 20.0), pos2(410.0, 320.0));
-        let layout = layout_portal_chrome(frame, false, false, 1.0);
+        let layout = layout_portal_chrome(frame, false, false, design_portal_corner(), 1.0);
         let bar = layout.bar.expect("tab bar");
         let expected = tab_bar_height();
         assert!(
@@ -922,7 +976,7 @@ mod tests {
         assert_eq!(layout.body, frame);
         assert_eq!(
             layout.body,
-            layout_portal_chrome(frame, true, false, 1.0).body
+            layout_portal_chrome(frame, true, false, design_portal_corner(), 1.0).body
         );
         assert!(layout.reveal.is_none());
     }
@@ -930,8 +984,8 @@ mod tests {
     #[test]
     fn on_canvas_the_tab_bar_tracks_zoom() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let full = layout_portal_chrome(frame, false, false, 1.0);
-        let half = layout_portal_chrome(frame, false, false, 0.5);
+        let full = layout_portal_chrome(frame, false, false, design_portal_corner(), 1.0);
+        let half = layout_portal_chrome(frame, false, false, design_portal_corner(), 0.5);
         let bar_full = full.bar.expect("tab");
         let bar_half = half.bar.expect("tab");
         assert!((bar_half.height() - bar_full.height() * 0.5).abs() < 0.05);
@@ -950,7 +1004,7 @@ mod tests {
             if moved {
                 input.events.push(egui::Event::PointerMoved(pointer));
             }
-            let mut result = layout_portal_chrome(frame, false, false, 1.0);
+            let mut result = layout_portal_chrome(frame, false, false, design_portal_corner(), 1.0);
             let _ = ctx.run(input, |ctx| {
                 result.retract_when_idle(ctx, NodeId(99), false)
             });
@@ -977,7 +1031,14 @@ mod tests {
         assert!(!uses_identity_tab(PortalKind::Agent));
         assert!(!uses_identity_tab(PortalKind::FileAtlas));
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let layout = layout_for_portal(PortalKind::Agent, frame, false, false, 1.0);
+        let layout = layout_for_portal(
+            PortalKind::Agent,
+            frame,
+            false,
+            false,
+            design_portal_corner(),
+            1.0,
+        );
         assert!(layout.bar.is_none());
         assert!(layout.reveal.is_none());
         assert_eq!(layout.body, frame);
@@ -994,7 +1055,14 @@ mod tests {
     #[test]
     fn maximize_icon_sits_upper_right_without_a_tab() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let layout = layout_for_portal(PortalKind::FileAtlas, frame, false, false, 1.0);
+        let layout = layout_for_portal(
+            PortalKind::FileAtlas,
+            frame,
+            false,
+            false,
+            design_portal_corner(),
+            1.0,
+        );
         assert!(layout.bar.is_none());
         assert!(layout.maximize.right() <= frame.right() + 0.01);
         assert!(layout.maximize.top() >= frame.top() - 0.01);
@@ -1005,7 +1073,14 @@ mod tests {
     #[test]
     fn web_tab_hosts_maximize_in_the_window_slot() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let layout = layout_for_portal(PortalKind::Web, frame, false, false, 1.0);
+        let layout = layout_for_portal(
+            PortalKind::Web,
+            frame,
+            false,
+            false,
+            design_portal_corner(),
+            1.0,
+        );
         let bar = layout.bar.expect("web tab");
         assert!(
             layout.maximize.right() <= bar.right() - layout.radius + 0.5,
@@ -1023,7 +1098,14 @@ mod tests {
         let host = maximized_host_rect(PortalKind::FileAtlas, node, screen);
         assert!(host.height() < screen.height() - 1.0);
         assert!((host.width() - screen.width()).abs() < 1.0);
-        let layout = layout_for_portal(PortalKind::FileAtlas, host, false, true, 1.0);
+        let layout = layout_for_portal(
+            PortalKind::FileAtlas,
+            host,
+            false,
+            true,
+            design_portal_corner(),
+            1.0,
+        );
         assert!(host.contains(layout.maximize.center()));
         assert!(layout.maximize.top() > screen.top() + 20.0);
         let web = maximized_host_rect(PortalKind::Web, node, screen);
@@ -1033,7 +1115,7 @@ mod tests {
     #[test]
     fn maximized_layout_has_no_fillet() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(1920.0, 1080.0));
-        let layout = layout_portal_chrome(frame, false, true, 1.0);
+        let layout = layout_portal_chrome(frame, false, true, design_portal_corner(), 1.0);
         assert_eq!(layout.radius, 0.0);
         assert_eq!(layout.frame, frame);
         // Maximized, the tab has become window chrome, so it takes the full
@@ -1062,28 +1144,29 @@ mod tests {
             point_in_convex(&outline, inset),
             "the fillet center must stay inside"
         );
-        let overhangs = board::fillet_overhangs(frame, r);
-        assert!(
-            overhangs.iter().any(|poly| poly.first() == Some(&corner)),
-            "the square corner must be the outer vertex of a fillet mask"
-        );
-        assert!(
-            !overhangs
-                .iter()
-                .any(|poly| poly.iter().any(|p| (*p - inset).length() < 0.5)),
-            "the fillet center is content, not a mask vertex"
-        );
 
         let page = Rect::from_min_max(pos2(6.0, 20.0), pos2(194.0, 114.0));
-        let content = board::portal_content_outline(frame, page, r);
+        let corner = Corner::Rounded { radius: r };
+        let content = board::portal_content_outline(frame, page, corner, 1.0);
         assert!(
             content.iter().all(|p| page.contains(*p)),
             "content mesh must stay inside the UV rect, got {content:?}"
         );
-        let bottom_corner = pos2(page.left(), page.bottom());
+        let layout = PortalChromeLayout {
+            frame,
+            corner,
+            zoom: 1.0,
+            radius: r,
+            bar: None,
+            reveal: None,
+            maximize: Rect::NOTHING,
+            body: frame,
+            page,
+        };
+        let clip = portal_body_content_clip(&layout);
         assert!(
-            !point_in_convex(&content, bottom_corner),
-            "the inset page corner must still be clipped"
+            clip.width() + 0.5 < page.width() && clip.height() + 0.5 < page.height(),
+            "axis-aligned host clip must inset by the fillet radius"
         );
     }
 }
