@@ -168,13 +168,14 @@ impl SlateApp {
         }
     }
 
-    /// Stroke for a new open curve (Line, arc, polyline span, …).
+    /// Stroke for a new open curve (Line, arc, polyline span, …). Always a
+    /// hard vector stroke, even when a brush stroke was the last edit.
     pub(crate) fn stroke_for_new_curve(&self) -> Stroke {
         if let Some(mut s) = self.board_last_style.open.stroke {
             if s.width <= 0.0 {
                 s.width = Self::OPEN_STROKE_MIN;
             }
-            return s;
+            return s.hard_vector();
         }
         board_path::default_curve_stroke(self.board_colors.fg)
     }

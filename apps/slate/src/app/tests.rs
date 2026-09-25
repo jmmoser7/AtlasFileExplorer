@@ -8158,6 +8158,85 @@ fn a_brush_click_commits_one_round_dab() {
     assert!(shape.stroke.stamp);
 }
 
+/// The stroke of every node the vector tools commit, in commit order.
+fn committed_vector_strokes(h: &mut Harness) -> Vec<(board::BoardTool, slate_doc::scene::Stroke)> {
+    use board::BoardTool;
+    let mut out = Vec::new();
+    let mut last = |h: &mut Harness, tool: BoardTool| {
+        let node = h.app.doc().scene.nodes.last().unwrap();
+        let slate_doc::scene::NodeKind::Shape(s) = &node.kind else {
+            panic!("{tool:?} commits a shape");
+        };
+        out.push((tool, s.stroke));
+    };
+    h.app.set_board_tool(BoardTool::Pen);
+    h.app.finish_freehand_pen(vec![
+        Pos2::new(0.0, 100.0),
+        Pos2::new(40.0, 120.0),
+        Pos2::new(80.0, 100.0),
+    ]);
+    last(h, BoardTool::Pen);
+    h.app.set_board_tool(BoardTool::Line);
+    h.app
+        .commit_line(Pos2::new(0.0, 200.0), Pos2::new(90.0, 200.0));
+    last(h, BoardTool::Line);
+    h.app.set_board_tool(BoardTool::Arc);
+    for p in [(0.0, 300.0), (100.0, 300.0), (50.0, 260.0)] {
+        h.app.path_tool_click(Pos2::new(p.0, p.1));
+    }
+    last(h, BoardTool::Arc);
+    h.app.set_board_tool(BoardTool::Polyline);
+    for p in [(0.0, 400.0), (60.0, 430.0), (120.0, 400.0)] {
+        h.app.path_tool_click(Pos2::new(p.0, p.1));
+    }
+    assert!(h.app.finish_path_draft());
+    last(h, BoardTool::Polyline);
+    h.app.set_board_tool(BoardTool::BezierSpan);
+    for (press, release) in [
+        ((0.0, 500.0), (30.0, 480.0)),
+        ((120.0, 500.0), (150.0, 520.0)),
+    ] {
+        let press = Pos2::new(press.0, press.1);
+        h.app.bezier_anchor_press(press);
+        h.app
+            .bezier_anchor_release(press, Pos2::new(release.0, release.1), false);
+    }
+    assert!(h.app.finish_path_draft());
+    last(h, BoardTool::BezierSpan);
+    out
+}
+
+/// Pen, line, arc, polyline, and Bézier strokes are hard vector strokes: a
+/// soft, blurred brush stroke that became the last edited style must not
+/// leak its softness, stamp, or blur into them.
+#[test]
+fn vector_tools_never_inherit_brush_softness_or_blur() {
+    let mut h = line_board("vector_no_soft");
+    h.app.brush_softness = 0.5;
+    h.app.brush_width = 40.0;
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.finish_freehand_brush(vec![
+        Pos2::new(0.0, 0.0),
+        Pos2::new(30.0, 12.0),
+        Pos2::new(60.0, 0.0),
+    ]);
+    let brush = h.app.doc().scene.nodes.last().unwrap().id;
+    // A Shift chain or an inspector edit patches the brush stroke by itself.
+    h.app.patch_nodes(&[brush], |n| {
+        if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
+            s.stroke.gaussian_blur = 3.0;
+        }
+    });
+    for (tool, stroke) in committed_vector_strokes(&mut h) {
+        assert_eq!(stroke.softness, 0.0, "{tool:?} inherited brush softness");
+        assert_eq!(stroke.gaussian_blur, 0.0, "{tool:?} inherited blur");
+        assert!(!stroke.stamp, "{tool:?} became a raster stamp");
+        assert!(stroke.tween_from.is_none(), "{tool:?} inherited a tween");
+        assert!(!stroke.paints_as_stamp(), "{tool:?} paints as a stamp");
+        assert!(stroke.width > 0.0, "{tool:?} has no width");
+    }
+}
+
 #[test]
 fn ctrl_z_reverts_a_brush_size_change_until_another_action() {
     let mut h = Harness::new("brush_undo_size");

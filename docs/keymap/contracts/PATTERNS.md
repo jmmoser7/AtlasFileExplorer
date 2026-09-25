@@ -221,7 +221,11 @@ is searchable.
   caps, Miter joins (distinct from expressive ink's round caps). Brush/Pen ink
   keeps its own round defaults (`P2.StickyInk`). Implementation:
   `board_style::BoardLastStyle`, updated from `patch_nodes` (single target) and
-  grip commits; persisted on `ViewState.create_style`.
+  grip commits; persisted on `ViewState.create_style`. Vector curve tools
+  (pen, line, arc, polyline, Bézier) always commit a hard vector stroke
+  (`Stroke::hard_vector`): edge softness, stamp, and Gaussian blur are never
+  inherited, not even from an edited brush stroke, and those tools offer no
+  softness or blur control. Existing documents are not rewritten on load.
 - **P1.curve.grips** selected open curves expose their defining points as
   gripable handles (endpoints, on-curve anchors) — **not** a resize bbox.
   Applies to **every** selected simple line in the selection, not only when

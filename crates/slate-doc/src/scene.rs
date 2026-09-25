@@ -337,6 +337,20 @@ impl Stroke {
         self.stamp || self.softness > 0.001
     }
 
+    /// The same stroke as a hard vector line: no edge softness, no stamp,
+    /// no tween, no blur. Pen, line, arc, polyline, and Bézier strokes are
+    /// always hard; only the normal anti-aliased edge remains.
+    #[must_use]
+    pub fn hard_vector(self) -> Stroke {
+        Stroke {
+            softness: 0.0,
+            stamp: false,
+            tween_from: None,
+            gaussian_blur: 0.0,
+            ..self
+        }
+    }
+
     pub fn none() -> Stroke {
         Stroke::default()
     }
