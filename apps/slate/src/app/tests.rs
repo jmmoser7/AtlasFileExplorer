@@ -10547,7 +10547,8 @@ fn open_shapes_offer_no_wire_ports_while_a_closed_polyline_keeps_them() {
         Pos2::new(120.0, 90.0),
     ];
     let (r, d) = board_path::points_to_path_data(&open_pts, false);
-    h.app.commit_path_node(r, d, false);
+    h.app
+        .commit_path_node(slate_doc::StrokeTool::Polyline, r, d, false);
     let open = h.app.doc().scene.nodes.last().unwrap().id;
     let tri = [
         Pos2::new(300.0, 0.0),
@@ -10555,7 +10556,8 @@ fn open_shapes_offer_no_wire_ports_while_a_closed_polyline_keeps_them() {
         Pos2::new(300.0, 120.0),
     ];
     let (r, d) = board_path::points_to_path_data(&tri, true);
-    h.app.commit_path_node(r, d, true);
+    h.app
+        .commit_path_node(slate_doc::StrokeTool::Polyline, r, d, true);
     let closed = h.app.doc().scene.nodes.last().unwrap().id;
     h.app.board_sel.clear();
     h.frame();
