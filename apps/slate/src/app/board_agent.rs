@@ -13,6 +13,7 @@ use atlas_ai::launch::CursorIdeStatus;
 use atlas_shell::file_picker::{self, PickRequest};
 use atlas_shell::home::{image_album, AlbumImage};
 use atlas_shell::recent::{RecentEntry, RecentList};
+use atlas_shell::tokens::OverlayInk;
 use atlas_shell::{canvas_scale, canvas_text};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{self, Align2, Color32, FontId, Id, Pos2, Rect, Sense};
@@ -443,6 +444,26 @@ pub(crate) fn paint_agent_spinner(
         let p = center + egui::vec2(angle.cos(), angle.sin()) * radius;
         let alpha = 36 + i * 26;
         painter.circle_filled(p, radius * 0.18, ink.gamma_multiply(alpha as f32 / 255.0));
+    }
+}
+
+/// A pill laid over agent media: `fill` plus the theme's hairline outline.
+pub(crate) fn paint_overlay_pill(
+    painter: &egui::Painter,
+    rect: Rect,
+    radius: f32,
+    fill: Color32,
+    ink: &OverlayInk,
+    z: f32,
+) {
+    painter.rect_filled(rect, radius, fill);
+    if ink.border.a() > 0 {
+        painter.rect_stroke(
+            rect,
+            radius,
+            egui::Stroke::new(canvas_scale::px(ink.border_width, z), ink.border),
+            egui::StrokeKind::Inside,
+        );
     }
 }
 
@@ -4750,23 +4771,18 @@ impl SlateApp {
         at: Pos2,
         label: &str,
         id: Id,
-        fill: Color32,
+        ink: &OverlayInk,
         z: f32,
     ) -> (egui::Response, Rect) {
         let font = canvas_scale::font(GENERATOR_CHIP_PX, z);
-        let text = canvas_text::layout_no_wrap(painter, label.to_string(), font, Color32::WHITE);
+        let text = canvas_text::layout_no_wrap(painter, label.to_string(), font, ink.text);
         let pad = canvas_scale::px(12.0, z);
         let rect = Rect::from_min_size(
             at,
             egui::vec2(text.size().x + pad * 2.0, canvas_scale::px(28.0, z)),
         );
-        painter.rect_filled(rect, canvas_scale::px(8.0, z), fill);
-        text.paint_anchored(
-            painter,
-            rect.center(),
-            Align2::CENTER_CENTER,
-            Color32::WHITE,
-        );
+        paint_overlay_pill(painter, rect, canvas_scale::px(8.0, z), ink.fill, ink, z);
+        text.paint_anchored(painter, rect.center(), Align2::CENTER_CENTER, ink.text);
         (ui.interact(rect, id, Sense::click()), rect)
     }
 
@@ -4788,6 +4804,7 @@ impl SlateApp {
         let x = body.left() + canvas_scale::px(12.0, z);
         let pad = canvas_scale::px(6.0, z);
         let dot = canvas_scale::px(3.5, z);
+        let ink = self.palette().overlay();
         let mut picked = None;
         for (i, input) in view.inputs.iter().enumerate().take(6) {
             let (role, color) = input.role.look();
@@ -4795,18 +4812,14 @@ impl SlateApp {
                 painter,
                 format!("{role} · {}", input.label),
                 font.clone(),
-                Color32::WHITE,
+                ink.text,
             );
             let size = text.size();
             let rect = Rect::from_min_size(
                 Pos2::new(x, y),
                 egui::vec2(size.x + pad * 3.0 + dot * 2.0, size.y + pad * 1.4),
             );
-            painter.rect_filled(
-                rect,
-                canvas_scale::px(7.0, z),
-                Color32::from_black_alpha(175),
-            );
+            paint_overlay_pill(painter, rect, canvas_scale::px(7.0, z), ink.fill, &ink, z);
             painter.circle_filled(
                 Pos2::new(rect.left() + pad + dot, rect.center().y),
                 dot,
@@ -4816,7 +4829,7 @@ impl SlateApp {
                 painter,
                 Pos2::new(rect.left() + pad * 2.0 + dot * 2.0, rect.center().y),
                 Align2::LEFT_CENTER,
-                Color32::WHITE,
+                ink.text,
             );
             if ui
                 .interact(rect, Id::new(("generator-input", id.0, i)), Sense::click())
@@ -5167,10 +5180,14 @@ impl SlateApp {
             let width = (body.width() - canvas_scale::px(48.0, z)).min(canvas_scale::px(520.0, z));
             let field =
                 Rect::from_center_size(body.center(), egui::vec2(width, canvas_scale::px(64.0, z)));
-            painter.rect_filled(
+            let ink = self.palette().overlay();
+            paint_overlay_pill(
+                painter,
                 field.expand(canvas_scale::px(10.0, z)),
                 canvas_scale::px(10.0, z),
-                Color32::from_black_alpha(150),
+                ink.scrim,
+                &ink,
+                z,
             );
             self.paint_generator_prompt(ui, id, field, z, hint);
         }
@@ -5229,6 +5246,7 @@ impl SlateApp {
             return;
         }
         let text_top = self.paint_generator_chips(ui, painter, id, body, &view, z);
+        let ink = self.palette().overlay();
         let failure = match self.agents.awaiting.get(&id) {
             Some(AgentAwait::Failed { reason, .. }) => Some(reason.clone()),
             _ => view.error.clone(),
@@ -5238,17 +5256,13 @@ impl SlateApp {
                 painter,
                 reason,
                 canvas_scale::font(GENERATOR_CHIP_PX, z),
-                Color32::from_rgb(255, 190, 130),
+                ink.warn,
                 body.width() - canvas_scale::px(24.0, z),
             );
             let at = Pos2::new(body.left() + canvas_scale::px(12.0, z), text_top);
             let back = Rect::from_min_size(at, text.size()).expand(canvas_scale::px(5.0, z));
-            painter.rect_filled(
-                back,
-                canvas_scale::px(6.0, z),
-                Color32::from_black_alpha(175),
-            );
-            text.paint(painter, at, Color32::from_rgb(255, 190, 130));
+            paint_overlay_pill(painter, back, canvas_scale::px(6.0, z), ink.fill, &ink, z);
+            text.paint(painter, at, ink.warn);
         }
         // The dock: run, then the prompt that made the picture across the rest.
         let action = if agent.live {
@@ -5266,7 +5280,7 @@ impl SlateApp {
             at,
             action,
             Id::new(("agent-generate", id.0)),
-            Color32::from_black_alpha(175),
+            &ink,
             z,
         );
         let primary = match action {

@@ -727,6 +727,29 @@ edge_weight = 0.10000000149011612
 center_opacity = 1.0
 edge_opacity = 0.029999999329447746
 
+[board_overlay]
+border_width = 0.8
+
+[board_overlay.light]
+fill = [248, 249, 251, 232]
+scrim = [248, 249, 251, 204]
+raised = [255, 255, 255, 245]
+progress = [248, 249, 251, 236]
+text = [27, 30, 34, 255]
+muted = [104, 111, 119, 255]
+warn = [160, 70, 16, 255]
+border = [27, 30, 34, 40]
+
+[board_overlay.dark]
+fill = [0, 0, 0, 175]
+scrim = [0, 0, 0, 150]
+raised = [0, 0, 0, 215]
+progress = [0, 0, 0, 185]
+text = [255, 255, 255, 255]
+muted = [170, 170, 170, 255]
+warn = [255, 190, 130, 255]
+border = [0, 0, 0, 0]
+
 [menu]
 corner_radius = 5.0
 border_width = 0.0

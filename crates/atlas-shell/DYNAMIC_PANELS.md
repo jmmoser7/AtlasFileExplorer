@@ -212,6 +212,12 @@ contrast in each theme; do not hardcode a dark surface into the light theme
 or invert a bitmap to manufacture a theme variant. Authored color samples,
 hue/color-field contents, and their values remain unchanged by theme.
 
+Pills laid over a picture or note an agent makes (role chips, the run verb,
+progress, failure notes, the prompt capsule, its editor and scrim) take
+`Palette::overlay()`, the `[board_overlay]` tokens: a translucent dark
+surface with light text in dark, and its inverse with a hairline outline in
+light. The role dots keep their role colors in both themes.
+
 ## References and verification
 
 The [design index](../../design/shape-palettes-2026-09-17/README.md) records

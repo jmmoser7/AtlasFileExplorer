@@ -27,6 +27,7 @@ pub struct UiTokens {
     pub board_preview: BoardPreviewTokens,
     pub board_marquee: BoardMarqueeTokens,
     pub board_forcefield: BoardForcefieldTokens,
+    pub board_overlay: BoardOverlayTokens,
     pub menu: MenuTokens,
     pub slider: SliderTokens,
     pub theme: ThemeTokens,
@@ -47,6 +48,7 @@ impl Default for UiTokens {
             board_preview: BoardPreviewTokens::default(),
             board_marquee: BoardMarqueeTokens::default(),
             board_forcefield: BoardForcefieldTokens::default(),
+            board_overlay: BoardOverlayTokens::default(),
             menu: MenuTokens::default(),
             slider: SliderTokens::default(),
             theme: ThemeTokens::default(),
@@ -333,6 +335,118 @@ impl BoardForcefieldTokens {
     pub fn lifetime(self) -> f32 {
         self.expand_secs + self.fade_secs
     }
+}
+
+/// Pills laid over a picture or note an agent makes: source chips, the run
+/// verb, the prompt readout and its editor, run progress, failure notes.
+/// They sit on arbitrary pixels, so each theme carries its own translucent
+/// surface instead of an opaque [`ThemeSlots`] slot. Light inverts dark.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BoardOverlayTokens {
+    /// Outline width in board units (times zoom on the canvas, P0.9).
+    pub border_width: f32,
+    pub light: BoardOverlayThemeTokens,
+    pub dark: BoardOverlayThemeTokens,
+}
+
+impl Default for BoardOverlayTokens {
+    fn default() -> Self {
+        Self {
+            border_width: 0.8,
+            light: BoardOverlayThemeTokens::light(),
+            dark: BoardOverlayThemeTokens::dark(),
+        }
+    }
+}
+
+impl BoardOverlayTokens {
+    pub fn normalize(&mut self) {
+        self.border_width = self.border_width.clamp(0.0, 3.0);
+    }
+
+    /// The overlay colours for a light or dark base.
+    pub fn ink(&self, dark_mode: bool) -> OverlayInk {
+        let t = if dark_mode { &self.dark } else { &self.light };
+        OverlayInk {
+            fill: rgba(t.fill),
+            scrim: rgba(t.scrim),
+            raised: rgba(t.raised),
+            progress: rgba(t.progress),
+            text: rgba(t.text),
+            muted: rgba(t.muted),
+            warn: rgba(t.warn),
+            border: rgba(t.border),
+            border_width: self.border_width,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BoardOverlayThemeTokens {
+    /// Resting pill: chips, run verb, prompt readout, failure note.
+    pub fill: [u8; 4],
+    /// Behind the prompt field of a picture or note with nothing in it yet.
+    pub scrim: [u8; 4],
+    /// The expanded prompt editor.
+    pub raised: [u8; 4],
+    /// The run-progress pill.
+    pub progress: [u8; 4],
+    pub text: [u8; 4],
+    /// Placeholder and secondary text.
+    pub muted: [u8; 4],
+    /// A failed run's reason.
+    pub warn: [u8; 4],
+    pub border: [u8; 4],
+}
+
+impl BoardOverlayThemeTokens {
+    fn light() -> Self {
+        Self {
+            fill: [248, 249, 251, 232],
+            scrim: [248, 249, 251, 204],
+            raised: [255, 255, 255, 245],
+            progress: [248, 249, 251, 236],
+            text: [27, 30, 34, 255],
+            muted: [104, 111, 119, 255],
+            warn: [160, 70, 16, 255],
+            border: [27, 30, 34, 40],
+        }
+    }
+
+    fn dark() -> Self {
+        Self {
+            fill: [0, 0, 0, 175],
+            scrim: [0, 0, 0, 150],
+            raised: [0, 0, 0, 215],
+            progress: [0, 0, 0, 185],
+            text: [255, 255, 255, 255],
+            muted: [170, 170, 170, 255],
+            warn: [255, 190, 130, 255],
+            border: [0, 0, 0, 0],
+        }
+    }
+}
+
+impl Default for BoardOverlayThemeTokens {
+    fn default() -> Self {
+        Self::dark()
+    }
+}
+
+/// Resolved [`BoardOverlayTokens`] for one theme.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OverlayInk {
+    pub fill: Color32,
+    pub scrim: Color32,
+    pub raised: Color32,
+    pub progress: Color32,
+    pub text: Color32,
+    pub muted: Color32,
+    pub warn: Color32,
+    pub border: Color32,
+    pub border_width: f32,
 }
 
 /// Shared look for every dropdown and right-click menu (see `MENUS.md`).
@@ -2614,6 +2728,7 @@ fn parse_embedded() -> UiTokens {
     tokens.board_preview.normalize();
     tokens.board_marquee.normalize();
     tokens.board_forcefield.normalize();
+    tokens.board_overlay.normalize();
     tokens.menu.normalize();
     tokens.slider.normalize();
     tokens
@@ -2651,6 +2766,7 @@ pub fn replace(mut tokens: UiTokens) {
     tokens.board_preview.normalize();
     tokens.board_marquee.normalize();
     tokens.board_forcefield.normalize();
+    tokens.board_overlay.normalize();
     tokens.menu.normalize();
     tokens.slider.normalize();
     *store().write().expect("UI token lock poisoned") = Arc::new(tokens);
@@ -2715,6 +2831,60 @@ mod tests {
             assert!((b.tab_top_inset - a.tab_top_inset * 2.0).abs() < 1e-4);
             assert!((b.glow_core_width - a.glow_core_width * 2.0).abs() < 1e-4);
         }
+    }
+
+    fn luminance(c: Color32) -> f32 {
+        let [r, g, b, _] = c.to_srgba_unmultiplied();
+        0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32
+    }
+
+    #[test]
+    fn board_overlay_inverts_with_the_theme() {
+        let checked_in: UiTokens = toml::from_str(EMBEDDED_TOKENS).unwrap();
+        for tokens in [checked_in.board_overlay, BoardOverlayTokens::default()] {
+            let light = tokens.ink(false);
+            let dark = tokens.ink(true);
+            assert_ne!(light, dark);
+            for (name, surface) in [
+                ("fill", light.fill),
+                ("scrim", light.scrim),
+                ("raised", light.raised),
+                ("progress", light.progress),
+            ] {
+                assert!(
+                    luminance(surface) > luminance(light.text),
+                    "light {name} must be lighter than its text"
+                );
+                assert!(luminance(surface) > luminance(light.muted));
+                assert!(luminance(surface) > luminance(light.warn));
+            }
+            for (name, surface) in [
+                ("fill", dark.fill),
+                ("scrim", dark.scrim),
+                ("raised", dark.raised),
+                ("progress", dark.progress),
+            ] {
+                assert!(
+                    luminance(surface) < luminance(dark.text),
+                    "dark {name} must be darker than its text"
+                );
+                assert!(luminance(surface) < luminance(dark.muted));
+                assert!(luminance(surface) < luminance(dark.warn));
+            }
+        }
+    }
+
+    #[test]
+    fn dark_board_overlay_keeps_its_original_colours() {
+        let dark = BoardOverlayTokens::default().ink(true);
+        assert_eq!(dark.fill, Color32::from_black_alpha(175));
+        assert_eq!(dark.scrim, Color32::from_black_alpha(150));
+        assert_eq!(dark.raised, Color32::from_black_alpha(215));
+        assert_eq!(dark.progress, Color32::from_black_alpha(185));
+        assert_eq!(dark.text, Color32::WHITE);
+        assert_eq!(dark.muted, Color32::from_gray(170));
+        assert_eq!(dark.warn, Color32::from_rgb(255, 190, 130));
+        assert_eq!(dark.border.a(), 0);
     }
 
     #[test]
