@@ -231,7 +231,12 @@ impl SlateApp {
         adjust: &ImageAdjust,
     ) -> Result<ViewMetaInput, String> {
         let aspect = info.rect.w / info.rect.h.max(1.0);
-        let model_path = self.relative_locator(&info.path);
+        let model_path = slate_doc::scene::source_locator(self.tab().path.as_deref(), &info.path);
+        let model_path = if view_meta::path_looks_absolute(&model_path) {
+            String::new()
+        } else {
+            model_path
+        };
         let model_hash = self
             .model3d
             .model_hashes
@@ -314,17 +319,6 @@ impl SlateApp {
             .build_node(rect, NodeKind::Image(ImageNode::new(item)));
         let ids = self.add_nodes(vec![node]);
         ids.into_iter().next()
-    }
-
-    fn relative_locator(&self, path: &Path) -> String {
-        if let Some(workbook) = self.tab().path.as_ref().and_then(|p| p.parent()) {
-            if let Ok(rel) = path.strip_prefix(workbook) {
-                return rel.to_string_lossy().replace('\\', "/");
-            }
-        }
-        path.file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.to_string_lossy().into_owned())
     }
 
     pub(crate) fn model_node_at_world(&self, world: Pos2) -> Option<NodeId> {
@@ -415,7 +409,7 @@ impl SlateApp {
         if !path.is_file() {
             return false;
         }
-        if !is_raster_image_path(path) {
+        if slate_doc::media_kind(path) != slate_doc::MediaKind::Image {
             return false;
         }
         let Some(model) = self.model_node_at_world(at) else {
@@ -438,7 +432,7 @@ impl SlateApp {
                 matches!(&n.kind, NodeKind::Image(img) if {
                     self.doc()
                         .item(img.item)
-                        .is_some_and(|it| is_raster_image_path(&it.path))
+                        .is_some_and(|it| slate_doc::media_kind(&it.path) == slate_doc::MediaKind::Image)
                         && !self.model_has_viewport(**id)
                 })
             })
@@ -454,16 +448,6 @@ impl SlateApp {
         self.queue_view_drop_from_item(model, img.item);
         true
     }
-}
-
-fn is_raster_image_path(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
-            .as_deref(),
-        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp")
-    )
 }
 
 fn file_mtime(path: &Path) -> i64 {

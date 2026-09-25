@@ -74,7 +74,7 @@ pub fn hash_file_bytes(path: &Path) -> Result<String, ViewMetaError> {
 }
 
 pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> {
-    if path_looks_absolute(&input.model_path) {
+    if !input.model_path.is_empty() && path_looks_absolute(&input.model_path) {
         return Err(ViewMetaError::InvalidPath);
     }
     let display = display_token(input.camera.display);
@@ -86,6 +86,15 @@ pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> 
         .image_adjust_hash
         .map(|h| format!(r#" slateview:imageAdjustHash="{h}""#))
         .unwrap_or_default();
+    let model_path_attr = if input.model_path.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"
+    slateview:modelPath="{}""#,
+            xml_escape(&input.model_path)
+        )
+    };
     Ok(format!(
         r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
@@ -105,8 +114,7 @@ pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> 
     slateview:projection="perspective"
     slateview:fovY="{fov}"
     slateview:aspect="{aspect}"
-    slateview:modelName="{model_name}"
-    slateview:modelPath="{model_path}"
+    slateview:modelName="{model_name}"{model_path_attr}
     slateview:modelHash="{model_hash}"
     slateview:modelSize="{model_size}"
     slateview:nodeId="{node_id}"
@@ -123,7 +131,7 @@ pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> 
         fov = FOV_Y,
         aspect = input.aspect,
         model_name = xml_escape(&input.model_name),
-        model_path = xml_escape(&input.model_path),
+        model_path_attr = model_path_attr,
         model_hash = xml_escape(&input.model_hash),
         model_size = input.model_size,
         node_id = input.node_id,
@@ -156,7 +164,7 @@ pub fn parse_xmp_packet(xmp: &str) -> Result<ViewMetaParsed, ViewMetaError> {
     )?;
     let display = pick_attr(xmp, "display");
     let model_name = pick_attr(xmp, "modelName");
-    let model_path = pick_attr(xmp, "modelPath").ok_or(ViewMetaError::MissingField("modelPath"))?;
+    let model_path = pick_attr(xmp, "modelPath").unwrap_or_default();
     let model_hash = pick_attr(xmp, "modelHash").unwrap_or_default();
     let model_size = pick_attr(xmp, "modelSize")
         .map(|s| parse_u64(&s, "modelSize"))
@@ -169,7 +177,7 @@ pub fn parse_xmp_packet(xmp: &str) -> Result<ViewMetaParsed, ViewMetaError> {
     if version > VIEW_VERSION {
         return Err(ViewMetaError::UnsupportedVersion(version));
     }
-    if path_looks_absolute(&model_path) {
+    if !model_path.is_empty() && path_looks_absolute(&model_path) {
         return Err(ViewMetaError::InvalidPath);
     }
     let display = display
@@ -543,7 +551,7 @@ fn display_from_token(token: &str) -> Option<ModelDisplay> {
     }
 }
 
-fn path_looks_absolute(path: &str) -> bool {
+pub fn path_looks_absolute(path: &str) -> bool {
     let p = path.trim();
     if p.is_empty() {
         return false;
