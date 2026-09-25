@@ -101,7 +101,10 @@ pub enum Property {
     WireRouting(slate_doc::WireRouting),
     WireArrows(bool),
     ImageAdjust(ImageAdjust),
-    PaintLayerOpacity { layer_index: usize, opacity: f32 },
+    PaintLayerOpacity {
+        layer_index: usize,
+        opacity: f32,
+    },
     TextFamily(scene::Typeface),
     TextSize(f32),
     TextAlign(scene::TextAlign),

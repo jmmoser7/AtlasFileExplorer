@@ -3244,8 +3244,8 @@
           "behavior": "Percentage corner intent persists through resize; absolute values retain the authored distance and clamp only their effective value. Mode conversion is per host and preserves the visible amount.",
           "source": "guess",
           "confidence": 55,
-          "verdict": "approved",
-          "decided": "2026-09-25"
+          "verdict": "proposed",
+          "decided": null
         },
         "D08": {
           "behavior": "Bounding-box W/H stringers; Sides 3–12 in Corners panel when a regular polygon is selected.",

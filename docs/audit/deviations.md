@@ -39,15 +39,16 @@ Rules:
 | DV-24 | XII.4 | `WireBinding::source` / `target` inlined in `board_agent.rs`, `board_flow.rs`, `board_wire.rs`, and `board_web.rs` (`// TWIN:` 2026-09-25). `agent_inputs.rs` and `model_wired_views.rs` call the owner | open | 2026-09-25 (DRY review, model-screenshots) | Migrate the four board files on the next edit to each | — |
 | DV-25 | XII.4 | `board_video.rs` still applies photo filters with CPU `imagefx::adjusted` on decoded strip frames; model viewports use the shared GPU pass after MSAA resolve (D39). `// TWIN: apps/slate/src/app/model3d.rs` 2026-09-25 | open | 2026-09-25 (DRY review, model-screenshots) | Share the GPU filter pass or extract a renderer-neutral filter owner before the next edit to either path | — |
 | DV-23 | XII.3 | The gray agent handle dot, `circle_filled(p, 3.5 * z * (1.12 if near), sub…)`, is painted inline at five `board_agent.rs` sites (spawn preview and the context / artifact handles) with a bare `* z` instead of `canvas_scale::px`. Flow ports (`board_flow.rs`) are a different, typed visual and do not add a sixth copy. Deferred while a concurrent chat-card change owns those sites | open | 2026-09-23 (DRY review, flow ports) | Extract `paint_handle_dot(painter, p, z, near, alpha)` on `canvas_scale::px` and move all five sites onto it, on the next edit to any of them | - | — |
-| DV-24 | IV | Axis-aligned host bodies that cannot polygon-clip use `portal_body_content_clip`; its inset is conservative and still needs tightening against the exact resolved corner outline at large radii and chamfers | open | 2026-09-25 (corner-grip final review) | Portal clip follow-up | — |
-| DV-25 | XII.1 | `selection_tools::agent_card` and `agent_card_outline` own two shadow treatments; the arbitrary-corner path uses a translated polygon while the rounded-rect path uses egui's blurred `Shadow` | open | 2026-09-25 (corner-grip final review) | Agent-card shadow unification | — |
+| DV-28 | IV | Axis-aligned host bodies that cannot polygon-clip use `portal_body_content_clip`; its inset is conservative and still needs tightening against the exact resolved corner outline at large radii and chamfers | open | 2026-09-25 (corner-grip final review) | Portal clip follow-up | — |
+| DV-29 | XII.1 | `selection_tools::agent_card` and `agent_card_outline` own two shadow treatments; the arbitrary-corner path uses a translated polygon while the rounded-rect path uses egui's blurred `Shadow` | open | 2026-09-25 (corner-grip final review) | Agent-card shadow unification | — |
 | DV-26 | XII.1 | Agent portal stroke fallback remains split: readers prefer `agent.chat.stroke` but fall back to `PortalNode::stroke`, preserving two possible authored sources until DV-21 collapses the model | open | 2026-09-25 (corner-grip final review) | DV-21 | — |
 | DV-27 | IV | CSS `clip-path:polygon(...)` chamfers clip the element border itself; HTML cannot currently place a chamfer stroke with the same centered outline geometry as the native board painter | open | 2026-09-25 (corner-grip final review) | Chamfer-stroke export follow-up | — |
+| DV-30 | IV | Paint-layer live draft preview still clips to a rectangle; committed layers clip to the host's resolved corner outline | open | 2026-09-25 (wave3 merge integration) | Paint-layer draft clip follow-up | — |
 
 ## Deviation counts by article (maintained by the metrics tool)
 
 Do not hand-edit; `cargo xtask metrics` rewrites the block below.
 
 <!-- metrics:deviations:begin -->
-open: 19 · accepted: 0 · closed: 8
+open: 22 · accepted: 0 · closed: 8
 <!-- metrics:deviations:end -->
