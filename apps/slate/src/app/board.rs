@@ -2045,6 +2045,76 @@ pub(crate) fn fillet_overhangs(rect: Rect, radius: f32) -> [Vec<Pos2>; 4] {
     })
 }
 
+pub(crate) fn upper_edge(rect: WorldRect, rotation_deg: f32) -> [Pos2; 2] {
+    let c = rect
+        .corners_rotated(rotation_deg)
+        .map(|(x, y)| Pos2::new(x, y));
+    let mut best = [c[0], c[1]];
+    let mut best_dx = (c[1] - c[0]).normalized().x;
+    for i in 1..4 {
+        let edge = [c[i], c[(i + 1) % 4]];
+        let dx = (edge[1] - edge[0]).normalized().x;
+        if dx > best_dx + 1e-4 {
+            best = edge;
+            best_dx = dx;
+        }
+    }
+    best
+}
+
+/// A frame's board-only label, just outside its upper edge and rotated with
+/// it, so a portrait frame turned to landscape keeps its title on top.
+/// `inset` runs along the edge from the anchored end; `lift` rises off it.
+/// Both are world units.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_frame_label(
+    painter: &egui::Painter,
+    xf: &BoardXf,
+    node: &Node,
+    at_right_end: bool,
+    inset: f32,
+    lift: f32,
+    text: String,
+    font: FontId,
+    color: Color32,
+) {
+    let laid = canvas_text::layout_no_wrap(painter, text, font, color);
+    let (center, angle) = frame_label_placement(xf, node, at_right_end, inset, lift, laid.size());
+    if angle == 0.0 {
+        laid.paint_anchored(painter, center, Align2::CENTER_CENTER, color);
+    } else {
+        laid.paint_rotated(painter, center, angle, color);
+    }
+}
+
+/// Screen center and angle of a frame label of on-screen `size`. Quarter
+/// turns come back with an angle of exactly 0, so the label paints unrotated
+/// and as crisp as on an unrotated frame.
+pub(crate) fn frame_label_placement(
+    xf: &BoardXf,
+    node: &Node,
+    at_right_end: bool,
+    inset: f32,
+    lift: f32,
+    size: Vec2,
+) -> (Pos2, f32) {
+    let [a, b] = upper_edge(node.rect, node.rotation_deg).map(|p| xf.w2s(p));
+    let mut along = (b - a).normalized();
+    if along.y.abs() < 1e-3 {
+        along = Vec2::RIGHT;
+    }
+    let up = Vec2::new(along.y, -along.x);
+    let run = along * (canvas_scale::px(inset, xf.z) + size.x * 0.5);
+    let rise = up * (canvas_scale::px(lift, xf.z) + size.y * 0.5);
+    let center = if at_right_end { b - run } else { a + run } + rise;
+    let angle = if along == Vec2::RIGHT {
+        0.0
+    } else {
+        along.angle()
+    };
+    (center, angle)
+}
+
 pub(crate) fn paint_fillet_masks(painter: &egui::Painter, frame: Rect, radius: f32, fill: Color32) {
     if radius < 0.5 || fill.a() == 0 {
         return;
