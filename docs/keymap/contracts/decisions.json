@@ -3789,7 +3789,7 @@
           "decided": "2026-09-25"
         },
         "D11": {
-          "behavior": "Releasing a stroke journals one Add and stores the softness used. Width, softness, and foreground edits from keys or HUDs are tool state and are not journaled. Releasing the color wheel keeps the foreground and writes it into the 24-slot recent list. A brush stroke is a radial bitmap of its centerline (Stroke.stamp, and any softness above zero). Both painters share that bitmap: opaque out to (1 - softness) of the radius, clear at the rim, maximum coverage where dabs overlap. The HTML artifact embeds the PNG. A hard non-brush stroke stays a vector path. A Shift segment that starts at the end of the last brush mark extends that stroke instead of adding a node, with one tip per vertex, so the chain is one stamp: joints and self-overlaps never exceed the opacity, and each segment is its own undo step. Finished brush strokes use Photoshop's default Normal blend: source-over, opacity on the whole stroke, so one stroke does not build past that opacity and a later stroke covers an earlier one. Committing a stroke never blanks earlier strokes: each cached tile keeps painting its previous raster until the replacement lands, and tiles the new stroke does not touch keep their textures.",
+          "behavior": "Releasing a stroke journals one Add and stores the softness used. Width, softness, and foreground edits from keys or HUDs are tool state and are not journaled. Releasing the color wheel keeps the foreground and writes it into the 24-slot recent list. A brush stroke is a radial bitmap of its centerline (Stroke.stamp, and any softness above zero). Both painters share that bitmap: opaque out to (1 - softness) of the radius, clear at the rim, maximum coverage where dabs overlap. Coverage is dithered to 8 bits on a world-aligned grid, so a wide soft falloff does not band into rings and neighbouring tiles continue one pattern. The HTML artifact embeds the PNG. A hard non-brush stroke stays a vector path. A Shift segment that starts at the end of the last brush mark extends that stroke instead of adding a node, with one tip per vertex, so the chain is one stamp: joints and self-overlaps never exceed the opacity, and each segment is its own undo step. Finished brush strokes use Photoshop's default Normal blend: source-over, opacity on the whole stroke, so one stroke does not build past that opacity and a later stroke covers an earlier one. Committing a stroke never blanks earlier strokes: each cached tile keeps painting its previous raster until the replacement lands, and tiles the new stroke does not touch keep their textures.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -4727,7 +4727,7 @@
           "decided": "2026-09-25"
         },
         "D14": {
-          "behavior": "Vector results stay editable paths. Smoothed lines/arcs become cubic paths. Stamp blur is authored on the stroke.",
+          "behavior": "Vector results stay editable paths. Smoothed lines/arcs become cubic paths. Stamp blur is authored on the stroke. The board and the HTML artifact share one blur: premultiplied f32 passes, dithered back to 8 bits, so a heavy blur fades smoothly instead of banding into rings. A blurred stroke paints from its own blurred raster, never from an unblurred tile.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",

@@ -621,6 +621,11 @@ fn plain_stamp<'a>(
     if !shape.stroke.paints_as_stamp() || shape.stroke.is_none() {
         return None;
     }
+    // Tiles stamp without a blur pass. A blurred stroke paints on its own,
+    // through the same blur the HTML artifact uses.
+    if shape.stroke.gaussian_blur > 0.0 {
+        return None;
+    }
     if (node.opacity - 1.0).abs() > 0.001 {
         return None;
     }

@@ -147,6 +147,12 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
     let y_lo = ((pa[1].min(pb[1]) - reach).floor() as i64).max(0);
     let y_hi = ((pa[1].max(pb[1]) + reach).ceil() as i64).min(h - 1);
     let same = a.tip == b.tip;
+    // Pixel (0, 0) on the grid shared by every image at this pixel size, so
+    // tiles and stamps that meet continue one dither pattern.
+    let grid = [
+        (img.origin[0] / px).round() as i64,
+        (img.origin[1] / px).round() as i64,
+    ];
     for py in y_lo..=y_hi {
         let qy = py as f32 + 0.5;
         // X extent of the capsule on this row: the segment clipped to
@@ -188,8 +194,8 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
             write_max(
                 &mut img.rgba,
                 img.width,
-                pxl as u32,
-                py as u32,
+                (pxl as u32, py as u32),
+                (grid[0] + pxl, grid[1] + py),
                 color,
                 cover,
             );
@@ -442,12 +448,21 @@ fn lerp_tip(a: StampStyle, b: StampStyle, t: f32) -> StampStyle {
     }
 }
 
-fn write_max(rgba: &mut [u8], w: u32, px: u32, py: u32, color: [u8; 4], cover: f32) {
+/// Keep the larger alpha at `(px, py)`. Coverage is dithered on the shared
+/// grid position `at`, so a slow falloff does not band into rings.
+fn write_max(
+    rgba: &mut [u8],
+    w: u32,
+    (px, py): (u32, u32),
+    at: (i64, i64),
+    color: [u8; 4],
+    cover: f32,
+) {
     if cover <= 0.0 {
         return;
     }
     let i = ((py as usize) * (w as usize) + px as usize) * 4;
-    let na = (cover * color[3] as f32).round().clamp(0.0, 255.0) as u8;
+    let na = crate::dither::quantize(cover * color[3] as f32, at.0, at.1);
     if na > rgba[i + 3] {
         rgba[i] = color[0];
         rgba[i + 1] = color[1];
@@ -728,6 +743,57 @@ mod tests {
         apply_erase(&mut img, &[vec![at(140.0, 0.0, half)]]);
         let twice = alpha_at(&img, 140.0, 0.0);
         assert!((58..=70).contains(&twice), "two passes left {twice}");
+    }
+
+    /// Longest run of equal values in an 8-row band average of alpha, walking
+    /// right from `(cx, cy)`, over pixels whose exact value is between 5% and
+    /// 95% of `peak`. An undithered gradient repeats one value per ring.
+    fn band_plateau(img: &StampImage, cx: u32, cy: u32, exact: impl Fn(u32) -> f32) -> usize {
+        let peak = exact(cx);
+        let (mut best, mut run, mut last) = (0usize, 0usize, None);
+        for x in cx..img.width {
+            let e = exact(x);
+            if e < peak * 0.05 || e > peak * 0.95 {
+                last = None;
+                run = 0;
+                continue;
+            }
+            let sum: u32 = (cy - 4..cy + 4)
+                .map(|y| img.rgba[((y * img.width + x) * 4 + 3) as usize] as u32)
+                .sum();
+            run = if last == Some(sum) { run + 1 } else { 1 };
+            last = Some(sum);
+            best = best.max(run);
+        }
+        best
+    }
+
+    #[test]
+    fn a_wide_soft_dab_has_no_banded_rings() {
+        let tip = StampStyle {
+            diameter: 512.0,
+            softness: 1.0,
+            rgba: [30, 60, 200, 64],
+        };
+        let img = stamp_tipped(
+            &[vec![TipPoint {
+                pos: [0.0, 0.0],
+                tip,
+            }]],
+            1.0,
+        )
+        .unwrap();
+        let cx = ((0.0 - img.origin[0]) / img.pixel) as u32;
+        let cy = ((0.0 - img.origin[1]) / img.pixel) as u32;
+        let exact = |x: u32| {
+            let d = (x as f32 + 0.5 - (0.0 - img.origin[0]) / img.pixel).abs();
+            tip_coverage(d, 256.0, 1.0) * 64.0
+        };
+        let run = band_plateau(&img, cx, cy, exact);
+        assert!(run <= 3, "soft falloff holds one alpha for {run} px");
+        // Dithering never lifts ink past the tip's opacity or outside its rim.
+        assert_eq!(max_alpha(&img), 64);
+        assert_eq!(alpha_at(&img, 257.5, 0.0), 0);
     }
 
     #[test]

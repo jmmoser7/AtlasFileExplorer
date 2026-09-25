@@ -25,7 +25,7 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D11 | Commit | Release journals one invertible group of `SceneCmd::Patch` for every touched node (vectors: refit path; stamps: `Stroke::gaussian_blur`). Undo restores exact before snapshots. | stated | 100 |
 | D12 | Cancel | Esc drops the drag and live preview; no journal. | pattern | 85 |
 | D13 | Selected presentation | Unchanged during drag. | pattern | 85 |
-| D14 | Post-edit | Vector results stay editable paths. Smoothed lines/arcs become cubic paths. Stamp blur is authored on the stroke. | stated | 100 |
+| D14 | Post-edit | Vector results stay editable paths. Smoothed lines/arcs become cubic paths. Stamp blur is authored on the stroke. The board and the HTML artifact share one blur: premultiplied f32 passes, dithered back to 8 bits, so a heavy blur fades smoothly instead of banding into rings. A blurred stroke paints from its own blurred raster, never from an unblurred tile. | stated | 100 |
 | D15 | Non-goals | Partial-length blur on stamps; image paint layers; corner pinning via fit pipeline (v2); full Rhino smooth modes. | stated | 100 |
 | D16 | Create-style inheritance | Does not create nodes; only mutates existing ink. | stated | 100 |
 | D17 | Hit-testing & pick | Vectors: stroke hit-test within pick radius (non-stamp Path + Line). Stamps: stroke hit-test on stamped paths. Hidden/locked skipped. | stated | 100 |

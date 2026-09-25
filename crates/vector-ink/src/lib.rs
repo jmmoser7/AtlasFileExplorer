@@ -8,6 +8,7 @@ mod blur;
 mod clean;
 pub mod collide;
 mod dash;
+mod dither;
 mod edit;
 mod fit;
 mod flatten;

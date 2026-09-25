@@ -176,6 +176,28 @@ fn a_few_brush_strokes_settle_into_tiles() {
     assert!(b.app.brush_tiles.last.gpu_bytes > 0);
 }
 
+/// Tiles stamp without a blur pass, so a blurred stroke paints from its own
+/// blurred raster (the one the HTML artifact embeds), never from a tile.
+#[test]
+fn a_blurred_brush_stroke_paints_with_its_blur() {
+    let mut b = Bench::new(6);
+    b.app.brush_tiles_enabled = true;
+    let id = b.app.doc().scene.nodes[0].id;
+    if let NodeKind::Shape(shape) = &mut b.app.doc_mut().scene.nodes[0].kind {
+        shape.stroke.gaussian_blur = 6.0;
+    }
+    b.app.note_scene_change();
+    assert!(settle(&mut b), "tiles did not settle");
+    assert!(
+        b.app.brush_tiles.tiles_with(id).is_empty(),
+        "a tile baked the blurred stroke without its blur"
+    );
+    assert!(
+        b.app.brush_stamps.contains_key(&id),
+        "the blurred stroke has no raster of its own"
+    );
+}
+
 fn settle(b: &mut Bench) -> bool {
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
