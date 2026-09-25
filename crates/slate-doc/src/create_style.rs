@@ -65,6 +65,7 @@ mod tests {
                 softness: 0.0,
                 stamp: false,
                 tween_from: None,
+                gaussian_blur: 0.0,
             }),
             fill: Some(Rgba::WHITE),
         };

@@ -3910,6 +3910,7 @@ mod tests {
                 softness: 0.0,
                 stamp: false,
                 tween_from: None,
+                gaussian_blur: 0.0,
             },
             corner: Corner::Square,
             sides: default_regular_sides(),
@@ -3974,6 +3975,7 @@ mod tests {
             softness: 0.0,
             stamp: false,
             tween_from: None,
+            gaussian_blur: 0.0,
         };
         for flip in [false, true] {
             let n = scene.build_node(
