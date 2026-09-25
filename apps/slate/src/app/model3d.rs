@@ -104,28 +104,6 @@ impl DistanceMeasurement {
     }
 }
 
-/// Command-detail spelling of a display pass (`board.model_display`),
-/// matching its serialized name.
-pub fn display_key(mode: ModelDisplay) -> &'static str {
-    match mode {
-        ModelDisplay::Shaded => "shaded",
-        ModelDisplay::Arctic => "arctic",
-        ModelDisplay::Material => "material",
-        ModelDisplay::Depth => "depth",
-    }
-}
-
-pub fn display_from_key(key: &str) -> Option<ModelDisplay> {
-    [
-        ModelDisplay::Shaded,
-        ModelDisplay::Arctic,
-        ModelDisplay::Material,
-        ModelDisplay::Depth,
-    ]
-    .into_iter()
-    .find(|mode| display_key(*mode) == key)
-}
-
 fn distance_3d(a: [f32; 3], b: [f32; 3]) -> f32 {
     v_sub(b, a).map(|x| x * x).into_iter().sum::<f32>().sqrt()
 }
@@ -1716,12 +1694,7 @@ impl SlateApp {
             if !self.model_display_swatch_tex.contains_key(&key) {
                 let image = self.model3d.display_swatch_pixels[&key].clone();
                 let tex = ctx.load_texture(
-                    format!(
-                        "slate-model-display-{doc}-{}-{}-{}",
-                        id.0,
-                        gen,
-                        display_key(*mode)
-                    ),
+                    format!("slate-model-display-{doc}-{}-{}-{}", id.0, gen, mode.key()),
                     image,
                     egui::TextureOptions::NEAREST,
                 );

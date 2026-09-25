@@ -5,7 +5,6 @@
 //! board preview matches the exported HTML artifact.
 
 use eframe::egui::{Color32, ColorImage};
-use image::GenericImageView;
 use slate_doc::scene::{Crop, ImageAdjust, Rgba};
 use std::path::{Path, PathBuf};
 
@@ -259,6 +258,7 @@ pub fn square_swatch(src: &ColorImage, edge: usize) -> ColorImage {
 mod tests {
     use super::*;
     use eframe::egui::ColorImage;
+    use image::GenericImageView;
 
     fn solid(color: [u8; 4]) -> ColorImage {
         let px = Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]);

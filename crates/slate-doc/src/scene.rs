@@ -1,4 +1,4 @@
-﻿//! The board scene graph — the authored, open-world canvas of a workbook.
+//! The board scene graph — the authored, open-world canvas of a workbook.
 //!
 //! Design rule (load-bearing): every node and every style property here must
 //! be expressible as SVG (including CSS). The egui board painter and the
@@ -1783,6 +1783,28 @@ pub enum ModelDisplay {
     Material,
     /// Inverse view depth: nearest geometry is white, far geometry is black.
     Depth,
+}
+
+impl ModelDisplay {
+    /// Stable command, XMP, and serde spelling for this display pass.
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Shaded => "shaded",
+            Self::Arctic => "arctic",
+            Self::Material => "material",
+            Self::Depth => "depth",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "shaded" => Some(Self::Shaded),
+            "arctic" => Some(Self::Arctic),
+            "material" => Some(Self::Material),
+            "depth" => Some(Self::Depth),
+            _ => None,
+        }
+    }
 }
 
 /// `pitch` tilts above/below the XY plane, the eye sits `distance` from
@@ -3727,6 +3749,23 @@ mod tests {
             "brightness(1.200) grayscale(1.000) hue-rotate(90.0deg)"
         );
         assert!(!adj.is_identity());
+    }
+
+    #[test]
+    fn model_display_keys_match_serde_names() {
+        for mode in [
+            ModelDisplay::Shaded,
+            ModelDisplay::Arctic,
+            ModelDisplay::Material,
+            ModelDisplay::Depth,
+        ] {
+            assert_eq!(ModelDisplay::from_key(mode.key()), Some(mode));
+            assert_eq!(
+                serde_json::to_string(&mode).unwrap(),
+                format!("\"{}\"", mode.key())
+            );
+        }
+        assert_eq!(ModelDisplay::from_key("unknown"), None);
     }
 
     #[test]

@@ -184,17 +184,9 @@ impl SlateApp {
         if dest.is_some() {
             return Ok(Some((path, None)));
         }
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "viewport.png".into());
-        let meta_fs = std::fs::metadata(&path).map_err(|e| e.to_string())?;
-        let mtime = file_mtime(&path);
-        let key = super::cache_key(&path.to_string_lossy(), meta_fs.len(), mtime);
-        let item = self.item_for_path(&path).unwrap_or_else(|| {
-            self.doc_mut()
-                .add_item(path.clone(), name, meta_fs.len(), mtime, key)
-        });
+        let item = self
+            .item_for_path(&path)
+            .ok_or("Viewport screenshot could not be linked")?;
         Ok(Some((path, Some(item))))
     }
 
@@ -499,15 +491,6 @@ impl SlateApp {
         self.queue_view_drop_from_item(model, img.item);
         true
     }
-}
-
-fn file_mtime(path: &Path) -> i64 {
-    std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

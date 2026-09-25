@@ -1537,7 +1537,7 @@ impl SlateApp {
                     self.dispatch(
                         &ctx,
                         CommandId("board.model_display"),
-                        Some(format!("{}:{}", id.0, super::model3d::display_key(mode))),
+                        Some(format!("{}:{}", id.0, mode.key())),
                     );
                 }
             }

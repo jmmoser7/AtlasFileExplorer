@@ -8,7 +8,7 @@ use atlas_agent::InputSlot;
 use eframe::egui::{self, Id, Rect, Ui};
 use model_preview::view_meta;
 use slate_doc::agent_inputs;
-use slate_doc::scene::{ConnectorEnd, ModelCamera, NodeId, NodeKind, Side};
+use slate_doc::scene::{ModelCamera, NodeId, NodeKind};
 use slate_doc::wire_host::WireHost;
 
 use atlas_shell::canvas_scale;
@@ -271,18 +271,12 @@ impl SlateApp {
     }
 
     fn image_item_path(&self, image: NodeId) -> Option<PathBuf> {
-        let node = self.doc().scene.node(image)?;
-        let NodeKind::Image(img) = &node.kind else {
-            return None;
-        };
-        self.doc().item(img.item).map(|i| i.path.clone())
+        self.image_item(image).and_then(|item| self.item_path(item))
     }
 
     fn image_item_cache_key(&self, image: NodeId) -> Option<String> {
-        let node = self.doc().scene.node(image)?;
-        let NodeKind::Image(img) = &node.kind else {
-            return None;
-        };
-        self.doc().item(img.item).map(|i| i.cache_key.clone())
+        self.image_item(image)
+            .and_then(|item| self.doc().item(item))
+            .map(|item| item.cache_key.clone())
     }
 }

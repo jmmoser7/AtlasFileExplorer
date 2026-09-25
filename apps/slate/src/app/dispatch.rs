@@ -183,7 +183,7 @@ impl SlateApp {
                         .parse::<u64>()
                         .ok()
                         .map(slate_doc::NodeId)
-                        .zip(super::model3d::display_from_key(mode)),
+                        .zip(slate_doc::scene::ModelDisplay::from_key(mode)),
                     None => self.selected_model_viewport().and_then(|id| {
                         let now = self.model_display_of(id)?;
                         let next = match now {

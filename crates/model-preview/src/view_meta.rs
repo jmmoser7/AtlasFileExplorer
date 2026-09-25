@@ -5,7 +5,7 @@ use image::{ImageDecoder, ImageEncoder};
 use slate_doc::scene::{ModelCamera, ModelDisplay};
 use std::path::Path;
 
-/// Must match `apps/slate/src/app/model3d::FOV_Y`.
+/// Vertical field of view recorded for Slate perspective captures.
 pub const FOV_Y: f32 = 0.6108652;
 pub const VIEW_VERSION: u32 = 1;
 pub const VIEW_NS: &str = "https://slate.app/ns/view/1.0/";
@@ -74,7 +74,7 @@ pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> 
     if !input.model_path.is_empty() && path_looks_absolute(&input.model_path) {
         return Err(ViewMetaError::InvalidPath);
     }
-    let display = display_token(input.camera.display);
+    let display = input.camera.display.key();
     let target = fmt3(input.camera.target);
     let eye = fmt3(input.eye);
     let up = fmt3(input.up);
@@ -190,7 +190,7 @@ pub fn parse_xmp_packet(xmp: &str) -> Result<ViewMetaParsed, ViewMetaError> {
     }
     let display = display
         .as_deref()
-        .and_then(display_from_token)
+        .and_then(ModelDisplay::from_key)
         .unwrap_or(ModelDisplay::Shaded);
     Ok(ViewMetaParsed {
         camera: ModelCamera {
@@ -324,25 +324,6 @@ fn encode_webp_rgba(rgba: &[u8], w: u32, h: u32, xmp: &str) -> Result<Vec<u8>, V
     enc.encode(rgba, w, h, image_webp::ColorType::Rgba8)
         .map_err(|e| ViewMetaError::Image(e.to_string()))?;
     Ok(out)
-}
-
-fn display_token(mode: ModelDisplay) -> &'static str {
-    match mode {
-        ModelDisplay::Shaded => "shaded",
-        ModelDisplay::Arctic => "arctic",
-        ModelDisplay::Material => "material",
-        ModelDisplay::Depth => "depth",
-    }
-}
-
-fn display_from_token(token: &str) -> Option<ModelDisplay> {
-    match token {
-        "shaded" => Some(ModelDisplay::Shaded),
-        "arctic" => Some(ModelDisplay::Arctic),
-        "material" => Some(ModelDisplay::Material),
-        "depth" => Some(ModelDisplay::Depth),
-        _ => None,
-    }
 }
 
 pub fn path_looks_absolute(path: &str) -> bool {

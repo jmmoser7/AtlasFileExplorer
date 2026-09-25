@@ -2947,7 +2947,7 @@ impl SlateApp {
     }
 
     /// The pool item behind an image node, if any.
-    fn image_item(&self, id: NodeId) -> Option<ItemId> {
+    pub(crate) fn image_item(&self, id: NodeId) -> Option<ItemId> {
         match self.doc().scene.node(id).map(|n| &n.kind) {
             Some(NodeKind::Image(img)) => Some(img.item),
             _ => None,
@@ -7274,7 +7274,7 @@ impl SlateApp {
             .cloned()
     }
 
-    fn item_path(&self, item: ItemId) -> Option<PathBuf> {
+    pub(crate) fn item_path(&self, item: ItemId) -> Option<PathBuf> {
         self.doc().item(item).map(|it| it.path.clone())
     }
 
