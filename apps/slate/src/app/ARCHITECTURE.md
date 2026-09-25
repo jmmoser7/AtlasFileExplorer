@@ -185,7 +185,7 @@ edited in the inspector's Video section.
 Placed 3D files are **viewport nodes**: the node's `ModelCamera`
 (document state on `ImageNode`, like `VideoOpts`) selects the view. Locked
 nodes paint a disk-cached poster rendered from that pose — no mesh in
-memory. Unlocking (padlock on hover) parses the file off-thread
+memory. Unlocking (double-click; Esc or a click outside locks) parses the file off-thread
 (`crates/model-preview`), uploads to the GPU, and renders offscreen
 (glow MSAA framebuffer → egui texture) with orbit, pan, and zoom. Live
 viewports are capped (`MAX_LIVE`) and auto-lock after 30 s idle; locking
@@ -195,20 +195,27 @@ can sit on several slides from different saved perspectives while only ever
 loading once (and not at all while locked). Crop/filter adjustments don't
 apply to model nodes; camera framing replaces them in both renderers.
 
-#### In-viewport tool palette (`board.rs` + `model3d.rs`)
+#### Viewport display and Measure (`board_properties.rs` + `model3d.rs`)
 
-Each **live** (unlocked) viewport shows a Miro-style floating strip on its
-left edge:
+The node paints nothing over its render but one bottom caption (the
+double-click hint, the measure prompt, the auto-lock countdown). A single
+selected mesh model adds two squircles to the shared selection strip:
 
-- **Collapsed** — rounded tab with a chevron (click to expand).
-- **Expanded** — vertical icon row: Navigate (orbit/pan/zoom) and Measure
-  (ruler icon). Hovering Measure opens a submenu; **Point to point** is
-  implemented first (Rhino `Distance`).
+- **Viewport display** (Model cube) — `selection_tools::segments` in one
+  default capsule: Shaded, Arctic, Material mask, Z-buffer. A click
+  dispatches `board.model_display`, one journaled patch of
+  `ModelCamera::display`, live or frozen. `model3d_frame` pushes undo/redo
+  of that field into a live viewport.
+- **Measure** (Ruler) — `board.model_measure` enters the viewport if needed
+  and arms point to point (Rhino `Distance`). Navigate is the resting tool.
 
 Measure mode owns primary clicks inside the viewport: raycast against the
-cached render mesh (`model3d::raycast_model`), draw a rubber-band line with
-a length label, and accumulate completed measurements for the live session
-(cleared on lock). Shift+drag still pans; scroll still zooms.
+cached render mesh (`model3d::raycast_model`) and draw a rubber-band line
+with a length label. The second pick completes the measurement and returns
+to Navigate; completed measurements stay drawn for the live session
+(cleared on lock). Shift+drag still pans; scroll still zooms. Esc peels the
+pending point, then Measure, then the measurements, then locks the viewport
+(`model_cancel_step`).
 
 **Planned measure modes** (need richer geometry than render meshes):
 

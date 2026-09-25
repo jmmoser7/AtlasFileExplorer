@@ -236,25 +236,25 @@
           "decided": "2026-09-15"
         },
         "D13": {
-          "behavior": "P1.node.transform. Reuse existing image/PDF selection and the existing Rhino node presentation.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "P1.node.transform. Reuse existing image/PDF selection. A 3D model node paints only its render (or its gap card), as clean as a picture: no file-type badge (on the board or in the HTML export, which keeps the poster and the link), no padlock, no in-viewport tool strip. A single selected mesh model adds two squircles to the shared selection strip (P1.shape.properties): Viewport display (Model cube) opens one segmented default capsule with Shaded, Arctic, Material mask and Z-buffer; Measure (Ruler) is an action that stays highlighted while armed, like Deck. Enscape standalones and formats with no reader show neither.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-25"
         },
         "D14": {
-          "behavior": "Selected PDF/PowerPoint images expose a Pages squircle. The same control opens a miniature image_album pallet over the document for the poster page (board.media.page) and Unbundle (board.media.unbundle) lays the deck on the board as a selected grid. Existing image controls and Rhino camera controls are unchanged. On the Select tool, moving the pointer horizontally across a video node scrubs that node's full trim window without playing (Frame.io hover pan). The playhead stays where the pan stopped. A 96-frame filmstrip makes the pan a lookup; the playhead and timecode are derived and not journaled. A click with no modifiers toggles silent playback from that frame; click-drag still moves the node. One video decodes at a time. Windows Media Foundation plays mp4, m4v, mov, wmv, avi, mpg, and mpeg, and also webm, mkv, and ogv when that codec is installed. A file it cannot open, or a cloud placeholder, keeps the poster, play badge, and extension badge. HTML export is unchanged.",
+          "behavior": "Selected PDF/PowerPoint images expose a Pages squircle. The same control opens a miniature image_album pallet over the document for the poster page (board.media.page) and Unbundle (board.media.unbundle) lays the deck on the board as a selected grid. Existing image controls are unchanged. A 3D model's display pass (board.model_display) commits on click as one undo step, live or frozen, following the Pages precedent; the frozen poster uses that pass and undo updates a live viewport. Measure (board.model_measure) enters a frozen viewport and arms point-to-point picking (Rhino Distance); one completed measurement, Esc, or the squircle again returns to Navigate, the resting tool. Completed measurements are derived: they stay drawn on the live viewport and clear on lock. On the Select tool, moving the pointer horizontally across a video node scrubs that node's full trim window without playing (Frame.io hover pan). The playhead stays where the pan stopped. A 96-frame filmstrip makes the pan a lookup; the playhead and timecode are derived and not journaled. A click with no modifiers toggles silent playback from that frame; click-drag still moves the node. One video decodes at a time. Windows Media Foundation plays mp4, m4v, mov, wmv, avi, mpg, and mpeg, and also webm, mkv, and ogv when that codec is installed. A file it cannot open, or a cloud placeholder, keeps the poster, play badge, and extension badge. Video HTML export is unchanged.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-25"
         },
         "D15": {
-          "behavior": "PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. No new 3D formats in this change. JPG and other supported image formats remain native previews. The board video viewer does not edit a timeline, cut clips, play audio, or shuttle with JKL.",
+          "behavior": "PowerPoint renders as static PDF pages. No PowerPoint editing, transitions, or animation playback. No new 3D formats in this change. JPG and other supported image formats remain native previews. The board video viewer does not edit a timeline, cut clips, play audio, or shuttle with JKL. Photo filters on a 3D viewport, viewport screenshots with camera metadata, and switchable saved views are later work.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-22"
+          "decided": "2026-09-25"
         },
         "D16": {
           "behavior": "Use existing linked-image node defaults and source aspect ratio; preserve the authored frame when derived previews refresh.",
@@ -264,11 +264,11 @@
           "decided": "2026-09-15"
         },
         "D17": {
-          "behavior": "P1.node.select and existing media hit-testing. Rhino interaction stays with its current viewer and focus controls.",
-          "source": "pattern",
-          "confidence": 90,
+          "behavior": "P1.node.select and existing media hit-testing. A 3D viewport follows P1.portal.contents-focus: double-click enters it (drag orbits, Shift+drag pans, the wheel zooms); a primary press outside it, or Esc, locks it and journals the pose as one camera change. Selection-strip chrome keeps the press. Esc peels one layer: the pending measure point, then Measure, then the shown measurements, then the viewport. 30 s idle still locks. A generator steering its wired model keeps that model until generator focus ends.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-15"
+          "decided": "2026-09-25"
         }
       }
     },

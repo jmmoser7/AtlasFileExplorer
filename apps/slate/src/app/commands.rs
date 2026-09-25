@@ -1408,9 +1408,9 @@ pub static SPECS: &[CommandSpec] = &[
         "board.model_lock",
         "Board",
         "Unlock / lock 3D viewport",
-        "Double-click a locked 3D model (or hover → click the padlock); \
-         live viewports auto-lock after 30 s idle (the frozen view becomes \
-         the slide image). Blender, DWG, SketchUp, and FBX use the same card \
+        "Double-click a locked 3D model to enter it; Esc or a click outside \
+         locks it again, and live viewports auto-lock after 30 s idle (the \
+         frozen view becomes the slide image). Blender, DWG, SketchUp, and FBX use the same card \
          and say when no preview exists. An Enscape standalone opens inside \
          the card on double-click. A computer that cannot run it — not \
          Windows, a rotated card, or a file built for a different Windows \
@@ -1424,11 +1424,21 @@ pub static SPECS: &[CommandSpec] = &[
         "board.model_display",
         "Board",
         "3D display mode",
-        "Viewport tools → Display: Shaded, Arctic (white clay), Material mask, or Z-buffer. The frozen poster uses the mode that was showing. The image generator still receives a shaded view and a depth pass",
+        "Selection strip → Viewport display: Shaded, Arctic (white clay), Material mask, or Z-buffer. One undo step, live or frozen; the frozen poster uses that mode. From the palette, cycles the selected model. The image generator still receives a shaded view and a depth pass",
         None,
         Repeat::Never,
         BOARD,
-        &["arctic", "clay", "material id", "z-buffer", "depth"],
+        &["arctic", "clay", "material id", "z-buffer", "depth", "shaded", "viewport display"],
+    ),
+    spec(
+        "board.model_measure",
+        "Board",
+        "Measure 3D model",
+        "Selection strip → Measure: enters the viewport if frozen, then click two points on the model (Rhino Distance). One measurement returns to navigate; Esc peels the pending point, then Measure, then the shown measurements. Measurements are not saved",
+        None,
+        Repeat::Never,
+        BOARD,
+        &["distance", "ruler", "dimension", "3d"],
     ),
     spec(
         "board.model_orbit",

@@ -765,17 +765,12 @@ fn render_image(
             }
             // 3D models: the frozen-camera poster for exactly this node,
             // falling back to the item thumbnail, always linking to the
-            // copied original.
+            // copied original. No extension badge, matching the board.
             MediaKind::Model => {
                 let poster = assets
                     .model_poster(node.id)
                     .or_else(|| assets.item_thumb(img.item, path));
-                match poster {
-                    Some(poster_url) => {
-                        render_poster_card(html, url, path, poster_url);
-                    }
-                    None => render_file_card(html, url, file_name, path, None),
-                }
+                render_file_card(html, url, file_name, "", poster);
             }
             // PDFs, docs, non-web-safe video, workbooks (legacy docs may
             // still carry one as an item), anything else: poster thumbnail
@@ -785,7 +780,7 @@ fn render_image(
                 html,
                 url,
                 file_name,
-                path,
+                &ext_badge(path),
                 assets.item_thumb(img.item, path),
             ),
         }
@@ -939,38 +934,21 @@ fn render_text_card(
             html.push_str(&escape_html(file_name));
             html.push_str("</span></a>");
         }
-        None => render_file_card(html, url, file_name, path, None),
+        None => render_file_card(html, url, file_name, &ext_badge(path), None),
     }
 }
 
-/// Full-bleed poster card for 3D model nodes: the frozen-camera render
-/// fills the node rect (it was rendered at this node's aspect), with the
-/// extension badge marking it as a model file behind the image.
-fn render_poster_card(html: &mut String, url: &str, path: &std::path::Path, poster: &str) {
-    let badge = ext_badge(path);
-    html.push_str("<a class=\"thumbcard\" href=\"");
-    html.push_str(&escape_attr(url));
-    html.push_str("\" target=\"_blank\"><img src=\"");
-    html.push_str(&escape_attr(poster));
-    html.push_str("\" alt=\"\" draggable=\"false\">");
-    if !badge.is_empty() {
-        html.push_str("<span class=\"badge\">");
-        html.push_str(&escape_html(&badge));
-        html.push_str("</span>");
-    }
-    html.push_str("</a>");
-}
-
-/// Poster-thumbnail card (when the app supplied one) or a labeled card with
-/// an extension badge; either way a link to the copied original.
+/// Poster-thumbnail card (when the app supplied one) or a labeled card,
+/// either with the given extension badge (empty = none); either way a link
+/// to the copied original. A 3D model's poster was rendered at its node's
+/// aspect, so it fills the rect like any thumbnail.
 fn render_file_card(
     html: &mut String,
     url: &str,
     file_name: &str,
-    path: &std::path::Path,
+    badge: &str,
     thumb: Option<&str>,
 ) {
-    let badge = ext_badge(path);
     match thumb {
         Some(thumb) => {
             html.push_str("<a class=\"thumbcard\" href=\"");
@@ -980,7 +958,7 @@ fn render_file_card(
             html.push_str("\" alt=\"\" draggable=\"false\">");
             if !badge.is_empty() {
                 html.push_str("<span class=\"badge\">");
-                html.push_str(&escape_html(&badge));
+                html.push_str(&escape_html(badge));
                 html.push_str("</span>");
             }
             html.push_str("</a>");
@@ -991,7 +969,7 @@ fn render_file_card(
             html.push_str("\" target=\"_blank\">");
             if !badge.is_empty() {
                 html.push_str("<span class=\"badge\">");
-                html.push_str(&escape_html(&badge));
+                html.push_str(&escape_html(badge));
                 html.push_str("</span>");
             }
             html.push_str("<span>");

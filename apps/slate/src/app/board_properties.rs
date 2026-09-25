@@ -31,6 +31,8 @@ pub enum Panel {
     Agent,
     /// Bumper cars: On / Off, buffer, friction (optional tool).
     Bumper,
+    /// 3D viewport display pass: Shaded / Arctic / Material mask / Z-buffer.
+    ModelDisplay,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,7 +48,19 @@ enum StripItem {
     Panel(Panel),
     Frame(FrameAction),
     Agent(bool),
+    /// Arms point-to-point measure in a 3D viewport, like Deck arms a tool.
+    ModelMeasure,
 }
+
+/// Display passes offered on a 3D viewport, in strip order.
+const MODEL_DISPLAYS: [(scene::ModelDisplay, &str); 4] = [
+    (scene::ModelDisplay::Shaded, "Shaded"),
+    (scene::ModelDisplay::Arctic, "Arctic"),
+    (scene::ModelDisplay::Material, "Material mask"),
+    (scene::ModelDisplay::Depth, "Z-buffer"),
+];
+/// Segmented display capsule width, board units (four labels at 9 units).
+const MODEL_DISPLAY_WIDTH: f32 = 300.0;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Property {
@@ -366,6 +380,12 @@ fn live_property_strip_items(app: &SlateApp, nodes: &[Node]) -> Vec<StripItem> {
         .any(|n| image_is_model(app, n) || image_is_text(app, n))
     {
         items.retain(|item| *item != StripItem::Panel(Panel::Filter));
+    }
+    if nodes.len() == 1 && app.model_has_viewport(nodes[0].id) {
+        items.extend([
+            StripItem::Panel(Panel::ModelDisplay),
+            StripItem::ModelMeasure,
+        ]);
     }
     if nodes.len() == 1 && image_has_pages(app, &nodes[0]) {
         items.push(StripItem::Panel(Panel::Pages));
@@ -1028,6 +1048,7 @@ impl SlateApp {
         let mut requested_panel = None;
         let mut requested_frame = None;
         let mut requested_agent = None;
+        let mut requested_measure = false;
         let mut captures = false;
         for (index, item) in items.iter().enumerate() {
             let r = chrome::strip_button_rect(strip, index, z);
@@ -1084,6 +1105,19 @@ impl SlateApp {
                     Icon::Agent,
                     self.shape_properties.panel == Some(Panel::Agent),
                 ),
+                StripItem::Panel(Panel::ModelDisplay) => (
+                    "Viewport display",
+                    Icon::Model,
+                    self.shape_properties.panel == Some(Panel::ModelDisplay),
+                ),
+                StripItem::ModelMeasure => (
+                    "Measure: pick two points on the model",
+                    Icon::Ruler,
+                    self.shape_properties
+                        .ids
+                        .first()
+                        .is_some_and(|id| self.model_measuring(*id)),
+                ),
                 StripItem::Panel(Panel::Bumper) => (
                     "Bumper cars",
                     Icon::Bumper,
@@ -1126,6 +1160,7 @@ impl SlateApp {
                     StripItem::Panel(panel) => requested_panel = Some(*panel),
                     StripItem::Frame(action) => requested_frame = Some(*action),
                     StripItem::Agent(expand) => requested_agent = Some(*expand),
+                    StripItem::ModelMeasure => requested_measure = true,
                 }
             }
             captures |= ctx.pointer_latest_pos().is_some_and(|p| r.contains(p));
@@ -1166,6 +1201,17 @@ impl SlateApp {
             self.apply_shape_preview(&ctx, true);
             self.shape_properties.number = None;
             self.run_frame_strip_action(&ctx, action);
+        }
+        if requested_measure {
+            self.apply_shape_preview(&ctx, true);
+            self.shape_properties.number = None;
+            if let Some(id) = self.shape_properties.ids.first().copied() {
+                self.dispatch(
+                    &ctx,
+                    CommandId("board.model_measure"),
+                    Some(id.0.to_string()),
+                );
+            }
         }
         // The inline editor is attached to a dimension kind, never a cached screen position.
         // Nested portal edit keeps the frame selected but hides its stringers.
@@ -1293,7 +1339,7 @@ impl SlateApp {
                         Panel::AtlasFormat => chrome::ATLAS_FORMAT_HEIGHT,
                         Panel::Text => chrome::TEXT_HEIGHT,
                         Panel::Agent => chrome::AGENT_HEIGHT,
-                        Panel::Bumper => chrome::CORNER_HEIGHT,
+                        Panel::Bumper | Panel::ModelDisplay => chrome::CORNER_HEIGHT,
                     };
                     if panel != Panel::Text {
                         self.shape_properties.text_family_open = false;
@@ -1441,6 +1487,41 @@ impl SlateApp {
                 return false;
             };
             self.atlas_format_body(ui, rect, id, z, theme);
+            return false;
+        }
+        if panel == Panel::ModelDisplay {
+            let Some(id) = self.shape_properties.ids.first().copied() else {
+                return false;
+            };
+            let Some(display) = self.model_display_of(id) else {
+                return false;
+            };
+            let current = MODEL_DISPLAYS
+                .iter()
+                .position(|(mode, _)| *mode == display)
+                .unwrap_or(0);
+            let row = Rect::from_center_size(
+                rect.center(),
+                Vec2::new(MODEL_DISPLAY_WIDTH, chrome::CORNER_HEIGHT) * z,
+            );
+            let picked = chrome::segments(
+                ui,
+                row,
+                ui.id().with("model-display"),
+                MODEL_DISPLAYS.map(|(_, label)| label),
+                current,
+                z,
+                theme,
+            );
+            if picked != current {
+                let (mode, _) = MODEL_DISPLAYS[picked];
+                let ctx = ui.ctx().clone();
+                self.dispatch(
+                    &ctx,
+                    CommandId("board.model_display"),
+                    Some(format!("{}:{}", id.0, super::model3d::display_key(mode))),
+                );
+            }
             return false;
         }
         if panel == Panel::Filter {
@@ -2609,6 +2690,8 @@ mod tests {
                 StripItem::Panel(Panel::Text) => "text",
                 StripItem::Panel(Panel::Agent) => "agent",
                 StripItem::Panel(Panel::Bumper) => "bumper",
+                StripItem::Panel(Panel::ModelDisplay) => "display",
+                StripItem::ModelMeasure => "measure",
                 StripItem::Frame(FrameAction::Prev) => "prev",
                 StripItem::Frame(FrameAction::Next) => "next",
                 StripItem::Frame(FrameAction::Present) => "present",
@@ -2721,6 +2804,67 @@ mod tests {
         );
         assert!(kinds.contains(&"stroke"));
         assert!(kinds.contains(&"corners"));
+    }
+
+    fn model_node(h: &mut Harness, name: &str, rect: WorldRect) -> NodeId {
+        let item = h
+            .app
+            .doc_mut()
+            .add_item(std::path::PathBuf::from(name), name, 1, 0, name);
+        let node = h
+            .app
+            .doc_mut()
+            .scene
+            .build_node(rect, NodeKind::Image(scene::ImageNode::new(item)));
+        h.app.add_nodes(vec![node])[0]
+    }
+
+    #[test]
+    fn model_viewports_offer_display_and_measure_instead_of_filters() {
+        let mut h = board();
+        let rect = WorldRect::new(0.0, 0.0, 240.0, 180.0);
+        let tower = model_node(&mut h, "tower.3dm", rect);
+        let blend = model_node(&mut h, "scene.blend", rect);
+        let node = |h: &Harness, id| h.app.doc().scene.node(id).unwrap().clone();
+        assert_eq!(
+            item_kinds(&live_property_strip_items(&h.app, &[node(&h, tower)])),
+            ["stroke", "corners", "display", "measure", "agent"]
+        );
+        // A recognized format with no reader has no viewport to drive.
+        let kinds = item_kinds(&live_property_strip_items(&h.app, &[node(&h, blend)]));
+        assert!(!kinds.contains(&"display") && !kinds.contains(&"measure"));
+        // Two models share no single viewport.
+        let two = model_node(&mut h, "tower-b.3dm", rect);
+        let kinds = item_kinds(&live_property_strip_items(
+            &h.app,
+            &[node(&h, tower), node(&h, two)],
+        ));
+        assert!(!kinds.contains(&"display") && !kinds.contains(&"measure"));
+
+        // A frozen viewport takes a display pass as one undo step.
+        let display = |h: &Harness| h.app.model_node_info(tower).unwrap().cam.display;
+        assert!(h.app.dispatch(
+            &h.ctx,
+            CommandId("board.model_display"),
+            Some(format!("{}:depth", tower.0)),
+        ));
+        assert_eq!(display(&h), scene::ModelDisplay::Depth);
+        assert!(
+            !h.app.dispatch(
+                &h.ctx,
+                CommandId("board.model_display"),
+                Some(format!("{}:depth", tower.0)),
+            ),
+            "re-picking the shown pass is not an edit"
+        );
+        h.app.board_undo();
+        assert_eq!(display(&h), scene::ModelDisplay::Shaded);
+        // From the palette, the bare command cycles the selected model.
+        h.app.board_sel = [tower].into_iter().collect();
+        assert!(h
+            .app
+            .dispatch(&h.ctx, CommandId("board.model_display"), None));
+        assert_eq!(display(&h), scene::ModelDisplay::Arctic);
     }
 
     fn pdf_node(h: &mut Harness, rect: WorldRect) -> NodeId {

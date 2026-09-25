@@ -143,16 +143,20 @@ fn model_nodes_export_per_node_posters() {
     slate_artifact::export_html(&doc, &out, &opts).unwrap();
     let html = std::fs::read_to_string(out.join("index.html")).unwrap();
 
-    // Node A: poster-backed card with the 3DM badge.
+    // Node A: poster-backed card.
     assert!(
         html.contains("poster-a"),
         "poster asset referenced:\n{html}"
     );
-    assert!(html.contains("3DM"), "extension badge present");
     // Node B: no poster → labeled file card, still linking to the model.
     assert!(
         html.contains("class=\"filecard\""),
         "fallback card:\n{html}"
+    );
+    // Neither card carries a file-type badge, matching the board.
+    assert!(
+        !html.contains("<span class=\"badge\">"),
+        "model cards have no extension badge:\n{html}"
     );
     assert!(html.contains("tower-"), "original copied and linked");
     // Poster copied into the assets dir.
