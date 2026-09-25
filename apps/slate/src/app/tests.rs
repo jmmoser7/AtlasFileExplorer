@@ -8237,6 +8237,179 @@ fn vector_tools_never_inherit_brush_softness_or_blur() {
     }
 }
 
+fn last_stroke(h: &Harness) -> (NodeId, slate_doc::scene::Stroke) {
+    let node = h.app.doc().scene.nodes.last().unwrap();
+    let slate_doc::scene::NodeKind::Shape(s) = &node.kind else {
+        panic!("expected a shape");
+    };
+    (node.id, s.stroke)
+}
+
+fn restyle(h: &mut Harness, id: NodeId, width: f32, rgb: [u8; 3]) {
+    h.app.patch_nodes(&[id], |n| {
+        if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
+            s.stroke.width = width;
+            s.stroke.color = Rgba([rgb[0], rgb[1], rgb[2], 255]);
+        }
+    });
+}
+
+fn draw_pen(h: &mut Harness, y: f32) {
+    h.app.set_board_tool(board::BoardTool::Pen);
+    h.app.finish_freehand_pen(vec![
+        Pos2::new(0.0, y),
+        Pos2::new(40.0, y + 20.0),
+        Pos2::new(80.0, y),
+    ]);
+}
+
+fn draw_arc(h: &mut Harness, y: f32) {
+    h.app.set_board_tool(board::BoardTool::Arc);
+    for p in [(0.0, y), (100.0, y), (50.0, y - 40.0)] {
+        h.app.path_tool_click(Pos2::new(p.0, p.1));
+    }
+}
+
+/// Stated intent: brush color, size, and blur never reach the Pen. The Pen
+/// draws with its own last color and width, and a hard edge.
+#[test]
+fn pen_keeps_its_own_style_when_the_brush_changes() {
+    let mut h = line_board("pen_own_style");
+    draw_pen(&mut h, 0.0);
+    let (pen, _) = last_stroke(&h);
+    restyle(&mut h, pen, 5.0, [10, 200, 30]);
+
+    h.app.board_colors.fg = Rgba([250, 20, 20, 255]);
+    h.app.brush_width = 40.0;
+    h.app.brush_softness = 0.6;
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app.finish_freehand_brush(vec![
+        Pos2::new(0.0, 100.0),
+        Pos2::new(30.0, 112.0),
+        Pos2::new(60.0, 100.0),
+    ]);
+    let (brush, _) = last_stroke(&h);
+    h.app.patch_nodes(&[brush], |n| {
+        if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
+            s.stroke.gaussian_blur = 4.0;
+        }
+    });
+
+    draw_pen(&mut h, 200.0);
+    let (_, stroke) = last_stroke(&h);
+    assert_eq!(stroke.width, 5.0, "pen width is its own");
+    assert_eq!(
+        stroke.color,
+        Rgba([10, 200, 30, 255]),
+        "pen color is its own"
+    );
+    assert_eq!(stroke.softness, 0.0);
+    assert_eq!(stroke.gaussian_blur, 0.0);
+    assert!(!stroke.stamp);
+}
+
+/// A Pen that has never drawn does not start from the brush color either.
+#[test]
+fn a_fresh_pen_does_not_take_the_brush_color_or_size() {
+    let mut h = line_board("pen_fresh_style");
+    h.app.board_colors.fg = Rgba([250, 20, 20, 255]);
+    h.app.brush_width = 40.0;
+    draw_pen(&mut h, 0.0);
+    let (_, stroke) = last_stroke(&h);
+    assert_ne!(stroke.color, Rgba([250, 20, 20, 255]));
+    assert_ne!(stroke.width, 40.0);
+    assert!(stroke.width > 0.0);
+}
+
+/// Stated intent: each curve tool remembers its own width.
+#[test]
+fn changing_the_line_width_leaves_the_arc_alone() {
+    let mut h = line_board("line_arc_style");
+    draw_arc(&mut h, 300.0);
+    let (_, arc_before) = last_stroke(&h);
+    let line = h
+        .app
+        .commit_line(Pos2::new(0.0, 0.0), Pos2::new(50.0, 0.0))
+        .unwrap();
+    restyle(&mut h, line, 9.0, [1, 2, 3]);
+    draw_arc(&mut h, 400.0);
+    let (_, arc) = last_stroke(&h);
+    assert_eq!(arc.width, arc_before.width, "arc kept its own width");
+    assert_eq!(arc.color, arc_before.color, "arc kept its own color");
+    h.app.set_board_tool(board::BoardTool::Line);
+    h.app
+        .commit_line(Pos2::new(0.0, 50.0), Pos2::new(50.0, 50.0))
+        .unwrap();
+    let (_, line_again) = last_stroke(&h);
+    assert_eq!(line_again.width, 9.0, "line remembers its own width");
+    assert_eq!(line_again.color, Rgba([1, 2, 3, 255]));
+}
+
+/// Stated intent: per-tool memory is saved with the workbook.
+#[test]
+fn per_tool_style_memory_survives_save_and_reopen() {
+    let mut h = line_board("tool_style_save");
+    let line = h
+        .app
+        .commit_line(Pos2::new(0.0, 0.0), Pos2::new(50.0, 0.0))
+        .unwrap();
+    restyle(&mut h, line, 6.0, [40, 50, 60]);
+    draw_pen(&mut h, 100.0);
+    let (pen, _) = last_stroke(&h);
+    restyle(&mut h, pen, 3.0, [70, 80, 90]);
+    let path = h.base.join("styles.slate");
+    let tab_id = h.app.tab().id;
+    h.app.save_doc_to(tab_id, path.clone());
+    drop(h);
+
+    let mut h2 = Harness::new("tool_style_reopen");
+    h2.app.open_doc_at(path);
+    h2.frame();
+    assert!(!h2.app.tab().read_only, "the reopened workbook is editable");
+    h2.app.doc_mut().view.active_view = ViewKind::Board;
+    h2.app.set_board_tool(board::BoardTool::Line);
+    h2.app
+        .commit_line(Pos2::new(0.0, 200.0), Pos2::new(50.0, 200.0))
+        .unwrap();
+    let (_, line_stroke) = last_stroke(&h2);
+    assert_eq!(line_stroke.width, 6.0);
+    assert_eq!(line_stroke.color, Rgba([40, 50, 60, 255]));
+    draw_pen(&mut h2, 300.0);
+    let (_, pen_stroke) = last_stroke(&h2);
+    assert_eq!(pen_stroke.width, 3.0);
+    assert_eq!(pen_stroke.color, Rgba([70, 80, 90, 255]));
+}
+
+/// Closed shapes keep one shared memory, and curve edits stay out of it.
+#[test]
+fn closed_shapes_still_share_style_memory() {
+    let mut h = line_board("closed_style_shared");
+    h.app
+        .place_default_at(board::BoardTool::RectShape, Pos2::new(0.0, 0.0));
+    let (rect, _) = last_stroke(&h);
+    h.app.patch_nodes(&[rect], |n| {
+        if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {
+            s.stroke.width = 4.0;
+            s.stroke.color = Rgba([200, 100, 0, 255]);
+            s.fill = Some(Rgba([0, 90, 180, 255]));
+        }
+    });
+    let line = h
+        .app
+        .commit_line(Pos2::new(0.0, 300.0), Pos2::new(50.0, 300.0))
+        .unwrap();
+    restyle(&mut h, line, 11.0, [9, 9, 9]);
+    h.app
+        .place_default_at(board::BoardTool::Ellipse, Pos2::new(300.0, 0.0));
+    let node = h.app.doc().scene.nodes.last().unwrap();
+    let slate_doc::scene::NodeKind::Shape(s) = &node.kind else {
+        panic!("ellipse");
+    };
+    assert_eq!(s.stroke.width, 4.0);
+    assert_eq!(s.stroke.color, Rgba([200, 100, 0, 255]));
+    assert_eq!(s.fill, Some(Rgba([0, 90, 180, 255])));
+}
+
 #[test]
 fn ctrl_z_reverts_a_brush_size_change_until_another_action() {
     let mut h = Harness::new("brush_undo_size");

@@ -527,11 +527,11 @@
           "decided": "2026-07-23"
         },
         "D11": {
-          "behavior": "A parametric 2-point line node; stroke from P1.curve.create-style when the last single-node edit exists, else default_curve_stroke(fg) (Square end caps, Miter joins, 2 px); opacity from last edit or 1.0; journal cmd board.tool.line; one gesture = one undo (P0.2/P0.3).",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "A parametric 2-point line node; stroke from the Line tool's own P1.curve.create-style memory (D16), else default_curve_stroke in the theme ink (Square end caps, Miter joins, 2 px); opacity from the Line's memory or 1.0; the rubber band previews that color and width; journal cmd board.tool.line; one gesture = one undo (P0.2/P0.3).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-07-24"
+          "decided": "2026-09-25"
         },
         "D12": {
           "behavior": "Esc during numeric entry clears the entry; next Esc removes the first point (back to Armed); next disarms to Select (P2.RhinoDraft.esc, P0.1).",
@@ -562,7 +562,7 @@
           "decided": "2026-07-23"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Line remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, pen, arc, polyline, and Bezier each keep their own). Its memory changes when it draws and on a single-node edit to a stroke it drew. Remembered width is never 0. A Line that has not drawn yet starts from default_curve_stroke (Square cap, 2 px) in the theme ink, not the brush foreground. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -1474,7 +1474,7 @@
           "decided": "2026-08-15"
         },
         "D16": {
-          "behavior": "Unchanged split: closed shapes consume BoardLastStyle.closed, open curves consume BoardLastStyle.open; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome.",
+          "behavior": "Closed shapes consume the shared closed memory (CreateStyleMemory.closed); each stroke tool (pen, line, arc, polyline, Bezier) consumes only its own slot and never another tool's (stated 2026-09-25); portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3044,7 +3044,7 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25): the Line keeps its own stroke color, width, and opacity and never inherits from another tool (line D16); remembered width is never 0; always a hard vector stroke.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3174,7 +3174,7 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Closed paths with fill use closed memory when committed as closed shapes. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Polyline remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, pen, line, arc, and Bezier each keep their own). Its memory changes when it draws and on a single-node edit to a stroke it drew. Remembered width is never 0. A Polyline that has not drawn yet starts from default_curve_stroke (Square cap, 2 px) in the theme ink, not the brush foreground. Closed paths with fill use the shared closed memory for fill and feed it when committed as closed shapes. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3434,7 +3434,7 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Arc remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, pen, line, polyline, and Bezier each keep their own). Its memory changes when it draws and on a single-node edit to a stroke it drew. Remembered width is never 0. An Arc that has not drawn yet starts from default_curve_stroke (Square cap, 2 px) in the theme ink, not the brush foreground. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3564,7 +3564,7 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Bezier tool remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, pen, line, arc, and polyline each keep their own). Its memory changes when it draws and on a single-node edit to a stroke it drew. Remembered width is never 0. A Bezier tool that has not drawn yet starts from default_curve_stroke (Square cap, 2 px) in the theme ink, not the brush foreground. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3694,7 +3694,7 @@
           "decided": "2026-09-17"
         },
         "D16": {
-          "behavior": "Open-form create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Default stroke = default_curve_stroke(fg) (Square cap, 2 px) when none. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
+          "behavior": "Per-tool create-style memory (P1.curve.create-style; stated 2026-09-25, supersedes the shared open-form memory): the Pen remembers its own last stroke color, width, and opacity and never inherits from another tool (brush, line, arc, polyline, and Bezier each keep their own). Its memory changes when it draws and on a single-node edit to a stroke it drew. Remembered width is never 0. A Pen that has not drawn yet starts from default_curve_stroke (Square cap, 2 px) in the theme ink, not the brush foreground. Pen ink keeps round-cap kit defaults when pinned. Always a hard vector stroke: edge softness, stamp, and Gaussian blur are never inherited (not even from an edited brush stroke), and no softness or blur control is offered for this tool.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

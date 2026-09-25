@@ -8,7 +8,7 @@ use slate_doc::scene::{
     Dash, PathData, PathSeg, Rgba, ShapeKind, ShapeNode, Stroke, StrokeCap, StrokeJoin, StrokeSpan,
     WidthProfile, WorldRect,
 };
-use slate_doc::{Node, NodeId, NodeKind};
+use slate_doc::{Node, NodeId, NodeKind, StrokeTool};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
@@ -2254,7 +2254,7 @@ impl SlateApp {
         let Some(draft) = self.board_path_draft.take() else {
             return false;
         };
-        let (rect, path_data, closed) = match draft {
+        let (tool, rect, path_data, closed) = match draft {
             BoardPathDraft::Polyline { mut points } => {
                 if points.len() < 2 {
                     return false;
@@ -2264,7 +2264,7 @@ impl SlateApp {
                     points.pop();
                 }
                 let (r, d) = points_to_path_data(&points, closed);
-                (r, d, closed)
+                (StrokeTool::Polyline, r, d, closed)
             }
             BoardPathDraft::Bezier {
                 anchors,
@@ -2275,27 +2275,33 @@ impl SlateApp {
                 }
                 let bez = bezier_anchors_to_bezpath(&anchors);
                 let (r, d) = bezpath_to_path_data(&bez, false);
-                (r, d, false)
+                (StrokeTool::Bezier, r, d, false)
             }
             BoardPathDraft::Arc { .. } => return false,
         };
         if path_data.is_empty() {
             return false;
         }
-        self.commit_path_node(rect, path_data, closed);
+        self.commit_path_node(tool, rect, path_data, closed);
         true
     }
 
-    pub(crate) fn commit_path_node(&mut self, rect: WorldRect, path_data: PathData, closed: bool) {
+    pub(crate) fn commit_path_node(
+        &mut self,
+        tool: StrokeTool,
+        rect: WorldRect,
+        path_data: PathData,
+        closed: bool,
+    ) {
         let mut path_data = path_data;
         path_data.closed = closed;
-        let stroke = self.stroke_for_new_curve();
+        let stroke = self.stroke_for_tool(tool);
         let fill = if closed {
             self.fill_for_new_shape()
         } else {
             None
         };
-        let opacity = self.opacity_for_new_node(false);
+        let opacity = self.opacity_for_tool(tool);
         let mut node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::Shape(ShapeNode {
@@ -2311,7 +2317,7 @@ impl SlateApp {
             }),
         );
         node.opacity = opacity;
-        self.note_last_style(&node);
+        self.note_tool_style(tool, &node);
         let ids = self.commit_created_nodes(vec![node]);
         self.select_created_nodes(ids);
         self.board_tool = super::board::BoardTool::Select;
@@ -2352,7 +2358,7 @@ impl SlateApp {
                     // start, end, middle → through-point is the last pick
                     let bez = arc_through_three_points(pts[0], pts[2], pts[1]);
                     let (rect, data) = bezpath_to_path_data(&bez, false);
-                    self.commit_path_node(rect, data, false);
+                    self.commit_path_node(StrokeTool::Arc, rect, data, false);
                     return;
                 }
                 self.board_path_draft = Some(BoardPathDraft::Arc { points: pts });
@@ -2451,7 +2457,7 @@ impl SlateApp {
         if data.is_empty() {
             return;
         }
-        self.commit_path_node(rect, data, false);
+        self.commit_path_node(StrokeTool::Pen, rect, data, false);
     }
 
     pub(crate) fn path_tool_try_finish(&mut self) -> bool {

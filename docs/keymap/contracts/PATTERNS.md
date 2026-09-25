@@ -197,7 +197,7 @@ is searchable.
 
 - **P1.shape.style** fill + stroke; new **closed** shapes (rect, ellipse,
   regular polygon, closed path with fill, …) consume the last closed-form
-  memory (`CreateStyleMemory.closed`, mirrored in `BoardLastStyle.closed`)
+  memory (`CreateStyleMemory.closed`, mirrored in `BoardLastStyle.memory`)
   when the kit recipe is inherit. A stroke-only create does not wipe the
   remembered fill.
 - **P1.shape.aspect** Shift during creation locks aspect (square/circle).
@@ -213,15 +213,22 @@ is searchable.
 
 - **P1.curve.style** stroke only, no fill; stroke width/cap/dash editable
   after the fact; Ctrl+J joins endpoints.
-- **P1.curve.create-style** the last **single-node** edit seeds stroke +
-  opacity on the next **open** create (line, arc, polyline, open path, …)
-  from `CreateStyleMemory.open` / `BoardLastStyle.open`. Remembered open stroke
-  width is never 0 (minimum 2 world units). When nothing was edited yet, draft
-  curves use `default_curve_stroke` at the current fg color — **Square** end
-  caps, Miter joins (distinct from expressive ink's round caps). Brush/Pen ink
-  keeps its own round defaults (`P2.StickyInk`). Implementation:
-  `board_style::BoardLastStyle`, updated from `patch_nodes` (single target) and
-  grip commits; persisted on `ViewState.create_style`. Vector curve tools
+- **P1.curve.create-style** **per tool** (stated 2026-09-25; supersedes the
+  shared open-curve memory). Each drawing tool — brush, pen, line, arc,
+  polyline, Bézier — remembers its **own** last stroke color and width and
+  never inherits from another tool. The brush keeps its settings
+  (`brush.md` D16). Each stroke tool has its own slot
+  (`CreateStyleMemory::tool(StrokeTool)`): the tool's own commit and a
+  **single-node** edit to a stroke it drew this session update that slot,
+  stroke + opacity only. Remembered width is never 0 (minimum 2 world units).
+  A tool that has not drawn yet uses `default_curve_stroke` in the theme ink,
+  not the brush foreground — **Square** end caps, Miter joins (distinct from
+  expressive ink's round caps). Brush/Pen kit ink keeps its own round defaults
+  when pinned (`P2.StickyInk`). Workbooks saved with the shared `open` slot
+  seed every tool from it once. Closed shapes keep one shared memory
+  (P1.shape.style). Implementation: `board_style::BoardLastStyle`, updated from
+  `patch_nodes` (single target), grip commits, and tool commits; persisted on
+  `ViewState.create_style`. Vector curve tools
   (pen, line, arc, polyline, Bézier) always commit a hard vector stroke
   (`Stroke::hard_vector`): edge softness, stamp, and Gaussian blur are never
   inherited, not even from an edited brush stroke, and those tools offer no

@@ -46,7 +46,7 @@ P2.PortalPlace — deviations flagged below.
 | D13 | Selected presentation | n/a — this contract does not change post-commit handles (P1.node bbox / P1.curve.grips). | pattern | 85 |
 | D14 | Post-edit | n/a — existing bbox / inspector / portal bind paths unchanged. | pattern | 85 |
 | D15 | Non-goals | Cut (Art. III): full-size world-space ghost at default portal / frame size; OS `.cur` files; per-tool unique OS cursor shapes; a Triangle tool (not shipped); numeric sizing during GhostFollow. | stated | 100 |
-| D16 | Create-style inheritance | Unchanged split: closed shapes consume `BoardLastStyle.closed`, open curves consume `BoardLastStyle.open`; portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome. | stated | 100 |
+| D16 | Create-style inheritance | Closed shapes consume the shared closed memory (`CreateStyleMemory.closed`); each stroke tool (pen, line, arc, polyline, Bézier) consumes only its own slot and never another tool's (stated 2026-09-25); portals still do not (P1.portal.style). Ghost paint uses accent / portal tokens, not the last style — the silhouette is chrome. | stated | 100 |
 | D17 | Hit-testing & pick | n/a — the ghost is not hittable. Existing node pick unchanged. | pattern | 85 |
 
 ## Feel constants
