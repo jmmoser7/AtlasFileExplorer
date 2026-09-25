@@ -701,8 +701,17 @@ pub enum BoardDrag {
     FilletRadius {
         id: NodeId,
         before: Node,
-        /// Press-time offset from the displayed grip to the authored radius.
-        grab: f32,
+        /// Corner amount at press; the drag changes it continuously from here.
+        start_amount: f32,
+        /// The pointer's press-time projection onto the grip edge (world).
+        press_travel: f32,
+        /// Where the held grip paints: the pointer's live projection onto
+        /// the edge, clamped to it. Only the idle grip rests at the inset.
+        pointer_travel: f32,
+        /// Press position (screen) and the farthest the pointer has moved from
+        /// it; a release under the drag threshold is a click.
+        press: Pos2,
+        max_px: f32,
     },
 }
 
@@ -3902,7 +3911,8 @@ impl SlateApp {
 
         // Object chrome runs before gestures so it can capture clicks.
         let agent_controls_capture = self.agent_spawn_input(ui, &xf);
-        let other_toolbar_captures = self.shape_properties_ui(ui, &xf);
+        let other_toolbar_captures =
+            self.shape_properties_ui(ui, &xf) | self.corner_entry_ui(ui, &xf);
         let shot_captures = self.paint_model_screenshot_popup(ui.ctx());
         let model_toolbar_captures =
             agent_controls_capture || other_toolbar_captures || shot_captures;
@@ -4323,6 +4333,39 @@ impl SlateApp {
             {
                 let w = wp.unwrap_or(Pos2::ZERO);
                 let mods = ui.input(|i| i.modifiers);
+                self.end_gesture(w, pointer, mods);
+            }
+        }
+
+        // Corner grip: press / release, not drag_started. egui's drag
+        // threshold held the grip still for the first pixels, and a click on
+        // the grip opens its typed radius (P1.node.corner-grip).
+        if self.board_tool == BoardTool::Select
+            && !space
+            && !panning
+            && !zoom_tool
+            && !model_toolbar_captures
+            && !web_capture
+            && !self.board_align_eat_press
+            && self.board_drag.is_none()
+            && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+        {
+            if let Some(p) = pointer {
+                if let Some(drag) = self.begin_fillet_drag(p, xf.s2w(p)) {
+                    self.board_drag = Some(drag);
+                    self.board_align_eat_press = true;
+                }
+            }
+        }
+        if matches!(self.board_drag, Some(BoardDrag::FilletRadius { .. })) {
+            let mods = ui.input(|i| i.modifiers);
+            if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
+                if let Some(w) = wp {
+                    self.update_gesture(w, mods);
+                }
+            }
+            if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+                let w = wp.unwrap_or(Pos2::ZERO);
                 self.end_gesture(w, pointer, mods);
             }
         }
@@ -4851,11 +4894,10 @@ impl SlateApp {
             }
             Some(BoardDrag::FilletRadius { id, .. }) => {
                 if let Some(n) = self.doc().scene.node(*id) {
-                    let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
-                    ui.ctx().set_cursor_icon(board_handles::cursor_for_resize(
-                        board_handles::ResizeHandle::Nw,
-                        &geom,
-                    ));
+                    if let Some(edge) = self.node_corner_grip_edge(n) {
+                        ui.ctx()
+                            .set_cursor_icon(board_handles::cursor_along(Vec2::from(edge.dir)));
+                    }
                     if let Some(p) = pointer {
                         let r = self.node_fillet_radius_world(n);
                         let label = format!("{} u", atlas_shell::selection_tools::number(r));
@@ -4981,6 +5023,12 @@ impl SlateApp {
                     BoardTool::Ellipse => {
                         painter.add(egui::Shape::closed_line(
                             ellipse_outline(preview),
+                            EStroke::new(1.5_f32, accent),
+                        ));
+                    }
+                    BoardTool::Polygon => {
+                        painter.add(egui::Shape::closed_line(
+                            board_place::polygon_outline(preview),
                             EStroke::new(1.5_f32, accent),
                         ));
                     }
@@ -6558,28 +6606,7 @@ impl SlateApp {
                     }
                 }
             }
-            Some(BoardDrag::FilletRadius { id, before, grab }) => {
-                let node_id = *id;
-                let before = before.clone();
-                let image_path = self
-                    .node_item_path(&before)
-                    .map(std::path::Path::to_path_buf);
-                let radius = board_handles::fillet_drag_radius_from_world_point(
-                    before.rect,
-                    before.rotation_deg,
-                    world,
-                    *grab,
-                );
-                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
-                    SlateApp::apply_fillet_radius_to_node(
-                        n,
-                        &before,
-                        radius,
-                        mods.shift,
-                        image_path.as_deref(),
-                    );
-                }
-            }
+            Some(BoardDrag::FilletRadius { .. }) => self.update_fillet_drag(world, mods.shift),
             _ => {}
         }
     }
@@ -6662,6 +6689,14 @@ impl SlateApp {
                         self.tab_mut().dirty = true;
                     }
                 }
+            }
+            Some(BoardDrag::FilletRadius {
+                id, before, max_px, ..
+            }) if max_px <= board_place::place_tokens::DRAG_THRESHOLD => {
+                if let Some(n) = self.doc_mut().scene.node_mut(id) {
+                    *n = before;
+                }
+                self.open_corner_entry(id);
             }
             Some(BoardDrag::FilletRadius { id, before, .. }) => {
                 if let Some(after) = self.doc().scene.node(id).cloned() {

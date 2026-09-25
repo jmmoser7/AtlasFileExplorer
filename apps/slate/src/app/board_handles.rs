@@ -3,13 +3,15 @@
 use super::board::BoardXf;
 use atlas_shell::canvas_scale;
 use eframe::egui::{self, Color32, CursorIcon, Pos2, Rect, Stroke as EStroke, Vec2};
+use slate_doc::geom::CornerGripEdge;
 use slate_doc::scene::WorldRect;
 
 /// Screen-px half-size of resize handles (matches board.rs).
 pub const HANDLE_PX: f32 = 5.0;
 /// Live-corner fillet grip (square, same family as resize handles).
 pub const FILLET_GRIP_PX: f32 = 4.0;
-/// Minimum world-unit inset of the fillet grip from the host corner.
+/// World-unit inset of the corner grip along its edge while the corner is
+/// square (and the floor of its resting travel).
 pub const FILLET_GRIP_MIN_INSET_WORLD: f32 = 10.0;
 /// Hover fill shared by the live fillet grip and crop handles.
 pub const GRIP_HANDLE_HOT: Color32 = Color32::from_rgb(210, 230, 255);
@@ -305,39 +307,32 @@ pub fn hit_test_resize_bands(screen: Pos2, geom: &SelectionGeom) -> Option<Resiz
     best.map(|(h, _)| h)
 }
 
-/// Fillet radius in world units from a pointer position (local NW corner = min of rx, ry).
-pub fn fillet_radius_from_world_point(rect: WorldRect, rotation_deg: f32, world: Pos2) -> f32 {
-    let (cx, cy) = rect.center();
-    let (lx, ly) = slate_doc::geom::world_to_local_about(world.x, world.y, cx, cy, rotation_deg);
-    let rx = (lx - rect.x).max(0.0);
-    let ry = (ly - rect.y).max(0.0);
-    let limit = rect.w.min(rect.h) * 0.5;
-    rx.min(ry).min(limit)
+/// Resting travel of the corner grip along its edge: the treatment's tangent
+/// point, held at the minimum inset while the corner is square or nearly so.
+pub fn corner_grip_rest_travel(edge: &CornerGripEdge, amount: f32) -> f32 {
+    edge.travel_for_amount(amount)
+        .max(FILLET_GRIP_MIN_INSET_WORLD.min(edge.max_travel))
 }
 
-/// Press-anchored fillet radius. `grab` preserves the difference between the
-/// authored radius and the display grip's minimum inset.
-pub fn fillet_drag_radius_from_world_point(
-    rect: WorldRect,
-    rotation_deg: f32,
-    world: Pos2,
-    grab: f32,
-) -> f32 {
-    let limit = rect.w.min(rect.h) * 0.5;
-    (fillet_radius_from_world_point(rect, rotation_deg, world) + grab).clamp(0.0, limit)
+/// Screen position of the corner grip `travel` world units along its edge.
+pub fn corner_grip_screen(xf: &BoardXf, edge: &CornerGripEdge, travel: f32) -> Pos2 {
+    let [x, y] = edge.point(travel);
+    xf.w2s(Pos2::new(x, y))
 }
 
-/// Screen position of the live fillet grip at local `(radius_world, radius_world)`.
-pub fn fillet_grip_screen(
-    xf: &BoardXf,
-    rect: WorldRect,
-    rotation_deg: f32,
-    radius_world: f32,
-) -> Pos2 {
-    let display_r = radius_world.max(FILLET_GRIP_MIN_INSET_WORLD);
-    let local = [rect.x + display_r, rect.y + display_r];
-    let [wx, wy] = rect.rotate_point(local, rotation_deg);
-    xf.w2s(Pos2::new(wx, wy))
+/// Two-headed cursor along an edge direction.
+pub fn cursor_along(dir: Vec2) -> CursorIcon {
+    let angle = dir.y.atan2(dir.x);
+    match ((angle / std::f32::consts::FRAC_PI_4)
+        .round()
+        .rem_euclid(4.0)) as usize
+        % 4
+    {
+        0 => CursorIcon::ResizeHorizontal,
+        1 => CursorIcon::ResizeNwSe,
+        2 => CursorIcon::ResizeVertical,
+        _ => CursorIcon::ResizeNeSw,
+    }
 }
 
 pub fn hit_test_fillet_grip(screen: Pos2, geom: &SelectionGeom, grip: Pos2) -> bool {
@@ -537,6 +532,19 @@ pub fn paint_rotate_affordance(
 mod tests {
     use super::*;
 
+    fn rect_shape() -> slate_doc::scene::ShapeNode {
+        slate_doc::scene::ShapeNode {
+            shape: slate_doc::scene::ShapeKind::Rect,
+            fill: None,
+            stroke: slate_doc::scene::Stroke::default(),
+            corner: slate_doc::scene::Corner::Square,
+            sides: slate_doc::scene::default_regular_sides(),
+            flip: false,
+            path: None,
+            text: None,
+        }
+    }
+
     #[test]
     fn resize_handles_cover_corners_and_edges() {
         let xf = BoardXf {
@@ -659,7 +667,10 @@ mod tests {
     #[test]
     fn fillet_radius_clamps_to_short_side() {
         let rect = WorldRect::new(0.0, 0.0, 80.0, 40.0);
-        let r = fillet_radius_from_world_point(rect, 0.0, Pos2::new(100.0, 100.0));
+        let node = slate_doc::scene::Scene::default()
+            .build_node(rect, slate_doc::scene::NodeKind::Shape(rect_shape()));
+        let edge = slate_doc::geom::corner_grip_edge(&node, false).unwrap();
+        let r = edge.amount_for_travel(edge.project([100.0, 100.0]));
         assert!((r - 20.0).abs() < 1e-4);
     }
 
@@ -712,15 +723,20 @@ mod tests {
         for (w, h) in [(100.0, 100.0), (400.0, 100.0), (100.0, 400.0)] {
             for rot in [0.0, 37.0, 90.0, 180.0] {
                 let rect = WorldRect::new(0.0, 0.0, w, h);
+                let mut node = slate_doc::scene::Scene::default()
+                    .build_node(rect, slate_doc::scene::NodeKind::Shape(rect_shape()));
+                node.rotation_deg = rot;
+                let edge = slate_doc::geom::corner_grip_edge(&node, false).unwrap();
                 let max = w.min(h) * 0.5;
                 for r in [0.0, 8.0, 24.0, (max * 0.45).floor()] {
-                    let grip = fillet_grip_screen(&xf, rect, rot, r);
+                    let travel = corner_grip_rest_travel(&edge, r);
+                    let grip = corner_grip_screen(&xf, &edge, travel);
                     let world = xf.s2w(grip);
-                    let pointer_radius = fillet_radius_from_world_point(rect, rot, world);
-                    let grab = r - pointer_radius;
-                    let read = fillet_drag_radius_from_world_point(rect, rot, world, grab);
+                    let grab = travel - edge.project([world.x, world.y]);
+                    let read = edge.amount_for_travel(edge.project([world.x, world.y]) + grab);
+                    let expected = r.max(FILLET_GRIP_MIN_INSET_WORLD);
                     assert!(
-                        (read - r).abs() < 0.08,
+                        (read - expected).abs() < 0.08,
                         "w={w} h={h} rot={rot} r={r}: anchored read {read}"
                     );
                 }

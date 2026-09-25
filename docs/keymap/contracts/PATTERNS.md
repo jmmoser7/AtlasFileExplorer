@@ -160,34 +160,62 @@ is searchable.
   (corners included, same 45° cursor as a single node). Shift+click on
   an unselected node's hover-resize band adds it to the selection
   instead of starting a resize.
-- **P1.node.corner-grip** (Select tool): a **square** grip on every node
-  that `supports_corners` — rectangle, frame, placed linked-media card,
-  and portal frame — so the person can set a **custom fillet radius**
+- **P1.node.corner-grip** (Select tool; Miro-style, **stated** 25 September
+  2026): a **square** grip on every node that `supports_corners` —
+  rectangle, regular polygon, line polyline, frame, placed linked-media
+  card, and portal frame — so the person can set a **custom corner amount**
   by dragging (**stated** user scope). The selection-strip **Corners**
   squircle edits the same authored `Corner` field (**stated**), and it
-  appears on portal strips too (user decision 25 September 2026). Grip
-  drag stores fillet radius in world units as `Corner::Rounded { radius }`
-  (chamfer / percent modes stay strip-only until extended). **Proposals**
-  (implementation detail, not re-litigated per contract): **single-select
-  only**; grip at the host **NW** corner; diagonal inset
-  `max(resolved_radius_world, FILLET_GRIP_MIN_INSET_WORLD)` and painted
-  size `FILLET_GRIP_PX` via `canvas_scale` (P0.9); hidden in image crop
-  mode, multi-select, and when portal chrome suppresses the ordinary
-  selection cast; drag projects on the NW→SE diagonal with clamp
-  `[0, min(w,h)/2]`; live preview, **one** journaled `SceneCmd::Patch`
-  on release (`board.shape.fillet`); Esc mid-drag restores press-time
-  radius (ActiveOperation); Shift → integer world units; radius readout
-  at the pointer during drag (`canvas_text`, **P2.GhostFollow** — screen-constant
-  offset, not multiplied by zoom). **Frame:** members are not
+  appears on portal strips too (user decision 25 September 2026).
+  **Placement (stated):** the grip sits **on the border** at the
+  treatment's tangent point — the fillet's tangent point, or the chamfer's
+  cut — measured along one edge from one corner. Box hosts use the **top
+  edge from the top-left corner**, moving right (Miro's documented surface
+  is a slider / number field; a community report shows the rounded-rectangle
+  handle but does not name the edge, so the edge is our choice). Regular
+  polygons use the side from the top vertex toward the next vertex
+  clockwise; line polylines use the leaving side of the first turning
+  vertex. A fillet amount is the arc **radius**, so on a polygon or
+  polyline the grip's travel is `radius × tan(turn / 2)`; a chamfer amount
+  is the cut along each edge. At amount 0 (and below it) the grip rests at
+  the small fixed inset `FILLET_GRIP_MIN_INSET_WORLD` along that edge.
+  **Drag (stated):** away from the corner increases the amount, toward it
+  decreases. The amount changes continuously from its press-time value —
+  never a jump on grab: travel along the edge is `clamp(start_travel +
+  (projected − press_projection), 0, max)`, so the first 1 px move changes a
+  box's amount by about 1 unit. The gesture starts on press, not on egui's
+  drag threshold. While held, the grip is drawn at the pointer's projection
+  onto the edge, clamped to `[0, max travel]` — exactly under the cursor for
+  the whole drag, whatever the amount; dragging back past the corner clamps
+  the amount to square and the grip to the edge start. Idle (hover, rest,
+  and immediately after release) the grip is drawn — and hit-tested — at
+  `max(travel, inset)`, so a release settles it by at most the inset, never
+  during the drag. Chamfer and percent modes are kept (`edit_corner`).
+  **Click (stated):** a press and release within
+  `place_tokens::DRAG_THRESHOLD` opens an inline numeric field beside the
+  grip, inside the edge, using the stringers' `selection_tools::inline_number`;
+  Enter dispatches **one** journaled `board.shape.fillet` patch (clamped to
+  the host's largest amount), Esc cancels without touching the selection.
+  **Proposals** (implementation detail, not re-litigated per contract):
+  **single-select only**; painted size `FILLET_GRIP_PX` via `canvas_scale`
+  (P0.9); hidden in image crop mode, multi-select, and when portal chrome
+  suppresses the ordinary selection cast; cursor is the two-headed resize
+  arrow along the edge; clamp `[0, host maximum]` (half the short side for
+  boxes, half the shorter adjacent side for vertices); live preview,
+  **one** journaled `SceneCmd::Patch` on release (`board.shape.fillet`);
+  Esc mid-drag restores press-time radius (ActiveOperation); Shift →
+  integer world units; radius readout at the pointer during drag
+  (`canvas_text`, **P2.GhostFollow** — screen-constant offset, not
+  multiplied by zoom). **Frame:** members are not
   clipped by the frame fillet on the board; exported slides clip deck
   contents with `overflow:hidden` on the slide rect (existing frame/slide rule).
-  **Pick:** click and marquee still use the
-  node AABB. The drag stores the press-time difference between the displayed
-  inset and resolved radius, so clicking or off-center grabbing cannot jump
-  the value. **Portal `Corner::Square`:** resolves through
+  **Pick:** click and marquee still use the node AABB. **Portal
+  `Corner::Square`:** resolves through
   `slate_doc::media::portal_frame_corner` to the same model-owned default on
-  board and export; a grip drag journals an
-  explicit radius. Owner: `board_handles` + `board_transform`.
+  board and export; a grip drag journals an explicit radius. Owner: edge
+  geometry `slate_doc::geom::corner_grip_edge`; vertex construction
+  `slate_doc::wire::filleted_vertex_path` (board and export); app side
+  `board_handles` + `board_transform`.
   Where its hit box overlaps a resize edge band, the visible grip wins both
   hover and press; the NW corner point itself remains the NW resize target.
 - **P1.node.zorder / clipboard** PageUp/PageDown/Ctrl+B; Ctrl+C/X/V,
@@ -511,8 +539,10 @@ P2.DragShape, P2.PortalPlace, or P2.PlaceOnce.
 - **P2.GhostFollow.glyph** a small **screen-space** silhouette of the armed
   result follows the pointer: size `place.ghost_size` (22 px), offset
   `place.ghost_offset` (14, 14) from the hotspot, alpha `place.ghost_alpha`
-  (0.55). Glyphs: rounded rect (Frame / Rect), ellipse (Ellipse), portal
-  frame (rounded rect + title bar in `Palette::portal`), text box, sticky.
+  (0.55). Glyphs: rounded rect (Frame / Rect), ellipse (Ellipse), regular
+  polygon at the default side count (Polygon), portal frame (rounded rect +
+  title bar in `Palette::portal`), text box, sticky. DragScale tools whose
+  result is not a box preview their real outline, not the bounding box.
   Not the default world size. Named exception to **P0.9**:
   pointer-attached chrome; no zoom coupling.
 - **P2.GhostFollow.drag** on press, the silhouette is replaced by the live

@@ -106,6 +106,7 @@ impl SlateApp {
                 self.shape_property_command(detail.as_deref())
             }
             "board.shape.dimension" => self.shape_dimension_command(detail.as_deref()),
+            "board.shape.fillet" => self.shape_fillet_command(detail.as_deref()),
             "board.color.desktop" => {
                 self.start_tool_desktop_sample(detail.as_deref() == Some("background"), false);
                 true

@@ -2763,7 +2763,7 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on single-select rectangles (square grip for custom fillet radius).",
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on single-select rectangles: a square grip on the top edge at the fillet tangent point (the chamfer cut), at a small inset when square; dragging changes the amount continuously from its press-time value (no jump on grab) while the held grip stays under the pointer, clamped to the edge; idle, the grip rests at the larger of the amount and the inset; a click types the amount.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3153,14 +3153,14 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. P1.node.corner-grip on a single selected line-only polyline rides the leaving side of the first turning vertex.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D14": {
-          "behavior": "Open line-only polyline: Stroke button plus Corners (one fillet radius at every interior vertex, clamped per vertex; 0 = sharp). Closed line-only polyline: Fill and Stroke plus Corners. Board and artifact share path_data_to_world_bez_with_fillet.",
+          "behavior": "Open line-only polyline: Stroke button plus Corners (one fillet radius or chamfer cut at every interior vertex, clamped per vertex; 0 = sharp). Closed line-only polyline: Fill and Stroke plus Corners. The Corners slider reads the stored amount after commit, and Fillet / Chamfer are both selectable. Board and artifact share path_data_to_world_bez_with_fillet, which draws chamfers as straight cuts.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -3255,9 +3255,9 @@
           "decided": "2026-09-25"
         },
         "D09": {
-          "behavior": "P1.shape.properties preview and selection strip.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Armed: a small polygon GhostFollow glyph beside the pointer. Drag: the preview is the regular polygon itself (first vertex top center), not its bounding box. Then the P1.shape.properties selection strip.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-25"
         },
@@ -3283,14 +3283,14 @@
           "decided": "2026-09-25"
         },
         "D13": {
-          "behavior": "Fill / Stroke / Corners squircles when geometry allows.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Fill / Stroke / Corners squircles when geometry allows. P1.node.corner-grip on a single selected polygon: the grip rides the side from the top vertex toward the next vertex clockwise, at the treatment's tangent point; drag along that side, click to type.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-25"
         },
         "D14": {
-          "behavior": "Fill, Stroke, Corners; Corners panel also exposes Sides for regular polygons.",
+          "behavior": "Fill, Stroke, Corners; Corners panel also exposes Sides for regular polygons. A fillet amount is the arc radius at every vertex and a chamfer is a straight cut, both clamped per vertex so the outline stays inside the drag box with no spikes on the board or in the export.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

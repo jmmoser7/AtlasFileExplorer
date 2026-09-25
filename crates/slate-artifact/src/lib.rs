@@ -1066,6 +1066,57 @@ mod tests {
     }
 
     #[test]
+    fn polyline_chamfer_exports_straight_cut_corners() {
+        let d_of = |corner: Corner| {
+            let mut doc = SlateDoc::new("PolylineCorner");
+            add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 200.0, 200.0));
+            let node = doc.scene.build_node(
+                WorldRect::new(0.0, 0.0, 100.0, 100.0),
+                NodeKind::Shape(ShapeNode {
+                    shape: ShapeKind::Path,
+                    fill: None,
+                    stroke: Stroke {
+                        width: 3.0,
+                        color: Rgba::opaque(10, 20, 30),
+                        ..Default::default()
+                    },
+                    corner,
+                    sides: slate_doc::scene::default_regular_sides(),
+                    flip: false,
+                    path: Some(std::sync::Arc::new(PathData {
+                        start: [0.0, 0.0],
+                        segs: vec![
+                            PathSeg::Line { to: [1.0, 0.0] },
+                            PathSeg::Line { to: [1.0, 1.0] },
+                        ],
+                        closed: false,
+                        ..Default::default()
+                    })),
+                    text: None,
+                }),
+            );
+            let index = doc.scene.nodes.len();
+            doc.scene.apply(&SceneCmd::Add { index, node });
+            let html = render_html(&doc, &AssetMap::default());
+            let start = html.find("d=\"M").expect("path d") + 3;
+            let end = start + html[start..].find('"').unwrap();
+            html[start..end].to_owned()
+        };
+        let rounded = d_of(Corner::Rounded { radius: 10.0 });
+        assert!(rounded.contains('C'), "a fillet is an arc: {rounded}");
+        let chamfer = d_of(Corner::Chamfer { cut: 10.0 });
+        assert!(
+            !chamfer.contains('C') && !chamfer.contains('Q'),
+            "a chamfer is a straight cut: {chamfer}"
+        );
+        assert_ne!(
+            chamfer,
+            d_of(Corner::Square),
+            "the corner is cut, not sharp"
+        );
+    }
+
+    #[test]
     fn path_shape_closed_fill_and_stroke() {
         let fill = Rgba::opaque(200, 100, 50);
         let mut doc = SlateDoc::new("PathClosed");
