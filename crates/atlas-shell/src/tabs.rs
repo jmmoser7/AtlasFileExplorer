@@ -207,7 +207,7 @@ fn paint_vertical_gradient_top_corner(
         PortalTabCorner::Square => 0.0,
         PortalTabCorner::Rounded(radius) | PortalTabCorner::Chamfer(radius) => radius,
     };
-    let r = radius.min(rect.width() * 0.5).min(rect.height()).max(0.0);
+    let r = radius.min(rect.width() * 0.5).max(0.0);
     let steps = rect.height().ceil().max(1.0) as usize;
     for step in 0..steps {
         let t = step as f32 / steps as f32;
@@ -215,14 +215,7 @@ fn paint_vertical_gradient_top_corner(
         let (left, right) = if r < 0.5 || y >= rect.top() + r {
             (rect.left(), rect.right())
         } else {
-            let inset = match corner {
-                PortalTabCorner::Chamfer(_) => r - (y - rect.top()),
-                PortalTabCorner::Rounded(_) => {
-                    let dy = y - (rect.top() + r);
-                    r - (r * r - dy * dy).max(0.0).sqrt()
-                }
-                PortalTabCorner::Square => 0.0,
-            };
+            let inset = portal_top_corner_inset(corner, r, y - rect.top());
             (rect.left() + inset, rect.right() - inset)
         };
         if right - left < 0.5 {
@@ -232,6 +225,17 @@ fn paint_vertical_gradient_top_corner(
             [Pos2::new(left, y), Pos2::new(right, y)],
             Stroke::new(1.25_f32, lerp_color(top, bottom, t)),
         );
+    }
+}
+
+fn portal_top_corner_inset(corner: PortalTabCorner, radius: f32, y: f32) -> f32 {
+    match corner {
+        PortalTabCorner::Chamfer(_) => (radius - y).max(0.0),
+        PortalTabCorner::Rounded(_) => {
+            let dy = y - radius;
+            radius - (radius * radius - dy * dy).max(0.0).sqrt()
+        }
+        PortalTabCorner::Square => 0.0,
     }
 }
 
@@ -795,5 +799,32 @@ mod tests {
         let flipped_y = rect.top() + rect.bottom() - y;
         let down = tab_scanline_x(rect, flipped_y, bubble, TabHost::Top);
         assert!((up.0 - down.0).abs() < 1e-3 && (up.1 - down.1).abs() < 1e-3);
+    }
+
+    #[test]
+    fn short_portal_tab_stays_inside_large_frame_corners() {
+        let radius = 30.0;
+        let bar_h = 12.0;
+        for corner in [
+            PortalTabCorner::Rounded(radius),
+            PortalTabCorner::Chamfer(radius),
+        ] {
+            for y in [0.0, bar_h * 0.5, bar_h] {
+                let inset = portal_top_corner_inset(corner, radius, y);
+                let expected = match corner {
+                    PortalTabCorner::Rounded(_) => {
+                        let dy = y - radius;
+                        radius - (radius * radius - dy * dy).sqrt()
+                    }
+                    PortalTabCorner::Chamfer(_) => radius - y,
+                    PortalTabCorner::Square => unreachable!(),
+                };
+                assert!((inset - expected).abs() < 1e-4);
+            }
+            assert!(
+                portal_top_corner_inset(corner, radius, bar_h) > 5.0,
+                "R=30 must still inset the bottom of a 12-high tab"
+            );
+        }
     }
 }

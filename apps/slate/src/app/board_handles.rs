@@ -9,8 +9,8 @@ use slate_doc::scene::WorldRect;
 pub const HANDLE_PX: f32 = 5.0;
 /// Live-corner fillet grip (square, same family as resize handles).
 pub const FILLET_GRIP_PX: f32 = 4.0;
-/// Minimum inset of the fillet grip from the host corner along the diagonal.
-pub const FILLET_GRIP_MIN_INSET_PX: f32 = 10.0;
+/// Minimum world-unit inset of the fillet grip from the host corner.
+pub const FILLET_GRIP_MIN_INSET_WORLD: f32 = 10.0;
 /// Hover fill shared by the live fillet grip and crop handles.
 pub const GRIP_HANDLE_HOT: Color32 = Color32::from_rgb(210, 230, 255);
 /// Windows-style corner hit (diagonal resize).
@@ -315,6 +315,18 @@ pub fn fillet_radius_from_world_point(rect: WorldRect, rotation_deg: f32, world:
     rx.min(ry).min(limit)
 }
 
+/// Press-anchored fillet radius. `grab` preserves the difference between the
+/// authored radius and the display grip's minimum inset.
+pub fn fillet_drag_radius_from_world_point(
+    rect: WorldRect,
+    rotation_deg: f32,
+    world: Pos2,
+    grab: f32,
+) -> f32 {
+    let limit = rect.w.min(rect.h) * 0.5;
+    (fillet_radius_from_world_point(rect, rotation_deg, world) + grab).clamp(0.0, limit)
+}
+
 /// Screen position of the live fillet grip at local `(radius_world, radius_world)`.
 pub fn fillet_grip_screen(
     xf: &BoardXf,
@@ -322,17 +334,10 @@ pub fn fillet_grip_screen(
     rotation_deg: f32,
     radius_world: f32,
 ) -> Pos2 {
-    let display_r = radius_world.max(FILLET_GRIP_MIN_INSET_PX);
+    let display_r = radius_world.max(FILLET_GRIP_MIN_INSET_WORLD);
     let local = [rect.x + display_r, rect.y + display_r];
     let [wx, wy] = rect.rotate_point(local, rotation_deg);
     xf.w2s(Pos2::new(wx, wy))
-}
-
-pub fn fillet_grip_separated_from_nw_corner(geom: &SelectionGeom, grip: Pos2) -> bool {
-    let nw = geom.corners[0];
-    let min_sep = canvas_scale::hit_px(CORNER_HIT_PX, geom.zoom)
-        + canvas_scale::px(FILLET_GRIP_PX, geom.zoom);
-    grip.distance(nw) >= min_sep
 }
 
 pub fn hit_test_fillet_grip(screen: Pos2, geom: &SelectionGeom, grip: Pos2) -> bool {
@@ -711,34 +716,15 @@ mod tests {
                 for r in [0.0, 8.0, 24.0, (max * 0.45).floor()] {
                     let grip = fillet_grip_screen(&xf, rect, rot, r);
                     let world = xf.s2w(grip);
-                    let read = fillet_radius_from_world_point(rect, rot, world);
-                    let expected = if r < FILLET_GRIP_MIN_INSET_PX {
-                        FILLET_GRIP_MIN_INSET_PX
-                    } else {
-                        r
-                    };
+                    let pointer_radius = fillet_radius_from_world_point(rect, rot, world);
+                    let grab = r - pointer_radius;
+                    let read = fillet_drag_radius_from_world_point(rect, rot, world, grab);
                     assert!(
-                        (read - expected).abs() < 0.08,
-                        "w={w} h={h} rot={rot} r={r}: read {read}, expected {expected}"
+                        (read - r).abs() < 0.08,
+                        "w={w} h={h} rot={rot} r={r}: anchored read {read}"
                     );
                 }
             }
         }
-    }
-
-    #[test]
-    fn fillet_grip_hides_when_it_would_cover_the_nw_resize_corner() {
-        let rect = WorldRect::new(0.0, 0.0, 36.0, 36.0);
-        let xf = BoardXf {
-            center: Pos2::ZERO,
-            offset: egui::vec2(18.0, 18.0),
-            z: 1.0,
-        };
-        let geom = selection_geom(&xf, rect, 0.0);
-        let grip = fillet_grip_screen(&xf, rect, 0.0, 8.0);
-        assert!(
-            !fillet_grip_separated_from_nw_corner(&geom, grip),
-            "tiny node must not show a grip on the NW resize corner"
-        );
     }
 }

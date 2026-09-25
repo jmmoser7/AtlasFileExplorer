@@ -95,10 +95,10 @@ apps.
 
 ### Portal identity tab
 
-Slate **web** portal frames reuse this same tab language — one active tab,
-no `+`, painted by `tabs::portal_tab_bar`. The strip is slimmer than this
+Slate **web** portal frames reuse this same tab language - one active tab,
+no `+`, painted by `tabs::portal_tab_bar_corner`. The strip is slimmer than this
 dashboard bar (`portal_frame.tab_height_scale`, 40%) and follows the
-portal fillet so its corners do not oversail the frame. On the canvas the
+portal corner treatment so its corners do not oversail the frame. On the canvas the
 bar already carries zoom; type and padding fit the slim strip (P0.9), and
 the label is clipped to the tab content rect rather than oversailing it.
 Maximized, the tab is window chrome and stays screen-sized. The

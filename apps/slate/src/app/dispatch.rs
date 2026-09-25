@@ -989,7 +989,7 @@ impl SlateApp {
                             }
                         }
                     }
-                    Some(board::BoardDrag::FilletRadius { id, before }) => {
+                    Some(board::BoardDrag::FilletRadius { id, before, .. }) => {
                         if let Some(n) = self.doc_mut().scene.node_mut(id) {
                             *n = before;
                         }

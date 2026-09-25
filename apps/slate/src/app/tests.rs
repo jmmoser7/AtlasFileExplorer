@@ -8369,6 +8369,68 @@ fn fillet_drag_on_default_square_portal_keeps_designed_fillet() {
 }
 
 #[test]
+fn fillet_grip_click_on_default_portal_is_a_noop() {
+    let mut h = Harness::new("fillet_portal_click");
+    h.app.ensure_work_tab();
+    let before = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 320.0, 240.0),
+        slate_doc::scene::NodeKind::Portal(slate_doc::scene::PortalNode::unbound_web("page")),
+    );
+    let id = before.id;
+    h.app.doc_mut().scene.nodes.push(before.clone());
+    h.app.board_sel.insert(id);
+    h.app.tab_mut().cam.z = 1.0;
+    let xf = h.app.board_xf();
+    let grip = h
+        .app
+        .fillet_grip_at(&before, &xf)
+        .expect("default portal grip");
+    let world = xf.s2w(grip);
+    h.app.board_drag = h.app.begin_fillet_drag(grip, world);
+    h.app.update_gesture_for_test(world, egui::Modifiers::NONE);
+    h.app
+        .end_gesture_for_test(world, Some(grip), egui::Modifiers::NONE);
+    assert_eq!(h.app.doc().scene.node(id), Some(&before));
+    assert!(
+        !h.app.tab().journal.can_undo(),
+        "a press/release without motion must not add a Patch"
+    );
+}
+
+#[test]
+fn fillet_grip_drag_from_square_starts_at_zero_radius() {
+    let mut h = Harness::new("fillet_square_drag");
+    h.app.ensure_work_tab();
+    let before = h.app.doc_mut().scene.build_node(
+        slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 80.0),
+        slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
+            shape: slate_doc::scene::ShapeKind::Rect,
+            fill: None,
+            stroke: slate_doc::scene::Stroke::default(),
+            corner: slate_doc::scene::Corner::Square,
+            flip: false,
+            path: None,
+            text: None,
+        }),
+    );
+    let id = before.id;
+    h.app.doc_mut().scene.nodes.push(before.clone());
+    h.app.board_sel.insert(id);
+    h.app.tab_mut().cam.z = 1.0;
+    let xf = h.app.board_xf();
+    let grip = h.app.fillet_grip_at(&before, &xf).expect("square grip");
+    let press = xf.s2w(grip);
+    h.app.board_drag = h.app.begin_fillet_drag(grip, press);
+    let moved = Pos2::new(press.x + 3.0, press.y + 3.0);
+    h.app.update_gesture_for_test(moved, egui::Modifiers::NONE);
+    h.app
+        .end_gesture_for_test(moved, Some(xf.w2s(moved)), egui::Modifiers::NONE);
+    let after = h.app.doc().scene.node(id).unwrap();
+    let radius = slate_doc::scene::resolved_corner_effective(after, None).1;
+    assert!((radius - 3.0).abs() < 0.05, "radius={radius}");
+}
+
+#[test]
 fn fillet_drag_percent_mode_roundtrip() {
     let mut h = Harness::new("fillet_percent");
     h.app.ensure_work_tab();

@@ -4578,6 +4578,18 @@ pub fn resolved_corner(node: &Node, path: Option<&std::path::Path>) -> Corner {
     }
 }
 
+/// Edit the corner the person sees, including kind defaults, then store the
+/// explicit authored result. Every corner editor uses this path so a default
+/// portal or text card does not reset to zero on its first edit.
+pub fn edit_corner(
+    node: &mut Node,
+    path: Option<&std::path::Path>,
+    edit: impl FnOnce(Corner) -> Corner,
+) {
+    let corner = edit(resolved_corner(node, path));
+    set_corner(node, corner);
+}
+
 /// Effective chamfer flag and world radius for layout, export, and grips.
 pub fn resolved_corner_effective(node: &Node, path: Option<&std::path::Path>) -> (bool, f32) {
     resolved_corner(node, path).effective(node.rect.w, node.rect.h)

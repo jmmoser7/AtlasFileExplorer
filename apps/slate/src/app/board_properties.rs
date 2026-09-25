@@ -76,7 +76,7 @@ pub enum Property {
 }
 
 impl Property {
-    pub(crate) fn apply(&self, node: &mut Node) {
+    pub(crate) fn apply(&self, node: &mut Node, item_path: Option<&std::path::Path>) {
         match *self {
             Self::BumperOn(on) => {
                 node.bumper = (on && slate_doc::bumper::supports_bumper(node))
@@ -133,20 +133,20 @@ impl Property {
                 scene::set_fill(node, Some(c));
             }
             Self::CornerTreatment(_) | Self::CornerMode(_) | Self::CornerAmount(_) => {
-                let Some(c) = scene::corner_of(node) else {
+                if !scene::supports_corners(node) {
                     return;
-                };
-                let (mut chamfer, percent, mut amount) = c.parameters();
-                match *self {
-                    Self::CornerTreatment(v) => chamfer = v,
-                    Self::CornerMode(v) => {
-                        scene::set_corner(node, c.with_mode(v, node.rect.w, node.rect.h));
-                        return;
-                    }
-                    Self::CornerAmount(v) => amount = v,
-                    _ => {}
                 }
-                scene::set_corner(node, Corner::from_parameters(chamfer, percent, amount));
+                let (w, h) = (node.rect.w, node.rect.h);
+                scene::edit_corner(node, item_path, |corner| {
+                    let (mut chamfer, percent, mut amount) = corner.parameters();
+                    match *self {
+                        Self::CornerTreatment(v) => chamfer = v,
+                        Self::CornerMode(v) => return corner.with_mode(v, w, h),
+                        Self::CornerAmount(v) => amount = v,
+                        _ => {}
+                    }
+                    Corner::from_parameters(chamfer, percent, amount)
+                });
             }
             Self::ImageAdjust(adjust) => scene::set_adjust(node, adjust),
             Self::TextFamily(family) => {
@@ -687,9 +687,18 @@ impl SlateApp {
         }
         self.last_board_edit = None;
         let generation = self.scene_gen;
+        let item_paths: std::collections::BTreeMap<_, _> = req
+            .ids
+            .iter()
+            .filter_map(|id| {
+                let node = self.doc().scene.node(*id)?;
+                self.node_item_path(node)
+                    .map(|path| (*id, path.to_path_buf()))
+            })
+            .collect();
         self.patch_nodes(&req.ids, |n| {
             for edit in &req.edits {
-                edit.apply(n);
+                edit.apply(n, item_paths.get(&n.id).map(|path| path.as_path()));
             }
         });
         // Choosing a recent color already on the target is still a deliberate
@@ -849,9 +858,16 @@ impl SlateApp {
 
     fn committed_shape_nodes(&self) -> Vec<Node> {
         let mut nodes = self.shape_properties.nodes.clone();
+        let item_paths: std::collections::BTreeMap<_, _> = nodes
+            .iter()
+            .filter_map(|node| {
+                self.node_item_path(node)
+                    .map(|path| (node.id, path.to_path_buf()))
+            })
+            .collect();
         for edit in &self.shape_properties.edits {
             for n in &mut nodes {
-                edit.apply(n);
+                edit.apply(n, item_paths.get(&n.id).map(|path| path.as_path()));
             }
         }
         nodes
@@ -863,14 +879,21 @@ impl SlateApp {
             return;
         }
         let mut nodes = self.shape_properties.nodes.clone();
+        let item_paths: std::collections::BTreeMap<_, _> = nodes
+            .iter()
+            .filter_map(|node| {
+                self.node_item_path(node)
+                    .map(|path| (node.id, path.to_path_buf()))
+            })
+            .collect();
         for edit in &self.shape_properties.edits {
             for n in &mut nodes {
-                edit.apply(n);
+                edit.apply(n, item_paths.get(&n.id).map(|path| path.as_path()));
             }
         }
         if let Some(edit) = peek {
             for n in &mut nodes {
-                edit.apply(n);
+                edit.apply(n, item_paths.get(&n.id).map(|path| path.as_path()));
             }
         }
         self.shape_properties.preview = nodes;
@@ -1387,6 +1410,10 @@ impl SlateApp {
         !nodes.is_empty() && nodes.iter().all(|n| self.croppable_image(n.id))
     }
 
+    fn corner_for_editor(&self, node: &Node) -> Corner {
+        scene::resolved_corner(node, self.node_item_path(node))
+    }
+
     fn shape_property_body(&mut self, ui: &mut egui::Ui, rect: Rect, panel: Panel, z: f32) -> bool {
         let theme = self.palette();
         let nodes = if self.shape_properties.preview.is_empty() {
@@ -1505,7 +1532,7 @@ impl SlateApp {
             return false;
         }
         if panel == Panel::Corners {
-            let corner = scene::corner_of(first).unwrap_or_default();
+            let corner = self.corner_for_editor(first);
             let (chamfer, percent, amount) = corner.parameters();
             let maximum = if percent {
                 100.0
@@ -2437,6 +2464,39 @@ mod tests {
         let id = h.app.add_nodes(vec![node])[0];
         h.app.board_sel.insert(id);
         id
+    }
+
+    #[test]
+    fn default_portal_corner_panel_displays_resolved_radius() {
+        let mut h = board();
+        let id = portal_node(&mut h, WorldRect::new(0.0, 0.0, 320.0, 240.0));
+        let node = h.app.doc().scene.node(id).unwrap();
+        let (chamfer, percent, amount) = h.app.corner_for_editor(node).parameters();
+        assert!(!chamfer && !percent);
+        assert!((amount - slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET).abs() < 1e-4);
+    }
+
+    #[test]
+    fn default_portal_corner_switches_keep_resolved_radius() {
+        let mut h = board();
+        let id = portal_node(&mut h, WorldRect::new(0.0, 0.0, 320.0, 240.0));
+        let expected = slate_doc::media::PORTAL_FRAME_DEFAULT_FILLET;
+
+        apply(&mut h, vec![id], vec![Property::CornerTreatment(true)]);
+        let node = h.app.doc().scene.node(id).unwrap();
+        assert!(matches!(
+            scene::corner_of(node),
+            Some(Corner::Chamfer { .. })
+        ));
+        assert!((scene::resolved_corner_effective(node, None).1 - expected).abs() < 1e-4);
+
+        apply(&mut h, vec![id], vec![Property::CornerMode(true)]);
+        let node = h.app.doc().scene.node(id).unwrap();
+        assert!(matches!(
+            scene::corner_of(node),
+            Some(Corner::ChamferPercent { .. })
+        ));
+        assert!((scene::resolved_corner_effective(node, None).1 - expected).abs() < 1e-4);
     }
 
     fn item_kinds(items: &[StripItem]) -> Vec<&'static str> {

@@ -24,20 +24,21 @@ impl SlateApp {
         slate_doc::scene::supports_corners(node) && !self.frame_chrome_suppressed(node.id)
     }
 
-    pub(crate) fn node_fillet_radius_world(&self, node: &Node) -> f32 {
-        let path = match &node.kind {
+    pub(crate) fn node_item_path<'a>(&'a self, node: &Node) -> Option<&'a std::path::Path> {
+        match &node.kind {
             NodeKind::Image(i) => self.viewed_doc().item(i.item).map(|it| it.path.as_path()),
             _ => None,
-        };
-        slate_doc::scene::resolved_corner_radius(node, path)
+        }
     }
 
     pub(crate) fn node_resolved_corner(&self, node: &Node) -> Corner {
-        let path = match &node.kind {
-            NodeKind::Image(i) => self.viewed_doc().item(i.item).map(|it| it.path.as_path()),
-            _ => None,
-        };
-        slate_doc::scene::resolved_corner(node, path)
+        slate_doc::scene::resolved_corner(node, self.node_item_path(node))
+    }
+
+    pub(crate) fn node_fillet_radius_world(&self, node: &Node) -> f32 {
+        self.node_resolved_corner(node)
+            .effective(node.rect.w, node.rect.h)
+            .1
     }
 
     #[cfg(test)]
@@ -48,10 +49,7 @@ impl SlateApp {
         radius: f32,
         shift: bool,
     ) {
-        let path = match &before.kind {
-            NodeKind::Image(i) => self.viewed_doc().item(i.item).map(|it| it.path.as_path()),
-            _ => None,
-        };
+        let path = self.node_item_path(before);
         Self::apply_fillet_radius_to_node(node, before, radius, shift, path);
     }
 
@@ -62,17 +60,24 @@ impl SlateApp {
         shift: bool,
         path: Option<&std::path::Path>,
     ) {
-        let resolved = slate_doc::scene::resolved_corner(before, path);
-        let (chamfer, is_percent, _) = resolved.parameters();
         if shift {
             radius = radius.round();
         }
-        let corner = Corner::from_parameters(chamfer, false, radius.max(0.0)).with_mode(
-            is_percent,
-            before.rect.w,
-            before.rect.h,
-        );
-        slate_doc::scene::set_corner(node, corner);
+        let before_radius = slate_doc::scene::resolved_corner(before, path)
+            .effective(before.rect.w, before.rect.h)
+            .1;
+        if (radius - before_radius).abs() < 1e-4 {
+            *node = before.clone();
+            return;
+        }
+        slate_doc::scene::edit_corner(node, path, |resolved| {
+            let (chamfer, is_percent, _) = resolved.parameters();
+            Corner::from_parameters(chamfer, false, radius.max(0.0)).with_mode(
+                is_percent,
+                before.rect.w,
+                before.rect.h,
+            )
+        });
     }
 
     /// Screen grip for the live fillet control, if it should be shown.
@@ -91,9 +96,6 @@ impl SlateApp {
         }
         let r = self.node_fillet_radius_world(node);
         let grip = board_handles::fillet_grip_screen(xf, node.rect, node.rotation_deg, r);
-        if !board_handles::fillet_grip_separated_from_nw_corner(&geom, grip) {
-            return None;
-        }
         Some(grip)
     }
 
@@ -106,10 +108,13 @@ impl SlateApp {
         board_handles::hit_test_fillet_grip(screen, &geom, grip).then_some(id)
     }
 
-    pub(crate) fn begin_fillet_drag(&mut self, screen: Pos2) -> Option<BoardDrag> {
+    pub(crate) fn begin_fillet_drag(&mut self, screen: Pos2, world: Pos2) -> Option<BoardDrag> {
         let id = self.fillet_grip_hit_at(screen)?;
         let before = self.doc().scene.node(id)?.clone();
-        Some(BoardDrag::FilletRadius { id, before })
+        let press_radius =
+            board_handles::fillet_radius_from_world_point(before.rect, before.rotation_deg, world);
+        let grab = self.node_fillet_radius_world(&before) - press_radius;
+        Some(BoardDrag::FilletRadius { id, before, grab })
     }
 
     fn node_offers_bbox_transform(&self, node: &Node) -> bool {

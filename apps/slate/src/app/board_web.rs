@@ -2500,7 +2500,6 @@ impl SlateApp {
         let alpha = node.opacity.clamp(0.0, 1.0);
         let fade = |c: Color32| c.gamma_multiply(alpha);
         let state = self.web.state(node.id);
-        let focused = self.web.focused == Some(node.id);
         let css_rect = self.web_layout_world(node.id, node.rect, ui.ctx());
         let (css_width, _) = css_size(&portal.web_ref(), css_rect);
         let chrome_height = if self.portal_is_maximized(node.id) {
@@ -2525,13 +2524,7 @@ impl SlateApp {
             ui.ctx().pixels_per_point(),
         );
 
-        self.paint_portal_frame_fill(
-            painter,
-            layout,
-            fade(rgba32(portal.fill)),
-            Color32::TRANSPARENT,
-            focused,
-        );
+        self.paint_portal_frame_fill(painter, layout, fade(rgba32(portal.fill)));
 
         let body = layout.body;
         if body.width() < 2.0 || body.height() < 2.0 {

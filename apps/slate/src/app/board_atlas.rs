@@ -492,7 +492,7 @@ impl SlateApp {
             xf.z,
         );
         let fill = self.portal_frame_fill_color(portal);
-        self.paint_portal_frame_fill(painter, &layout, fill, Color32::TRANSPARENT, false);
+        self.paint_portal_frame_fill(painter, &layout, fill);
         let clip = super::board_portal_chrome::portal_body_content_clip(&layout)
             .intersect(painter.clip_rect());
         let clipped = painter.with_clip_rect(clip);

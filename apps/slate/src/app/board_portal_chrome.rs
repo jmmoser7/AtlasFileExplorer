@@ -660,53 +660,23 @@ impl SlateApp {
         painter: &egui::Painter,
         layout: &PortalChromeLayout,
         fill: Color32,
-        border: Color32,
-        focused: bool,
     ) {
-        let use_rect = layout.radius <= 255.0
-            && matches!(layout.corner, slate_doc::scene::Corner::Rounded { .. });
+        let z = layout.zoom.max(0.01);
+        let (chamfer, radius_world) = layout
+            .corner
+            .effective(layout.frame.width() / z, layout.frame.height() / z);
+        let radius = radius_world * z;
+        let use_rect = !chamfer && radius <= 255.0;
         if use_rect {
-            painter.rect(
-                layout.frame,
-                layout.radius,
-                fill,
-                Stroke::NONE,
-                StrokeKind::Inside,
-            );
-        } else if layout.radius > 0.5 || !matches!(layout.corner, slate_doc::scene::Corner::Square)
-        {
+            painter.rect(layout.frame, radius, fill, Stroke::NONE, StrokeKind::Inside);
+        } else {
             let outline = board::corner_outline(layout.frame, layout.corner, layout.zoom.max(0.01));
             board::paint_convex_fan_fill(painter, &outline, fill);
-        } else {
-            painter.rect(layout.frame, 0.0, fill, Stroke::NONE, StrokeKind::Inside);
         }
-        let _ = (border, focused);
     }
 
-    /// No portal kind covers its fillet with the canvas color. That mask
-    /// hides whatever the frame overlaps — another frame, or a frame with
-    /// its own fill. The footprint is the rounded fill and, where the body
-    /// is a texture, the rounded content mesh (P1.portal.clip).
-    pub(crate) fn portal_masks_fillet_with_canvas(_kind: PortalKind) -> bool {
-        false
-    }
-
-    pub(crate) fn paint_portal_fillet_punch(
-        &self,
-        painter: &egui::Painter,
-        layout: &PortalChromeLayout,
-    ) {
-        board::paint_fillet_masks(
-            painter,
-            layout.frame,
-            layout.corner,
-            layout.zoom.max(0.01),
-            self.palette().bg,
-        );
-    }
-
-    /// Shared close of the host paint sequence: fillet punch → identity
-    /// chrome → hover/focus stroke. Kind-specific work is the body hook.
+    /// Shared close of the host paint sequence: identity chrome →
+    /// hover/focus stroke. Kind-specific work is the clipped body hook.
     #[allow(clippy::too_many_arguments)] // Existing portal paint adapter.
     pub(crate) fn paint_portal_shell_finish(
         &mut self,
@@ -720,9 +690,6 @@ impl SlateApp {
         focused: bool,
         zoom: f32,
     ) {
-        if Self::portal_masks_fillet_with_canvas(portal.kind) {
-            self.paint_portal_fillet_punch(painter, layout);
-        }
         // Maximized, the overlay paints the one restore control. A second
         // glyph here sits on a different rect and steals the click.
         if !self.portal_is_maximized(id) {
@@ -745,14 +712,17 @@ impl SlateApp {
     ) {
         let z = zoom.max(0.01);
         let stroke_rect = |painter: &egui::Painter, width: f32, color: Color32| {
-            let use_rect = layout.radius <= 255.0
-                && matches!(layout.corner, slate_doc::scene::Corner::Rounded { .. });
+            let (chamfer, radius_world) = layout
+                .corner
+                .effective(layout.frame.width() / z, layout.frame.height() / z);
+            let radius = radius_world * z;
+            let use_rect = !chamfer && radius <= 255.0;
             if use_rect {
                 painter.rect_stroke(
                     layout.frame,
-                    layout.radius,
+                    radius,
                     Stroke::new(width, color),
-                    StrokeKind::Outside,
+                    StrokeKind::Middle,
                 );
             } else {
                 let outline =
@@ -787,7 +757,7 @@ impl SlateApp {
         if !edge_hover || !self.settings.hover_highlight("portal") {
             return;
         }
-        let width = 1.0_f32 * z;
+        let width = canvas_scale::px(1.0, z);
         stroke_rect(painter, width, border);
     }
 
@@ -939,18 +909,7 @@ mod tests {
     }
 
     #[test]
-    fn no_portal_fillet_is_masked_with_the_canvas() {
-        for kind in [
-            PortalKind::Web,
-            PortalKind::FileAtlas,
-            PortalKind::Slate,
-            PortalKind::Agent,
-        ] {
-            assert!(
-                !SlateApp::portal_masks_fillet_with_canvas(kind),
-                "{kind:?} must not cover its fillet with the canvas color"
-            );
-        }
+    fn host_body_clip_insets_for_the_corner() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
         let layout = layout_for_portal(
             PortalKind::Web,
@@ -959,17 +918,6 @@ mod tests {
             false,
             design_portal_corner(),
             1.0,
-        );
-        let bg = Color32::from_rgb(30, 32, 38);
-        let ctx = egui::Context::default();
-        let painted = ctx.run(egui::RawInput::default(), |ctx| {
-            let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("punch"));
-            let painter = ctx.layer_painter(layer);
-            board::paint_fillet_masks(&painter, layout.frame, layout.corner, layout.zoom, bg);
-        });
-        assert!(
-            !painted.shapes.is_empty(),
-            "sanity: canvas-colour fillet punch paints geometry"
         );
         let clip = portal_body_content_clip(&layout);
         assert!(
@@ -981,15 +929,15 @@ mod tests {
     #[test]
     fn every_portal_kind_uses_the_same_fillet() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let expected = PORTAL_FRAME_DEFAULT_FILLET;
-        assert_eq!(expected, PORTAL_FRAME_DEFAULT_FILLET);
+        let resolved = slate_doc::media::portal_frame_corner(Corner::Square);
+        let expected = resolved.effective(frame.width(), frame.height()).1;
         for kind in [
             PortalKind::Web,
             PortalKind::Agent,
             PortalKind::FileAtlas,
             PortalKind::Slate,
         ] {
-            let layout = layout_for_portal(kind, frame, false, false, design_portal_corner(), 1.0);
+            let layout = layout_for_portal(kind, frame, false, false, resolved, 1.0);
             assert!(
                 (layout.radius - expected).abs() < 1e-4,
                 "{kind:?} fillet {} != shared {expected}",

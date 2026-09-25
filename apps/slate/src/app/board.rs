@@ -643,7 +643,12 @@ pub enum BoardDrag {
         points: Vec<Pos2>,
     },
     /// Live fillet radius on a selected frame, portal, image, or rectangle.
-    FilletRadius { id: NodeId, before: Node },
+    FilletRadius {
+        id: NodeId,
+        before: Node,
+        /// Press-time offset from the displayed grip to the authored radius.
+        grab: f32,
+    },
 }
 
 /// World→screen transform. The board uses the tab camera; presentation mode
@@ -1982,58 +1987,6 @@ pub(crate) fn portal_content_outline(frame: Rect, body: Rect, corner: Corner, z:
     corner_outline(clip, clip_corner, z)
 }
 
-/// Square-corner leftovers outside a treated rect. The inner boundary comes
-/// from the model's adaptive outline, so masks cannot drift from board/export
-/// geometry for chamfers or large fillets.
-pub(crate) fn fillet_overhangs(rect: Rect, corner: Corner, z: f32) -> [Vec<Pos2>; 4] {
-    let (_, world_r) = corner.effective(rect.width() / z, rect.height() / z);
-    let r = world_r * z;
-    if r < 0.5 {
-        return [vec![], vec![], vec![], vec![]];
-    }
-    let outline = corner_outline(rect, corner, z);
-    let corners = [
-        (
-            rect.right_top(),
-            [rect.right() - r, rect.top(), rect.right(), rect.top() + r],
-        ),
-        (
-            rect.right_bottom(),
-            [
-                rect.right() - r,
-                rect.bottom() - r,
-                rect.right(),
-                rect.bottom(),
-            ],
-        ),
-        (
-            rect.left_bottom(),
-            [
-                rect.left(),
-                rect.bottom() - r,
-                rect.left() + r,
-                rect.bottom(),
-            ],
-        ),
-        (
-            rect.left_top(),
-            [rect.left(), rect.top(), rect.left() + r, rect.top() + r],
-        ),
-    ];
-    corners.map(|(outer, [left, top, right, bottom])| {
-        let mut pts = Vec::new();
-        pts.push(outer);
-        pts.extend(
-            outline
-                .iter()
-                .copied()
-                .filter(|p| p.x >= left - 0.01 && p.x <= right + 0.01)
-                .filter(|p| p.y >= top - 0.01 && p.y <= bottom + 0.01),
-        );
-        pts
-    })
-}
-
 pub(crate) fn paint_convex_fan_fill(painter: &egui::Painter, outline: &[Pos2], fill: Color32) {
     if outline.len() < 3 {
         return;
@@ -2050,23 +2003,6 @@ pub(crate) fn paint_convex_fan_fill(painter: &egui::Painter, outline: &[Pos2], f
         mesh.indices.extend_from_slice(&[0, i, i + 1]);
     }
     painter.add(mesh);
-}
-
-pub(crate) fn paint_fillet_masks(
-    painter: &egui::Painter,
-    frame: Rect,
-    corner: Corner,
-    z: f32,
-    fill: Color32,
-) {
-    if fill.a() == 0 {
-        return;
-    }
-    for outline in fillet_overhangs(frame, corner, z) {
-        if outline.len() >= 3 {
-            paint_convex_fan_fill(painter, &outline, fill);
-        }
-    }
 }
 
 /// Outline points for a rect with the given corner treatment (clockwise).
@@ -5767,13 +5703,15 @@ impl SlateApp {
                         }
                     }
                 }
+                // Match hover priority: the visible fillet grip wins any
+                // overlap with wire/resize bands.
+                if let Some(drag) = self.begin_fillet_drag(screen, world) {
+                    return Some(drag);
+                }
                 // Wire grip at the press origin beats edge resize. The rest
                 // of the edge is Windows-style resize (no selection needed).
                 if let Some(wd) = self.try_begin_wire_drag(screen, world, mods) {
                     return Some(BoardDrag::Wire(wd));
-                }
-                if let Some(drag) = self.begin_fillet_drag(screen) {
-                    return Some(drag);
                 }
                 if let Some(drag) = self.begin_transform_drag(screen, world) {
                     return Some(drag);
@@ -6469,17 +6407,17 @@ impl SlateApp {
                     }
                 }
             }
-            Some(BoardDrag::FilletRadius { id, before }) => {
+            Some(BoardDrag::FilletRadius { id, before, grab }) => {
                 let node_id = *id;
                 let before = before.clone();
-                let image_path = match &before.kind {
-                    NodeKind::Image(i) => self.viewed_doc().item(i.item).map(|it| it.path.clone()),
-                    _ => None,
-                };
-                let radius = board_handles::fillet_radius_from_world_point(
+                let image_path = self
+                    .node_item_path(&before)
+                    .map(std::path::Path::to_path_buf);
+                let radius = board_handles::fillet_drag_radius_from_world_point(
                     before.rect,
                     before.rotation_deg,
                     world,
+                    *grab,
                 );
                 if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
                     SlateApp::apply_fillet_radius_to_node(
@@ -6558,7 +6496,7 @@ impl SlateApp {
                     }
                 }
             }
-            Some(BoardDrag::FilletRadius { id, before }) => {
+            Some(BoardDrag::FilletRadius { id, before, .. }) => {
                 if let Some(after) = self.doc().scene.node(id).cloned() {
                     if after != before {
                         self.tab_mut().journal.record(vec![SceneCmd::Patch {
@@ -8978,20 +8916,5 @@ mod tests {
                 "chord error {error} exceeds {ELLIPSE_CHORD_PX}"
             );
         }
-    }
-
-    #[test]
-    fn fillet_overhangs_follow_adaptive_corner_outline_for_chamfers_and_large_radii() {
-        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 900.0));
-        let rounded = fillet_overhangs(rect, Corner::Rounded { radius: 400.0 }, 1.0);
-        assert!(
-            rounded.iter().all(|wedge| wedge.len() > 10),
-            "large fillets must use the model's adaptive arc, not a fixed-step polygon"
-        );
-        let chamfer = fillet_overhangs(rect, Corner::Chamfer { cut: 80.0 }, 1.0);
-        assert!(
-            chamfer.iter().all(|wedge| wedge.len() == 3),
-            "each chamfer mask is the outer corner plus its two model vertices"
-        );
     }
 }
