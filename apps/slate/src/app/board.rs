@@ -110,6 +110,24 @@ pub(crate) struct SheetGrip {
     pub row: Option<usize>,
 }
 
+/// In-flight click/drag text-box compose. Nothing is journaled until
+/// [`SlateApp::commit_text_box_draft`] runs with non-empty content.
+#[derive(Clone)]
+pub(crate) struct TextBoxDraft {
+    pub rect: WorldRect,
+    pub buffer: String,
+    pub color: Rgba,
+    pub family: Typeface,
+    pub size: f32,
+    pub align: TextAlign,
+    /// Drag-created boxes wrap at the drawn width; click-create grows with content.
+    pub fixed_width: bool,
+}
+
+pub(crate) const TEXT_BOX_DEFAULT_W: f32 = 280.0;
+pub(crate) const TEXT_BOX_DEFAULT_H: f32 = 48.0;
+pub(crate) const TEXT_BOX_DEFAULT_SIZE: f32 = 24.0;
+
 pub(crate) struct SheetResize {
     pub node: NodeId,
     pub col: Option<usize>,
@@ -1047,6 +1065,14 @@ impl SlateApp {
     /// Switch the board tool through one place: the brush chain breaks on
     /// every re-arm, and direct-selection state clears when leaving A.
     pub(crate) fn set_board_tool(&mut self, tool: BoardTool) {
+        if let Some(draft) = self.text_box_draft.take() {
+            if draft.buffer.is_empty() {
+                // Tool switch discards an empty compose (no journal).
+            } else {
+                self.text_box_draft = Some(draft);
+                self.commit_text_box_draft();
+            }
+        }
         self.shape_properties = Default::default();
         self.desktop_sample = None;
         self.armed_kit_id = None;
@@ -3542,7 +3568,7 @@ impl SlateApp {
         let pointer = ui.ctx().pointer_latest_pos();
         let xf = self.board_xf();
         let wp = pointer.map(|p| xf.s2w(p));
-        let editing_text = self.text_edit.is_some();
+        let editing_text = self.text_compose_active();
 
         // Live viewport tool strip (before gestures so it can capture clicks).
         let agent_controls_capture = self.agent_spawn_input(ui, &xf);
@@ -4087,17 +4113,10 @@ impl SlateApp {
                     self.commit_sheet_edit();
                     if editing_text {
                         let outside = pointer
-                            .zip(self.text_edit.as_ref().map(|(id, _)| *id))
-                            .map(|(p, id)| {
-                                let on_shape =
-                                    self.doc().scene.node(id).is_some_and(|n| {
-                                        xf.rect_w2s(n.rect).expand(4.0).contains(p)
-                                    });
-                                !on_shape && !self.pointer_on_shape_chrome(p)
-                            })
+                            .map(|p| self.text_compose_outside(p, &xf))
                             .unwrap_or(false);
                         if outside {
-                            self.commit_text_edit();
+                            self.finish_text_compose_on_click_away();
                             if let Some(w) = wp {
                                 let mods = ui.input(|i| i.modifiers);
                                 if !self.try_dock_embed_click(ui.ctx(), w) {
@@ -4114,21 +4133,12 @@ impl SlateApp {
                 } else if self.sheet_edit.is_some() {
                     // The press landed in the cell editor.
                 } else if editing_text {
-                    // Click-off commits the in-flight text edit (same path as
-                    // Escape / lost focus), then still performs selection.
+                    // Click-off commits the in-flight compose, then selection.
                     let outside = pointer
-                        .zip(self.text_edit.as_ref().map(|(id, _)| *id))
-                        .map(|(p, id)| {
-                            let on_shape = self
-                                .doc()
-                                .scene
-                                .node(id)
-                                .is_some_and(|n| xf.rect_w2s(n.rect).expand(4.0).contains(p));
-                            !on_shape && !self.pointer_on_shape_chrome(p)
-                        })
+                        .map(|p| self.text_compose_outside(p, &xf))
                         .unwrap_or(false);
                     if outside {
-                        self.commit_text_edit();
+                        self.finish_text_compose_on_click_away();
                         if let Some(w) = wp {
                             let mods = ui.input(|i| i.modifiers);
                             if !self.try_dock_embed_click(ui.ctx(), w) {
@@ -4526,6 +4536,7 @@ impl SlateApp {
         // yields to the live rubber-band; the pointer stays.
         let armed_kind = board_place::ghost_kind(self.board_tool);
         if armed_kind.is_some()
+            && self.text_box_draft.is_none()
             && resp.hovered()
             && !panning
             && !zoom_tool
@@ -4624,6 +4635,10 @@ impl SlateApp {
                     }
                 }
             }
+        }
+
+        if let Some(draft) = &self.text_box_draft {
+            self.paint_text_box_draft(&painter, &xf, draft);
         }
 
         if let Some(draft) = &self.board_path_draft {
@@ -5844,8 +5859,15 @@ impl SlateApp {
                     }),
                 }
             }
-            BoardTool::Text => None, // created on click, not drag
-            BoardTool::Pan => None,  // drag pans the canvas
+            BoardTool::Text => {
+                let start = self.resolve_point_snap(world, &[], None, false, false);
+                Some(BoardDrag::Draw {
+                    start_world: start,
+                    start_screen: screen,
+                    tool: BoardTool::Text,
+                })
+            }
+            BoardTool::Pan => None, // drag pans the canvas
             BoardTool::Pen => Some(BoardDrag::FreehandPen {
                 points: vec![world],
                 last: world,
@@ -6577,23 +6599,33 @@ impl SlateApp {
                 start_screen,
                 tool,
             }) => {
-                let rect = self.resolve_draw_rect(
-                    start_world,
-                    world,
-                    tool,
-                    mods.shift,
-                    board_place::draws_from_center(tool, mods.ctrl),
-                );
-                // D04: cursor travel in *screen* px. World units made a
-                // zoomed-out click look like a drag (and a zoomed-in snap
-                // pull look like ClickPlace).
-                let travel_px = pointer
-                    .map(|p| (p - start_screen).length())
-                    .unwrap_or_else(|| (world - start_world).length() * self.board_xf().z);
-                if travel_px <= board_place::place_tokens::DRAG_THRESHOLD {
-                    self.place_default_at(tool, start_world);
+                if tool == BoardTool::Text {
+                    self.finish_text_box_place_gesture(
+                        start_world,
+                        world,
+                        start_screen,
+                        pointer,
+                        mods,
+                    );
                 } else {
-                    self.commit_draw_rect(rect, tool);
+                    let rect = self.resolve_draw_rect(
+                        start_world,
+                        world,
+                        tool,
+                        mods.shift,
+                        board_place::draws_from_center(tool, mods.ctrl),
+                    );
+                    // D04: cursor travel in *screen* px. World units made a
+                    // zoomed-out click look like a drag (and a zoomed-in snap
+                    // pull look like ClickPlace).
+                    let travel_px = pointer
+                        .map(|p| (p - start_screen).length())
+                        .unwrap_or_else(|| (world - start_world).length() * self.board_xf().z);
+                    if travel_px <= board_place::place_tokens::DRAG_THRESHOLD {
+                        self.place_default_at(tool, start_world);
+                    } else {
+                        self.commit_draw_rect(rect, tool);
+                    }
                 }
             }
             Some(BoardDrag::FreehandPen { mut points, .. }) => {
@@ -6970,24 +7002,68 @@ impl SlateApp {
             .collect()
     }
 
-    /// Click-to-create text at a world point (Text tool click / palette).
-    /// Dark text on frames, light on the void; opens the inline editor.
-    pub(crate) fn place_text_at(&mut self, world: Pos2) {
-        let on_frame = self.doc().scene.frame_at(world.x, world.y).is_some();
-        let color = if on_frame {
-            Rgba::opaque(20, 22, 26)
-        } else {
-            Rgba::opaque(228, 230, 235)
-        };
-        let rect = WorldRect::new(world.x, world.y - 16.0, 280.0, 48.0);
-        let node = self.doc_mut().scene.build_node(
+    pub(crate) fn text_compose_active(&self) -> bool {
+        self.text_edit.is_some() || self.text_box_draft.is_some()
+    }
+
+    fn default_text_click_rect(anchor: Pos2) -> WorldRect {
+        WorldRect::new(
+            anchor.x,
+            anchor.y - TEXT_BOX_DEFAULT_SIZE * 0.75,
+            MIN_DRAW.max(2.0),
+            TEXT_BOX_DEFAULT_SIZE * 1.25,
+        )
+    }
+
+    /// Start composing a text box at `anchor`. Any prior non-empty draft commits first.
+    pub(crate) fn begin_text_box_draft(
+        &mut self,
+        _anchor: Pos2,
+        rect: WorldRect,
+        fixed_width: bool,
+    ) {
+        self.commit_text_edit();
+        if let Some(draft) = self.text_box_draft.take() {
+            if draft.buffer.is_empty() {
+                // Replace the empty compose.
+            } else {
+                self.text_box_draft = Some(draft);
+                self.commit_text_box_draft();
+            }
+        }
+        let color = to_rgba(self.palette().ink);
+        self.text_box_draft = Some(TextBoxDraft {
             rect,
+            buffer: String::new(),
+            color,
+            family: Typeface::Sans,
+            size: TEXT_BOX_DEFAULT_SIZE,
+            align: TextAlign::Left,
+            fixed_width,
+        });
+        self.board_sel.clear();
+    }
+
+    pub(crate) fn cancel_text_box_draft(&mut self) {
+        self.text_box_draft = None;
+    }
+
+    /// Journaled add when the draft buffer is non-empty; no-op otherwise.
+    pub(crate) fn commit_text_box_draft(&mut self) {
+        let Some(draft) = self.text_box_draft.take() else {
+            return;
+        };
+        if draft.buffer.is_empty() {
+            return;
+        }
+        let node = self.doc_mut().scene.build_node(
+            draft.rect,
             NodeKind::Text(TextNode {
-                text: "Text".into(),
-                family: Typeface::Sans,
-                size: 24.0,
-                color,
-                align: TextAlign::Left,
+                text: draft.buffer,
+                family: draft.family,
+                size: draft.size,
+                color: draft.color,
+                align: draft.align,
                 fill: None,
                 agent: None,
             }),
@@ -6996,12 +7072,85 @@ impl SlateApp {
         self.add_nodes(vec![node]);
         self.board_sel.clear();
         self.board_sel.insert(id);
-        self.text_edit = Some((id, "Text".into()));
-        self.board_tool = BoardTool::Select;
+        self.disarm_create();
         self.push_history(
             atlas_commands::CommandId("board.tool.text"),
             Some("placed".into()),
         );
+    }
+
+    fn finish_text_box_place_gesture(
+        &mut self,
+        start_world: Pos2,
+        end_world: Pos2,
+        start_screen: Pos2,
+        pointer: Option<Pos2>,
+        mods: egui::Modifiers,
+    ) {
+        let travel_px = pointer
+            .map(|p| (p - start_screen).length())
+            .unwrap_or_else(|| (end_world - start_world).length() * self.board_xf().z);
+        if travel_px <= board_place::place_tokens::DRAG_THRESHOLD {
+            self.begin_text_box_draft(
+                start_world,
+                Self::default_text_click_rect(start_world),
+                false,
+            );
+            return;
+        }
+        let rect = self.resolve_draw_rect(
+            start_world,
+            end_world,
+            BoardTool::Text,
+            mods.shift,
+            board_place::draws_from_center(BoardTool::Text, mods.ctrl),
+        );
+        if rect.w < MIN_DRAW && rect.h < MIN_DRAW {
+            return;
+        }
+        self.begin_text_box_draft(start_world, rect, true);
+    }
+
+    fn refresh_text_box_draft_rect(
+        &mut self,
+        ctx: &egui::Context,
+        xf: &BoardXf,
+        draft: &TextBoxDraft,
+    ) {
+        if draft.fixed_width || draft.buffer.is_empty() {
+            return;
+        }
+        let font = typeface_font(draft.family, (draft.size * xf.z).max(4.0));
+        let color32 = rgba32(draft.color);
+        let galley = ctx.fonts(|fonts| {
+            layout_shape_galley(
+                fonts,
+                &draft.buffer,
+                font,
+                color32,
+                f32::INFINITY,
+                draft.align,
+            )
+        });
+        let pad = canvas_scale::px(2.0, xf.z);
+        let w = (galley.size().x / xf.z + pad * 2.0 / xf.z).max(MIN_DRAW.max(2.0));
+        let h = (galley.size().y / xf.z + pad * 2.0 / xf.z).max(TEXT_BOX_DEFAULT_SIZE * 1.25);
+        if let Some(live) = self.text_box_draft.as_mut() {
+            live.rect.w = w;
+            live.rect.h = h;
+        }
+    }
+
+    fn paint_text_box_draft(&self, painter: &egui::Painter, xf: &BoardXf, draft: &TextBoxDraft) {
+        let sr = xf.rect_w2s(draft.rect);
+        let stroke = rgba32(to_rgba(self.palette().ink)).gamma_multiply(0.55);
+        let w = canvas_scale::px(1.0, xf.z);
+        painter.rect_stroke(sr, 0.0, EStroke::new(w, stroke), egui::StrokeKind::Inside);
+    }
+
+    /// Click-to-compose text at a world point (Text tool / palette).
+    pub(crate) fn place_text_at(&mut self, world: Pos2) {
+        self.begin_text_box_draft(world, Self::default_text_click_rect(world), false);
     }
 
     #[cfg(test)]
@@ -7187,6 +7336,9 @@ impl SlateApp {
         }
         match self.board_tool {
             BoardTool::Text => {
+                if matches!(self.board_drag, Some(BoardDrag::Draw { .. })) {
+                    return;
+                }
                 let world = self.resolve_point_snap(world, &[], None, false, false);
                 self.place_text_at(world);
                 return;
@@ -7358,7 +7510,7 @@ impl SlateApp {
             // tools only — draw tools keep their double-click semantics.
             if matches!(self.board_tool, BoardTool::Select | BoardTool::Pan)
                 && self.board_crop.is_none()
-                && self.text_edit.is_none()
+                && !self.text_compose_active()
             {
                 let screen = self.board_xf().w2s(world);
                 self.open_board_palette(screen, world);
@@ -8122,7 +8274,112 @@ impl SlateApp {
             .any(|rect| rect.contains(p))
     }
 
+    fn text_compose_outside(&self, pointer: Pos2, xf: &BoardXf) -> bool {
+        if self.pointer_on_shape_chrome(pointer) {
+            return false;
+        }
+        if let Some((id, _)) = &self.text_edit {
+            return self
+                .doc()
+                .scene
+                .node(*id)
+                .is_none_or(|n| !xf.rect_w2s(n.rect).expand(4.0).contains(pointer));
+        }
+        if let Some(draft) = &self.text_box_draft {
+            return !xf.rect_w2s(draft.rect).expand(4.0).contains(pointer);
+        }
+        false
+    }
+
+    fn finish_text_compose_on_click_away(&mut self) {
+        if self.text_box_draft.is_some() {
+            if self
+                .text_box_draft
+                .as_ref()
+                .is_some_and(|d| !d.buffer.is_empty())
+            {
+                self.commit_text_box_draft();
+            } else {
+                self.cancel_text_box_draft();
+            }
+        } else {
+            self.commit_text_edit();
+        }
+    }
+
+    fn text_box_draft_overlay(&mut self, ctx: &egui::Context, xf: &BoardXf) {
+        let Some(mut draft) = self.text_box_draft.clone() else {
+            return;
+        };
+        let font = typeface_font(draft.family, (draft.size * xf.z).max(4.0));
+        let sr = xf.rect_w2s(draft.rect);
+        let box_w = sr.width().max(8.0);
+        let box_h = sr.height().max(8.0);
+        let _wrap = if draft.fixed_width {
+            box_w
+        } else {
+            f32::INFINITY
+        };
+        let mut commit = false;
+        let mut cancel = false;
+        egui::Area::new(egui::Id::new("slate_text_box_draft"))
+            .fixed_pos(sr.min)
+            .order(egui::Order::Middle)
+            .show(ctx, |ui| {
+                ui.set_width(box_w);
+                ui.set_height(box_h);
+                ui.set_clip_rect(sr);
+                let ink = rgba32(draft.color);
+                ui.visuals_mut().override_text_color = Some(ink);
+                ui.visuals_mut().text_cursor.stroke.color = ink;
+                ui.visuals_mut().text_cursor.blink = true;
+                let color32 = ink;
+                let align = draft.align;
+                let mut layouter = |ui: &egui::Ui, text: &str, wrap_w: f32| {
+                    ui.fonts(|fonts| {
+                        layout_shape_galley(fonts, text, font.clone(), color32, wrap_w, align)
+                    })
+                };
+                let resp = ui.add(
+                    egui::TextEdit::multiline(&mut draft.buffer)
+                        .desired_width(box_w)
+                        .frame(false)
+                        .clip_text(true)
+                        .margin(egui::Margin::ZERO)
+                        .font(font.clone())
+                        .horizontal_align(egui::Align::LEFT)
+                        .vertical_align(egui::Align::TOP)
+                        .layouter(&mut layouter),
+                );
+                let keep_focus = ui.memory(|m| m.focused().is_none_or(|fid| fid == resp.id));
+                if keep_focus {
+                    resp.request_focus();
+                }
+                if resp.changed() {
+                    self.text_box_draft = Some(draft.clone());
+                    self.refresh_text_box_draft_rect(ctx, xf, &draft);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    if draft.buffer.is_empty() {
+                        cancel = true;
+                    } else {
+                        commit = true;
+                    }
+                }
+            });
+        ctx.request_repaint_after(Duration::from_secs_f64(0.55));
+        if cancel {
+            self.cancel_text_box_draft();
+        } else if commit {
+            self.commit_text_box_draft();
+        }
+    }
+
     fn text_edit_overlay(&mut self, ctx: &egui::Context, xf: &BoardXf) {
+        if self.text_box_draft.is_some() {
+            self.text_box_draft_overlay(ctx, xf);
+            return;
+        }
         let Some((id, mut buf)) = self.text_edit.clone() else {
             return;
         };

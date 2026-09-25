@@ -64,6 +64,9 @@ pub fn constraint_for(tool: BoardTool, frame_aspect: f32) -> Option<PlaceConstra
         | BoardTool::WebPortal
         | BoardTool::AtlasPortal
         | BoardTool::SlatePortal => Some(PlaceConstraint::ShiftLocksAspect { ratio: 16.0 / 9.0 }),
+        BoardTool::Text => Some(PlaceConstraint::ShiftLocksAspect {
+            ratio: super::board::TEXT_BOX_DEFAULT_W / super::board::TEXT_BOX_DEFAULT_H,
+        }),
         _ => None,
     }
 }
