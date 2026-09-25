@@ -8533,7 +8533,7 @@ impl SlateApp {
         });
         if let Some(channel) = selected {
             #[cfg(not(test))]
-            self.load_agent_connection(portal, channel);
+            self.load_agent_connection(portal, channel, false);
             #[cfg(test)]
             let _ = channel;
         } else {
@@ -8549,7 +8549,10 @@ impl SlateApp {
         }
     }
 
-    fn load_agent_connection(&mut self, portal: NodeId, channel: String) {
+    /// Read the provider's copy of the conversation off-thread. A background
+    /// load refreshes a conversation already on the board and may only add
+    /// to it (`atlas_ai::agent::reloaded`).
+    fn load_agent_connection(&mut self, portal: NodeId, channel: String, background: bool) {
         let Some((session, provider)) = self.agent_session_for(portal) else {
             return;
         };
@@ -8570,7 +8573,7 @@ impl SlateApp {
         let (tx, rx) = unbounded();
         self.agents.connection_rx = Some(rx);
         self.agents.connection_pending = Some(portal);
-        self.agents.connection_background = false;
+        self.agents.connection_background = background;
         self.agents.connection_tick = Some(Instant::now());
         #[cfg(test)]
         {
@@ -8598,6 +8601,9 @@ impl SlateApp {
                     } else if provider == "cursor" {
                         std::fs::write(dir.join("cursor-agent.txt"), &channel)
                             .map_err(|e| e.to_string())?;
+                    }
+                    if background {
+                        return atlas_ai::agent::store_reloaded(&dir, state);
                     }
                     atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &state)
                         .map_err(|e| e.to_string())?;
@@ -8807,8 +8813,7 @@ impl SlateApp {
                 return;
             }
         }
-        self.load_agent_connection(id, channel);
-        self.agents.connection_background = true;
+        self.load_agent_connection(id, channel, true);
     }
 
     fn pump_agent_connection(&mut self, ctx: &egui::Context) {
@@ -8828,6 +8833,20 @@ impl SlateApp {
             return;
         }
         let failure = result.as_ref().err().cloned();
+        let result = match (result, self.agents.sessions.get(&id).cloned()) {
+            (Ok(state), Some(old)) if background => {
+                let mut shown = (*old).clone();
+                shown.turns = self.agent_all_turns(id);
+                match atlas_ai::agent::reloaded(&shown, state) {
+                    Some(next) => Ok(next),
+                    None => {
+                        self.settle_agent_connecting(id, &session, None);
+                        return;
+                    }
+                }
+            }
+            (result, _) => result,
+        };
         match result {
             Ok(state) => {
                 self.agents.bindings.insert(id, session.clone());

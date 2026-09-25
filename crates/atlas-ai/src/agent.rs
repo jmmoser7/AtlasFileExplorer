@@ -554,6 +554,26 @@ pub fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Resul
     std::fs::rename(tmp, path)
 }
 
+/// Cache a background reload in the link folder by [`reloaded`]: the file is
+/// rewritten only when the provider added messages, so its watchers see no
+/// change otherwise. Returns what the conversation now shows. Worker only.
+pub fn store_reloaded(dir: &Path, fetched: AgentSession) -> Result<AgentSession, String> {
+    let path = dir.join("session.json");
+    let shown = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<AgentSession>(&bytes).ok());
+    let next = match shown {
+        Some(shown) => match reloaded(&shown, fetched) {
+            Some(next) => next,
+            None => return Ok(shown),
+        },
+        None => fetched,
+    };
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    atomic_write_json(&path, &next).map_err(|e| e.to_string())?;
+    Ok(next)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -570,6 +590,54 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_reload_rewrites_the_cached_session_only_when_it_adds_messages() {
+        let dir = temp_workspace("store_reloaded");
+        let turn = |role: &str, text: &str, at| AgentTurn {
+            role: role.into(),
+            text: text.into(),
+            at,
+        };
+        let state = |turns: Vec<AgentTurn>| AgentSession {
+            approval: None,
+            conversation: "c".into(),
+            artifacts: Vec::new(),
+            status: AgentStatus::Idle,
+            provider: "cursor".into(),
+            turns,
+            updated_at: 0,
+            bundle: Default::default(),
+            request: "r1".into(),
+        };
+        let shown = state(vec![turn("user", "q0", 4), turn("assistant", "a0", 4)]);
+        let path = dir.join("session.json");
+        atomic_write_json(&path, &shown).unwrap();
+        let old = std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+
+        let same = state(vec![turn("user", "q0", 0), turn("assistant", "a0", 0)]);
+        assert_eq!(store_reloaded(&dir, same).unwrap(), shown);
+        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), old);
+
+        let more = state(vec![
+            turn("user", "q0", 0),
+            turn("assistant", "a0", 0),
+            turn("user", "q1", 0),
+            turn("assistant", "a1", 0),
+        ]);
+        let next = store_reloaded(&dir, more).unwrap();
+        assert_eq!(next.turns.len(), 4);
+        assert_eq!(next.turns[0].at, 4, "Slate's timestamps stay");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(serde_json::from_str::<AgentSession>(&text).unwrap(), next);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn context() -> AgentContext {

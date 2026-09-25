@@ -382,6 +382,33 @@ pub fn checkpoint(
         .ok_or("The checkpoint history has not loaded yet.")
 }
 
+/// A background reload of the provider's copy of a conversation Slate is
+/// already showing. The provider's transcript carries no Slate timestamps,
+/// notes or artifacts, and can lag, so it only appends messages beyond the
+/// shown ones and never shrinks or rewrites them. `None` keeps `shown` as is.
+pub fn reloaded(shown: &AgentSession, fetched: AgentSession) -> Option<AgentSession> {
+    let other_stream = !shown.conversation.is_empty() && shown.conversation != fetched.conversation;
+    if shown.turns.is_empty() || other_stream {
+        return (*shown != fetched).then_some(fetched);
+    }
+    let said = |t: &&AgentTurn| t.role != "system";
+    let known: Vec<_> = shown.turns.iter().filter(said).collect();
+    let told: Vec<_> = fetched.turns.iter().filter(said).collect();
+    let continues =
+        told.len() > known.len() && known.iter().zip(&told).all(|(a, b)| a.role == b.role);
+    if !continues && shown.conversation == fetched.conversation {
+        return None;
+    }
+    let mut next = shown.clone();
+    next.conversation = fetched.conversation;
+    if continues {
+        next.turns
+            .extend(told[known.len()..].iter().map(|t| (*t).clone()));
+        next.updated_at = next.updated_at.max(fetched.updated_at);
+    }
+    Some(next)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSession {
     #[serde(default)]
@@ -813,6 +840,94 @@ mod tests {
         assert_eq!(checkpoint(&turns, Some(1)).unwrap()[0].text, "0");
         assert!(checkpoint(&[], Some(1)).is_err());
         assert!(checkpoint(&turns, Some(4)).is_err());
+    }
+    fn session(conversation: &str, turns: &[(&str, &str, u64)]) -> AgentSession {
+        AgentSession {
+            approval: None,
+            conversation: conversation.into(),
+            artifacts: Vec::new(),
+            status: AgentStatus::Idle,
+            provider: "cursor".into(),
+            turns: turns
+                .iter()
+                .map(|(role, text, at)| AgentTurn {
+                    role: (*role).into(),
+                    text: (*text).into(),
+                    at: *at,
+                })
+                .collect(),
+            updated_at: 0,
+            bundle: ImageBundle::default(),
+            request: "r1".into(),
+        }
+    }
+    #[test]
+    fn a_reload_never_shrinks_or_rewrites_the_shown_conversation() {
+        let shown = session(
+            "c",
+            &[
+                ("user", "q0", 5),
+                ("assistant", "a0", 5),
+                ("system", "Response stopped.", 6),
+                ("user", "q1", 7),
+                ("assistant", "a1", 7),
+            ],
+        );
+        let shorter = session("c", &[("user", "q0", 0), ("assistant", "a0", 0)]);
+        assert_eq!(reloaded(&shown, shorter), None);
+        let reworded = session(
+            "c",
+            &[
+                ("user", "Slate board: ... q0", 0),
+                ("assistant", "a0", 0),
+                ("user", "q1", 0),
+                ("assistant", "a1", 0),
+            ],
+        );
+        assert_eq!(reloaded(&shown, reworded), None, "same length is no news");
+        assert_eq!(reloaded(&shown, session("c", &[])), None);
+
+        let longer = session(
+            "c",
+            &[
+                ("user", "q0", 0),
+                ("assistant", "a0", 0),
+                ("user", "q1", 0),
+                ("assistant", "a1", 0),
+                ("user", "asked in Cursor", 0),
+                ("assistant", "answered in Cursor", 0),
+            ],
+        );
+        let next = reloaded(&shown, longer).unwrap();
+        assert_eq!(next.turns[..5], shown.turns[..]);
+        assert_eq!(next.turns[5].text, "asked in Cursor");
+        assert_eq!(next.turns[6].text, "answered in Cursor");
+        assert_eq!(next.request, "r1", "Slate's own fields stay");
+
+        let diverged = session(
+            "c",
+            &[
+                ("assistant", "?", 0),
+                ("user", "?", 0),
+                ("assistant", "?", 0),
+                ("user", "?", 0),
+                ("assistant", "?", 0),
+            ],
+        );
+        assert_eq!(reloaded(&shown, diverged), None);
+    }
+    #[test]
+    fn a_reload_fills_an_empty_card_and_replaces_another_conversation() {
+        let fetched = session("c", &[("user", "q0", 0), ("assistant", "a0", 0)]);
+        let empty = session("c", &[]);
+        assert_eq!(reloaded(&empty, fetched.clone()), Some(fetched.clone()));
+        let other = session("old", &[("user", "x", 1)]);
+        assert_eq!(reloaded(&other, fetched.clone()), Some(fetched.clone()));
+        assert_eq!(reloaded(&fetched, fetched.clone()), None);
+        let unnamed = session("", &[("user", "q0", 3), ("assistant", "a0", 3)]);
+        let named = reloaded(&unnamed, fetched).unwrap();
+        assert_eq!(named.conversation, "c");
+        assert_eq!(named.turns, unnamed.turns);
     }
     #[test]
     fn rapid_requests_have_distinct_identity() {

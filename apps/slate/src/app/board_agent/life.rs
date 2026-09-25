@@ -318,10 +318,7 @@ impl SlateApp {
         if live || self.agent_is_running(id) {
             return;
         }
-        self.load_agent_connection(id, channel);
-        if self.agents.connection_rx.is_some() {
-            self.agents.connection_background = true;
-        }
+        self.load_agent_connection(id, channel, true);
     }
 
     /// The card's saved conversation is the one its source last reported.
@@ -355,11 +352,10 @@ impl SlateApp {
             if let Some((session, _)) = self.agent_session_for(portal) {
                 self.agents.life.rejoined.insert(session);
             }
-            self.load_agent_connection(portal, channel);
+            self.load_agent_connection(portal, channel, true);
             if self.agents.connection_rx.is_none() {
                 return false;
             }
-            self.agents.connection_background = true;
         }
         self.agents.life.connecting.insert(portal);
         true
@@ -898,6 +894,90 @@ mod tests {
     #[test]
     fn agent_life_submitting_in_train_mode_keeps_earlier_cards() {
         submit_keeps_earlier_cards("agent_life_submit_train", false);
+    }
+
+    fn history_rails(h: &Harness) -> Vec<(NodeId, NodeId)> {
+        slate_doc::agent_chat::history_rails(&h.app.doc().scene)
+            .into_iter()
+            .map(|r| (r.from, r.to))
+            .collect()
+    }
+
+    fn chat_views(h: &Harness) -> Vec<(NodeId, slate_doc::agent_chat::ChatView)> {
+        h.app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter_map(|n| Some((n.id, slate_doc::agent_chat::agent(n)?.chat.clone())))
+            .collect()
+    }
+
+    #[test]
+    fn agent_life_switching_access_mid_train_keeps_every_card() {
+        let (mut h, ws) = linked_board("agent_life_access");
+        let ids = saved_train(&mut h, &ws, "conv-access", true);
+        let project = h.base.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let locator = project.to_string_lossy().into_owned();
+        h.app.patch_nodes(&ids, |n| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                p.source = Some(slate_doc::SourceUri {
+                    locator: locator.clone(),
+                });
+            }
+        });
+        let dir = h.app.agent_link_dir(ids[0], &ws).unwrap();
+        let last = *ids.last().unwrap();
+        frames_until(&mut h, "the saved history", |h| shows(h, last, "answer 1"));
+        let session = h.app.agent_session_for(last).unwrap().0;
+        h.app.agents.sidecar_booting.insert(session.clone());
+        h.app.agents.connection_tick = None;
+        h.app.agents.life.hold_loads = true;
+        h.app.agents.access_path = Some(h.base.join("access.json"));
+        h.app.board_sel = [last].into_iter().collect();
+        for _ in 0..10 {
+            h.frame();
+        }
+        assert!(
+            h.app.agents.life.loads.is_empty(),
+            "a running sidecar needs no reload"
+        );
+        let before = card_views(&h);
+        let chats = chat_views(&h);
+        let rails = history_rails(&h);
+        assert_eq!(rails.len(), ids.len() - 1);
+
+        assert!(h.app.dispatch(
+            &h.ctx,
+            atlas_commands::CommandId("portal.agent.full_access"),
+            None
+        ));
+        assert!(h.app.agent_full_access(&session));
+        frames_until(&mut h, "the provider reload", |h| {
+            !h.app.agents.life.loads.is_empty()
+        });
+        // The provider's own copy, as `--read` returns it: no Slate
+        // timestamps, and here only the first exchange.
+        let mut fetched = history("conv-access", 1);
+        for turn in &mut fetched.turns {
+            turn.at = 0;
+        }
+        let load = h.app.agents.life.loads.remove(0);
+        let cached = atlas_ai::agent::store_reloaded(&load.dir, fetched);
+        load.tx.send((load.portal, load.session, cached)).unwrap();
+        // Idle session files are read once a second; watch past two reads.
+        let until = Instant::now() + Duration::from_millis(2500);
+        while Instant::now() < until {
+            h.frame();
+            assert_eq!(card_views(&h), before, "a card changed after the reload");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(chat_views(&h), chats, "branch and view state");
+        assert_eq!(history_rails(&h), rails);
+        let text = std::fs::read_to_string(dir.join("session.json")).unwrap();
+        let cached: atlas_ai::agent::AgentSession = serde_json::from_str(&text).unwrap();
+        assert_eq!(cached.turns, history("conv-access", 2).turns);
     }
 
     #[test]
