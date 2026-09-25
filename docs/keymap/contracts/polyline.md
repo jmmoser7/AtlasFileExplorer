@@ -27,9 +27,9 @@ D01–D17 are every tool-scoped dimension. D18–D35 are portal-only and do not 
 | D11 | Commit | After at least three vertices, returning to the first vertex closes one PathData without a duplicated start anchor. Fill remains unset until chosen. Enter commits an open path. A moving primary press places one vertex; release adds none. | pattern | 85 |
 | D12 | Cancel | Retain the existing creation cancel/undo grammar; palette cancellation follows P1.shape.properties. | pattern | 85 |
 | D13 | Selected presentation | P1.shape.properties: squircle Fill / Stroke / Corners controls above the selection, gated by geometry; dimensions use separate exterior stringers. | pattern | 85 |
-| D14 | Post-edit | Open path: circular Stroke button. Closed path: Fill and Stroke. Do not expose Corners until true path filleting/chamfer semantics are supported; stroke joins remain in Stroke. Desktop color sampling is shared. See shape-property-editing.md. | guess | 55 |
+| D14 | Post-edit | Open line-only polyline: Stroke button plus **Corners** (one fillet radius at every interior vertex, clamped per vertex; 0 = sharp). Closed polyline path: Fill and Stroke plus Corners when line-only. Stroke joins remain in Stroke. Board and artifact share `path_data_to_world_bez_with_fillet`. | stated | 100 |
 | D15 | Non-goals | P1.shape.properties: no dimensions, independent opacity, or unsupported geometry controls in the strip. | pattern | 85 |
-| D16 | Create-style inheritance | P1.curve.create-style and P1.shape.style: inherit last single-node style where applicable. A mixed batch edit does not replace creation defaults. | precedent | 90 |
+| D16 | Create-style inheritance | **Open-form** create-style memory (P1.curve.create-style): inherit last open-curve stroke; remembered open stroke width is never 0. Closed paths with fill use closed memory when committed as closed shapes. | stated | 100 |
 | D17 | Hit-testing & pick | P1.shape.properties: controls consume their input before canvas gestures; locked/read-only targets cannot be changed. | pattern | 85 |
 
 ## Geometry capabilities

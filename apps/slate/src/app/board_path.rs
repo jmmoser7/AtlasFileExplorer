@@ -241,6 +241,19 @@ fn rotate_world(p: Pos2, rect: WorldRect, deg: f32) -> Pos2 {
 
 pub use slate_doc::geom::path_data_to_world_bez;
 
+pub fn shape_path_world_bez(node: &Node, shape: &ShapeNode, path: &PathData) -> BezPath {
+    if shape.shape == ShapeKind::Path && slate_doc::geom::path_is_line_polyline(path) {
+        slate_doc::geom::path_data_to_world_bez_with_fillet(
+            path,
+            node.rect,
+            node.rotation_deg,
+            shape.corner,
+        )
+    } else {
+        path_data_to_world_bez(path, node.rect, node.rotation_deg)
+    }
+}
+
 pub fn bounds_of_world_points(pts: &[Pos2]) -> WorldRect {
     let mut min_x = f32::INFINITY;
     let mut min_y = f32::INFINITY;
@@ -520,6 +533,7 @@ fn path_content_hash(
     stroke: &Stroke,
     rect: WorldRect,
     rotation_deg: f32,
+    corner: slate_doc::scene::Corner,
     bucket: i64,
 ) -> u64 {
     let mut h = DefaultHasher::new();
@@ -530,11 +544,21 @@ fn path_content_hash(
     hash_f32(&mut h, rect.w);
     hash_f32(&mut h, rect.h);
     hash_f32(&mut h, rotation_deg);
+    if slate_doc::geom::path_is_line_polyline(path) {
+        let (_, radius) = corner.effective(rect.w, rect.h);
+        hash_f32(&mut h, radius);
+    }
     bucket.hash(&mut h);
     h.finish()
 }
 
-fn path_fill_hash(path: &PathData, rect: WorldRect, rotation_deg: f32, bucket: i64) -> u64 {
+fn path_fill_hash(
+    path: &PathData,
+    rect: WorldRect,
+    rotation_deg: f32,
+    corner: slate_doc::scene::Corner,
+    bucket: i64,
+) -> u64 {
     let mut h = DefaultHasher::new();
     hash_path_data(&mut h, path);
     hash_f32(&mut h, rect.x);
@@ -542,6 +566,10 @@ fn path_fill_hash(path: &PathData, rect: WorldRect, rotation_deg: f32, bucket: i
     hash_f32(&mut h, rect.w);
     hash_f32(&mut h, rect.h);
     hash_f32(&mut h, rotation_deg);
+    if slate_doc::geom::path_is_line_polyline(path) {
+        let (_, radius) = corner.effective(rect.w, rect.h);
+        hash_f32(&mut h, radius);
+    }
     bucket.hash(&mut h);
     h.finish()
 }
@@ -623,7 +651,7 @@ pub fn shape_uses_stroke_pick(node: &Node, shape: &ShapeNode) -> bool {
 fn bez_from_open_curve(node: &Node, shape: &ShapeNode) -> Option<BezPath> {
     if let Some(path) = shape.path.as_ref() {
         if !path.is_empty() {
-            return Some(path_data_to_world_bez(path, node.rect, node.rotation_deg));
+            return Some(shape_path_world_bez(node, shape, path));
         }
     }
     let (a, b) = open_curve_endpoints(node, shape)?;
@@ -705,9 +733,10 @@ pub fn hit_shape_stroke(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: 
         return true;
     }
     let Some(bez) = bez_from_open_curve(node, shape).or_else(|| {
-        shape.path.as_ref().and_then(|path| {
-            (!path.is_empty()).then(|| path_data_to_world_bez(path, node.rect, node.rotation_deg))
-        })
+        shape
+            .path
+            .as_ref()
+            .and_then(|path| (!path.is_empty()).then(|| shape_path_world_bez(node, shape, path)))
     }) else {
         return false;
     };
@@ -735,7 +764,7 @@ pub fn hit_path_node(node: &Node, shape: &ShapeNode, wx: f32, wy: f32, zoom: f32
     if path.is_empty() {
         return node.rect.contains_rotated(wx, wy, node.rotation_deg);
     }
-    let bez = path_data_to_world_bez(path, node.rect, node.rotation_deg);
+    let bez = shape_path_world_bez(node, shape, path);
     let style = stroke_style_world(&shape.stroke, zoom);
     let slop = pick_slop_world(zoom);
     if !shape.stroke.is_none() && hit_stroke(&bez, &style, [wx, wy], slop) {
@@ -781,6 +810,16 @@ fn hit_closed_text(node: &Node, shape: &ShapeNode, wx: f32, wy: f32) -> bool {
         ShapeKind::Line => false,
         ShapeKind::Rect => node.rect.contains_rotated(wx, wy, node.rotation_deg),
         ShapeKind::Ellipse => ellipse_contains(node, wx, wy),
+        ShapeKind::RegularPolygon => {
+            let outline = slate_doc::geom::regular_polygon_world_outline(
+                node.rect,
+                node.rotation_deg,
+                shape.sides,
+                shape.corner,
+                0.25,
+            );
+            vector_ink::point_in_polygon(&vec![outline], [wx, wy])
+        }
         ShapeKind::Path => {
             let Some(path) = shape.path.as_ref() else {
                 return false;
@@ -810,11 +849,16 @@ fn ellipse_contains(node: &Node, wx: f32, wy: f32) -> bool {
 
 /// Flattened world polylines for a path node, one vec per contour.
 /// Closed contours include the closing seam (last ≈ first).
-pub fn path_world_contours(node: &Node, path: &PathData, zoom: f32) -> Vec<Vec<Pos2>> {
+pub fn path_world_contours(
+    node: &Node,
+    shape: &ShapeNode,
+    path: &PathData,
+    zoom: f32,
+) -> Vec<Vec<Pos2>> {
     if path.is_empty() && !path.closed {
         return Vec::new();
     }
-    let bez = path_data_to_world_bez(path, node.rect, node.rotation_deg);
+    let bez = shape_path_world_bez(node, shape, path);
     flatten_contours(&bez, curve_tolerance(zoom))
         .into_iter()
         .map(|c| c.into_iter().map(|p| Pos2::new(p[0], p[1])).collect())
@@ -826,10 +870,11 @@ pub fn paint_path_stroke_outline(
     painter: &egui::Painter,
     xf: &BoardXf,
     node: &Node,
+    shape: &ShapeNode,
     path: &PathData,
     stroke: EStroke,
 ) {
-    for contour in path_world_contours(node, path, xf.z) {
+    for contour in path_world_contours(node, shape, path, xf.z) {
         if contour.len() < 2 {
             continue;
         }
@@ -1259,10 +1304,15 @@ pub fn paint_path_shape(
         // egui PathShape fills with a triangle fan from vertex 0 — convex
         // only (emilk/egui#513). Join/Trim boolean results are concave, so
         // every closed path fill goes through cached earcut.
-        let fill_key = path_fill_hash(path, node.rect, node.rotation_deg, zoom_bucket(xf.z));
+        let fill_key = path_fill_hash(
+            path,
+            node.rect,
+            node.rotation_deg,
+            shape.corner,
+            zoom_bucket(xf.z),
+        );
         let triangles = app.path_mesh_cache.get_or_fill_tris(node.id, fill_key, || {
-            let bez = bez
-                .get_or_insert_with(|| path_data_to_world_bez(path, node.rect, node.rotation_deg));
+            let bez = bez.get_or_insert_with(|| shape_path_world_bez(node, shape, path));
             let contours = vector_ink::flatten_contours(bez, curve_tolerance(xf.z));
             vector_ink::fill_triangles(&contours)
         });
@@ -1288,10 +1338,16 @@ pub fn paint_path_shape(
         return;
     }
     let bucket = zoom_bucket(xf.z);
-    let key = path_content_hash(path, &shape.stroke, node.rect, node.rotation_deg, bucket);
+    let key = path_content_hash(
+        path,
+        &shape.stroke,
+        node.rect,
+        node.rotation_deg,
+        shape.corner,
+        bucket,
+    );
     let cached = app.path_mesh_cache.get_or_tessellate(node.id, key, || {
-        let bez =
-            bez.get_or_insert_with(|| path_data_to_world_bez(path, node.rect, node.rotation_deg));
+        let bez = bez.get_or_insert_with(|| shape_path_world_bez(node, shape, path));
         let style = stroke_style_world(&shape.stroke, xf.z);
         let (ink_width, soft) = shape.stroke.paint_profile();
         let mut style = style;
@@ -1449,7 +1505,14 @@ fn paint_stamped_stroke(
             }
         }
     }
-    let key = path_content_hash(path, &shape.stroke, node.rect, node.rotation_deg, 0) ^ 0x57A5;
+    let key = path_content_hash(
+        path,
+        &shape.stroke,
+        node.rect,
+        node.rotation_deg,
+        shape.corner,
+        0,
+    ) ^ 0x57A5;
     let (same_shape, same_res) = match app.brush_stamps.get(&node.id) {
         Some((cached, gpu)) => (*cached == key, gpu.wanted_pixel == want),
         None => (false, false),
@@ -2103,7 +2166,7 @@ impl SlateApp {
         } else {
             None
         };
-        let opacity = self.opacity_for_new_node();
+        let opacity = self.opacity_for_new_node(false);
         let mut node = self.doc_mut().scene.build_node(
             rect,
             NodeKind::Shape(ShapeNode {
@@ -2111,6 +2174,7 @@ impl SlateApp {
                 fill,
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: Some(path_data.into()),
 
@@ -2239,9 +2303,10 @@ mod tests {
             assert!(curve_tolerance(zoom) * zoom as f64 <= 0.15);
         }
         let (rect, path) = points_to_path_data(&[Pos2::ZERO, Pos2::new(30.0, 40.0)], true);
+        let corner = slate_doc::scene::Corner::Square;
         assert_ne!(
-            path_fill_hash(&path, rect, 0.0, zoom_bucket(1.0)),
-            path_fill_hash(&path, rect, 0.0, zoom_bucket(8.0))
+            path_fill_hash(&path, rect, 0.0, corner, zoom_bucket(1.0)),
+            path_fill_hash(&path, rect, 0.0, corner, zoom_bucket(8.0))
         );
     }
 
@@ -2317,7 +2382,7 @@ mod tests {
                 fill: None,
                 stroke: default_draw_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
-                flip: false,
+                sides: slate_doc::scene::default_regular_sides(),                flip: false,
                 path: Some(data.into()),
 
                 text: None,
@@ -2350,7 +2415,7 @@ mod tests {
                 fill: None,
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
-                flip: false,
+                sides: slate_doc::scene::default_regular_sides(),                flip: false,
                 path: Some(data.into()),
 
                 text: None,
@@ -2406,7 +2471,7 @@ mod tests {
                 fill: None,
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
-                flip: false,
+                sides: slate_doc::scene::default_regular_sides(),                flip: false,
                 path: Some(data.into()),
                 text: None,
             }),
@@ -2456,7 +2521,7 @@ mod tests {
                 fill: None,
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
-                flip: false,
+                sides: slate_doc::scene::default_regular_sides(),                flip: false,
                 path: Some(data.into()),
 
                 text: None,
@@ -2533,7 +2598,7 @@ mod tests {
                 fill: None,
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
-                flip: false,
+                sides: slate_doc::scene::default_regular_sides(),                flip: false,
                 path: Some(data.into()),
 
                 text: None,
@@ -2580,6 +2645,7 @@ mod tests {
                 fill: None,
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
+                sides: slate_doc::scene::default_regular_sides(),
                 flip: false,
                 path: None,
 
@@ -2605,9 +2671,10 @@ mod tests {
         };
         let stroke = default_curve_stroke(Rgba::BLACK);
         let rect = WorldRect::new(0.0, 0.0, 10.0, 10.0);
-        let a = path_content_hash(&path, &stroke, rect, 0.0, 8);
-        let b = path_content_hash(&path, &stroke, rect, 0.0, 8);
-        let c = path_content_hash(&path, &stroke, rect, 0.0, 9);
+        let corner = slate_doc::scene::Corner::Square;
+        let a = path_content_hash(&path, &stroke, rect, 0.0, corner, 8);
+        let b = path_content_hash(&path, &stroke, rect, 0.0, corner, 8);
+        let c = path_content_hash(&path, &stroke, rect, 0.0, corner, 9);
         assert_eq!(a, b);
         assert_ne!(a, c);
     }
@@ -2736,7 +2803,14 @@ mod tests {
         let rect = WorldRect::new(0.0, 0.0, 100.0, 100.0);
         let mut cache = PathMeshCache::default();
         let mut paint = |rotation| {
-            let key = path_content_hash(&path, &stroke, rect, rotation, zoom_bucket(1.0));
+            let key = path_content_hash(
+                &path,
+                &stroke,
+                rect,
+                rotation,
+                slate_doc::scene::Corner::Square,
+                zoom_bucket(1.0),
+            );
             cache.get_or_tessellate(NodeId(1), key, || {
                 let bez = path_data_to_world_bez(&path, rect, rotation);
                 stroke_mesh(&bez, &stroke_style_world(&stroke, 1.0), FEATHER_PX, 0.25)
