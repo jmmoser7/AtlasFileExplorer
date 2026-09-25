@@ -9684,7 +9684,7 @@ fn select_drag(h: &mut Harness, from: Pos2, to: Pos2, modifiers: egui::Modifiers
     h.frame();
 }
 
-fn press_key(h: &mut Harness, key: egui::Key, modifiers: egui::Modifiers) {
+fn press_key_with(h: &mut Harness, key: egui::Key, modifiers: egui::Modifiers) {
     h.frame_with(|i| {
         i.modifiers = modifiers;
         i.events.push(egui::Event::Key {
@@ -9814,19 +9814,19 @@ fn bezier_ctrl_z_while_drawing_removes_anchors_without_journaling() {
     let ctrl = egui::Modifiers::CTRL;
     let ctrl_shift = egui::Modifiers::CTRL | egui::Modifiers::SHIFT;
 
-    press_key(&mut h, egui::Key::Z, ctrl);
+    press_key_with(&mut h, egui::Key::Z, ctrl);
     assert_eq!(bezier_draft(&h).len(), 2, "Ctrl+Z removes the last anchor");
-    press_key(&mut h, egui::Key::Y, ctrl);
+    press_key_with(&mut h, egui::Key::Y, ctrl);
     let anchors = bezier_draft(&h);
     assert_eq!(anchors.len(), 3, "Ctrl+Y re-adds it");
     assert!(near(anchors[2].0, pts[2]));
-    press_key(&mut h, egui::Key::Z, ctrl);
-    press_key(&mut h, egui::Key::Z, ctrl);
+    press_key_with(&mut h, egui::Key::Z, ctrl);
+    press_key_with(&mut h, egui::Key::Z, ctrl);
     assert_eq!(bezier_draft(&h).len(), 1);
-    press_key(&mut h, egui::Key::Z, ctrl_shift);
+    press_key_with(&mut h, egui::Key::Z, ctrl_shift);
     assert_eq!(bezier_draft(&h).len(), 2, "Ctrl+Shift+Z re-adds too");
-    press_key(&mut h, egui::Key::Z, ctrl);
-    press_key(&mut h, egui::Key::Z, ctrl);
+    press_key_with(&mut h, egui::Key::Z, ctrl);
+    press_key_with(&mut h, egui::Key::Z, ctrl);
     assert!(
         bezier_draft(&h).is_empty(),
         "drawing continues at zero anchors"
@@ -9838,13 +9838,13 @@ fn bezier_ctrl_z_while_drawing_removes_anchors_without_journaling() {
     );
     assert!(h.app.doc().scene.node(rect).is_some());
 
-    press_key(&mut h, egui::Key::Z, ctrl);
+    press_key_with(&mut h, egui::Key::Z, ctrl);
     assert!(h.app.board_path_draft.is_none(), "Ctrl+Z at zero exits");
     assert_eq!(h.app.board_tool, board::BoardTool::Select);
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
     assert!(h.app.doc().scene.node(rect).is_some());
 
-    press_key(&mut h, egui::Key::Z, ctrl);
+    press_key_with(&mut h, egui::Key::Z, ctrl);
     assert!(
         h.app.doc().scene.node(rect).is_none(),
         "document undo resumes once drawing ends"
@@ -9994,7 +9994,7 @@ fn bezier_escape_commits_an_open_curve_as_one_journaled_add() {
     h.app.bezier_anchor_press(b);
     h.app
         .bezier_anchor_release(b, Pos2::new(160.0, 20.0), false);
-    press_key(&mut h, egui::Key::Escape, egui::Modifiers::NONE);
+    press_key_with(&mut h, egui::Key::Escape, egui::Modifiers::NONE);
     assert!(h.app.board_path_draft.is_none());
     assert_eq!(h.app.doc().scene.nodes.len(), 1, "Esc commits the curve");
     assert_eq!(
@@ -10018,7 +10018,7 @@ fn bezier_escape_with_one_anchor_cancels() {
     let depth = h.app.tab().journal.undo_depth();
     h.app.bezier_anchor_press(Pos2::ZERO);
     h.app.bezier_anchor_release(Pos2::ZERO, Pos2::ZERO, false);
-    press_key(&mut h, egui::Key::Escape, egui::Modifiers::NONE);
+    press_key_with(&mut h, egui::Key::Escape, egui::Modifiers::NONE);
     assert!(h.app.board_path_draft.is_none());
     assert!(h.app.doc().scene.nodes.is_empty());
     assert_eq!(h.app.tab().journal.undo_depth(), depth);
