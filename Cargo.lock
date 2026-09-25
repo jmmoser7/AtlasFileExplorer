@@ -517,8 +517,11 @@ version = "1.0.0"
 dependencies = [
  "atlas-core",
  "atlas-update",
+ "crossbeam-channel",
  "eframe",
  "image",
+ "raw-window-handle",
+ "rfd",
  "serde",
  "serde_json",
  "toml 0.8.23",
