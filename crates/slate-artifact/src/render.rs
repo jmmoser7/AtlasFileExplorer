@@ -802,17 +802,6 @@ fn render_image(
     html.push_str("</div>\n");
 }
 
-fn paint_layer_host_local(node: &Node, world: WorldRect) -> WorldRect {
-    let w = node.rect.w.max(1e-6);
-    let h = node.rect.h.max(1e-6);
-    WorldRect::new(
-        (world.x - node.rect.x) / w,
-        (world.y - node.rect.y) / h,
-        world.w / w,
-        world.h / h,
-    )
-}
-
 fn render_image_paint_layers(
     html: &mut String,
     doc: &SlateDoc,
@@ -839,12 +828,13 @@ fn render_image_paint_layers(
             if !slate_doc::image_paint::layer_node_kind_allowed(&local.kind) {
                 continue;
             }
-            let world = slate_doc::image_paint::layer_node_to_world(node, img, local);
-            let frac = paint_layer_host_local(node, world.rect);
-            let child_px = WorldRect::new(frac.x * hw, frac.y * hh, frac.w * hw, frac.h * hh);
-            let mut child = world.clone();
-            child.rotation_deg = local.rotation_deg;
-            child.opacity = (local.opacity * layer.opacity).clamp(0.0, 1.0);
+            let child = slate_doc::image_paint::layer_node_to_host_local(node, img, local);
+            let child_px = WorldRect::new(
+                child.rect.x / node.rect.w.max(1e-6) * hw,
+                child.rect.y / node.rect.h.max(1e-6) * hh,
+                child.rect.w / node.rect.w.max(1e-6) * hw,
+                child.rect.h / node.rect.h.max(1e-6) * hh,
+            );
             html.push_str("<div class=\"paint-layer-node\" style=\"position:absolute;inset:0;pointer-events:none\">");
             match &child.kind {
                 NodeKind::Shape(shape) => render_shape(html, &child, shape, child_px),
@@ -858,7 +848,7 @@ fn render_image_paint_layers(
                             html.push_str(&escape_attr(url));
                             html.push_str("\" alt=\"\" style=\"");
                             html.push_str(&style);
-                            html.push_str("object-fit:cover;\" draggable=\"false\">");
+                            html.push_str("\" draggable=\"false\">");
                         }
                     }
                 }

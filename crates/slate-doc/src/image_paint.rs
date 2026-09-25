@@ -80,6 +80,24 @@ pub fn layer_node_to_world(host: &Node, img: &ImageNode, local: &Node) -> Node {
     out
 }
 
+/// Map a layer-local node into an already-rotated host's local coordinates.
+///
+/// Renderers that place children inside the host must not orbit their centers
+/// again: the host transform supplies that rotation. The returned origin is
+/// relative to `host.rect`, and the child keeps only its own rotation.
+pub fn layer_node_to_host_local(host: &Node, img: &ImageNode, local: &Node) -> Node {
+    let basis = image_content_rect(host, img);
+    let mut out = local.clone();
+    out.rect = WorldRect::new(
+        basis.x - host.rect.x + local.rect.x * basis.w,
+        basis.y - host.rect.y + local.rect.y * basis.h,
+        local.rect.w * basis.w,
+        local.rect.h * basis.h,
+    );
+    out.rotation_deg = local.rotation_deg;
+    out
+}
+
 /// Map a world-space authored node into host-normalized storage.
 pub fn layer_node_from_world(host: &Node, img: &ImageNode, world: &Node) -> Node {
     let (basis, rot, pivot) = layer_basis(host, img);
@@ -252,6 +270,27 @@ mod tests {
                 "deg={deg} rot"
             );
         }
+    }
+
+    #[test]
+    fn host_local_mapping_does_not_orbit_with_rotated_host() {
+        let mut host = host_with_crop(Crop {
+            x: 0.25,
+            y: 0.0,
+            w: 0.5,
+            h: 1.0,
+        });
+        host.rotation_deg = 90.0;
+        let img = match &host.kind {
+            NodeKind::Image(i) => i,
+            _ => unreachable!(),
+        };
+        let local = stroke_local(0.0, 0.0);
+        let mapped = layer_node_to_host_local(&host, img, &local);
+        assert!((mapped.rect.x + 50.0).abs() < 1e-3);
+        assert!((mapped.rect.y - 0.0).abs() < 1e-3);
+        assert!((mapped.rect.w - 40.0).abs() < 1e-3);
+        assert_eq!(mapped.rotation_deg, local.rotation_deg);
     }
 
     #[test]

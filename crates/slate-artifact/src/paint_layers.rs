@@ -2,7 +2,7 @@
 
 use resvg::tiny_skia;
 use resvg::usvg;
-use slate_doc::image_paint::layer_node_to_world;
+use slate_doc::image_paint::layer_node_to_host_local;
 use slate_doc::scene::{ImageNode, Node, NodeKind, WorldRect};
 
 use crate::render::{render_shape, render_text};
@@ -11,7 +11,6 @@ use crate::render::{render_shape, render_text};
 pub fn paint_layers_svg(host: &Node, img: &ImageNode, w: u32, h: u32) -> String {
     let w = w.max(1);
     let h = h.max(1);
-    let _rel = WorldRect::new(0.0, 0.0, w as f32, h as f32);
     let mut html = String::new();
     html.push_str(&format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" width=\"{w}\" height=\"{h}\">"
@@ -35,18 +34,16 @@ pub fn paint_layers_svg(host: &Node, img: &ImageNode, w: u32, h: u32) -> String 
             if !slate_doc::image_paint::layer_node_kind_allowed(&local.kind) {
                 continue;
             }
-            let world = layer_node_to_world(host, img, local);
-            let fx = (world.rect.x - host.rect.x) / hw;
-            let fy = (world.rect.y - host.rect.y) / hh;
+            let host_local = layer_node_to_host_local(host, img, local);
+            let fx = host_local.rect.x / hw;
+            let fy = host_local.rect.y / hh;
             let child_rel = WorldRect::new(
                 fx * w as f32,
                 fy * h as f32,
-                world.rect.w / hw * w as f32,
-                world.rect.h / hh * h as f32,
+                host_local.rect.w / hw * w as f32,
+                host_local.rect.h / hh * h as f32,
             );
-            let mut mapped = world.clone();
-            mapped.rotation_deg = local.rotation_deg;
-            mapped.opacity = (local.opacity * layer.opacity).clamp(0.0, 1.0);
+            let mapped = host_local;
             match &mapped.kind {
                 NodeKind::Shape(shape) => render_shape(&mut html, &mapped, shape, child_rel),
                 NodeKind::Text(text) => {
