@@ -2378,6 +2378,31 @@ mod tests {
         assert_eq!(colors.iter().filter(|c| **c == [4, 5, 6]).count(), 1);
     }
 
+    #[test]
+    fn shape_property_color_scrub_commits_one_group_and_one_recent_color() {
+        let mut h = board();
+        let id = rectangle(&mut h, WorldRect::new(0.0, 0.0, 180.0, 120.0), 0.0);
+        h.app.sync_shape_properties();
+        h.app.shape_properties.panel = Some(Panel::Fill);
+        let before = h.app.doc().scene.node(id).unwrap().clone();
+        let scrubbed = [[200, 40, 40], [180, 90, 40], [120, 120, 120]];
+        for rgb in scrubbed.into_iter().chain([[160, 60, 200]]) {
+            h.app.preview_shape_property(Property::FillRgb(rgb));
+        }
+        h.app.preview_shape_property(Property::FillAlpha(128));
+        assert_eq!(h.app.doc().scene.node(id).unwrap(), &before);
+        h.app.apply_shape_preview(&h.ctx, true);
+        assert_eq!(
+            scene::fill_of(h.app.doc().scene.node(id).unwrap()),
+            Some(Rgba([160, 60, 200, 128]))
+        );
+        let colors = h.app.doc().view.recent_colors.clone().unwrap();
+        assert!(colors.contains(&[160, 60, 200]));
+        assert!(scrubbed.iter().all(|rgb| !colors.contains(rgb)));
+        h.app.board_undo();
+        assert_eq!(h.app.doc().scene.node(id).unwrap(), &before);
+    }
+
     fn frame_node(h: &mut Harness, rect: WorldRect) -> NodeId {
         let node = h.app.doc_mut().scene.build_node(
             rect,
