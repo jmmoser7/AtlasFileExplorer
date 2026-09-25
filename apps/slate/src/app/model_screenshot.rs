@@ -104,13 +104,14 @@ impl SlateApp {
 
     pub fn export_model_screenshot_canvas(&mut self, node: NodeId) {
         match self.write_model_screenshot(node, None) {
-            Ok(Some((_path, item))) => {
+            Ok(Some((_path, Some(item)))) => {
                 if let Some(placed) = self.place_screenshot_beside_model(node, item) {
                     self.board_sel = std::iter::once(placed).collect();
                     self.toast("Viewport screenshot placed on the board");
                 }
             }
             Ok(None) => self.toast("Still loading the 3D model — try again"),
+            Ok(Some((_, None))) => {}
             Err(e) => self.toast(&e),
         }
     }
@@ -130,7 +131,7 @@ impl SlateApp {
         &mut self,
         node: NodeId,
         dest: Option<&Path>,
-    ) -> Result<Option<(PathBuf, slate_doc::ItemId)>, String> {
+    ) -> Result<Option<(PathBuf, Option<slate_doc::ItemId>)>, String> {
         let Some((rgba, w, h, meta)) = self.render_model_screenshot_rgba(node)? else {
             return Ok(None);
         };
@@ -160,6 +161,9 @@ impl SlateApp {
                 .map_err(|e| e.to_string())?,
             _ => return Err("Use PNG, JPEG, or WebP".into()),
         }
+        if dest.is_some() {
+            return Ok(Some((path, None)));
+        }
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -171,7 +175,7 @@ impl SlateApp {
             self.doc_mut()
                 .add_item(path.clone(), name, meta_fs.len(), mtime, key)
         });
-        Ok(Some((path, item)))
+        Ok(Some((path, Some(item))))
     }
 
     fn render_model_screenshot_rgba(
@@ -195,23 +199,23 @@ impl SlateApp {
             .map(|vp| vp.cam)
             .unwrap_or(info.cam);
         let (w, h) = capture_size(info.rect.w, info.rect.h);
-        let Some(img) = self
-            .model3d
-            .render_capture_image(&gl, &info.cache_key, &cam, w, h, false)
-        else {
-            self.model3d.request_model(&info.cache_key, &info.path);
-            return Ok(None);
-        };
         let adjust = self
             .doc()
             .scene
             .node(node)
             .and_then(slate_doc::scene::adjust_of)
             .unwrap_or_default();
-        let img = if adjust.is_identity() {
-            img
-        } else {
-            super::imagefx::adjusted(&img, &adjust)
+        let Some(img) = self.model3d.render_capture_image(
+            &gl,
+            &info.cache_key,
+            &cam,
+            w,
+            h,
+            false,
+            (!adjust.is_identity()).then_some(&adjust),
+        ) else {
+            self.model3d.request_model(&info.cache_key, &info.path);
+            return Ok(None);
         };
         let mut rgba = Vec::with_capacity(img.pixels.len() * 4);
         for p in &img.pixels {
@@ -270,18 +274,29 @@ impl SlateApp {
     }
 
     fn model_screenshot_output_path(&self, node: NodeId, ext: &str) -> Result<PathBuf, String> {
-        let base = self
+        if let Some(workbook) = self.tab().path.as_ref() {
+            if let Some(parent) = workbook.parent() {
+                let dir = parent.join("assets");
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let stamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
+                let mut path = dir.join(format!("viewport-{}-{}.{}", node.0, stamp, ext));
+                let mut n = 1u32;
+                while path.exists() && n < 100 {
+                    path = dir.join(format!("viewport-{}-{}-{}.{}", node.0, stamp, n, ext));
+                    n += 1;
+                }
+                return Ok(path);
+            }
+        }
+        let ws = self
             .ai
             .config
             .workspace_dir
             .clone()
-            .or_else(|| {
-                self.tab()
-                    .path
-                    .as_ref()
-                    .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-            })
-            .ok_or("Set an AI workspace or save the workbook first")?;
+            .ok_or("Save the workbook or set an AI workspace first")?;
         let board = self
             .tab()
             .path
@@ -289,15 +304,19 @@ impl SlateApp {
             .and_then(|p| p.file_stem())
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "untitled-board".into());
-        let stamp = SystemTime::now()
+        let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let dir = base
-            .join("slate-outputs")
-            .join(board)
-            .join(format!("{stamp}-viewport-{node}", node = node.0));
-        Ok(dir.join(format!("view.{ext}")))
+        let dir = atlas_ai::agent::output_dir(
+            &ws.join(".atlas-ai").join("viewport-export"),
+            &ws,
+            Some(&board),
+            "viewport",
+            now,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(dir.join(format!("view-{node}.{ext}", node = node.0)))
     }
 
     fn place_screenshot_beside_model(
