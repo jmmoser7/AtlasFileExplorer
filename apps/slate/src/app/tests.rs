@@ -8474,6 +8474,7 @@ fn image_paint_session_clears_before_drawing_off_another_selection() {
         slate_doc::scene::WorldRect::new(300.0, 0.0, 20.0, 20.0),
         slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
             shape: slate_doc::scene::ShapeKind::Rect,
+            sides: 6,
             fill: Some(slate_doc::scene::Rgba::opaque(0, 0, 0)),
             stroke: slate_doc::scene::Stroke::none(),
             corner: Default::default(),
@@ -8869,6 +8870,7 @@ fn fillet_drag_outward_grows_authored_radius() {
         bumper: None,
         kind: slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
             shape: slate_doc::scene::ShapeKind::Rect,
+            sides: 6,
             fill: None,
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::Rounded { radius: 10.0 },
@@ -8968,6 +8970,7 @@ fn fillet_grip_drag_from_square_starts_at_zero_radius() {
         slate_doc::scene::WorldRect::new(0.0, 0.0, 100.0, 80.0),
         slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
             shape: slate_doc::scene::ShapeKind::Rect,
+            sides: 6,
             fill: None,
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::Square,
@@ -9010,6 +9013,7 @@ fn fillet_drag_percent_mode_roundtrip() {
         bumper: None,
         kind: slate_doc::scene::NodeKind::Shape(slate_doc::scene::ShapeNode {
             shape: slate_doc::scene::ShapeKind::Rect,
+            sides: 6,
             fill: None,
             stroke: slate_doc::scene::Stroke::default(),
             corner: slate_doc::scene::Corner::RoundedPercent { percent: 50.0 },
