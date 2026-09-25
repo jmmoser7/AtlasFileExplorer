@@ -574,7 +574,7 @@ impl SlateApp {
             after.clip = None;
             after.kind = NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Path,
-                path: Some(path0),
+                path: Some(path0.into()),
                 fill: None,
                 ..style.clone()
             });
@@ -589,7 +589,7 @@ impl SlateApp {
                     rect,
                     NodeKind::Shape(ShapeNode {
                         shape: ShapeKind::Path,
-                        path: Some(path),
+                        path: Some(path.into()),
                         fill: None,
                         ..style.clone()
                     }),
@@ -645,7 +645,7 @@ impl SlateApp {
             after.clip = None;
             after.kind = NodeKind::Shape(ShapeNode {
                 shape: ShapeKind::Path,
-                path: Some(path0),
+                path: Some(path0.into()),
                 ..style.clone()
             });
             cmds.push(SceneCmd::Patch {
@@ -658,7 +658,7 @@ impl SlateApp {
                     rect,
                     NodeKind::Shape(ShapeNode {
                         shape: ShapeKind::Path,
-                        path: Some(path),
+                        path: Some(path.into()),
                         ..style.clone()
                     }),
                 );

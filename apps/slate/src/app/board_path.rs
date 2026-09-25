@@ -2112,7 +2112,7 @@ impl SlateApp {
                 stroke,
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
-                path: Some(path_data),
+                path: Some(path_data.into()),
 
                 text: None,
             }),
@@ -2318,7 +2318,7 @@ mod tests {
                 stroke: default_draw_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
-                path: Some(data),
+                path: Some(data.into()),
 
                 text: None,
             }),
@@ -2351,7 +2351,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
-                path: Some(data),
+                path: Some(data.into()),
 
                 text: None,
             }),
@@ -2407,7 +2407,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
-                path: Some(data),
+                path: Some(data.into()),
                 text: None,
             }),
         };
@@ -2457,7 +2457,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
-                path: Some(data),
+                path: Some(data.into()),
 
                 text: None,
             }),
@@ -2534,7 +2534,7 @@ mod tests {
                 stroke: default_curve_stroke(Rgba::BLACK),
                 corner: slate_doc::scene::Corner::Square,
                 flip: false,
-                path: Some(data),
+                path: Some(data.into()),
 
                 text: None,
             }),

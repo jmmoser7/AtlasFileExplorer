@@ -109,7 +109,7 @@ impl SlateApp {
                     rect,
                     NodeKind::Shape(ShapeNode {
                         shape: ShapeKind::Path,
-                        path: Some(path),
+                        path: Some(path.into()),
                         fill,
                         ..style.clone()
                     }),

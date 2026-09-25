@@ -1143,12 +1143,12 @@ fn path_node_add_undo_via_journal() {
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             flip: false,
-            path: Some(PathData {
+            path: Some(std::sync::Arc::new(PathData {
                 start: [0.0, 0.5],
                 segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
                 closed: false,
                 ..Default::default()
-            }),
+            })),
 
             text: None,
         }),
@@ -1175,12 +1175,12 @@ fn add_stroke(app: &mut SlateApp, x: f32, y: f32) -> NodeId {
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             flip: false,
-            path: Some(PathData {
+            path: Some(std::sync::Arc::new(PathData {
                 start: [0.0, 0.5],
                 segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
                 closed: false,
                 ..Default::default()
-            }),
+            })),
 
             text: None,
         }),
@@ -1976,7 +1976,7 @@ fn closed_polyline_pick_and_near_ignore_empty_bbox() {
             stroke: board_path::default_curve_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             flip: false,
-            path: Some(data),
+            path: Some(data.into()),
 
             text: None,
         }),
@@ -2035,7 +2035,7 @@ fn closed_polyline_pick_and_near_ignore_points_outside_the_bbox() {
             stroke: board_path::default_curve_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             flip: false,
-            path: Some(data),
+            path: Some(data.into()),
 
             text: None,
         }),
@@ -6245,7 +6245,7 @@ fn add_seg(app: &mut SlateApp, a: Pos2, b: Pos2) -> NodeId {
             stroke: board_path::default_draw_stroke(slate_doc::scene::Rgba::BLACK),
             corner: slate_doc::scene::Corner::Square,
             flip: false,
-            path: Some(path),
+            path: Some(path.into()),
 
             text: None,
         }),

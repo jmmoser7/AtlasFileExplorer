@@ -124,7 +124,7 @@ impl SlateApp {
             if let NodeKind::Shape(s) = &mut n.kind {
                 s.shape = ShapeKind::Path;
                 s.flip = false;
-                s.path = Some(data);
+                s.path = Some(data.into());
             }
         }
     }
@@ -474,7 +474,7 @@ impl SlateApp {
             if let NodeKind::Shape(s) = &mut n.kind {
                 s.shape = ShapeKind::Path;
                 s.flip = false;
-                s.path = Some(data.clone());
+                s.path = Some(data.clone().into());
             }
         });
         true
@@ -618,7 +618,7 @@ impl SlateApp {
         if let NodeKind::Shape(s) = &mut new_node.kind {
             s.shape = ShapeKind::Path;
             s.flip = false;
-            s.path = Some(data);
+            s.path = Some(data.into());
         }
         // One group: Removes (descending index) + the Add.
         let mut removes: Vec<(usize, Node)> = ids

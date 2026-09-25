@@ -980,7 +980,7 @@ mod tests {
                 },
                 corner: Corner::Square,
                 flip: false,
-                path: Some(PathData {
+                path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.0],
                     segs: vec![
                         PathSeg::Line { to: [0.5, 0.5] },
@@ -988,7 +988,7 @@ mod tests {
                     ],
                     closed: false,
                     ..Default::default()
-                }),
+                })),
 
                 text: None,
             }),
@@ -1022,7 +1022,7 @@ mod tests {
                 },
                 corner: Corner::Square,
                 flip: false,
-                path: Some(PathData {
+                path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.0],
                     segs: vec![
                         PathSeg::Line { to: [1.0, 0.0] },
@@ -1031,7 +1031,7 @@ mod tests {
                     ],
                     closed: true,
                     ..Default::default()
-                }),
+                })),
 
                 text: None,
             }),
@@ -1067,12 +1067,12 @@ mod tests {
                 },
                 corner: Corner::Square,
                 flip: false,
-                path: Some(PathData {
+                path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.5],
                     segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
                     closed: false,
                     ..Default::default()
-                }),
+                })),
 
                 text: None,
             }),
@@ -1111,12 +1111,12 @@ mod tests {
                 },
                 corner: Corner::Square,
                 flip: false,
-                path: Some(PathData {
+                path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.5],
                     segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
                     closed: false,
                     ..Default::default()
-                }),
+                })),
                 text: None,
             }),
         );
@@ -1142,7 +1142,7 @@ mod tests {
                 stroke: Stroke::none(),
                 corner: Corner::Square,
                 flip: false,
-                path: Some(PathData {
+                path: Some(std::sync::Arc::new(PathData {
                     start: [0.0, 0.0],
                     segs: vec![
                         PathSeg::Line { to: [1.0, 0.0] },
@@ -1162,7 +1162,7 @@ mod tests {
                     fill_rule: PathFillRule::EvenOdd,
                     tips: Vec::new(),
                     erase: Vec::new(),
-                }),
+                })),
 
                 text: None,
             }),

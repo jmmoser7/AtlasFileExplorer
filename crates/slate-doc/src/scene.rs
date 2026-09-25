@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::ids::{GroupId, ItemId, TagId};
 use crate::spatial::SpatialIndex;
@@ -2048,8 +2049,10 @@ pub struct ShapeNode {
     /// Lines only: false = ↘ diagonal (min→max), true = ↗ diagonal.
     #[serde(default)]
     pub flip: bool,
+    /// Shared so cloning a stroke (paint, journal patch, tile workers) does
+    /// not copy its segments. Mutations go through [`Arc::make_mut`].
     #[serde(default)]
-    pub path: Option<PathData>,
+    pub path: Option<Arc<PathData>>,
     /// In-place text. Absent until a text session or a text-style edit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<ShapeText>,
@@ -2745,12 +2748,12 @@ impl Scene {
             s.shape = ShapeKind::Path;
             s.flip = false;
             s.fill = None;
-            s.path = Some(PathData {
+            s.path = Some(Arc::new(PathData {
                 start,
                 segs: vec![PathSeg::Line { to }],
                 closed: false,
                 ..Default::default()
-            });
+            }));
             changed = true;
         }
         if changed {
@@ -3870,7 +3873,7 @@ mod tests {
             },
             corner: Corner::Square,
             flip: false,
-            path: Some(PathData {
+            path: Some(Arc::new(PathData {
                 start: [0.1, 0.2],
                 segs: vec![
                     PathSeg::Line { to: [0.5, 0.5] },
@@ -3886,10 +3889,16 @@ mod tests {
                 ],
                 closed: true,
                 ..Default::default()
-            }),
+            })),
             text: None,
         };
         let json = serde_json::to_string(&shape).unwrap();
+        // `Arc<PathData>` must serialize as `PathData` (serde `rc`). This
+        // string is the pre-Arc encoding of the same node.
+        assert_eq!(
+            json,
+            r#"{"shape":"path","fill":[10,20,30,255],"stroke":{"width":2.0,"color":[0,0,0,255],"dash":"solid","cap":"Round","join":"Bevel","profile":{"Taper":{"start":1.0,"end":0.25}}},"corner":"square","flip":false,"path":{"start":[0.1,0.2],"segs":[{"Line":{"to":[0.5,0.5]}},{"Quad":{"ctrl":[0.7,0.2],"to":[0.9,0.8]}},{"Cubic":{"c1":[0.3,0.9],"c2":[0.1,0.7],"to":[0.0,0.4]}}],"closed":true}}"#
+        );
         let back: ShapeNode = serde_json::from_str(&json).unwrap();
         assert_eq!(shape, back);
         assert_eq!(back.path.as_ref().unwrap().point_count(), 7);
@@ -4393,12 +4402,12 @@ mod tests {
                 },
                 corner: Corner::Square,
                 flip: false,
-                path: Some(PathData {
+                path: Some(Arc::new(PathData {
                     start: [0.0, 0.5],
                     segs: vec![PathSeg::Line { to: [1.0, 0.5] }],
                     closed: false,
                     ..Default::default()
-                }),
+                })),
                 text: None,
             }),
         );
@@ -4411,7 +4420,8 @@ mod tests {
         let before = scene.node(id).unwrap().clone();
         let mut after = before.clone();
         if let NodeKind::Shape(ref mut s) = after.kind {
-            if let Some(ref mut p) = s.path {
+            if let Some(p) = s.path.as_mut() {
+                let p = Arc::make_mut(p);
                 if let PathSeg::Line { ref mut to } = p.segs[0] {
                     to[0] = 0.75;
                 }
