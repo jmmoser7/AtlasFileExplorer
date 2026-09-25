@@ -413,8 +413,12 @@ Camera-only — never journaled, never repeatable.
   the eight window handles moves the mask while the content stays put (rect
   and UV crop change together); dragging inside the window (the center
   content-grabber ring) slides the content under the mask. One crop drag =
-  one undo step. Finish with Enter, Escape, or a click outside the image —
-  the click passes through to normal selection. Eligible media: textured
+  one undo step, across every selected image. Handle zones are generous
+  screen-space discs (corners) and full-length bands (edges) that reach
+  just outside the box; corners win. Finish with Enter, Escape, or a click
+  outside every image and handle zone — the click passes through to normal
+  selection. After a crop, Space tap / idle Enter re-enters crop mode on the
+  next selected image (repeat-last). Eligible media: textured
   images, PDF pages, video posters, and doc thumbnails; 3D viewports and
   text snippet cards have no crop. Rotated nodes are supported by doing the
   window math in the node's local (unrotated) axes.
