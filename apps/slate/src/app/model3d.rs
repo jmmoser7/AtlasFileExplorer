@@ -1181,10 +1181,8 @@ impl SlateApp {
                     self.model3d
                         .render_image(&gl, &info.cache_key, &cam, pw, ph, None)
                 {
-                    save_poster(&poster_path(&info.cache_key, &cam, aq), &img);
-                    if let Some(tex) = self.model3d.posters.get_mut(&name) {
-                        tex.set(img, egui::TextureOptions::LINEAR);
-                    }
+                    self.model3d
+                        .store_poster(name, poster_path(&info.cache_key, &cam, aq), img);
                     self.model3d.want_poster.remove(&(doc, id));
                 }
             }
@@ -1381,7 +1379,11 @@ impl SlateApp {
             .render_image(&gl, &info.cache_key, &cam, pw, ph, None)
         {
             Some(img) => {
-                save_poster(&poster_path(&info.cache_key, &cam, aq), &img);
+                self.model3d.store_poster(
+                    poster_file_name(&info.cache_key, &cam, aq),
+                    poster_path(&info.cache_key, &cam, aq),
+                    img,
+                );
                 true
             }
             None => matches!(self.model3d.engine, EngineSlot::Failed),
@@ -2396,6 +2398,17 @@ pub(crate) fn write_fast_png(
     )
     .write_image(&bytes, w, h, color)
     .map_err(|e| e.to_string())
+}
+
+impl ModelSpace {
+    /// Show `img` as the poster `name` from the next paint and write it to
+    /// disk off the frame loop (PNG encoding a full poster costs tens of ms).
+    fn store_poster(&mut self, name: String, path: PathBuf, img: egui::ColorImage) {
+        let img = Arc::new(img);
+        self.posters.remove(&name);
+        self.poster_pixels.insert(name, img.clone());
+        std::thread::spawn(move || save_poster(&path, &img));
+    }
 }
 
 fn save_poster(path: &Path, img: &egui::ColorImage) {
@@ -3600,6 +3613,62 @@ mod tests {
             });
         });
         assert!(!h.app.model3d.live.contains_key(&id));
+    }
+
+    /// A point on empty canvas to the right of the node, with frames settled.
+    fn empty_canvas_beside(h: &mut Harness, id: NodeId) -> egui::Pos2 {
+        h.app.tab_mut().cam.z *= 0.25;
+        for _ in 0..3 {
+            h.frame();
+        }
+        let srect = h
+            .app
+            .board_xf()
+            .rect_w2s(h.app.doc().scene.node(id).unwrap().rect);
+        let p = egui::pos2(srect.right() + 60.0, srect.center().y);
+        assert!(h.app.canvas_rect.contains(p));
+        let world = h.app.board_xf().s2w(p);
+        assert!(h.app.doc().scene.node_at(world.x, world.y).is_none());
+        p
+    }
+
+    fn click_at(h: &mut Harness, p: egui::Pos2) {
+        h.frame_with(|input| input.events.push(egui::Event::PointerMoved(p)));
+        for pressed in [true, false] {
+            h.frame_with(|input| {
+                input.events.push(egui::Event::PointerMoved(p));
+                input.events.push(egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                });
+            });
+        }
+        h.frame();
+    }
+
+    #[test]
+    fn one_click_on_empty_canvas_freezes_and_deselects_a_live_viewport() {
+        let (mut h, id) = live_model("model_click_off_live");
+        h.app.board_sel = [id].into_iter().collect();
+        let p = empty_canvas_beside(&mut h, id);
+        click_at(&mut h, p);
+        assert!(
+            !h.app.model3d.live.contains_key(&id),
+            "the click freezes it"
+        );
+        assert!(h.app.board_sel.is_empty(), "the same click deselects it");
+    }
+
+    #[test]
+    fn one_click_on_empty_canvas_deselects_a_frozen_viewport() {
+        let (mut h, id) = live_model("model_click_off_frozen");
+        h.app.lock_model(id);
+        h.app.board_sel = [id].into_iter().collect();
+        let p = empty_canvas_beside(&mut h, id);
+        click_at(&mut h, p);
+        assert!(h.app.board_sel.is_empty());
     }
 
     /// Closed stroked paths one frame painted, with their stroke colour.
