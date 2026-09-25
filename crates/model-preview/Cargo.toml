@@ -9,10 +9,9 @@ base64 = "0.22"
 gltf = { workspace = true }
 rhino-mesh = { workspace = true }
 slate-doc = { workspace = true }
-atlas-core = { workspace = true }
-png = "0.18"
-sha2 = "0.10"
-roxmltree = "0.21"
+png = { workspace = true }
+sha2 = { workspace = true }
+roxmltree = { workspace = true }
 image = { workspace = true }
-image-webp = "0.2"
+image-webp = { workspace = true }
 chrono = { workspace = true }

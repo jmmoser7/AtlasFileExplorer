@@ -78,10 +78,14 @@ impl SlateApp {
             };
             let (tx, rx) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
-                let msg = match view_meta::read_view_meta(&path) {
-                    Ok(Some(parsed)) => ViewWireCacheMsg::Camera(parsed.camera),
-                    Ok(None) => ViewWireCacheMsg::Missing,
-                    Err(e) => ViewWireCacheMsg::Err(e.to_string()),
+                let msg = if atlas_core::cloud::is_dehydrated(&path) {
+                    ViewWireCacheMsg::Missing
+                } else {
+                    match view_meta::read_view_meta(&path) {
+                        Ok(Some(parsed)) => ViewWireCacheMsg::Camera(parsed.camera),
+                        Ok(None) => ViewWireCacheMsg::Missing,
+                        Err(e) => ViewWireCacheMsg::Err(e.to_string()),
+                    }
                 };
                 let _ = tx.send(msg);
             });

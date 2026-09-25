@@ -2562,7 +2562,6 @@ dependencies = [
 name = "model-preview"
 version = "1.0.0"
 dependencies = [
- "atlas-core",
  "base64 0.22.1",
  "chrono",
  "gltf",

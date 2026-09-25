@@ -70,24 +70,6 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-pub fn hash_file_bytes(path: &Path) -> Result<String, ViewMetaError> {
-    if cloud_dehydrated(path) {
-        return Err(ViewMetaError::Io("cloud placeholder".into()));
-    }
-    let bytes = std::fs::read(path).map_err(|e| ViewMetaError::Io(e.to_string()))?;
-    Ok(hash_bytes(&bytes))
-}
-
-#[cfg(windows)]
-fn cloud_dehydrated(path: &Path) -> bool {
-    atlas_core::cloud::is_dehydrated(path)
-}
-
-#[cfg(not(windows))]
-fn cloud_dehydrated(_path: &Path) -> bool {
-    false
-}
-
 pub fn build_xmp_packet(input: &ViewMetaInput) -> Result<String, ViewMetaError> {
     if !input.model_path.is_empty() && path_looks_absolute(&input.model_path) {
         return Err(ViewMetaError::InvalidPath);
@@ -246,11 +228,12 @@ pub fn parse_xmp_packet(xmp: &str) -> Result<ViewMetaParsed, ViewMetaError> {
     })
 }
 
-/// Read XMP from a saved image file (single-file read, safe off the UI thread).
+/// Read XMP from one local image file.
+///
+/// The caller must establish that `path` is not a dehydrated cloud placeholder
+/// before calling. This pure crate deliberately has no platform cloud-policy
+/// dependency.
 pub fn read_view_meta(path: &Path) -> Result<Option<ViewMetaParsed>, ViewMetaError> {
-    if cloud_dehydrated(path) {
-        return Ok(None);
-    }
     let xmp = read_xmp_via_image(path)?.or_else(|| scan_xmp_packet_file(path).ok().flatten());
     let Some(xmp) = xmp else {
         return Ok(None);
@@ -703,16 +686,5 @@ mod tests {
         let a = hash_bytes(b"model-bytes");
         assert_eq!(a, hash_bytes(b"model-bytes"));
         assert_ne!(a, hash_bytes(b"other"));
-    }
-
-    #[test]
-    fn hash_file_bytes_local_file() {
-        let dir = std::env::temp_dir().join(format!("slate-hash-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("mesh.bin");
-        std::fs::write(&path, b"fixture").unwrap();
-        let h = hash_file_bytes(&path).unwrap();
-        assert_eq!(h, hash_bytes(b"fixture"));
-        let _ = std::fs::remove_dir_all(dir);
     }
 }

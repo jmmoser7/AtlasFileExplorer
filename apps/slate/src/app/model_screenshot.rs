@@ -355,10 +355,14 @@ impl SlateApp {
         }
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let msg = match view_meta::read_view_meta(&image_path) {
-                Ok(Some(parsed)) => ViewDropMsg::Restored(parsed),
-                Ok(None) => ViewDropMsg::NoMeta,
-                Err(e) => ViewDropMsg::Err(e.to_string()),
+            let msg = if atlas_core::cloud::is_dehydrated(&image_path) {
+                ViewDropMsg::NoMeta
+            } else {
+                match view_meta::read_view_meta(&image_path) {
+                    Ok(Some(parsed)) => ViewDropMsg::Restored(parsed),
+                    Ok(None) => ViewDropMsg::NoMeta,
+                    Err(e) => ViewDropMsg::Err(e.to_string()),
+                }
             };
             let _ = tx.send(msg);
         });
