@@ -99,6 +99,22 @@ fn path_key(path: &Path) -> u64 {
     hasher.finish()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::blend_rgba;
+    use image::RgbaImage;
+
+    #[test]
+    fn blend_applies_layer_alpha() {
+        let mut base = RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 255]));
+        let top = [255u8, 0, 0, 128];
+        blend_rgba(&mut base, &top, 1, 1);
+        let p = base.get_pixel(0, 0);
+        assert!(p[0] > 100 && p[0] < 200, "red={}", p[0]);
+        assert_eq!(p[3], 255);
+    }
+}
+
 fn blend_rgba(base: &mut RgbaImage, top: &[u8], w: u32, h: u32) {
     let len = (w * h * 4) as usize;
     if top.len() < len {

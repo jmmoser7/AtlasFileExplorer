@@ -342,7 +342,7 @@ impl SlateApp {
                 let at = self.stepped_paste_at(at);
                 match existing_paths_from_text(text) {
                     Some(paths) => {
-                        if self.ingest_dropped_paths(paths, at, false) {
+                        if self.ingest_dropped_paths(paths, at, false, None) {
                             self.board_paste_count += 1;
                         } else {
                             self.toast("Couldn't place what was on the clipboard.");
@@ -363,6 +363,7 @@ impl SlateApp {
         paths: Vec<PathBuf>,
         at: Pos2,
         alt: bool,
+        screen_at: Option<Pos2>,
     ) -> bool {
         if paths.is_empty() {
             return false;
@@ -380,7 +381,30 @@ impl SlateApp {
         }
         let items = self.add_paths(&paths);
         if on_board && !items.is_empty() {
-            self.place_items_on_board(&items, at);
+            let defer_to_capsule = if alt || items.len() != 1 {
+                false
+            } else {
+                let item = items[0];
+                match self.doc().item(item) {
+                    None => false,
+                    Some(it) if slate_doc::media_kind(&it.path) != slate_doc::MediaKind::Image => {
+                        false
+                    }
+                    Some(_) => {
+                        if let (Some(target), Some(screen)) =
+                            (self.image_drop_target_at(at), screen_at)
+                        {
+                            self.offer_image_file_drop(target, item, screen);
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                }
+            };
+            if !defer_to_capsule {
+                self.place_items_on_board(&items, at);
+            }
         }
         !items.is_empty()
     }
@@ -396,9 +420,9 @@ impl SlateApp {
             return false;
         }
         let placed = match media {
-            OsPaste::Files(paths) => self.ingest_dropped_paths(paths, at, false),
+            OsPaste::Files(paths) => self.ingest_dropped_paths(paths, at, false, None),
             OsPaste::Png(bytes) => match self.write_pasted_png(&bytes) {
-                Some(path) => self.ingest_dropped_paths(vec![path], at, false),
+                Some(path) => self.ingest_dropped_paths(vec![path], at, false, None),
                 None => {
                     self.toast("Couldn't save the pasted image.");
                     return false;

@@ -370,7 +370,10 @@ pub struct SlateApp {
     pub board_crop: Option<NodeId>,
     /// Trace-paper session: drawing tools commit into the active paint layer.
     pub(crate) image_paint: Option<board_image_layers::ImagePaintSession>,
+    pub(crate) paint_layer_world_cache: Option<board_image_layers::PaintLayerWorldCache>,
     pub(crate) image_drop: Option<board_image_layers::ImageDropOffer>,
+    /// Screen anchor for external-file drop capsules (Replace / Add as layer).
+    pub(crate) image_drop_screen: Option<egui::Pos2>,
     /// Inline text editing: (node, live buffer).
     pub text_edit: Option<(NodeId, String)>,
     /// Fitted sticky font sizes. Derived from text and box; not journaled.
@@ -764,7 +767,9 @@ impl SlateApp {
             board_drag: None,
             board_crop: None,
             image_paint: None,
+            paint_layer_world_cache: None,
             image_drop: None,
+            image_drop_screen: None,
             text_edit: None,
             sticky_fit: HashMap::new(),
             sheet_edit: None,
@@ -2284,7 +2289,8 @@ impl SlateApp {
             // An HTML page dropped on the board is a portal, not a snippet card
             // (D01). Alt keeps the old text card, which is the only way back.
             let alt = drop_alt.unwrap_or_else(|| ctx.input(|i| i.modifiers.alt));
-            self.ingest_dropped_paths(dropped, at, alt);
+            let screen = drop_at.or_else(|| ctx.input(|i| i.pointer.hover_pos()));
+            self.ingest_dropped_paths(dropped, at, alt, screen);
         }
         // Dropped/added .slate files open as tabs, after placement above.
         self.drain_pending_workbooks();

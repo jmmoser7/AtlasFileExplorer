@@ -116,6 +116,18 @@ pub fn fresh_layer_node_ids(scene: &mut crate::scene::Scene, img: &mut ImageNode
     }
 }
 
+/// Drop layer children whose kinds are not allowed (load / paste hygiene).
+pub fn sanitize_paint_layers(scene: &mut crate::scene::Scene) {
+    for host in &mut scene.nodes {
+        let NodeKind::Image(img) = &mut host.kind else {
+            continue;
+        };
+        for layer in &mut img.paint_layers {
+            layer.nodes.retain(|n| layer_node_kind_allowed(&n.kind));
+        }
+    }
+}
+
 /// Find a paint-layer child by its stable [`NodeId`].
 pub fn find_layer_node(scene: &crate::scene::Scene, id: NodeId) -> Option<LayerNodeRef> {
     for host in &scene.nodes {

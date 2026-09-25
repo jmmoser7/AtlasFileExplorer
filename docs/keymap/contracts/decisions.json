@@ -4588,11 +4588,11 @@
           "decided": null
         },
         "D17": {
-          "behavior": "Pick layer ink only inside clipped outline; Eraser affects the active layer only; Delete with layer chip selected removes layer (proposal).",
-          "source": "guess",
-          "confidence": 60,
-          "verdict": "proposed",
-          "decided": null
+          "behavior": "Pick layer ink only inside clipped outline; Eraser affects the active layer only; Delete with layer chip selected removes layer via board.image.layer.delete.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "approved",
+          "decided": "2026-09-25"
         }
       }
     }
