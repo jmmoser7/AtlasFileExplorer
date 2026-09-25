@@ -151,7 +151,10 @@ is searchable.
   `board_snap::apply_group_box_scale` remaps then `pin_group_union`.
   Rotate is a 90° arc cursor just *outside* a corner, only for
   kinds that rotate (shapes, frames, text, images). Portals, connectors,
-  dock strips, and simple lines stay axis-aligned. A press on a wire-grip midpoint
+  dock strips, and simple lines stay axis-aligned. Rotation is rigid:
+  textured content maps onto the node's unrotated local rect and the
+  whole quad turns (`board::node_texture_vertices`), never re-fit into
+  the rotated bounding box. A press on a wire-grip midpoint
   starts a connector and suppresses edge resize at that point (hit-test
   the press origin, not the live pointer). The rest of the edge is
   resize.   Selection chrome is a silhouette of each selected shape (fillet,

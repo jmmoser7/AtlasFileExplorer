@@ -326,6 +326,47 @@ mod tests {
         assert!(html.contains("left:-50.0000%"));
     }
 
+    /// A turned picture is one rigid body: the node box keeps its unrotated
+    /// size and carries the rotation; the picture fills that box exactly as
+    /// the board maps UVs onto the node's local rect.
+    #[test]
+    fn rotated_image_turns_the_box_and_fills_it_unrotated() {
+        let mut doc = SlateDoc::new("Rotate");
+        let path = PathBuf::from("/tmp/slate-artifact-rotate.png");
+        let item = doc.add_item(path.clone(), "wide.png", 0, 0, "");
+        add_frame(&mut doc.scene, 0, WorldRect::new(0.0, 0.0, 600.0, 400.0));
+        let id = add_image(
+            &mut doc.scene,
+            WorldRect::new(100.0, 100.0, 200.0, 100.0),
+            item,
+            Crop::full(),
+            Corner::Square,
+            Stroke::none(),
+            ImageAdjust::default(),
+        );
+        doc.scene.node_mut(id).unwrap().rotation_deg = 90.0;
+        let mut assets = AssetMap::default();
+        assets.insert(path, "assets/wide.png".into());
+        let html = render_html(&doc, &assets);
+        let node_start = html
+            .find("left:100.0px;top:100.0px;width:200.0px;height:100.0px;")
+            .expect("unrotated node box");
+        let node = &html[node_start..];
+        let node = &node[..node.find("</div>").unwrap()];
+        assert!(
+            node.contains("transform:rotate(90.000deg);transform-origin:center center;"),
+            "{node}"
+        );
+        let img = &node[node.find("<img").expect("img")..];
+        let img = &img[..img.find('>').unwrap()];
+        assert!(
+            img.contains("position:absolute;width:100.0000%;height:100.0000%;"),
+            "{img}"
+        );
+        assert!(!img.contains("rotate"), "{img}");
+        assert!(!img.contains("object-fit"), "{img}");
+    }
+
     #[test]
     fn corner_stroke_styles() {
         let mut doc = SlateDoc::new("Styles");

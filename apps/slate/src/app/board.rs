@@ -1,4 +1,4 @@
-﻿//! The Board view — Slate's open-world authored canvas.
+//! The Board view — Slate's open-world authored canvas.
 //!
 //! Frames, shapes, text, and placed images live in `slate_doc::scene`; this
 //! module paints the scene with egui and turns pointer input into invertible
@@ -2464,18 +2464,72 @@ pub(crate) fn textured_polygon_world(
     painter.add(mesh);
 }
 
-fn host_texture_uv(rect: WorldRect, rotation_deg: f32, crop: Crop, world: (f32, f32)) -> Pos2 {
+/// Screen position and texture UV for each outline vertex of a texture laid
+/// on `tex_rect` (node-local, unrotated) inside a node whose rect is
+/// `node_rect`, turned by `rotation_deg` about the node center.
+pub(crate) fn node_texture_vertices(
+    xf: &BoardXf,
+    node_rect: WorldRect,
+    tex_rect: WorldRect,
+    rotation_deg: f32,
+    corner: Corner,
+    crop: Crop,
+) -> Vec<(Pos2, Pos2)> {
+    corner
+        .outline(tex_rect, 0.25 / xf.z.max(0.01))
+        .into_iter()
+        .map(|[x, y]| {
+            let [wx, wy] = node_rect.rotate_point([x, y], rotation_deg);
+            (
+                xf.w2s(Pos2::new(wx, wy)),
+                local_texture_uv(tex_rect, crop, (x, y)),
+            )
+        })
+        .collect()
+}
+
+/// UV of an unrotated node-local point: normalized in `rect`, then mapped
+/// into the crop window.
+fn local_texture_uv(rect: WorldRect, crop: Crop, local: (f32, f32)) -> Pos2 {
     let crop = crop.clamped();
-    let (lx, ly) = slate_doc::geom::world_to_local_about(
+    let fx = ((local.0 - rect.x) / rect.w.max(0.001)).clamp(0.0, 1.0);
+    let fy = ((local.1 - rect.y) / rect.h.max(0.001)).clamp(0.0, 1.0);
+    Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h)
+}
+
+/// Fan-triangulated textured mesh from [`node_texture_vertices`].
+pub(crate) fn paint_node_texture(
+    painter: &egui::Painter,
+    tex: &egui::TextureHandle,
+    vertices: &[(Pos2, Pos2)],
+    tint: Color32,
+) {
+    if vertices.len() < 3 {
+        return;
+    }
+    let mut mesh = egui::Mesh::with_texture(tex.id());
+    for (pos, uv) in vertices {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: *pos,
+            uv: *uv,
+            color: tint,
+        });
+    }
+    for i in 1..vertices.len() as u32 - 1 {
+        mesh.indices.extend_from_slice(&[0, i, i + 1]);
+    }
+    painter.add(mesh);
+}
+
+fn host_texture_uv(rect: WorldRect, rotation_deg: f32, crop: Crop, world: (f32, f32)) -> Pos2 {
+    let local = slate_doc::geom::world_to_local_about(
         world.0,
         world.1,
         rect.center().0,
         rect.center().1,
         rotation_deg,
     );
-    let fx = ((lx - rect.x) / rect.w.max(0.001)).clamp(0.0, 1.0);
-    let fy = ((ly - rect.y) / rect.h.max(0.001)).clamp(0.0, 1.0);
-    Pos2::new(crop.x + fx * crop.w, crop.y + fy * crop.h)
+    local_texture_uv(rect, crop, local)
 }
 
 pub(crate) fn stroke_outline(
@@ -2967,6 +3021,7 @@ impl SlateApp {
         ui: &egui::Ui,
         painter: &egui::Painter,
         outline: &[Pos2],
+        tex_vertices: &[(Pos2, Pos2)],
         srect: Rect,
         node_id: NodeId,
         name: &str,
@@ -3023,7 +3078,7 @@ impl SlateApp {
 
         match tex {
             Some(tex) => {
-                textured_polygon(painter, &tex, outline, srect, Crop::full(), tint);
+                paint_node_texture(painter, &tex, tex_vertices, tint);
             }
             None => {
                 let palette = self.palette();
@@ -3474,7 +3529,24 @@ impl SlateApp {
                 } else if !nested && self.model_node_info(node.id).is_some() {
                     // 3D viewport: live render while unlocked, frozen-camera
                     // poster while locked (see model3d.rs for the lifecycle).
-                    self.paint_model_viewport(ui, painter, &outline, srect, node.id, &name, alpha);
+                    let tex_vertices = node_texture_vertices(
+                        xf,
+                        node.rect,
+                        node.rect,
+                        node.rotation_deg,
+                        corner,
+                        Crop::full(),
+                    );
+                    self.paint_model_viewport(
+                        ui,
+                        painter,
+                        &outline,
+                        &tex_vertices,
+                        srect,
+                        node.id,
+                        &name,
+                        alpha,
+                    );
                 } else {
                     let desired_px =
                         srect.width().max(srect.height()) * ui.ctx().pixels_per_point();
@@ -3500,32 +3572,16 @@ impl SlateApp {
                                 paint_clipped_texture(
                                     painter, xf, &tex, node, clip, img.crop, tint,
                                 );
-                            } else if rotated {
-                                let local_outline = corner
-                                    .outline(node.rect, 0.25 / z.max(0.01))
-                                    .into_iter()
-                                    .map(|[x, y]| (x, y))
-                                    .collect::<Vec<_>>();
-                                let rotated_outline = local_outline
-                                    .iter()
-                                    .map(|&(x, y)| {
-                                        let [wx, wy] =
-                                            node.rect.rotate_point([x, y], node.rotation_deg);
-                                        xf.w2s(Pos2::new(wx, wy))
-                                    })
-                                    .collect::<Vec<_>>();
-                                textured_polygon_world(
-                                    painter,
-                                    &tex,
-                                    &rotated_outline,
-                                    &local_outline,
-                                    node.rect,
-                                    img.crop,
-                                    tint,
-                                    node.rotation_deg,
-                                );
                             } else {
-                                textured_polygon(painter, &tex, &outline, srect, img.crop, tint);
+                                let vertices = node_texture_vertices(
+                                    xf,
+                                    node.rect,
+                                    node.rect,
+                                    node.rotation_deg,
+                                    corner,
+                                    img.crop,
+                                );
+                                paint_node_texture(painter, &tex, &vertices, tint);
                             }
                             if let Some(ov) = img.adjust.overlay {
                                 painter.add(egui::Shape::convex_polygon(
@@ -5640,22 +5696,19 @@ impl SlateApp {
             * ui.ctx().pixels_per_point();
         if let Some(tex) = self.board_texture(ui.ctx(), node.id, img.item, &img.adjust, desired_px)
         {
-            let outline_screen = quad_screen(content);
-            let outline_local: [(f32, f32); 4] = [
-                (content.x, content.y),
-                (content.x + content.w, content.y),
-                (content.x + content.w, content.y + content.h),
-                (content.x, content.y + content.h),
-            ];
-            textured_polygon_world(
+            let vertices = node_texture_vertices(
+                xf,
+                node.rect,
+                content,
+                node.rotation_deg,
+                Corner::Square,
+                Crop::full(),
+            );
+            paint_node_texture(
                 painter,
                 &tex,
-                &outline_screen,
-                &outline_local,
-                content,
-                Crop::full(),
+                &vertices,
                 Color32::WHITE.gamma_multiply(0.35),
-                node.rotation_deg,
             );
         }
 
@@ -9309,6 +9362,135 @@ mod tests {
             assert!((uv.x - expected.x).abs() < 1e-4);
             assert!((uv.y - expected.y).abs() < 1e-4);
         }
+    }
+
+    /// Every vertex samples the texel at its own node-local position: undo
+    /// the node rotation on the painted point and read it against `tex_rect`.
+    fn assert_rigid_texture(
+        xf: &BoardXf,
+        node_rect: WorldRect,
+        tex_rect: WorldRect,
+        rotation_deg: f32,
+        vertices: &[(Pos2, Pos2)],
+    ) {
+        let (cx, cy) = node_rect.center();
+        for (pos, uv) in vertices {
+            let w = xf.s2w(*pos);
+            let (lx, ly) = slate_doc::geom::world_to_local_about(w.x, w.y, cx, cy, rotation_deg);
+            let want = Pos2::new(
+                (lx - tex_rect.x) / tex_rect.w,
+                (ly - tex_rect.y) / tex_rect.h,
+            );
+            assert!(
+                (uv.x - want.x).abs() < 1e-3 && (uv.y - want.y).abs() < 1e-3,
+                "vertex {pos:?}: uv {uv:?}, expected {want:?}"
+            );
+        }
+    }
+
+    fn vertex_with_uv(vertices: &[(Pos2, Pos2)], uv: Pos2) -> Pos2 {
+        vertices
+            .iter()
+            .find(|(_, v)| (*v - uv).length() < 1e-3)
+            .map(|(p, _)| *p)
+            .unwrap_or_else(|| panic!("no vertex samples {uv:?}: {vertices:?}"))
+    }
+
+    /// A 2:1 picture turned 90°: its texture turns with it. UV corners sit
+    /// on the rotated corners and the texel spacing stays 2:1 (no stretch).
+    #[test]
+    fn a_quarter_turned_picture_turns_its_pixels_rigidly() {
+        let xf = BoardXf {
+            center: Pos2::new(400.0, 300.0),
+            offset: Vec2::new(30.0, -10.0),
+            z: 1.5,
+        };
+        let rect = WorldRect::new(10.0, 20.0, 200.0, 100.0);
+        let vertices = node_texture_vertices(&xf, rect, rect, 90.0, Corner::Square, Crop::full());
+        assert_rigid_texture(&xf, rect, rect, 90.0, &vertices);
+        let corners = rect.corners_rotated(90.0);
+        let uv_corners = [
+            Pos2::new(0.0, 0.0),
+            Pos2::new(1.0, 0.0),
+            Pos2::new(1.0, 1.0),
+            Pos2::new(0.0, 1.0),
+        ];
+        for ((wx, wy), uv) in corners.into_iter().zip(uv_corners) {
+            let at = vertex_with_uv(&vertices, uv);
+            assert!((at - xf.w2s(Pos2::new(wx, wy))).length() < 1e-2, "{uv:?}");
+        }
+        let top = xf.s2w(vertex_with_uv(&vertices, uv_corners[1]))
+            - xf.s2w(vertex_with_uv(&vertices, uv_corners[0]));
+        let side = xf.s2w(vertex_with_uv(&vertices, uv_corners[2]))
+            - xf.s2w(vertex_with_uv(&vertices, uv_corners[1]));
+        assert!((top.length() - 200.0).abs() < 1e-2, "texture width {top:?}");
+        assert!(
+            (side.length() - 100.0).abs() < 1e-2,
+            "texture height {side:?}"
+        );
+        // The image's top edge now runs down the screen.
+        assert!(top.x.abs() < 1e-2 && top.y > 0.0, "{top:?}");
+    }
+
+    #[test]
+    fn a_rotated_cropped_picture_keeps_its_crop_window_rigid() {
+        let xf = BoardXf {
+            center: Pos2::ZERO,
+            offset: Vec2::ZERO,
+            z: 1.0,
+        };
+        let rect = WorldRect::new(0.0, 0.0, 120.0, 60.0);
+        let crop = Crop {
+            x: 0.25,
+            y: 0.1,
+            w: 0.5,
+            h: 0.6,
+        };
+        for rotation in [30.0, 90.0, 180.0, -135.0] {
+            let vertices = node_texture_vertices(
+                &xf,
+                rect,
+                rect,
+                rotation,
+                Corner::Rounded { radius: 12.0 },
+                crop,
+            );
+            let (cx, cy) = rect.center();
+            for (pos, uv) in &vertices {
+                let (lx, ly) =
+                    slate_doc::geom::world_to_local_about(pos.x, pos.y, cx, cy, rotation);
+                let want = Pos2::new(
+                    crop.x + (lx - rect.x) / rect.w * crop.w,
+                    crop.y + (ly - rect.y) / rect.h * crop.h,
+                );
+                assert!(
+                    (*uv - want).length() < 1e-3,
+                    "{rotation}°: {uv:?} vs {want:?}"
+                );
+            }
+        }
+    }
+
+    /// Crop mode's ghost lays the whole source on the content rect and turns
+    /// about the node's center, not the content rect's.
+    #[test]
+    fn the_crop_ghost_turns_about_the_node_center() {
+        let xf = BoardXf {
+            center: Pos2::ZERO,
+            offset: Vec2::ZERO,
+            z: 1.0,
+        };
+        let rect = WorldRect::new(100.0, 50.0, 100.0, 60.0);
+        let crop = Crop {
+            x: 0.5,
+            y: 0.25,
+            w: 0.5,
+            h: 0.5,
+        };
+        let content = board_crop::content_rect(rect, crop);
+        let vertices =
+            node_texture_vertices(&xf, rect, content, 90.0, Corner::Square, Crop::full());
+        assert_rigid_texture(&xf, rect, content, 90.0, &vertices);
     }
 
     #[test]
