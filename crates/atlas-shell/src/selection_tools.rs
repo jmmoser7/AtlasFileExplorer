@@ -24,6 +24,9 @@ pub const WIRE_HEIGHT: f32 = CAPSULE_HEIGHT;
 /// Photo-filter radios are twice the previous fillet-capsule dot, so this
 /// capsule is twice the fillet height. The slider stays in the same row.
 pub const FILTER_HEIGHT: f32 = CORNER_HEIGHT * 2.0;
+/// Circle-chip row without an intensity track. Chip diameter matches the
+/// photo-filter capsule; width is content-sized via [`filter_chips_width`].
+pub const FILTER_CHIPS_HEIGHT: f32 = FILTER_HEIGHT;
 /// File Atlas portal formatting: search, type radios, ghost/hide, fit.
 pub const ATLAS_FORMAT_HEIGHT: f32 = 118.0;
 /// Typeface, justification, and size row. Same capsule as the fillet toolbar.
@@ -468,29 +471,31 @@ pub fn stringer(
 pub struct ColorState {
     rgb: Option<[u8; 3]>,
     hsv: egui::ecolor::Hsva,
-    textures: Vec<(&'static str, Vec<Color32>, egui::TextureHandle)>,
+    textures: Vec<(&'static str, u64, egui::TextureHandle)>,
     numbers: [Option<NumberEdit>; 3],
 }
 
 impl ColorState {
+    /// A named texture whose texels are rebuilt only when `key` changes.
     fn texture(
         &mut self,
         ui: &egui::Ui,
         name: &'static str,
         size: [usize; 2],
-        colors: Vec<Color32>,
+        key: u64,
+        texels: impl FnOnce() -> Vec<Color32>,
     ) -> egui::TextureId {
         if let Some((_, previous, texture)) = self.textures.iter_mut().find(|(n, _, _)| *n == name)
         {
-            if *previous != colors {
+            if *previous != key {
                 texture.set(
                     egui::ColorImage {
                         size,
-                        pixels: colors.clone(),
+                        pixels: texels(),
                     },
                     egui::TextureOptions::LINEAR,
                 );
-                *previous = colors;
+                *previous = key;
             }
             return texture.id();
         }
@@ -498,14 +503,81 @@ impl ColorState {
             name,
             egui::ColorImage {
                 size,
-                pixels: colors.clone(),
+                pixels: texels(),
             },
             egui::TextureOptions::LINEAR,
         );
         let id = texture.id();
-        self.textures.push((name, colors, texture));
+        self.textures.push((name, key, texture));
         id
     }
+}
+
+fn texture_key(a: u32, b: u32) -> u64 {
+    (u64::from(a) << 32) | u64::from(b)
+}
+
+/// Hue columns in the color square. RGB is piecewise linear in hue with
+/// corners at sixths, so a multiple of six puts every corner on a texel and
+/// filtering between texels draws the hue axis exactly.
+const SQUARE_HUE_STEPS: usize = 48;
+
+fn color_field(rect: Rect, zoom: f32) -> Rect {
+    Rect::from_min_size(
+        rect.min + Vec2::splat(5.0 * zoom),
+        Vec2::new(396.0, 86.0) * zoom,
+    )
+}
+
+fn color_rail(rect: Rect, index: usize, zoom: f32) -> Rect {
+    Rect::from_min_size(
+        rect.min + Vec2::new(12.0, 112.0 + index as f32 * 16.0) * zoom,
+        Vec2::new(396.0, 7.0) * zoom,
+    )
+}
+
+/// Hue across the color square and value down it, for a position given as
+/// a fraction of the square from its top-left corner.
+fn square_hue_value(fraction: Vec2) -> (f32, f32) {
+    (
+        fraction.x.clamp(0.0, 1.0),
+        (1.0 - fraction.y).clamp(0.0, 1.0),
+    )
+}
+
+/// Where `hsv` sits in the color square, as a fraction from its top-left.
+fn square_fraction(hsv: egui::ecolor::Hsva) -> Vec2 {
+    Vec2::new(hsv.h, 1.0 - hsv.v)
+}
+
+/// The color square at saturation `s`: full value across the hue range on the
+/// top row, black on the bottom. RGB is linear in value, so two rows suffice.
+fn square_texels(s: f32) -> Vec<Color32> {
+    (0..=SQUARE_HUE_STEPS)
+        .map(|i| egui::ecolor::Hsva::new(i as f32 / SQUARE_HUE_STEPS as f32, s, 1.0, 1.0).into())
+        .chain(std::iter::repeat_n(Color32::BLACK, SQUARE_HUE_STEPS + 1))
+        .collect()
+}
+
+/// The saturation rail at the current hue and value: gray to full color.
+fn saturation_texels(hsv: egui::ecolor::Hsva) -> Vec<Color32> {
+    vec![
+        egui::ecolor::Hsva::new(hsv.h, 0.0, hsv.v, 1.0).into(),
+        egui::ecolor::Hsva::new(hsv.h, 1.0, hsv.v, 1.0).into(),
+    ]
+}
+
+/// HSV for an incoming color. Black has no hue or saturation and gray has no
+/// hue, so those keep `previous`; raising value or saturation restores them.
+fn hsv_for(rgb: [u8; 3], previous: egui::ecolor::Hsva) -> egui::ecolor::Hsva {
+    let mut hsv = egui::ecolor::Hsva::from(Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
+    if hsv.v == 0.0 {
+        hsv.h = previous.h;
+        hsv.s = previous.s;
+    } else if hsv.s == 0.0 {
+        hsv.h = previous.h;
+    }
+    hsv
 }
 
 #[derive(Default)]
@@ -569,6 +641,7 @@ fn buffer(
         fraction,
         handle,
         editing,
+        zoom,
     );
     let response = hit.response;
     let center = Pos2::new(egui::lerp(rect.x_range(), *fraction), rect.center().y);
@@ -650,38 +723,29 @@ pub fn color_editor(
     let mut out = ColorEdit::default();
     let rgb = [rgba[0], rgba[1], rgba[2]];
     if state.rgb != Some(rgb) {
-        let previous_hue = state.hsv.h;
-        state.hsv = egui::ecolor::Hsva::from(Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
-        if state.hsv.s == 0.0 {
-            state.hsv.h = previous_hue;
-        }
+        state.hsv = hsv_for(rgb, state.hsv);
         state.rgb = Some(rgb);
     }
-    let field = Rect::from_min_size(
-        rect.min + Vec2::splat(5.0 * zoom),
-        Vec2::new(396.0, 70.0) * zoom,
-    );
-    let hue: Color32 = egui::ecolor::Hsva::new(state.hsv.h, 1.0, 1.0, 1.0).into();
+    let field = color_field(rect, zoom);
+    let saturation = state.hsv.s;
+    let size = [SQUARE_HUE_STEPS + 1, 2];
     let texture = state.texture(
         ui,
         "shape-color-field",
-        [2, 2],
-        vec![Color32::WHITE, hue, Color32::BLACK, Color32::BLACK],
+        size,
+        u64::from(saturation.to_bits()),
+        || square_texels(saturation),
     );
-    texture_rect(ui, field, texture, [2, 2], 3.0 * zoom);
+    texture_rect(ui, field, texture, size, 3.0 * zoom);
     let response = ui.interact(field, ui.id().with("color_field"), Sense::click_and_drag());
     let mut rgb_changed = false;
     if response.is_pointer_button_down_on() || response.dragged() {
         if let Some(p) = response.interact_pointer_pos() {
-            state.hsv.s = ((p.x - field.left()) / field.width()).clamp(0.0, 1.0);
-            state.hsv.v = (1.0 - (p.y - field.top()) / field.height()).clamp(0.0, 1.0);
+            (state.hsv.h, state.hsv.v) = square_hue_value((p - field.min) / field.size());
             rgb_changed = true;
         }
     }
-    let cursor = Pos2::new(
-        field.left() + state.hsv.s * field.width(),
-        field.bottom() - state.hsv.v * field.height(),
-    );
+    let cursor = field.min + square_fraction(state.hsv) * field.size();
     ui.painter().circle_stroke(
         cursor,
         4.0 * zoom,
@@ -692,24 +756,29 @@ pub fn color_editor(
     if mixed {
         response.on_hover_text("Mixed colors — editing applies this color to the selection");
     }
-    let rail = |index: usize| {
-        Rect::from_min_size(
-            rect.min + Vec2::new(12.0, 96.0 + index as f32 * 16.0) * zoom,
-            Vec2::new(396.0, 7.0) * zoom,
-        )
-    };
-    let checker: Vec<_> = (0..2usize)
-        .flat_map(|y| {
-            (0..96usize).map(move |x| {
-                if (x + y).is_multiple_of(2) {
-                    theme.border
-                } else {
-                    theme.card
-                }
-            })
-        })
-        .collect();
-    let tex = state.texture(ui, "shape-alpha", [96, 2], checker);
+    let rail = |index: usize| color_rail(rect, index, zoom);
+    let tex = state.texture(
+        ui,
+        "shape-alpha",
+        [96, 2],
+        texture_key(
+            u32::from_le_bytes(theme.border.to_array()),
+            u32::from_le_bytes(theme.card.to_array()),
+        ),
+        || {
+            (0..2usize)
+                .flat_map(|y| {
+                    (0..96usize).map(move |x| {
+                        if (x + y).is_multiple_of(2) {
+                            theme.border
+                        } else {
+                            theme.card
+                        }
+                    })
+                })
+                .collect()
+        },
+    );
     texture_rect(ui, rail(0), tex, [96, 2], 3.5 * zoom);
     let mut alpha = rgba[3] as f32 / 255.0;
     let alpha_pct = (alpha * 100.0).round();
@@ -729,54 +798,32 @@ pub fn color_editor(
     ) {
         out.alpha = Some((alpha * 255.0).round() as u8);
     }
+    let hsv = state.hsv;
     let tex = state.texture(
         ui,
-        "shape-value",
+        "shape-saturation",
         [2, 1],
-        vec![Color32::WHITE, Color32::BLACK],
+        texture_key(hsv.h.to_bits(), hsv.v.to_bits()),
+        || saturation_texels(hsv),
     );
     texture_rect(ui, rail(1), tex, [2, 1], 3.5 * zoom);
-    let mut darkness = 1.0 - state.hsv.v;
-    let darkness_pct = ((1.0 - darkness) * 100.0).round();
-    if buffer(
-        ui,
-        ui.id().with("value"),
-        rail(1),
-        &mut darkness,
-        darkness_pct,
-        0.0..=100.0,
-        "%",
-        |v| 1.0 - v / 100.0,
-        |v| format!("{}%", number(((1.0 - v) * 100.0).round())),
-        zoom,
-        theme,
-        false,
-    ) {
-        state.hsv.v = 1.0 - darkness;
-        rgb_changed = true;
-    }
-    let spectrum = (0..=48)
-        .map(|i| Color32::from(egui::ecolor::Hsva::new(i as f32 / 48.0, 1.0, 1.0, 1.0)))
-        .collect();
-    let tex = state.texture(ui, "shape-hue", [49, 1], spectrum);
-    texture_rect(ui, rail(2), tex, [49, 1], 3.5 * zoom);
-    let hue_deg = (state.hsv.h * 360.0).round();
+    let saturation_pct = (state.hsv.s * 100.0).round();
     rgb_changed |= buffer(
         ui,
-        ui.id().with("hue"),
-        rail(2),
-        &mut state.hsv.h,
-        hue_deg,
-        0.0..=360.0,
-        "°",
-        |v| v / 360.0,
-        |v| format!("{}°", number((v * 360.0).round())),
+        ui.id().with("saturation"),
+        rail(1),
+        &mut state.hsv.s,
+        saturation_pct,
+        0.0..=100.0,
+        "%",
+        |v| v / 100.0,
+        |v| format!("{}%", number((v * 100.0).round())),
         zoom,
         theme,
         false,
     );
     if let Some(width) = width {
-        let r = rail(3);
+        let r = rail(2);
         ui.painter().rect_filled(r, 3.5 * zoom, theme.card_hover);
         ui.painter().line_segment(
             [r.left_center(), r.right_center()],
@@ -1838,6 +1885,33 @@ pub struct FilterEdit {
     pub amount: Option<f32>,
 }
 
+/// Whether a filter capsule includes the intensity track beside the chips.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilterCapsuleStyle {
+    /// Photo filters: chips plus an intensity slider in one row.
+    WithIntensity,
+    /// Chips only (e.g. 3D viewport display modes). Same chip sizing as
+    /// [`FilterCapsuleStyle::WithIntensity`]; no intensity track.
+    ChipsOnly,
+}
+
+/// Board-unit width for a chips-only filter capsule at the given height.
+pub fn filter_chips_width(radio_count: usize, height: f32, zoom: f32) -> f32 {
+    let (_, _, pitch) = filter_chip_metrics(height, zoom);
+    let pad = height * (2.0 / CAPSULE_HEIGHT);
+    pad * 2.0 + pitch * radio_count.max(1) as f32
+}
+
+fn filter_chip_metrics(height: f32, zoom: f32) -> (f32, f32, f32) {
+    let pad = height * (2.0 / CAPSULE_HEIGHT);
+    let inner_h = height * (13.0 / CAPSULE_HEIGHT);
+    // 80% of the doubled-capsule dot. The intensity track uses this same
+    // radius as its thickness so the slider stays a thin capsule.
+    let radius = inner_h * 0.36 * 0.8;
+    let pitch = radius * 2.0 + 6.0 * zoom;
+    (pad, inner_h, pitch)
+}
+
 /// Fillet-style capsule: filter thumbnails + intensity slider.
 pub fn filter_editor(
     ui: &mut egui::Ui,
@@ -1848,18 +1922,38 @@ pub fn filter_editor(
     zoom: f32,
     theme: Palette,
 ) -> FilterEdit {
+    filter_capsule(
+        ui,
+        rect,
+        radios,
+        selected,
+        Some(amount),
+        zoom,
+        theme,
+        FilterCapsuleStyle::WithIntensity,
+    )
+}
+
+/// Shared circle-chip capsule. [`FilterCapsuleStyle::ChipsOnly`] omits the
+/// intensity track; [`FilterCapsuleStyle::WithIntensity`] keeps it.
+pub fn filter_capsule(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    radios: &[FilterRadio],
+    selected: Option<usize>,
+    amount: Option<f32>,
+    zoom: f32,
+    theme: Palette,
+    style: FilterCapsuleStyle,
+) -> FilterEdit {
     paint_capsule(ui, rect, zoom, theme);
-    let pad = rect.height() * (2.0 / CAPSULE_HEIGHT);
-    let inner_h = rect.height() * (13.0 / CAPSULE_HEIGHT);
+    let (pad, inner_h, radio_pitch) = filter_chip_metrics(rect.height(), zoom);
     let count = radios.len().max(1) as f32;
-    // 80% of the doubled-capsule dot. The intensity track uses this same
-    // radius as its thickness so the slider stays a thin capsule.
-    let radius = inner_h * 0.36 * 0.8;
-    let radio_pitch = radius * 2.0 + 6.0 * zoom;
     let radio_row = Rect::from_min_size(
         rect.min + Vec2::splat(pad),
         Vec2::new(radio_pitch * count, inner_h),
     );
+    let radius = inner_h * 0.36 * 0.8;
     let mut out = FilterEdit::default();
     for (i, radio) in radios.iter().enumerate() {
         let center = Pos2::new(
@@ -1887,35 +1981,40 @@ pub fn filter_editor(
             theme,
         );
     }
-    let track = Rect::from_center_size(
-        Pos2::new(
-            rect.left()
-                + radio_row.width()
-                + pad * 2.0
-                + (rect.width() - radio_row.width() - pad * 3.0).max(radius) * 0.5,
-            rect.center().y,
-        ),
-        Vec2::new(
-            (rect.width() - radio_row.width() - pad * 3.0).max(radius),
-            radius,
-        ),
-    );
-    let mut fraction = amount.clamp(0.0, 1.0);
-    let filter_display = (fraction * 100.0).round();
-    if capsule_buffer(
-        ui,
-        ui.id().with("filter_amount"),
-        track,
-        &mut fraction,
-        filter_display,
-        0.0..=100.0,
-        "%",
-        |v| v / 100.0,
-        |v| format!("{}%", number((v * 100.0).round())),
-        zoom,
-        theme,
-    ) {
-        out.amount = Some(fraction);
+    if style == FilterCapsuleStyle::WithIntensity {
+        let Some(amount) = amount else {
+            return out;
+        };
+        let track = Rect::from_center_size(
+            Pos2::new(
+                rect.left()
+                    + radio_row.width()
+                    + pad * 2.0
+                    + (rect.width() - radio_row.width() - pad * 3.0).max(radius) * 0.5,
+                rect.center().y,
+            ),
+            Vec2::new(
+                (rect.width() - radio_row.width() - pad * 3.0).max(radius),
+                radius,
+            ),
+        );
+        let mut fraction = amount.clamp(0.0, 1.0);
+        let filter_display = (fraction * 100.0).round();
+        if capsule_buffer(
+            ui,
+            ui.id().with("filter_amount"),
+            track,
+            &mut fraction,
+            filter_display,
+            0.0..=100.0,
+            "%",
+            |v| v / 100.0,
+            |v| format!("{}%", number((v * 100.0).round())),
+            zoom,
+            theme,
+        ) {
+            out.amount = Some(fraction);
+        }
     }
     out
 }
@@ -2413,6 +2512,7 @@ mod tests {
         assert_eq!(TEXT_ROW_HEIGHT, CORNER_HEIGHT);
         assert_eq!(WIRE_HEIGHT, CAPSULE_HEIGHT);
         assert!((FILTER_HEIGHT - CORNER_HEIGHT * 2.0).abs() < f32::EPSILON);
+        assert_eq!(FILTER_CHIPS_HEIGHT, FILTER_HEIGHT);
         let strip = strip_rect(Pos2::new(100.0, 80.0), 3, 1.0, 1.0);
         assert!((strip.height() - BUTTON_SIZE).abs() < 0.001);
         let collapsed = strip_rect(Pos2::new(100.0, 80.0), 3, 1.0, 0.0);
@@ -2457,6 +2557,132 @@ mod tests {
             });
         }
         assert_eq!(hovered, Some(0));
+    }
+
+    #[test]
+    fn chips_only_filter_capsule_has_no_intensity_track() {
+        let ctx = egui::Context::default();
+        let radios = [FilterRadio {
+            label: "Shaded",
+            fill: [120, 130, 145],
+            fill_b: None,
+            thumb: None,
+        }];
+        let height = FILTER_CHIPS_HEIGHT;
+        let width = filter_chips_width(1, height, 1.0);
+        let rect = Rect::from_min_size(Pos2::new(40.0, 40.0), Vec2::new(width, height));
+        let pad = height * (2.0 / CAPSULE_HEIGHT);
+        let inner_h = height * (13.0 / CAPSULE_HEIGHT);
+        let radius = inner_h * 0.36 * 0.8;
+        let pitch = radius * 2.0 + 6.0;
+        let track_left = rect.left() + pad + pitch + pad * 2.0;
+        let track = Rect::from_center_size(
+            Pos2::new(
+                track_left + (rect.width() - pad - pitch - pad * 3.0).max(radius) * 0.5,
+                rect.center().y,
+            ),
+            Vec2::new((rect.width() - pad - pitch - pad * 3.0).max(radius), radius),
+        );
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 200.0))),
+            events: vec![egui::Event::PointerMoved(track.center())],
+            ..Default::default()
+        };
+        let mut amount = None;
+        for _ in 0..2 {
+            let _ = ctx.run(input.clone(), |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        amount = filter_capsule(
+                            ui,
+                            rect,
+                            &radios,
+                            Some(0),
+                            None,
+                            1.0,
+                            Palette::dark(),
+                            FilterCapsuleStyle::ChipsOnly,
+                        )
+                        .amount;
+                    });
+            });
+        }
+        assert!(
+            amount.is_none(),
+            "chips-only capsule must not expose a track"
+        );
+        assert!((rect.height() - FILTER_CHIPS_HEIGHT).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn chips_only_filter_capsule_reports_chip_click() {
+        let ctx = egui::Context::default();
+        let radios = [
+            FilterRadio {
+                label: "Shaded",
+                fill: [108, 118, 132],
+                fill_b: None,
+                thumb: None,
+            },
+            FilterRadio {
+                label: "Arctic",
+                fill: [238, 238, 234],
+                fill_b: None,
+                thumb: None,
+            },
+        ];
+        let height = FILTER_CHIPS_HEIGHT;
+        let width = filter_chips_width(2, height, 1.0);
+        let rect = Rect::from_min_size(Pos2::new(40.0, 40.0), Vec2::new(width, height));
+        let pad = height * (2.0 / CAPSULE_HEIGHT);
+        let inner_h = height * (13.0 / CAPSULE_HEIGHT);
+        let radius = inner_h * 0.36 * 0.8;
+        let pitch = radius * 2.0 + 6.0;
+        let second = Pos2::new(
+            rect.left() + pad + pitch * 1.5,
+            rect.top() + pad + inner_h * 0.5,
+        );
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 200.0))),
+            events: vec![
+                egui::Event::PointerMoved(second),
+                egui::Event::PointerButton {
+                    pos: second,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: second,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        };
+        let mut clicked = None;
+        for _ in 0..3 {
+            let _ = ctx.run(input.clone(), |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        clicked = filter_capsule(
+                            ui,
+                            rect,
+                            &radios,
+                            Some(0),
+                            None,
+                            1.0,
+                            Palette::dark(),
+                            FilterCapsuleStyle::ChipsOnly,
+                        )
+                        .clicked;
+                    });
+            });
+        }
+        assert_eq!(clicked, Some(1));
     }
 
     #[test]
@@ -2557,10 +2783,24 @@ mod tests {
             }
         }
     }
+    fn color_editor_rect() -> Rect {
+        Rect::from_min_size(Pos2::new(40.0, 40.0), Vec2::new(EDITOR_WIDTH, FILL_HEIGHT))
+    }
+
     fn frame(
         ctx: &egui::Context,
         state: &mut ColorState,
         theme: Palette,
+        events: Vec<egui::Event>,
+    ) -> (egui::FullOutput, ColorEdit) {
+        frame_with(ctx, state, theme, [45, 212, 191, 255], events)
+    }
+
+    fn frame_with(
+        ctx: &egui::Context,
+        state: &mut ColorState,
+        theme: Palette,
+        rgba: [u8; 4],
         events: Vec<egui::Event>,
     ) -> (egui::FullOutput, ColorEdit) {
         ctx.set_visuals(theme.visuals());
@@ -2575,11 +2815,8 @@ mod tests {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     edit = color_editor(
                         ui,
-                        Rect::from_min_size(
-                            Pos2::new(40.0, 40.0),
-                            Vec2::new(EDITOR_WIDTH, FILL_HEIGHT),
-                        ),
-                        [45, 212, 191, 255],
+                        color_editor_rect(),
+                        rgba,
                         None,
                         false,
                         &[[30, 50, 70]],
@@ -2608,7 +2845,7 @@ mod tests {
                 .shapes
                 .iter()
                 .any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.fill == theme.panel)));
-            let p = Pos2::new(250.0, 139.5);
+            let p = Pos2::new(250.0, color_rail(color_editor_rect(), 0, 1.0).center().y);
             frame(&ctx, &mut state, theme, vec![egui::Event::PointerMoved(p)]);
             let event = |pressed| egui::Event::PointerButton {
                 pos: p,
@@ -2679,6 +2916,175 @@ mod tests {
         );
         assert_eq!(edit.rgb, Some([128, 212, 191]));
         assert!(state.numbers[0].is_none());
+    }
+
+    type Hsva = egui::ecolor::Hsva;
+
+    fn rgb_of(hsv: Hsva) -> [u8; 3] {
+        let c = Color32::from(hsv);
+        [c.r(), c.g(), c.b()]
+    }
+
+    #[test]
+    fn square_maps_hue_across_and_value_down_at_the_current_saturation() {
+        assert_eq!(square_hue_value(Vec2::new(0.0, 0.0)), (0.0, 1.0));
+        assert_eq!(square_hue_value(Vec2::new(1.0, 1.0)), (1.0, 0.0));
+        assert_eq!(square_hue_value(Vec2::new(-0.5, 2.0)), (0.0, 0.0));
+        let (h, v) = square_hue_value(Vec2::new(0.25, 0.4));
+        assert!((h - 0.25).abs() < 1e-6 && (v - 0.6).abs() < 1e-6);
+        let back = square_fraction(Hsva::new(h, 0.5, v, 1.0));
+        assert!((back - Vec2::new(0.25, 0.4)).length() < 1e-6);
+
+        assert_eq!(SQUARE_HUE_STEPS % 6, 0, "hue corners fall on texels");
+        for s in [0.0, 0.35, 1.0] {
+            let texels = square_texels(s);
+            assert_eq!(texels.len(), (SQUARE_HUE_STEPS + 1) * 2);
+            let (top, bottom) = texels.split_at(SQUARE_HUE_STEPS + 1);
+            for (i, c) in top.iter().enumerate() {
+                let h = i as f32 / SQUARE_HUE_STEPS as f32;
+                assert_eq!(*c, Color32::from(Hsva::new(h, s, 1.0, 1.0)));
+            }
+            assert_eq!(top[0], top[SQUARE_HUE_STEPS], "both edges are red");
+            assert!(bottom.iter().all(|c| *c == Color32::BLACK));
+        }
+        assert!(square_texels(0.0)[..=SQUARE_HUE_STEPS]
+            .iter()
+            .all(|c| *c == Color32::WHITE));
+    }
+
+    #[test]
+    fn saturation_rail_runs_from_gray_to_full_color_at_the_current_hue_and_value() {
+        let hsv = Hsva::new(0.6, 0.3, 0.7, 1.0);
+        let texels = saturation_texels(hsv);
+        let [gray, full] = texels[..] else {
+            panic!("two texels")
+        };
+        assert!(gray.r() == gray.g() && gray.g() == gray.b());
+        assert_eq!(gray, Color32::from(Hsva::new(0.0, 0.0, 0.7, 1.0)));
+        assert_eq!(full, Color32::from(Hsva::new(0.6, 1.0, 0.7, 1.0)));
+        assert_eq!(saturation_texels(Hsva { s: 0.9, ..hsv }), texels);
+    }
+
+    #[test]
+    fn gray_keeps_its_hue_and_black_keeps_hue_and_saturation() {
+        let previous = Hsva::new(0.3, 0.7, 0.8, 1.0);
+        let gray = hsv_for([128, 128, 128], previous);
+        assert_eq!((gray.h, gray.s), (0.3, 0.0));
+        assert!(gray.v > 0.0);
+        let black = hsv_for([0, 0, 0], previous);
+        assert_eq!((black.h, black.s, black.v), (0.3, 0.7, 0.0));
+        let red = hsv_for([255, 0, 0], previous);
+        assert_eq!((red.h, red.s, red.v), (0.0, 1.0, 1.0));
+        assert_eq!(
+            rgb_of(Hsva { s: 1.0, ..gray }),
+            rgb_of(Hsva::new(0.3, 1.0, gray.v, 1.0))
+        );
+        assert_eq!(
+            rgb_of(Hsva { v: 0.8, ..black }),
+            rgb_of(previous),
+            "raising value restores the color"
+        );
+    }
+
+    /// Feeds each preview back as the next frame's color, as the board does.
+    struct Host {
+        ctx: egui::Context,
+        state: ColorState,
+        rgba: [u8; 4],
+    }
+
+    impl Host {
+        fn new(rgba: [u8; 4]) -> Self {
+            let mut host = Host {
+                ctx: egui::Context::default(),
+                state: ColorState::default(),
+                rgba,
+            };
+            host.run(vec![]);
+            host
+        }
+
+        fn run(&mut self, events: Vec<egui::Event>) -> (egui::FullOutput, ColorEdit) {
+            let (output, edit) = frame_with(
+                &self.ctx,
+                &mut self.state,
+                Palette::light(),
+                self.rgba,
+                events,
+            );
+            if let Some(rgb) = edit.rgb {
+                self.rgba[..3].copy_from_slice(&rgb);
+            }
+            if let Some(alpha) = edit.alpha {
+                self.rgba[3] = alpha;
+            }
+            (output, edit)
+        }
+
+        /// Press and release at `p`; returns the edit from the press frame.
+        fn press(&mut self, p: Pos2) -> ColorEdit {
+            self.run(vec![egui::Event::PointerMoved(p)]);
+            let button = |pressed| egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            let (_, edit) = self.run(vec![button(true)]);
+            self.run(vec![button(false)]);
+            edit
+        }
+    }
+
+    #[test]
+    fn square_sets_hue_and_value_and_the_rail_sets_saturation() {
+        let mut host = Host::new([45, 212, 191, 255]);
+        let s0 = host.state.hsv.s;
+        let field = color_field(color_editor_rect(), 1.0);
+        let saturation = color_rail(color_editor_rect(), 1, 1.0);
+        let at = |x: f32, y: f32| field.min + Vec2::new(x, y) * field.size();
+
+        let edit = host.press(at(0.25, 0.4));
+        let hsv = host.state.hsv;
+        assert!((hsv.h - 0.25).abs() < 1e-4 && (hsv.v - 0.6).abs() < 1e-4);
+        assert_eq!(hsv.s, s0, "the square leaves saturation alone");
+        assert_eq!(edit.rgb, Some(rgb_of(hsv)));
+        assert_eq!(edit.alpha, None);
+
+        let edit = host.press(saturation.left_center());
+        assert_eq!(host.state.hsv.s, 0.0);
+        let [r, g, b] = edit.rgb.unwrap();
+        assert!(r == g && g == b, "zero saturation is gray");
+        let edit = host.press(saturation.right_center());
+        assert_eq!(host.state.hsv.s, 1.0);
+        assert!((host.state.hsv.h - 0.25).abs() < 1e-4, "hue survives gray");
+        assert_eq!(
+            edit.rgb,
+            Some(rgb_of(Hsva::new(host.state.hsv.h, 1.0, 0.6, 1.0)))
+        );
+
+        let edit = host.press(at(0.25, 1.0));
+        assert_eq!(edit.rgb, Some([0, 0, 0]));
+        host.press(at(0.25, 0.5));
+        let hsv = host.state.hsv;
+        assert!(
+            (hsv.h - 0.25).abs() < 1e-4 && hsv.s == 1.0,
+            "black keeps hue and saturation"
+        );
+    }
+
+    #[test]
+    fn idle_frames_rebuild_no_color_textures() {
+        let mut host = Host::new([45, 212, 191, 255]);
+        host.run(vec![]);
+        assert_eq!(host.state.textures.len(), 3, "square, opacity, saturation");
+        let (idle, _) = host.run(vec![]);
+        let font_atlas = egui::TextureId::default();
+        assert!(idle
+            .textures_delta
+            .set
+            .iter()
+            .all(|(id, _)| *id == font_atlas));
     }
 
     #[test]

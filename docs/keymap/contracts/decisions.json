@@ -1,6 +1,6 @@
 {
   "_about": "Approved-decision database for interaction contracts (canvas tools and portal subtypes). One entry per contract x dimension. Agents seed future volatile matrices from here: an approved decision that maps onto a new contract (same archetype / object class / portal class) is re-proposed with high confidence. Only verdict:'approved' rows count as precedent; 'proposed' rows are awaiting user confirmation in the volatile canvas. Schema: tools.<name>.family = tool|portal, and tools.<name>.decisions.<D##> = { behavior, source: stated|research|pattern|guess|precedent, confidence: 0-100, verdict: proposed|approved|rejected, decided: date|null }. Each contract answers exactly the dimensions DIMENSIONS.md scopes to its family; `cargo xtask contracts` enforces the parity between this file, the registry, and the contract markdown. Append-only in spirit: superseded decisions are overwritten only by a newer user approval.",
-  "updated": "2026-09-24",
+  "updated": "2026-09-25",
   "tools": {
     "bumper-cars": {
       "status": "shipped",
@@ -236,7 +236,7 @@
           "decided": "2026-09-15"
         },
         "D13": {
-          "behavior": "P1.node.transform. Reuse existing image/PDF selection. A 3D model node paints only its render (or its gap card), as clean as a picture: no file-type badge (on the board or in the HTML export, which keeps the poster and the link), no padlock, no in-viewport tool strip. A single selected mesh model adds three squircles to the shared selection strip (P1.shape.properties): Viewport display (Model cube) opens one segmented default capsule with Shaded, Arctic, Material mask and Z-buffer; Measure (Ruler) is an action that stays highlighted while armed, like Deck; Screenshot (View) opens the export menu (D36). Enscape standalones and formats with no reader show neither.",
+          "behavior": "P1.node.transform. Reuse existing image/PDF selection. A 3D model node paints only its render (or its gap card), as clean as a picture: no file-type badge (on the board or in the HTML export, which keeps the poster and the link), no padlock, no in-viewport tool strip. A single selected mesh model adds squircles on the shared selection strip (P1.shape.properties) in order: Viewport display (Model cube) opens a chips-only filter capsule with circle chips for Shaded, Arctic, Material mask, and Z-buffer (same chip language as the photo-filter capsule, no intensity track; low-res render per pass when available else a glyph; label tooltip; active pass highlighted); Measure (Ruler) is an action that stays highlighted while armed, like Deck; Screenshot (View) opens the export menu (D36); Filters (funnel) opens the same photo-filter capsule as image nodes (D39). Enscape standalones and formats with no reader show neither.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
@@ -2619,11 +2619,11 @@
           "decided": "2026-09-17"
         },
         "D13": {
-          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel; Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. Shared light/dark theme tokens apply throughout.",
+          "behavior": "P1.shape.properties: capability-gated squircle controls above the selection; dimensions use separate exterior stringers. Fill and Stroke share one compact panel: a hue-by-value color square plus opacity and saturation rails, so hue, saturation and value each have exactly one control; Stroke adds only a width rail. The fillet capsule is 30% taller than the 17-unit wire capsule; the photo-filter capsule is twice that fillet height. Wires expose Bezier/Square, stroke weight, Solid/Dashed and None/Arrows; routing moves out of Document Settings. Images expose a None radio and low-resolution filtered thumbnails of the selected image, plus an intensity slider as thick as the radio radius. A File Atlas portal adds a Formatting squircle (search, type radios, Ghost/Hide, Zoom to matches, Zoom to fit). Frame-only actions reuse the same strip. Shared light/dark theme tokens apply throughout.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-18"
+          "decided": "2026-09-25"
         },
         "D14": {
           "behavior": "Every eyedropper in the project must sample anywhere on the desktop, including outside Slate. The existing standalone and temporary Brush paths and new property editors share the desktop-color-sampling.md requirement.",

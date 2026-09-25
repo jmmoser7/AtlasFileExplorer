@@ -65,7 +65,10 @@ Popovers open **rightward** from a left dock and **upward** from a bottom dock.
   it never lowers the silhouette. Arrow size and lift stay within the
   visible depth, including a two-pixel setting. The seam cover fades
   with the fill and outline. The blister is
-  centered on the icon bar, and uses the top-bar tab silhouette
+  centered on the icon bar. While collapsed, it stays centered on the line the
+  bar would occupy on the current canvas (`blister_anchor_x`), never a
+  remembered center that goes stale when the canvas resizes. It uses the
+  top-bar tab silhouette
   (`tabs::paint_tab_bubble`) plus the same accent stroke as an active
   tab (`paint_tab_bubble_glow`). Fill is a theme RGB mixed toward the
   host panel. Invisible until the pointer is beside / below the bar or
