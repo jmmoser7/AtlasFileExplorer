@@ -488,6 +488,7 @@ impl SlateApp {
             srect,
             collapsed,
             maximized,
+            self.node_fillet_radius_world(node),
             xf.z,
         );
         let fill = self.portal_frame_fill_color(portal);
@@ -827,6 +828,7 @@ impl SlateApp {
             srect,
             self.portal_chrome_collapsed(id),
             self.portal_is_maximized(id),
+            self.node_fillet_radius_world(&node),
             xf.z,
         );
         let inset = layout

@@ -149,12 +149,13 @@ pub fn layout_for_portal(
     frame: Rect,
     collapsed: bool,
     maximized: bool,
+    frame_radius_world: f32,
     zoom: f32,
 ) -> PortalChromeLayout {
     if uses_identity_tab(kind) {
-        layout_portal_chrome(frame, collapsed, maximized, zoom)
+        layout_portal_chrome(frame, collapsed, maximized, frame_radius_world, zoom)
     } else {
-        let mut layout = layout_portal_frame(frame, maximized, zoom);
+        let mut layout = layout_portal_frame(frame, maximized, frame_radius_world, zoom);
         if kind == PortalKind::Agent {
             layout.maximize = Rect::NOTHING;
         }
@@ -164,13 +165,18 @@ pub fn layout_for_portal(
 
 /// Frame + body, no identity tab — agent portals, and inner paints that
 /// already reserved a tab above.
-pub fn layout_portal_frame(frame: Rect, maximized: bool, zoom: f32) -> PortalChromeLayout {
+pub fn layout_portal_frame(
+    frame: Rect,
+    maximized: bool,
+    frame_radius_world: f32,
+    zoom: f32,
+) -> PortalChromeLayout {
     let tokens = portal_frame_tokens();
     let z = if maximized { 1.0 } else { zoom.max(0.01) };
     let radius = if maximized {
         0.0
     } else {
-        tokens.corner_radius * z
+        frame_radius_world * z
     };
     let border = if maximized {
         0.0
@@ -201,6 +207,7 @@ pub fn layout_portal_chrome(
     frame: Rect,
     collapsed: bool,
     maximized: bool,
+    frame_radius_world: f32,
     zoom: f32,
 ) -> PortalChromeLayout {
     let tokens = portal_frame_tokens();
@@ -208,7 +215,7 @@ pub fn layout_portal_chrome(
     let radius = if maximized {
         0.0
     } else {
-        tokens.corner_radius * z
+        frame_radius_world * z
     };
     let tab_h = if maximized {
         atlas_shell::tokens::current().topbar.height
@@ -294,6 +301,7 @@ impl SlateApp {
             xf.rect_w2s(node.rect),
             self.portal_chrome_collapsed(id),
             false,
+            self.node_fillet_radius_world(node),
             xf.z,
         );
         layout.maximize.contains(p)
@@ -741,7 +749,14 @@ impl SlateApp {
         // Non-web portals letterbox inside the window. The restore glyph has
         // to sit on that visible card, not in the empty margin.
         let host = maximized_host_rect(portal.kind, node.rect, screen);
-        let mut layout = layout_for_portal(portal.kind, host, collapsed, true, 1.0);
+        let mut layout = layout_for_portal(
+            portal.kind,
+            host,
+            collapsed,
+            true,
+            self.node_fillet_radius_world(&node),
+            1.0,
+        );
         if portal.kind == PortalKind::Web {
             layout.retract_when_idle(ui.ctx(), id, self.web.focused == Some(id));
         }
@@ -852,6 +867,7 @@ fn point_in_convex(poly: &[Pos2], p: Pos2) -> bool {
 mod tests {
     use super::*;
     use eframe::egui::{pos2, Rect};
+    use slate_doc::media::TEXT_CARD_FILLET;
 
     #[test]
     fn no_portal_fillet_is_masked_with_the_canvas() {
@@ -883,7 +899,7 @@ mod tests {
             PortalKind::FileAtlas,
             PortalKind::Slate,
         ] {
-            let layout = layout_for_portal(kind, frame, false, false, 1.0);
+            let layout = layout_for_portal(kind, frame, false, false, TEXT_CARD_FILLET, 1.0);
             assert!(
                 (layout.radius - expected).abs() < 1e-4,
                 "{kind:?} fillet {} != shared {expected}",
@@ -895,7 +911,7 @@ mod tests {
     #[test]
     fn collapsed_layout_exposes_a_reveal_strip_and_full_body() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let layout = layout_portal_chrome(frame, true, false, 1.0);
+        let layout = layout_portal_chrome(frame, true, false, TEXT_CARD_FILLET, 1.0);
         assert!(layout.bar.is_none());
         assert!(layout.reveal.is_some());
         assert_eq!(layout.body, frame);
@@ -905,7 +921,7 @@ mod tests {
     #[test]
     fn expanded_layout_overlays_a_tab_bar_without_resizing_the_page() {
         let frame = Rect::from_min_max(pos2(10.0, 20.0), pos2(410.0, 320.0));
-        let layout = layout_portal_chrome(frame, false, false, 1.0);
+        let layout = layout_portal_chrome(frame, false, false, TEXT_CARD_FILLET, 1.0);
         let bar = layout.bar.expect("tab bar");
         let expected = tab_bar_height();
         assert!(
@@ -922,7 +938,7 @@ mod tests {
         assert_eq!(layout.body, frame);
         assert_eq!(
             layout.body,
-            layout_portal_chrome(frame, true, false, 1.0).body
+            layout_portal_chrome(frame, true, false, TEXT_CARD_FILLET, 1.0).body
         );
         assert!(layout.reveal.is_none());
     }
@@ -930,8 +946,8 @@ mod tests {
     #[test]
     fn on_canvas_the_tab_bar_tracks_zoom() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let full = layout_portal_chrome(frame, false, false, 1.0);
-        let half = layout_portal_chrome(frame, false, false, 0.5);
+        let full = layout_portal_chrome(frame, false, false, TEXT_CARD_FILLET, 1.0);
+        let half = layout_portal_chrome(frame, false, false, TEXT_CARD_FILLET, 0.5);
         let bar_full = full.bar.expect("tab");
         let bar_half = half.bar.expect("tab");
         assert!((bar_half.height() - bar_full.height() * 0.5).abs() < 0.05);
@@ -950,7 +966,7 @@ mod tests {
             if moved {
                 input.events.push(egui::Event::PointerMoved(pointer));
             }
-            let mut result = layout_portal_chrome(frame, false, false, 1.0);
+            let mut result = layout_portal_chrome(frame, false, false, TEXT_CARD_FILLET, 1.0);
             let _ = ctx.run(input, |ctx| {
                 result.retract_when_idle(ctx, NodeId(99), false)
             });
@@ -977,7 +993,14 @@ mod tests {
         assert!(!uses_identity_tab(PortalKind::Agent));
         assert!(!uses_identity_tab(PortalKind::FileAtlas));
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let layout = layout_for_portal(PortalKind::Agent, frame, false, false, 1.0);
+        let layout = layout_for_portal(
+            PortalKind::Agent,
+            frame,
+            false,
+            false,
+            TEXT_CARD_FILLET,
+            1.0,
+        );
         assert!(layout.bar.is_none());
         assert!(layout.reveal.is_none());
         assert_eq!(layout.body, frame);
@@ -994,7 +1017,14 @@ mod tests {
     #[test]
     fn maximize_icon_sits_upper_right_without_a_tab() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let layout = layout_for_portal(PortalKind::FileAtlas, frame, false, false, 1.0);
+        let layout = layout_for_portal(
+            PortalKind::FileAtlas,
+            frame,
+            false,
+            false,
+            TEXT_CARD_FILLET,
+            1.0,
+        );
         assert!(layout.bar.is_none());
         assert!(layout.maximize.right() <= frame.right() + 0.01);
         assert!(layout.maximize.top() >= frame.top() - 0.01);
@@ -1005,7 +1035,7 @@ mod tests {
     #[test]
     fn web_tab_hosts_maximize_in_the_window_slot() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
-        let layout = layout_for_portal(PortalKind::Web, frame, false, false, 1.0);
+        let layout = layout_for_portal(PortalKind::Web, frame, false, false, TEXT_CARD_FILLET, 1.0);
         let bar = layout.bar.expect("web tab");
         assert!(
             layout.maximize.right() <= bar.right() - layout.radius + 0.5,
@@ -1023,7 +1053,14 @@ mod tests {
         let host = maximized_host_rect(PortalKind::FileAtlas, node, screen);
         assert!(host.height() < screen.height() - 1.0);
         assert!((host.width() - screen.width()).abs() < 1.0);
-        let layout = layout_for_portal(PortalKind::FileAtlas, host, false, true, 1.0);
+        let layout = layout_for_portal(
+            PortalKind::FileAtlas,
+            host,
+            false,
+            true,
+            TEXT_CARD_FILLET,
+            1.0,
+        );
         assert!(host.contains(layout.maximize.center()));
         assert!(layout.maximize.top() > screen.top() + 20.0);
         let web = maximized_host_rect(PortalKind::Web, node, screen);
@@ -1033,7 +1070,7 @@ mod tests {
     #[test]
     fn maximized_layout_has_no_fillet() {
         let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(1920.0, 1080.0));
-        let layout = layout_portal_chrome(frame, false, true, 1.0);
+        let layout = layout_portal_chrome(frame, false, true, TEXT_CARD_FILLET, 1.0);
         assert_eq!(layout.radius, 0.0);
         assert_eq!(layout.frame, frame);
         // Maximized, the tab has become window chrome, so it takes the full

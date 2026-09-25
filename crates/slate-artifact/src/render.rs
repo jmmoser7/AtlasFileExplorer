@@ -396,6 +396,8 @@ fn render_portal(
         style.push(';');
     }
     style.push_str("overflow:hidden;");
+    let corner = slate_doc::media::portal_frame_corner(portal.corner);
+    append_corner(&mut style, corner, rel.w, rel.h);
     match portal.agent.as_ref().and_then(|a| a.chat.stroke) {
         Some(stroke) => style.push_str(&format!(
             "box-sizing:border-box;border:{}px solid {};",

@@ -4351,7 +4351,14 @@ fn maximized_restore_glyph_click_leaves_maximize() {
         let screen = h.app.canvas_rect;
         let node = h.app.doc().scene.node(id).unwrap().rect;
         let host = board_portal_chrome::maximized_host_rect(kind, node, screen);
-        let layout = board_portal_chrome::layout_for_portal(kind, host, false, true, 1.0);
+        let layout = board_portal_chrome::layout_for_portal(
+            kind,
+            host,
+            false,
+            true,
+            slate_doc::media::TEXT_CARD_FILLET,
+            1.0,
+        );
         let at = layout.maximize.center();
         assert!(
             layout.maximize.width() > 8.0 && layout.maximize.contains(at),
@@ -4412,6 +4419,7 @@ fn maximized_restore_glyph_click_leaves_maximize() {
         host,
         false,
         true,
+        slate_doc::media::TEXT_CARD_FILLET,
         1.0,
     );
     assert_eq!(

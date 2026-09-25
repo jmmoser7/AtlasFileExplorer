@@ -7,7 +7,7 @@
 use super::board::{BoardDrag, BoardXf};
 use super::{board_handles, SlateApp};
 use eframe::egui::{self, Pos2};
-use slate_doc::scene::{Node, NodeKind};
+use slate_doc::scene::{Corner, Node, NodeKind, ShapeKind};
 use slate_doc::NodeId;
 
 impl SlateApp {
@@ -18,6 +18,60 @@ impl SlateApp {
             node.kind,
             NodeKind::Portal(_) | NodeKind::Connector(_) | NodeKind::DockStrip(_)
         ) && !Self::node_uses_curve_grips(node)
+    }
+
+    pub(crate) fn node_supports_fillet_grip(&self, node: &Node) -> bool {
+        if !slate_doc::scene::supports_corners(node) {
+            return false;
+        }
+        if self.frame_chrome_suppressed(node.id) {
+            return false;
+        }
+        match &node.kind {
+            NodeKind::Shape(s) => s.shape == ShapeKind::Rect,
+            NodeKind::Image(_) | NodeKind::Frame(_) | NodeKind::Portal(_) => true,
+            _ => false,
+        }
+    }
+
+    pub(crate) fn node_fillet_radius_world(&self, node: &Node) -> f32 {
+        let path = match &node.kind {
+            NodeKind::Image(i) => self.viewed_doc().item(i.item).map(|it| it.path.as_path()),
+            _ => None,
+        };
+        let token = atlas_shell::tokens::current().portal_frame.corner_radius;
+        slate_doc::scene::resolved_corner_radius(node, path, token)
+    }
+
+    pub(crate) fn apply_fillet_radius_world(node: &mut Node, mut radius: f32, shift: bool) {
+        if shift {
+            radius = radius.round();
+        }
+        let max = node.rect.w.min(node.rect.h) * 0.5;
+        radius = radius.clamp(0.0, max);
+        let corner = Corner::from_parameters(false, false, radius);
+        slate_doc::scene::set_corner(node, corner);
+    }
+
+    pub(crate) fn fillet_grip_hit_at(&self, screen: Pos2) -> Option<NodeId> {
+        if self.board_sel.len() != 1 || self.board_crop.is_some() {
+            return None;
+        }
+        let id = *self.board_sel.iter().next()?;
+        let n = self.doc().scene.node(id)?;
+        if !self.node_supports_fillet_grip(n) {
+            return None;
+        }
+        let xf = self.board_xf();
+        let geom = board_handles::selection_geom(&xf, n.rect, n.rotation_deg);
+        let grip = board_handles::fillet_grip_screen(&geom, self.node_fillet_radius_world(n));
+        board_handles::hit_test_fillet_grip(screen, &geom, grip).then_some(id)
+    }
+
+    pub(crate) fn begin_fillet_drag(&mut self, screen: Pos2) -> Option<BoardDrag> {
+        let id = self.fillet_grip_hit_at(screen)?;
+        let before = self.doc().scene.node(id)?.clone();
+        Some(BoardDrag::FilletRadius { id, before })
     }
 
     fn node_offers_bbox_transform(&self, node: &Node) -> bool {
@@ -109,6 +163,14 @@ impl SlateApp {
         if wire_grip_hovered {
             return;
         }
+        if self.board_sel.len() == 1 {
+            if let Some(id) = self.fillet_grip_hit_at(p) {
+                self.board_hover_hit = Some(board_handles::BoardHitTarget::FilletRadius);
+                self.board_hover_node = Some(id);
+                ctx.set_cursor_icon(egui::CursorIcon::ResizeNorthEast);
+                return;
+            }
+        }
         let geom = match node {
             Some(id) => self
                 .doc()
@@ -128,6 +190,7 @@ impl SlateApp {
                 ctx.set_cursor_icon(board_handles::cursor_for_rotate());
             }
             board_handles::BoardHitTarget::Body => {}
+            board_handles::BoardHitTarget::FilletRadius => {}
         }
     }
 
@@ -138,6 +201,7 @@ impl SlateApp {
             self.board_hover_hit,
             Some(board_handles::BoardHitTarget::Resize(_))
                 | Some(board_handles::BoardHitTarget::Rotate(_))
+                | Some(board_handles::BoardHitTarget::FilletRadius)
         ) {
             return None;
         }
@@ -343,6 +407,7 @@ impl SlateApp {
                 })
             }
             (_, board_handles::BoardHitTarget::Body) => None,
+            (_, board_handles::BoardHitTarget::FilletRadius) => None,
         }
     }
 }

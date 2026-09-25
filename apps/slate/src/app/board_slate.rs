@@ -549,6 +549,7 @@ impl SlateApp {
             srect,
             collapsed,
             maximized,
+            self.node_fillet_radius_world(node),
             xf.z,
         );
         let fill = self.portal_frame_fill_color(portal);
@@ -723,8 +724,14 @@ impl SlateApp {
         portal: &PortalNode,
     ) {
         let srect = xf.rect_w2s(node.rect);
-        let layout =
-            super::board_portal_chrome::layout_for_portal(portal.kind, srect, false, false, xf.z);
+        let layout = super::board_portal_chrome::layout_for_portal(
+            portal.kind,
+            srect,
+            false,
+            false,
+            self.node_fillet_radius_world(node),
+            xf.z,
+        );
         let fill = self.portal_frame_fill_color(portal);
         self.paint_portal_frame_fill(painter, &layout, fill, egui::Color32::TRANSPARENT, false);
         let label = portal

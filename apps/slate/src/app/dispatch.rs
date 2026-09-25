@@ -922,6 +922,7 @@ impl SlateApp {
                         | board::BoardDrag::DeckStroke { .. }
                         | board::BoardDrag::Marquee { .. }
                         | board::BoardDrag::CropEdge { .. }
+                        | board::BoardDrag::FilletRadius { .. }
                 )
             )
             || (self.bumper.dragging()
@@ -986,6 +987,11 @@ impl SlateApp {
                             if let Some(n) = self.doc_mut().scene.node_mut(peer.id) {
                                 *n = peer;
                             }
+                        }
+                    }
+                    Some(board::BoardDrag::FilletRadius { id, before }) => {
+                        if let Some(n) = self.doc_mut().scene.node_mut(id) {
+                            *n = before;
                         }
                     }
                     // Eraser: nothing was mutated — dropping the drag and its

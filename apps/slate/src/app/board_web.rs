@@ -928,7 +928,13 @@ impl SlateApp {
             if self.portal_chrome.maximized == Some(*id) {
                 let screen = ctx.screen_rect();
                 let collapsed = self.portal_chrome_collapsed(*id);
-                let layout = layout_portal_chrome(screen, collapsed, true, 1.0);
+                let r = self
+                    .doc()
+                    .scene
+                    .node(*id)
+                    .map(|n| self.node_fillet_radius_world(n))
+                    .unwrap_or(slate_doc::media::TEXT_CARD_FILLET);
+                let layout = layout_portal_chrome(screen, collapsed, true, r, 1.0);
                 if let Some(v) = self.web.views.get_mut(id) {
                     let ppp = ctx.pixels_per_point().max(0.01);
                     v.width_px = layout.body.width() * ppp;
@@ -1385,7 +1391,13 @@ impl SlateApp {
             return node_rect;
         }
         let screen = ctx.screen_rect();
-        let layout = layout_portal_chrome(screen, self.portal_chrome_collapsed(id), true, 1.0);
+        let r = self
+            .doc()
+            .scene
+            .node(id)
+            .map(|n| self.node_fillet_radius_world(n))
+            .unwrap_or(slate_doc::media::TEXT_CARD_FILLET);
+        let layout = layout_portal_chrome(screen, self.portal_chrome_collapsed(id), true, r, 1.0);
         slate_doc::scene::WorldRect::new(
             0.0,
             0.0,
@@ -2239,7 +2251,13 @@ impl SlateApp {
         // Escape is owned exclusively by the command cancel stack. Handling
         // it here too would peel focus in the same frame as restoring maximize.
         let srect = xf.rect_w2s(node.rect);
-        let mut layout = layout_portal_chrome(srect, self.portal_chrome_collapsed(id), false, xf.z);
+        let mut layout = layout_portal_chrome(
+            srect,
+            self.portal_chrome_collapsed(id),
+            false,
+            self.node_fillet_radius_world(&node),
+            xf.z,
+        );
         layout.retract_when_idle(ui.ctx(), id, true);
         if pointer.is_some_and(|p| layout.pointer_on_chrome(p)) {
             return false;
@@ -2435,7 +2453,13 @@ impl SlateApp {
         let srect = xf.rect_w2s(node.rect);
         self.note_web_geometry(node.id, srect, ui.clip_rect(), ui.ctx().pixels_per_point());
         let collapsed = self.portal_chrome_collapsed(node.id);
-        let mut layout = layout_portal_chrome(srect, collapsed, false, xf.z);
+        let mut layout = layout_portal_chrome(
+            srect,
+            collapsed,
+            false,
+            self.node_fillet_radius_world(node),
+            xf.z,
+        );
         layout.retract_when_idle(ui.ctx(), node.id, self.web.focused == Some(node.id));
         self.paint_web_portal_in_rect(ui, painter, node, portal, &layout, xf.z);
         let visiting = self.web_visiting_label(node.id, portal);

@@ -6673,7 +6673,14 @@ impl SlateApp {
             return false;
         };
         let srect = xf.rect_w2s(node.rect);
-        let layout = layout_for_portal(PortalKind::Agent, srect, false, false, xf.z);
+        let layout = layout_for_portal(
+            PortalKind::Agent,
+            srect,
+            false,
+            false,
+            self.node_fillet_radius_world(node),
+            xf.z,
+        );
         if layout.pointer_on_chrome(p) {
             return false;
         }
@@ -6945,6 +6952,7 @@ impl SlateApp {
             rect,
             false,
             maximized,
+            self.node_fillet_radius_world(node),
             xf.z,
         );
         atlas_shell::selection_tools::agent_card(painter, layout.frame, layout.radius, xf.z, {

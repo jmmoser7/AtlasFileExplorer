@@ -642,6 +642,8 @@ pub enum BoardDrag {
         start_screen: Pos2,
         points: Vec<Pos2>,
     },
+    /// Live fillet radius on a selected frame, portal, image, or rectangle.
+    FilletRadius { id: NodeId, before: Node },
 }
 
 /// World→screen transform. The board uses the tab camera; presentation mode
@@ -1880,6 +1882,15 @@ impl SlateApp {
                 self.board_hover_hit,
                 outline_w,
             );
+            if self.node_supports_fillet_grip(n) {
+                let radius = self.node_fillet_radius_world(n);
+                let grip = board_handles::fillet_grip_screen(&geom, radius);
+                let hot = matches!(
+                    self.board_hover_hit,
+                    Some(board_handles::BoardHitTarget::FilletRadius)
+                ) || matches!(self.board_drag, Some(BoardDrag::FilletRadius { id, .. }) if id == n.id);
+                board_handles::paint_fillet_grip(painter, grip, xf.z, select_tint, hot);
+            }
         } else {
             painter.add(egui::Shape::closed_line(
                 outline,
@@ -1920,9 +1931,14 @@ impl SlateApp {
                     .unwrap_or(img.corner);
                 corner_outline(srect, corner, z)
             }
-            NodeKind::Portal(_) => {
-                let r = atlas_shell::tokens::current().portal_frame.corner_radius * z;
-                rounded_rect_outline(srect, r)
+            NodeKind::Portal(p) => {
+                let token = atlas_shell::tokens::current().portal_frame.corner_radius;
+                let corner = if matches!(p.corner, Corner::Square) {
+                    Corner::Rounded { radius: token }
+                } else {
+                    p.corner
+                };
+                corner_outline(srect, corner, z)
             }
             NodeKind::DockStrip(strip) => {
                 let (card, r) = self.dock_strip_screen_card(ctx, xf, node, strip);
@@ -4501,6 +4517,22 @@ impl SlateApp {
                     ));
                 }
             }
+            Some(BoardDrag::FilletRadius { id, .. }) => {
+                if let Some(n) = self.doc().scene.node(*id) {
+                    if let Some(p) = pointer {
+                        let r = self.node_fillet_radius_world(n);
+                        let label = format!("{} u", atlas_shell::selection_tools::number(r));
+                        canvas_text::text(
+                            &painter,
+                            p + Vec2::new(12.0, -18.0) * xf.z,
+                            Align2::LEFT_BOTTOM,
+                            label,
+                            canvas_scale::font(12.0, xf.z),
+                            palette.select,
+                        );
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -5747,6 +5779,9 @@ impl SlateApp {
                 if let Some(wd) = self.try_begin_wire_drag(screen, world, mods) {
                     return Some(BoardDrag::Wire(wd));
                 }
+                if let Some(drag) = self.begin_fillet_drag(screen) {
+                    return Some(drag);
+                }
                 if let Some(drag) = self.begin_transform_drag(screen, world) {
                     return Some(drag);
                 }
@@ -6441,6 +6476,17 @@ impl SlateApp {
                     }
                 }
             }
+            Some(BoardDrag::FilletRadius { id, before }) => {
+                let node_id = *id;
+                let radius = board_handles::fillet_radius_from_world_point(
+                    before.rect,
+                    before.rotation_deg,
+                    world,
+                );
+                if let Some(n) = self.doc_mut().scene.node_mut(node_id) {
+                    Self::apply_fillet_radius_world(n, radius, mods.shift);
+                }
+            }
             _ => {}
         }
     }
@@ -6500,6 +6546,17 @@ impl SlateApp {
                                 *live = after.clone();
                             }
                         }
+                        self.tab_mut().journal.record(vec![SceneCmd::Patch {
+                            before: Box::new(before),
+                            after: Box::new(after),
+                        }]);
+                        self.tab_mut().dirty = true;
+                    }
+                }
+            }
+            Some(BoardDrag::FilletRadius { id, before }) => {
+                if let Some(after) = self.doc().scene.node(id).cloned() {
+                    if after != before {
                         self.tab_mut().journal.record(vec![SceneCmd::Patch {
                             before: Box::new(before),
                             after: Box::new(after),

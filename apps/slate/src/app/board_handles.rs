@@ -7,6 +7,10 @@ use slate_doc::scene::WorldRect;
 
 /// Screen-px half-size of resize handles (matches board.rs).
 pub const HANDLE_PX: f32 = 5.0;
+/// Live-corner fillet grip (square, same family as resize handles).
+pub const FILLET_GRIP_PX: f32 = 4.0;
+/// Minimum inset of the fillet grip from the host corner along the diagonal.
+pub const FILLET_GRIP_MIN_INSET_PX: f32 = 10.0;
 /// Windows-style corner hit (diagonal resize).
 pub const CORNER_HIT_PX: f32 = 12.0;
 /// Windows-style edge-band hit (axis resize).
@@ -48,6 +52,8 @@ pub enum BoardHitTarget {
     Body,
     Resize(ResizeHandle),
     Rotate(u8),
+    /// In-node fillet radius grip (NW host corner).
+    FilletRadius,
 }
 
 pub struct SelectionGeom {
@@ -295,6 +301,58 @@ pub fn hit_test_resize_bands(screen: Pos2, geom: &SelectionGeom) -> Option<Resiz
         }
     }
     best.map(|(h, _)| h)
+}
+
+/// Fillet radius in world units from a pointer position on the NW→SE diagonal.
+pub fn fillet_radius_from_world_point(rect: WorldRect, rotation_deg: f32, world: Pos2) -> f32 {
+    let (cx, cy) = rect.center();
+    let rad = (-rotation_deg).to_radians();
+    let (sin, cos) = rad.sin_cos();
+    let dx = world.x - cx;
+    let dy = world.y - cy;
+    let lx = cx + dx * cos - dy * sin;
+    let ly = cy + dx * sin + dy * cos;
+    let along = (lx - rect.x + ly - rect.y) * 0.5;
+    let max = rect.w.min(rect.h) * 0.5;
+    along.clamp(0.0, max)
+}
+
+/// Screen position of the live fillet grip (NW host corner, inset on the diagonal).
+pub fn fillet_grip_screen(geom: &SelectionGeom, radius_world: f32) -> Pos2 {
+    let nw = geom.corners[0];
+    let se = geom.corners[2];
+    let diag = se - nw;
+    let diag_len = diag.length();
+    if diag_len < 1e-4 {
+        return nw;
+    }
+    let inset =
+        (radius_world * geom.zoom).max(canvas_scale::px(FILLET_GRIP_MIN_INSET_PX, geom.zoom));
+    let t = (inset / diag_len).clamp(0.0, 0.45);
+    nw + diag * t
+}
+
+pub fn hit_test_fillet_grip(screen: Pos2, geom: &SelectionGeom, grip: Pos2) -> bool {
+    let half = canvas_scale::px(FILLET_GRIP_PX, geom.zoom);
+    Rect::from_center_size(grip, Vec2::splat(half * 2.0))
+        .expand(canvas_scale::HIT_SLOP_PX * 0.5)
+        .contains(screen)
+}
+
+pub fn paint_fillet_grip(painter: &egui::Painter, grip: Pos2, zoom: f32, ink: Color32, hot: bool) {
+    let half = canvas_scale::px(FILLET_GRIP_PX, zoom);
+    let fill = if hot {
+        Color32::from_rgb(210, 230, 255)
+    } else {
+        Color32::WHITE
+    };
+    painter.rect(
+        Rect::from_center_size(grip, Vec2::splat(half * 2.0)),
+        0.0,
+        fill,
+        EStroke::new(canvas_scale::px(1.0, zoom), ink),
+        egui::StrokeKind::Inside,
+    );
 }
 
 #[cfg(test)]
@@ -592,6 +650,13 @@ mod tests {
             hit_test_chrome(geom.corners[0], &geom, true),
             Some(BoardHitTarget::Resize(ResizeHandle::Nw))
         );
+    }
+
+    #[test]
+    fn fillet_radius_clamps_to_short_side() {
+        let rect = WorldRect::new(0.0, 0.0, 80.0, 40.0);
+        let r = fillet_radius_from_world_point(rect, 0.0, Pos2::new(100.0, 100.0));
+        assert!((r - 20.0).abs() < 1e-4);
     }
 
     #[test]

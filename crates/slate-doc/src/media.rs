@@ -28,6 +28,18 @@ pub fn text_card_corner(path: &Path, corner: Corner) -> Corner {
     }
 }
 
+/// Authored portal frame corner. [`Corner::Square`] means the designed portal
+/// token radius ([`TEXT_CARD_FILLET`] at export when tokens are not embedded).
+pub fn portal_frame_corner(corner: Corner) -> Corner {
+    if matches!(corner, Corner::Square) {
+        Corner::Rounded {
+            radius: TEXT_CARD_FILLET,
+        }
+    } else {
+        corner
+    }
+}
+
 const IMAGES: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "tif", "tiff", "avif", "ico",
 ];
