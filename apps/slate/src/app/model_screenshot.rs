@@ -15,6 +15,7 @@ const POPUP_ITEM_H: f32 = 28.0;
 const POPUP_W: f32 = 200.0;
 
 pub struct ModelScreenshotPopup {
+    pub tab_id: u64,
     pub node: NodeId,
     /// Screen position when the menu opened (P2 pointer-attached chrome).
     pub anchor: Pos2,
@@ -27,21 +28,35 @@ enum ViewDropMsg {
 }
 
 pub struct PendingViewDrop {
+    pub tab_id: u64,
     pub model: NodeId,
     rx: Receiver<ViewDropMsg>,
 }
 
 impl SlateApp {
     pub(crate) fn open_model_screenshot_menu(&mut self, node: NodeId, anchor: Pos2) {
-        self.model_shot_popup = Some(ModelScreenshotPopup { node, anchor });
+        self.model_shot_popup = Some(ModelScreenshotPopup {
+            tab_id: self.tab().id,
+            node,
+            anchor,
+        });
     }
 
     /// Pointer-attached menu (P2): screen-space placement under the cursor.
     pub(crate) fn paint_model_screenshot_popup(&mut self, ctx: &egui::Context) -> bool {
+        if self
+            .model_shot_popup
+            .as_ref()
+            .is_some_and(|popup| popup.tab_id != self.tab().id)
+        {
+            self.model_shot_popup = None;
+            return false;
+        }
         let Some(popup) = self.model_shot_popup.as_ref() else {
             return false;
         };
         let menu_node = popup.node;
+        let menu_tab = popup.tab_id;
         let anchor = popup.anchor;
         let palette = self.palette();
         let mut choice_canvas = false;
@@ -54,7 +69,7 @@ impl SlateApp {
         let top = anchor.y + 6.0;
         let rect = Rect::from_min_size(Pos2::new(anchor.x - w * 0.5, top), Vec2::new(w, h));
 
-        let resp = egui::Area::new(Id::new(("model_shot_menu", menu_node.0)))
+        let resp = egui::Area::new(Id::new(("model_shot_menu", menu_tab, menu_node.0)))
             .fixed_pos(rect.min)
             .order(egui::Order::Foreground)
             .interactable(true)
@@ -90,6 +105,7 @@ impl SlateApp {
         if self.picker_rx.is_some() {
             return;
         }
+        let tab_id = self.tab().id;
         let (tx, rx) = crossbeam_channel::unbounded();
         self.picker_rx = Some(rx);
         std::thread::spawn(move || {
@@ -98,7 +114,11 @@ impl SlateApp {
                 .add_filter("JPEG", &["jpg", "jpeg"])
                 .add_filter("WebP", &["webp"])
                 .save_file();
-            let _ = tx.send(super::PickerMsg::ModelScreenshotSave { node, path: picked });
+            let _ = tx.send(super::PickerMsg::ModelScreenshotSave {
+                tab_id,
+                node,
+                path: picked,
+            });
         });
     }
 
@@ -354,6 +374,7 @@ impl SlateApp {
             return;
         }
         let (tx, rx) = std::sync::mpsc::channel();
+        let tab_id = self.tab().id;
         std::thread::spawn(move || {
             let msg = if atlas_core::cloud::is_dehydrated(&image_path) {
                 ViewDropMsg::NoMeta
@@ -366,7 +387,7 @@ impl SlateApp {
             };
             let _ = tx.send(msg);
         });
-        self.pending_view_drop = Some(PendingViewDrop { model, rx });
+        self.pending_view_drop = Some(PendingViewDrop { tab_id, model, rx });
     }
 
     pub(crate) fn queue_view_drop_from_item(&mut self, model: NodeId, item: slate_doc::ItemId) {
@@ -383,8 +404,12 @@ impl SlateApp {
         let Ok(msg) = pending.rx.try_recv() else {
             return;
         };
+        let tab_id = pending.tab_id;
         let model = pending.model;
         self.pending_view_drop = None;
+        if tab_id != self.tab().id {
+            return;
+        }
         match msg {
             ViewDropMsg::NoMeta => self.toast("No saved Slate view in that image"),
             ViewDropMsg::Err(e) => self.toast(&e),
@@ -393,6 +418,9 @@ impl SlateApp {
     }
 
     pub(crate) fn apply_view_drop(&mut self, model: NodeId, parsed: view_meta::ViewMetaParsed) {
+        if self.doc().scene.node(model).is_none_or(|n| n.locked) || self.refuse_read_only_edit() {
+            return;
+        }
         let info = match self.model_node_info(model) {
             Some(i) => i,
             None => return,
@@ -480,4 +508,99 @@ fn file_mtime(path: &Path) -> i64 {
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::tests::Harness;
+    use super::*;
+
+    fn add_model(app: &mut SlateApp, path: PathBuf) -> NodeId {
+        let item = app
+            .doc_mut()
+            .add_item(path, "model.obj", 1, 0, "model-cache");
+        let node = app.doc_mut().scene.build_node(
+            WorldRect::new(0.0, 0.0, 320.0, 200.0),
+            NodeKind::Image(ImageNode::new(item)),
+        );
+        app.add_nodes(vec![node])[0]
+    }
+
+    fn parsed(camera: ModelCamera) -> view_meta::ViewMetaParsed {
+        view_meta::ViewMetaParsed {
+            camera,
+            model_name: "model.obj".into(),
+            model_path: "model.obj".into(),
+            model_hash: String::new(),
+            model_size: 1,
+            node_id: 1,
+        }
+    }
+
+    #[test]
+    fn view_drop_result_never_crosses_tabs_with_colliding_node_ids() {
+        let mut h = Harness::new("view_drop_tabs");
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        let first_id = add_model(&mut h.app, h.base.join("first.obj"));
+        let first_tab = h.app.tab().id;
+        let restored = ModelCamera {
+            yaw: 1.25,
+            distance: 8.0,
+            ..ModelCamera::default()
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(ViewDropMsg::Restored(parsed(restored))).unwrap();
+        h.app.pending_view_drop = Some(PendingViewDrop {
+            tab_id: first_tab,
+            model: first_id,
+            rx,
+        });
+
+        h.app.new_tab();
+        let second_id = add_model(&mut h.app, h.base.join("second.obj"));
+        assert_eq!(first_id, second_id, "fixture must exercise an id collision");
+        h.app.maintain_view_drop();
+        let second_camera = match &h.app.doc().scene.node(second_id).unwrap().kind {
+            NodeKind::Image(image) => image.model,
+            _ => unreachable!(),
+        };
+        assert_ne!(second_camera, restored);
+
+        h.app.switch_tab(0);
+        let first_camera = match &h.app.doc().scene.node(first_id).unwrap().kind {
+            NodeKind::Image(image) => image.model,
+            _ => unreachable!(),
+        };
+        assert_ne!(first_camera, restored, "inactive result must be discarded");
+    }
+
+    #[test]
+    fn view_drop_refuses_read_only_workbook() {
+        let mut h = Harness::new("view_drop_read_only");
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        let id = add_model(&mut h.app, h.base.join("readonly.obj"));
+        let before = match &h.app.doc().scene.node(id).unwrap().kind {
+            NodeKind::Image(image) => image.model,
+            _ => unreachable!(),
+        };
+        let restored = ModelCamera {
+            yaw: 0.9,
+            distance: 6.0,
+            ..before
+        };
+        h.app.tab_mut().read_only = true;
+        h.app.apply_view_drop(id, parsed(restored));
+        let after = match &h.app.doc().scene.node(id).unwrap().kind {
+            NodeKind::Image(image) => image.model,
+            _ => unreachable!(),
+        };
+        assert_eq!(after, before);
+        assert!(h
+            .app
+            .toasts
+            .iter()
+            .any(|(message, _)| message.contains("read-only")));
+    }
 }

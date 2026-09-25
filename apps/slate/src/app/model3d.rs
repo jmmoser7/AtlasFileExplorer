@@ -671,6 +671,8 @@ enum EngineSlot {
     Failed,
 }
 
+type ModelNodeKey = (u64, NodeId);
+
 /// All 3D-viewport state, owned by [`SlateApp`].
 pub struct ModelSpace {
     engine: EngineSlot,
@@ -683,7 +685,7 @@ pub struct ModelSpace {
     /// Poster textures by poster file name.
     posters: HashMap<String, TextureHandle>,
     /// Nodes whose poster needs (re)generation once mesh + GL are ready.
-    want_poster: std::collections::HashSet<NodeId>,
+    want_poster: std::collections::HashSet<ModelNodeKey>,
     /// Bounds by cache key (kept even after CPU mesh eviction — needed to
     /// resolve auto-fit cameras cheaply, e.g. for artifact export).
     pub bounds: HashMap<String, ([f32; 3], [f32; 3])>,
@@ -707,10 +709,10 @@ pub struct ModelSpace {
     enscape_grabs: HashMap<String, EnscapeGrab>,
     pub(crate) enscape_stamps: HashMap<String, u64>,
     /// Generation-tagged chip renders for the display stringer (never paint).
-    display_swatch_gen: HashMap<NodeId, u64>,
-    display_swatch_stamp: HashMap<NodeId, u64>,
-    display_swatch_queue: VecDeque<(NodeId, u64, ModelDisplay)>,
-    display_swatch_pixels: HashMap<(NodeId, u64, ModelDisplay), egui::ColorImage>,
+    display_swatch_gen: HashMap<ModelNodeKey, u64>,
+    display_swatch_stamp: HashMap<ModelNodeKey, u64>,
+    display_swatch_queue: VecDeque<(u64, NodeId, u64, ModelDisplay)>,
+    display_swatch_pixels: HashMap<(u64, NodeId, u64, ModelDisplay), egui::ColorImage>,
     /// Parsed `slateview` cameras from wired screenshot items (item cache key).
     pub view_wire_meta: HashMap<String, Option<ModelCamera>>,
     /// Decoded poster pixels (key = on-disk poster file name).
@@ -784,32 +786,42 @@ impl Default for ModelSpace {
 impl ModelSpace {
     /// Queue one low-res render per display mode for the stringer. Returns the
     /// generation tag textures must match.
-    fn queue_display_swatches(&mut self, id: NodeId, cam_hash: u64) -> u64 {
-        if self.display_swatch_stamp.get(&id) == Some(&cam_hash) {
-            return *self.display_swatch_gen.get(&id).unwrap_or(&0);
+    fn queue_display_swatches(&mut self, doc: u64, id: NodeId, cam_hash: u64) -> u64 {
+        let key = (doc, id);
+        if self.display_swatch_stamp.get(&key) == Some(&cam_hash) {
+            return *self.display_swatch_gen.get(&key).unwrap_or(&0);
         }
-        let gen = self.display_swatch_gen.entry(id).or_insert(0);
+        let gen = self.display_swatch_gen.entry(key).or_insert(0);
         *gen += 1;
         let tag = *gen;
-        self.display_swatch_stamp.insert(id, cam_hash);
-        self.display_swatch_queue.retain(|(node, _, _)| *node != id);
+        self.display_swatch_stamp.insert(key, cam_hash);
+        self.display_swatch_queue
+            .retain(|(queued_doc, node, _, _)| (*queued_doc, *node) != key);
         self.display_swatch_pixels
-            .retain(|(node, _, _), _| *node != id);
+            .retain(|(queued_doc, node, _, _), _| (*queued_doc, *node) != key);
         for mode in DISPLAY_SWATCH_MODES {
-            self.display_swatch_queue.push_back((id, tag, mode));
+            self.display_swatch_queue.push_back((doc, id, tag, mode));
         }
         tag
     }
 
-    fn display_swatch_generation(&self, id: NodeId) -> u64 {
-        self.display_swatch_gen.get(&id).copied().unwrap_or(0)
+    fn display_swatch_generation(&self, doc: u64, id: NodeId) -> u64 {
+        self.display_swatch_gen
+            .get(&(doc, id))
+            .copied()
+            .unwrap_or(0)
     }
 
-    fn take_display_swatch_job(&mut self) -> Option<(NodeId, u64, ModelDisplay)> {
-        while let Some(job) = self.display_swatch_queue.pop_front() {
-            if self.display_swatch_gen.get(&job.0) == Some(&job.1) {
+    fn take_display_swatch_job(&mut self, doc: u64) -> Option<(u64, NodeId, u64, ModelDisplay)> {
+        for _ in 0..self.display_swatch_queue.len() {
+            let job = self.display_swatch_queue.pop_front()?;
+            if self.display_swatch_gen.get(&(job.0, job.1)) != Some(&job.2) {
+                continue;
+            }
+            if job.0 == doc {
                 return Some(job);
             }
+            self.display_swatch_queue.push_back(job);
         }
         None
     }
@@ -1158,6 +1170,7 @@ impl SlateApp {
     /// Lock a live viewport: freeze the current pose as the poster, commit
     /// the camera to the document (one undo step), release GPU work.
     pub fn lock_model(&mut self, id: NodeId) {
+        let doc = self.tab().id;
         let Some(vp) = self.model3d.live.remove(&id) else {
             return;
         };
@@ -1185,7 +1198,7 @@ impl SlateApp {
                     if let Some(tex) = self.model3d.posters.get_mut(&name) {
                         tex.set(img, egui::TextureOptions::LINEAR);
                     }
-                    self.model3d.want_poster.remove(&id);
+                    self.model3d.want_poster.remove(&(doc, id));
                 }
             }
             // Commit the pose (skip when untouched, e.g. unlock → instant
@@ -1322,14 +1335,21 @@ impl SlateApp {
         // Regenerate posters requested by the paint pass (mesh may have
         // finished parsing this frame).
         if self.gl.is_some() && !self.model3d.want_poster.is_empty() {
-            let wanted: Vec<NodeId> = self.model3d.want_poster.iter().copied().collect();
-            for id in wanted {
+            let doc = self.tab().id;
+            let wanted: Vec<ModelNodeKey> = self
+                .model3d
+                .want_poster
+                .iter()
+                .filter(|(queued_doc, _)| *queued_doc == doc)
+                .copied()
+                .collect();
+            for key @ (_, id) in wanted {
                 if self.model3d.live.contains_key(&id) {
-                    self.model3d.want_poster.remove(&id);
+                    self.model3d.want_poster.remove(&key);
                     continue;
                 }
                 if self.generate_poster(id) {
-                    self.model3d.want_poster.remove(&id);
+                    self.model3d.want_poster.remove(&key);
                     ctx.request_repaint();
                 }
             }
@@ -1468,7 +1488,7 @@ impl SlateApp {
                 Some(ModelState::Failed(_) | ModelState::External(_))
             );
             if !blocked {
-                self.model3d.want_poster.insert(id);
+                self.model3d.want_poster.insert((self.tab().id, id));
             }
         }
     }
@@ -1625,11 +1645,13 @@ impl SlateApp {
                 cam = resolve_camera(&cam, min, max);
             }
         }
-        self.model3d.queue_display_swatches(id, cam.cache_hash())
+        self.model3d
+            .queue_display_swatches(self.tab().id, id, cam.cache_hash())
     }
 
     fn tick_display_swatch(&mut self) -> bool {
-        let Some((id, gen, mode)) = self.model3d.take_display_swatch_job() else {
+        let doc = self.tab().id;
+        let Some((_, id, gen, mode)) = self.model3d.take_display_swatch_job(doc) else {
             return false;
         };
         let Some(info) = self.model_node_info(id) else {
@@ -1645,7 +1667,7 @@ impl SlateApp {
             _ => {
                 self.model3d
                     .display_swatch_queue
-                    .push_front((id, gen, mode));
+                    .push_front((doc, id, gen, mode));
                 return false;
             }
         }
@@ -1655,7 +1677,7 @@ impl SlateApp {
             let Some((min, max)) = self.model3d.bounds.get(&info.cache_key).copied() else {
                 self.model3d
                     .display_swatch_queue
-                    .push_front((id, gen, mode));
+                    .push_front((doc, id, gen, mode));
                 return false;
             };
             resolve_camera(&info.cam, min, max)
@@ -1668,13 +1690,13 @@ impl SlateApp {
         else {
             return false;
         };
-        if self.model3d.display_swatch_gen.get(&id) != Some(&gen) {
+        if self.model3d.display_swatch_gen.get(&(doc, id)) != Some(&gen) {
             return false;
         }
         let face = super::imagefx::square_swatch(&img, edge as usize);
         self.model3d
             .display_swatch_pixels
-            .insert((id, gen, mode), face);
+            .insert((doc, id, gen, mode), face);
         true
     }
 
@@ -1683,10 +1705,11 @@ impl SlateApp {
         ctx: &egui::Context,
         id: NodeId,
     ) -> [Option<egui::TextureId>; 4] {
-        let gen = self.model3d.display_swatch_generation(id);
+        let doc = self.tab().id;
+        let gen = self.model3d.display_swatch_generation(doc, id);
         let mut out = [None; 4];
         for (i, mode) in DISPLAY_SWATCH_MODES.iter().enumerate() {
-            let key = (id, gen, *mode);
+            let key = (doc, id, gen, *mode);
             if !self.model3d.display_swatch_pixels.contains_key(&key) {
                 continue;
             }
@@ -1694,7 +1717,7 @@ impl SlateApp {
                 let image = self.model3d.display_swatch_pixels[&key].clone();
                 let tex = ctx.load_texture(
                     format!(
-                        "slate-model-display-{}-{}-{}",
+                        "slate-model-display-{doc}-{}-{}-{}",
                         id.0,
                         gen,
                         display_key(*mode)

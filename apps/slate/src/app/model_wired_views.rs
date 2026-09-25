@@ -69,7 +69,7 @@ impl SlateApp {
             if self
                 .pending_view_wire_cache
                 .iter()
-                .any(|p| p.connector == *id)
+                .any(|p| p.tab_id == tab_id && p.connector == *id)
             {
                 continue;
             }
@@ -235,6 +235,9 @@ impl SlateApp {
     }
 
     fn apply_wired_view_pick(&mut self, model: NodeId, connector: NodeId) {
+        if self.doc().scene.node(model).is_none_or(|n| n.locked) || self.refuse_read_only_edit() {
+            return;
+        }
         let views = self.wired_views_for_model(model);
         let Some(cam) = views
             .iter()

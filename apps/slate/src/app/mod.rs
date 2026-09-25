@@ -238,6 +238,7 @@ pub enum PickerMsg {
     },
     /// Save-file result for a viewport screenshot export.
     ModelScreenshotSave {
+        tab_id: u64,
         node: NodeId,
         path: Option<PathBuf>,
     },
@@ -409,7 +410,8 @@ pub struct SlateApp {
     filter_swatch_src: HashMap<String, egui::ColorImage>,
     filter_swatch_tex: HashMap<(String, u64), TextureHandle>,
     /// Chip faces for the 3D viewport-display stringer (generation-tagged).
-    model_display_swatch_tex: HashMap<(NodeId, u64, slate_doc::scene::ModelDisplay), TextureHandle>,
+    model_display_swatch_tex:
+        HashMap<(u64, NodeId, u64, slate_doc::scene::ModelDisplay), TextureHandle>,
     /// Export artifact with base64-inlined assets (single portable file).
     pub export_inline: bool,
     /// Coalescing anchor for continuous board edits (node, last edit time).
@@ -2113,9 +2115,14 @@ impl SlateApp {
                         path: Some(path),
                     } => self.bind_slate_workbook(ctx, portal, path),
                     PickerMsg::ModelScreenshotSave {
+                        tab_id,
                         node,
                         path: Some(path),
-                    } => self.finish_model_screenshot_save(node, path),
+                    } => {
+                        if !self.at_home && self.tab().id == tab_id {
+                            self.finish_model_screenshot_save(node, path);
+                        }
+                    }
                     _ => {}
                 }
             }
