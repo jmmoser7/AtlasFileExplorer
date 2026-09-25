@@ -108,6 +108,9 @@ fn paint_layers_svg_inner(
 
 fn image_data_uri(doc: &SlateDoc, img: &ImageNode) -> Option<String> {
     let path = &doc.item(img.item)?.path;
+    if atlas_core::cloud::is_dehydrated(path) {
+        return None;
+    }
     let mime = match path
         .extension()
         .and_then(|ext| ext.to_str())

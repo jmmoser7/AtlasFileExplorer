@@ -619,7 +619,6 @@ impl SlateApp {
                                 .node(image)
                                 .is_some_and(|n| matches!(&n.kind, slate_doc::NodeKind::Image(img) if idx < img.paint_layers.len()))
                             {
-                                detail = detail.or(Some(format!("layer {idx}")));
                                 self.delete_paint_layer(image, idx);
                                 return true;
                             }

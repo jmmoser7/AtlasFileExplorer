@@ -687,7 +687,7 @@ impl SlateApp {
         let radius = atlas_shell::canvas_scale::px(8.0, z);
         let row_w = n as f32 * (radius * 2.0 + gap) - gap;
         let center = egui::pos2(srect.center().x, srect.bottom() + gap + radius);
-        let mut x = center.x - row_w * 0.5 + radius;
+        let x = center.x - row_w * 0.5 + radius;
         let pointer = ui.ctx().pointer_latest_pos();
         for (i, rgb) in recents.iter().take(n).enumerate() {
             let at = egui::pos2(x + i as f32 * (radius * 2.0 + gap), center.y);
