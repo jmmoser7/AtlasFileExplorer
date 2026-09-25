@@ -349,7 +349,7 @@ impl BoardTool {
     /// Every tool, in declaration order. Kept beside [`BoardTool::grammar`],
     /// whose exhaustive match is the compiler-enforced reason a new variant
     /// cannot be added without being considered here too.
-    pub const ALL: [BoardTool; 24] = [
+    pub const ALL: [BoardTool; 25] = [
         BoardTool::Select,
         BoardTool::Pan,
         BoardTool::Frame,
