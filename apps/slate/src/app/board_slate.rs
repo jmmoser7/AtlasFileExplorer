@@ -475,7 +475,7 @@ impl SlateApp {
     }
 
     pub(crate) fn pick_slate_workbook(&mut self, portal: NodeId) {
-        if self.picker_rx.is_some() {
+        if self.file_dialog_pending() {
             return;
         }
         let (tx, rx) = crossbeam_channel::unbounded();

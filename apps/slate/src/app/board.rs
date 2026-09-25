@@ -8751,7 +8751,7 @@ impl SlateApp {
 
     /// Frame "+ images": pick files, place them inside the frame, inherit tags.
     pub fn add_to_frame_dialog(&mut self, frame: NodeId) {
-        if self.picker_rx.is_some() {
+        if self.file_dialog_pending() {
             return;
         }
         let (tx, rx) = crossbeam_channel::unbounded();
@@ -8766,7 +8766,7 @@ impl SlateApp {
     }
 
     pub fn export_artifact_dialog(&mut self) {
-        if self.picker_rx.is_some() {
+        if self.file_dialog_pending() {
             return;
         }
         let (tx, rx) = crossbeam_channel::unbounded();
