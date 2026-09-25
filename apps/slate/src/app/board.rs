@@ -1,4 +1,4 @@
-//! The Board view — Slate's open-world authored canvas.
+﻿//! The Board view — Slate's open-world authored canvas.
 //!
 //! Frames, shapes, text, and placed images live in `slate_doc::scene`; this
 //! module paints the scene with egui and turns pointer input into invertible
@@ -6632,8 +6632,12 @@ impl SlateApp {
                     }
                 }
                 if !cmds.is_empty() {
+                    let detail = format!("{} image(s)", cmds.len());
                     self.tab_mut().journal.record(cmds);
                     self.tab_mut().dirty = true;
+                    // P0.4: a finished crop is what Space / Enter repeat on
+                    // the next selection, however crop mode was entered.
+                    self.push_history(atlas_commands::CommandId("board.crop"), Some(detail));
                 }
             }
             Some(BoardDrag::CropPan { id, before, .. }) => {

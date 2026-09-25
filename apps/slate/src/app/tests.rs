@@ -9332,6 +9332,35 @@ fn crop_click_on_peer_keeps_every_image_in_crop_mode() {
     }
 }
 
+/// After a crop, selecting another image and tapping the repeat key (P0.4)
+/// enters crop mode on it, the same as invoking Crop.
+#[test]
+fn crop_repeat_last_reenters_crop_on_the_next_image() {
+    for key in [egui::Key::Space, egui::Key::Enter] {
+        let (mut h, ids) = crop_board("crop_repeat", 2);
+        h.app.board_sel = [ids[0]].into_iter().collect();
+        h.frame();
+        crop_via_corners_panel(&mut h);
+        let xf = h.app.board_xf();
+        let east = xf.w2s(Pos2::new(200.0, 75.0));
+        crop_pointer(&mut h, east, Some(true));
+        crop_pointer(&mut h, east + EVec2::new(-30.0, 0.0), None);
+        crop_pointer(&mut h, east + EVec2::new(-30.0, 0.0), Some(false));
+        assert!(!crop_of(&h, ids[0]).is_full(), "first image cropped");
+        // Esc closes the Corners panel, then leaves crop mode (P0.1).
+        for _ in 0..2 {
+            crop_key(&mut h, egui::Key::Escape, true);
+            crop_key(&mut h, egui::Key::Escape, false);
+        }
+        assert!(h.app.board_crop.is_none(), "Esc left crop mode");
+        h.app.board_sel = [ids[1]].into_iter().collect();
+        h.frame();
+        crop_key(&mut h, key, true);
+        crop_key(&mut h, key, false);
+        assert_eq!(h.app.board_crop, Some(ids[1]), "{key:?} repeats crop");
+    }
+}
+
 /// Machine-local: time until `SlateApp::with_ctx` returns (headless `new`).
 /// Not a CI assertion — fonts and the data dir dominate, and they vary by machine.
 #[test]
