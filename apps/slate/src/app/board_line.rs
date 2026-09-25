@@ -295,7 +295,7 @@ impl SlateApp {
         );
         let mut node = node;
         node.opacity = opacity;
-        let ids = self.add_nodes(vec![node.clone()]);
+        let ids = self.commit_created_nodes(vec![node.clone()]);
         let id = ids.first().copied();
         self.board_sel = ids.into_iter().collect();
         self.line_draft = None;

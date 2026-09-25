@@ -2119,7 +2119,7 @@ impl SlateApp {
         );
         node.opacity = opacity;
         self.note_last_style(&node);
-        let ids = self.add_nodes(vec![node]);
+        let ids = self.commit_created_nodes(vec![node]);
         self.board_sel = ids.into_iter().collect();
         self.board_tool = super::board::BoardTool::Select;
     }

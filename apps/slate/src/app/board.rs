@@ -1177,6 +1177,14 @@ impl SlateApp {
         }
     }
 
+    /// Drawing-tool commit: paint layer when hosting, else z-list `Add`.
+    pub(crate) fn commit_created_nodes(&mut self, nodes: Vec<Node>) -> Vec<NodeId> {
+        if self.image_paint.is_some() {
+            return self.commit_paint_layer_nodes(nodes).unwrap_or_default();
+        }
+        self.add_nodes(nodes)
+    }
+
     /// Insert new nodes as one undo group. Returns their ids.
     pub fn add_nodes(&mut self, nodes: Vec<Node>) -> Vec<NodeId> {
         if self.refuse_read_only_edit() {
@@ -1184,9 +1192,6 @@ impl SlateApp {
         }
         if nodes.is_empty() {
             return Vec::new();
-        }
-        if self.try_commit_layer_nodes(nodes.clone()) {
-            return nodes.iter().map(|n| n.id).collect();
         }
         let ids: Vec<NodeId> = nodes.iter().map(|n| n.id).collect();
         let base = self.doc().scene.nodes.len();
@@ -1339,10 +1344,19 @@ impl SlateApp {
             SceneCmd::Add { node, .. } => Some((None, node)),
             SceneCmd::Patch { before, after } => Some((Some(before.as_ref()), after.as_ref())),
             SceneCmd::Remove { .. } => None,
+            SceneCmd::LayerNodeAdd { node, .. }
+            | SceneCmd::LayerNodeRemove { node, .. } => Some((None, node)),
+            SceneCmd::LayerNodePatch { before, after, .. } => {
+                Some((Some(before.as_ref()), after.as_ref()))
+            }
         }));
-        self.brush_tiles.note_ids(cmds.iter().map(|c| match c {
-            SceneCmd::Add { node, .. } | SceneCmd::Remove { node, .. } => node.id,
-            SceneCmd::Patch { after, .. } => after.id,
+        self.brush_tiles.note_ids(cmds.iter().filter_map(|c| match c {
+            SceneCmd::Add { node, .. } | SceneCmd::Remove { node, .. } => Some(node.id),
+            SceneCmd::Patch { after, .. } => Some(after.id),
+            SceneCmd::LayerNodeAdd { node, .. } | SceneCmd::LayerNodeRemove { node, .. } => {
+                Some(node.id)
+            }
+            SceneCmd::LayerNodePatch { after, .. } => Some(after.id),
         }));
         let tab = self.tab_mut();
         tab.dirty = true;
@@ -7047,7 +7061,7 @@ impl SlateApp {
                 if let Some(n) = nodes.first() {
                     self.note_last_style(n);
                 }
-                let ids = self.add_nodes(nodes);
+                let ids = self.commit_created_nodes(nodes);
                 self.board_sel = ids.into_iter().collect();
                 if let Some(id) = Self::draw_command_id(tool) {
                     self.push_history(atlas_commands::CommandId(id), Some("drawn".into()));
@@ -7078,7 +7092,7 @@ impl SlateApp {
         if let Some(n) = nodes.first() {
             self.note_last_style(n);
         }
-        let ids = self.add_nodes(nodes);
+        let ids = self.commit_created_nodes(nodes);
         self.board_sel = ids.into_iter().collect();
         if let Some(id) = Self::draw_command_id(tool) {
             self.push_history(atlas_commands::CommandId(id), Some("drawn".into()));

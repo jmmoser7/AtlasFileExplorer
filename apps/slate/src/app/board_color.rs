@@ -719,10 +719,10 @@ impl SlateApp {
                 text: None,
             }),
         );
-        let id = node.id;
-        self.add_nodes(vec![node]);
+        let ids = self.commit_created_nodes(vec![node]);
+        let id = ids.first().copied();
         self.brush_chain = Some(end);
-        self.set_brush_anchor(end, Some(id));
+        self.set_brush_anchor(end, id);
         self.push_history(
             atlas_commands::CommandId("board.brush.stroke"),
             Some("stroke".into()),
@@ -757,10 +757,10 @@ impl SlateApp {
                     text: None,
                 }),
             );
-            let id = node.id;
-            self.add_nodes(vec![node]);
+            let ids = self.commit_created_nodes(vec![node]);
+            let id = ids.first().copied();
             self.brush_chain = Some(points[0]);
-            self.set_brush_anchor(points[0], Some(id));
+            self.set_brush_anchor(points[0], id);
             self.push_history(
                 atlas_commands::CommandId("board.brush.stroke"),
                 Some("dab".into()),
@@ -828,9 +828,8 @@ impl SlateApp {
                 text: None,
             }),
         );
-        let id = node.id;
-        self.add_nodes(vec![node]);
-        self.set_brush_anchor(b, Some(id));
+        let ids = self.commit_created_nodes(vec![node]);
+        self.set_brush_anchor(b, ids.first().copied());
         self.push_history(
             atlas_commands::CommandId("board.brush.stroke"),
             Some("line".into()),
