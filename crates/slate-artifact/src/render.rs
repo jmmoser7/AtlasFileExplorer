@@ -1075,6 +1075,157 @@ pub(crate) fn render_shape(
     }
 }
 
+pub(crate) fn render_shape_svg(
+    svg: &mut String,
+    node: &Node,
+    shape: &slate_doc::scene::ShapeNode,
+    rel: WorldRect,
+    stroke_scale: f32,
+) {
+    use std::fmt::Write;
+
+    let cx = rel.x + rel.w * 0.5;
+    let cy = rel.y + rel.h * 0.5;
+    let _ = write!(
+        svg,
+        "<g transform=\"rotate({:.3} {:.3} {:.3})\" opacity=\"{:.3}\">",
+        node.rotation_deg,
+        cx,
+        cy,
+        node.opacity.clamp(0.0, 1.0)
+    );
+    let fill = shape
+        .fill
+        .map(|value| value.css())
+        .unwrap_or_else(|| "none".to_owned());
+    let stroke = &shape.stroke;
+    let stroke_width = stroke.width.max(0.0) * stroke_scale;
+    let mut stroke_attrs = String::new();
+    if stroke.is_none() {
+        stroke_attrs.push_str(" stroke=\"none\"");
+    } else {
+        let _ = write!(
+            stroke_attrs,
+            " stroke=\"{}\" stroke-width=\"{:.3}\" stroke-linecap=\"{}\" stroke-linejoin=\"{}\"",
+            stroke.color.css(),
+            stroke_width,
+            stroke_cap_css(stroke.cap),
+            stroke_join_css(stroke.join)
+        );
+        if let Some(dash) = line_dash_attrs(stroke) {
+            let values = dash
+                .split_ascii_whitespace()
+                .filter_map(|value| value.parse::<f32>().ok())
+                .map(|value| format!("{:.3}", value * stroke_scale))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let _ = write!(stroke_attrs, " stroke-dasharray=\"{values}\"");
+        }
+        if stroke.dash == Dash::Dotted {
+            stroke_attrs.push_str(" stroke-linecap=\"round\"");
+        }
+    }
+    match shape.shape {
+        ShapeKind::Line => {
+            let (x1, y1, x2, y2) = if shape.flip {
+                (rel.x, rel.y + rel.h, rel.x + rel.w, rel.y)
+            } else {
+                (rel.x, rel.y, rel.x + rel.w, rel.y + rel.h)
+            };
+            let _ = write!(
+                svg,
+                "<line x1=\"{x1:.3}\" y1=\"{y1:.3}\" x2=\"{x2:.3}\" y2=\"{y2:.3}\"{stroke_attrs}/>"
+            );
+        }
+        ShapeKind::Rect => {
+            let (_, radius) = shape.corner.effective(rel.w, rel.h);
+            let _ = write!(
+                svg,
+                "<rect x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" rx=\"{:.3}\" fill=\"{}\"{stroke_attrs}/>",
+                rel.x, rel.y, rel.w, rel.h, radius, fill
+            );
+        }
+        ShapeKind::Ellipse => {
+            let _ = write!(
+                svg,
+                "<ellipse cx=\"{cx:.3}\" cy=\"{cy:.3}\" rx=\"{:.3}\" ry=\"{:.3}\" fill=\"{}\"{stroke_attrs}/>",
+                rel.w * 0.5,
+                rel.h * 0.5,
+                fill
+            );
+        }
+        ShapeKind::Path => {
+            if let Some(path) = shape.path.as_ref() {
+                let local_d = path_data_d(path, rel.w, rel.h);
+                let _ = write!(
+                    svg,
+                    "<path transform=\"translate({:.3} {:.3})\" d=\"{}\" fill=\"{}\"",
+                    rel.x, rel.y, local_d, fill
+                );
+                if matches!(path.fill_rule, PathFillRule::EvenOdd) {
+                    svg.push_str(" fill-rule=\"evenodd\"");
+                }
+                svg.push_str(&stroke_attrs);
+                svg.push_str("/>");
+            }
+        }
+    }
+    svg.push_str("</g>");
+}
+
+pub(crate) fn render_text_svg(
+    svg: &mut String,
+    node: &Node,
+    text: &slate_doc::scene::TextNode,
+    shown: &str,
+    rel: WorldRect,
+    scale: f32,
+) {
+    use std::fmt::Write;
+
+    let cx = rel.x + rel.w * 0.5;
+    let cy = rel.y + rel.h * 0.5;
+    let _ = write!(
+        svg,
+        "<g transform=\"rotate({:.3} {:.3} {:.3})\" opacity=\"{:.3}\">",
+        node.rotation_deg,
+        cx,
+        cy,
+        node.opacity.clamp(0.0, 1.0)
+    );
+    if let Some(fill) = text.fill {
+        let _ = write!(
+            svg,
+            "<rect x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" fill=\"{}\"/>",
+            rel.x,
+            rel.y,
+            rel.w,
+            rel.h,
+            fill.css()
+        );
+    }
+    let x = match text.align {
+        TextAlign::Left => rel.x,
+        TextAlign::Center => rel.x + rel.w * 0.5,
+        TextAlign::Right => rel.x + rel.w,
+    };
+    let anchor = match text.align {
+        TextAlign::Left => "start",
+        TextAlign::Center => "middle",
+        TextAlign::Right => "end",
+    };
+    let y = rel.y + rel.h * 0.5;
+    let _ = write!(
+        svg,
+        "<text x=\"{x:.3}\" y=\"{y:.3}\" dominant-baseline=\"middle\" text-anchor=\"{anchor}\" font-family=\"{}\" font-size=\"{:.3}\" fill=\"{}\">{}</text>",
+        escape_attr(text.family.css_stack()),
+        text.size * scale,
+        text.color.css(),
+        escape_html(shown)
+    );
+    svg.push_str("</g>");
+}
+
 fn render_rect_shape(
     html: &mut String,
     node: &Node,
@@ -2090,7 +2241,7 @@ pub fn escape_html(s: &str) -> String {
     out
 }
 
-fn escape_attr(s: &str) -> String {
+pub(crate) fn escape_attr(s: &str) -> String {
     escape_html(s)
 }
 

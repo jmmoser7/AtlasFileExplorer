@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use slate_doc::{ItemId, SlateDoc, WireRouting};
 
 pub use assets::{read_snippet, AssetMap};
-pub use paint_layers::{paint_layers_svg, rasterize_paint_layers_svg};
+pub use paint_layers::{paint_layers_svg, paint_layers_svg_with_doc, rasterize_paint_layers_svg};
 pub use render::render_html;
 
 /// Options controlling how the HTML artifact is written to disk.

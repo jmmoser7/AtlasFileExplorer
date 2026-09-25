@@ -2,7 +2,7 @@
 
 use super::SlateApp;
 use eframe::egui::ColorImage;
-use image::{GenericImageView, RgbaImage};
+use image::RgbaImage;
 use slate_doc::scene::{ImageNode, Node, NodeKind};
 use slate_doc::NodeId;
 use std::path::{Path, PathBuf};
@@ -48,7 +48,7 @@ pub fn agent_wired_image_file(app: &SlateApp, node: &Node, img: &ImageNode) -> O
         rgba.as_mut()[o + 2] = px.b();
         rgba.as_mut()[o + 3] = px.a();
     }
-    let svg = slate_artifact::paint_layers_svg(node, img, cw, ch);
+    let svg = slate_artifact::paint_layers_svg_with_doc(node, img, cw, ch, app.doc());
     if let Some(overlay) = slate_artifact::rasterize_paint_layers_svg(&svg, cw, ch) {
         blend_rgba(&mut rgba, &overlay, cw, ch);
     }
@@ -115,6 +115,7 @@ mod tests {
     }
 }
 
+/// Source-over blend of straight-alpha RGBA8 pixels.
 fn blend_rgba(base: &mut RgbaImage, top: &[u8], w: u32, h: u32) {
     let len = (w * h * 4) as usize;
     if top.len() < len {

@@ -4510,8 +4510,7 @@ impl SlateApp {
         Ok(inputs)
     }
 
-    /// Replace a wired source path with a file of the visible crop. Generated
-    /// outputs and a full crop stay as they are.
+    /// Replace wired image inputs with their visible crop and paint composite.
     fn clip_agent_images(&self, inputs: &mut atlas_ai::agent::InputSnapshot) {
         for item in inputs.context.iter_mut().chain(inputs.wired.iter_mut()) {
             let Some(node) = self.doc().scene.node(NodeId(item.node)) else {
@@ -4520,6 +4519,14 @@ impl SlateApp {
             let NodeKind::Image(img) = &node.kind else {
                 continue;
             };
+            if img
+                .paint_layers
+                .iter()
+                .any(|layer| layer.visible && !layer.nodes.is_empty())
+            {
+                super::image_composite::replace_wired_image_slots(self, item, NodeId(item.node));
+                continue;
+            }
             if img.crop.is_full() {
                 continue;
             }
@@ -4535,7 +4542,6 @@ impl SlateApp {
                     *slot = clipped.clone();
                 }
             }
-            super::image_composite::replace_wired_image_slots(self, item, NodeId(item.node));
         }
     }
 
