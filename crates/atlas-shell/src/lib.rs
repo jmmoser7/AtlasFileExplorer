@@ -30,6 +30,9 @@
 //! - [`minimap`] — cached-texture canvas minimap overlay.
 //! - [`palette`] — floating canvas command palette popup.
 //! - [`history_ui`] — read-only journal-history overlay.
+//! - [`file_picker`] — system file/folder dialogs, owned by and modal to the
+//!   app window. One `DialogGate` per window builds every dialog slot and
+//!   owns its HWND, input gate, and close-on-drop; one dialog per app.
 //!
 //! **Rule:** apps may decide *which* panels and commands they expose, but the
 //! rendering of chrome (colors, spacing, tab shapes, section cards) lives
@@ -47,6 +50,7 @@ pub mod commands;
 pub mod covers;
 pub mod dock;
 mod dock_advanced;
+pub mod file_picker;
 pub mod folder_map;
 pub mod grid_fade;
 pub mod history_ui;

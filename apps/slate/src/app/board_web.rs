@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
+use atlas_shell::file_picker::{self, PickRequest};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect};
 use slate_doc::scene::{
     classify_web_locator, web_display_locator, web_origin, Node, NodeId, NodeKind, PortalKind,
@@ -1952,21 +1953,13 @@ impl SlateApp {
         let Some(portal) = self.selected_web_portal() else {
             return false;
         };
-        if self.file_dialog_pending() {
-            return false;
-        }
-        let (tx, rx) = crossbeam_channel::unbounded();
-        self.picker_rx = Some(rx);
-        std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new()
-                .add_filter("Web page", &["html", "htm"])
-                .pick_file();
-            let _ = tx.send(super::PickerMsg::WebPortalSource {
+        self.picker.open(
+            PickRequest::file().filter("Web page", &["html", "htm"]),
+            move |picked| super::PickerMsg::WebPortalSource {
                 portal,
-                path: picked,
-            });
-        });
-        true
+                path: file_picker::first(picked),
+            },
+        )
     }
 
     /// `portal.web.source` for a multi-file dashboard: the folder holding the
@@ -1975,19 +1968,12 @@ impl SlateApp {
         let Some(portal) = self.selected_web_portal() else {
             return false;
         };
-        if self.file_dialog_pending() {
-            return false;
-        }
-        let (tx, rx) = crossbeam_channel::unbounded();
-        self.picker_rx = Some(rx);
-        std::thread::spawn(move || {
-            let picked = rfd::FileDialog::new().pick_folder();
-            let _ = tx.send(super::PickerMsg::WebPortalSource {
+        self.picker.open(PickRequest::folder(), move |picked| {
+            super::PickerMsg::WebPortalSource {
                 portal,
-                path: picked,
-            });
-        });
-        true
+                path: file_picker::first(picked),
+            }
+        })
     }
 
     /// `portal.web.allow_origin`.

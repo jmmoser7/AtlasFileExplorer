@@ -212,7 +212,7 @@ pub fn top_bar(app: &mut SlateApp, ctx: &egui::Context) {
             app_title: "Slate",
             icon: AppIcon::Slate,
             menus: &menus,
-            busy: app.picker_rx.is_some(),
+            busy: app.dialogs.any_open(),
             tabs: &specs,
             active_tab,
         },

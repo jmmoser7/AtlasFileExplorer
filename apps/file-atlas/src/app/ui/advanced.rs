@@ -72,7 +72,7 @@ pub fn window(app: &mut AtlasApp, ctx: &egui::Context) {
             {
                 app.open_prewarm_dialog();
             }
-            if app.prewarm_picker_rx.is_some() {
+            if app.picker.is_open() && app.picking == super::super::PickPurpose::Prewarm {
                 ui.spinner();
             }
             let job_info = app
