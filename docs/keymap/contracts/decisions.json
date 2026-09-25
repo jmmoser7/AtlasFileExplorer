@@ -3350,11 +3350,11 @@
           "decided": "2026-09-17"
         },
         "D09": {
-          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Preview the resolved three-point arc while dragging the through-point; bulge follows the cursor on either side of the start–end chord (same snap point as commit).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D10": {
           "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
@@ -3438,32 +3438,32 @@
           "decided": "2026-09-17"
         },
         "D03": {
-          "behavior": "Retain the existing anchor/handle creation grammar. This refinement adds capability-aware property editing and tight-bounds dimensions to the committed curve.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Illustrator-style draft: paint anchor squares on press; rubber-band cubic from the last anchor to the snapped cursor while hovering; dragging shows the outgoing handle with symmetric in/out unless Alt splits to a corner.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D04": {
-          "behavior": "Existing Bezier handle drag recognition is unchanged; the moving-click fix in this revision applies to Line, Polyline and Arc.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Handle drag uses draft.drag_threshold = 4 screen px (world travel = px/zoom); shorter release commits a corner anchor with zero handles.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D05": {
-          "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Alt while dragging an outgoing handle breaks symmetry (corner anchor with independent out handle). Other creation modifiers unchanged.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D06": {
-          "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends, ortho/direction constraints retain priority.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "P1.node.osnap: one resolved point feeds preview and commit; Alt suspends object snap while dragging handles; F8/Shift ortho constrains draft segments including Bézier outgoing handles.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D07": {
           "behavior": "No new lock binding. Preserve existing locks; numeric property editing is separate from drawing.",
@@ -3480,11 +3480,11 @@
           "decided": "2026-09-17"
         },
         "D09": {
-          "behavior": "P1.shape.properties: preview resolved creation geometry and show the shared geometry-appropriate selection strip.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Draft preview paints committed anchors through the shared path-edit overlay and rubber-bands to the same snapped cursor used on commit.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D10": {
           "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
@@ -3575,11 +3575,11 @@
           "decided": "2026-09-17"
         },
         "D04": {
-          "behavior": "Capture the press and final release points plus all available ordered pointer moves. Use screen-space sample spacing measured at capture, provisionally 0.5px. Do not drop event samples solely because the UI paints once per frame.",
-          "source": "guess",
-          "confidence": 55,
+          "behavior": "Capture press, release, and moves; keep samples ≥ ~1.75 screen px apart during drag; on release merge the final point into the last kept sample when closer than that spacing (no end hook).",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D05": {
           "behavior": "Retain tool-specific creation modifiers and P1.node.transform for selected objects.",
@@ -3610,11 +3610,11 @@
           "decided": "2026-09-17"
         },
         "D09": {
-          "behavior": "Keep press/release endpoints and all intermediate events separated by at least 0.5 screen px. Fitter simplification tolerance is 0.5 screen px at capture zoom; this is a tuning parameter, not a proof of a global error bound.",
-          "source": "pattern",
-          "confidence": 85,
+          "behavior": "Fit with ~2 screen px error tolerance at capture zoom via Schneider cubics after decimation, light smoothing, and corner detection; handles clamped to chord length with anti-loop guards.",
+          "source": "stated",
+          "confidence": 100,
           "verdict": "approved",
-          "decided": "2026-09-17"
+          "decided": "2026-09-25"
         },
         "D10": {
           "behavior": "Retain existing armed-tool cursor; controls use shell hover and focus feedback.",
@@ -4588,6 +4588,136 @@
           "confidence": 100,
           "verdict": "approved",
           "decided": "2026-09-24"
+        }
+      }
+    },
+    "smooth": {
+      "status": "draft",
+      "family": "tool",
+      "reference": "Rhino smoothing brush subset; brush HUD chords",
+      "inherits": [
+        "P0.*, P1.node, P1.curve, P1.curve.pick, P2.StickyInk (arm only)"
+      ],
+      "canvas": "smooth-tool-contract",
+      "decisions": {
+        "D01": {
+          "behavior": "S and board.tool.smooth arm Smoothing beside Brush and Eraser in the Shapes flyout ink group.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D02": {
+          "behavior": "Sticky like Brush/Eraser: stays armed after each pass; each drag is one undo group.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D03": {
+          "behavior": "Left-drag sweeps a circular brush over existing marks. Shift+drag is a straight pass. No paint on empty canvas.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D04": {
+          "behavior": "Any drag under the board sampling threshold still runs one smoothing pass at the press point.",
+          "source": "guess",
+          "confidence": 55,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D05": {
+          "behavior": "Shares Brush/Eraser width chords: [ ] size, Shift+[ ] softness, Alt+right-drag size+softness, Shift+right-drag strength. Esc cancels an in-progress pass without journal.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D06": {
+          "behavior": "No object or grid snap on the brush center.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D07": {
+          "behavior": "n/a",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D08": {
+          "behavior": "[ ] screen-px tiers (same as Brush). Strength 0.1..=1 via Shift+right-drag.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D09": {
+          "behavior": "Canvas-scaled soft disc (same as Eraser). Live preview replaces touched nodes until release. Bottom readout: diameter, softness, strength %.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D10": {
+          "behavior": "Filled radial tip + white diameter ring (P0.9); gray fill for Smooth.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D11": {
+          "behavior": "Release journals one invertible group of SceneCmd::Patch for every touched node (vectors: refit path; stamps: Stroke::gaussian_blur). Undo restores exact before snapshots.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D12": {
+          "behavior": "Esc drops the drag and live preview; no journal.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D13": {
+          "behavior": "Unchanged during drag.",
+          "source": "pattern",
+          "confidence": 85,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D14": {
+          "behavior": "Vector results stay editable paths. Smoothed lines/arcs become cubic paths. Stamp blur is authored on the stroke.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D15": {
+          "behavior": "Non-goals: partial-length blur on stamps; image paint layers; corner pinning via fit pipeline (v2); full Rhino smooth modes.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D16": {
+          "behavior": "Does not create nodes; only mutates existing ink.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
+        },
+        "D17": {
+          "behavior": "Vectors: stroke hit-test within pick radius (non-stamp Path + Line). Stamps: stroke hit-test on stamped paths. Hidden/locked skipped.",
+          "source": "stated",
+          "confidence": 100,
+          "verdict": "proposed",
+          "decided": "2026-09-25"
         }
       }
     }

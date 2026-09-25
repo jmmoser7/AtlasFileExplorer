@@ -559,7 +559,7 @@ impl SlateApp {
     /// converted by the current zoom. Returns (new world width, is_eraser).
     pub(crate) fn step_active_width(&mut self, up: bool) -> (f32, bool) {
         let z = self.tab().cam.z.max(f32::EPSILON);
-        let eraser = self.board_tool == BoardTool::Eraser;
+        let eraser = matches!(self.board_tool, BoardTool::Eraser | BoardTool::Smooth);
         let before = self.brush_setting_snapshot();
         let (w, soft, opacity) = self.active_tip();
         let px = step_width_px(w * z, up);
@@ -575,10 +575,14 @@ impl SlateApp {
 
     /// Width, softness, and opacity (erase strength) of the armed tip.
     pub(crate) fn active_tip(&self) -> (f32, f32, f32) {
-        if self.board_tool == BoardTool::Eraser {
-            (self.eraser_width, self.eraser_softness, self.eraser_opacity)
-        } else {
-            (self.brush_width, self.brush_softness, self.brush_opacity)
+        match self.board_tool {
+            BoardTool::Eraser => (self.eraser_width, self.eraser_softness, self.eraser_opacity),
+            BoardTool::Smooth => (
+                self.smooth_width,
+                self.smooth_softness,
+                self.smooth_strength,
+            ),
+            _ => (self.brush_width, self.brush_softness, self.brush_opacity),
         }
     }
 
@@ -591,6 +595,10 @@ impl SlateApp {
             self.settings.eraser_width = width;
             self.settings.eraser_softness = softness;
             self.settings.eraser_opacity = opacity;
+        } else if self.board_tool == BoardTool::Smooth {
+            self.smooth_width = width;
+            self.smooth_softness = softness;
+            self.smooth_strength = opacity.clamp(0.1, 1.0);
         } else {
             self.brush_width = width;
             self.brush_softness = softness;
@@ -683,6 +691,7 @@ impl SlateApp {
             softness: self.brush_softness,
             stamp: true,
             tween_from: None,
+            gaussian_blur: 0.0,
         }
     }
 
@@ -769,9 +778,11 @@ impl SlateApp {
             );
             return;
         }
-        let tol = board_path::FREEHAND_FIT_ERROR_PX / self.tab().cam.z.max(f32::EPSILON);
+        let zoom = self.tab().cam.z.max(f32::EPSILON);
+        let tol = board_path::FREEHAND_FIT_ERROR_PX / zoom;
+        let spacing = board_path::FREEHAND_SAMPLE_SPACING_PX / zoom;
         let flat: Vec<[f32; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
-        let bez = vector_ink::fit_polyline(&flat, tol);
+        let bez = vector_ink::fit_polyline_spaced(&flat, tol, spacing);
         let end = *points.last().expect("len >= 2");
         self.commit_brush_bez(&bez, end);
     }
@@ -945,8 +956,13 @@ impl SlateApp {
     /// (pick radius = eraser width / 2). Images, text, frames, and
     /// connectors are never erasable; hidden/locked strokes are skipped.
     pub(crate) fn eraser_hits_at(&self, world: Pos2) -> Vec<NodeId> {
+        self.vector_sweep_hits_at(world, self.eraser_width)
+    }
+
+    /// Vector Path/Line strokes under a circular pick (brush width = diameter).
+    pub(crate) fn vector_sweep_hits_at(&self, world: Pos2, pick_width: f32) -> Vec<NodeId> {
         let zoom = self.tab().cam.z;
-        let slop = (self.eraser_width * 0.5).max(1.0);
+        let slop = (pick_width * 0.5).max(1.0);
         let reach = slop + super::settings::STROKE_WIDTH_MAX * 0.5;
         let query = slate_doc::scene::WorldRect::new(
             world.x - reach,
@@ -1313,13 +1329,14 @@ impl SlateApp {
     /// that fades to the rim, the same stamp Photoshop shows for the brush.
     pub(crate) fn paint_width_cursor(&self, painter: &egui::Painter, pointer: Pos2) {
         let z = self.tab().cam.z;
-        let eraser = self.board_tool == BoardTool::Eraser;
-        let (w, softness, _) = self.active_tip();
+        let (w, softness, strength) = self.active_tip();
         let r = (w * 0.5 * z).max(1.5);
-        let ink = if eraser {
-            Color32::from_gray(180).gamma_multiply(self.eraser_opacity.clamp(0.1, 1.0))
-        } else {
-            self.brush_preview_color()
+        let ink = match self.board_tool {
+            BoardTool::Eraser => {
+                Color32::from_gray(180).gamma_multiply(self.eraser_opacity.clamp(0.1, 1.0))
+            }
+            BoardTool::Smooth => Color32::from_gray(160).gamma_multiply(strength.clamp(0.1, 1.0)),
+            _ => self.brush_preview_color(),
         };
         paint_soft_disc(painter, pointer, r, softness, ink);
         if self.shift_down {
@@ -1372,8 +1389,11 @@ impl SlateApp {
         if self.doc().view.active_view != slate_doc::ViewKind::Board {
             return None;
         }
-        let eraser = self.board_tool == BoardTool::Eraser;
-        if !eraser && self.board_tool != BoardTool::Brush {
+        let tool = self.board_tool;
+        if !matches!(
+            tool,
+            BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
+        ) {
             return None;
         }
         let z = self.tab().cam.z.max(f32::EPSILON);
@@ -1384,7 +1404,10 @@ impl SlateApp {
         } else {
             format!("{:.0}% soft", softness * 100.0)
         };
-        let amount = if eraser { "strength" } else { "opacity" };
+        let amount = match tool {
+            BoardTool::Eraser | BoardTool::Smooth => "strength",
+            _ => "opacity",
+        };
         Some(format!(
             "{px:.0} px · {soft} · {:.0}% {amount}",
             opacity * 100.0
@@ -1407,7 +1430,10 @@ impl SlateApp {
             self.commit_brush_hud();
             return true;
         }
-        let armed = matches!(self.board_tool, BoardTool::Brush | BoardTool::Eraser);
+        let armed = matches!(
+            self.board_tool,
+            BoardTool::Brush | BoardTool::Eraser | BoardTool::Smooth
+        );
         // A held button counts, not only the press edge. The modifier often
         // arrives on the same chord a frame after `button_pressed` has passed.
         if (!secondary_down && !secondary_pressed) || !armed {

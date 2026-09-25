@@ -40,7 +40,7 @@ See [shape property editing](../specs/shape-property-editing.md) for the approve
 
 ## Feel constants
 
-- Existing `draft.drag_threshold`: 4 screen px; compare unsnapped pointer travel.
+- `draft.drag_threshold`: 4 screen px (`board_path::DRAFT_DRAG_THRESHOLD_PX`); compare unsnapped pointer travel in world units via `px / zoom`.
 - Existing `osnap.radius` / `draft.osnap_radius`: retain the current shared tolerance and SnapKind priority.
 - `selection_toolbar.gap`: 14 world units, scaled via canvas_scale (P0.9).
 - `pen.sample_spacing_px`: 0.5 screen px; `pen.fit_error_px`: 0.5 screen px. Named constants live in board_path and atlas-shell selection_tools.
@@ -52,8 +52,12 @@ These are interaction acceptance scripts; automated coverage is listed below. Na
 - **GP1:** Stationary anchor click -> one anchor with zero handles.
 - **GP2:** Press A -> drag handle B -> release -> anchor stays at A; tangent reflects B-A.
 - **GP3:** Select mixed straight line + cubic -> common stroke/opacity controls only; no meaningless common fillet.
+- **GP4:** After the first anchor, hover shows a rubber-band cubic to the snapped cursor; anchor squares appear on press before pointer movement.
+- **GP5:** Alt while dragging splits handles into a corner; Shift/F8 ortho constrains the outgoing handle like polyline segments.
 
 ## Implementation notes
+
+Draft anchor/handle adornment is shared with Direct Selection via `path_edit_overlay::paint_path_edit_anchors`. Regression: `bezier_drag_threshold_is_screen_px`, `bezier_symmetric_and_corner_handles`.
 
 The native selection strip is implemented in `board_properties`; shell painting and desktop sampling are shared in atlas-shell. Model corner semantics live in slate-doc and are interpreted by both board and artifact renderers. Geometry-based capability gating applies to paths whose original tool provenance is not stored.
 

@@ -1299,6 +1299,35 @@ fn eraser_release_is_one_undo_group() {
     h.frame();
 }
 
+#[test]
+fn smooth_pass_increases_stamp_blur_and_undo_restores() {
+    let mut h = Harness::new("smooth_blur");
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.app.set_board_tool(board::BoardTool::Brush);
+    h.app
+        .finish_freehand_brush(vec![Pos2::new(10.0, 10.0), Pos2::new(80.0, 40.0)]);
+    let id = h.app.doc().scene.nodes.last().unwrap().id;
+    h.app.set_board_tool(board::BoardTool::Smooth);
+    h.app.smooth_width = 40.0;
+    h.app.smooth_strength = 1.0;
+    let drag = h.app.begin_smooth(Pos2::new(40.0, 25.0), false);
+    h.app.finish_smooth(drag);
+    let blur_after = h.app.doc().scene.node(id).unwrap();
+    let slate_doc::scene::NodeKind::Shape(after) = &blur_after.kind else {
+        panic!("shape");
+    };
+    assert!(after.stroke.gaussian_blur > 0.0, "blur should increase");
+    h.app.board_undo();
+    let blur_before = h.app.doc().scene.node(id).unwrap();
+    let slate_doc::scene::NodeKind::Shape(before) = &blur_before.kind else {
+        panic!("shape");
+    };
+    assert_eq!(before.stroke.gaussian_blur, 0.0);
+    h.frame();
+}
+
 /// Hidden and locked semantics: hit-testing, select-all, and the escape
 /// hatches (show all / unlock all / force pick).
 #[test]
@@ -2033,6 +2062,7 @@ fn line_create_matches_last_edited_style() {
         softness: 0.0,
         stamp: false,
         tween_from: None,
+        gaussian_blur: 0.0,
     };
     h.app.patch_nodes(&[id], |n| {
         n.opacity = 0.5;
@@ -2562,6 +2592,7 @@ fn a_drawn_rectangle_inherits_last_fill_and_stroke() {
         softness: 0.0,
         stamp: false,
         tween_from: None,
+        gaussian_blur: 0.0,
     };
     h.app.patch_nodes(&[id], |n| {
         if let slate_doc::scene::NodeKind::Shape(s) = &mut n.kind {

@@ -258,6 +258,14 @@ pub struct Stroke {
     /// strokes store [`PathData::tips`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tween_from: Option<StrokeSpan>,
+    /// Whole-stroke Gaussian blur (SVG `feGaussianBlur` / CSS `blur`), in
+    /// world units as stdDeviation. Distinct from edge softness.
+    #[serde(default, skip_serializing_if = "gaussian_blur_zero")]
+    pub gaussian_blur: f32,
+}
+
+fn gaussian_blur_zero(v: &f32) -> bool {
+    *v <= 0.0
 }
 
 /// One brush tip on a path vertex.
@@ -294,6 +302,7 @@ impl Default for Stroke {
             softness: 0.0,
             stamp: false,
             tween_from: None,
+            gaussian_blur: 0.0,
         }
     }
 }
@@ -318,7 +327,7 @@ impl Stroke {
 
     pub fn blur_sigma(self) -> f32 {
         let (_, feather) = self.paint_profile();
-        feather * 0.5
+        self.gaussian_blur.max(feather * 0.5)
     }
 
     /// Radial bitmap of the centerline. Brush strokes set [`Self::stamp`];

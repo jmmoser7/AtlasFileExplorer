@@ -208,6 +208,10 @@
     "path": "M3 15 14 4 21 11 11 21H9ZM8 10 15 17M11 21H22",
     "filled": false
   },
+  "Smooth": {
+    "path": "M4 18 Q8 6 12 13 T20 9 M3 21 H21",
+    "filled": false
+  },
   "Eyedropper": {
     "path": "M4 20 6 14 16 4 20 8 10 18ZM13 5 19 11",
     "filled": false

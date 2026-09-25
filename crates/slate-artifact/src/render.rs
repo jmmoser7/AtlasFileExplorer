@@ -1191,6 +1191,10 @@ fn render_brush_stamp(
         })
         .collect();
     vector_ink::apply_erase(&mut stamp, &marks);
+    if shape.stroke.gaussian_blur > 0.0 {
+        let sigma = shape.stroke.gaussian_blur * stamp.pixel;
+        vector_ink::gaussian_blur_rgba(&mut stamp.rgba, stamp.width, stamp.height, sigma);
+    }
     let Some(png) = encode_png(&stamp) else {
         return false;
     };

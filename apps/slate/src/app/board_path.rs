@@ -20,6 +20,9 @@ use vector_ink::{
 };
 
 use super::board::{rgba32, BoardXf};
+use super::path_edit_overlay::{
+    paint_path_edit_anchors, PathEditAnchorColors, PathEditAnchorPaint,
+};
 use super::SlateApp;
 
 pub(crate) const FEATHER_PX: f32 = 1.25;
@@ -42,11 +45,21 @@ pub enum BoardPathDraft {
         points: Vec<Pos2>,
     },
     Bezier {
-        anchors: Vec<(Pos2, Vec2)>,
-        /// Active click-drag placing an anchor + handle.
-        placing: Option<(Pos2, Vec2)>,
+        anchors: Vec<(Pos2, BezierHandles)>,
+        /// Active click-drag placing an anchor + handles.
+        placing: Option<(Pos2, BezierHandles)>,
     },
 }
+
+/// Incoming / outgoing Bézier control offsets from an anchor point.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BezierHandles {
+    pub handle_in: Vec2,
+    pub handle_out: Vec2,
+}
+
+/// Screen-constant minimum drag before a handle is authored (P0 / draft tools).
+pub const DRAFT_DRAG_THRESHOLD_PX: f32 = 4.0;
 
 #[derive(Default)]
 pub(crate) struct CachedInkMesh {
@@ -517,6 +530,7 @@ fn hash_stroke(h: &mut impl Hasher, stroke: &Stroke) {
         }
     }
     hash_f32(h, stroke.softness);
+    hash_f32(h, stroke.gaussian_blur);
     stroke.stamp.hash(h);
     if let Some(from) = stroke.tween_from {
         hash_f32(h, from.width);
@@ -1186,6 +1200,7 @@ pub fn default_draw_stroke(accent: Rgba) -> Stroke {
         softness: 0.0,
         stamp: false,
         tween_from: None,
+        gaussian_blur: 0.0,
     }
 }
 
@@ -1202,6 +1217,7 @@ pub fn default_curve_stroke(color: Rgba) -> Stroke {
         softness: 0.0,
         stamp: false,
         tween_from: None,
+        gaussian_blur: 0.0,
     }
 }
 
@@ -1232,24 +1248,28 @@ pub fn arc_through_three_points(p0: Pos2, p1: Pos2, p2: Pos2) -> BezPath {
     let a0 = ang(a);
     let a1 = ang(b);
     let a2_end = ang(c);
-    let mut sweep = a2_end - a0;
-    while sweep <= 0.0 {
-        sweep += std::f64::consts::TAU;
+    // CCW sweep from start → end in (0, τ]; pick the arc that contains the
+    // through-point. Do not re-normalize a negative sweep — kurbo uses the
+    // sign to take the long arc when the middle lies on that side of the chord.
+    let mut sweep_ccw = a2_end - a0;
+    while sweep_ccw <= 0.0 {
+        sweep_ccw += std::f64::consts::TAU;
     }
-    while sweep > std::f64::consts::TAU {
-        sweep -= std::f64::consts::TAU;
+    while sweep_ccw > std::f64::consts::TAU {
+        sweep_ccw -= std::f64::consts::TAU;
     }
-    let mut mid = a1 - a0;
-    while mid < 0.0 {
-        mid += std::f64::consts::TAU;
+    let mut mid_ccw = a1 - a0;
+    while mid_ccw < 0.0 {
+        mid_ccw += std::f64::consts::TAU;
     }
-    if mid > sweep {
-        sweep -= std::f64::consts::TAU;
-        while sweep <= 0.0 {
-            sweep += std::f64::consts::TAU;
-        }
+    while mid_ccw >= std::f64::consts::TAU {
+        mid_ccw -= std::f64::consts::TAU;
     }
-    let sweep_angle = sweep;
+    let sweep_angle = if mid_ccw <= sweep_ccw + 1e-10 {
+        sweep_ccw
+    } else {
+        sweep_ccw - std::f64::consts::TAU
+    };
     let arc = Arc::new(center, kurbo::Vec2::new(r, r), a0, sweep_angle, 0.0);
     path.move_to(a);
     for el in arc.append_iter(0.25) {
@@ -1262,17 +1282,17 @@ pub fn arc_through_three_points(p0: Pos2, p1: Pos2, p2: Pos2) -> BezPath {
     path
 }
 
-pub fn bezier_anchors_to_bezpath(anchors: &[(Pos2, Vec2)]) -> BezPath {
+pub fn bezier_anchors_to_bezpath(anchors: &[(Pos2, BezierHandles)]) -> BezPath {
     let mut path = BezPath::new();
     if anchors.is_empty() {
         return path;
     }
     path.move_to(to_k(anchors[0].0));
     for i in 0..anchors.len().saturating_sub(1) {
-        let (a0, out0) = anchors[i];
-        let (a1, out1) = anchors[i + 1];
-        let c1 = a0 + out0;
-        let c2 = a1 - out1;
+        let (a0, h0) = anchors[i];
+        let (a1, h1) = anchors[i + 1];
+        let c1 = a0 + h0.handle_out;
+        let c2 = a1 + h1.handle_in;
         path.curve_to(to_k(c1), to_k(c2), to_k(a1));
     }
     path
@@ -1529,6 +1549,10 @@ fn paint_stamped_stroke(
                 return;
             };
             vector_ink::apply_erase(&mut stamp, &stamped_erase_marks(node, shape, path));
+            if shape.stroke.gaussian_blur > 0.0 {
+                let sigma = shape.stroke.gaussian_blur * want;
+                vector_ink::gaussian_blur_rgba(&mut stamp.rgba, stamp.width, stamp.height, sigma);
+            }
             let gpu = upload_stamp(painter, &format!("brush-stamp-{}", node.id.0), stamp, want);
             app.brush_stamps.insert(node.id, (key, gpu));
             evict_brush_stamps(&mut app.brush_stamps, app.frame_no);
@@ -2044,13 +2068,22 @@ impl EraseLive {
     }
 }
 
+pub struct PathDraftPaintStyle {
+    pub stroke: Color32,
+    pub overlay: PathEditAnchorColors,
+    pub zoom: f32,
+    /// When true, the first committed anchor draws hollow (close-path hover).
+    pub close_first_anchor: bool,
+}
+
 pub fn paint_path_draft(
     painter: &egui::Painter,
     xf: &BoardXf,
     draft: &BoardPathDraft,
     cursor: Option<Pos2>,
-    color: Color32,
+    style: PathDraftPaintStyle,
 ) {
+    let color = style.stroke;
     match draft {
         BoardPathDraft::Polyline { points } => {
             if let Some(c) = cursor {
@@ -2088,29 +2121,72 @@ pub fn paint_path_draft(
             }
         }
         BoardPathDraft::Bezier { anchors, placing } => {
-            let mut preview = anchors.clone();
+            let mut span = anchors.clone();
             if let Some((a, h)) = placing {
-                preview.push((*a, *h));
+                span.push((*a, *h));
             }
-            if preview.len() >= 2 {
-                let bez = bezier_anchors_to_bezpath(&preview);
+            if span.len() >= 2 {
+                let bez = bezier_anchors_to_bezpath(&span);
                 paint_path_preview(painter, xf, color, &bez);
-            } else if let Some((a, h)) = placing {
-                let mut bez = BezPath::new();
-                bez.move_to(to_k(*a));
-                if h.length_sq() > 1.0 {
-                    bez.line_to(to_k(*a + *h));
+            } else if let Some(c) = cursor {
+                if let Some((a, h)) = placing {
+                    let mut bez = BezPath::new();
+                    bez.move_to(to_k(*a));
+                    bez.curve_to(to_k(*a + h.handle_out), to_k(c), to_k(c));
+                    paint_path_preview(painter, xf, color, &bez);
+                } else if let Some((last, lh)) = anchors.last() {
+                    let mut bez = BezPath::new();
+                    bez.move_to(to_k(*last));
+                    bez.curve_to(to_k(*last + lh.handle_out), to_k(c), to_k(c));
+                    paint_path_preview(painter, xf, color, &bez);
                 }
-                paint_path_preview(painter, xf, color, &bez);
             }
+            let mut overlay: Vec<PathEditAnchorPaint> = anchors
+                .iter()
+                .enumerate()
+                .map(|(i, (p, h))| {
+                    let pt = xf.w2s(*p);
+                    PathEditAnchorPaint {
+                        point: pt,
+                        handle_in: (h.handle_in.length_sq() > 0.0)
+                            .then(|| xf.w2s(*p + h.handle_in)),
+                        handle_out: (h.handle_out.length_sq() > 0.0)
+                            .then(|| xf.w2s(*p + h.handle_out)),
+                        selected: false,
+                        smooth_hint: h.handle_in.length_sq() > 0.0
+                            && h.handle_out.length_sq() > 0.0
+                            && (h.handle_in + h.handle_out).length_sq() < 1e-4,
+                        close_hint: i == 0 && style.close_first_anchor,
+                    }
+                })
+                .collect();
+            if let Some((a, h)) = placing {
+                let pt = xf.w2s(*a);
+                overlay.push(PathEditAnchorPaint {
+                    point: pt,
+                    handle_in: (h.handle_in.length_sq() > 0.0).then(|| xf.w2s(*a + h.handle_in)),
+                    handle_out: (h.handle_out.length_sq() > 0.0).then(|| xf.w2s(*a + h.handle_out)),
+                    selected: true,
+                    smooth_hint: false,
+                    close_hint: false,
+                });
+            }
+            paint_path_edit_anchors(painter, None, &overlay, style.overlay);
         }
     }
 }
 
 /// Capture and fit tolerances are screen-space, independent of board zoom.
-pub const FREEHAND_SAMPLE_SPACING_PX: f32 = 0.5;
-pub const FREEHAND_FIT_ERROR_PX: f32 = 0.5;
-pub(crate) fn append_freehand_endpoint(points: &mut Vec<Pos2>, end: Pos2) {
+pub const FREEHAND_SAMPLE_SPACING_PX: f32 = 1.75;
+pub const FREEHAND_FIT_ERROR_PX: f32 = 2.0;
+pub(crate) fn append_freehand_endpoint(points: &mut Vec<Pos2>, end: Pos2, zoom: f32) {
+    let min = FREEHAND_SAMPLE_SPACING_PX / zoom.max(f32::EPSILON);
+    if let Some(last) = points.last_mut() {
+        if (*last - end).length() < min {
+            *last = end;
+            return;
+        }
+    }
     if points.last().copied() != Some(end) {
         points.push(end);
     }
@@ -2232,37 +2308,78 @@ impl SlateApp {
         }
     }
 
-    pub(crate) fn bezier_anchor_release(&mut self, press: Pos2, world: Pos2) {
+    pub(crate) fn bezier_anchor_press(&mut self, press: Pos2) {
+        match &mut self.board_path_draft {
+            Some(BoardPathDraft::Bezier { placing, .. }) => {
+                *placing = Some((press, BezierHandles::default()));
+            }
+            _ => {
+                self.board_path_draft = Some(BoardPathDraft::Bezier {
+                    anchors: vec![],
+                    placing: Some((press, BezierHandles::default())),
+                });
+            }
+        }
+    }
+
+    pub(crate) fn bezier_anchor_release(&mut self, press: Pos2, world: Pos2, alt: bool) {
+        let zoom = self.tab().cam.z.max(f32::EPSILON);
+        let thresh_sq = (DRAFT_DRAG_THRESHOLD_PX / zoom).powi(2);
         let out = world - press;
-        let handle = if out.length_sq() > 4.0 {
-            out
+        let handles = if out.length_sq() > thresh_sq {
+            if alt {
+                BezierHandles {
+                    handle_out: out,
+                    handle_in: Vec2::ZERO,
+                }
+            } else {
+                BezierHandles {
+                    handle_out: out,
+                    handle_in: -out,
+                }
+            }
         } else {
-            Vec2::ZERO
+            BezierHandles::default()
         };
         match &mut self.board_path_draft {
             Some(BoardPathDraft::Bezier { anchors, placing }) => {
-                anchors.push((press, handle));
+                anchors.push((press, handles));
                 *placing = None;
             }
             _ => {
                 self.board_path_draft = Some(BoardPathDraft::Bezier {
-                    anchors: vec![(press, handle)],
+                    anchors: vec![(press, handles)],
                     placing: None,
                 });
             }
         }
     }
 
-    pub(crate) fn bezier_anchor_move(&mut self, press: Pos2, world: Pos2) {
+    pub(crate) fn bezier_anchor_move(&mut self, press: Pos2, world: Pos2, alt: bool) {
         let out = world - press;
+        let handle_in = if alt {
+            self.board_path_draft
+                .as_ref()
+                .and_then(|d| match d {
+                    BoardPathDraft::Bezier { placing, .. } => placing.map(|(_, h)| h.handle_in),
+                    _ => None,
+                })
+                .unwrap_or(Vec2::ZERO)
+        } else {
+            -out
+        };
+        let handles = BezierHandles {
+            handle_out: out,
+            handle_in,
+        };
         match &mut self.board_path_draft {
             Some(BoardPathDraft::Bezier { placing, .. }) => {
-                *placing = Some((press, out));
+                *placing = Some((press, handles));
             }
             _ => {
                 self.board_path_draft = Some(BoardPathDraft::Bezier {
                     anchors: vec![],
-                    placing: Some((press, out)),
+                    placing: Some((press, handles)),
                 });
             }
         }
@@ -2272,9 +2389,11 @@ impl SlateApp {
         if points.len() < 2 {
             return;
         }
-        let tol = FREEHAND_FIT_ERROR_PX / self.tab().cam.z.max(f32::EPSILON);
+        let zoom = self.tab().cam.z.max(f32::EPSILON);
+        let tol = FREEHAND_FIT_ERROR_PX / zoom;
+        let spacing = FREEHAND_SAMPLE_SPACING_PX / zoom;
         let flat: Vec<[f32; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
-        let bez = vector_ink::fit_polyline(&flat, tol);
+        let bez = vector_ink::fit_polyline_spaced(&flat, tol, spacing);
         let (rect, data) = bezpath_to_path_data(&bez, false);
         if data.is_empty() {
             return;
@@ -2348,6 +2467,56 @@ mod tests {
         );
     }
 
+    fn min_dist_to_polyline(p: Pos2, flat: &[[f32; 2]]) -> f32 {
+        let mut best = f32::MAX;
+        for w in flat.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let ab = [b[0] - a[0], b[1] - a[1]];
+            let len_sq = ab[0] * ab[0] + ab[1] * ab[1];
+            let t = if len_sq < 1e-8 {
+                0.0
+            } else {
+                ((p.x - a[0]) * ab[0] + (p.y - a[1]) * ab[1]) / len_sq
+            }
+            .clamp(0.0, 1.0);
+            let q = [a[0] + t * ab[0], a[1] + t * ab[1]];
+            let dx = p.x - q[0];
+            let dy = p.y - q[1];
+            best = best.min((dx * dx + dy * dy).sqrt());
+        }
+        best
+    }
+
+    #[test]
+    fn arc_through_mid_on_both_sides_of_chord() {
+        let start = Pos2::new(0.0, 0.0);
+        let end = Pos2::new(100.0, 0.0);
+        for y in [40.0_f32, -40.0, 4.0, -4.0, 200.0] {
+            let mid = Pos2::new(50.0, y);
+            let bez = arc_through_three_points(start, mid, end);
+            let flat = flatten(&bez, 0.05);
+            let d = min_dist_to_polyline(mid, &flat);
+            assert!(d < 1.5, "through-point should lie on arc (y={y}, d={d})");
+            let first = flat.first().copied().unwrap();
+            let last = flat.last().copied().unwrap();
+            assert!((first[0] - start.x).abs() < 0.5);
+            assert!((last[0] - end.x).abs() < 0.5);
+        }
+    }
+
+    #[test]
+    fn arc_collinear_through_point_is_straight() {
+        let start = Pos2::new(0.0, 0.0);
+        let end = Pos2::new(100.0, 0.0);
+        let mid = Pos2::new(50.0, 0.0);
+        let bez = arc_through_three_points(start, mid, end);
+        assert_eq!(bez.elements().len(), 2);
+        let flat = flatten(&bez, 0.05);
+        for f in &flat {
+            assert!(f[1].abs() < 0.01);
+        }
+    }
+
     #[test]
     fn arc_approximates_circle() {
         let r = 50.0f32;
@@ -2361,6 +2530,49 @@ mod tests {
             let d = (f[0] * f[0] + f[1] * f[1]).sqrt();
             assert!((d - r).abs() < 2.0, "radius error {d}");
         }
+    }
+
+    #[test]
+    fn bezier_drag_threshold_is_screen_px() {
+        for zoom in [0.25_f32, 1.0, 4.0, 16.0] {
+            let thresh = DRAFT_DRAG_THRESHOLD_PX / zoom;
+            let below = Vec2::new(thresh * 0.99, 0.0);
+            let above = Vec2::new(thresh * 1.01, 0.0);
+            assert!(below.length_sq() <= thresh.powi(2));
+            assert!(above.length_sq() > thresh.powi(2));
+        }
+    }
+
+    #[test]
+    fn bezier_symmetric_and_corner_handles() {
+        let a = Pos2::new(0.0, 0.0);
+        let b = Pos2::new(100.0, 0.0);
+        let out = Vec2::new(20.0, 30.0);
+        let smooth = BezierHandles {
+            handle_out: out,
+            handle_in: -out,
+        };
+        let corner = BezierHandles {
+            handle_out: out,
+            handle_in: Vec2::ZERO,
+        };
+        let bez = bezier_anchors_to_bezpath(&[(a, smooth), (b, corner)]);
+        assert!(bez.elements().len() >= 2);
+        assert!(matches!(
+            bez.elements().last(),
+            Some(PathEl::CurveTo(_, _, _))
+        ));
+    }
+
+    #[test]
+    fn bezier_rubber_band_needs_one_anchor_and_cursor() {
+        let anchors = vec![(Pos2::ZERO, BezierHandles::default())];
+        let mut bez = BezPath::new();
+        let last = anchors[0].0;
+        let c = Pos2::new(40.0, 10.0);
+        bez.move_to(to_k(last));
+        bez.curve_to(to_k(last), to_k(c), to_k(c));
+        assert!(bez.elements().len() >= 2);
     }
 
     #[test]
