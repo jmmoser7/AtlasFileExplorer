@@ -160,6 +160,7 @@ pub(crate) fn run_outline(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_cap(
     out: &mut Vec<Station>,
     pos: [f32; 2],
@@ -218,6 +219,7 @@ fn push_cap(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_join(
     out: &mut Vec<Station>,
     pos: [f32; 2],

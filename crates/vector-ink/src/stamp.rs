@@ -47,7 +47,7 @@ const MAX_PIXELS: f32 = 4_000_000.0;
 /// every brush surface uses: the cursor tip, the live preview, the
 /// committed stamp, and the HTML export.
 pub fn tip_coverage(dist: f32, radius: f32, softness: f32) -> f32 {
-    if !(radius > 0.0) || dist >= radius {
+    if radius <= 0.0 || radius.is_nan() || dist >= radius {
         return 0.0;
     }
     let softness = softness.clamp(0.0, 1.0);
@@ -94,7 +94,7 @@ pub fn stamp_tipped(contours: &[Vec<TipPoint>], pixel: f32) -> Option<StampImage
         max_x = max_x.max(p.pos[0] + r);
         max_y = max_y.max(p.pos[1] + r);
     }
-    if !(reach > 0.0) || !min_x.is_finite() {
+    if reach <= 0.0 || reach.is_nan() || !min_x.is_finite() {
         return None;
     }
     let world_w = max_x - min_x;
@@ -136,7 +136,7 @@ pub fn stamp_segment(img: &mut StampImage, a: TipPoint, b: TipPoint) {
     let ra = a.tip.diameter.max(0.0) * 0.5 / px;
     let rb = b.tip.diameter.max(0.0) * 0.5 / px;
     let reach = ra.max(rb);
-    if !(reach > 0.0) {
+    if reach <= 0.0 || reach.is_nan() {
         return;
     }
     let abx = pb[0] - pa[0];
@@ -596,7 +596,7 @@ mod tests {
         let pts = vec![[0.0, 0.0], [0.0, 40.0], [40.0, 40.0]];
         let radius = 5.0;
         let img = stamp_contours(
-            &[pts.clone()],
+            std::slice::from_ref(&pts),
             StampStyle {
                 diameter: radius * 2.0,
                 softness: 0.85,
