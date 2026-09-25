@@ -116,6 +116,11 @@ impl AgentSources {
     pub fn outputs(&self, dir: &Path) -> Option<std::sync::Arc<crate::outputs::LinkOutputs>> {
         self.outputs.get(dir).cloned()
     }
+    /// The text of a `place.json` the link's worker found. It is offered
+    /// again on later reads until the file is removed.
+    pub fn take_place(&mut self, dir: &Path) -> Option<String> {
+        self.links.get_mut(dir)?.take_place()
+    }
     pub fn send(&mut self, dir: &Path, request: &AgentRequest) -> std::io::Result<()> {
         self.links
             .entry(dir.into())
@@ -161,6 +166,7 @@ pub struct AgentLink {
     /// previous run must not end fast reads.
     awaited: Option<String>,
     outputs: std::sync::Arc<std::sync::Mutex<Option<crate::outputs::LinkOutputs>>>,
+    place: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     /// Roots the worker has accepted.
     roots: Option<Vec<PathBuf>>,
 }
@@ -176,6 +182,8 @@ impl AgentLink {
         let result = latest.clone();
         let outputs = std::sync::Arc::new(std::sync::Mutex::new(None));
         let outputs_out = outputs.clone();
+        let place = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let place_out = place.clone();
         std::thread::spawn(move || {
             let mut link = FileAgentLink::new();
             // Snapshot files only when completion or the artifact list can have
@@ -212,6 +220,11 @@ impl AgentLink {
                             })
                     }
                     LinkWork::Read(path) => {
+                        if let Some(raw) = path.parent().and_then(read_place_request) {
+                            if let Ok(mut value) = place_out.lock() {
+                                *value = Some(raw);
+                            }
+                        }
                         let session = link.tick_read_session_file(&path);
                         let mut copied = false;
                         if let (Some(s), Some(dir)) = (&session, path.parent()) {
@@ -258,8 +271,12 @@ impl AgentLink {
             streaming: false,
             awaited: None,
             outputs,
+            place,
             roots: None,
         }
+    }
+    pub fn take_place(&mut self) -> Option<String> {
+        self.place.try_lock().ok()?.take()
     }
     pub fn set_roots(&mut self, roots: Vec<PathBuf>) {
         if self.roots.as_ref() == Some(&roots) {
@@ -442,6 +459,16 @@ impl FileAgentLink {
     }
 }
 
+/// An agent's request to place something on the board, read on the link's
+/// worker. A cloud placeholder is never read.
+fn read_place_request(dir: &Path) -> Option<String> {
+    let request = dir.join("place.json");
+    if !request.is_file() || atlas_core::cloud::is_dehydrated(&request) {
+        return None;
+    }
+    std::fs::read_to_string(request).ok()
+}
+
 pub fn agent_dir(ai_workspace: &Path, session: &str) -> PathBuf {
     ai_workspace.join(LINK_DIR).join("agent").join(session)
 }
@@ -554,6 +581,26 @@ pub fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Resul
     std::fs::rename(tmp, path)
 }
 
+/// Cache a background reload in the link folder by [`reloaded`]: the file is
+/// rewritten only when the provider added messages, so its watchers see no
+/// change otherwise. Returns what the conversation now shows. Worker only.
+pub fn store_reloaded(dir: &Path, fetched: AgentSession) -> Result<AgentSession, String> {
+    let path = dir.join("session.json");
+    let shown = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<AgentSession>(&bytes).ok());
+    let next = match shown {
+        Some(shown) => match reloaded(&shown, fetched) {
+            Some(next) => next,
+            None => return Ok(shown),
+        },
+        None => fetched,
+    };
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    atomic_write_json(&path, &next).map_err(|e| e.to_string())?;
+    Ok(next)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -570,6 +617,54 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_reload_rewrites_the_cached_session_only_when_it_adds_messages() {
+        let dir = temp_workspace("store_reloaded");
+        let turn = |role: &str, text: &str, at| AgentTurn {
+            role: role.into(),
+            text: text.into(),
+            at,
+        };
+        let state = |turns: Vec<AgentTurn>| AgentSession {
+            approval: None,
+            conversation: "c".into(),
+            artifacts: Vec::new(),
+            status: AgentStatus::Idle,
+            provider: "cursor".into(),
+            turns,
+            updated_at: 0,
+            bundle: Default::default(),
+            request: "r1".into(),
+        };
+        let shown = state(vec![turn("user", "q0", 4), turn("assistant", "a0", 4)]);
+        let path = dir.join("session.json");
+        atomic_write_json(&path, &shown).unwrap();
+        let old = std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+
+        let same = state(vec![turn("user", "q0", 0), turn("assistant", "a0", 0)]);
+        assert_eq!(store_reloaded(&dir, same).unwrap(), shown);
+        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), old);
+
+        let more = state(vec![
+            turn("user", "q0", 0),
+            turn("assistant", "a0", 0),
+            turn("user", "q1", 0),
+            turn("assistant", "a1", 0),
+        ]);
+        let next = store_reloaded(&dir, more).unwrap();
+        assert_eq!(next.turns.len(), 4);
+        assert_eq!(next.turns[0].at, 4, "Slate's timestamps stay");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(serde_json::from_str::<AgentSession>(&text).unwrap(), next);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn context() -> AgentContext {
@@ -620,6 +715,7 @@ mod tests {
             streaming: false,
             awaited: None,
             outputs: Default::default(),
+            place: Default::default(),
             roots: None,
         };
         let path = Path::new("unused-session.json");

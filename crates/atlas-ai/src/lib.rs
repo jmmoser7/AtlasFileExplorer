@@ -30,6 +30,7 @@ pub mod deliverables;
 pub mod feedback;
 pub mod launch;
 pub mod outputs;
+pub mod projects;
 pub mod runtime;
 pub mod schedule;
 pub mod sidecar;

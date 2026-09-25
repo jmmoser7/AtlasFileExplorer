@@ -120,9 +120,71 @@ impl GeneratorView {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Looks for an agent's `place.json` made on this thread.
+    pub(crate) static LINK_PROBES_ON_THIS_THREAD: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+/// The visible crop or paint composite the once-a-second context publish
+/// shows for a wired picture. Made off the frame loop, then reused while the
+/// picture is unchanged; a send still clips fresh (`agent_input_snapshot`).
+#[derive(Default)]
+struct PublishClips {
+    /// Content key per picture node, valid for one scene revision.
+    keys: HashMap<NodeId, ((u64, u64), u64)>,
+    /// `None` when no clip can be made; the source then stands, as at send.
+    ready: HashMap<u64, Option<PathBuf>>,
+    pending: HashSet<u64>,
+    done: Option<(Sender<MadeClip>, Receiver<MadeClip>)>,
+}
+
+/// A publish clip's content key and the file made for it.
+type MadeClip = (u64, Option<PathBuf>);
+
+impl PublishClips {
+    const KEEP: usize = 256;
+
+    fn receive(&mut self) {
+        let Some((_, rx)) = &self.done else {
+            return;
+        };
+        while let Ok((key, clip)) = rx.try_recv() {
+            self.pending.remove(&key);
+            if self.ready.len() >= Self::KEEP {
+                self.ready.clear();
+            }
+            self.ready.insert(key, clip);
+        }
+    }
+
+    fn key(&mut self, node: &Node, img: &slate_doc::scene::ImageNode, revision: (u64, u64)) -> u64 {
+        use std::hash::{Hash, Hasher};
+        if let Some((at, key)) = self.keys.get(&node.id) {
+            if *at == revision {
+                return *key;
+            }
+        }
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        node.id.hash(&mut hash);
+        serde_json::to_string(img)
+            .unwrap_or_default()
+            .hash(&mut hash);
+        let key = hash.finish();
+        self.keys.insert(node.id, (revision, key));
+        key
+    }
+
+    fn sender(&mut self) -> Sender<MadeClip> {
+        self.done.get_or_insert_with(unbounded).0.clone()
+    }
+}
+
 #[derive(Default)]
 pub struct AgentRuntime {
     sources: atlas_ai::agent::AgentSources,
+    publish_clips: std::cell::RefCell<PublishClips>,
     project_picker: Option<NodeId>,
     catalog_error: Option<String>,
     connection_rx: Option<Receiver<(NodeId, String, Result<AgentSession, String>)>>,
@@ -3709,6 +3771,10 @@ impl SlateApp {
         self.patch_nodes(&[id], |node| bind_program(node, &program, &binding));
 
         self.agents.project_picker = atlas_ai::runtime::linear_provider(provider).then_some(id);
+        if self.agents.project_picker.is_some() && self.agents.recents_rx.is_none() {
+            // Rediscover for this workbook; the last list shows meanwhile.
+            self.agents.recents_started = false;
+        }
         self.agents.sessions.remove(&id);
         self.agents.local_turns.remove(&id);
         self.agents.awaiting.remove(&id);
@@ -4449,6 +4515,88 @@ impl SlateApp {
         &self,
         id: NodeId,
     ) -> Result<atlas_ai::agent::InputSnapshot, String> {
+        let mut inputs = self.agent_input_refs(id)?;
+        self.clip_agent_images(&mut inputs);
+        Ok(inputs)
+    }
+
+    /// The context publish's snapshot, with each wired picture's clip made
+    /// off the frame loop. `None` while one is still being made: the last
+    /// published context stays rather than naming a picture's hidden part.
+    fn published_agent_inputs(
+        &self,
+        id: NodeId,
+    ) -> Option<Result<atlas_ai::agent::InputSnapshot, String>> {
+        let mut inputs = match self.agent_input_refs(id) {
+            Ok(inputs) => inputs,
+            Err(error) => return Some(Err(error)),
+        };
+        let revision = (self.scene_gen, self.doc().scene.scene_gen());
+        let mut clips = self.agents.publish_clips.borrow_mut();
+        clips.receive();
+        let mut waiting = false;
+        for item in inputs.context.iter_mut().chain(inputs.wired.iter_mut()) {
+            let Some(node) = self.doc().scene.node(NodeId(item.node)) else {
+                continue;
+            };
+            let NodeKind::Image(img) = &node.kind else {
+                continue;
+            };
+            let painted = img
+                .paint_layers
+                .iter()
+                .any(|layer| layer.visible && !layer.nodes.is_empty());
+            if !painted && img.crop.is_full() {
+                continue;
+            }
+            let Some(source) = self.doc().item(img.item).map(|i| i.path.clone()) else {
+                continue;
+            };
+            let key = clips.key(node, img, revision);
+            match clips.ready.get(&key) {
+                Some(Some(clip)) => {
+                    let clip = clip.to_string_lossy().into_owned();
+                    for slot in item.images.iter_mut().chain(item.depth.as_mut()) {
+                        if std::path::Path::new(&*slot) == source {
+                            *slot = clip.clone();
+                        }
+                    }
+                }
+                Some(None) => {}
+                None => {
+                    waiting = true;
+                    if !clips.pending.insert(key) {
+                        continue;
+                    }
+                    let tx = clips.sender();
+                    if painted {
+                        let doc = self.doc().clone();
+                        let node = node.clone();
+                        std::thread::spawn(move || {
+                            let clip = match &node.kind {
+                                NodeKind::Image(img) => {
+                                    super::image_composite::agent_wired_image_file(&doc, &node, img)
+                                }
+                                _ => None,
+                            };
+                            let _ = tx.send((key, clip));
+                        });
+                    } else {
+                        let crop = img.crop;
+                        std::thread::spawn(move || {
+                            let _ =
+                                tx.send((key, super::imagefx::visible_crop_file(&source, crop)));
+                        });
+                    }
+                }
+            }
+        }
+        (!waiting).then_some(Ok(inputs))
+    }
+
+    /// Wired and context inputs as board references, before any picture is
+    /// clipped.
+    fn agent_input_refs(&self, id: NodeId) -> Result<atlas_ai::agent::InputSnapshot, String> {
         let mut outputs = std::collections::BTreeMap::new();
         for node in &self.doc().scene.nodes {
             if slate_doc::agent_chat::is_agent_node(node) {
@@ -4530,7 +4678,6 @@ impl SlateApp {
             &[],
             &outputs,
         )?;
-        self.clip_agent_images(&mut inputs);
         // A prompt being typed steers before the edit commits.
         if let Some((editing, text)) = &self.text_edit {
             for item in &mut inputs.wired {
@@ -5418,8 +5565,36 @@ impl SlateApp {
         }
         drop(front_span);
         let ws = self.ai.config.workspace_dir.clone().unwrap_or_default();
+        self.pump_agent_sessions(ctx, &ws);
+        let tail_span = atlas_core::session_log::span("slate.agents.tail");
+        self.pump_agent_awaits(ctx, &ws);
+        self.pump_comfy_queue();
+        self.pump_live_generators();
+        if !self.agents.live_settle.is_empty() {
+            ctx.request_repaint_after(LIVE_TYPING_SETTLE);
+        }
+        self.pump_generation_previews(ctx);
+        drop(tail_span);
 
-        let sessions_span = atlas_core::session_log::span("slate.agents.sessions");
+        let _stage_span = atlas_core::session_log::span("slate.agents.stage");
+        let proposals = self.agents.stage.poll(&ws);
+        if !proposals.is_empty() {
+            for proposal in proposals {
+                if let Some(existing) = self.agents.pending.iter_mut().find(|p| p.id == proposal.id)
+                {
+                    *existing = proposal;
+                } else {
+                    self.agents.pending.push(proposal);
+                }
+            }
+            ctx.request_repaint();
+        }
+    }
+
+    /// Each card's linked session and published context, once a frame.
+    pub(crate) fn pump_agent_sessions(&mut self, ctx: &egui::Context, ws: &std::path::Path) {
+        let _sessions_span = atlas_core::session_log::span("slate.agents.sessions");
+        let ws = ws.to_path_buf();
         let portals: Vec<(NodeId, Option<slate_doc::scene::AgentPortalRef>)> = self
             .doc()
             .scene
@@ -5479,22 +5654,28 @@ impl SlateApp {
                 .unwrap_or_else(|| atlas_ai::agent::agent_dir(&ws, &agent.session));
             live_dirs.insert(dir.clone());
             if !self.agent_has_child(id) {
-                self.consume_atlas_place(id, &dir);
+                if let Some(raw) = self.agents.sources.take_place(&dir) {
+                    self.place_atlas_request(id, &dir, &raw);
+                }
                 self.agent_output_roots(id, &dir);
             }
             let context = if publish && !ws.as_os_str().is_empty() && published.insert(dir.clone())
             {
                 let mut context =
                     self.agent_context_for(&agent.session, &agent.provider, agent.context);
-                if let Ok(inputs) = self.agent_input_snapshot(id) {
-                    context.selection = inputs
-                        .context
-                        .iter()
-                        .map(|item| format!("node:{}", item.node))
-                        .collect();
-                    context.board_summary = serde_json::to_string(&inputs).unwrap_or_default();
+                match self.published_agent_inputs(id) {
+                    Some(Ok(inputs)) => {
+                        context.selection = inputs
+                            .context
+                            .iter()
+                            .map(|item| format!("node:{}", item.node))
+                            .collect();
+                        context.board_summary = serde_json::to_string(&inputs).unwrap_or_default();
+                        Some(context)
+                    }
+                    Some(Err(_)) => Some(context),
+                    None => None,
                 }
-                Some(context)
             } else {
                 None
             };
@@ -5505,6 +5686,17 @@ impl SlateApp {
                     .get(&id)
                     .is_some_and(|previous| std::sync::Arc::ptr_eq(previous, &session))
                 {
+                    continue;
+                }
+                // A sidecar rewrites unchanged state (at boot, on a repeated
+                // error); there is nothing new to lay out.
+                if self
+                    .agents
+                    .sessions
+                    .get(&id)
+                    .is_some_and(|previous| **previous == *session)
+                {
+                    self.agents.sessions.insert(id, session);
                     continue;
                 }
                 if let Some(local) = self.agents.local_turns.get(&id).cloned() {
@@ -5577,30 +5769,6 @@ impl SlateApp {
         }
         self.agents.sources.retain(&live_dirs);
         self.pump_agent_text_outputs();
-        drop(sessions_span);
-        let tail_span = atlas_core::session_log::span("slate.agents.tail");
-        self.pump_agent_awaits(ctx, &ws);
-        self.pump_comfy_queue();
-        self.pump_live_generators();
-        if !self.agents.live_settle.is_empty() {
-            ctx.request_repaint_after(LIVE_TYPING_SETTLE);
-        }
-        self.pump_generation_previews(ctx);
-        drop(tail_span);
-
-        let _stage_span = atlas_core::session_log::span("slate.agents.stage");
-        let proposals = self.agents.stage.poll(&ws);
-        if !proposals.is_empty() {
-            for proposal in proposals {
-                if let Some(existing) = self.agents.pending.iter_mut().find(|p| p.id == proposal.id)
-                {
-                    *existing = proposal;
-                } else {
-                    self.agents.pending.push(proposal);
-                }
-            }
-            ctx.request_repaint();
-        }
     }
 
     fn agent_context_for(
@@ -5834,13 +6002,30 @@ impl SlateApp {
                     text: req.prompt.clone(),
                     at: req.at,
                 };
-                let turns = self.agents.local_turns.entry(portal).or_insert_with(|| {
-                    self.agents
+                if !self.agents.local_turns.contains_key(&portal) {
+                    // A linear provider's request carries no history, and a new
+                    // tail has no session yet: the stream the composer shows is
+                    // what the whole train keeps displaying.
+                    let same_stream = self
+                        .doc()
+                        .scene
+                        .node(composer)
+                        .and_then(slate_doc::agent_chat::agent)
+                        .is_some_and(|a| a.session == session);
+                    let seed = self
+                        .agents
                         .sessions
                         .get(&portal)
                         .map(|s| s.turns.clone())
-                        .unwrap_or_else(|| req.history.clone())
-                });
+                        .or_else(|| {
+                            same_stream
+                                .then(|| self.agent_all_turns(composer))
+                                .filter(|t| !t.is_empty())
+                        })
+                        .unwrap_or_else(|| req.history.clone());
+                    self.agents.local_turns.insert(portal, seed);
+                }
+                let turns = self.agents.local_turns.get_mut(&portal).unwrap();
                 if turns
                     .last()
                     .is_none_or(|t| t.role != "user" || t.text != turn.text)
@@ -6310,23 +6495,37 @@ impl SlateApp {
 
     /// `place.json` beside `session.json` asks for a File Atlas portal.
     /// The folder path is relative to the AI workspace unless it is absolute.
+    /// Read and act on `place.json` on the calling thread. The frame loop
+    /// takes requests from the link worker instead.
+    #[cfg(test)]
     pub(crate) fn consume_atlas_place(
         &mut self,
         portal: NodeId,
         link_dir: &std::path::Path,
     ) -> bool {
+        let request_path = link_dir.join("place.json");
+        LINK_PROBES_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
+        if !request_path.is_file() || atlas_core::cloud::is_dehydrated(&request_path) {
+            return false;
+        }
+        let Ok(raw) = std::fs::read_to_string(&request_path) else {
+            return false;
+        };
+        self.place_atlas_request(portal, link_dir, &raw)
+    }
+
+    /// Act on the text of an agent's `place.json`, then remove the file.
+    fn place_atlas_request(
+        &mut self,
+        portal: NodeId,
+        link_dir: &std::path::Path,
+        raw: &str,
+    ) -> bool {
         if self.refuse_read_only_edit() {
             return false;
         }
         let request_path = link_dir.join("place.json");
-        if !request_path.is_file() || atlas_core::cloud::is_dehydrated(&request_path) {
-            return false;
-        }
-        let raw = match std::fs::read_to_string(&request_path) {
-            Ok(text) => text,
-            Err(_) => return false,
-        };
-        let value: serde_json::Value = match serde_json::from_str(&raw) {
+        let value: serde_json::Value = match serde_json::from_str(raw) {
             Ok(value) => value,
             Err(_) => return false,
         };
@@ -6910,19 +7109,23 @@ impl SlateApp {
             .and_then(|n| n.to_str())
             .unwrap_or("Project")
             .to_string();
-        let mut recents = RecentList::load(AGENT_RECENTS_KEY);
-        recents.record(path.clone(), title.clone());
-        recents.save(AGENT_RECENTS_KEY);
-        self.agents.recents.retain(|e| !paths_same(&e.path, &path));
-        self.agents.recents.insert(
-            0,
-            RecentEntry {
-                path: path.clone(),
-                title,
-                opened_at: atlas_ai::context::now_secs(),
-                cover: None,
-            },
-        );
+        if !cfg!(test) {
+            let mut recents = RecentList::load(AGENT_RECENTS_KEY);
+            recents.record(path.clone(), title.clone());
+            recents.save(AGENT_RECENTS_KEY);
+        }
+        let used = RecentEntry {
+            path: path.clone(),
+            title,
+            opened_at: atlas_ai::context::now_secs(),
+            cover: None,
+        };
+        for list in std::iter::once(&mut self.agents.recents)
+            .chain(self.agents.provider_recents.values_mut())
+        {
+            list.retain(|e| !paths_same(&e.path, &path));
+            list.insert(0, used.clone());
+        }
         self.agents.pending_chat_pick = Some(portal);
         self.agent_focus(portal);
         #[cfg(not(test))]
@@ -6956,16 +7159,39 @@ impl SlateApp {
             return;
         }
         self.agents.recents_started = true;
+        let workspace = self.ai.config.workspace_dir.clone();
+        let workbook: Vec<PathBuf> = self
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter(|n| slate_doc::agent_chat::agent(n).is_some())
+            .filter_map(|n| self.agent_folder_for(n.id))
+            .collect();
+        let used = self.agents.recents.clone();
         let (tx, rx) = unbounded();
         self.agents.recents_rx = Some(rx);
         std::thread::spawn(move || {
+            let mut slate = used;
+            if !cfg!(test) {
+                slate.extend(RecentList::load(AGENT_RECENTS_KEY).entries);
+            }
+            if let Some(ws) = &workspace {
+                slate.extend(atlas_ai::projects::session_projects(ws));
+            }
+            slate.extend(
+                workbook
+                    .into_iter()
+                    .map(|p| atlas_ai::projects::entry(p, 0)),
+            );
             let list = ["codex", "cursor"]
                 .into_iter()
                 .map(|provider| {
-                    (
-                        provider.to_string(),
+                    let merged = atlas_ai::projects::merge([
+                        slate.clone(),
                         collect_agent_project_recents(provider),
-                    )
+                    ]);
+                    (provider.to_string(), merged)
                 })
                 .collect();
             let _ = tx.send(list);
@@ -8485,7 +8711,7 @@ impl SlateApp {
         });
         if let Some(channel) = selected {
             #[cfg(not(test))]
-            self.load_agent_connection(portal, channel);
+            self.load_agent_connection(portal, channel, false);
             #[cfg(test)]
             let _ = channel;
         } else {
@@ -8501,7 +8727,10 @@ impl SlateApp {
         }
     }
 
-    fn load_agent_connection(&mut self, portal: NodeId, channel: String) {
+    /// Read the provider's copy of the conversation off-thread. A background
+    /// load refreshes a conversation already on the board and may only add
+    /// to it (`atlas_ai::agent::reloaded`).
+    fn load_agent_connection(&mut self, portal: NodeId, channel: String, background: bool) {
         let Some((session, provider)) = self.agent_session_for(portal) else {
             return;
         };
@@ -8522,7 +8751,7 @@ impl SlateApp {
         let (tx, rx) = unbounded();
         self.agents.connection_rx = Some(rx);
         self.agents.connection_pending = Some(portal);
-        self.agents.connection_background = false;
+        self.agents.connection_background = background;
         self.agents.connection_tick = Some(Instant::now());
         #[cfg(test)]
         {
@@ -8550,6 +8779,9 @@ impl SlateApp {
                     } else if provider == "cursor" {
                         std::fs::write(dir.join("cursor-agent.txt"), &channel)
                             .map_err(|e| e.to_string())?;
+                    }
+                    if background {
+                        return atlas_ai::agent::store_reloaded(&dir, state);
                     }
                     atlas_ai::agent::atomic_write_json(&dir.join("session.json"), &state)
                         .map_err(|e| e.to_string())?;
@@ -8759,8 +8991,7 @@ impl SlateApp {
                 return;
             }
         }
-        self.load_agent_connection(id, channel);
-        self.agents.connection_background = true;
+        self.load_agent_connection(id, channel, true);
     }
 
     fn pump_agent_connection(&mut self, ctx: &egui::Context) {
@@ -8780,6 +9011,20 @@ impl SlateApp {
             return;
         }
         let failure = result.as_ref().err().cloned();
+        let result = match (result, self.agents.sessions.get(&id).cloned()) {
+            (Ok(state), Some(old)) if background => {
+                let mut shown = (*old).clone();
+                shown.turns = self.agent_all_turns(id);
+                match atlas_ai::agent::reloaded(&shown, state) {
+                    Some(next) => Ok(next),
+                    None => {
+                        self.settle_agent_connecting(id, &session, None);
+                        return;
+                    }
+                }
+            }
+            (result, _) => result,
+        };
         match result {
             Ok(state) => {
                 self.agents.bindings.insert(id, session.clone());
@@ -9188,8 +9433,11 @@ fn chat_key(path: &std::path::Path) -> PathBuf {
     }
 }
 
+/// The provider's own recent projects. Tests never ask a real provider.
 fn collect_agent_project_recents(provider: &str) -> Vec<RecentEntry> {
-    let mut out: Vec<RecentEntry> = Vec::new();
+    if cfg!(test) {
+        return Vec::new();
+    }
     let projects = if provider == "codex" {
         atlas_ai::runtime::codex_projects()
     } else {
@@ -9198,26 +9446,16 @@ fn collect_agent_project_recents(provider: &str) -> Vec<RecentEntry> {
             .map(|p| (String::new(), p))
             .collect()
     };
-    for (name, path) in projects {
-        if out.iter().any(|e| paths_same(&e.path, &path)) {
-            continue;
-        }
-        let title = if !name.is_empty() {
-            name
-        } else {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Project")
-                .to_string()
-        };
-        out.push(RecentEntry {
-            path,
-            title,
-            opened_at: 0,
-            cover: None,
-        });
-    }
-    out
+    projects
+        .into_iter()
+        .map(|(name, path)| {
+            let mut entry = atlas_ai::projects::entry(path, 0);
+            if !name.is_empty() {
+                entry.title = name;
+            }
+            entry
+        })
+        .collect()
 }
 
 fn paths_same(a: &std::path::Path, b: &std::path::Path) -> bool {
@@ -9450,6 +9688,92 @@ mod agent_await_tests {
         h.app.agents.output_epoch += 1;
         h.frame();
         assert!(h.app.doc().scene.node(id).unwrap().rect.h > short * 2.0);
+    }
+
+    /// A link folder whose conversation wrote outputs into `project`.
+    fn prior_link(ws: &std::path::Path, session: &str, project: &std::path::Path, at: u64) {
+        let link = atlas_ai::agent::agent_dir(ws, session);
+        std::fs::create_dir_all(&link).unwrap();
+        let out = project
+            .join("slate-outputs")
+            .join("untitled-board")
+            .join("2026-09-24-cursor-abc123");
+        let record = link.join("output.json");
+        atlas_ai::agent::atomic_write_json(&record, &serde_json::json!({ "dir": out })).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(record)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(at))
+            .unwrap();
+    }
+
+    fn listed(h: &super::super::tests::Harness, provider: &str) -> Vec<PathBuf> {
+        h.app
+            .agents
+            .provider_recents
+            .get(provider)
+            .map(|list| list.iter().map(|e| e.path.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
+        paths_same(a, b)
+    }
+
+    #[test]
+    fn projects_the_agent_portal_used_before_are_offered_again() {
+        let mut h = super::super::tests::Harness::new("agent_projects_mru");
+        h.app.leave_home();
+        h.app.ensure_work_tab();
+        h.app.doc_mut().view.active_view = slate_doc::ViewKind::Board;
+        let ws = h.base.join("ai-ws");
+        let older = h.base.join("older-project");
+        let newer = h.base.join("newer-project");
+        let open = h.base.join("open-project");
+        let gone = h.base.join("deleted-project");
+        for dir in [&ws, &older, &newer, &open] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        prior_link(&ws, "agent-req-1-new", &newer, 1_790_000_300);
+        prior_link(&ws, "agent-req-1-gone", &gone, 1_790_000_400);
+        prior_link(&ws, "agent-req-1-dup", &older, 1_790_000_200);
+        prior_link(&ws, "agent-req-1-old", &older, 1_790_000_100);
+        h.app.ai.config.workspace_dir = Some(ws);
+        h.app.place_agent_portal_at(Pos2::ZERO);
+        let id = h.app.doc().scene.nodes[0].id;
+        h.app.set_agent_program(id, "cursor");
+        h.app.bind_portal_source(id, open.clone());
+        h.app.agents.project_picker = Some(id);
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            h.frame();
+            let done = h.app.agents.recents_started && h.app.agents.recents_rx.is_none();
+            if done && !listed(&h, "cursor").is_empty() {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "project discovery never finished"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        for provider in ["cursor", "codex"] {
+            let list = listed(&h, provider);
+            let at = |p: &std::path::Path| list.iter().position(|e| same_folder(e, p));
+            let (Some(n), Some(o), Some(w)) = (at(&newer), at(&older), at(&open)) else {
+                panic!("{provider} lists earlier agent projects: {list:?}");
+            };
+            assert!(n < o, "newest first for {provider}: {list:?}");
+            assert!(w < list.len());
+            assert!(at(&gone).is_none(), "a deleted folder is not offered");
+            assert_eq!(
+                list.iter().filter(|e| same_folder(e, &older)).count(),
+                1,
+                "one entry per folder"
+            );
+        }
     }
 
     #[test]

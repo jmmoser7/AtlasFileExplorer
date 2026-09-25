@@ -318,10 +318,7 @@ impl SlateApp {
         if live || self.agent_is_running(id) {
             return;
         }
-        self.load_agent_connection(id, channel);
-        if self.agents.connection_rx.is_some() {
-            self.agents.connection_background = true;
-        }
+        self.load_agent_connection(id, channel, true);
     }
 
     /// The card's saved conversation is the one its source last reported.
@@ -355,11 +352,10 @@ impl SlateApp {
             if let Some((session, _)) = self.agent_session_for(portal) {
                 self.agents.life.rejoined.insert(session);
             }
-            self.load_agent_connection(portal, channel);
+            self.load_agent_connection(portal, channel, true);
             if self.agents.connection_rx.is_none() {
                 return false;
             }
-            self.agents.connection_background = true;
         }
         self.agents.life.connecting.insert(portal);
         true
@@ -747,6 +743,525 @@ mod tests {
         });
         assert!(h.app.agent_failure_reason(tail).is_none());
         assert!(h.app.agents.life.sidecar_dirs.contains_key(&session));
+    }
+
+    /// A saved two-exchange Cursor conversation laid out as a train: two
+    /// exchange cards in pair mode, four message cards otherwise.
+    fn saved_train(
+        h: &mut Harness,
+        ws: &std::path::Path,
+        conversation: &str,
+        pair: bool,
+    ) -> Vec<NodeId> {
+        use slate_doc::agent_chat::Detail;
+        let first = cursor_chat(h, conversation);
+        let dir = h.app.agent_link_dir(first, ws).unwrap();
+        write_session(&dir, &history(conversation, 2));
+        let (detail, windows): (_, &[(usize, Option<usize>)]) = if pair {
+            (Detail::Pair, &[(0, Some(2)), (2, None)])
+        } else {
+            (
+                Detail::Summary,
+                &[(0, Some(1)), (1, Some(2)), (2, Some(3)), (3, None)],
+            )
+        };
+        let view = |n: &mut Node, parent, (start, end): (usize, Option<usize>)| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                let chat = &mut p.agent.as_mut().unwrap().chat;
+                chat.train = true;
+                chat.linear = true;
+                chat.parent = parent;
+                chat.start = start;
+                chat.end = end;
+                chat.detail = detail;
+            }
+        };
+        h.app.patch_nodes(&[first], |n| view(n, None, windows[0]));
+        let mut ids = vec![first];
+        for window in &windows[1..] {
+            let prev = *ids.last().unwrap();
+            let original = h.app.doc().scene.node(prev).unwrap().clone();
+            let mut next = h.app.doc_mut().scene.build_duplicate(&original, 420.0, 0.0);
+            view(&mut next, Some(prev), *window);
+            ids.push(h.app.add_nodes(vec![next])[0]);
+        }
+        ids
+    }
+
+    type CardView = (NodeId, String, [f32; 4], bool, bool, Vec<String>);
+
+    /// What a person sees of each card: detail, frame, and text.
+    fn card_views(h: &Harness) -> Vec<CardView> {
+        h.app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter_map(|n| {
+                let a = slate_doc::agent_chat::agent(n)?;
+                let text = h.app.visible_agent_turns(n.id);
+                Some((
+                    n.id,
+                    format!("{:?}", a.chat.detail),
+                    [n.rect.x, n.rect.y, n.rect.w, n.rect.h],
+                    n.hidden,
+                    a.chat.collapsed,
+                    text.into_iter()
+                        .map(|t| format!("{}: {}", t.role, t.text))
+                        .collect(),
+                ))
+            })
+            .collect()
+    }
+
+    /// Earlier cards are unchanged. The old tail hands its composer to the
+    /// new card (only a tail hosts one), so its height alone may differ.
+    fn assert_cards_kept(h: &Harness, before: &[CardView], old_tail: NodeId, when: &str) {
+        let now = card_views(h);
+        for card in before {
+            let mut kept = now.iter().find(|c| c.0 == card.0).cloned();
+            if let Some(k) = kept.as_mut().filter(|k| k.0 == old_tail) {
+                k.2[3] = card.2[3];
+            }
+            assert_eq!(kept.as_ref(), Some(card), "an earlier card changed {when}");
+        }
+    }
+
+    fn submit_keeps_earlier_cards(tag: &str, pair: bool) {
+        let (mut h, ws) = linked_board(tag);
+        let ids = saved_train(&mut h, &ws, tag, pair);
+        let dir = h.app.agent_link_dir(ids[0], &ws).unwrap();
+        let last = *ids.last().unwrap();
+        frames_until(&mut h, "the saved history", |h| shows(h, last, "answer 1"));
+        for _ in 0..10 {
+            h.frame();
+        }
+        let before = card_views(&h);
+        assert!(before.iter().all(|c| !c.5.is_empty()), "{before:#?}");
+
+        *h.app.agents.prompt_mut(last) = "question 2".into();
+        h.app.send_agent_prompt(last);
+        assert_cards_kept(&h, &before, last, "at submit");
+        let waiting = tail(&h);
+        assert_ne!(waiting, last, "the exchange lands on a new card");
+        let old_tail = |h: &Harness| card_views(h).into_iter().find(|c| c.0 == last);
+        // Losing the composer re-fits the old tail: an estimate, then paint's
+        // measurement on the next frame.
+        for _ in 0..3 {
+            h.frame();
+            assert_cards_kept(&h, &before, last, "while the old tail re-fits");
+        }
+        let handed_off = old_tail(&h);
+        let steady = |h: &Harness, when: &str| {
+            assert_cards_kept(h, &before, last, when);
+            assert_eq!(old_tail(h), handed_off, "the old tail changed {when}");
+        };
+        for i in 0..5 {
+            h.frame();
+            steady(&h, &format!("on frame {i} after submit"));
+        }
+        let new_cards: Vec<_> = card_views(&h)
+            .into_iter()
+            .filter(|c| before.iter().all(|b| b.0 != c.0))
+            .collect();
+        assert!(
+            new_cards
+                .iter()
+                .any(|c| c.5.contains(&"user: question 2".into())),
+            "{new_cards:#?}"
+        );
+
+        frames_until(&mut h, "the request", |_| request_id(&dir).is_some());
+        let mut answered = history(tag, 3);
+        answered.request = request_id(&dir).unwrap();
+        write_session(&dir, &answered);
+        frames_until(&mut h, "the reply", |h| {
+            steady(h, "while the reply arrives");
+            !h.app.agent_is_awaiting(waiting)
+        });
+        for i in 0..5 {
+            h.frame();
+            steady(&h, &format!("on frame {i} after the reply"));
+        }
+        assert!(shows(&h, waiting, "answer 2"));
+    }
+
+    #[test]
+    fn agent_life_submitting_in_pair_mode_keeps_earlier_cards() {
+        submit_keeps_earlier_cards("agent_life_submit_pair", true);
+    }
+
+    #[test]
+    fn agent_life_submitting_in_train_mode_keeps_earlier_cards() {
+        submit_keeps_earlier_cards("agent_life_submit_train", false);
+    }
+
+    fn history_rails(h: &Harness) -> Vec<(NodeId, NodeId)> {
+        slate_doc::agent_chat::history_rails(&h.app.doc().scene)
+            .into_iter()
+            .map(|r| (r.from, r.to))
+            .collect()
+    }
+
+    fn chat_views(h: &Harness) -> Vec<(NodeId, slate_doc::agent_chat::ChatView)> {
+        h.app
+            .doc()
+            .scene
+            .nodes
+            .iter()
+            .filter_map(|n| Some((n.id, slate_doc::agent_chat::agent(n)?.chat.clone())))
+            .collect()
+    }
+
+    #[test]
+    fn agent_life_switching_access_mid_train_keeps_every_card() {
+        let (mut h, ws) = linked_board("agent_life_access");
+        let ids = saved_train(&mut h, &ws, "conv-access", true);
+        let project = h.base.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let locator = project.to_string_lossy().into_owned();
+        h.app.patch_nodes(&ids, |n| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                p.source = Some(slate_doc::SourceUri {
+                    locator: locator.clone(),
+                });
+            }
+        });
+        let dir = h.app.agent_link_dir(ids[0], &ws).unwrap();
+        let last = *ids.last().unwrap();
+        frames_until(&mut h, "the saved history", |h| shows(h, last, "answer 1"));
+        let session = h.app.agent_session_for(last).unwrap().0;
+        h.app.agents.sidecar_booting.insert(session.clone());
+        h.app.agents.connection_tick = None;
+        h.app.agents.life.hold_loads = true;
+        h.app.agents.access_path = Some(h.base.join("access.json"));
+        h.app.board_sel = [last].into_iter().collect();
+        for _ in 0..10 {
+            h.frame();
+        }
+        assert!(
+            h.app.agents.life.loads.is_empty(),
+            "a running sidecar needs no reload"
+        );
+        let before = card_views(&h);
+        let chats = chat_views(&h);
+        let rails = history_rails(&h);
+        assert_eq!(rails.len(), ids.len() - 1);
+
+        assert!(h.app.dispatch(
+            &h.ctx,
+            atlas_commands::CommandId("portal.agent.full_access"),
+            None
+        ));
+        assert!(h.app.agent_full_access(&session));
+        frames_until(&mut h, "the provider reload", |h| {
+            !h.app.agents.life.loads.is_empty()
+        });
+        // The provider's own copy, as `--read` returns it: no Slate
+        // timestamps, and here only the first exchange.
+        let mut fetched = history("conv-access", 1);
+        for turn in &mut fetched.turns {
+            turn.at = 0;
+        }
+        let load = h.app.agents.life.loads.remove(0);
+        let cached = atlas_ai::agent::store_reloaded(&load.dir, fetched);
+        load.tx.send((load.portal, load.session, cached)).unwrap();
+        // Idle session files are read once a second; watch past two reads.
+        let until = Instant::now() + Duration::from_millis(2500);
+        while Instant::now() < until {
+            h.frame();
+            assert_eq!(card_views(&h), before, "a card changed after the reload");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(chat_views(&h), chats, "branch and view state");
+        assert_eq!(history_rails(&h), rails);
+        let text = std::fs::read_to_string(dir.join("session.json")).unwrap();
+        let cached: atlas_ai::agent::AgentSession = serde_json::from_str(&text).unwrap();
+        assert_eq!(cached.turns, history("conv-access", 2).turns);
+    }
+
+    #[test]
+    fn agent_life_an_identical_session_rewrite_does_not_refit_the_train() {
+        let (mut h, ws) = linked_board("agent_life_same_session");
+        let ids = saved_train(&mut h, &ws, "conv-same", true);
+        let dir = h.app.agent_link_dir(ids[0], &ws).unwrap();
+        let last = *ids.last().unwrap();
+        frames_until(&mut h, "the saved history", |h| shows(h, last, "answer 1"));
+        for _ in 0..10 {
+            h.frame();
+        }
+        let before = card_views(&h);
+        let epoch = h.app.agents.output_epoch;
+        let read = h.app.agents.sessions.get(&last).cloned().unwrap();
+        // The sidecar rewrites unchanged state at boot and on a repeated error.
+        write_session(&dir, &history("conv-same", 2));
+        frames_until(&mut h, "the reread", |h| {
+            !std::sync::Arc::ptr_eq(h.app.agents.sessions.get(&last).unwrap(), &read)
+        });
+        h.frame();
+        assert_eq!(h.app.agents.output_epoch, epoch, "nothing new to lay out");
+        assert_eq!(card_views(&h), before);
+    }
+
+    #[test]
+    fn agent_life_publishing_context_never_decodes_pictures_on_the_frame_loop() {
+        use slate_doc::scene::{ConnectorEnd, Crop, ImageNode, Side, WorldRect};
+        let decodes = || crate::app::imagefx::DECODES_ON_THIS_THREAD.with(|n| n.get());
+        let (mut h, ws) = linked_board("agent_life_publish_crop");
+        let card = cursor_chat(&mut h, "conv-crop");
+        let src = h.base.join("photo.png");
+        image::RgbaImage::from_pixel(64, 32, image::Rgba([90, 120, 150, 255]))
+            .save(&src)
+            .unwrap();
+        let item = h.app.add_paths(std::slice::from_ref(&src))[0];
+        let mut picture = h.app.doc_mut().scene.build_node(
+            WorldRect::new(-600.0, 0.0, 200.0, 100.0),
+            NodeKind::Image(ImageNode::new(item)),
+        );
+        let crop = |x| Crop {
+            x,
+            y: 0.0,
+            w: 0.5,
+            h: 1.0,
+        };
+        if let NodeKind::Image(img) = &mut picture.kind {
+            img.crop = crop(0.25);
+        }
+        let picture = h.app.add_nodes(vec![picture])[0];
+        let anchored = |node, side| ConnectorEnd::Anchored { node, side, t: 0.5 };
+        h.app
+            .add_connector(anchored(picture, Side::Right), anchored(card, Side::Left))
+            .unwrap();
+        let context = h
+            .app
+            .agent_link_dir(card, &ws)
+            .unwrap()
+            .join("context.json");
+        let published =
+            |crop: &str| std::fs::read_to_string(&context).is_ok_and(|t| t.contains(crop));
+        let first = "-0.2500-0.0000-0.5000-1.0000.png";
+        frames_until(&mut h, "the cropped context", |h| {
+            h.app.agents.context_tick = None;
+            published(first)
+        });
+        let clipped = std::fs::read_dir(std::env::temp_dir().join("slate-crop"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| {
+                let name = p.file_name().unwrap().to_string_lossy().into_owned();
+                name.ends_with(first) && std::fs::read_to_string(&context).unwrap().contains(&name)
+            })
+            .unwrap();
+        let old = std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&clipped)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+
+        let on_loop = decodes();
+        for _ in 0..3 {
+            h.app.agents.context_tick = None;
+            h.frame();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let when = std::fs::metadata(&clipped).unwrap().modified().unwrap();
+        assert_eq!(
+            when,
+            old,
+            "an unchanged picture is not encoded again ({} decodes on the frame loop)",
+            decodes() - on_loop
+        );
+
+        h.app.patch_nodes(&[picture], |n| {
+            if let NodeKind::Image(img) = &mut n.kind {
+                img.crop = crop(0.5);
+            }
+        });
+        frames_until(&mut h, "the new crop", |h| {
+            h.app.agents.context_tick = None;
+            published("-0.5000-0.0000-0.5000-1.0000.png")
+        });
+        assert_eq!(decodes(), on_loop, "publishing decoded on the frame loop");
+        let text = std::fs::read_to_string(&context).unwrap();
+        assert!(!text.contains("photo.png"), "the hidden part never leaves");
+    }
+
+    #[test]
+    fn agent_life_the_sessions_pass_never_probes_the_link_folder_on_the_frame_loop() {
+        let probes = || crate::app::board_agent::LINK_PROBES_ON_THIS_THREAD.with(|n| n.get());
+        let (mut h, ws) = linked_board("agent_life_link_probe");
+        let card = cursor_chat(&mut h, "conv-probe");
+        let dir = h.app.agent_link_dir(card, &ws).unwrap();
+        write_session(&dir, &history("conv-probe", 1));
+        frames_until(&mut h, "the saved history", |h| shows(h, card, "answer 0"));
+        let before = probes();
+        for _ in 0..20 {
+            h.frame();
+        }
+        assert_eq!(probes(), before, "a frame looked for place.json");
+
+        std::fs::create_dir_all(ws.join("photos")).unwrap();
+        std::fs::write(
+            dir.join("place.json"),
+            r#"{"id":"photos","kind":"file_atlas","path":"photos"}"#,
+        )
+        .unwrap();
+        let atlas = |h: &Harness| {
+            h.app.doc().scene.nodes.iter().any(|n| {
+                matches!(&n.kind,
+                    NodeKind::Portal(p) if p.kind == slate_doc::scene::PortalKind::FileAtlas)
+            })
+        };
+        frames_until(&mut h, "the placed portal", |h| atlas(h));
+        assert!(!dir.join("place.json").exists(), "the request is consumed");
+        assert_eq!(probes(), before, "the request was read on the frame loop");
+    }
+
+    /// A train of `cards` exchange cards over one saved `exchanges`-long
+    /// Cursor conversation, with a cropped picture wired to its tail.
+    fn long_train(
+        h: &mut Harness,
+        ws: &std::path::Path,
+        exchanges: usize,
+        cards: usize,
+    ) -> Vec<NodeId> {
+        use slate_doc::scene::{ConnectorEnd, Crop, ImageNode, Side, WorldRect};
+        let first = cursor_chat(h, "conv-long");
+        let dir = h.app.agent_link_dir(first, ws).unwrap();
+        write_session(&dir, &history("conv-long", exchanges));
+        let per = exchanges * 2 / cards;
+        let window = |i: usize| (i * per, (i + 1 < cards).then_some((i + 1) * per));
+        let view = |n: &mut Node, parent, (start, end): (usize, Option<usize>)| {
+            if let NodeKind::Portal(p) = &mut n.kind {
+                let chat = &mut p.agent.as_mut().unwrap().chat;
+                chat.train = true;
+                chat.linear = true;
+                chat.parent = parent;
+                chat.start = start;
+                chat.end = end;
+                chat.detail = slate_doc::agent_chat::Detail::Pair;
+            }
+        };
+        h.app.patch_nodes(&[first], |n| view(n, None, window(0)));
+        let mut ids = vec![first];
+        for i in 1..cards {
+            let prev = *ids.last().unwrap();
+            let original = h.app.doc().scene.node(prev).unwrap().clone();
+            let mut next = h.app.doc_mut().scene.build_duplicate(&original, 420.0, 0.0);
+            view(&mut next, Some(prev), window(i));
+            ids.push(h.app.add_nodes(vec![next])[0]);
+        }
+        // A camera-sized photo with detail, as a person wires one.
+        let src = h.base.join("photo.jpg");
+        image::RgbImage::from_fn(4032, 3024, |x, y| {
+            let v = x.wrapping_mul(2_654_435_761) ^ y.wrapping_mul(40_503);
+            image::Rgb([(x ^ y) as u8, (v >> 8) as u8, (x / 7 + y / 5) as u8])
+        })
+        .save(&src)
+        .unwrap();
+        let item = h.app.add_paths(std::slice::from_ref(&src))[0];
+        let mut picture = h.app.doc_mut().scene.build_node(
+            WorldRect::new(-600.0, 0.0, 200.0, 100.0),
+            NodeKind::Image(ImageNode::new(item)),
+        );
+        if let NodeKind::Image(img) = &mut picture.kind {
+            img.crop = Crop {
+                x: 0.25,
+                y: 0.0,
+                w: 0.5,
+                h: 1.0,
+            };
+        }
+        let picture = h.app.add_nodes(vec![picture])[0];
+        let anchored = |node, side| ConnectorEnd::Anchored { node, side, t: 0.5 };
+        h.app
+            .add_connector(anchored(picture, Side::Right), anchored(first, Side::Left))
+            .unwrap();
+        ids
+    }
+
+    fn spread(samples: &mut [f64]) -> String {
+        samples.sort_by(f64::total_cmp);
+        let mean = samples.iter().sum::<f64>() / samples.len() as f64;
+        let p95 = samples[(samples.len() * 95 / 100).min(samples.len() - 1)];
+        format!(
+            "mean {mean:.3} ms, p95 {p95:.3} ms, max {:.3} ms (n={})",
+            samples.last().unwrap(),
+            samples.len()
+        )
+    }
+
+    /// Frame-loop cost of the sessions pass for a 200-message conversation on
+    /// ten cards: steady frames, context-publish frames, and streamed updates.
+    /// `cargo test -p slate --release agent_sessions_pass_bench -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn agent_sessions_pass_bench() {
+        let (mut h, ws) = linked_board("agent_sessions_bench");
+        let ids = long_train(&mut h, &ws, 100, 10);
+        let dir = h.app.agent_link_dir(ids[0], &ws).unwrap();
+        let last = *ids.last().unwrap();
+        frames_until(&mut h, "the saved history", |h| shows(h, last, "answer 99"));
+        let settle = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < settle {
+            h.frame();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let ctx = h.ctx.clone();
+        let pass = |h: &mut Harness, publish: bool| {
+            if publish {
+                h.app.agents.context_tick = None;
+            }
+            let t = Instant::now();
+            h.app.pump_agent_sessions(&ctx, &ws);
+            t.elapsed().as_secs_f64() * 1000.0
+        };
+        let mut steady: Vec<f64> = (0..300)
+            .map(|_| {
+                std::thread::sleep(Duration::from_millis(2));
+                pass(&mut h, false)
+            })
+            .collect();
+        let mut publishing: Vec<f64> = (0..100)
+            .map(|_| {
+                std::thread::sleep(Duration::from_millis(5));
+                pass(&mut h, true)
+            })
+            .collect();
+        let context = std::fs::read_to_string(dir.join("context.json")).unwrap();
+        assert!(
+            context.contains("slate-crop"),
+            "the publish carries the clip"
+        );
+        let mut updates = Vec::new();
+        let mut exchanges = 100;
+        for _ in 0..50 {
+            exchanges += 1;
+            let mut next = history("conv-long", exchanges);
+            next.turns.pop();
+            write_session(&dir, &next);
+            let read = h.app.agents.sessions.get(&last).cloned();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                assert!(Instant::now() < deadline, "the update never arrived");
+                let ms = pass(&mut h, false);
+                let now = h.app.agents.sessions.get(&last).cloned();
+                if now.as_ref().map(std::sync::Arc::as_ptr)
+                    != read.as_ref().map(std::sync::Arc::as_ptr)
+                {
+                    updates.push(ms);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            h.frame();
+        }
+        eprintln!("sessions pass, steady:     {}", spread(&mut steady));
+        eprintln!("sessions pass, publishing: {}", spread(&mut publishing));
+        eprintln!("sessions pass, update:     {}", spread(&mut updates));
     }
 
     #[test]

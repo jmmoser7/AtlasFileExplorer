@@ -4,12 +4,13 @@ use super::SlateApp;
 use eframe::egui::ColorImage;
 use image::RgbaImage;
 use slate_doc::scene::{ImageNode, Node, NodeKind};
-use slate_doc::NodeId;
+use slate_doc::{NodeId, SlateDoc};
 use std::path::{Path, PathBuf};
 
 /// PNG path for generator input: filtered/cropped base plus visible paint layers.
-pub fn agent_wired_image_file(app: &SlateApp, node: &Node, img: &ImageNode) -> Option<PathBuf> {
-    let source = app.doc().item(img.item).map(|i| i.path.clone())?;
+/// Decodes and encodes; the context publish runs it off the frame loop.
+pub fn agent_wired_image_file(doc: &SlateDoc, node: &Node, img: &ImageNode) -> Option<PathBuf> {
+    let source = doc.item(img.item).map(|i| i.path.clone())?;
     if img
         .paint_layers
         .iter()
@@ -23,6 +24,8 @@ pub fn agent_wired_image_file(app: &SlateApp, node: &Node, img: &ImageNode) -> O
             }
         });
     }
+    #[cfg(test)]
+    super::imagefx::DECODES_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
     let base = image::open(&source).ok()?;
     let c = img.crop.clamped();
     let w = base.width().max(1);
@@ -48,7 +51,7 @@ pub fn agent_wired_image_file(app: &SlateApp, node: &Node, img: &ImageNode) -> O
         rgba.as_mut()[o + 2] = px.b();
         rgba.as_mut()[o + 3] = px.a();
     }
-    let svg = slate_artifact::paint_layers_svg_with_doc(node, img, cw, ch, app.doc());
+    let svg = slate_artifact::paint_layers_svg_with_doc(node, img, cw, ch, doc);
     if let Some(overlay) = slate_artifact::rasterize_paint_layers_svg(&svg, cw, ch) {
         blend_rgba(&mut rgba, &overlay, cw, ch);
     }
@@ -76,7 +79,7 @@ pub fn replace_wired_image_slots(
     let NodeKind::Image(img) = &node.kind else {
         return;
     };
-    let Some(path) = agent_wired_image_file(app, node, img) else {
+    let Some(path) = agent_wired_image_file(app.doc(), node, img) else {
         return;
     };
     let clipped = path.to_string_lossy().into_owned();
