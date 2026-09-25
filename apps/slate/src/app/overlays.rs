@@ -185,6 +185,22 @@ impl SlateApp {
 
     fn refresh_palette_items(&mut self) {
         let ctx = self.command_ctx();
+        // Grasshopper: a lone quote is the panel entry, a blank text document.
+        if matches!(self.palette_state.query.as_str(), "\"" | "'") {
+            let id = CommandId("board.media.text_new");
+            self.palette_items = self
+                .registry
+                .by_id(id)
+                .filter(|spec| spec.when.matches(ctx))
+                .map(|spec| PaletteItem {
+                    id,
+                    name: spec.name,
+                    score: f32::MAX,
+                })
+                .into_iter()
+                .collect();
+            return;
+        }
         self.palette_items = palette_query(&self.registry, ctx, &self.palette_state.query);
         // Overlays spec: on an empty query, placeables (frame, text,
         // shapes…) rank above general commands. Stable partition keeps the
@@ -257,6 +273,9 @@ impl SlateApp {
             }
             "board.tool.sticky" => {
                 self.place_sticky_at(world);
+            }
+            "board.media.text_new" => {
+                self.place_text_document_at(world);
             }
             _ => {
                 self.dispatch(ctx, item.id, None);

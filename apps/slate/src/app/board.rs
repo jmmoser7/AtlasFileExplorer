@@ -125,6 +125,19 @@ pub(crate) struct TextBoxDraft {
     pub fixed_width: bool,
 }
 
+/// Typing into a blank linked text document (the Grasshopper panel entry).
+/// Keystrokes mirror into the card's snippet cache and, off-thread, into the
+/// linked file that the same gesture created. The scene is not touched.
+#[derive(Clone)]
+pub(crate) struct TextDocEdit {
+    pub node: NodeId,
+    pub item: ItemId,
+    pub path: PathBuf,
+    pub buffer: String,
+    /// Take the keyboard from whatever held it (the closing canvas search).
+    pub claim_focus: bool,
+}
+
 pub(crate) const TEXT_BOX_DEFAULT_W: f32 = 280.0;
 pub(crate) const TEXT_BOX_DEFAULT_H: f32 = 48.0;
 pub(crate) const TEXT_BOX_DEFAULT_SIZE: f32 = 24.0;
@@ -770,20 +783,53 @@ fn layout_shape_galley(
     );
     let laid = fonts.layout_job(job);
     let mut galley = std::sync::Arc::try_unwrap(laid).unwrap_or_else(|arc| (*arc).clone());
+    // An unbounded wrap (auto-width text) measures to its widest row.
+    let width = if wrap.is_finite() {
+        wrap
+    } else {
+        galley
+            .rows
+            .iter()
+            .map(|row| row.rect.width())
+            .fold(0.0, f32::max)
+    };
     for row in &mut galley.rows {
         let dx = match align {
             TextAlign::Left => 0.0,
-            TextAlign::Center => (wrap - row.rect.width()) * 0.5,
-            TextAlign::Right => wrap - row.rect.width(),
+            TextAlign::Center => (width - row.rect.width()) * 0.5,
+            TextAlign::Right => width - row.rect.width(),
         };
         offset_text_row(row, dx, 0.0);
     }
     galley.rect.min = egui::pos2(0.0, 0.0);
-    galley.rect.max.x = wrap;
+    galley.rect.max.x = width;
     galley.mesh_bounds = galley.rows.iter().fold(Rect::NOTHING, |bounds, row| {
         bounds.union(row.visuals.mesh_bounds)
     });
     std::sync::Arc::new(galley)
+}
+
+/// Excerpt type size on a text document card, in world units.
+const TEXT_CARD_BODY_PX: f32 = 9.0;
+
+/// Where a text document card's words sit inside its screen rect.
+fn text_card_inner(srect: Rect, corner: slate_doc::scene::Corner, z: f32) -> Rect {
+    let (_, radius) = corner.effective(srect.width() / z, srect.height() / z);
+    let pad = canvas_scale::px(8.0, z).max(canvas_scale::px(radius, z));
+    srect.shrink(pad)
+}
+
+/// Largest screen extent an inline text editor may hand to egui.
+const EDITOR_RECT_MAX: f32 = 1.0e7;
+
+/// Gate for every screen rect an inline text editor registers with egui.
+/// egui's hit test panics on a non-finite widget rect, so callers skip
+/// registration for the frame instead.
+fn editor_rect_ok(r: Rect) -> bool {
+    let ok =
+        r.is_finite() && r.width().abs() <= EDITOR_RECT_MAX && r.height().abs() <= EDITOR_RECT_MAX;
+    debug_assert!(ok, "inline text editor rect must be finite: {r:?}");
+    ok
 }
 
 fn offset_text_row(row: &mut egui::epaint::text::Row, dx: f32, dy: f32) {
@@ -2621,17 +2667,19 @@ impl SlateApp {
             palette.card,
             EStroke::NONE,
         ));
+        if self.text_doc_edit.as_ref().is_some_and(|e| e.item == item) {
+            // The inline editor paints the words and the caret.
+            return;
+        }
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         match self.snippet_for(item, path) {
             Some(snippet) => {
-                let (_, radius) = corner.effective(srect.width() / z, srect.height() / z);
-                let pad = canvas_scale::px(8.0, z).max(canvas_scale::px(radius, z));
-                let inner = srect.shrink(pad);
+                let inner = text_card_inner(srect, corner, z);
                 let clip = painter.with_clip_rect(inner);
-                let body = canvas_scale::px(9.0, z);
+                let body = canvas_scale::px(TEXT_CARD_BODY_PX, z);
                 if canvas_text::legible(body) {
                     let laid = canvas_text::layout(
                         &clip,
@@ -7116,7 +7164,73 @@ impl SlateApp {
     }
 
     pub(crate) fn text_compose_active(&self) -> bool {
-        self.text_edit.is_some() || self.text_box_draft.is_some()
+        self.text_edit.is_some() || self.text_box_draft.is_some() || self.text_doc_edit.is_some()
+    }
+
+    /// Folder for text documents typed on this board: `slate-outputs/<board>/text`
+    /// beside the saved workbook, else in the AI workspace for an unsaved one.
+    fn text_document_dir(&self) -> Option<PathBuf> {
+        let (base, board) = match self.tab().path.as_deref() {
+            Some(path) => (
+                path.parent()?.to_path_buf(),
+                path.file_stem()?.to_string_lossy().into_owned(),
+            ),
+            None => (
+                self.ai.config.valid_workspace()?.to_path_buf(),
+                "untitled-board".to_string(),
+            ),
+        };
+        Some(base.join("slate-outputs").join(board).join("text"))
+    }
+
+    /// Grasshopper panel entry: link a fresh blank `.txt` card at `world`
+    /// (one undo step) and put the caret in it.
+    pub(crate) fn place_text_document_at(&mut self, world: Pos2) -> bool {
+        let Some(dir) = self.text_document_dir() else {
+            self.toast("Save the workbook or choose an AI workspace to create a text document");
+            return false;
+        };
+        self.finish_text_compose_on_click_away();
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or_default();
+        let name = format!("text-{millis}.txt");
+        let path = dir.join(&name);
+        let key = atlas_core::thumbs::cache_key(&path.to_string_lossy(), 0, 0);
+        let item = self.doc_mut().add_item(path.clone(), name, 0, 0, key);
+        self.snippets.insert(item, Some(String::new()));
+        self.board_sel.clear();
+        self.place_items_on_board(&[item], world);
+        let Some(node) = self.board_sel.iter().next().copied() else {
+            return false;
+        };
+        self.agents
+            .text_output
+            .write_now(node, item, path.clone(), String::new());
+        self.text_doc_edit = Some(TextDocEdit {
+            node,
+            item,
+            path,
+            buffer: String::new(),
+            claim_focus: true,
+        });
+        self.push_history(
+            atlas_commands::CommandId("board.media.text_new"),
+            Some("placed".into()),
+        );
+        true
+    }
+
+    /// Write the typed words to the linked file and leave the editor.
+    pub(crate) fn commit_text_doc_edit(&mut self) {
+        let Some(edit) = self.text_doc_edit.take() else {
+            return;
+        };
+        self.snippets.insert(edit.item, Some(edit.buffer.clone()));
+        self.agents
+            .text_output
+            .write_now(edit.node, edit.item, edit.path, edit.buffer);
     }
 
     fn default_text_click_rect(anchor: Pos2) -> WorldRect {
@@ -7249,6 +7363,10 @@ impl SlateApp {
         let pad = canvas_scale::px(2.0, xf.z);
         let w = (galley.size().x / xf.z + pad * 2.0 / xf.z).max(MIN_DRAW.max(2.0));
         let h = (galley.size().y / xf.z + pad * 2.0 / xf.z).max(TEXT_BOX_DEFAULT_SIZE * 1.25);
+        if !(w.is_finite() && h.is_finite()) {
+            debug_assert!(false, "text draft measured a non-finite size: {w} x {h}");
+            return;
+        }
         if let Some(live) = self.text_box_draft.as_mut() {
             live.rect.w = w;
             live.rect.h = h;
@@ -8404,11 +8522,20 @@ impl SlateApp {
         if let Some(draft) = &self.text_box_draft {
             return !xf.rect_w2s(draft.rect).expand(4.0).contains(pointer);
         }
+        if let Some(edit) = &self.text_doc_edit {
+            return self
+                .doc()
+                .scene
+                .node(edit.node)
+                .is_none_or(|n| !xf.rect_w2s(n.rect).expand(4.0).contains(pointer));
+        }
         false
     }
 
     fn finish_text_compose_on_click_away(&mut self) {
-        if self.text_box_draft.is_some() {
+        if self.text_doc_edit.is_some() {
+            self.commit_text_doc_edit();
+        } else if self.text_box_draft.is_some() {
             if self
                 .text_box_draft
                 .as_ref()
@@ -8429,13 +8556,12 @@ impl SlateApp {
         };
         let font = typeface_font(draft.family, (draft.size * xf.z).max(4.0));
         let sr = xf.rect_w2s(draft.rect);
+        if !editor_rect_ok(sr) {
+            return;
+        }
         let box_w = sr.width().max(8.0);
         let box_h = sr.height().max(8.0);
-        let _wrap = if draft.fixed_width {
-            box_w
-        } else {
-            f32::INFINITY
-        };
+        let fixed_width = draft.fixed_width;
         let mut commit = false;
         let mut cancel = false;
         egui::Area::new(egui::Id::new("slate_text_box_draft"))
@@ -8452,8 +8578,9 @@ impl SlateApp {
                 let color32 = ink;
                 let align = draft.align;
                 let mut layouter = |ui: &egui::Ui, text: &str, wrap_w: f32| {
+                    let wrap = if fixed_width { wrap_w } else { f32::INFINITY };
                     ui.fonts(|fonts| {
-                        layout_shape_galley(fonts, text, font.clone(), color32, wrap_w, align)
+                        layout_shape_galley(fonts, text, font.clone(), color32, wrap, align)
                     })
                 };
                 let resp = ui.add(
@@ -8491,7 +8618,77 @@ impl SlateApp {
         }
     }
 
+    fn text_doc_edit_overlay(&mut self, ctx: &egui::Context, xf: &BoardXf) {
+        let Some(mut edit) = self.text_doc_edit.clone() else {
+            return;
+        };
+        let Some((rect, corner)) = self
+            .doc()
+            .scene
+            .node(edit.node)
+            .and_then(|n| match &n.kind {
+                NodeKind::Image(img) if img.item == edit.item => Some((
+                    n.rect,
+                    slate_doc::media::text_card_corner(&edit.path, img.corner),
+                )),
+                _ => None,
+            })
+        else {
+            self.commit_text_doc_edit();
+            return;
+        };
+        let inner = text_card_inner(xf.rect_w2s(rect), corner, xf.z);
+        if !editor_rect_ok(inner) {
+            return;
+        }
+        let font = FontId::monospace(canvas_scale::px(TEXT_CARD_BODY_PX, xf.z));
+        let ink = self.palette().ink;
+        let mut changed = false;
+        let mut commit = false;
+        egui::Area::new(egui::Id::new(("slate_text_doc_edit", edit.node.0)))
+            .fixed_pos(inner.min)
+            .order(egui::Order::Middle)
+            .show(ctx, |ui| {
+                ui.set_width(inner.width());
+                ui.set_height(inner.height());
+                ui.set_clip_rect(inner);
+                ui.visuals_mut().override_text_color = Some(ink);
+                ui.visuals_mut().text_cursor.stroke.color = ink;
+                ui.visuals_mut().text_cursor.blink = true;
+                let resp = ui.add(
+                    egui::TextEdit::multiline(&mut edit.buffer)
+                        .desired_width(inner.width())
+                        .desired_rows(1)
+                        .frame(false)
+                        .margin(egui::Margin::ZERO)
+                        .font(font),
+                );
+                let keep_focus = ui.memory(|m| m.focused().is_none_or(|fid| fid == resp.id));
+                if keep_focus || edit.claim_focus {
+                    resp.request_focus();
+                    edit.claim_focus = false;
+                }
+                changed = resp.changed();
+                commit = ui.input(|i| i.key_pressed(egui::Key::Escape));
+            });
+        ctx.request_repaint_after(Duration::from_secs_f64(0.55));
+        if changed {
+            self.snippets.insert(edit.item, Some(edit.buffer.clone()));
+            self.agents
+                .text_output
+                .sync(edit.node, edit.item, &edit.path, &edit.buffer, true);
+        }
+        self.text_doc_edit = Some(edit);
+        if commit {
+            self.commit_text_doc_edit();
+        }
+    }
+
     fn text_edit_overlay(&mut self, ctx: &egui::Context, xf: &BoardXf) {
+        if self.text_doc_edit.is_some() {
+            self.text_doc_edit_overlay(ctx, xf);
+            return;
+        }
         if self.text_box_draft.is_some() {
             self.text_box_draft_overlay(ctx, xf);
             return;
@@ -8585,6 +8782,9 @@ impl SlateApp {
             0.0
         };
         let area = sr.shrink(inset);
+        if !editor_rect_ok(area) {
+            return;
+        }
         let box_w = area.width().max(8.0);
         let box_h = area.height().max(8.0);
         let mut commit = false;

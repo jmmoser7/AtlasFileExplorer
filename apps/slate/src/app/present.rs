@@ -55,6 +55,7 @@ impl SlateApp {
         self.board_menu = None;
         self.text_edit = None;
         self.text_box_draft = None;
+        self.commit_text_doc_edit();
     }
 
     pub fn stop_present(&mut self) {
