@@ -528,6 +528,58 @@ The harness earned a matching correction: `pump_until_idle` now also waits for
 camera mid-fly is planting it into an animation that overwrites it next frame.
 Every real navigation cancels the fly first; only a test can reach past that.
 
+## A board with thousands of brush strokes
+
+Brush strokes are the one board object people make by the thousand, so they get
+their own paint path. Each committed stamp stroke used to own a texture, and every
+frame re-hashed every visible stroke's path to validate it; a zoom step then
+re-rasterized three strokes per frame, so 5,000 strokes stayed blurry for about
+seventeen seconds and cost 273 MB of textures.
+
+Committed strokes that sit next to each other in paint order now composite into
+world-aligned 512 px tiles (`board_path/tiles.rs`, pixels from `vector_ink::tile`,
+byte-identical to per-stroke compositing). Tiles rasterize on worker threads, a
+new stroke is stamped into the tiles it touches, and after a zoom the previous
+level is drawn scaled until the new one lands. A settled run remembers the span it
+validated, so a frame where nothing changed only draws textures; anything else
+bins strokes per tile once rather than testing every stroke against every tile.
+Selected, faded, erased, or previewed strokes drop out of the run and paint on
+their own, splitting it so z-order holds.
+
+Drawing has its own cost. The live stroke canvas is a full-window bitmap; building
+it at every stroke start was the flat ~15 ms Brush paint in the session log. It is
+now parked between strokes, and the next stroke clears only the box the last one
+touched.
+
+The benches that hold these numbers (release-like profile, 5,000 strokes):
+
+```powershell
+cargo test -p slate --release --lib bench_brush_tiles -- --ignored --nocapture  # rest/pan/zoom/commit, per-stroke vs tiles
+cargo test -p slate --release --lib bench_brush_input -- --ignored --nocapture  # idle, pointer move, commit, eraser, undo
+cargo test -p slate --release --lib bench_brush_drag  -- --ignored --nocapture  # stroke start, drag, release
+```
+
+| | before | after |
+|---|---|---|
+| rest / pan frame | 15–18 ms | 4–5 ms |
+| zoom to full resolution | not done after 6 s | 2.7 s, drawing the previous level meanwhile |
+| stroke start | 15–22 ms | 3–6 ms |
+| stroke commit / undo | — | 0.1 ms / 0.02 ms |
+| texture memory | 273 MB | 17–33 MB |
+
+`SLATE_BRUSH_FIXTURE=<path>` with `write_brush_fixture` saves the same board as a
+workbook for a GUI run.
+
+Two rules fell out of the GUI runs, and both apply to anything on the frame loop:
+
+- **The AI workspace is a network folder.** It is usually OneDrive. Its existence
+  check (`AiConfig::valid_workspace`), the context beacon, and the agent staging
+  reader (`StageFeed`) all run off the frame loop; under disk load each of them
+  had produced 100–150 ms stalls on a large board.
+- **Home does no I/O per frame.** Cover PNGs decode on a worker, bakes are
+  scheduled once, and `home_cover_frames_do_not_touch_the_filesystem` counts
+  probes on the frame thread (`atlas_core::fs_probe`) to keep it that way.
+
 ## Diagnosing "this folder never loads a preview"
 
 `tests/folder_probe.rs` points the real pipeline at a real folder and reports,
