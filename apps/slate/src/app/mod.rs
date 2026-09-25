@@ -395,6 +395,8 @@ pub struct SlateApp {
     pub text_edit: Option<(NodeId, String)>,
     /// Click/drag text-box compose before the first journaled add.
     pub text_box_draft: Option<board::TextBoxDraft>,
+    /// Typing into a blank linked text document (`"` / `'` then Enter).
+    pub(crate) text_doc_edit: Option<board::TextDocEdit>,
     /// Fitted sticky font sizes. Derived from text and box; not journaled.
     sticky_fit: HashMap<NodeId, board::StickyFit>,
     /// Cell editor on a CSV / Excel card.
@@ -807,6 +809,7 @@ impl SlateApp {
             image_drop_screen: None,
             text_edit: None,
             text_box_draft: None,
+            text_doc_edit: None,
             sticky_fit: HashMap::new(),
             sheet_edit: None,
             sheet_open: None,

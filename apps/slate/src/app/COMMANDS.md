@@ -93,6 +93,13 @@ drag the address-bar URL or a page link instead.
   window promotes the keystroke into the same palette entry mode (so
   typing `brush` is not stolen by the `B` tool binding). Esc cancels a
   pending hold; pointer-down or another chord commits it early.
+- **`"` or `'` then Enter (Board)** — the Grasshopper panel entry. A leading
+  quote opens the same canvas palette with the quote as its query and
+  **Media: new text document** (`board.media.text_new`) as the only row.
+  Enter places a blank linked `.txt` card at the pointer with a blinking
+  caret (one undo step). Esc closes the palette and creates nothing. No key
+  chord is bound; the quote arrives as typed text, so it never fires while a
+  text field, draft, or page holds the keyboard.
 - **PageUp / PageDown** bring-to-front / send-to-back (**Ctrl+B** = send to
   back) · **C** crop the single selected croppable image · **Ctrl+U** image
   adjust popover · **Ctrl+I** invert image colors (journaled).
@@ -496,6 +503,14 @@ existing model viewer. Video places the file on the board: hover across the
 node to scrub its full trim window without playing, and click to play from
 that frame. A codec Windows cannot open stays a poster. Web-safe files still
 export as `<video>`.
+
+`board.media.text_new` (palette: `"` / `'` then Enter, or "new text")
+creates a blank text document instead of picking one. It links a new
+`text-<ms>.txt` in `slate-outputs/<board>/text/` beside the saved workbook,
+or in the AI workspace's `slate-outputs/untitled-board/text/` when the
+workbook is unsaved; with neither, it refuses with a toast. The card opens
+with the caret in it. Typed words go to that file through the off-thread
+text writer, not the journal. Esc or click-away finishes typing.
 
 PowerPoint stays linked to its source and renders a derived PDF locally using
 installed PowerPoint. Conversion and PDF page counting run on bounded workers;

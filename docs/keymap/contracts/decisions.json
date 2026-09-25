@@ -323,7 +323,7 @@
       ],
       "decisions": {
         "D01": {
-          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box · (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T → Text box, N → Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7).",
+          "behavior": "Dock Text icon opens a flyout submenu: (1) Text box · (2) Sticky note. Selecting a row arms that variant with a cursor-locked ghost. Hotkeys: T → Text box, N → Sticky. Palette: text / sticky (+ aliases). Space/Enter re-arms the last of the two (P0.4/P0.7). Grasshopper panel entry: with the board focused and no text field active, typing \" or ' opens the canvas search at the pointer showing the quote, with Media: new text document (board.media.text_new) as the only row. Enter places a blank linked .txt card at the pointer with a blinking caret, in slate-outputs/<board>/text/ beside the saved workbook or in the AI workspace (untitled-board) for an unsaved one. Esc cancels and creates nothing.",
           "source": "stated",
           "confidence": 100,
           "verdict": "proposed",
@@ -393,7 +393,7 @@
           "decided": "2026-09-25"
         },
         "D11": {
-          "behavior": "Text box: TextNode fill=None, empty start, size 24 world, ink=palette.ink; journaled only when compose finishes with non-empty text (one board.tool.text undo step). ClickPlace auto-grows width on commit; DragScale keeps drawn rect. Sticky: unchanged (journaled on place, centered black caret, strip hidden while editing). Subsequent bbox resize = frame-only reflow.",
+          "behavior": "Text box: TextNode fill=None, empty start, size 24 world, ink=palette.ink; journaled only when compose finishes with non-empty text (one board.tool.text undo step). ClickPlace auto-grows width on commit; while typing its width is the measured unwrapped text width plus padding, always finite, and no inline-editor rect handed to egui may be non-finite. DragScale keeps drawn rect (fixed wrap width). A quote-entry text document (D01) is one board.media.text_new undo step; its typed words are written to the linked file off-thread, not journaled. Sticky: unchanged (journaled on place, centered black caret, strip hidden while editing). Subsequent bbox resize = frame-only reflow.",
           "source": "stated",
           "confidence": 100,
           "verdict": "approved",

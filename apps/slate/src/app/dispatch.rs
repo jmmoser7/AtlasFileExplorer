@@ -163,6 +163,14 @@ impl SlateApp {
                 self.add_media_dialog(group);
                 true
             }
+            "board.media.text_new" => {
+                let screen = ctx
+                    .input(|i| i.pointer.hover_pos())
+                    .filter(|p| self.canvas_rect.contains(*p))
+                    .unwrap_or_else(|| self.canvas_rect.center());
+                let world = self.screen_to_world(screen);
+                self.place_text_document_at(world)
+            }
             "board.media.page" => {
                 if let Some((item, page)) = detail
                     .as_deref()
@@ -1360,6 +1368,13 @@ impl SlateApp {
                         for c in t.chars() {
                             let c = c.to_ascii_lowercase();
                             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                                k.typed.push(c);
+                            } else if matches!(c, '"' | '\'')
+                                && k.typed.is_empty()
+                                && self.bare_letter_hold.is_none()
+                            {
+                                // Grasshopper: a leading quote opens the
+                                // panel entry (a blank text document).
                                 k.typed.push(c);
                             } else if c == ' ' && !k.typed.is_empty() {
                                 k.typed.push(' ');

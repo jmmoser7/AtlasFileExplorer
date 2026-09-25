@@ -1598,6 +1598,248 @@ fn text_box_draft_uses_theme_ink_in_dark_mode() {
     h.frame();
 }
 
+fn text_draft_board(tag: &str) -> Harness {
+    let mut h = Harness::new(tag);
+    h.app.leave_home();
+    h.app.ensure_work_tab();
+    h.app.doc_mut().view.active_view = ViewKind::Board;
+    h.frame();
+    h
+}
+
+/// Real keystrokes into the focused draft, then a frame with the pointer over
+/// the board so egui hit-tests every registered widget rect.
+fn type_into_draft(h: &mut Harness, text: &str) {
+    h.frame();
+    let text = text.to_string();
+    h.frame_with(|input| {
+        input
+            .events
+            .push(egui::Event::PointerMoved(Pos2::new(720.0, 450.0)));
+        input.events.push(egui::Event::Text(text));
+    });
+    h.frame_with(|input| {
+        input
+            .events
+            .push(egui::Event::PointerMoved(Pos2::new(724.0, 452.0)));
+    });
+}
+
+fn assert_draft_rect_sane(h: &Harness) -> slate_doc::scene::WorldRect {
+    let r = h
+        .app
+        .text_box_draft
+        .as_ref()
+        .expect("draft still open")
+        .rect;
+    for v in [r.x, r.y, r.w, r.h] {
+        assert!(v.is_finite(), "draft rect must stay finite: {r:?}");
+    }
+    assert!(
+        r.w > 0.0 && r.h > 0.0,
+        "draft rect must be non-empty: {r:?}"
+    );
+    r
+}
+
+/// Crash regression: typing into a click-created text box made its rect
+/// infinitely wide and egui's hit test panicked on the next frame.
+#[test]
+fn text_box_click_draft_grows_to_typed_width_only() {
+    let mut h = text_draft_board("text-autowidth");
+    let world = h.app.board_xf().s2w(Pos2::new(600.0, 400.0));
+    h.app.place_text_at(world);
+    type_into_draft(&mut h, "hello world");
+    assert_eq!(h.app.text_box_draft.as_ref().unwrap().buffer, "hello world");
+    let r = assert_draft_rect_sane(&h);
+    let z = h.app.board_xf().z;
+    let text_w = h.ctx.fonts(|f| {
+        f.layout_no_wrap(
+            "hello world".into(),
+            egui::FontId::proportional(24.0 * z),
+            egui::Color32::WHITE,
+        )
+        .size()
+        .x
+    }) / z;
+    assert!(
+        (r.w - text_w).abs() <= 8.0,
+        "auto width {} should fit the text ({text_w})",
+        r.w
+    );
+}
+
+#[test]
+fn text_box_click_draft_stays_finite_for_long_text() {
+    let mut h = text_draft_board("text-autowidth-long");
+    let world = h.app.board_xf().s2w(Pos2::new(600.0, 400.0));
+    h.app.place_text_at(world);
+    type_into_draft(&mut h, &"x".repeat(500));
+    assert_eq!(h.app.text_box_draft.as_ref().unwrap().buffer.len(), 500);
+    assert_draft_rect_sane(&h);
+}
+
+#[test]
+fn text_box_click_draft_stays_finite_at_extreme_zoom() {
+    for z in [0.05_f32, 20.0] {
+        let mut h = text_draft_board("text-autowidth-zoom");
+        h.app.tab_mut().cam.z = z;
+        let world = h.app.board_xf().s2w(Pos2::new(600.0, 400.0));
+        h.app.place_text_at(world);
+        type_into_draft(&mut h, "hello world");
+        assert_eq!(h.app.board_xf().z, z, "typed at the requested zoom");
+        assert_eq!(h.app.text_box_draft.as_ref().unwrap().buffer, "hello world");
+        assert_draft_rect_sane(&h);
+    }
+}
+
+fn key_event(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers,
+    }
+}
+
+/// A saved workbook, so new text documents have a folder beside it.
+fn quote_board(tag: &str) -> Harness {
+    let mut h = text_draft_board(tag);
+    h.app.tab_mut().path = Some(h.base.join("quote.slate"));
+    h
+}
+
+fn press_quote(h: &mut Harness, quote: char) {
+    let modifiers = if quote == '"' {
+        egui::Modifiers::SHIFT
+    } else {
+        egui::Modifiers::NONE
+    };
+    h.frame_with(|input| {
+        input.modifiers = modifiers;
+        input
+            .events
+            .push(egui::Event::PointerMoved(Pos2::new(700.0, 420.0)));
+        input.events.push(key_event(egui::Key::Quote, modifiers));
+        input.events.push(egui::Event::Text(quote.to_string()));
+    });
+}
+
+fn press_key(h: &mut Harness, key: egui::Key) {
+    h.frame_with(|input| {
+        input
+            .events
+            .push(egui::Event::PointerMoved(Pos2::new(700.0, 420.0)));
+        input.events.push(key_event(key, egui::Modifiers::NONE));
+    });
+}
+
+/// Grasshopper panel entry: `"` then Enter places one blank linked text
+/// document at the pointer, as one undo step, with the caret in it.
+#[test]
+fn quote_then_enter_places_a_blank_text_document_ready_to_type() {
+    use slate_doc::scene::NodeKind;
+    let mut h = quote_board("quote-enter");
+    let before = h.app.tab().journal.undo_depth();
+    press_quote(&mut h, '"');
+    assert!(
+        h.app.palette_state.open,
+        "the quote opens the canvas search"
+    );
+    assert_eq!(h.app.palette_state.query, "\"");
+    assert_eq!(
+        h.app
+            .palette_items
+            .iter()
+            .map(|it| it.id.0)
+            .collect::<Vec<_>>(),
+        vec!["board.media.text_new"]
+    );
+    assert!(h.app.doc().scene.nodes.is_empty());
+    h.frame();
+    press_key(&mut h, egui::Key::Enter);
+
+    assert!(!h.app.palette_state.open);
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "exactly one node");
+    assert_eq!(
+        h.app.tab().journal.undo_depth(),
+        before + 1,
+        "one undo step"
+    );
+    let node = h.app.doc().scene.nodes[0].clone();
+    let NodeKind::Image(img) = &node.kind else {
+        panic!("a text media card is a linked image node");
+    };
+    let path = h.app.doc().item(img.item).unwrap().path.clone();
+    assert_eq!(slate_doc::media_kind(&path), slate_doc::MediaKind::Text);
+    assert_eq!(
+        path.parent().unwrap(),
+        h.base.join("slate-outputs").join("quote").join("text")
+    );
+    let pointer = h.app.board_xf().s2w(Pos2::new(700.0, 420.0));
+    let center = Pos2::new(
+        node.rect.x + node.rect.w / 2.0,
+        node.rect.y + node.rect.h / 2.0,
+    );
+    assert!((center - pointer).length() < 1.0, "placed at the pointer");
+    assert!(h
+        .app
+        .text_doc_edit
+        .as_ref()
+        .is_some_and(|e| e.node == node.id && e.buffer.is_empty()));
+
+    h.frame();
+    assert!(h.ctx.wants_keyboard_input(), "the caret holds the keyboard");
+    h.frame_with(|input| input.events.push(egui::Event::Text("hi".into())));
+    assert_eq!(h.app.text_doc_edit.as_ref().unwrap().buffer, "hi");
+    assert_eq!(h.app.doc().scene.nodes.len(), 1, "typing adds no nodes");
+    press_key(&mut h, egui::Key::Escape);
+    assert!(h.app.text_doc_edit.is_none());
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::fs::read_to_string(&path).ok().as_deref() != Some("hi") {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "typed words reach the linked file"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    h.app.board_undo();
+    assert!(h.app.doc().scene.nodes.is_empty());
+}
+
+#[test]
+fn single_quote_then_escape_creates_nothing() {
+    let mut h = quote_board("quote-escape");
+    let before = h.app.tab().journal.undo_depth();
+    press_quote(&mut h, '\'');
+    assert!(h.app.palette_state.open);
+    assert_eq!(h.app.palette_state.query, "'");
+    h.frame();
+    press_key(&mut h, egui::Key::Escape);
+    assert!(!h.app.palette_state.open);
+    assert!(h.app.doc().scene.nodes.is_empty());
+    assert_eq!(h.app.tab().journal.undo_depth(), before);
+    assert!(h.app.text_doc_edit.is_none());
+}
+
+#[test]
+fn text_box_drag_draft_keeps_its_wrap_width() {
+    let mut h = text_draft_board("text-fixed-width");
+    let world = h.app.board_xf().s2w(Pos2::new(600.0, 400.0));
+    let rect = slate_doc::scene::WorldRect::new(world.x, world.y, 120.0, 48.0);
+    h.app.begin_text_box_draft(world, rect, true);
+    let long = "the quick brown fox jumps over the lazy dog";
+    type_into_draft(&mut h, long);
+    assert_eq!(h.app.text_box_draft.as_ref().unwrap().buffer, long);
+    let r = assert_draft_rect_sane(&h);
+    assert_eq!(r.w, 120.0, "drag-created width is the wrap width");
+    h.app.commit_text_box_draft();
+    let node = h.app.doc().scene.nodes.last().expect("committed");
+    assert_eq!(node.rect.w, 120.0);
+}
+
 /// Double-click anywhere on a closed shape opens center-justified text editing
 /// and the text configuration. A line does not.
 #[test]
