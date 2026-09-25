@@ -1540,7 +1540,20 @@ impl SlateApp {
                     || i.pointer.button_clicked(egui::PointerButton::Secondary)
                     || i.pointer.button_clicked(egui::PointerButton::Middle)
             });
-            if overlay_open && !captures && dismiss {
+            // A press on a crop handle or a cropping image is the crop
+            // gesture, not a click-away: the Corners panel stays up (D09),
+            // the selection stays whole, and the press is not eaten.
+            let crop_press = ctx
+                .input(|i| {
+                    i.pointer
+                        .button_pressed(egui::PointerButton::Primary)
+                        .then(|| i.pointer.press_origin())
+                        .flatten()
+                })
+                .is_some_and(|p| self.crop_owns_pointer(p));
+            if overlay_open && !captures && dismiss && crop_press {
+                self.apply_shape_preview(&ctx, false);
+            } else if overlay_open && !captures && dismiss {
                 self.apply_shape_preview(&ctx, true);
                 if let Some(p) = ctx.pointer_latest_pos() {
                     if self.canvas_rect.contains(p) {

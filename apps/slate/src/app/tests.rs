@@ -9171,6 +9171,95 @@ fn crop_click_in_outside_slop_keeps_crop_mode() {
     assert!(h.app.board_sel.contains(&ids[0]));
 }
 
+/// Turn crop on the way D01 describes: open the Corners squircle, then pick
+/// Crop in its Off/Crop control. The panel stays open (D09).
+fn crop_via_corners_panel(h: &mut Harness) {
+    h.app.shape_properties.panel = Some(board_properties::Panel::Corners);
+    for _ in 0..4 {
+        h.frame();
+    }
+    let first = *h.app.board_sel.iter().min_by_key(|id| id.0).unwrap();
+    h.app.enter_crop_mode(first);
+    assert_eq!(
+        h.app.shape_properties.panel,
+        Some(board_properties::Panel::Corners)
+    );
+}
+
+fn crop_key(h: &mut Harness, key: egui::Key, pressed: bool) {
+    h.frame_with(|i| {
+        i.events.push(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        })
+    });
+}
+
+fn crop_of(h: &Harness, id: NodeId) -> slate_doc::scene::Crop {
+    match &h.app.doc().scene.node(id).unwrap().kind {
+        NodeKind::Image(img) => img.crop,
+        _ => panic!("image node"),
+    }
+}
+
+/// The very first press on a handle after turning crop on from the Corners
+/// panel grabs it. No hover frame precedes the press.
+#[test]
+fn crop_first_press_after_corners_crop_grabs_the_handle() {
+    let (mut h, ids) = crop_board("crop_first_grab_panel", 1);
+    crop_via_corners_panel(&mut h);
+    let xf = h.app.board_xf();
+    let east = xf.w2s(Pos2::new(200.0, 75.0));
+    crop_pointer(&mut h, east, Some(true));
+    crop_pointer(&mut h, east + EVec2::new(-20.0, 0.0), None);
+    assert_eq!(
+        crop_drag_handle(&h).map(|(id, handle, _)| (id, handle)),
+        Some((ids[0], board_handles::ResizeHandle::E as u8)),
+        "first press on the E bar must start the crop drag"
+    );
+    crop_pointer(&mut h, east + EVec2::new(-40.0, 0.0), None);
+    crop_pointer(&mut h, east + EVec2::new(-40.0, 0.0), Some(false));
+    let c = crop_of(&h, ids[0]);
+    assert!((c.w - 0.8).abs() < 0.01, "crop.w {}", c.w);
+    assert!(h.app.board_crop.is_some(), "crop stays on (D02)");
+}
+
+/// C enters crop, then the next frame presses a handle with no hover.
+#[test]
+fn crop_first_press_after_c_key_grabs_the_handle() {
+    let (mut h, ids) = crop_board("crop_first_grab_key", 1);
+    crop_key(&mut h, egui::Key::C, true);
+    let xf = h.app.board_xf();
+    let west = xf.w2s(Pos2::new(0.0, 75.0));
+    h.frame_with(|i| {
+        i.events.push(egui::Event::Key {
+            key: egui::Key::C,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        i.events.push(egui::Event::PointerMoved(west));
+        i.events.push(egui::Event::PointerButton {
+            pos: west,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+    });
+    assert_eq!(h.app.board_crop, Some(ids[0]), "C entered crop mode");
+    crop_pointer(&mut h, west + EVec2::new(20.0, 0.0), None);
+    assert_eq!(
+        crop_drag_handle(&h).map(|(_, handle, _)| handle),
+        Some(board_handles::ResizeHandle::W as u8)
+    );
+    crop_pointer(&mut h, west + EVec2::new(20.0, 0.0), Some(false));
+    assert!((crop_of(&h, ids[0]).x - 0.1).abs() < 0.01);
+}
+
 /// Machine-local: time until `SlateApp::with_ctx` returns (headless `new`).
 /// Not a CI assertion — fonts and the data dir dominate, and they vary by machine.
 #[test]
