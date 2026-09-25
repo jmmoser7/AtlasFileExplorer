@@ -3110,12 +3110,10 @@ impl SlateApp {
         if live {
             // Accent ring: this viewport is live (consuming GPU + memory).
             let palette = self.palette();
-            painter.rect_stroke(
-                srect.shrink(0.5),
-                0.0,
-                EStroke::new(1.5_f32, palette.accent),
-                egui::StrokeKind::Inside,
-            );
+            painter.add(egui::Shape::closed_line(
+                outline.to_vec(),
+                EStroke::new(canvas_scale::px(1.5, self.board_xf().z), palette.accent),
+            ));
         }
 
         self.paint_model_wired_view_strip(ui, node_id, srect, self.board_xf().z);

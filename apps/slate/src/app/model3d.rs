@@ -3592,6 +3592,79 @@ mod tests {
         assert!(!h.app.model3d.live.contains_key(&id));
     }
 
+    /// Closed stroked paths one frame painted, with their stroke colour.
+    fn painted_rings(h: &mut Harness) -> Vec<(Vec<egui::Pos2>, egui::epaint::ColorMode)> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<(Vec<egui::Pos2>, egui::epaint::ColorMode)>) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Path(p) if p.closed => {
+                    out.push((p.points.clone(), p.stroke.color.clone()))
+                }
+                _ => {}
+            }
+        }
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1440.0, 900.0),
+            )),
+            ..Default::default()
+        };
+        let ctx = h.ctx.clone();
+        let out = ctx.run(input, |c| h.app.update_app(c));
+        let mut rings = Vec::new();
+        for clipped in &out.shapes {
+            walk(&clipped.shape, &mut rings);
+        }
+        rings
+    }
+
+    #[test]
+    fn viewport_rings_follow_the_fillet_live_and_frozen() {
+        let (mut h, id) = live_model("model_ring_fillet");
+        h.app.patch_nodes(&[id], |n| {
+            if let NodeKind::Image(img) = &mut n.kind {
+                img.corner = slate_doc::scene::Corner::Rounded { radius: 24.0 };
+            }
+        });
+        h.app.board_sel = std::iter::once(id).collect();
+        let corner_outline = |h: &Harness| {
+            let xf = h.app.board_xf();
+            let node = h.app.doc().scene.node(id).unwrap();
+            let corner = h.app.node_resolved_corner(node);
+            let expected =
+                super::super::board::corner_outline(xf.rect_w2s(node.rect), corner, xf.z);
+            (expected, h.app.node_screen_outline(&h.ctx, &xf, node))
+        };
+        let same = |a: &[egui::Pos2], b: &[egui::Pos2]| {
+            a.len() == b.len() && a.iter().zip(b).all(|(p, q)| p.distance(*q) < 0.01)
+        };
+
+        let rings = painted_rings(&mut h);
+        let (expected, selection) = corner_outline(&h);
+        assert!(expected.len() > 4, "a filleted outline, not a box");
+        assert!(
+            same(&selection, &expected),
+            "the selection outline is the corner outline"
+        );
+        let accent = egui::epaint::ColorMode::Solid(h.app.palette().accent);
+        assert!(
+            rings
+                .iter()
+                .any(|(pts, c)| *c == accent && same(pts, &expected)),
+            "the live ring is the corner outline"
+        );
+
+        h.app.lock_model(id);
+        h.app.board_sel = std::iter::once(id).collect();
+        let rings = painted_rings(&mut h);
+        let (expected, _) = corner_outline(&h);
+        assert!(
+            rings.iter().any(|(pts, _)| same(pts, &expected)),
+            "the frozen selection outline is the corner outline"
+        );
+    }
+
     #[test]
     fn live_display_is_one_undo_step_and_follows_undo() {
         let (mut h, id) = live_model("model_live_display");
