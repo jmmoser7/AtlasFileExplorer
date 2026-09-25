@@ -24,6 +24,9 @@ pub const WIRE_HEIGHT: f32 = CAPSULE_HEIGHT;
 /// Photo-filter radios are twice the previous fillet-capsule dot, so this
 /// capsule is twice the fillet height. The slider stays in the same row.
 pub const FILTER_HEIGHT: f32 = CORNER_HEIGHT * 2.0;
+/// Circle-chip row without an intensity track. Chip diameter matches the
+/// photo-filter capsule; width is content-sized via [`filter_chips_width`].
+pub const FILTER_CHIPS_HEIGHT: f32 = FILTER_HEIGHT;
 /// File Atlas portal formatting: search, type radios, ghost/hide, fit.
 pub const ATLAS_FORMAT_HEIGHT: f32 = 118.0;
 /// Typeface, justification, and size row. Same capsule as the fillet toolbar.
@@ -1882,6 +1885,33 @@ pub struct FilterEdit {
     pub amount: Option<f32>,
 }
 
+/// Whether a filter capsule includes the intensity track beside the chips.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilterCapsuleStyle {
+    /// Photo filters: chips plus an intensity slider in one row.
+    WithIntensity,
+    /// Chips only (e.g. 3D viewport display modes). Same chip sizing as
+    /// [`FilterCapsuleStyle::WithIntensity`]; no intensity track.
+    ChipsOnly,
+}
+
+/// Board-unit width for a chips-only filter capsule at the given height.
+pub fn filter_chips_width(radio_count: usize, height: f32, zoom: f32) -> f32 {
+    let (_, _, pitch) = filter_chip_metrics(height, zoom);
+    let pad = height * (2.0 / CAPSULE_HEIGHT);
+    pad * 2.0 + pitch * radio_count.max(1) as f32
+}
+
+fn filter_chip_metrics(height: f32, zoom: f32) -> (f32, f32, f32) {
+    let pad = height * (2.0 / CAPSULE_HEIGHT);
+    let inner_h = height * (13.0 / CAPSULE_HEIGHT);
+    // 80% of the doubled-capsule dot. The intensity track uses this same
+    // radius as its thickness so the slider stays a thin capsule.
+    let radius = inner_h * 0.36 * 0.8;
+    let pitch = radius * 2.0 + 6.0 * zoom;
+    (pad, inner_h, pitch)
+}
+
 /// Fillet-style capsule: filter thumbnails + intensity slider.
 pub fn filter_editor(
     ui: &mut egui::Ui,
@@ -1892,18 +1922,38 @@ pub fn filter_editor(
     zoom: f32,
     theme: Palette,
 ) -> FilterEdit {
+    filter_capsule(
+        ui,
+        rect,
+        radios,
+        selected,
+        Some(amount),
+        zoom,
+        theme,
+        FilterCapsuleStyle::WithIntensity,
+    )
+}
+
+/// Shared circle-chip capsule. [`FilterCapsuleStyle::ChipsOnly`] omits the
+/// intensity track; [`FilterCapsuleStyle::WithIntensity`] keeps it.
+pub fn filter_capsule(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    radios: &[FilterRadio],
+    selected: Option<usize>,
+    amount: Option<f32>,
+    zoom: f32,
+    theme: Palette,
+    style: FilterCapsuleStyle,
+) -> FilterEdit {
     paint_capsule(ui, rect, zoom, theme);
-    let pad = rect.height() * (2.0 / CAPSULE_HEIGHT);
-    let inner_h = rect.height() * (13.0 / CAPSULE_HEIGHT);
+    let (pad, inner_h, radio_pitch) = filter_chip_metrics(rect.height(), zoom);
     let count = radios.len().max(1) as f32;
-    // 80% of the doubled-capsule dot. The intensity track uses this same
-    // radius as its thickness so the slider stays a thin capsule.
-    let radius = inner_h * 0.36 * 0.8;
-    let radio_pitch = radius * 2.0 + 6.0 * zoom;
     let radio_row = Rect::from_min_size(
         rect.min + Vec2::splat(pad),
         Vec2::new(radio_pitch * count, inner_h),
     );
+    let radius = inner_h * 0.36 * 0.8;
     let mut out = FilterEdit::default();
     for (i, radio) in radios.iter().enumerate() {
         let center = Pos2::new(
@@ -1931,35 +1981,40 @@ pub fn filter_editor(
             theme,
         );
     }
-    let track = Rect::from_center_size(
-        Pos2::new(
-            rect.left()
-                + radio_row.width()
-                + pad * 2.0
-                + (rect.width() - radio_row.width() - pad * 3.0).max(radius) * 0.5,
-            rect.center().y,
-        ),
-        Vec2::new(
-            (rect.width() - radio_row.width() - pad * 3.0).max(radius),
-            radius,
-        ),
-    );
-    let mut fraction = amount.clamp(0.0, 1.0);
-    let filter_display = (fraction * 100.0).round();
-    if capsule_buffer(
-        ui,
-        ui.id().with("filter_amount"),
-        track,
-        &mut fraction,
-        filter_display,
-        0.0..=100.0,
-        "%",
-        |v| v / 100.0,
-        |v| format!("{}%", number((v * 100.0).round())),
-        zoom,
-        theme,
-    ) {
-        out.amount = Some(fraction);
+    if style == FilterCapsuleStyle::WithIntensity {
+        let Some(amount) = amount else {
+            return out;
+        };
+        let track = Rect::from_center_size(
+            Pos2::new(
+                rect.left()
+                    + radio_row.width()
+                    + pad * 2.0
+                    + (rect.width() - radio_row.width() - pad * 3.0).max(radius) * 0.5,
+                rect.center().y,
+            ),
+            Vec2::new(
+                (rect.width() - radio_row.width() - pad * 3.0).max(radius),
+                radius,
+            ),
+        );
+        let mut fraction = amount.clamp(0.0, 1.0);
+        let filter_display = (fraction * 100.0).round();
+        if capsule_buffer(
+            ui,
+            ui.id().with("filter_amount"),
+            track,
+            &mut fraction,
+            filter_display,
+            0.0..=100.0,
+            "%",
+            |v| v / 100.0,
+            |v| format!("{}%", number((v * 100.0).round())),
+            zoom,
+            theme,
+        ) {
+            out.amount = Some(fraction);
+        }
     }
     out
 }
@@ -2457,6 +2512,7 @@ mod tests {
         assert_eq!(TEXT_ROW_HEIGHT, CORNER_HEIGHT);
         assert_eq!(WIRE_HEIGHT, CAPSULE_HEIGHT);
         assert!((FILTER_HEIGHT - CORNER_HEIGHT * 2.0).abs() < f32::EPSILON);
+        assert_eq!(FILTER_CHIPS_HEIGHT, FILTER_HEIGHT);
         let strip = strip_rect(Pos2::new(100.0, 80.0), 3, 1.0, 1.0);
         assert!((strip.height() - BUTTON_SIZE).abs() < 0.001);
         let collapsed = strip_rect(Pos2::new(100.0, 80.0), 3, 1.0, 0.0);
@@ -2501,6 +2557,132 @@ mod tests {
             });
         }
         assert_eq!(hovered, Some(0));
+    }
+
+    #[test]
+    fn chips_only_filter_capsule_has_no_intensity_track() {
+        let ctx = egui::Context::default();
+        let radios = [FilterRadio {
+            label: "Shaded",
+            fill: [120, 130, 145],
+            fill_b: None,
+            thumb: None,
+        }];
+        let height = FILTER_CHIPS_HEIGHT;
+        let width = filter_chips_width(1, height, 1.0);
+        let rect = Rect::from_min_size(Pos2::new(40.0, 40.0), Vec2::new(width, height));
+        let pad = height * (2.0 / CAPSULE_HEIGHT);
+        let inner_h = height * (13.0 / CAPSULE_HEIGHT);
+        let radius = inner_h * 0.36 * 0.8;
+        let pitch = radius * 2.0 + 6.0;
+        let track_left = rect.left() + pad + pitch + pad * 2.0;
+        let track = Rect::from_center_size(
+            Pos2::new(
+                track_left + (rect.width() - pad - pitch - pad * 3.0).max(radius) * 0.5,
+                rect.center().y,
+            ),
+            Vec2::new((rect.width() - pad - pitch - pad * 3.0).max(radius), radius),
+        );
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 200.0))),
+            events: vec![egui::Event::PointerMoved(track.center())],
+            ..Default::default()
+        };
+        let mut amount = None;
+        for _ in 0..2 {
+            let _ = ctx.run(input.clone(), |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        amount = filter_capsule(
+                            ui,
+                            rect,
+                            &radios,
+                            Some(0),
+                            None,
+                            1.0,
+                            Palette::dark(),
+                            FilterCapsuleStyle::ChipsOnly,
+                        )
+                        .amount;
+                    });
+            });
+        }
+        assert!(
+            amount.is_none(),
+            "chips-only capsule must not expose a track"
+        );
+        assert!((rect.height() - FILTER_CHIPS_HEIGHT).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn chips_only_filter_capsule_reports_chip_click() {
+        let ctx = egui::Context::default();
+        let radios = [
+            FilterRadio {
+                label: "Shaded",
+                fill: [108, 118, 132],
+                fill_b: None,
+                thumb: None,
+            },
+            FilterRadio {
+                label: "Arctic",
+                fill: [238, 238, 234],
+                fill_b: None,
+                thumb: None,
+            },
+        ];
+        let height = FILTER_CHIPS_HEIGHT;
+        let width = filter_chips_width(2, height, 1.0);
+        let rect = Rect::from_min_size(Pos2::new(40.0, 40.0), Vec2::new(width, height));
+        let pad = height * (2.0 / CAPSULE_HEIGHT);
+        let inner_h = height * (13.0 / CAPSULE_HEIGHT);
+        let radius = inner_h * 0.36 * 0.8;
+        let pitch = radius * 2.0 + 6.0;
+        let second = Pos2::new(
+            rect.left() + pad + pitch * 1.5,
+            rect.top() + pad + inner_h * 0.5,
+        );
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 200.0))),
+            events: vec![
+                egui::Event::PointerMoved(second),
+                egui::Event::PointerButton {
+                    pos: second,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: second,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        };
+        let mut clicked = None;
+        for _ in 0..3 {
+            let _ = ctx.run(input.clone(), |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        clicked = filter_capsule(
+                            ui,
+                            rect,
+                            &radios,
+                            Some(0),
+                            None,
+                            1.0,
+                            Palette::dark(),
+                            FilterCapsuleStyle::ChipsOnly,
+                        )
+                        .clicked;
+                    });
+            });
+        }
+        assert_eq!(clicked, Some(1));
     }
 
     #[test]

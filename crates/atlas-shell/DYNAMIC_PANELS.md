@@ -177,6 +177,12 @@ radius and stays vertically centered in the row.
 Hovering a radio previews that recipe at the current intensity;
 click or slider records a pending `ImageAdjust`. Intensity 0% is identity.
 
+A **chips-only** variant (`FILTER_CHIPS_HEIGHT`, `FilterCapsuleStyle::ChipsOnly`)
+reuses the same circle chips and selection ring but omits the intensity track;
+width follows the chip count via `filter_chips_width`. The 3D viewport-display
+stringer uses this variant: one chip per display pass, label tooltip on hover,
+low-resolution model renders when available else a representative glyph.
+
 Wire-only selection reuses the same slender capsule language for
 Bezier/Square, stroke weight, Solid/Dashed, and None/Arrows controls. Wire
 color/opacity reuses Stroke. Routing belongs in the selected-wire palette,

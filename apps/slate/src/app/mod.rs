@@ -406,6 +406,8 @@ pub struct SlateApp {
     /// 32px center crops used as photo-filter radio faces.
     filter_swatch_src: HashMap<String, egui::ColorImage>,
     filter_swatch_tex: HashMap<(String, u64), TextureHandle>,
+    /// Chip faces for the 3D viewport-display stringer (generation-tagged).
+    model_display_swatch_tex: HashMap<(NodeId, u64, slate_doc::scene::ModelDisplay), TextureHandle>,
     /// Export artifact with base64-inlined assets (single portable file).
     pub export_inline: bool,
     /// Coalescing anchor for continuous board edits (node, last edit time).
@@ -785,6 +787,7 @@ impl SlateApp {
             fx_textures: HashMap::new(),
             filter_swatch_src: HashMap::new(),
             filter_swatch_tex: HashMap::new(),
+            model_display_swatch_tex: HashMap::new(),
             export_inline: false,
             last_board_edit: None,
             alt_down: false,

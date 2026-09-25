@@ -35,7 +35,7 @@
 //! degrade to the embedded-preview thumbnail the thumb pool already
 //! extracts — same look as before this feature existed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
@@ -65,6 +65,14 @@ const MSAA_SAMPLES: i32 = 4;
 const MAX_RENDER_PX: u32 = 1920;
 /// Poster render resolution (long edge, physical px).
 const POSTER_LONG_EDGE: u32 = 1600;
+/// Low-res chip faces for the viewport-display stringer (photo-filter size).
+const DISPLAY_SWATCH_EDGE: u32 = 32;
+const DISPLAY_SWATCH_MODES: [ModelDisplay; 4] = [
+    ModelDisplay::Shaded,
+    ModelDisplay::Arctic,
+    ModelDisplay::Material,
+    ModelDisplay::Depth,
+];
 /// Vertical field of view, radians (≈ Rhino's default perspective lens).
 pub const FOV_Y: f32 = 0.6108652; // 35°
 /// Orbit sensitivity, radians per screen px.
@@ -669,6 +677,11 @@ pub struct ModelSpace {
     /// the PNG on the UI thread.
     enscape_grabs: HashMap<String, EnscapeGrab>,
     pub(crate) enscape_stamps: HashMap<String, u64>,
+    /// Generation-tagged chip renders for the display stringer (never paint).
+    display_swatch_gen: HashMap<NodeId, u64>,
+    display_swatch_stamp: HashMap<NodeId, u64>,
+    display_swatch_queue: VecDeque<(NodeId, u64, ModelDisplay)>,
+    display_swatch_pixels: HashMap<(NodeId, u64, ModelDisplay), egui::ColorImage>,
 }
 
 struct EnscapeGrab {
@@ -724,11 +737,47 @@ impl Default for ModelSpace {
             enscape: None,
             enscape_grabs: HashMap::new(),
             enscape_stamps: HashMap::new(),
+            display_swatch_gen: HashMap::new(),
+            display_swatch_stamp: HashMap::new(),
+            display_swatch_queue: VecDeque::new(),
+            display_swatch_pixels: HashMap::new(),
         }
     }
 }
 
 impl ModelSpace {
+    /// Queue one low-res render per display mode for the stringer. Returns the
+    /// generation tag textures must match.
+    fn queue_display_swatches(&mut self, id: NodeId, cam_hash: u64) -> u64 {
+        if self.display_swatch_stamp.get(&id) == Some(&cam_hash) {
+            return *self.display_swatch_gen.get(&id).unwrap_or(&0);
+        }
+        let gen = self.display_swatch_gen.entry(id).or_insert(0);
+        *gen += 1;
+        let tag = *gen;
+        self.display_swatch_stamp.insert(id, cam_hash);
+        self.display_swatch_queue.retain(|(node, _, _)| *node != id);
+        self.display_swatch_pixels
+            .retain(|(node, _, _), _| *node != id);
+        for mode in DISPLAY_SWATCH_MODES {
+            self.display_swatch_queue.push_back((id, tag, mode));
+        }
+        tag
+    }
+
+    fn display_swatch_generation(&self, id: NodeId) -> u64 {
+        self.display_swatch_gen.get(&id).copied().unwrap_or(0)
+    }
+
+    fn take_display_swatch_job(&mut self) -> Option<(NodeId, u64, ModelDisplay)> {
+        while let Some(job) = self.display_swatch_queue.pop_front() {
+            if self.display_swatch_gen.get(&job.0) == Some(&job.1) {
+                return Some(job);
+            }
+        }
+        None
+    }
+
     /// Kick off (or re-poll) the off-thread parse of a model file.
     fn request_model(&mut self, cache_key: &str, path: &Path) {
         if self.external.contains(cache_key) || self.models.contains_key(cache_key) {
@@ -1216,6 +1265,10 @@ impl SlateApp {
             }
         }
 
+        if self.gl.is_some() && self.tick_display_swatch() {
+            ctx.request_repaint();
+        }
+
         self.model3d.evict();
 
         if !self.model3d.live.is_empty() {
@@ -1447,6 +1500,102 @@ impl SlateApp {
     /// `board.model_display`: one journaled patch of the display pass, live
     /// or frozen. A live viewport shows it at once and does not re-commit
     /// it on lock.
+    /// Low-res chip faces for the viewport-display stringer. Queues offscreen
+    /// renders when the camera stamp changes; never runs in the paint path.
+    pub fn ensure_model_display_swatches(&mut self, id: NodeId) -> u64 {
+        let Some(info) = self.model_node_info(id) else {
+            return 0;
+        };
+        let mut cam = info.cam;
+        if cam.distance <= 0.0 {
+            if let Some((min, max)) = self.model3d.bounds.get(&info.cache_key).copied() {
+                cam = resolve_camera(&cam, min, max);
+            }
+        }
+        self.model3d.queue_display_swatches(id, cam.cache_hash())
+    }
+
+    fn tick_display_swatch(&mut self) -> bool {
+        let Some((id, gen, mode)) = self.model3d.take_display_swatch_job() else {
+            return false;
+        };
+        let Some(info) = self.model_node_info(id) else {
+            return false;
+        };
+        let Some(gl) = self.gl.clone() else {
+            return false;
+        };
+        self.model3d.request_model(&info.cache_key, &info.path);
+        match self.model3d.models.get(&info.cache_key).map(|e| &e.state) {
+            Some(ModelState::Ready(_)) => {}
+            Some(ModelState::Failed(_) | ModelState::External(_)) => return false,
+            _ => {
+                self.model3d
+                    .display_swatch_queue
+                    .push_front((id, gen, mode));
+                return false;
+            }
+        }
+        let mut cam = if info.cam.distance > 0.0 {
+            info.cam
+        } else {
+            let Some((min, max)) = self.model3d.bounds.get(&info.cache_key).copied() else {
+                self.model3d
+                    .display_swatch_queue
+                    .push_front((id, gen, mode));
+                return false;
+            };
+            resolve_camera(&info.cam, min, max)
+        };
+        cam.display = mode;
+        let edge = DISPLAY_SWATCH_EDGE;
+        let Some(img) = self
+            .model3d
+            .render_image(&gl, &info.cache_key, &cam, edge, edge)
+        else {
+            return false;
+        };
+        if self.model3d.display_swatch_gen.get(&id) != Some(&gen) {
+            return false;
+        }
+        let face = super::imagefx::square_swatch(&img, edge as usize);
+        self.model3d
+            .display_swatch_pixels
+            .insert((id, gen, mode), face);
+        true
+    }
+
+    pub fn model_display_swatch_ids(
+        &mut self,
+        ctx: &egui::Context,
+        id: NodeId,
+    ) -> [Option<egui::TextureId>; 4] {
+        let gen = self.model3d.display_swatch_generation(id);
+        let mut out = [None; 4];
+        for (i, mode) in DISPLAY_SWATCH_MODES.iter().enumerate() {
+            let key = (id, gen, *mode);
+            if !self.model3d.display_swatch_pixels.contains_key(&key) {
+                continue;
+            }
+            if !self.model_display_swatch_tex.contains_key(&key) {
+                let image = self.model3d.display_swatch_pixels[&key].clone();
+                let tex = ctx.load_texture(
+                    format!(
+                        "slate-model-display-{}-{}-{}",
+                        id.0,
+                        gen,
+                        display_key(*mode)
+                    ),
+                    image,
+                    egui::TextureOptions::NEAREST,
+                );
+                self.model_display_swatch_tex.insert(key, tex);
+            }
+            out[i] = Some(self.model_display_swatch_tex[&key].id());
+        }
+        out
+    }
+
     pub fn set_model_display(&mut self, id: NodeId, mode: ModelDisplay) -> bool {
         if !self.model_has_viewport(id)
             || self.doc().scene.node(id).is_none_or(|n| n.locked)

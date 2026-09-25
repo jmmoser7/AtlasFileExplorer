@@ -59,8 +59,27 @@ const MODEL_DISPLAYS: [(scene::ModelDisplay, &str); 4] = [
     (scene::ModelDisplay::Material, "Material mask"),
     (scene::ModelDisplay::Depth, "Z-buffer"),
 ];
-/// Segmented display capsule width, board units (four labels at 9 units).
-const MODEL_DISPLAY_WIDTH: f32 = 300.0;
+fn model_display_glyph(mode: scene::ModelDisplay) -> ([u8; 3], Option<[u8; 3]>) {
+    match mode {
+        scene::ModelDisplay::Shaded => ([108, 118, 132], None),
+        scene::ModelDisplay::Arctic => ([238, 238, 234], None),
+        scene::ModelDisplay::Material => ([196, 88, 72], Some([72, 132, 188])),
+        scene::ModelDisplay::Depth => ([32, 32, 32], Some([228, 228, 228])),
+    }
+}
+
+fn model_display_radios(thumbs: [Option<egui::TextureId>; 4]) -> [chrome::FilterRadio; 4] {
+    std::array::from_fn(|i| {
+        let (mode, label) = MODEL_DISPLAYS[i];
+        let (fill, fill_b) = model_display_glyph(mode);
+        chrome::FilterRadio {
+            label,
+            fill,
+            fill_b,
+            thumb: thumbs[i],
+        }
+    })
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Property {
@@ -1339,7 +1358,8 @@ impl SlateApp {
                         Panel::AtlasFormat => chrome::ATLAS_FORMAT_HEIGHT,
                         Panel::Text => chrome::TEXT_HEIGHT,
                         Panel::Agent => chrome::AGENT_HEIGHT,
-                        Panel::Bumper | Panel::ModelDisplay => chrome::CORNER_HEIGHT,
+                        Panel::Bumper => chrome::CORNER_HEIGHT,
+                        Panel::ModelDisplay => chrome::FILTER_CHIPS_HEIGHT,
                     };
                     if panel != Panel::Text {
                         self.shape_properties.text_family_open = false;
@@ -1500,27 +1520,34 @@ impl SlateApp {
                 .iter()
                 .position(|(mode, _)| *mode == display)
                 .unwrap_or(0);
+            self.ensure_model_display_swatches(id);
+            let thumbs = self.model_display_swatch_ids(ui.ctx(), id);
+            let radios = model_display_radios(thumbs);
+            let chip_w = chrome::filter_chips_width(radios.len(), chrome::FILTER_CHIPS_HEIGHT, z);
             let row = Rect::from_center_size(
                 rect.center(),
-                Vec2::new(MODEL_DISPLAY_WIDTH, chrome::CORNER_HEIGHT) * z,
+                Vec2::new(chip_w, chrome::FILTER_CHIPS_HEIGHT) * z,
             );
-            let picked = chrome::segments(
+            let edit = chrome::filter_capsule(
                 ui,
                 row,
-                ui.id().with("model-display"),
-                MODEL_DISPLAYS.map(|(_, label)| label),
-                current,
+                &radios,
+                Some(current),
+                None,
                 z,
                 theme,
+                chrome::FilterCapsuleStyle::ChipsOnly,
             );
-            if picked != current {
-                let (mode, _) = MODEL_DISPLAYS[picked];
-                let ctx = ui.ctx().clone();
-                self.dispatch(
-                    &ctx,
-                    CommandId("board.model_display"),
-                    Some(format!("{}:{}", id.0, super::model3d::display_key(mode))),
-                );
+            if let Some(picked) = edit.clicked {
+                if picked != current {
+                    let (mode, _) = MODEL_DISPLAYS[picked];
+                    let ctx = ui.ctx().clone();
+                    self.dispatch(
+                        &ctx,
+                        CommandId("board.model_display"),
+                        Some(format!("{}:{}", id.0, super::model3d::display_key(mode))),
+                    );
+                }
             }
             return false;
         }
