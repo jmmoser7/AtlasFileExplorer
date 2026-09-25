@@ -543,8 +543,10 @@ pub struct SlateApp {
     pub board_ortho: bool,
     /// Ctrl+U image-adjust popover visibility (anchored to the selection).
     pub(crate) adjust_popover_open: bool,
-    /// App-internal board clipboard (mirrored to the OS clipboard as JSON).
+    /// App-internal board clipboard (also on the OS clipboard in Slate's
+    /// own format, beside a bitmap or text for other apps).
     pub(crate) board_clipboard: Vec<slate_doc::scene::Node>,
+    pub(crate) os_clipboard: clipboard::OsClipboard,
     /// OS clipboard text delivered by this frame's platform Paste event;
     /// consumed by the `board.paste` dispatch arm.
     pub(crate) pending_paste_text: Option<String>,
@@ -885,6 +887,7 @@ impl SlateApp {
             board_clipboard: Vec::new(),
             pending_paste_text: None,
             board_paste_count: 0,
+            os_clipboard: Default::default(),
             #[cfg(windows)]
             paste_chord_down: false,
             scene_gen: 0,

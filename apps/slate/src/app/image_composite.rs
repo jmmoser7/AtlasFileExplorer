@@ -24,7 +24,7 @@ pub fn agent_wired_image_file(app: &SlateApp, node: &Node, img: &ImageNode) -> O
             }
         });
     }
-    let rgba = composite_rgba(app, node, img, &source)?;
+    let rgba = composite_rgba(app.doc(), node, img, &source, false)?;
     let dir = std::env::temp_dir().join("slate-composite");
     std::fs::create_dir_all(&dir).ok()?;
     let key = format!(
@@ -39,12 +39,14 @@ pub fn agent_wired_image_file(app: &SlateApp, node: &Node, img: &ImageNode) -> O
 }
 
 /// The picture as the board shows it before the node's own rotation:
-/// mirrored source, crop window, filters, then visible paint layers.
+/// mirrored source, crop window, filters, the color overlay when asked,
+/// then visible paint layers. Pure over `doc`, so it runs off the frame loop.
 pub fn composite_rgba(
-    app: &SlateApp,
+    doc: &slate_doc::SlateDoc,
     node: &Node,
     img: &ImageNode,
     source: &Path,
+    with_overlay: bool,
 ) -> Option<RgbaImage> {
     let mut base = image::open(source).ok()?;
     if img.flip_x {
@@ -72,17 +74,18 @@ pub fn composite_rgba(
     let filtered = super::imagefx::adjusted(&color_img, &img.adjust);
     for (i, px) in filtered.pixels.iter().enumerate() {
         let o = i * 4;
-        rgba.as_mut()[o] = px.r();
-        rgba.as_mut()[o + 1] = px.g();
-        rgba.as_mut()[o + 2] = px.b();
-        rgba.as_mut()[o + 3] = px.a();
+        rgba.as_mut()[o..o + 4].copy_from_slice(&px.to_srgba_unmultiplied());
+    }
+    if let Some(ov) = img.adjust.overlay.filter(|_| with_overlay) {
+        let tint: Vec<u8> = ov.0.repeat((cw * ch) as usize);
+        blend_rgba(&mut rgba, &tint, cw, ch);
     }
     if img
         .paint_layers
         .iter()
         .any(|l| l.visible && !l.nodes.is_empty())
     {
-        let svg = slate_artifact::paint_layers_svg_with_doc(node, img, cw, ch, app.doc());
+        let svg = slate_artifact::paint_layers_svg_with_doc(node, img, cw, ch, doc);
         if let Some(overlay) = slate_artifact::rasterize_paint_layers_svg(&svg, cw, ch) {
             blend_rgba(&mut rgba, &overlay, cw, ch);
         }
